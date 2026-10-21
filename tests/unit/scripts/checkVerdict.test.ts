@@ -746,9 +746,10 @@ if (args[0] === 'pr') {
     // #5354: 分片 2 -> 4(池是 16 个并行槽,两片各 ~195s 时 unit 排在关键路径第二)。这份清单是
     // check-verdict 判绿的依据,分片数改了不同步,PR 会一直等两个永远不会出现的检查。
     // #6270: 4 -> 2(worker 按余量分)。清单是判绿依据,分片数不同步会让 PR 一直等不存在的检查。
-    expect(names).toContain('Unit tests (1/2)')
-    expect(names).toContain('Unit tests (2/2)')
-    expect(names).not.toContain('Unit tests (3/4)')
+    // Community CI: 2 macOS shards -> 4 ubuntu shards (unit was the longest test job at ~7 min a shard).
+    expect(names).toContain('Unit tests (1/4)')
+    expect(names).toContain('Unit tests (4/4)')
+    expect(names).not.toContain('Unit tests (1/2)')
     expect(names).toContain('Web E2E (local)')
     // #5354: electron 目标从 renderer-build 拆出来后自带的新必过检查名。
     expect(names).toContain('Renderer build (web target)')
