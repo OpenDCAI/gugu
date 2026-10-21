@@ -377,8 +377,7 @@ export function declaresSessionTuiLeg(descriptor: {
  * 为什么八条一起建:它们不是八件事,是同一件事(咕咕的 harness 抽象只覆盖了接入、没覆盖共处)
  * 的八个切面。分期补,等于把「抽象不完备」分八次暴露 —— 那正是要解决的问题本身(#3889)。
  *
- * ⚠️ 声明的是**咕咕接没接通**,不是**厂商有没有**。厂商侧的事实是外部证据,归
- * gugu-base `notes/harness-capability-evidence/harness-capability-evidence.json`
+ * ⚠️ 声明的是**咕咕接没接通**,不是**厂商有没有**。厂商侧的事实是外部证据,不在本声明里
  * (来自 #3889 的 36 家官方调研)。对照这两者:
  * - 厂商有、咕咕 `none + unverified` = 待办(诚实)
  * - 厂商有、咕咕 `none + unsupported-channel` = **把「我们没接」说成「它做不到」**,违规

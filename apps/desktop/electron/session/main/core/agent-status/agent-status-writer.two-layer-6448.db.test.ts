@@ -6,7 +6,7 @@ import type { AgentEvent, NotificationType } from '@shared/core/agents/agentEven
 
 /**
  * #6448 —— 状态写入者的两层输出:库里的基础态 + 附属态(`agent_status_detail`),进程内 'agent:status' 带出的功能布尔
- * (`running` / `background`)。序列照 claude 2.1.278 真 PTY 实测(gugu-base evidence/2026-09-25-agent-status-two-layer/tui-hook-tap)。
+ * (`running` / `background`)。序列照 claude 2.1.278 真 PTY 实测(2026-09-25,TUI hook 录制)。
  */
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, emit: vi.fn() }));
 

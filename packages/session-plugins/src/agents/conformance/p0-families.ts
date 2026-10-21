@@ -71,7 +71,7 @@ export const P0_SIZE = 8;
  * Cursor is explicitly withheld by #4833 until its adapter acceptance is complete. Its current
  * degraded capability units already keep it out; this list prevents a future capability upgrade from
  * silently changing the user-facing offer. Hermes left this list after its adapter acceptance
- * (gugu-base evidence/2026-09-28-hermes-adapter).
+ * (2026-09-28).
  *
  * Kimi withheld 2026-09-04 (owner: 「kimi 目前看来尚不可用,kimi 代码不删,只是功能属于内测,
  * 用户体验不到」). It stays in `P0_FAMILIES`, stays registered, and #4948/#4951 stay merged;

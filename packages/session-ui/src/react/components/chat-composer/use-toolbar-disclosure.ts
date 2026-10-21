@@ -69,7 +69,7 @@ const SEGMENTED_COLLAPSE_LEVEL = 3
  *   ① 子组越出底排的边;
  *   ② 相邻子组互相压(左组的内容压到右组身上,正是 #5141 的形状);
  *   ③ 子组自己的孩子越出该子组的边(左组被压窄、控件溢出去)。
- * 同族法则见 `gugu-base/ops/measurement-laws.md`:`scrollWidth > clientWidth` 查不出
+ * 同族法则:`scrollWidth > clientWidth` 查不出
  * `overflow: visible` 的溢出,要用 `getBoundingClientRect` 边缘比对(两条边、自身+邻居)。
  */
 const EDGE_EPSILON = 1

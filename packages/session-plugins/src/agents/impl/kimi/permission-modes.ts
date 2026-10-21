@@ -32,7 +32,7 @@ import type { ProviderPermissionModeMap } from '@gugu/session-core/acp/models/pe
  * full-access 取 `yolo`:kimi 自己最松的一档。⚠️ 它不是「什么都不问」—— 0.40.1 实测(假上游回一次 Bash,
  * 探针拒绝所有批准请求):`touch` 0 次询问照跑;`touch && rm -rf` **问 1 次**。这是 kimi 自己的行为,咕咕不替它放宽。
  * ❌ 别换成 `auto`:同一探针下 `auto` 对 `rm -rf` 0 次询问、直接拦(「blocked in auto permission mode because it is
- * considered dangerous」),比 yolo 更窄。读数见 gugu-base evidence/2026-10-17-pty-permission-mode/kimi-acp/。
+ * considered dangerous」),比 yolo 更窄。读数是 2026-10-17 的 kimi ACP 实测。
  */
 export const KIMI_PERMISSION_MODES = {
   plan: { id: 'plan' },

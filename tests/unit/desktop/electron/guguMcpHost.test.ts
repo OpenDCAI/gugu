@@ -451,7 +451,7 @@ describe('GuguMcpHost', () => {
 
   // 摩擦单 F45:Node 默认在回答之后给连接挂 5 s(+1 s 余量)的闲置计时器、到点由 host 关;Codex 的连接池闲 90 s,隔 6 s 左右的
   // 调用就写进 host 刚关的连接。host 建在 agentEndpointServer 上:回答之后这头的连接上没有闲置计时器,由复用它的客户端关。
-  // 真竞态(reqwest 客户端 × 0.5 ms 扫过关闭那一刻)的读数在 gugu-base evidence/2026-09-30-l4-f45-keepalive。
+  // 真竞态(reqwest 客户端 × 0.5 ms 扫过关闭那一刻)是 2026-09-30 实测的。
   it('F45: after an answer the host arms no idle timer on the connection — the pool that reuses it closes it', async () => {
     const { host } = await startHost()
     const grant = await host.grant('alpha', context('alpha', 'A'))

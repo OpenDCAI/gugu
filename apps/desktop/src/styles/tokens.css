@@ -224,7 +224,7 @@
 /* #7585 删除窗口内容边界后,Windows 列表文字从灰阶变成 LCD 彩边。Chromium 152.0.7977.54 的
    cc/layers/picture_layer_impl.cc:751 按 contents_opaque_for_text 判 LCD;Blink 的
    third_party/blink/renderer/platform/graphics/compositing/content_layer_client_impl.cc:205 从绘制区域推导这个标志。
-   gugu-base f0b55b15f evidence/2026-10-20-win-mac-align/ 的同实例矩阵证明:边线或圆角单独都不够,
+   2026-10-20 的同实例矩阵实测证明:边线或圆角单独都不够,
    透明 1px 边线 + 共享 12px 圆角能恢复灰阶,撤销又回彩边;底色与 OverlayScrollbar 均已排除。
    这是独立标题行与不透明内容的窗口接壤边界,不属于列表组件。mac 与 Linux 都没有这条独立行,
    沿用原来的几何;阅读面仍是 desktop-shell.css 的唯一可见轮廓。 */

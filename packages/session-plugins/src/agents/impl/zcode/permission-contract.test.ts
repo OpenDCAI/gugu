@@ -15,9 +15,8 @@ import { pluginRegistry } from '../../registry';
  * 再 `set_config_option(mode)` 显式下发;那两条路本身由 session-manager 的通用用例守。这里守的是
  * zcode 这一家的**表**:不加旗标 ≠ 任何一档,桥默认报 `yolo`,挑错档就是越权。
  *
- * 期望表**独立手抄**,出处是行为实测(2026-10-17,ThinkPad,`@gugu-acp/zcode-acp` 1.0.0 + ZCode 3.15.3 /
- * CLI 0.16.9,glm-4.6;每档新起会话,同一句「写一个文件,再跑一条 Bash」,客户端一律答 reject_once;
- * 装置 gugu-base `notes/2026-10-16-zcode-harness/app-server-probe/acp-modes.mjs`):
+ * 期望表**独立手抄**,出处是行为实测(2026-10-17,`@gugu-acp/zcode-acp` 1.0.0 + ZCode 3.15.3 /
+ * CLI 0.16.9,glm-4.6;每档新起会话,同一句「写一个文件,再跑一条 Bash」,客户端一律答 reject_once):
  *   plan  → 只申请退出计划模式,文件没写、命令没跑
  *   build → Write 与 Bash 都先问(改东西前先问 = 只读,与 claude 的 default 同义)
  *   edit  → Write 直接执行,Bash 先问

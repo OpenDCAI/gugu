@@ -1,4 +1,4 @@
-// 群文件夹 App 给 agent 的文件夹工具(群文件夹工具搬进 App,gugu-base notes/2026-10-11-workspace-tools-to-app §2):
+// 群文件夹 App 给 agent 的文件夹工具(群文件夹工具搬进 App,2026-10-11):
 // list / read / create / edit / delete,经 catalog 叫 workspace__<tool>。每个工具只用 gugu.files 和 Node 自带的模块;
 // 交来的群、交来的文件在网关按调用的 agent 本人核过,所以每个 chat_id / item_id 都必须标 format、标在顶层(方案 R5,
 // PR-1 评审第 3 条)。程序的 gugu 换成假的,跑的是真的 tools.js / folder.mjs。父提交上没有 folder.mjs,这些格全红。

@@ -2,7 +2,7 @@ import { displayIdentityFromRow } from './displayIdentity'
 
 const DB_NAME = 'gugu.localSync.v1'
 // v4(#7290):消息行多了指向字节的列(file_item_id / file_version / file_blob_id)。老客户端存下的行没有这几列,
-// 新客户端照它们画会把新式附件当成「文件已删除」(安卓从旧包升上来实测,gugu-base evidence/2026-10-17-attachments-read-both-gugu2/)。
+// 新客户端照它们画会把新式附件当成「文件已删除」(安卓从旧包升上来实测,2026-10-17)。
 // ⇒ 升级时丢掉缓存的消息窗口和从它们推出来的东西:`view`(消息窗口视图、账号修订记录)与 `sync_state`(修订游标 ——
 //   游标留着,会话列表就当本机已是最新、只拿空的消息仓推可见会话,列表变空,安卓实测)。游标归零 = 冷启动那条路:
 //   重新拿一次快照,打开会话时按新的选列取消息。会话、身份、成员、在线、发件箱照留。

@@ -17,9 +17,9 @@ import { notifyPtyOutput } from '../session-output-observers';
 
 /**
  * 每个终端视图在渲染进程里留多少行回滚。视图活到会话删除 / 归档为止(切走不释放),所以这是**每个开过的终端**都要付的价。
- * 从前是 100,000 行。mac1 A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
+ * 从前是 100,000 行。macOS A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
  * 工作区面板「最大化 / 还原」三次 —— 每次改宽度 xterm 都把整份回滚重排一遍 —— 主线程长任务 21–24 个、最长 134–140ms
- * → 5–8 个、最长 64–65ms(读数见 gugu-base evidence/2026-10-05-terminal-scrollback)。
+ * → 5–8 个、最长 64–65ms(2026-10-05 实测)。
  * 10,000 行是 Alacritty 的默认、Windows Terminal 是 9,001;视图重建时主进程交的屏幕快照只带 1,000 行回滚
  * (pty-screen.ts 的 SCREEN_SCROLLBACK_LINES),本来就补不回更早的行。
  */
@@ -521,8 +521,8 @@ export class FrontendPty {
   /**
    * @@@webgl-while-mounted — 挂在界面上、最近露过面的终端用 WebGL 画(个数见 @@@webgl-hot-terminals),其余的回到 DOM 渲染器。
    * DOM 渲染器每帧把每条脏行的 span 拆了重建,流式输出时样式重算、布局、绘制占满 renderer 主线程;
-   * WebGL 是一次 GPU 提交(mac1 同一终端 codex 流式 80 秒:renderer CPU 18.9 → 9.8 秒,按键上屏快 11ms,
-   * gugu-base evidence/2026-10-19-otty-codex-tui)。只给挂着的终端:每个 GL 上下文都占显存,Chromium 一页
+   * WebGL 是一次 GPU 提交(macOS 同一终端 codex 流式 80 秒:renderer CPU 18.9 → 9.8 秒,按键上屏快 11ms,
+   * 2026-10-19 实测)。只给挂着的终端:每个 GL 上下文都占显存,Chromium 一页
    * 只给十几个,开过的会话终端会一直活到删除,全开 WebGL 必然撞上限。
    * 上下文丢了(GPU 进程重启、显存被回收)xterm 会先等 3 秒看能否恢复,恢复不了才报 onContextLoss:
    * 这一次挂载退回 DOM 渲染器,下次挂载再开。换了窗(一块会话单独成窗,#7052)画布要建在新窗里,重开一个。

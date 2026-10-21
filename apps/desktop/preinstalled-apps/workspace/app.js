@@ -3,7 +3,7 @@
 // markdown source editor with a preview, and JSON files as editable text. Several people and agents edit the same
 // file at once.
 //
-// Built only on the public App API (gugu-base workspace-app README §2.4, L3-runtime-interface.md):
+// Built only on the public App API (the App platform's L3 runtime interface):
 // gugu.getContext / onContextChanged, gugu.files.*, gugu.bind.codemirror, gugu.codemirror(), gugu.markdown(),
 // presence, showMessage, openBrowserTab, clipboard and compose. It is the acceptance test of that API: anything it could not do
 // through it is reported, not worked around.

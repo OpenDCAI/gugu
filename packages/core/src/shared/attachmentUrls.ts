@@ -1,4 +1,4 @@
-// 附件字节的链接只有这一个入口(附件进群文件夹 ③,gugu-base notes/2026-10-15-attachments-into-folder/gugu-2-计划.md):
+// 附件字节的链接只有这一个入口(附件进群文件夹 ③):
 // 老消息直接用正文里的公开 URL;新消息指向群文件夹条目的某一版,链接由 Edge Function attachments/urls 现签
 // (gugu-supabase supabase/functions/_shared/attachments-core.ts handleUrls)。渲染层和 Node(主进程、agent)共用,
 // 各自只给「怎么调 /urls」。

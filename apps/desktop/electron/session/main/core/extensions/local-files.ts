@@ -25,8 +25,8 @@ import type { FileChangeUpdate } from '@gugu/session-core/files';
 import { resolvesInside } from './path-containment';
 
 /**
- * `gugu.files` on a task's working copy: a file service in main, over the disk (gugu-base
- * notes/2026-09-29-app-platform/workspace-app/L2-task-files-local-service.md, approved 09-30). A page cannot tell it
+ * `gugu.files` on a task's working copy: a file service in main, over the disk (App platform design L2, task files
+ * local service, approved 09-30). A page cannot tell it
  * from the group's — the same `gugu.files.open`, the same handle, the same merge rules: both run `@gugu/files-core`,
  * and this file only says where a file loads from, where it is written, and who may open it.
  *

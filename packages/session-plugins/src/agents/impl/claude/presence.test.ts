@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { claudePresenceFile } from './presence';
 
-// 2.1.301 实写的一份(gugu-base notes/2026-10-16-osc-7501/rendezvous-presence/,只换掉了路径)。
+// 2.1.301 实写的一份(2026-10-16 #7501 录制,只换掉了路径)。
 const recorded = {
   pid: 48417,
   sessionId: '50c3a8de-73be-49ba-a937-886d24d6aa70',

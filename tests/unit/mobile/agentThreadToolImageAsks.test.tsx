@@ -5,7 +5,7 @@
 // 图格要是读那一份,就会对着早已取到的图再问(mac1 10-16:往上翻 64 张问了 74 次;这里 12 张问到 17 次)。
 // 答复按几种节奏回来,多问的也照答。等的是事实(`until`);末尾是任务边界(setImmediate),❌ 墙钟当判据 ——
 // 16 ms 那一种是答复的节奏,不是在等什么。
-// 改编自复核的探针(gugu-base notes/reviews/2026-10-15-app-check-lazy-images-d03391f2-kit/rv2-tool-image-lag.test.tsx)。
+// 改编自 2026-10-15 复核的探针。
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'

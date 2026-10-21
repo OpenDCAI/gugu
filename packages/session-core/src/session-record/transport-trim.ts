@@ -36,8 +36,8 @@ const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content', 'oldTe
  * 展开了,再按 (会话, 条目, 第几张) 去机器上取(`sessionTimeline.sessionToolImage`)。
  *
  * 为什么(owner 10-15「手机上看的话每张图传过去岂不是很 costly」,155 定):随记录下发时,app_check 的四张约
- * 120K 字跟着冷开那一份一起下来,可轮次默认是折叠的,人还没看见(mac1 实抓,gugu-base evidence
- * 2026-10-15-app-check-tool-images-ab/phone-traffic)。图不算裁掉的字 —— 它没丢,取得到,❌ 记进 `trimmedChars`。
+ * 120K 字跟着冷开那一份一起下来,可轮次默认是折叠的,人还没看见(2026-10-15 实抓手机流量)。
+ * 图不算裁掉的字 —— 它没丢,取得到,❌ 记进 `trimmedChars`。
  */
 function imageRefsOf(images: readonly ToolImage[]): ToolImageRef[] {
   return images.map((image) => ({ mimeType: image.mimeType, chars: image.data.length }));

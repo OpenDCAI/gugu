@@ -6,7 +6,7 @@ import { AXTree, ariaSnapshot, locate, runSteps, type AXNode, type StepHost } fr
  * `app_check { steps }` (owner 10-12): a control is found by its role and accessible name in the page's accessibility
  * tree, strictly (one or the step fails, naming candidates with the `within` that would name each), and the steps run
  * in order, each saying what it did and what the page said and would have done meanwhile. The trees here are shaped like
- * the ones read from four real Apps on mac1 (gugu-base evidence/2026-10-12-app-check-steps/m1): 片场's unnamed card
+ * the ones read from four real Apps on macOS (2026-10-12): 片场's unnamed card
  * articles with a bold title, 全能搜索's named regions.
  */
 

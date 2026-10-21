@@ -7,7 +7,7 @@ import { agentEndpointServer } from '../../../../apps/desktop/electron/session/m
  * 摩擦单 F45(L6 S7/S9):Codex 调咕咕 MCP 偶发「Transport send error … error sending request」,两次都在上一次调用之后
  * 5–6 s。Node 的 HTTP 服务在一次回答之后给连接挂一个 5 s(+1 s 余量)的闲置计时器,到点由宿主关;Codex 的连接池闲到
  * 90 s 才弃,下一次调用正好写进宿主刚关的连接。agent 反复来调的端点由客户端关闲连接:回答之后,宿主这头的连接上
- * 没有闲置计时器。真竞态(Rust reqwest 客户端 × 0.5 ms 扫过关闭那一刻)的读数在 gugu-base evidence/2026-09-30-l4-f45-keepalive。
+ * 没有闲置计时器。真竞态(Rust reqwest 客户端 × 0.5 ms 扫过关闭那一刻)是 2026-09-30 实测的。
  */
 function answering() {
   let finished: Promise<void> = Promise.resolve()

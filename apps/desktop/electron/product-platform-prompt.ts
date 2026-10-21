@@ -26,7 +26,7 @@
 //
 // 守卫在 tests/unit/desktop/electron/productPlatformPromptBudget.test.ts，改文案会被它挡。
 //
-// 目录那一句照的是决策原件（gugu-base notes/2026-09-27-extension-mcp-matrix.md）：D-04 咕咕自己的冷门工具进目录，
+// 目录那一句照的是决策原件（2026-09-27 扩展 MCP 矩阵）：D-04 咕咕自己的冷门工具进目录，
 // D-02 / D-10 装在这台电脑上的 App 的工具默认也在目录里（逐个 App 可改成完全披露）。#6634 只写了前一半，agent 就以为
 // 目录是「群、会话管理这类杂项」，不进去找搜索工具（125 10-06 dogfood）。两半都写，改它先对原件。
 
@@ -36,7 +36,7 @@ import { NO_REPLY_MARKER } from '@gugu/core/local/agent/silenceMarker'
 
 export const GUGU_PLATFORM_PROMPT_TOKEN_BUDGET = 2500
 
-// 集体记忆对账（L11 复核 61，gugu-base evidence/2026-10-06-collective-memory-audit/product-text.md）改过的四句，各自的依据：
+// 集体记忆对账（L11 复核 61，2026-10-06）改过的四句，各自的依据：
 // - 群规那句说「当前上下文」：送没送过按 agent × chat 记、换了一段 provider 上下文就重送（groupRulesDelivery.ts 的 contextKey）。
 //   ❌ 拿 conversation 指会话 —— owner 10-01：conversation 专指群和私聊，agent 由 session 驱动（owner-session-vs-conversation）。
 // - 「只记得这个会话里的」：会话 agent 一个会话收所有群和私聊，「记忆不跨 conversation」对它是假的；本块是 L1，必须对每种会话都真。
@@ -136,7 +136,7 @@ export { buildSessionpageProjectContextBlock } from '../src/session/shared/promp
  * 用估算而不是真 tokenizer，是因为这块内容是编译期常量，且六个 harness 背后的 tokenizer 各不相同。
  * ⚠️ 它只能比大小，不是真实 token 数，也不是「估高」：同一块平台块（2026-10-07 实测）估算 2,4xx，
  * o200k（Codex 那一类）2,209，Claude（网关 usage 反推）≈3,500 —— 对 o200k 偏高约 10%，对 Claude 偏低约 45%。
- * 所以本块的预算按这个估算记，换算到 Claude 要乘 ≈1.45（gugu-base evidence/2026-10-07-context-engineering）。
+ * 所以本块的预算按这个估算记，换算到 Claude 要乘 ≈1.45。
  */
 export function estimatePromptTokens(text: string): number {
   let cjk = 0

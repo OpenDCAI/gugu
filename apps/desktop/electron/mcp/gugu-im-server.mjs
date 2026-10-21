@@ -486,7 +486,7 @@ async function restGetInBatches(ids, readBatch) {
 
 // 参数说明会随每个工具重复一遍,只写这一格独有的事;「目标从不推断」这类通用规则在平台提示词里讲一次。
 // chat_id 从哪来(投递信封的 chat=,或 public_id)只在 message_send 的 chat_id 上讲一次:每个列出的工具都重复同一句时,
-// 开场为它付 ≈200 token(上下文工程第一批 P5,gugu-base evidence/2026-10-07-context-engineering)。
+// 开场为它付 ≈200 token(上下文工程第一批 P5,2026-10-07 实测)。
 const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address for your private chat with them.'
 const chatIdSchema = z.string().trim().min(1)
 
@@ -2458,7 +2458,7 @@ export function createGuguImServer(getContext, deps = {}) {
 /**
  * 一个已注册工具对模型的样子。TOOL_DEFS 项用真 schema 覆盖(permissive 注册的写类工具否则会广告成无字段的 object),写类广告严格的那份。
  * `$schema` 不广告:每个工具都带同一句 draft-07 URL,MCP 不要求它、模型用不上;Claude 开场 31 个工具为它付 ≈0.7k token,
- * codex 本来就自己去掉(上下文工程第一批,gugu-base evidence/2026-10-07-context-engineering)。
+ * codex 本来就自己去掉(上下文工程第一批,2026-10-07 实测)。
  */
 export function advertisedTool(name, tool) {
   const def = TOOL_DEFS.find((candidate) => candidate.name === name)

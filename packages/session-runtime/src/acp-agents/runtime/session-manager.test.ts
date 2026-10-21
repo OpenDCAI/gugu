@@ -3145,8 +3145,8 @@ describe('AcpRuntime session manager', () => {
 /**
  * #6196 —— 续接已有 provider 会话时,会话记录里的**平台模型**也要断言一次。
  *
- * pi / copilot 恢复会话时回到会话记忆里的模型,spawn 按新模型物化的注入不算数(mac1 裸 ACP 实测,
- * gugu-base `evidence/2026-09-22-6182-model-switch/probe/`)。这组用例钉的是**规则**,不是哪一家:
+ * pi / copilot 恢复会话时回到会话记忆里的模型,spawn 按新模型物化的注入不算数(macOS 裸 ACP 实测,
+ * 2026-09-22)。这组用例钉的是**规则**,不是哪一家:
  * 下发值取活会话自报的寻址形式;自报当前值已是它就不发;新会话与声明 `reload-session` 的维度交给 spawn。
  */
 describe('recorded platform model on a resumed provider session (#6196)', () => {

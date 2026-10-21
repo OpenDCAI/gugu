@@ -28,7 +28,7 @@ const FAMILY_SET: ReadonlySet<string> = new Set(ENTITY_FAMILIES)
  * 需要的背景一句话:带**真实用户 session** 的 `in()` 在 URL 约 3.34–3.53 KiB 之间越界,失败是网络层
  * `net::ERR_FAILED`(JS 侧 = `TypeError: Failed to fetch`)—— 不是 HTTP 状态码,请求根本没发出去,
  * 所以只能在**规划期**就不越界。完整实测表、仪器与阳控读数在那个常量的注释里,
- * 读数在 gugu-base `evidence/2026-09-11-5394-cause-transport-budget/`,合同在 spec 的「键空间」一节。
+ * 合同在 spec 的「键空间」一节。
  *
  * 键**不进** URL 的族(`unread` 一发拿回全部、`override` 按 owner 一发取全、`presence` 走 POST body)
  * 请求大小与键数无关 ⇒ 上界 ∞,分批只会把同一发打两遍。

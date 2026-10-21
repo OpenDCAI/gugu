@@ -92,7 +92,7 @@ export const geminiSessionBundleDescriptor = {
       injection: {
         timing: 'next-tool-call',
         evidence:
-          'shuxueshuxue/gugu-base@95501c067bbc626f56972aa98362e433a1f6a3a1 evidence/2026-09-01-nextcall-batch2-gemini（gemini ACP busy 3/3 next-tool-call + idle 1/1；gemini generateContent 假端点）',
+          'google-gemini/gemini-cli@6b0ae9a6c37a（v0.57.0）实测 2026-09-01：gemini ACP busy 3/3 next-tool-call + idle 1/1；gemini generateContent 假端点',
         // 忙时 turn-1 主 RPC 报 stopReason=cancelled（假 cancelled），由 cell 移交守卫覆盖 —— 与 qwen 同款、机器可见，不藏注释。
         deviations:
           '忙时 turn-1 主 RPC 报 stopReason=cancelled（假 cancelled），由 cell 移交守卫覆盖 —— 工具往返照常完成、暗号照常在 tool 边界进模型、turn 不落 cancelled 终态，对用户透明',

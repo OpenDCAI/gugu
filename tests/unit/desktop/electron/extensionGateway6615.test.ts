@@ -481,7 +481,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     expect(calls).toHaveLength(0)
   })
 
-  // 片场试演 10-12(gugu-base bda1d678b evidence/2026-10-12-studio-0.7.0-trial 第 6 条):a writer handed the table as the
+  // 片场 0.7.0 试演 10-12(第 6 条):a writer handed the table as the
   // gugu-file:// link the round's message carries — the link gugu.send itself writes — and it was refused as no file.
   describe('a gugu-file argument given as its gugu-file:// link', () => {
     const OTHER = '0c000000-0000-4000-8000-0000000000ff'
@@ -512,7 +512,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
       expect(calls).toHaveLength(0)
     })
 
-    // PR-2 评审 r3(gugu-base 55e4555b6c):the array path had no cell of its own — items left as written (变异 N2) went green.
+    // PR-2 评审 r3:the array path had no cell of its own — items left as written (变异 N2) went green.
     it('arrays: every item is handed and checked, and reaches the program as the id it was checked as — files and chats alike', async () => {
       const ITEM2 = '0c000000-0000-4000-8000-000000000017'
       toolList = [{

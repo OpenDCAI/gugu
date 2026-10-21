@@ -35,7 +35,8 @@ const sessionBundle = {
       messageTransport: 'router',
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@39b451b5aad52ca8e7ca159996d718cae93316f8 evidence/2026-08-30-cursor-droid-grok-injection(droid ACP busy 3/3 next-tool-call;另见 #4490 eval)',
+        evidence: 'https://docs.factory.ai/ide-integrations (droid ACP 腿:droid exec --output-format acp) '
+          + '实测 2026-08-30:droid ACP busy 3/3 next-tool-call;另见 #4490 eval',
       },
     },
     'tui': {
@@ -120,7 +121,7 @@ export const plugin = definePlugin(
     autoApprove: {
       kind: 'supported',
       // ACP 档位表(session/new 自报 normal/spec/auto-low/auto-medium/auto-high)只声明有据的
-      // 一档:auto-high = 完全访问(#4482/gugu-base@39b451b 的 droid 探针以 --auto high 全自动
+      // 一档:auto-high = 完全访问(#4482 的 droid 探针以 --auto high 全自动
       // 执行工具,TUI 侧同名档语义一致,见下方 buildCommand 注释)。其余档位在两轴上怎么落
       // (normal/spec/auto-low/auto-medium)没有读数,❌ 不猜 —— 缺席时分类器按启发式,
       // 不影响 full-access 的精确匹配。

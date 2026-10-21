@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@codemirror/view@6.43.13':
-    hash: c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5
+    hash: dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3
     path: patches/@codemirror__view@6.43.13.patch
   '@steipete/sweet-cookie@0.4.4':
     hash: 2fb494aabf74c6ce3a077816dfab09e09b7ed76dd2bd2fbcd43302d24cac91a1
@@ -142,7 +142,7 @@ importers:
         version: 6.7.6
       '@codemirror/view':
         specifier: 6.43.13
-        version: 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+        version: 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -643,7 +643,7 @@ importers:
         version: 2.2.0(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10)
       y-codemirror.next:
         specifier: 0.3.6
-        version: 0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5))(yjs@13.6.33)
+        version: 0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3))(yjs@13.6.33)
       y-protocols:
         specifier: 1.0.7
         version: 1.0.7(yjs@13.6.33)
@@ -12886,14 +12886,14 @@ snapshots:
     dependencies:
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
 
   '@codemirror/commands@6.10.3':
     dependencies:
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
 
   '@codemirror/lang-css@6.3.1':
@@ -12911,7 +12911,7 @@ snapshots:
       '@codemirror/lang-javascript': 6.2.5
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
       '@lezer/css': 1.3.3
       '@lezer/html': 1.3.13
@@ -12922,7 +12922,7 @@ snapshots:
       '@codemirror/language': 6.12.3
       '@codemirror/lint': 6.9.7
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
       '@lezer/javascript': 1.5.4
 
@@ -12937,14 +12937,14 @@ snapshots:
       '@codemirror/lang-html': 6.4.11
       '@codemirror/language': 6.12.3
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.6.4
 
   '@codemirror/language@6.12.3':
     dependencies:
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.10
@@ -12953,20 +12953,20 @@ snapshots:
   '@codemirror/lint@6.9.7':
     dependencies:
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       crelt: 1.0.6
 
   '@codemirror/search@6.7.0':
     dependencies:
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       crelt: 1.0.6
 
   '@codemirror/state@6.7.6':
     dependencies:
       '@marijn/find-cluster-break': 1.0.2
 
-  '@codemirror/view@6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)':
+  '@codemirror/view@6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)':
     dependencies:
       '@codemirror/state': 6.7.6
       crelt: 1.0.6
@@ -18419,7 +18419,7 @@ snapshots:
       '@codemirror/lint': 6.9.7
       '@codemirror/search': 6.7.0
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
 
   collect-v8-coverage@1.0.3: {}
 
@@ -24466,10 +24466,10 @@ snapshots:
 
   xtend@4.0.2: {}
 
-  y-codemirror.next@0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5))(yjs@13.6.33):
+  y-codemirror.next@0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3))(yjs@13.6.33):
     dependencies:
       '@codemirror/state': 6.7.6
-      '@codemirror/view': 6.43.13(patch_hash=c0a2bd26573a609785be1e95934336cc918c739d30ccbc3bcf083eadaf27e2f5)
+      '@codemirror/view': 6.43.13(patch_hash=dd3bfd9ff09b760f91afc5dcbaf687a698969fce559e284e8c4eddd68df6d2e3)
       lib0: 0.2.117
       yjs: 13.6.33
 
