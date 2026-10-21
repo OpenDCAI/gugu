@@ -40,48 +40,51 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "$EVENT_NAME" != pull_request ]; then
-            printf 'build=true\ndesktop-mac=true\nandroid=true\n' >> "$GITHUB_OUTPUT"
-            exit 0
+          build=true
+          desktop_mac=true
+          android=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            build=false
+            desktop_mac=false
+            android=false
+            changed=$(git diff --name-only HEAD^1 HEAD)
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              # Markdown and docs/ feed no build or package.
+              case "$file" in
+                *.md|docs/*) continue ;;
+              esac
+              build=true
+              # Toolchain, dependencies and CI itself can break any platform build.
+              case "$file" in
+                .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
+                  desktop_mac=true
+                  android=true
+                  ;;
+              esac
+              # The macOS build differs from the Linux one (which runs on every PR) only in the
+              # vendoring, native-rebuild and build scripts and their inputs.
+              case "$file" in
+                scripts/*|vite.config.mts|electron-builder.cjs|build-resources/*|apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
+                  desktop_mac=true
+                  ;;
+              esac
+              # The web bundle the Android shell wraps is built by renderer-build on every PR.
+              case "$file" in
+                apps/mobile/*|capacitor.config.ts|scripts/android-gradle-build.sh|scripts/phone-web-dir.mjs)
+                  android=true
+                  ;;
+              esac
+            done <<< "$changed"
           fi
-          changed=$(git diff --name-only HEAD^1 HEAD)
-          build=false
-          desktop_mac=false
-          android=false
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            # Markdown and docs/ feed no build or package.
-            case "$file" in
-              *.md|docs/*) continue ;;
-            esac
-            build=true
-            # Toolchain, dependencies and CI itself can break any platform build.
-            case "$file" in
-              .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
-                desktop_mac=true
-                android=true
-                ;;
-            esac
-            # The macOS build differs from the Linux one (which runs on every PR) only in the
-            # vendoring, native-rebuild and build scripts and their inputs.
-            case "$file" in
-              scripts/*|vite.config.mts|electron-builder.cjs|build-resources/*|apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
-                desktop_mac=true
-                ;;
-            esac
-            # The web bundle the Android shell wraps is built by renderer-build on every PR.
-            case "$file" in
-              apps/mobile/*|capacitor.config.ts|scripts/android-gradle-build.sh|scripts/phone-web-dir.mjs)
-                android=true
-                ;;
-            esac
-          done <<< "$changed"
           {
             echo "build=$build"
             echo "desktop-mac=$desktop_mac"
             echo "android=$android"
           } >> "$GITHUB_OUTPUT"
-          echo "build=$build desktop-mac=$desktop_mac android=$android"
+          # scripts/check-verdict.mjs reads this annotation (JOB_OUTPUTS_MARKER) to tell a build
+          # skipped by design from an unexpected skip; keep it in step with the outputs above.
+          echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac android=$android"
   policy:
     name: Source checks
     runs-on: ubuntu-24.04
