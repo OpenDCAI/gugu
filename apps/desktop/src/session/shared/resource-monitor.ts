@@ -70,6 +70,6 @@ export interface ResourceSnapshot {
   app: ResourceAppUsage;
   appProcesses: ResourceAppProcess[];
   entries: ResourcePtyEntry[];
-  /** Only while `resourceMonitor.internals` is on: what each renderer reports about itself. */
+  /** Only while an open monitor page has advanced diagnostics expanded. */
   internals?: { renderers: RendererMetrics[] };
 }

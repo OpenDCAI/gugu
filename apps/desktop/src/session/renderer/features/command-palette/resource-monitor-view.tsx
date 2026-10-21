@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, Check, Copy, Folder, Terminal, X } from '@/lib/icons'
+import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
 import { GitBranch } from 'lucide-react'
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -8,6 +8,7 @@ import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { formatBytes } from '@renderer/utils/formatBytes';
 import { cn } from '@renderer/utils/utils';
@@ -25,20 +26,26 @@ import {
   type SessionBucket,
 } from './resource-monitor-utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { ResourceMonitorInternalsSection, useInternalsToggle } from './resource-monitor-internals-section';
+import { ResourceMonitorInternalsSection } from './resource-monitor-internals-section';
 
-export const ResourceMonitorView = observer(function ResourceMonitorView({
-  onBack,
-}: {
-  onBack: () => void;
-}) {
+export const ResourceMonitorView = observer(function ResourceMonitorView() {
   const store = appState.resourceMonitor;
   const snapshot = store.snapshot;
   const isLoading = store.isLoadingInitialSnapshot;
   const memLabel = formatBytes(store.totalMemoryBytes);
   const cpuLabel = store.totalCpuPercent === undefined ? '–' : `${store.totalCpuPercent.toFixed(1)}%`;
   const { translate } = useSessionMessages();
-  const { internals, onTitleClick } = useInternalsToggle();
+  const [changingDiagnostics, setChangingDiagnostics] = useState(false);
+  const toggleDiagnostics = async () => {
+    setChangingDiagnostics(true);
+    try {
+      await store.setInternals(!store.internals);
+    } catch {
+      toast({ title: translate('resourceMonitor.diagnosticsFailed'), tier: 'error' });
+    } finally {
+      setChangingDiagnostics(false);
+    }
+  };
 
   const groups = useMemo(() => buildGroups(snapshot?.entries ?? []), [snapshot]);
   const processes = useMemo(() => sortAppProcesses(snapshot?.appProcesses ?? []), [snapshot]);
@@ -49,17 +56,6 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({
   return (
     <>
       <div className="flex items-center gap-2 border-b border-foreground/10 px-2 py-2">
-        <button
-          onClick={onBack}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-row-hover hover:text-foreground"
-          aria-label={translate('palette.backToSearch')}
-        >
-          <ArrowLeft size={14} />
-        </button>
-        <Activity size={13} className="shrink-0 text-foreground/50" />
-        <span className="text-sm font-medium tracking-tight" onClick={onTitleClick}>
-          {translate('palette.resourceMonitor')}
-        </span>
         <div className="ml-auto flex items-center gap-3 text-xs tabular-nums">
           <Stat label="CPU" value={cpuLabel} />
           <Stat label="Mem" value={memLabel} />
@@ -67,13 +63,11 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({
         </div>
       </div>
 
-      <div className="max-h-[24rem] min-h-[14rem] overflow-y-auto px-1.5 py-1.5">
+      <div className="min-h-[14rem] px-1.5 py-1.5">
         {isLoading ? (
           <ResourceMonitorLoadingState />
         ) : (
           <>
-            {internals && <ResourceMonitorInternalsSection />}
-
             {hasProcesses && (
               <Section heading={translate('palette.application')}>
                 <div className="flex flex-col">
@@ -97,6 +91,17 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({
                 </div>
               )}
             </Section>
+            <button
+              type="button"
+              aria-expanded={store.internals}
+              disabled={changingDiagnostics}
+              onClick={() => void toggleDiagnostics()}
+              className="mt-3 flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-foreground-muted hover:bg-row-hover disabled:opacity-50"
+            >
+              <ChevronRight size={14} className={store.internals ? 'rotate-90' : ''} />
+              {translate('resourceMonitor.advanced')}
+            </button>
+            {store.internals && <ResourceMonitorInternalsSection />}
           </>
         )}
       </div>

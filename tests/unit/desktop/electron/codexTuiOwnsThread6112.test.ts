@@ -304,7 +304,12 @@ describe('@@@6112 TUI resume 载入时钉住 thread 自己的模型(❌ 被 TUI 
       .toEqual(['-c', 'model="gpt-5.6"'])
   })
 
-  it('读不到模型 THROW —— 缺了它 TUI 会把会话换到用户的默认模型', () => {
+  it('读不到模型报目标 thread 与下一步,保留 Codex 56 原 thread 的模型', () => {
+    expect(codexTuiThreadSettingsArgs({
+      id: '01a15d37-1674-7061-b298-37b108e1e970', model: 'gpt-6.1-sol', reasoningEffort: 'xhigh',
+    })).toEqual(['-c', 'model="gpt-6.1-sol"', '-c', 'model_reasoning_effort="xhigh"'])
+    expect(() => codexTuiThreadSettingsArgs({ id: '01a15d7c-4714-7fe3-adbb-91c055ba7d52' }))
+      .toThrow(/01a15d7c-4714-7fe3-adbb-91c055ba7d52.*请重试恢复.*请新开一个任务/)
     expect(() => codexTuiThreadSettingsArgs({})).toThrow(/模型/)
     expect(() => codexTuiThreadSettingsArgs({ model: ' ' })).toThrow(/模型/)
   })

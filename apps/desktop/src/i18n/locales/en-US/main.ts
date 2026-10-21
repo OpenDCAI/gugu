@@ -452,6 +452,7 @@ export default {
       "devices": "Devices",
       "general": "General",
       "interface": "Interface",
+      "resource-monitor": "Resource monitor",
       "model": "Models",
       "phone": "This phone",
       "permissions": "Permissions",

@@ -284,9 +284,10 @@ div.gg-settings-nav-pane[data-role='nav']:not([data-mobile]) {
   padding-inline: var(--spacing-2xl);
 }
 .gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-group + div.gg-settings-nav-group {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
 }
 .gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-caption {
+  padding-bottom: 0;
   font-weight: var(--font-weight-regular);
 }
 .gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-scroll {

@@ -446,6 +446,7 @@ export default {
       "devices": "设备",
       "general": "通用",
       "interface": "界面",
+      "resource-monitor": "资源监视器",
       "model": "模型",
       "phone": "这台手机",
       "permissions": "权限",

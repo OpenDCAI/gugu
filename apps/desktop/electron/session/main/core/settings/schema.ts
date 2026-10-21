@@ -221,9 +221,7 @@ export const browserSettingsSchema = z
       settings.profiles.some((profile) => profile.id === settings.defaultProfileId)
   );
 
-// `internals`: the monitor's internal-diagnostics section (renderer heaps, source counters, deep sample). Not shown in
-// Settings; toggled by Alt-clicking the monitor's title five times.
-export const resourceMonitorSettingsSchema = z.object({ enabled: z.boolean(), internals: z.boolean() });
+export const resourceMonitorSettingsSchema = z.object({ enabled: z.boolean() });
 
 export const openInSettingsSchema = z.object({
   default: openInAppIdSchema,

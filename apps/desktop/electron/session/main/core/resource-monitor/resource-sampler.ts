@@ -57,7 +57,6 @@ export async function sampleOnce(): Promise<ResourceSnapshot> {
   }
 
   const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
-  const { internals } = await appSettingsService.get('resourceMonitor');
   return {
     timestamp: Date.now(),
     cpuCount: CPU_COUNT,
@@ -65,7 +64,7 @@ export async function sampleOnce(): Promise<ResourceSnapshot> {
     app: appUsage,
     appProcesses,
     entries,
-    ...(internals ? { internals: { renderers: await collectRendererMetrics() } } : {}),
+    ...(hasResourceMonitorInternals() ? { internals: { renderers: await collectRendererMetrics() } } : {}),
   };
 }
 
@@ -214,8 +213,13 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
 
 let timer: NodeJS.Timeout | null = null;
 let sampling = false;
-const openSubscriptions = new Set<string>();
+const openSubscriptions = new Map<string, boolean>();
 const latestSequenceByClient = new Map<string, number>();
+
+/** Advanced diagnostics belong to the open page, never to a persisted setting. */
+export function hasResourceMonitorInternals(): boolean {
+  return [...openSubscriptions.values()].some(Boolean);
+}
 
 export function startResourceSampler(): void {
   if (timer) return;
@@ -265,13 +269,14 @@ export function setResourceMonitorOpen(
   clientId: string,
   subscriptionId: string,
   open: boolean,
-  sequence: number
+  sequence: number,
+  internals: boolean
 ): void {
   const latestSequence = latestSequenceByClient.get(clientId) ?? 0;
   if (sequence <= latestSequence) return;
   latestSequenceByClient.set(clientId, sequence);
   if (open) {
-    openSubscriptions.add(subscriptionId);
+    openSubscriptions.set(subscriptionId, internals);
   } else {
     openSubscriptions.delete(subscriptionId);
     latestSequenceByClient.delete(clientId);

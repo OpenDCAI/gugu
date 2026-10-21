@@ -13,7 +13,7 @@ import InterfaceSettingsCard from './InterfaceSettingsCard';
 import KeyboardSettingsCard from './KeyboardSettingsCard';
 import NotificationSettingsCard from './NotificationSettingsCard';
 import RepositorySettingsCard from './RepositorySettingsCard';
-import ResourceMonitorSettingsCard from './ResourceMonitorSettingsCard';
+import { ResourceMonitorSettingsPage } from './ResourceMonitorSettingsPage';
 import SidebarMetadataSettingsCard from './SidebarMetadataSettingsCard';
 import {
   AutoApproveByDefaultRow,
@@ -95,7 +95,6 @@ function InterfaceSettingsPage() {
       />
       <SettingsGroup>
         <SidebarTintRow />
-        <ResourceMonitorSettingsCard />
       </SettingsGroup>
       <ChatViewCard />
       <TerminalSettingsCard />
@@ -129,7 +128,7 @@ function BrowserSettingsPage() {
 // ---------------------------------------------------------------------------
 
 /** 设置弹窗里由本页画的那几格(product spec);键与壳的 ActiveSection 同名。 */
-export type SessionSettingsSection = 'sessions' | 'interface' | 'repository' | 'browser' | 'subscriptions' | 'connectors';
+export type SessionSettingsSection = 'sessions' | 'interface' | 'repository' | 'browser' | 'subscriptions' | 'connectors' | 'resource-monitor';
 
 /** 个别格要壳告诉它的事实(「连接应用」要知道咕咕住的那台云端宿主是谁);其余格不用。 */
 export type SessionSettingsContext = {
@@ -146,6 +145,7 @@ const byDevice = (page: ReactNode) => <DeviceScopeProvider store={settingsDevice
 const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsContext) => ReactNode> = {
   sessions: () => byDevice(<GeneralSettingsPage />),
   interface: () => <InterfaceSettingsPage />,
+  'resource-monitor': () => <ResourceMonitorSettingsPage />,
   repository: () => byDevice(<RepositorySettingsPage />),
   browser: () => <BrowserSettingsPage />,
   // 订阅登在哪台机器上就只在那台读得到(product spec):同一个机器选择器。

@@ -1,5 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { observable, runInAction } from 'mobx';
+import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
+
+const runtimeHydrate = vi.hoisted(() => vi.fn());
+vi.mock('@renderer/lib/ipc', async () => {
+  const { createEventEmitter } = await import('@shared/lib/ipc/events');
+  const listeners = new Map<string, (data: unknown) => void>();
+  return {
+    events: createEventEmitter({
+      emit: (name, data) => listeners.get(name)?.(data),
+      on: (name, callback) => { listeners.set(name, callback); return () => { listeners.delete(name); }; },
+    }),
+    rpc: { sessions: {
+      getRuntimeUpgradeRequirement: async () => null,
+      hydrateSession: runtimeHydrate,
+    } },
+  };
+});
+import { events } from '@renderer/lib/ipc';
 
 // 这几条用例判的是**界面侧的接线**:hydrate 失败之后,用户手里到底还有没有一个看得见、
 // 按得动的东西。reconciler 用真实实现,只把 toast 与 registry 换成探针 —— 换掉被测对象本身
@@ -122,6 +140,7 @@ describe('SessionPtyManager 的失败提示', () => {
     toastDismiss.mockClear();
     registryGet.mockReset();
     askPlatformAgain.mockClear();
+    runtimeHydrate.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -203,6 +222,27 @@ describe('SessionPtyManager 的失败提示', () => {
     expect(ledgerRow('conversation-1')).toBeUndefined();
     expect(toastError).not.toHaveBeenCalled();
     manager.dispose();
+  });
+
+  it('a resumed process failure reaches the existing ledger and retries the same task once', async () => {
+    registryGet.mockReturnValue(makeStore(vi.fn().mockResolvedValue(undefined)));
+    const manager = new SessionPtyManager('resume-task');
+    try {
+      manager.acquire('resume-task');
+      await flush();
+      const message = 'Agent session failed to resume thread 01a15d37-1674-7061-b298-37b108e1e970 (exit code 1).'
+        + ' Retry restoring this task; if the original thread was deleted, start a new task.';
+      events.emit(sessionDeliveryFailedChannel, { sessionId: 'another-task', projectId: 'project-1', message });
+      expect(ledgerRow('resume-task')).toBeUndefined();
+      events.emit(sessionDeliveryFailedChannel, { sessionId: 'resume-task', projectId: 'project-1', message });
+      expect(ledgerRow('resume-task')?.message).toBe(message);
+      expect(sessionStartupFailures.retry('resume-task')).toBe(true);
+      expect(sessionStartupFailures.retry('resume-task')).toBe(false);
+      await flush();
+      expect(runtimeHydrate.mock.calls).toEqual([['project-1', 'resume-task']]);
+      expect(ledgerRow('resume-task')).toBeUndefined();
+      expect(toastError).not.toHaveBeenCalled();
+    } finally { manager.dispose(); }
   });
 
   it('关掉最后一个标签页时把失败一并收走,不留孤儿', async () => {

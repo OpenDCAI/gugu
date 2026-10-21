@@ -24,12 +24,13 @@ export type ActiveSection =
   // Settings the session page holds (its own components draw them, product spec); only where a task host runs.
   | 'sessions'
   | 'interface'
+  | 'resource-monitor'
   | 'repository'
   | 'browser'
 
 /** The sections the session page draws (its own components and settings store); shown only where a task host runs. */
 // connectors:「云端」那一段是会话页画的(资源库「集成」的同一份数据),所以也只在有会话页宿主的桌面形态上出现。
-export const SESSION_HOST_SETTINGS_SECTIONS: readonly ActiveSection[] = ['sessions', 'interface', 'repository', 'browser', 'subscriptions', 'connectors']
+export const SESSION_HOST_SETTINGS_SECTIONS: readonly ActiveSection[] = ['sessions', 'interface', 'repository', 'browser', 'subscriptions', 'connectors', 'resource-monitor']
 
 /** 设置左栏的分组(owner 10-16 全局设置重做):组名只在桌面左栏画小标题;手机「我的」同一份分组。 */
 export type SettingsGroupId = 'assistant' | 'account' | 'preferences' | 'work' | 'about'
@@ -48,7 +49,7 @@ export const SETTINGS_GROUPS: readonly { readonly id: SettingsGroupId; readonly 
   // 它读的是这台电脑上装着的 Harness,由会话页那一侧画 ⇒ 只在有会话页的地方出现。
   { id: 'account', sections: ['account', 'usage', 'subscriptions', 'activity'] },
   // product spec:桌面与手机同一页;这台机器读不读得到真值由 SettingsPanel 那道过滤决定。
-  { id: 'preferences', sections: ['general', 'interface', 'permissions', 'model'] },
+  { id: 'preferences', sections: ['general', 'interface', 'permissions', 'model', 'resource-monitor'] },
   // agent 跑起来的那几样(会话的默认行为、仓库、浏览器)挨着「设备」。App 只在手机壳上:那里的 App 由
   // 这一页自己的 App 仓管(L9)。
   // 聊天渠道挨着设备:微信消息经「这台电脑」转给 agent,两页说的是同一件事的两头。

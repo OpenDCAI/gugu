@@ -21,6 +21,7 @@ import {
   GlobeFilled,
   Palette,
   PaletteFilled,
+  Activity,
 } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -155,6 +156,7 @@ const NAV_ITEMS: NavItem[] = [
   // 会话页画的那几格(product spec)。同一套 Solar linear / bold,尺寸与上面这些一样。
   { key: 'sessions', labelKey: 'settings.nav.sessions', il: <Bot size={15} />, ib: <BotFilled size={15} /> },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
+  { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
   { key: 'repository', labelKey: 'settings.nav.repository', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
 ]

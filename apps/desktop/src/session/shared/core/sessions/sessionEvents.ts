@@ -112,11 +112,11 @@ export const sessionAgentStatusChangedChannel = defineEvent<
   }
 >('session:agent-status-changed');
 
-/** A queued session-page message reached a terminal delivery failure. */
+/** Session-page work failed after the initiating request returned. */
 export const sessionDeliveryFailedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
-  messageId: string;
+  messageId?: string;
   message: string;
 }>('session:delivery-failed');
 

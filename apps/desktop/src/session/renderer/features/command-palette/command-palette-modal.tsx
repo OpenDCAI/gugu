@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Command } from 'cmdk';
 import { Activity, FolderOpen, MessageSquare, type IconComponent } from '@/lib/icons'
 import { useObserver } from 'mobx-react-lite';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { getSessionPageStore, getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
@@ -13,7 +13,7 @@ import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
-import { appState } from '@renderer/lib/stores/app-state';
+import { openShellSettings } from '@renderer/lib/open-shell-settings';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
 import { ALL_COMMAND_DEFS, type CommandDef } from '@shared/commands';
@@ -23,7 +23,6 @@ import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteNotificationsGroup } from './palette-notifications-group';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteSessionItem } from './palette-session-item';
-import { ResourceMonitorView } from './resource-monitor-view';
 import { applyContextAffinity, getPaletteFileDisplayPath } from './search-utils';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -128,22 +127,14 @@ export function CommandPaletteModal({
   workspaceId,
   onClose,
 }: CommandPaletteProps & BaseModalProps) {
-  const [view, setView] = useState<'search' | 'resource-monitor'>('search');
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 100);
   const { navigate } = useNavigate();
-  const { value: resourceMonitor } = useAppSettingsKey('resourceMonitor');
   const { value: keyboard } = useAppSettingsKey('keyboard');
   const queryClient = useQueryClient();
   const { translate } = useSessionMessages();
 
   const handleClose = onClose;
-
-  useEffect(() => {
-    if (view !== 'resource-monitor') return;
-    appState.resourceMonitor.start();
-    return () => appState.resourceMonitor.dispose();
-  }, [view]);
 
   // 搜索被打开:让这个工作区的文件索引重扫一次(一个目录一个 watch 的平台上,没人盯着的目录里新建的文件靠这一下进索引)。
   useEffect(() => {
@@ -196,21 +187,19 @@ export function CommandPaletteModal({
       })
   );
 
-  const resourceMonitorAction = useMemo<PaletteAction | null>(
-    () =>
-      resourceMonitor?.enabled
-        ? {
-            kind: 'action',
-            id: 'resource-monitor',
-            title: translate('palette.resourceMonitor'),
-            subtitle: translate('palette.resourceMonitorDescription'),
-            icon: Activity,
-            execute: () => {
-              setView('resource-monitor');
-            },
-          }
-        : null,
-    [resourceMonitor?.enabled, translate]
+  const resourceMonitorAction = useMemo<PaletteAction>(
+    () => ({
+      kind: 'action',
+      id: 'resource-monitor',
+      title: translate('palette.resourceMonitor'),
+      subtitle: translate('palette.resourceMonitorDescription'),
+      icon: Activity,
+      execute: () => {
+        handleClose();
+        openShellSettings('resource-monitor');
+      },
+    }),
+    [translate, handleClose],
   );
 
   const actions = useMemo(() => {
@@ -268,38 +257,6 @@ export function CommandPaletteModal({
     if (item.kind === 'project') return handleNavigateToProject(item);
     if (item.kind === 'file') return handleOpenFile(item);
   };
-
-  const handleResourceMonitorBack = useCallback(() => {
-    setView('search');
-  }, []);
-
-  useEffect(() => {
-    if (view !== 'resource-monitor') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Backspace') {
-        e.preventDefault();
-        e.stopPropagation();
-        handleResourceMonitorBack();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [view, handleResourceMonitorBack]);
-
-  if (view === 'resource-monitor') {
-    return (
-      <div className="flex flex-col overflow-hidden">
-        <ResourceMonitorView onBack={handleResourceMonitorBack} />
-        <div className="flex items-center gap-4 border-t border-foreground/10 px-3 py-2">
-          <span className="flex items-center gap-1 text-xs text-foreground/40">
-            <Shortcut hotkey="Escape" variant="keycaps" />
-            <Shortcut hotkey="Backspace" variant="keycaps" />
-            {translate('common.back')}
-          </span>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>

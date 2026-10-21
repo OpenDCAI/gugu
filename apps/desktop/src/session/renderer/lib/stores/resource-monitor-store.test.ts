@@ -54,8 +54,8 @@ describe('ResourceMonitorStore', () => {
     store.dispose();
     expect(setOpen).toHaveBeenCalledTimes(2);
     const [clientId, subscriptionId] = setOpen.mock.calls[0];
-    expect(setOpen).toHaveBeenNthCalledWith(1, clientId, subscriptionId, true, 1);
-    expect(setOpen).toHaveBeenNthCalledWith(2, clientId, subscriptionId, false, 2);
+    expect(setOpen).toHaveBeenNthCalledWith(1, clientId, subscriptionId, true, 1, false);
+    expect(setOpen).toHaveBeenNthCalledWith(2, clientId, subscriptionId, false, 2, false);
     expect(offSnapshot).toHaveBeenCalledTimes(1);
   });
 
@@ -68,6 +68,37 @@ describe('ResourceMonitorStore', () => {
     snapshotHandler?.(snapshot(2));
     expect(store.snapshot?.timestamp).toBe(2);
     expect(store.isLoadingInitialSnapshot).toBe(false);
+  });
+
+  it('requests diagnostics only for an open page and always reopens collapsed', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore();
+    await store.setInternals(true);
+    expect(setOpen).not.toHaveBeenCalled();
+    store.start();
+    expect(store.internals).toBe(false);
+    await store.setInternals(true);
+    expect(setOpen.mock.calls[1].slice(2)).toEqual([true, 2, true]);
+    expect(store.internals).toBe(true);
+    store.dispose();
+    expect(store.internals).toBe(false);
+    store.start();
+    expect(setOpen.mock.lastCall?.slice(2)).toEqual([true, 4, false]);
+    expect(store.internals).toBe(false);
+  });
+
+  it('does not reopen diagnostics after the page closes during an IPC request', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore();
+    store.start();
+    let finish!: () => void;
+    setOpen.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    const changing = store.setInternals(true);
+    store.dispose();
+    store.start();
+    finish();
+    await changing;
+    expect(store.internals).toBe(false);
   });
 
   it('ends loading on a failed sample without clearing the last valid snapshot or baseline', async () => {

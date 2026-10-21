@@ -70,6 +70,14 @@ export const SessionsPanel = observer(function SessionsPanel() {
   const activePtySessionId = activePtySession?.ptySessionId ?? null;
   // 这条会话的启动是不是已经确定失败了 —— 加载态靠它才有出口，见 use-session-startup-failure。
   const startupFailure = useSessionStartupFailure(activeSessionStoreId);
+  const startupFailureView = startupFailure ? (
+    <SessionStartFailedView
+      failure={startupFailure}
+      onRetry={() => sessionStartupFailures.retry(startupFailure.sessionId)}
+      providerId={activeSession?.data.providerId ?? null}
+      onSwitchModel={() => requestTerminalModelMenu(startupFailure.sessionId)}
+    />
+  ) : null;
   // #6183 启动不设墙钟 ⇒ 这一步要看得见、能取消。取消走既有的停止会话,失败原文照旧进启动失败账本。
   const startStage = sessionStartStage(activeSessionStoreId);
   // D-31 The host's ask for this agent (an App install): the band a chat-UI session shows on its composer, here under the
@@ -223,12 +231,7 @@ export const SessionsPanel = observer(function SessionsPanel() {
                   // 转满 90 秒仍在转）。出口不是墙钟超时（起得慢 ≠ 坏了，实测 OpenCode 要 9.1s），
                   // 而是账本里那条由 hydrate 真的抛错才写下的确定性失败。
                   startupFailure ? (
-                    <SessionStartFailedView
-                      failure={startupFailure}
-                      onRetry={() => sessionStartupFailures.retry(startupFailure.sessionId)}
-                      providerId={activeSession?.data.providerId ?? null}
-                      onSwitchModel={() => requestTerminalModelMenu(startupFailure.sessionId)}
-                    />
+                    startupFailureView
                   ) : (
                     <div
                       className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2"
@@ -289,6 +292,9 @@ export const SessionsPanel = observer(function SessionsPanel() {
       {/* The band sits in the measured wrapper: the terminal gives up its rows while the ask is out. */}
       {(
         <div ref={contextBarWrapperRef}>
+          {activePtySession?.status === 'ready' && activePtySession.pty && activePtySession.hasOutput
+            ? startupFailureView
+            : null}
           {hostBand ? (
             <div className="px-2 pt-1" data-testid="session-terminal-host-ask">
               <PermissionBand request={hostBand.request} onResolve={hostBand.resolve} />
