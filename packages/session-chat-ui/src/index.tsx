@@ -23,6 +23,7 @@
  */
 
 import './styles/global.css';
+import '@gugu/session-shared/animation-visibility.css';
 
 // ── Core API ──────────────────────────────────────────────────────────────────
 
