@@ -19,7 +19,35 @@ beforeEach(async () => {
   document.documentElement.dataset.theme = 'light';
   document.documentElement.dataset.platform = 'mac';
 });
-afterEach(() => { harness?.cleanup(); delete document.documentElement.dataset.theme; delete document.documentElement.dataset.platform; });
+afterEach(() => { harness?.cleanup(); delete document.documentElement.dataset.theme; delete document.documentElement.dataset.platform; delete document.documentElement.dataset.windowMaterial; });
+
+it('the native workspace frame preserves viewport-fixed overlays and lets workspace controls receive clicks', async () => {
+  document.documentElement.dataset.windowMaterial = 'native';
+  harness = createReactHarness();
+  harness.container.style.cssText = 'position:fixed;inset:0;display:flex';
+  const clicked = vi.fn();
+  await harness.render(
+    <div data-desktop-shell="" style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}>
+      <aside className="gg-sidebar-rail" style={{ width: 56, flexShrink: 0 }} />
+      <div style={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0, margin: 0, borderRadius: 'var(--radius-page)', overflow: 'hidden' }}>
+        <button onClick={clicked} style={{ position: 'absolute', bottom: 12, right: 12 }}>workspace action</button>
+        <div data-testid="fixed-session-overlay" style={{ position: 'fixed', left: 160, top: 90, width: 360, height: 180, zIndex: 5 }}>
+          <button onClick={clicked}>session action</button>
+        </div>
+      </div>
+    </div>
+  );
+  const workspace = harness.container.querySelector<HTMLElement>('.gg-sidebar-rail + div')!;
+  const rect = workspace.getBoundingClientRect();
+  expect(rect.top).toBe(5);
+  expect(rect.right).toBe(1095);
+  expect(rect.bottom).toBe(755);
+  const fixed = harness.container.querySelector<HTMLElement>('[data-testid="fixed-session-overlay"]')!.getBoundingClientRect();
+  expect([fixed.left, fixed.top, fixed.width, fixed.height]).toEqual([160, 90, 360, 180]);
+  await page.getByRole('button', { name: 'workspace action', exact: true }).click();
+  await page.getByRole('button', { name: 'session action', exact: true }).click();
+  expect(clicked).toHaveBeenCalledTimes(2);
+});
 
 it.each(['light', 'dark'])('real contacts selected detail keeps the same %s inset frame without full-height navigation borders', async (theme) => {
   document.documentElement.dataset.theme = theme;

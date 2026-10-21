@@ -54,8 +54,19 @@
   --radius-page: var(--radius-surface);
   margin: var(--desktop-surface-inset) var(--desktop-surface-inset) var(--desktop-surface-inset) 0 !important;
   clip-path: inset(0 round var(--radius-surface));
+}
+
+/* An outline on the content container is invalidated by animated descendants.
+ * Keep the same contour on an empty paint object without changing fixed overlays' coordinates.
+ */
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell] > .gg-sidebar-rail + div::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   outline: 0.5px solid var(--border-color);
   outline-offset: -0.5px;
+  pointer-events: none;
 }
 
 /* 正文不再单独画第二层外框。它与侧栏之间的分隔、用户保存的栏宽仍归原布局。 */
