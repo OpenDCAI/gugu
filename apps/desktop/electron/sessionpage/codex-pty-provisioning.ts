@@ -325,8 +325,8 @@ async function provisionAndOverrideOnce(
     //    同一家 agent、同一台机器,编程腿的引擎和它的 TUI 跑在两个不同的环境里,并且不报错。
     //    实测读数(2026-09-16):TUI 进程拿得到设置里的变量,这条 sidecar 拿不到。
     // 编程腿(tui)的引擎 —— 与这条腿的 TUI 同一个程序(#6335 起按腿取程序)。
-    // The sidecar owns the thread store as well as authentication. Resolve the same bound account
-    // as the TUI, including runtime-only forks; a later default selection must not move its CODEX_HOME.
+    // The sidecar owns the thread store as well as authentication. Resolve it exactly as the TUI does,
+    // including runtime-only forks: on the user's own CODEX_HOME with the default subscription (#26).
     const runContext = await resolveLocalAgentRunContext(info.providerId, {
       role: 'tui',
       sessionId: info.sessionId,
