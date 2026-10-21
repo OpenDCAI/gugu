@@ -4,10 +4,10 @@
  * 眼睛/腮红经过它所在部件的同一个 warp 与摆放，身体怎么挤、怎么歪、怎么滚，它们就怎么跟。
  * 装扮(outfits.ts)是另一层,穿插在这几步之间:back 在部件前、mid 在部件后眼睛前、top 在眼睛后(第二趟 GL)。
  */
-import { BodyParams, TWO_PI, clamp, warp } from './geometry'
+import { BodyParams, TWO_PI, clamp, warp, warpWith, warpWeights, type WarpWeights } from './geometry'
 import { GRID_X, GRID_Y, GuguGL } from './gl'
 import type { EyeOut, GuguFrame, Layer, Particle } from './engine'
-import type { Character } from './characters'
+import type { Character, Pack } from './characters'
 import type { Part } from './forms'
 import type { OutfitDraw } from './outfits'
 
@@ -59,6 +59,26 @@ const TEAL = '#2d7a64'
 const tmp: [number, number] = [0, 0]
 const tmp1: [number, number] = [0, 0]
 const tmp2: [number, number] = [0, 0]
+
+type MeshPoint = WarpWeights & { x: number; y: number }
+
+// All avatars sharing a sprite pack share its fixed grid; animated outfit anchors stay dynamic.
+const meshes = new WeakMap<Pack, MeshPoint[]>()
+function meshFor(pack: Pack): MeshPoint[] {
+  let mesh = meshes.get(pack)
+  if (!mesh) {
+    mesh = []
+    for (let j = 0; j <= GRID_Y; j++) {
+      const y = (j / GRID_Y) * pack.spr.h
+      for (let i = 0; i <= GRID_X; i++) {
+        const x = (i / GRID_X) * pack.spr.w
+        mesh.push(Object.assign(warpWeights(x, y, pack), { x, y }))
+      }
+    }
+    meshes.set(pack, mesh)
+  }
+  return mesh
+}
 
 function framePath(ctx: CanvasRenderingContext2D, w: number, h: number, shape: FrameShape) {
   ctx.beginPath()
@@ -125,6 +145,10 @@ function drawPartShadow(
 /** 素材坐标 (x, y)（部件自己的素材里的一点）→ 世界：先软网格变形，再绕落地点旋转、缩放、平移到摆放位置 */
 export function place(x: number, y: number, p: Part, body: BodyParams, out: [number, number]) {
   warp(x, y, body, out, p.pack)
+  placeWarped(p, out)
+}
+
+function placeWarped(p: Part, out: [number, number]) {
   const dx = out[0] - p.pack.pivot.x,
     dy = out[1] - p.pack.pivot.y
   if (p.rot === 0) {
@@ -440,15 +464,13 @@ export function paintGL(gl: GuguGL, f: GuguFrame, o: DrawOpts, outfit: OutfitDra
     const verts = gl.verts
     for (let pi = 0; pi < parts.n; pi++) {
       const p = parts.list[pi]
-      const spr = p.pack.spr
+      const mesh = meshFor(p.pack)
       let k = 0
-      for (let j = 0; j <= GRID_Y; j++) {
-        const y = (j / GRID_Y) * spr.h
-        for (let i = 0; i <= GRID_X; i++) {
-          place((i / GRID_X) * spr.w, y, p, p.body, tmp)
-          verts[k++] = v.ox + tmp[0] * v.s
-          verts[k++] = v.oy + tmp[1] * v.s
-        }
+      for (const point of mesh) {
+        warpWith(point.x, point.y, p.body, tmp, p.pack, point)
+        placeWarped(p, tmp)
+        verts[k++] = v.ox + tmp[0] * v.s
+        verts[k++] = v.oy + tmp[1] * v.s
       }
       gl.drawSprite(p.pack.id, f.desat, f.dim, lay * p.alpha, f.tint)
     }

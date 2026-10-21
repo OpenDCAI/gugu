@@ -73,15 +73,46 @@ export const NEUTRAL_BODY: BodyParams = {
   wr: 0
 }
 
+/** Spatial coefficients depend only on the source point and its immutable sprite pack. */
+export interface WarpWeights {
+  face: number
+  leftWing: number
+  rightWing: number
+  head: number
+  chest: number
+  height: number
+  lean: number
+}
+
+function wingWeight(x: number, y: number, ch: Pack, side: number): number {
+  const wg = side === 0 ? ch.wings?.l : ch.wings?.r
+  if (!wg) return 0
+  const d = Math.hypot((x - wg.x) / (wg.rx * 1.35), (y - wg.y) / (wg.ry * 1.2))
+  return 1 - smoothstep(0.55, 1.1, d)
+}
+
+export function warpWeights(x: number, y: number, ch: Pack, out = {} as WarpWeights): WarpWeights {
+  const height = clamp((ch.pivot.y - y) / ch.lift, 0, 1.2)
+  const F = ch.face
+  out.face = F ? 1 - smoothstep(0.3 * F.R, F.R, Math.hypot(x - F.x, y - F.y)) : 0
+  out.leftWing = wingWeight(x, y, ch, 0)
+  out.rightWing = wingWeight(x, y, ch, 1)
+  out.head = 1 - smoothstep(ch.headBand[0], ch.headBand[1], y)
+  out.chest = Math.exp(-(((y - ch.chest.y) / ch.chest.s) ** 2))
+  out.height = height
+  out.lean = Math.pow(height, 1.5)
+  return out
+}
+
 /** 把素材里一点 (x,y) 送到变形后的位置。网格顶点、眼睛、腮红、特效锚点都走这一个函数，所以永远贴在身上 */
-export function warp(x: number, y: number, b: BodyParams, out: [number, number], ch: Pack): void {
+export function warpWith(x: number, y: number, b: BodyParams, out: [number, number], ch: Pack, weights: WarpWeights): void {
   const { pivot: P, neck: N } = ch
   let X = x
   let Y = y
   // 0) 脸区随视线滑（有小嘴版：小嘴要跟着眼睛一起转，不然眼睛在球面上滑、嘴钉在原地）
   const F = ch.face
   if (F && (b.fx !== 0 || b.fy !== 0)) {
-    const g = 1 - smoothstep(0.3 * F.R, F.R, Math.hypot(x - F.x, y - F.y))
+    const g = weights.face
     X += b.fx * g
     Y += b.fy * g
   }
@@ -92,8 +123,7 @@ export function warp(x: number, y: number, b: BodyParams, out: [number, number],
       const v = i === 0 ? b.wl : b.wr
       if (v === 0) continue
       const wg = i === 0 ? W.l : W.r
-      const d = Math.hypot((x - wg.x) / (wg.rx * 1.35), (y - wg.y) / (wg.ry * 1.2))
-      const g = 1 - smoothstep(0.55, 1.1, d)
+      const g = i === 0 ? weights.leftWing : weights.rightWing
       if (g <= 0) continue
       const ang = (i === 0 ? 1 : -1) * v * 0.62 * g // 弧度
       const rx = x - wg.rootX,
@@ -105,7 +135,7 @@ export function warp(x: number, y: number, b: BodyParams, out: [number, number],
     }
   }
   // 1) 头部：越靠近头顶越"刚"，脖子到肩的过渡区被柔和地扭过去，像绒毛玩偶
-  const w = 1 - smoothstep(ch.headBand[0], ch.headBand[1], y)
+  const w = weights.head
   if (w > 0) {
     const ang = b.roll * DEG * w * ch.rollGain
     const dx = X - N.x
@@ -116,16 +146,21 @@ export function warp(x: number, y: number, b: BodyParams, out: [number, number],
     Y = N.y + dx * s + dy * c + b.nod * w
   }
   // 2) 胸口鼓起（呼吸）
-  const bump = Math.exp(-(((y - ch.chest.y) / ch.chest.s) ** 2))
+  const bump = weights.chest
   X = P.x + (X - P.x) * (1 + b.puff * bump)
   // 3) 挤压拉伸：绕脚底
   X = P.x + (X - P.x) * b.sx
   Y = P.y + (Y - P.y) * b.sy
   // 4) 倾斜 + 果冻波：离脚越高位移越大，脚底不动
-  const h = clamp((P.y - y) / ch.lift, 0, 1.2)
-  X += b.lean * Math.pow(h, 1.5) + b.wob * Math.sin(5.5 * h - b.wobPhase) * h
+  const h = weights.height
+  X += b.lean * weights.lean + b.wob * Math.sin(5.5 * h - b.wobPhase) * h
   // 5) 跳起
   Y -= b.hop
   out[0] = X
   out[1] = Y
+}
+
+const scratch = {} as WarpWeights
+export function warp(x: number, y: number, b: BodyParams, out: [number, number], ch: Pack): void {
+  warpWith(x, y, b, out, ch, warpWeights(x, y, ch, scratch))
 }
