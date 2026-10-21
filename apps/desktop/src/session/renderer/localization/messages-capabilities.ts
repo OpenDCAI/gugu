@@ -86,7 +86,11 @@ export const enUSCapabilityMessages = {
   // ── settings · resource monitor ────────────────────────────────────────────
   'resourceMonitor.title': 'Resource monitor',
   'resourceMonitor.description':
-    'Track CPU and memory usage for running agents. When enabled, open it from the command palette.',
+    'Off by default. Samples only while enabled and this page is open; leaving the page stops sampling.',
+  'resourceMonitor.enabled': 'Enable monitoring',
+  'resourceMonitor.off': 'Monitoring is off. Enable it here to view CPU and memory usage on this computer.',
+  'resourceMonitor.advanced': 'Advanced diagnostics',
+  'resourceMonitor.diagnosticsFailed': 'Could not change diagnostic sampling',
 
   // ── settings · repository ──────────────────────────────────────────────────
   'repository.defaultProjectsDirectory': 'Default projects directory',
@@ -900,7 +904,11 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
 
   // ── 设置 · 资源监视器 ───────────────────────────────────────────────────────
   'resourceMonitor.title': '资源监视器',
-  'resourceMonitor.description': '跟踪运行中智能体的 CPU 和内存占用。启用后可从命令面板打开。',
+  'resourceMonitor.description': '默认关闭。仅在开启且停留此页时采样，离开页面即停止。',
+  'resourceMonitor.enabled': '开启监控',
+  'resourceMonitor.off': '监控已关闭。开启后可查看这台电脑上咕咕的 CPU 和内存占用。',
+  'resourceMonitor.advanced': '高级诊断',
+  'resourceMonitor.diagnosticsFailed': '诊断采样切换失败',
 
   // ── 设置 · 仓库 ─────────────────────────────────────────────────────────────
   'repository.defaultProjectsDirectory': '默认项目目录',

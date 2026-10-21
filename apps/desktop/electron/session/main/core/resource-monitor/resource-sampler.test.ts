@@ -126,8 +126,8 @@ describe('resource sampler cadence', () => {
   });
 
   it('waits for a slow sample to finish before starting the next interval', async () => {
-    const { startResourceSampler } = await import('./resource-sampler');
-    settings.mockResolvedValue({ enabled: true, internals: true });
+    const { startResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
     let finish!: (value: []) => void;
     collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
     startResourceSampler();
@@ -144,8 +144,8 @@ describe('resource sampler cadence', () => {
   });
 
   it('drops a late result after close and leaves no timer or focus listener', async () => {
-    const { startResourceSampler, stopResourceSampler } = await import('./resource-sampler');
-    settings.mockResolvedValue({ enabled: true, internals: true });
+    const { startResourceSampler, stopResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
     let finish!: (value: []) => void;
     collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
     startResourceSampler();
@@ -161,8 +161,8 @@ describe('resource sampler cadence', () => {
   });
 
   it('waits out an old collection on rapid reopen, discards it, and takes a fresh one', async () => {
-    const { startResourceSampler, stopResourceSampler } = await import('./resource-sampler');
-    settings.mockResolvedValue({ enabled: true, internals: true });
+    const { startResourceSampler, stopResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
     let finish!: (value: []) => void;
     collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
     startResourceSampler();
@@ -178,8 +178,8 @@ describe('resource sampler cadence', () => {
   });
 
   it('reports an unsuccessful sample and keeps the next interval alive', async () => {
-    const { startResourceSampler } = await import('./resource-sampler');
-    settings.mockResolvedValue({ enabled: true, internals: true });
+    const { startResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
     collect.mockRejectedValueOnce(new Error('renderer unavailable'));
     startResourceSampler();
     await vi.advanceTimersByTimeAsync(0);
@@ -191,14 +191,47 @@ describe('resource sampler cadence', () => {
   it('finishes loading when settings disable the sampler or cannot be read', async () => {
     const { setResourceMonitorOpen } = await import('./resource-sampler');
     settings.mockResolvedValueOnce({ enabled: false });
-    setResourceMonitorOpen('client', 'panel', true, 1);
+    setResourceMonitorOpen('client', 'panel', true, 1, false);
     await vi.advanceTimersByTimeAsync(0);
     expect(emit).toHaveBeenLastCalledWith(resourceSnapshotChannel, null);
     emit.mockClear();
     settings.mockRejectedValueOnce(new Error('settings unavailable'));
-    setResourceMonitorOpen('client', 'panel', true, 2);
+    setResourceMonitorOpen('client', 'panel', true, 2, false);
     await vi.advanceTimersByTimeAsync(0);
     expect(emit).toHaveBeenCalledWith(resourceSnapshotChannel, null);
     expect(metrics).not.toHaveBeenCalled();
+  });
+});
+
+describe('page-scoped advanced diagnostics', () => {
+  it('does no sampling while disabled, even if a page subscribes', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    settings.mockResolvedValue({ enabled: false });
+    setResourceMonitorOpen('client', 'page', true, 1, false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(metrics).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('samples internals only while expanded, ignores old persisted flags, and stops on leaving', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    // Older versions stored this flag. It must not enable collection on the new page.
+    settings.mockResolvedValue({ enabled: true, internals: true });
+    setResourceMonitorOpen('client', 'page', true, 1, false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(metrics).toHaveBeenCalled(); // Positive control: the ordinary sampler really ran.
+    expect(collect).not.toHaveBeenCalled();
+    setResourceMonitorOpen('client', 'page', true, 2, true);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(collect).toHaveBeenCalledTimes(1);
+    setResourceMonitorOpen('client', 'page', true, 3, false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(collect).toHaveBeenCalledTimes(1);
+    setResourceMonitorOpen('client', 'page', false, 4, false);
+    const calls = metrics.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(metrics).toHaveBeenCalledTimes(calls);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

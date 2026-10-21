@@ -65,7 +65,7 @@ import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { Session, SessionMessage } from '@shared/core/sessions/sessions';
-import { sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
+import { sessionDeliveryFailedChannel, sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
 import { makePtySessionId, parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionPlatformModel } from '../platform-model-selection';
 import {
@@ -122,14 +122,17 @@ function describeCancelledStart(
   );
 }
 
-function describeStartupExit({ exitCode, signal }: PtyExitInfo): Error {
+function describeStartupExit({ exitCode, signal }: PtyExitInfo, providerSessionId: string | undefined): Error {
   const reason =
     signal !== undefined
       ? `signal ${String(signal)}`
       : exitCode !== undefined
         ? `exit code ${exitCode}`
         : 'an unknown exit status';
-  return new Error(`Agent session failed during startup (${reason}).`);
+  return new HarnessStartupError(
+    `Agent session failed to resume${providerSessionId ? ` thread ${providerSessionId}` : ''} (${reason}).`
+      + ' Retry restoring this task; if the original thread was deleted, start a new task.',
+  );
 }
 
 function notifySessionpageEndedFromExit(sessionId: string): void {
@@ -783,6 +786,7 @@ export class LocalSessionProvider implements SessionProvider {
         setPtyStartupGate(pty, sessionpageOverride.startupGate);
       }
 
+      const resumeProviderSessionId = session.providerSessionId;
       pty.onExit((info) => {
         stopPresence?.();
         releaseHookSource();
@@ -822,17 +826,23 @@ export class LocalSessionProvider implements SessionProvider {
           }
         }
 
-        if (decision.kind === 'failed' && isUnexpectedPtyExit(info)) {
-          // A PTY can spawn successfully while its helper fails to exec the requested command.
-          // Once recovery is exhausted, end the parallel app-server lifecycle before publishing
-          // the durable error so a later turn/completed event cannot overwrite it.
-          notifySessionpageEndedFromExit(session.id);
-          emitSessionSpawnFailure(session, describeStartupExit(info));
-          return;
-        }
-
         // 引擎真的没了:落 idle、要么起替身、要么 teardown —— 不在 tmux 里时 pty 退出就是这一刻。
         const settleEngineGone = (): void => {
+          if (decision.kind === 'failed' && isUnexpectedPtyExit(info)) {
+            // A PTY can spawn successfully while its helper fails to exec the requested command.
+            // Once recovery is exhausted, end the parallel app-server lifecycle before publishing
+            // the durable error so a later turn/completed event cannot overwrite it.
+            notifySessionpageEndedFromExit(session.id);
+            const failure = describeStartupExit(info, resumeProviderSessionId);
+            emitSessionSpawnFailure(session, failure);
+            events.emit(sessionDeliveryFailedChannel, {
+              sessionId: session.id,
+              projectId: session.projectId,
+              message: failure.message,
+            });
+            return;
+          }
+
           // @@@exit-settles-in-process (#6380) —— 进程真的没了,harness 不会再打回任何一条 hook 边沿 ⇒ 这一轮在不在跑
           // 交给唯一的写入者落 idle,与 stopSession 同一条进程内调用;会话页渲染层随写入者的输出更新,❌ 自己改状态。
           void agentStatusWriter
@@ -848,7 +858,6 @@ export class LocalSessionProvider implements SessionProvider {
             this.scheduleReplacement({
               session,
               initialSize: replacementSize,
-              isResuming: decision.kind === 'respawnResume',
             });
             return;
           }
@@ -1234,14 +1243,12 @@ export class LocalSessionProvider implements SessionProvider {
   private scheduleReplacement({
     session,
     initialSize,
-    isResuming,
   }: {
     session: Session;
     initialSize: { cols: number; rows: number };
-    isResuming: boolean;
   }): void {
     setTimeout(() => {
-      this.startSessionInternal(session, initialSize, isResuming, undefined, true).catch(
+      this.startSessionInternal(session, initialSize, true, undefined, true).catch(
         (e) => {
           log.error('LocalSessionProvider: replacement failed', {
             sessionId: session.id,

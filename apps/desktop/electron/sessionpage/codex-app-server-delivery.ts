@@ -923,7 +923,7 @@ export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unk
  * ❌ 给 TUI 传 `-c model_provider`:TUI 本地配置里没有那条 provider 声明,当场报错;远端模式也不转发它。
  */
 export function codexTuiThreadSettingsArgs(
-  thread: { model?: unknown; reasoningEffort?: unknown },
+  thread: { id?: string; model?: unknown; reasoningEffort?: unknown },
   /**
    * 这次起进程时**指定**的模型 / 推理强度(会话记录里的那一份:换模型重开、咕咕模型)。给了就钉它,
    * 没给才钉 thread 自己存的。❌ 一律钉 thread 的:换模型重开时 thread 里存的正是**旧**模型,
@@ -943,7 +943,8 @@ export function codexTuiThreadSettingsArgs(
   }
   if (typeof thread.model !== 'string' || !thread.model.trim()) {
     throw new Error(
-      'codex thread/read 没给出 thread 的模型 —— TUI resume 会把它换成用户 config.toml 的默认模型,拒绝继续(fail-loud)',
+      `codex thread/read 没给出 thread${thread.id ? ` ${thread.id}` : ''} 的模型 —— TUI resume 会把它换成用户 config.toml 的默认模型,拒绝继续(fail-loud)。`
+        + '请重试恢复；若原记录已删除，请新开一个任务。',
     )
   }
   const args = ['-c', `model=${JSON.stringify(thread.model)}`]

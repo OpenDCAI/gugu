@@ -8,6 +8,7 @@ export class ResourceMonitorStore {
   /** The snapshot before `snapshot`, so the view can difference cumulative CPU seconds and counters. */
   previousSnapshot: ResourceSnapshot | null = null;
   isLoadingInitialSnapshot = false;
+  internals = false;
   private offSnapshot: (() => void) | null = null;
   private clientId = crypto.randomUUID();
   private sequence = 0;
@@ -18,6 +19,7 @@ export class ResourceMonitorStore {
       snapshot: observable,
       previousSnapshot: observable.ref,
       isLoadingInitialSnapshot: observable,
+      internals: observable,
       totalCpuPercent: computed,
       totalMemoryBytes: computed,
       appMemoryBytes: computed,
@@ -75,7 +77,15 @@ export class ResourceMonitorStore {
       });
     };
     this.offSnapshot = events.on(resourceSnapshotChannel, onSnapshot);
-    void rpc.resourceMonitor.setOpen(this.clientId, subscriptionId, true, ++this.sequence).catch(() => onSnapshot(null));
+    void rpc.resourceMonitor.setOpen(this.clientId, subscriptionId, true, ++this.sequence, false).catch(() => onSnapshot(null));
+  }
+
+  async setInternals(internals: boolean): Promise<void> {
+    const subscriptionId = this.subscriptionId;
+    if (!subscriptionId) return;
+    await rpc.resourceMonitor.setOpen(this.clientId, subscriptionId, true, ++this.sequence, internals);
+    if (this.subscriptionId !== subscriptionId) return;
+    runInAction(() => { this.internals = internals; });
   }
 
   dispose(): void {
@@ -85,9 +95,10 @@ export class ResourceMonitorStore {
     this.offSnapshot = null;
     runInAction(() => {
       this.isLoadingInitialSnapshot = false;
+      this.internals = false;
     });
     this.subscriptionId = null;
-    void rpc.resourceMonitor.setOpen(this.clientId, subscriptionId, false, ++this.sequence);
+    void rpc.resourceMonitor.setOpen(this.clientId, subscriptionId, false, ++this.sequence, false);
   }
 
   async refresh(): Promise<void> {

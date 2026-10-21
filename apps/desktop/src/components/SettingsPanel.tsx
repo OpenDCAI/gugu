@@ -118,6 +118,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':
       case 'interface':
+      case 'resource-monitor':
       case 'repository':
       case 'browser':
       case 'subscriptions': return <SessionSettingsSection section={activeSection} />

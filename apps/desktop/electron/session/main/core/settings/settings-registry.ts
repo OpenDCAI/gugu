@@ -80,8 +80,7 @@ export const SETTINGS_DEFAULTS = {
     profiles: DEFAULT_BROWSER_PROFILES
   },
   resourceMonitor: {
-    enabled: false,
-    internals: false
+    enabled: false
   },
   changesViewMode: {
     unstaged: 'flat' as const,

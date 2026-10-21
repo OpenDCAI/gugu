@@ -33,7 +33,7 @@ describe('the one settings nav', () => {
     expect(groups()).toEqual([
       ['assistant', 'connectors'],
       ['account', 'usage', 'subscriptions', 'activity'],
-      ['general', 'interface', 'permissions', 'model'],
+      ['general', 'interface', 'permissions', 'model', 'resource-monitor'],
       ['sessions', 'repository', 'browser', 'devices', 'channels', 'apps', 'phone'],
       ['about'],
     ])
