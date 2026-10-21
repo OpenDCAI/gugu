@@ -1,0 +1,36 @@
+{
+  "id": "regex-forge",
+  "name": "Regex Forge",
+  "description": "边打边试的正则工作台:左边写式子右边喂样本,命中段实时高亮,捕获组分列摊开。标题栏会跟着命中条数变。",
+  "author": "咕咕",
+  "categories": [
+    "dev-tools"
+  ],
+  "version": "0.1.0",
+  "apiVersion": 3,
+  "engines": {
+    "gugu": ">=0.2.40"
+  },
+  "entry": "forge.html",
+  "icon": "icon.png",
+  "contributes": {
+    "tabs": [
+      {
+        "name": "forge",
+        "title": "正则",
+        "toolbar": [
+          {
+            "id": "sample",
+            "title": "示例"
+          },
+          {
+            "id": "clear",
+            "title": "清空"
+          }
+        ]
+      }
+    ]
+  },
+  "license": "MIT",
+  "repository": "https://github.com/OpenDCAI/gugu"
+}

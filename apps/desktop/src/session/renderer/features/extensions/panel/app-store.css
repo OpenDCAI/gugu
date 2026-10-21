@@ -1,0 +1,1319 @@
+/*
+ * 左栏「App」= App 市场(#7059)。版面照 Google Play(owner 10-10 指着它的应用首页说「这个是我想要的」):
+ *   · 市场:顶上一张精选大卡(照它「活动进行中」那种);下面一类一排大图标格子,放不下就横着翻,两头一颗圆的翻页钮。
+ *   · 产品页:大字名字、发布方、一排要点(数在上、名目在下、格子之间一根短竖线)、宽的主按钮,右边大图标;
+ *     下面左栏 截图一排 → 关于此 App → 对 agent 说 → 新功能 → 装上后多了什么 → 权限(一张框),右栏 审核卡、链接、类似 App。
+ *     左右两栏的小节标题同一档字号(只有头上的名字是大字)。
+ * 颜色、字体、控件仍是咕咕的:单色(❌ Google 的绿),按钮 / 分段 / 菜单用咕咕现成的,字号只用咕咕允许的那几档。
+ * 能看 / 能做照 Slack;工具清单照 Claude 的连接器目录;不画安装数、评分(spec)。
+ */
+.mk {
+  /* 版本历史那几行还是 extensions-panel.css 的 xp-history,它读这几样。 */
+  --xp-fast: 120ms ease-out;
+  --xp-hover: var(--color-row-hover);
+  --xp-press: var(--color-row-press);
+  --xp-hairline: var(--border);
+  --xp-radius: var(--radius-control);
+  --mk-field: color-mix(in oklab, var(--foreground) 3%, transparent);
+  /* 浮在格子上面的翻页钮那层影子(照 Google Play)。图标 ❌ 影子:图标图片四周常带透明边,影子会描出一圈白框。 */
+  --mk-float-shadow: 0 1px 2px color-mix(in oklab, black 22%, transparent),
+    0 1px 3px 1px color-mix(in oklab, black 10%, transparent);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--font-body);
+  /* 窄了(左栏页签分屏、小窗口)按这一栏自己的宽度排,❌ 按窗口宽度。 */
+  container-type: inline-size;
+}
+
+/* ── 「市场 / 已安装」+ 装本地文件夹 ─────────────────────────────────── */
+.mk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+/* 选中那一格要看得出一块底(咕咕规范:分段选中 = 实底色块)。会话页皮肤里 ToggleGroup 的选中底
+   (--background-2)在白底内容区上是 0.995,几乎就是白的;这里铺一层前景色 6%。 */
+.mk-bar [data-slot='toggle-group-item'][data-pressed] {
+  background-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+.mk-seg-count {
+  color: var(--foreground-passive);
+  font-variant-numeric: tabular-nums;
+}
+.mk-seg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--foreground-destructive);
+}
+
+/* ── 图标:一个规矩,几个尺寸(圆角都是边长的 20%,照 Google Play)。
+   ❌ 照搬 Google Play 的 140px:owner 10-10 认为图标过大—— 咕咕的图标多是一个字,放大就是一块字砖。 */
+.mk-icon {
+  flex: none;
+  display: grid;
+  border-radius: 20%;
+}
+.mk-icon > img,
+.mk-icon > span {
+  width: 40px;
+  height: 40px;
+  border-radius: inherit;
+}
+.mk-icon.is-hero > img,
+.mk-icon.is-hero > span {
+  width: 112px;
+  height: 112px;
+  font-size: 44px;
+}
+.mk-icon.is-64 > img,
+.mk-icon.is-64 > span {
+  width: 64px;
+  height: 64px;
+  font-size: 24px;
+}
+.mk-icon.is-56 > img,
+.mk-icon.is-56 > span {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+.mk-icon.is-40 > img,
+.mk-icon.is-40 > span {
+  width: 40px;
+  height: 40px;
+  font-size: var(--font-heading);
+}
+
+/* ── 精选那一排(owner 10-19「参考 app store 首页」= App Store 首页顶上的大卡):几张就横着翻,一张时铺满 ─────── */
+.mk-hero {
+  margin-top: 24px;
+}
+.mk-hero .mk-shelf-row {
+  gap: 16px;
+  scroll-snap-type: x mandatory;
+}
+/* 卡片两套主题下都是暗底白字(App Store 同样):底图是截图或图标,字压在图上。 */
+.mk-hero-card {
+  --mk-hero-ink: oklch(0.2 0.01 268);
+  position: relative;
+  flex: none;
+  width: 100%;
+  /* 照 App Store 首页那张大图(约 16:9):宽的 2:1,窄了跟着缩;多张时每张 78% 宽,同样 2:1。 */
+  aspect-ratio: 2 / 1;
+  scroll-snap-align: start;
+  border-radius: var(--radius-surface);
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--mk-hero-ink);
+  color: white;
+  cursor: default;
+}
+.mk-hero.is-multi .mk-hero-card {
+  width: calc(78% - 8px);
+  aspect-ratio: 16 / 9;
+}
+/* 精选下面那排页码点(App Store 首页大图下面那排):此刻翻到的那一颗实心。 */
+.mk-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.mk-dots > i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+.mk-dots > i.is-on {
+  background: var(--foreground);
+}
+.mk-hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+/* 上下各压一层暗:左上的字、底下那一条在亮截图上也读得出。 */
+.mk-hero-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.3), transparent 40%, transparent 60%, rgb(0 0 0 / 0.35));
+}
+/* 有截图:截图铺右边七成,左边从卡底色渐变出文字区。 */
+.mk-hero-art.is-shot img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 70%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left top;
+}
+.mk-hero-art.is-shot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(90deg, var(--mk-hero-ink) 30%, color-mix(in oklab, var(--mk-hero-ink) 70%, transparent) 46%, transparent 70%);
+}
+/* 没截图:图标放大模糊当底,右边一个清晰的大图标。 */
+.mk-hero-blur {
+  position: absolute;
+  inset: -30%;
+  width: 160%;
+  height: 160%;
+  object-fit: cover;
+  filter: blur(56px) saturate(1.5) brightness(0.72);
+}
+.mk-hero-big {
+  position: absolute;
+  top: 50%;
+  right: 9%;
+  transform: translateY(-58%) rotate(-7deg);
+  filter: drop-shadow(0 24px 40px rgb(0 0 0 / 0.45));
+}
+.mk-hero-big > img,
+.mk-hero-big > span {
+  width: 168px;
+  height: 168px;
+  font-size: 64px;
+}
+.mk-hero-text {
+  position: absolute;
+  top: 24px;
+  left: 28px;
+  right: 40%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.mk-hero-label {
+  font-size: var(--font-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  opacity: 0.78;
+}
+.mk-hero-title {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: default;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 暗底上用白线,外面那圈咕咕的描边色在暗底上看不见。 */
+.mk-hero-title:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.mk-hero-body {
+  margin: 10px 0 0;
+  font-size: var(--font-body);
+  line-height: 22px;
+  opacity: 0.82;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mk-hero-foot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 12px 28px;
+  background: rgb(0 0 0 / 0.42);
+}
+.mk-hero-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.mk-hero-who b {
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+.mk-hero-who span {
+  font-size: var(--font-caption);
+  opacity: 0.72;
+}
+/* 暗底上那颗按钮:白药丸黑字。 */
+.mk-hero-foot [data-slot='button'] {
+  border-color: transparent;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  color: oklch(0.2 0.01 268);
+  font-weight: 600;
+}
+.mk-hero-foot .mk-busy,
+.mk-hero-foot .mk-word {
+  color: rgb(255 255 255 / 0.8);
+}
+
+/* ── 「最新」那排小卡(App Store 发现页里大图配一句话的卡):上面 16:9 的底图,下面一条图标、名字、副标题、按钮;
+   字不压在图上,跟着主题走。一屏三张,窄了两张、露出第三张。 ─────── */
+.mk-card-shelf .mk-shelf-row {
+  gap: 20px;
+  scroll-snap-type: x mandatory;
+}
+.mk-hero-card.is-card {
+  width: calc((100% - 2 * 20px) / 3);
+  height: auto;
+  aspect-ratio: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 0;
+  overflow: visible;
+  background: none;
+  color: inherit;
+}
+.mk-hero-card.is-card .mk-hero-art {
+  position: relative;
+  inset: auto;
+  z-index: 0;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-surface);
+  background: var(--mk-hero-ink);
+}
+.mk-hero-card.is-card .mk-hero-art::after,
+.mk-hero-card.is-card .mk-hero-art.is-shot::before {
+  display: none;
+}
+.mk-hero-card.is-card .mk-hero-art.is-shot img {
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+.mk-hero-card.is-card .mk-hero-big {
+  top: 50%;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+.mk-hero-card.is-card .mk-hero-big > img,
+.mk-hero-card.is-card .mk-hero-big > span {
+  width: 88px;
+  height: 88px;
+  font-size: 34px;
+}
+.mk-hero-card.is-card .mk-hero-foot {
+  position: static;
+  padding: 0;
+  background: none;
+}
+.mk-hero-name {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: var(--font-body);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.mk-hero-card.is-card .mk-hero-who span {
+  opacity: 1;
+  color: var(--foreground-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mk-hero-card.is-card .mk-busy,
+.mk-hero-card.is-card .mk-word {
+  color: var(--foreground-muted);
+}
+
+/* ── 一类一排 ─────────────────────────────────────────────────────────── */
+.mk-sec {
+  margin-top: 40px;
+}
+/* 分区标题比页标题(20px)小一档,照 App Store:页标题最大,分区标题 17px,名字 15px。 */
+.mk-sec > h3 {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--font-title);
+  line-height: 24px;
+  font-weight: 600;
+}
+.mk-count {
+  font-size: var(--font-body);
+  font-weight: 400;
+  color: var(--foreground-passive);
+  font-variant-numeric: tabular-nums;
+}
+/* 「上次更新于 …」:后台没取到目录时,标题这一行的最右边一句小字。 */
+.mk-stale {
+  margin-left: auto;
+  font-size: var(--font-caption);
+  font-weight: 400;
+  color: var(--foreground-passive);
+  font-variant-numeric: tabular-nums;
+}
+.mk-shelf {
+  position: relative;
+}
+/* 一排横着滚;四周让出 12px,格子悬停时那层底色才不会被裁掉。 */
+.mk-shelf-row {
+  display: flex;
+  gap: 24px;
+  margin: 0 -12px;
+  padding: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding: 12px;
+  scrollbar-width: none;
+  /* 左右那 12px 让出来的边只给悬停底色用:露出一半的下一列裁在内容区的边上,❌ 滚到吸顶的页头外面去。 */
+  clip-path: inset(0 12px);
+}
+.mk-shelf-row::-webkit-scrollbar {
+  display: none;
+}
+/* 翻页钮:鼠标放在这一排上才出来,压在图标那一截的正中(照 Google Play)。它浮在格子上面,所以有影子。 */
+.mk-shelf-arrow {
+  position: absolute;
+  top: calc(50% - 24px);
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  box-shadow: var(--mk-float-shadow);
+  opacity: 0;
+  transition: opacity var(--xp-fast);
+}
+.mk-shelf-arrow.is-prev {
+  left: -24px;
+}
+.mk-shelf-arrow.is-next {
+  right: -24px;
+}
+.mk-shelf:hover .mk-shelf-arrow,
+.mk-shelf-arrow:focus-visible {
+  opacity: 1;
+}
+/* 类别那一排(照 Google Play「手机 / 平板电脑…」那排筛选块):咕咕的分段控件,一块一块分开,选中的那块实底。 */
+.mk-chipbar {
+  margin-top: 20px;
+  flex-wrap: wrap;
+  gap: 8px;
+  height: auto;
+  border: 0;
+  background: none;
+  overflow: visible;
+}
+/* 一块一块各自带框(照 Google Play 那排),选中的那块去框铺实底;和上面「市场 / 已安装」那种连成一条的分段区分开。 */
+.mk-chipbar [data-slot='toggle-group-item'] {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--foreground-muted);
+  font-size: var(--font-body);
+}
+.mk-chipbar [data-slot='toggle-group-item'][data-pressed] {
+  border-color: transparent;
+  background-color: color-mix(in oklab, var(--foreground) 9%, transparent);
+  color: var(--foreground);
+  font-weight: 500;
+}
+/* 首页那几排的标题行:标题在左,「查看全部」在右;字号同「全部 App」那一行(比页标题小一档)。 */
+.mk-sec-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.mk-sec-bar > h3 {
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: 24px;
+  font-weight: 600;
+}
+
+/* ── App 行(App Store 的 App 行):图标、名字、一句话、右边那颗按钮;桌面三列,窄了两列,再窄一列 ─────── */
+/* 首页那几排(App Store 的列表分区):按列排,每列 1–3 行(`is-rows-N`),横着滑;一屏三列,窄了两列、露出第三列。 */
+.mk-lockup-shelf .mk-shelf-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 2 * 28px) / 3);
+  column-gap: 28px;
+  row-gap: 0;
+  scroll-snap-type: x mandatory;
+}
+.mk-lockup-shelf.is-rows-2 .mk-shelf-row {
+  grid-template-rows: repeat(2, auto);
+}
+.mk-lockup-shelf.is-rows-3 .mk-shelf-row {
+  grid-template-rows: repeat(3, auto);
+}
+.mk-lockup-shelf .mk-lockup {
+  scroll-snap-align: start;
+}
+.mk-lockups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 28px;
+}
+.mk-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  /* 行与行之间不画线,靠留白分开(App Store 同样):图标 64 + 上下各 12 = 一行 88。 */
+  padding: 12px 0;
+  cursor: default;
+}
+.mk-lockup.is-busy {
+  cursor: progress;
+}
+.mk-lockup-body {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mk-lockup-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.35;
+}
+.mk-lockup-name {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: var(--font-body);
+  font-weight: 600;
+  /* 名字最多两行(App Store 同样),副标题仍一行。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+.mk-lockup-name.is-deprecated {
+  text-decoration: line-through;
+  color: var(--foreground-muted);
+}
+.mk-lockup-sub {
+  max-width: 100%;
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  color: var(--foreground-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 行尾那颗按钮:圆角药丸、一层浅底(App Store 的「获取」);状态只画在它上面。「最新」小卡上的同样。 */
+.mk-lockup [data-slot='button'],
+.mk-hero-card.is-card [data-slot='button'] {
+  min-width: 64px;
+  border-color: transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  /* 小卡在精选卡的底条里,那里给按钮的是暗底上的深色字;这里跟着主题。 */
+  color: var(--foreground);
+  font-weight: 600;
+}
+.mk-lockup [data-slot='button']:hover,
+.mk-hero-card.is-card [data-slot='button']:hover {
+  background: color-mix(in oklab, var(--foreground) 13%, transparent);
+}
+/* 要做的事(安装 / 更新)用品牌色 = 墨,打开 / 启用仍是浅底:一排里一眼分得出哪些还没装。 */
+.mk-lockup [data-lifecycle='get'],
+.mk-lockup [data-lifecycle='update'],
+.mk-hero-card.is-card [data-lifecycle='get'],
+.mk-hero-card.is-card [data-lifecycle='update'] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.mk-lockup [data-lifecycle='get']:hover,
+.mk-lockup [data-lifecycle='update']:hover,
+.mk-hero-card.is-card [data-lifecycle='get']:hover,
+.mk-hero-card.is-card [data-lifecycle='update']:hover {
+  background: color-mix(in oklab, var(--color-primary) 85%, transparent);
+}
+.mk-lockup .mk-word {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-caption);
+}
+
+/* ── 已安装:一行一个 App(开关、⋯ 都在行上)──────────────────────────────── */
+.mk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+.mk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px;
+  border-radius: var(--radius-control);
+  cursor: default;
+  transition: background-color var(--xp-fast);
+}
+.mk-row:hover {
+  background: var(--color-row-hover);
+}
+.mk-row.is-off .mk-icon,
+.mk-row.is-off .mk-tx {
+  opacity: 0.5;
+}
+.mk-row.is-busy {
+  cursor: progress;
+}
+.mk-row .mk-icon {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+.mk-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mk-tx > b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mk-tx > b > .mk-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mk-tx > b em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--foreground-passive);
+  font-variant-numeric: tabular-nums;
+}
+.mk-tx > span {
+  color: var(--foreground-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mk-tx > span.is-warn {
+  color: var(--foreground-warning);
+}
+button.mk-name {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+}
+button.mk-name:focus-visible {
+  outline: 1px solid var(--border-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 开关占一格固定的位:预装的(咕咕自己的,没有开关)那一行,按钮和 ⋯ 照样跟别的行对齐。 */
+.mk-switch-slot {
+  flex: none;
+  width: 36px;
+  display: flex;
+  justify-content: center;
+}
+
+/* ── 一个按钮走完一生:进行中那一格占按钮的位,字跟着走 ─────────────────── */
+.mk-busy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px;
+  color: var(--foreground-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mk-busy.is-primary {
+  justify-content: center;
+  height: 40px;
+  min-width: 200px;
+  border-radius: var(--radius-control);
+  background: var(--mk-field);
+}
+.mk-primary-action {
+  min-width: 200px;
+}
+.mk-word {
+  flex: none;
+  padding: 0 4px;
+  color: var(--foreground-passive);
+  white-space: nowrap;
+}
+.mk-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(
+    currentColor calc(var(--p) * 1%),
+    color-mix(in oklab, currentColor 18%, transparent) 0
+  );
+  -webkit-mask: radial-gradient(circle, transparent 4.5px, #000 5px);
+  mask: radial-gradient(circle, transparent 4.5px, #000 5px);
+}
+.mk-foot {
+  margin-top: 24px;
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mk-empty {
+  margin-top: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--foreground-muted);
+}
+.mk-status {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground-muted);
+}
+
+/* ── 产品页:头 ───────────────────────────────────────────────────────── */
+.mk-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: max-content;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--foreground-muted);
+  cursor: default;
+}
+.mk-back:hover {
+  color: var(--foreground);
+}
+.mk-dh {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  align-items: start;
+  margin-top: 24px;
+}
+.mk-dh-main {
+  min-width: 0;
+}
+.mk-dh-title {
+  margin: 0;
+  font-size: 40px;
+  line-height: 48px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.mk-dh-title.is-deprecated {
+  text-decoration: line-through;
+}
+.mk-dh-sub {
+  margin: 4px 0 0;
+  font-size: var(--font-title);
+  color: var(--foreground-muted);
+}
+.mk-dh-by {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--font-title);
+  font-weight: 500;
+  color: var(--foreground-muted);
+}
+/* 一排要点:数在上、名目在下;格子之间一根 24px 高的短竖线(照 Google Play)。 */
+.mk-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 24px 0 0;
+}
+.mk-facts > div {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px;
+  min-width: 0;
+}
+.mk-facts > div:first-child {
+  padding-left: 0;
+}
+.mk-facts > div + div::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 24px;
+  transform: translateY(-50%);
+  background: var(--border);
+}
+.mk-facts dd {
+  margin: 0;
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mk-facts dt {
+  font-size: var(--font-caption);
+  line-height: 16px;
+  color: var(--foreground-muted);
+  white-space: nowrap;
+}
+.mk-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 28px;
+}
+.mk-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  background: var(--mk-field);
+  color: var(--foreground-muted);
+}
+.mk-banner.is-warn {
+  color: var(--foreground);
+}
+
+/* ── 产品页:下面两栏 ───────────────────────────────────────────────── */
+.mk-dbody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 56px;
+  align-items: start;
+  margin-top: 40px;
+}
+.mk-dmain,
+.mk-dside {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+.mk-dsec > h3,
+.mk-sec-h h3 {
+  margin: 0 0 12px;
+  font-size: var(--font-heading);
+  line-height: 24px;
+  font-weight: 600;
+}
+.mk-sec-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.mk-sec-h h3 {
+  margin: 0;
+}
+/* 「关于此 App →」:标题和箭头一起是一颗按钮,打开整篇简介。 */
+.mk-dsec-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--foreground);
+  cursor: default;
+}
+.mk-dsec-link > svg {
+  color: var(--foreground-muted);
+  transition: transform var(--xp-fast);
+}
+.mk-dsec-link:hover > svg {
+  color: var(--foreground);
+  transform: translateX(2px);
+}
+/* 截图一排:每张一样高、宽跟着图走;桌面截图多是白底,落一根细线。 */
+.mk-dsec.is-shots .mk-shelf-row {
+  gap: 12px;
+}
+.mk-shot {
+  flex: none;
+  margin: 0;
+  scroll-snap-align: start;
+}
+.mk-shot img {
+  display: block;
+  height: 260px;
+  width: auto;
+  max-width: none;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+.mk-shot figcaption {
+  margin-top: 6px;
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+}
+.mk-asks {
+  display: flex;
+  flex-direction: column;
+}
+.mk-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 0 -10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  font: inherit;
+  color: var(--foreground);
+  text-align: left;
+  cursor: default;
+}
+.mk-ask:hover {
+  background: var(--color-row-hover);
+}
+.mk-ask:active {
+  background: var(--color-row-press);
+}
+.mk-ask:disabled {
+  color: var(--foreground-muted);
+}
+.mk-ask > span {
+  flex: 1;
+  min-width: 0;
+}
+.mk-ask > svg {
+  flex: none;
+  color: var(--foreground-passive);
+}
+.mk-about {
+  margin: 0;
+  line-height: 20px;
+  color: var(--foreground-muted);
+}
+.mk-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--foreground-muted);
+  cursor: default;
+}
+.mk-link:hover {
+  color: var(--foreground);
+}
+.mk-link:disabled {
+  color: var(--foreground-passive);
+}
+.mk-new {
+  color: var(--foreground-muted);
+}
+.mk-new > span {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+}
+/* 停在人挑的那一版、不自动更新(owner 10-19):一句话 + 「恢复自动更新」,在更新说明上面。 */
+.mk-pinned {
+  margin: 0 0 8px;
+  font-size: var(--font-caption);
+  color: var(--foreground-muted);
+}
+.mk-vers {
+  margin-top: 12px;
+}
+/* 「装上后多了什么」:一项一行,左边图标、右边名目(粗)和一句话;不套框(整页唯一的框是权限那张)。 */
+.mk-adds {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mk-add {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mk-add > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--foreground-muted);
+}
+.mk-add > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 20px;
+}
+.mk-add b {
+  font-weight: 600;
+}
+.mk-add i {
+  font-style: normal;
+  color: var(--foreground-muted);
+}
+.mk-tools {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: baseline;
+}
+.mk-tools code {
+  width: max-content;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mk-field);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--font-caption);
+}
+.mk-switch-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--foreground-muted);
+}
+.mk-note {
+  margin: 0 0 12px;
+  color: var(--foreground-muted);
+}
+/* 权限那一张框(照 Google Play「数据安全」那张):整页唯一一个框,里面不再套框。 */
+.mk-card {
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+}
+.mk-perm-k {
+  display: block;
+  margin: 16px 0 4px;
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+}
+.mk-card > div:first-child > .mk-perm-k {
+  margin-top: 0;
+}
+.mk-pl {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0;
+  line-height: 20px;
+}
+.mk-pl > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--foreground-muted);
+}
+.mk-pl > span {
+  flex: 1;
+  min-width: 0;
+}
+.mk-pl.is-revoked > span {
+  color: var(--foreground-passive);
+  text-decoration: line-through;
+}
+.mk-pl pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+}
+
+/* ── 产品页:右栏 ─────────────────────────────────────────────────────── */
+/* 审核那张卡(照 Google Play 右栏顶上的「内容分级」卡):一个图标、一句话、代码在哪。 */
+.mk-review {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.mk-review > svg {
+  flex: none;
+  color: var(--foreground);
+}
+.mk-review > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mk-review b {
+  font-size: var(--font-title);
+  line-height: 22px;
+  font-weight: 500;
+}
+.mk-review-k {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: var(--font-caption);
+  color: var(--foreground-muted);
+}
+.mk-side-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.mk-side-links .mk-note {
+  margin: 0;
+}
+.mk-similar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mk-similar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 -8px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+}
+.mk-similar-row:hover {
+  background: var(--color-row-hover);
+}
+.mk-similar-tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mk-similar-tx > * {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mk-similar-tx b {
+  font-weight: 500;
+}
+.mk-similar-tx span,
+.mk-similar-tx i {
+  font-size: var(--font-caption);
+  font-style: normal;
+  color: var(--foreground-muted);
+}
+.mk-mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--font-caption);
+}
+.mk-ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--foreground);
+  text-align: left;
+  cursor: default;
+}
+.mk-ext:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 代码出处那一格是按钮(.mk-ext 的 font: inherit 会把字号顶回正文),等宽字落说明字号。 */
+.mk-ext.mk-mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--font-caption);
+  overflow-wrap: anywhere;
+}
+
+/* ── 关于此 App 那个框(浮层在页外,读不到 .mk 上的变量,只用全站 token)───────── */
+.mk-dialog-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mk-dialog-title > span {
+  font-size: var(--font-caption);
+  color: var(--foreground-muted);
+}
+.mk-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin: 0;
+}
+.mk-info-grid dt {
+  font-weight: 600;
+}
+.mk-info-grid dd {
+  margin: 4px 0 0;
+  color: var(--foreground-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ── 窄:放在最后,压过上面同级的版面规则 ───────────────────────────────── */
+/* 两栏放不下:右栏落到正文下面(照 Google Play 窄屏)。 */
+@container (max-width: 860px) {
+  .mk-dbody {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+  .mk-lockups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* 横排一屏两列 / 两张,露出下一列(App Store 窄窗同样),❌ 折成竖着的两列。 */
+  .mk-lockup-shelf .mk-shelf-row {
+    grid-auto-columns: 44%;
+  }
+  .mk-hero-card.is-card {
+    width: 44%;
+  }
+  .mk-hero-text {
+    right: 34%;
+  }
+  .mk-hero-title {
+    font-size: 26px;
+    line-height: 34px;
+  }
+  .mk-hero-big > img,
+  .mk-hero-big > span {
+    width: 128px;
+    height: 128px;
+    font-size: 48px;
+  }
+}
+@container (max-width: 600px) {
+  .mk-dh {
+    gap: 20px;
+  }
+  .mk-dh-title {
+    font-size: 28px;
+    line-height: 36px;
+  }
+  .mk-icon.is-hero > img,
+  .mk-icon.is-hero > span {
+    width: 88px;
+    height: 88px;
+    font-size: 34px;
+  }
+  .mk-lockups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mk-lockup-shelf .mk-shelf-row {
+    grid-auto-columns: 85%;
+  }
+  .mk-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mk-hero-card.is-card {
+    width: 80%;
+  }
+  .mk-facts > div {
+    padding: 0 14px;
+  }
+  /* 窄了精选卡竖过来:字在上,截图 / 大图标在下半截。 */
+  .mk-hero-card {
+    aspect-ratio: auto;
+    height: 380px;
+  }
+  .mk-hero.is-multi .mk-hero-card {
+    width: calc(100% - 32px);
+  }
+  .mk-hero-text {
+    right: 20px;
+    left: 20px;
+  }
+  .mk-hero-art.is-shot img {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 70%;
+    object-position: center top;
+  }
+  .mk-hero-art.is-shot::before {
+    background: linear-gradient(180deg, var(--mk-hero-ink) 28%, color-mix(in oklab, var(--mk-hero-ink) 60%, transparent) 40%, transparent 58%);
+  }
+  .mk-hero-big {
+    top: 60%;
+    right: auto;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-7deg);
+  }
+  .mk-hero-foot {
+    padding: 12px 14px 12px 20px;
+  }
+  .mk-shot img {
+    height: 200px;
+  }
+}

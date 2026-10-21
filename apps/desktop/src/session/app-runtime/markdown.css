@@ -1,0 +1,23 @@
+/* 咕咕 App 页面的 markdown 样式 —— /_gugu/<ver>/markdown.css。gugu.markdown() 第一次用时由 markdown-entry.ts 链进页面。
+ *
+ * 不是另一份排版：KaTeX 的样式，加上宿主各面用的同一份 .gg-md（packages/session-shared/src/markdown/markdown.css），
+ * 整份在 @layer gugu 里，和 ui.css 同一层：App 自己写的样式都压得过它。这里只补 App 页面上才有的几件事。
+ */
+@import 'katex/dist/katex.min.css' layer(gugu);
+@import '@gugu/session-shared/markdown.css' layer(gugu);
+
+@layer gugu {
+  /* .gg-md 读宿主的两个名字；在 App 页面上，它们就是 ui.css 的 --em-*（深浅两套跟着 data-gugu-theme 走）。 */
+  :root {
+    --text-link: var(--em-foreground-info);
+    --font-family-mono: var(--em-font-mono);
+  }
+
+  /* 画出来的 mermaid 图（宿主文档面用的同一个渲染器）：宽了自己横着滚。 */
+  .gg-md .gg-md-mermaid { overflow-x: auto; }
+  .gg-md .gg-md-mermaid svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+
+  /* ui.css 把 App 自己的勾选框画成咕咕多选的那颗圈；文档里的任务项是 gugu 每个 markdown 面都一样的那种勾选框。 */
+  .gg-md li input[type='checkbox'] { appearance: auto; -webkit-appearance: auto; border: 0; border-radius: 0; background: none; }
+  .gg-md li input[type='checkbox']::after { content: none; }
+}

@@ -1,0 +1,2947 @@
+diff --git a/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs b/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs
+index 48154f582d80be72dc9c389cbb6de8c975509225..d21b60d32798426ed28d31420fb750726403ccce 100644
+--- a/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs
++++ b/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs
+@@ -22,6 +22,8 @@ struct Ui {
+     bubble_open: bool,
+     /// Reads left before the "Finish" button appears on screen 2.
+     finish_delay_reads: u32,
++    /// Reads whose partial tree must not authorize a named action.
++    partial_reads: u32,
+     snapshot: u32,
+     /// Element labels of the latest read, by element index.
+     last_labels: Vec<(String, String)>,
+@@ -129,7 +131,10 @@ impl Tool for Fake {
+                 if ui.screen == 1 && window_id == 7 {
+                     markdown.push_str("  - AXStaticText \"Step 2 of 2\"\n");
+                 }
++                let truncated = ui.partial_reads > 0;
++                ui.partial_reads = ui.partial_reads.saturating_sub(1);
+                 ToolResult::text(markdown.clone()).with_structured(json!({
++                    "truncated": truncated,
+                     "pid": 42,
+                     "window_id": window_id,
+                     "snapshot_id": format!("s{snapshot:08x}"),
+@@ -508,15 +513,20 @@ async fn the_end_observation_diffs_against_the_batch_start() {
+         .await;
+     assert_ne!(result.is_error, Some(true), "{}", text(&result));
+     let reads = harness.calls("get_window_state");
+-    // First a plain read with the observation's budget (remembered by
+-    // `since`), then the full lookup read, then the end diff.
++    // The complete plain read serves both the baseline and the lookup; the
++    // end diff still compares against the state before the mutation.
+     assert_eq!(reads[0]["max_elements"], 250);
+     assert!(reads[0].get("full_output").is_none());
+-    assert_eq!(reads[1]["full_output"], true);
++    assert_eq!(reads[0]["tree_format"], "both");
++    assert_eq!(reads[0]["include_menu_items"], false);
+     let last = reads.last().unwrap();
+     assert_eq!(last["since"], "latest");
+     assert_eq!(last["max_elements"], 250);
+-    assert_eq!(reads.len(), 3, "one baseline per window, not per poll");
++    assert_eq!(
++        reads.len(),
++        2,
++        "one complete baseline/lookup, then the end diff"
++    );
+ 
+     // Without observe there is no baseline read.
+     let before = harness.calls("get_window_state").len();
+@@ -544,3 +554,24 @@ async fn a_trailing_get_window_state_in_shorthand_is_the_observation() {
+         7
+     );
+ }
++
++#[tokio::test]
++async fn partial_lookup_never_dispatches_an_action_even_if_its_target_is_already_visible() {
++    let harness = Harness::new();
++    harness.ui.lock().unwrap().partial_reads = 1;
++    let result = harness
++        .run(json!({"steps":[
++            {"click":{"pid":42,"window_id":7,"role":"button","name":"Next"},"timeout_ms":150},
++            {"click":{"role":"button","name":"Finish"}}
++        ]}))
++        .await;
++    assert_eq!(result.is_error, Some(true));
++    assert_eq!(
++        result.structured_content.as_ref().unwrap()["steps"][0]["code"],
++        "incomplete_read"
++    );
++    assert!(
++        harness.calls("click").is_empty(),
++        "neither an incomplete match nor a later step may inject input"
++    );
++}
+diff --git a/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/locate.rs b/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/locate.rs
+index 361cbf57223e6f7f8c7c151fd7a4daccdd76d72e..71e8a4ef86effb81dff4b163f8a205218be957d1 100644
+--- a/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/locate.rs
++++ b/libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/locate.rs
+@@ -51,6 +51,11 @@ pub(crate) const DEFAULT_EXPECT_TIMEOUT_MS: u64 = 2_000;
+ /// Longest wait any single check may ask for.
+ pub(crate) const MAX_CHECK_TIMEOUT_MS: u64 = 10_000;
+ const POLL_INTERVAL: Duration = Duration::from_millis(250);
++/// timeout_ms:0 means one current probe, not no I/O and not an unbounded wait.
++/// Use the existing native default walk budget as the whole probe's cap,
++/// including window discovery, baseline, admission and post-processing.
++const ZERO_WAIT_PROBE_BUDGET: Duration =
++    Duration::from_millis(crate::tool_schema::TIMEOUT_MS_DEFAULT);
+ const CANDIDATES_SHOWN: usize = 5;
+ /// Most windows of one app a lookup reads per poll.
+ const MAX_WINDOWS_SEARCHED: usize = 4;
+@@ -376,6 +381,8 @@ pub(crate) struct Read {
+     pub window: Window,
+     pub elements: Vec<Value>,
+     pub markdown: String,
++    /// A budget/element-limit truncation cannot establish absence or uniqueness.
++    pub incomplete: bool,
+ }
+ 
+ /// An element found by description.
+@@ -424,6 +431,7 @@ impl Miss {
+                 | "window_not_found"
+                 | "still_present"
+                 | "unexpected_state"
++                | "incomplete_read"
+         )
+     }
+ 
+@@ -479,12 +487,101 @@ impl<'a> Locator<'a> {
+         args
+     }
+ 
+-    async fn call(&self, tool: &str, args: Value) -> Result<Value, String> {
+-        let result = self.registry.invoke(tool, self.with_session(args)).await;
+-        if result.is_error == Some(true) {
+-            return Err(format!("{tool}: {}", first_text(&result)));
++    /// Derive the private lifecycle key from the trusted dispatch context,
++    /// never from a caller-supplied private id or a process-global public label.
++    fn ensure_active(&self) -> Result<(), Miss> {
++        if let Some(context) = crate::tool::current_dispatch_authorization_context() {
++            let label = self.session.as_deref().or_else(|| context.public_session());
++            if context.is_revoked()
++                || label.is_some_and(|label| {
++                    crate::session::is_session_ending(&context.runtime_session_key(label))
++                })
++            {
++                return Err(Miss::new(
++                    "cancelled",
++                    "lookup cancelled because its owning session is ending or revoked; no new read or input was dispatched",
++                ));
++            }
++        }
++        Ok(())
++    }
++
++    fn remaining_ms(&self, deadline: Instant) -> Result<u64, Miss> {
++        self.ensure_active()?;
++        let remaining = deadline
++            .min(self.deadline)
++            .saturating_duration_since(Instant::now());
++        let ms = remaining.as_millis().min(u64::MAX as u128) as u64;
++        if ms == 0 {
++            return Err(lookup_timeout());
+         }
+-        Ok(result.structured_content.unwrap_or(Value::Null))
++        Ok(ms)
++    }
++
++    /// Include registry admission, native queueing and post-processing in the
++    /// same deadline. Dropping a timed-out read does not imply that its native
++    /// worker stopped; do not start another read or return a token afterward.
++    async fn within<T>(
++        &self,
++        deadline: Instant,
++        future: impl std::future::Future<Output = Result<T, Miss>>,
++    ) -> Result<T, Miss> {
++        let deadline = deadline.min(self.deadline);
++        self.remaining_ms(deadline)?;
++        tokio::pin!(future);
++        let expires = tokio::time::sleep_until(deadline.into());
++        tokio::pin!(expires);
++        loop {
++            tokio::select! {
++                biased;
++                _ = &mut expires => return Err(lookup_timeout()),
++                result = &mut future => {
++                    self.remaining_ms(deadline)?;
++                    return result;
++                }
++                _ = tokio::time::sleep(Duration::from_millis(25)) => self.ensure_active()?,
++            }
++        }
++    }
++
++    async fn call(&self, tool: &str, args: Value) -> Result<Value, Miss> {
++        let started = Instant::now();
++        let result = self
++            .within(self.deadline, async {
++                let result = self.registry.invoke(tool, self.with_session(args)).await;
++                if result.is_error == Some(true) {
++                    let code = if tool == "get_window_state" {
++                        // Only an authoritative closed-window refusal proves the
++                        // list/read race. Permission, busy and timeout errors do not.
++                        if result
++                            .structured_content
++                            .as_ref()
++                            .and_then(|state| {
++                                state.pointer("/refusal/code").or_else(|| state.get("code"))
++                            })
++                            .and_then(Value::as_str)
++                            == Some("window_id_not_found")
++                        {
++                            "window_not_found"
++                        } else {
++                            "read_failed"
++                        }
++                    } else {
++                        "lookup_failed"
++                    };
++                    return Err(Miss::new(code, format!("{tool}: {}", first_text(&result))));
++                }
++                Ok(result.structured_content.unwrap_or(Value::Null))
++            })
++            .await;
++        tracing::info!(
++            tool,
++            phase = "locate_read",
++            elapsed_ms = started.elapsed().as_millis() as u64,
++            session = self.session.as_deref().unwrap_or(""),
++            "cua input timing"
++        );
++        result
+     }
+ 
+     /// Resolve a spec to one window. With only `app` or `pid`, the app's
+@@ -522,10 +619,7 @@ impl<'a> Locator<'a> {
+         if let Some(pid) = spec.pid {
+             list_args["pid"] = json!(pid);
+         }
+-        let listed = self
+-            .call("list_windows", list_args)
+-            .await
+-            .map_err(|error| Miss::new("lookup_failed", error))?;
++        let listed = self.call("list_windows", list_args).await?;
+         let windows: Vec<Value> = listed
+             .get("windows")
+             .and_then(Value::as_array)
+@@ -688,6 +782,25 @@ impl<'a> Locator<'a> {
+     /// One fresh accessibility read. It refreshes the window's element
+     /// tokens, so the tokens it returns are the ones to act with.
+     pub async fn read(&self, window: &Window) -> Result<Read, Miss> {
++        // ScriptAPI also uses Locator reads without a find/check selector.
++        // Preserve its full-output scope and the Locator's batch deadline.
++        let selector = ElementSpec::default();
++        self.read_scoped(window, &selector, None).await
++    }
++
++    async fn read_scoped(
++        &self,
++        window: &Window,
++        element: &ElementSpec,
++        native_budget: Option<Instant>,
++    ) -> Result<Read, Miss> {
++        // Only named find/check reads override the native AX budget. Legacy
++        // ScriptAPI reads keep its default, while still obeying the batch cap.
++        let deadline = native_budget.unwrap_or(self.deadline).min(self.deadline);
++        let scoped_non_menu = element
++            .role
++            .as_deref()
++            .is_some_and(|role| !role_family(role).starts_with("menu"));
+         if let Some(max_elements) = self.baseline_max_elements {
+             let first = self
+                 .baselined
+@@ -696,31 +809,68 @@ impl<'a> Locator<'a> {
+                 .insert((window.pid, window.window_id));
+             if first {
+                 // Best effort: a failed baseline only means a full end read.
+-                let _ = self
+-                    .call(
+-                        "get_window_state",
+-                        json!({
+-                            "pid": window.pid,
+-                            "window_id": window.window_id,
+-                            "max_elements": max_elements,
+-                            "include_screenshot": false,
+-                        }),
+-                    )
++                let mut args = json!({
++                    "pid": window.pid,
++                    "window_id": window.window_id,
++                    "max_elements": max_elements,
++                    "include_screenshot": false,
++                });
++                if scoped_non_menu {
++                    args["tree_format"] = json!("both");
++                    args["include_menu_items"] = json!(false);
++                }
++                if native_budget.is_some() {
++                    args["timeout_ms"] = json!(self.remaining_ms(deadline)?);
++                }
++                let baseline = self
++                    .within(deadline, self.call("get_window_state", args))
+                     .await;
++                // Best effort must not swallow cancellation or budget exhaustion.
++                self.remaining_ms(deadline)?;
++                // A complete current baseline already contains the whole
++                // same non-menu search domain. Use its fresh tokens directly;
++                // a second walk only adds queueing to the same find deadline.
++                // An incomplete/unproven or menu-scoped read is never reused.
++                if scoped_non_menu {
++                    if let Ok(state) = baseline {
++                        if state.get("truncated").and_then(Value::as_bool) == Some(false)
++                            && state.get("elements").is_some_and(Value::is_array)
++                        {
++                            return Ok(Read {
++                                window: window.clone(),
++                                elements: state["elements"].as_array().unwrap().clone(),
++                                markdown: state
++                                    .get("tree_markdown")
++                                    .and_then(Value::as_str)
++                                    .unwrap_or_default()
++                                    .to_owned(),
++                                incomplete: false,
++                            });
++                        }
++                    }
++                }
+             }
+         }
++        self.remaining_ms(deadline)?;
++        let mut args = json!({
++            "pid": window.pid,
++            "window_id": window.window_id,
++            "full_output": true,
++            "include_screenshot": false,
++        });
++        if native_budget.is_some() {
++            args["timeout_ms"] = json!(self.remaining_ms(deadline)?);
++        }
++        // Keep full_output for fresh tokens without replacing since:latest's
++        // baseline. Only an explicit non-menu role narrows the traversal;
++        // name-only selectors retain the full menu/ambiguity semantics.
++        if scoped_non_menu {
++            args["include_menu_items"] = json!(false);
++        }
+         let state = self
+-            .call(
+-                "get_window_state",
+-                json!({
+-                    "pid": window.pid,
+-                    "window_id": window.window_id,
+-                    "full_output": true,
+-                    "include_screenshot": false,
+-                }),
+-            )
++            .within(deadline, self.call("get_window_state", args))
+             .await
+-            .map_err(|error| Miss::new("read_failed", error).in_window(window))?;
++            .map_err(|miss| miss.in_window(window))?;
+         let elements = state
+             .get("elements")
+             .and_then(Value::as_array)
+@@ -735,6 +885,7 @@ impl<'a> Locator<'a> {
+             window: window.clone(),
+             elements,
+             markdown,
++            incomplete: state.get("truncated").and_then(Value::as_bool) == Some(true),
+         })
+     }
+ 
+@@ -746,14 +897,21 @@ impl<'a> Locator<'a> {
+         timeout: Duration,
+     ) -> Result<Found, Miss> {
+         let started = Instant::now();
+-        let deadline = (started + timeout).min(self.deadline);
++        let budget = if timeout.is_zero() {
++            ZERO_WAIT_PROBE_BUDGET
++        } else {
++            timeout
++        };
++        let deadline = (started + budget).min(self.deadline);
+         loop {
+-            let attempt = self.find_once(window, element).await;
++            let attempt = self
++                .within(deadline, self.find_once(window, element, deadline))
++                .await;
+             match attempt {
+                 Ok(found) => return Ok(found),
+                 Err(miss) if !miss.worth_waiting() => return Err(miss),
+                 Err(miss) => {
+-                    if Instant::now() + POLL_INTERVAL > deadline {
++                    if timeout.is_zero() || Instant::now() + POLL_INTERVAL > deadline {
+                         let waited = started.elapsed().as_millis();
+                         let mut miss = miss;
+                         if waited > 0 {
+@@ -770,14 +928,24 @@ impl<'a> Locator<'a> {
+     /// One pass over the windows `spec` names: the first window holding a
+     /// unique match wins. When none does, the miss comes from the window
+     /// with the most elements, whose nearest matches are the useful ones.
+-    async fn find_once(&self, spec: &WindowSpec, element: &ElementSpec) -> Result<Found, Miss> {
++    async fn find_once(
++        &self,
++        spec: &WindowSpec,
++        element: &ElementSpec,
++        deadline: Instant,
++    ) -> Result<Found, Miss> {
+         let windows = self.search_windows(spec).await?;
+         let mut best_miss: Option<(usize, Miss)> = None;
+         for window in &windows {
+-            let read = self.read(window).await?;
++            let read = self.read_scoped(window, element, Some(deadline)).await?;
+             match pick(&read, element) {
+                 Ok(found) => return Ok(found),
+-                Err(miss) if miss.code == "ambiguous" || miss.code == "not_addressable" => {
++                Err(miss)
++                    if matches!(
++                        miss.code,
++                        "ambiguous" | "not_addressable" | "incomplete_read"
++                    ) =>
++                {
+                     return Err(miss.in_window(window))
+                 }
+                 Err(miss) => {
+@@ -806,6 +974,7 @@ impl<'a> Locator<'a> {
+         check: &Check,
+         spec: &WindowSpec,
+         started: Instant,
++        deadline: Instant,
+     ) -> Result<Checked, Miss> {
+         let windows = match self.search_windows(spec).await {
+             Ok(windows) => windows,
+@@ -822,11 +991,14 @@ impl<'a> Locator<'a> {
+         };
+         let mut best_miss: Option<(usize, Miss)> = None;
+         for window in &windows {
+-            let read = match self.read(window).await {
++            let read = match self
++                .read_scoped(window, &check.element, Some(deadline))
++                .await
++            {
+                 Ok(read) => read,
+-                // A window that closed between the lookup and the read has
+-                // no elements left.
+-                Err(_) if check.gone => continue,
++                // A structured native missing-window refusal is the only read
++                // failure that proves this window closed after list_windows.
++                Err(miss) if check.gone && miss.code == "window_not_found" => continue,
+                 Err(miss) => return Err(miss),
+             };
+             match evaluate(check, &read) {
+@@ -838,7 +1010,7 @@ impl<'a> Locator<'a> {
+                     })
+                 }
+                 Ok(_) => {}
+-                Err(miss) if check.gone => return Err(miss),
++                Err(miss) if check.gone || miss.code == "incomplete_read" => return Err(miss),
+                 Err(miss) => {
+                     let size = read.elements.len();
+                     if best_miss.as_ref().is_none_or(|(best, _)| size > *best) {
+@@ -874,14 +1046,24 @@ impl<'a> Locator<'a> {
+             check.window.clone()
+         };
+         let started = Instant::now();
+-        let deadline = (started + check.timeout).min(self.deadline);
++        let budget = if check.timeout.is_zero() {
++            ZERO_WAIT_PROBE_BUDGET
++        } else {
++            check.timeout
++        };
++        let deadline = (started + budget).min(self.deadline);
+         loop {
+-            let outcome = self.check_once(check, &window_spec, started).await;
++            let outcome = self
++                .within(
++                    deadline,
++                    self.check_once(check, &window_spec, started, deadline),
++                )
++                .await;
+             match outcome {
+                 Ok(checked) => return Ok(checked),
+                 Err(miss) if !miss.worth_waiting() => return Err(miss),
+                 Err(miss) => {
+-                    if Instant::now() + POLL_INTERVAL > deadline {
++                    if check.timeout.is_zero() || Instant::now() + POLL_INTERVAL > deadline {
+                         let mut miss = miss;
+                         miss.message = format!(
+                             "{} (checked for {} ms)",
+@@ -897,6 +1079,25 @@ impl<'a> Locator<'a> {
+     }
+ }
+ 
++fn lookup_timeout() -> Miss {
++    Miss::new(
++        "timeout",
++        "lookup deadline exhausted before a complete read/result was confirmed; target existence is unconfirmed and no input was dispatched by this lookup",
++    )
++}
++
++fn incomplete_read(read: &Read) -> Miss {
++    Miss::new(
++        "incomplete_read",
++        format!(
++            "accessibility read of {} was truncated; {} elements were returned, so absence, uniqueness and state are unconfirmed",
++            read.window.describe(),
++            read.elements.len(),
++        ),
++    )
++    .in_window(&read.window)
++}
++
+ /// Elements of a read that match `spec`. Exact name matches win over
+ /// substring matches; zero-size elements only count when nothing visible
+ /// matches.
+@@ -1009,6 +1210,9 @@ fn narrow<'r>(found: Vec<&'r Value>, spec: &ElementSpec) -> Vec<&'r Value> {
+ }
+ 
+ fn pick(read: &Read, spec: &ElementSpec) -> Result<Found, Miss> {
++    if read.incomplete {
++        return Err(incomplete_read(read));
++    }
+     let found = narrow(matches(read, spec), spec);
+     let chosen = match (found.len(), spec.nth) {
+         (0, _) => {
+@@ -1093,6 +1297,9 @@ fn pick(read: &Read, spec: &ElementSpec) -> Result<Found, Miss> {
+ 
+ /// `Ok(observed)` when the check holds against this read.
+ fn evaluate(check: &Check, read: &Read) -> Result<Option<String>, Miss> {
++    if read.incomplete {
++        return Err(incomplete_read(read));
++    }
+     let element_spec = ElementSpec {
+         nth: None,
+         ..check.element.clone()
+@@ -1550,6 +1757,7 @@ mod tests {
+             },
+             elements,
+             markdown: markdown.to_owned(),
++            incomplete: false,
+         }
+     }
+ 
+@@ -1558,11 +1766,763 @@ mod tests {
+             "element_index": index,
+             "element_token": format!("s00000001:{index}"),
+             "role": role,
++            "depth": 1,
+             "label": label,
+             "frame": {"x": 0, "y": 0, "w": 10, "h": 10},
+         })
+     }
+ 
++    // Hermetic registry seam: reads may complete partially, queue, or outlive
++    // the lookup. No native UI, environment switches, or input is involved.
++    #[derive(Default)]
++    struct ReadFixture {
++        calls: std::sync::Mutex<Vec<Value>>,
++        replies: std::sync::Mutex<std::collections::VecDeque<(Duration, Value)>>,
++        entered: tokio::sync::Notify,
++        lists: std::sync::atomic::AtomicUsize,
++    }
++
++    struct ReadTool {
++        def: crate::tool::ToolDef,
++        fixture: std::sync::Arc<ReadFixture>,
++    }
++
++    #[async_trait::async_trait]
++    impl crate::tool::Tool for ReadTool {
++        fn def(&self) -> &crate::tool::ToolDef {
++            &self.def
++        }
++
++        async fn invoke(&self, args: Value) -> ToolResult {
++            if self.def.name == "list_windows" {
++                self.fixture
++                    .lists
++                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++                return ToolResult::text("listed before read").with_structured(json!({
++                    "windows":[{"pid":1,"window_id":2,"app_name":"Demo","title":"Doc","bounds":{"x":0,"y":0,"width":100,"height":100},"is_on_screen":true,"z_index":1}]
++                }));
++            }
++            self.fixture.calls.lock().unwrap().push(args);
++            let (delay, state) = self
++                .fixture
++                .replies
++                .lock()
++                .unwrap()
++                .pop_front()
++                .unwrap_or_else(|| (Duration::ZERO, state(vec![], false)));
++            self.fixture.entered.notify_one();
++            tokio::time::sleep(delay).await;
++            if state.is_null() {
++                ToolResult::error("fixture read refused")
++            } else if state.get("refusal").is_some() || state.get("code").is_some() {
++                ToolResult::error("fixture structured refusal").with_structured(state)
++            } else {
++                ToolResult::text("fixture read").with_structured(state)
++            }
++        }
++    }
++
++    fn state(elements: Vec<Value>, truncated: bool) -> Value {
++        json!({"pid": 1, "window_id": 2, "elements": elements, "tree_markdown": "", "truncated": truncated})
++    }
++
++    fn registry_with_reads(
++        replies: Vec<(Duration, Value)>,
++    ) -> (ToolRegistry, std::sync::Arc<ReadFixture>) {
++        let fixture = std::sync::Arc::new(ReadFixture::default());
++        fixture.replies.lock().unwrap().extend(replies);
++        let mut registry = ToolRegistry::new();
++        registry.register(Box::new(ReadTool {
++            def: crate::tool::ToolDef {
++                name: "get_window_state".into(),
++                description: "hermetic lookup read".into(),
++                input_schema: json!({"type": "object", "properties": {}}),
++                read_only: true,
++                destructive: false,
++                idempotent: true,
++                open_world: false,
++            },
++            fixture: fixture.clone(),
++        }));
++        let mut list_def = registry.get_def("get_window_state").unwrap().clone();
++        list_def.name = "list_windows".into();
++        registry.register(Box::new(ReadTool {
++            def: list_def,
++            fixture: fixture.clone(),
++        }));
++        (registry, fixture)
++    }
++
++    fn exact_window() -> WindowSpec {
++        WindowSpec {
++            pid: Some(1),
++            window_id: Some(2),
++            ..Default::default()
++        }
++    }
++
++    fn save_button() -> ElementSpec {
++        ElementSpec {
++            role: Some("button".into()),
++            name: Some("Save".into()),
++            ..Default::default()
++        }
++    }
++
++    #[tokio::test]
++    async fn find_forwards_three_second_budget_and_narrows_only_explicit_non_menu_roles() {
++        let cases = [
++            (save_button(), "AXButton", Some(false)),
++            (
++                ElementSpec {
++                    role: Some("menu_item".into()),
++                    name: Some("Save".into()),
++                    ..Default::default()
++                },
++                "AXMenuItem",
++                None,
++            ),
++            (
++                ElementSpec {
++                    role: Some("menu".into()),
++                    name: Some("Save".into()),
++                    ..Default::default()
++                },
++                "AXMenu",
++                None,
++            ),
++            (
++                ElementSpec {
++                    name: Some("Save".into()),
++                    ..Default::default()
++                },
++                "AXButton",
++                None,
++            ),
++        ];
++        for (selector, role, menu_items) in cases {
++            let (registry, fixture) = registry_with_reads(vec![(
++                Duration::ZERO,
++                state(vec![element(4, role, "Save")], false),
++            )]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++            assert_eq!(
++                locator
++                    .find(&exact_window(), &selector, Duration::from_secs(3))
++                    .await
++                    .unwrap()
++                    .token(),
++                Some("s00000001:4")
++            );
++            let calls = fixture.calls.lock().unwrap();
++            assert_eq!(calls.len(), 1);
++            let args = &calls[0];
++            assert!(
++                args["timeout_ms"]
++                    .as_u64()
++                    .is_some_and(|ms| ms > 1000 && ms <= 3000),
++                "{args}"
++            );
++            assert_eq!(
++                args.get("include_menu_items").and_then(Value::as_bool),
++                menu_items
++            );
++            assert_eq!(args["full_output"], true);
++            assert_eq!(args["include_screenshot"], false);
++            assert!(args.get("since").is_none());
++            assert_eq!(
++                (args["pid"].as_i64(), args["window_id"].as_u64()),
++                (Some(1), Some(2))
++            );
++        }
++    }
++
++    #[tokio::test]
++    async fn complete_non_menu_baseline_finds_without_a_second_queued_walk() {
++        let (registry, fixture) = registry_with_reads(vec![
++            (
++                Duration::from_millis(20),
++                state(vec![element(4, "AXButton", "Save")], false),
++            ),
++            (Duration::from_secs(10), state(vec![], false)),
++        ]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10))
++            .with_observe_baseline(250);
++        let found = locator
++            .find(&exact_window(), &save_button(), Duration::from_millis(100))
++            .await
++            .unwrap();
++        assert_eq!(found.token(), Some("s00000001:4"));
++        let calls = fixture.calls.lock().unwrap();
++        assert_eq!(
++            calls.len(),
++            1,
++            "same complete current read must serve baseline and lookup"
++        );
++        assert_eq!(calls[0]["tree_format"], "both");
++        assert_eq!(calls[0]["include_menu_items"], false);
++        assert_eq!(calls[0]["max_elements"], 250);
++        assert!(
++            calls[0].get("full_output").is_none(),
++            "retain the normal since baseline"
++        );
++    }
++
++    #[tokio::test]
++    async fn partial_or_unproven_baseline_never_supplies_a_token() {
++        let partial = state(vec![element(4, "AXButton", "Save")], true);
++        let mut unproven = partial.clone();
++        unproven.as_object_mut().unwrap().remove("truncated");
++        let mut no_elements = state(vec![], false);
++        no_elements.as_object_mut().unwrap().remove("elements");
++        for baseline in [partial, unproven, no_elements] {
++            let mut fresh = element(7, "AXButton", "Save");
++            fresh["element_token"] = json!("s00000002:7");
++            let (registry, fixture) = registry_with_reads(vec![
++                (Duration::from_millis(10), baseline),
++                (Duration::ZERO, state(vec![fresh], false)),
++            ]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10))
++                .with_observe_baseline(250);
++            let found = locator
++                .find(&exact_window(), &save_button(), Duration::from_secs(3))
++                .await
++                .unwrap();
++            assert_eq!(found.token(), Some("s00000002:7"));
++            let calls = fixture.calls.lock().unwrap();
++            assert_eq!(calls.len(), 2);
++            assert_eq!(calls[1]["full_output"], true);
++            assert!(
++                calls[1]["timeout_ms"].as_u64().unwrap() < calls[0]["timeout_ms"].as_u64().unwrap()
++            );
++        }
++    }
++
++    #[tokio::test]
++    async fn menu_or_name_only_lookup_cannot_reuse_a_collapsed_baseline() {
++        for selector in [
++            ElementSpec {
++                name: Some("Save".into()),
++                ..Default::default()
++            },
++            ElementSpec {
++                role: Some("menu_item".into()),
++                name: Some("Save".into()),
++                ..Default::default()
++            },
++        ] {
++            let role = if selector.role.is_some() {
++                "AXMenuItem"
++            } else {
++                "AXButton"
++            };
++            let mut fresh = element(7, role, "Save");
++            fresh["element_token"] = json!("s00000002:7");
++            let (registry, fixture) = registry_with_reads(vec![
++                (Duration::ZERO, state(vec![element(4, role, "Save")], false)),
++                (Duration::ZERO, state(vec![fresh], false)),
++            ]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10))
++                .with_observe_baseline(250);
++            assert_eq!(
++                locator
++                    .find(&exact_window(), &selector, Duration::from_secs(3))
++                    .await
++                    .unwrap()
++                    .token(),
++                Some("s00000002:7")
++            );
++            let calls = fixture.calls.lock().unwrap();
++            assert_eq!(calls.len(), 2);
++            assert!(calls
++                .iter()
++                .all(|args| args.get("include_menu_items").is_none()));
++        }
++    }
++
++    #[tokio::test]
++    async fn script_read_wrapper_preserves_full_scope_and_incomplete_state() {
++        let (registry, fixture) = registry_with_reads(vec![(Duration::ZERO, state(vec![], true))]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(2));
++        let window = Window {
++            pid: 1,
++            window_id: 2,
++            app: None,
++            title: None,
++            on_screen: true,
++        };
++        let read = locator.read(&window).await.unwrap();
++        assert!(read.incomplete);
++        let calls = fixture.calls.lock().unwrap();
++        assert_eq!(calls.len(), 1);
++        assert_eq!(calls[0]["full_output"], true);
++        assert!(calls[0].get("include_menu_items").is_none());
++        assert!(
++            calls[0].get("timeout_ms").is_none(),
++            "legacy read must retain native default AX budget"
++        );
++    }
++
++    #[tokio::test]
++    async fn partial_missing_target_recovers_with_a_fresh_token_and_remaining_budget() {
++        let mut fresh = element(7, "AXButton", "Save");
++        fresh["element_token"] = json!("s00000002:7");
++        let (registry, fixture) = registry_with_reads(vec![
++            (Duration::from_millis(10), state(vec![], true)),
++            (Duration::ZERO, state(vec![fresh], false)),
++        ]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++        let found = locator
++            .find(&exact_window(), &save_button(), Duration::from_secs(3))
++            .await
++            .unwrap();
++        assert_eq!(found.token(), Some("s00000002:7"));
++        let calls = fixture.calls.lock().unwrap();
++        assert_eq!(calls.len(), 2);
++        assert!(
++            calls[1]["timeout_ms"].as_u64().unwrap() < calls[0]["timeout_ms"].as_u64().unwrap()
++        );
++    }
++
++    #[tokio::test]
++    async fn partial_exhaustion_is_incomplete_not_definite_absence_or_a_usable_token() {
++        for elements in [vec![], vec![element(4, "AXButton", "Save")]] {
++            let (registry, fixture) =
++                registry_with_reads(vec![(Duration::ZERO, state(elements, true))]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++            let miss = locator
++                .find(&exact_window(), &save_button(), Duration::from_millis(150))
++                .await
++                .unwrap_err();
++            assert_eq!(miss.code, "incomplete_read");
++            assert!(miss.message.contains("truncated") && miss.message.contains("unconfirmed"));
++            assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++        }
++    }
++
++    #[test]
++    fn partial_tree_never_proves_gone_or_a_unique_nth_match() {
++        let mut partial = read(vec![element(4, "AXButton", "Save")], "");
++        partial.incomplete = true;
++        let selector = ElementSpec {
++            nth: Some(1),
++            ..save_button()
++        };
++        assert_eq!(
++            pick(&partial, &selector).unwrap_err().code,
++            "incomplete_read"
++        );
++        let check =
++            Check::parse(&json!({"role":"button","name":"Missing","gone":true}), 100).unwrap();
++        assert_eq!(
++            evaluate(&check, &partial).unwrap_err().code,
++            "incomplete_read"
++        );
++    }
++
++    #[tokio::test]
++    async fn find_deadline_bounds_native_queue_and_late_read_without_another_read() {
++        let (registry, fixture) = registry_with_reads(vec![(
++            Duration::from_secs(10),
++            state(vec![element(4, "AXButton", "Save")], false),
++        )]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++        let miss = tokio::time::timeout(
++            Duration::from_secs(1),
++            locator.find(&exact_window(), &save_button(), Duration::from_millis(50)),
++        )
++        .await
++        .unwrap()
++        .unwrap_err();
++        assert_eq!(miss.code, "timeout");
++        assert!(miss.message.contains("unconfirmed"));
++        assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++    }
++
++    #[tokio::test]
++    async fn check_and_batch_deadlines_bound_queueing_and_forward_the_smaller_budget() {
++        for batch_first in [false, true] {
++            let (registry, fixture) =
++                registry_with_reads(vec![(Duration::from_secs(10), state(vec![], false))]);
++            let batch_budget = if batch_first {
++                Duration::from_millis(50)
++            } else {
++                Duration::from_secs(10)
++            };
++            let locator = Locator::new(&registry, None, Instant::now() + batch_budget);
++            let check = Check::parse(&json!({"role":"button","name":"Save","timeout_ms": if batch_first { 3000 } else { 50 }}), 3000).unwrap();
++            let miss = tokio::time::timeout(
++                Duration::from_secs(1),
++                locator.check(&check, &exact_window()),
++            )
++            .await
++            .unwrap()
++            .unwrap_err();
++            assert_eq!(miss.code, "timeout");
++            let calls = fixture.calls.lock().unwrap();
++            assert_eq!(calls.len(), 1);
++            assert!(calls[0]["timeout_ms"]
++                .as_u64()
++                .is_some_and(|ms| ms > 0 && ms <= 50));
++        }
++    }
++
++    #[tokio::test]
++    async fn expired_batch_budget_sends_no_read_even_for_zero_wait() {
++        let (registry, fixture) = registry_with_reads(vec![]);
++        let expired = Locator::new(&registry, None, Instant::now() - Duration::from_millis(1));
++        assert_eq!(
++            expired
++                .find(&exact_window(), &save_button(), Duration::from_secs(3))
++                .await
++                .unwrap_err()
++                .code,
++            "timeout"
++        );
++        assert_eq!(
++            expired
++                .find(&exact_window(), &save_button(), Duration::ZERO)
++                .await
++                .unwrap_err()
++                .code,
++            "timeout"
++        );
++        assert!(fixture.calls.lock().unwrap().is_empty());
++    }
++
++    #[tokio::test]
++    async fn zero_wait_probes_once_without_polling_and_can_find_current_state() {
++        for (state, expected) in [
++            (state(vec![element(4, "AXButton", "Save")], false), "found"),
++            (state(vec![], false), "not_found"),
++            (state(vec![], true), "incomplete_read"),
++        ] {
++            let (registry, fixture) = registry_with_reads(vec![(Duration::ZERO, state)]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++            let code = match locator
++                .find(&exact_window(), &save_button(), Duration::ZERO)
++                .await
++            {
++                Ok(_) => "found",
++                Err(miss) => miss.code,
++            };
++            assert_eq!(code, expected);
++            let calls = fixture.calls.lock().unwrap();
++            assert_eq!(calls.len(), 1);
++            assert!(calls[0]["timeout_ms"]
++                .as_u64()
++                .is_some_and(|ms| ms > 0 && ms <= crate::tool_schema::TIMEOUT_MS_DEFAULT));
++        }
++    }
++
++    #[tokio::test]
++    async fn zero_wait_queue_exhaustion_cannot_start_a_second_read() {
++        let (registry, fixture) =
++            registry_with_reads(vec![(Duration::from_secs(10), state(vec![], true))]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_millis(50))
++            .with_observe_baseline(250);
++        let miss = tokio::time::timeout(
++            Duration::from_secs(1),
++            locator.find(&exact_window(), &save_button(), Duration::ZERO),
++        )
++        .await
++        .unwrap()
++        .unwrap_err();
++        assert_eq!(miss.code, "timeout");
++        assert_eq!(
++            fixture.calls.lock().unwrap().len(),
++            1,
++            "expired baseline must not launch the full read"
++        );
++    }
++
++    #[tokio::test]
++    async fn zero_wait_gone_probe_is_bounded_and_does_not_poll_still_present() {
++        let (registry, fixture) = registry_with_reads(vec![(
++            Duration::ZERO,
++            state(vec![element(4, "AXButton", "Save")], false),
++        )]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++        let check = Check::parse(
++            &json!({"role":"button","name":"Save","gone":true,"timeout_ms":0}),
++            1000,
++        )
++        .unwrap();
++        assert_eq!(
++            locator
++                .check(&check, &exact_window())
++                .await
++                .unwrap_err()
++                .code,
++            "still_present"
++        );
++        assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++    }
++
++    #[tokio::test]
++    async fn dropping_a_request_during_a_partial_read_does_not_resume_polling() {
++        let (registry, fixture) =
++            registry_with_reads(vec![(Duration::from_secs(10), state(vec![], true))]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(30));
++        let window = exact_window();
++        let selector = save_button();
++        let mut request = Box::pin(locator.find(&window, &selector, Duration::from_secs(20)));
++        tokio::select! {
++            _ = fixture.entered.notified() => {},
++            result = &mut request => panic!("read must still be in flight: {result:?}"),
++        }
++        drop(request);
++        tokio::time::sleep(POLL_INTERVAL + Duration::from_millis(25)).await;
++        assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++    }
++
++    #[tokio::test]
++    async fn gone_does_not_treat_a_refused_read_as_a_closed_window() {
++        let (registry, fixture) = registry_with_reads(vec![(Duration::ZERO, Value::Null)]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(5));
++        let check = Check::parse(
++            &json!({"role":"button","name":"Save","gone":true,"timeout_ms":1000}),
++            1000,
++        )
++        .unwrap();
++        let miss = locator.check(&check, &exact_window()).await.unwrap_err();
++        assert_eq!(miss.code, "read_failed");
++        assert!(miss.message.contains("fixture read refused"));
++        assert_eq!(
++            fixture.calls.lock().unwrap().len(),
++            1,
++            "do not poll a refusal"
++        );
++    }
++
++    #[tokio::test]
++    async fn gone_accepts_only_structured_missing_window_not_permission_or_error_words() {
++        for (code, expected) in [
++            ("window_id_not_found", None),
++            ("permission_denied", Some("read_failed")),
++            ("window_not_found_in_error_text_only", Some("read_failed")),
++        ] {
++            let (registry, fixture) =
++                registry_with_reads(vec![(Duration::ZERO, json!({"refusal":{"code":code}}))]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++            let check = Check::parse(
++                &json!({"role":"button","name":"Save","gone":true,"timeout_ms":0}),
++                1000,
++            )
++            .unwrap();
++            // This app selector forces list_windows before the structured
++            // closed-window refusal, exercising the real list/read race.
++            let spec = WindowSpec {
++                app: Some("Demo".into()),
++                ..exact_window()
++            };
++            let result = locator.check(&check, &spec).await;
++            match expected {
++                None => {
++                    assert!(result.is_ok(), "{result:?}");
++                }
++                Some(code) => assert_eq!(result.unwrap_err().code, code),
++            }
++            assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++            assert_eq!(fixture.lists.load(std::sync::atomic::Ordering::SeqCst), 1);
++        }
++    }
++
++    #[tokio::test]
++    async fn native_missing_window_code_is_authoritative_but_other_read_errors_are_not_gone() {
++        for (response, closed) in [
++            (
++                json!({"code":"window_id_not_found","pid":1,"window_id":2}),
++                true,
++            ),
++            (
++                json!({"code":"permission_denied","pid":1,"window_id":2}),
++                false,
++            ),
++            (
++                json!({"code":"ax_reader_busy","pid":1,"window_id":2}),
++                false,
++            ),
++            (
++                json!({"code":"window_id_not_found","refusal":{"code":"permission_denied"}}),
++                false,
++            ),
++        ] {
++            let (registry, fixture) = registry_with_reads(vec![(Duration::ZERO, response)]);
++            let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10));
++            let check = Check::parse(
++                &json!({"role":"button","name":"Save","gone":true,"timeout_ms":0}),
++                1000,
++            )
++            .unwrap();
++            let result = locator.check(&check, &exact_window()).await;
++            if closed {
++                assert!(result.is_ok(), "{result:?}");
++            } else {
++                assert_eq!(result.unwrap_err().code, "read_failed");
++            }
++            assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++        }
++    }
++
++    /// Use a known read-only registry surface to enter the real trusted task
++    /// context. The inner registry is the same public seam Locator uses in a
++    /// batch; neither registry bypasses authorization or installs a test hook.
++    struct LookupUnderOwner {
++        def: crate::tool::ToolDef,
++        reads: ToolRegistry,
++    }
++
++    #[async_trait::async_trait]
++    impl crate::tool::Tool for LookupUnderOwner {
++        fn def(&self) -> &crate::tool::ToolDef {
++            &self.def
++        }
++
++        async fn invoke(&self, args: Value) -> ToolResult {
++            let session = args
++                .get("_public_session_label")
++                .and_then(Value::as_str)
++                .map(str::to_owned);
++            let locator = Locator::new(
++                &self.reads,
++                session,
++                Instant::now() + Duration::from_secs(10),
++            );
++            let result = locator
++                .find(&exact_window(), &save_button(), Duration::from_secs(5))
++                .await;
++            match result {
++                Ok(found) => ToolResult::text("found").with_structured(
++                    json!({"pid":1,"window_id":2,"code":"found", "element_token":found.token()}),
++                ),
++                Err(miss) => {
++                    ToolResult::error(miss.message).with_structured(json!({"code":miss.code}))
++                }
++            }
++        }
++    }
++
++    #[tokio::test]
++    async fn ending_owner_during_read_returns_no_token_and_starts_no_late_read() {
++        use crate::authorization::PermissionMode;
++        use crate::session_authorization::{SessionAuthorizationRegistry, SessionModeCeiling};
++        let (reads, fixture) = registry_with_reads(vec![(
++            Duration::from_secs(10),
++            state(vec![element(4, "AXButton", "Save")], false),
++        )]);
++        let ceiling = SessionModeCeiling::for_trusted_sessions(
++            [PermissionMode::Standard],
++            false,
++            Duration::from_secs(60),
++            Duration::from_secs(30),
++        )
++        .unwrap();
++        let context = SessionAuthorizationRegistry::with_ceiling(ceiling)
++            .compatibility_context(PermissionMode::Standard, None)
++            .unwrap();
++        let runtime_session = context.runtime_session_key("ending-lookup-owner");
++        let def = reads.get_def("get_window_state").unwrap().clone();
++        let mut registry = ToolRegistry::new();
++        for label in ["ending-lookup-owner", "surviving-lookup-owner"] {
++            let key = context.runtime_session_key(label);
++            reads
++                .protected_resource_ownership()
++                .mark_driver_owned_pid(&key, 1);
++            registry
++                .protected_resource_ownership()
++                .mark_driver_owned_pid(&key, 1);
++        }
++        registry.register(Box::new(LookupUnderOwner { def, reads }));
++        let mut request = Box::pin(registry.invoke_with_context(
++            "get_window_state",
++            json!({"pid":1,"window_id":2,"session":"ending-lookup-owner"}),
++            context.clone(),
++        ));
++        tokio::select! {
++            _ = fixture.entered.notified() => {},
++            result = &mut request => panic!("read should be pending before owner ends: {result:?}"),
++        }
++        crate::session::end_session(&runtime_session);
++        assert!(crate::session::is_session_ending(&runtime_session));
++        let result = tokio::time::timeout(Duration::from_secs(1), request)
++            .await
++            .unwrap();
++        assert_eq!(result.is_error, Some(true));
++        assert_eq!(
++            result.structured_content.as_ref().unwrap()["code"],
++            "cancelled"
++        );
++        assert!(result
++            .structured_content
++            .as_ref()
++            .unwrap()
++            .get("element_token")
++            .is_none());
++        tokio::time::sleep(POLL_INTERVAL + Duration::from_millis(25)).await;
++        assert_eq!(fixture.calls.lock().unwrap().len(), 1);
++        fixture.replies.lock().unwrap().push_back((
++            Duration::ZERO,
++            state(vec![element(4, "AXButton", "Save")], false),
++        ));
++        let survivor = registry
++            .invoke_with_context(
++                "get_window_state",
++                json!({"pid":1,"window_id":2,"session":"surviving-lookup-owner"}),
++                context.clone(),
++            )
++            .await;
++        assert_ne!(survivor.is_error, Some(true));
++        assert_eq!(
++            survivor.structured_content.as_ref().unwrap()["code"],
++            "found"
++        );
++        assert_eq!(
++            fixture.calls.lock().unwrap().len(),
++            2,
++            "only the other owner's new read starts"
++        );
++        let late = registry
++            .invoke_with_context(
++                "get_window_state",
++                json!({"pid":1,"window_id":2,"session":"ending-lookup-owner"}),
++                context,
++            )
++            .await;
++        assert_eq!(
++            late.structured_content
++                .as_ref()
++                .and_then(|state| state.pointer("/refusal/code"))
++                .and_then(Value::as_str),
++            Some("session_ended")
++        );
++        assert_eq!(fixture.calls.lock().unwrap().len(), 2);
++    }
++
++    #[tokio::test]
++    async fn best_effort_baseline_cannot_consume_a_new_budget_or_hide_timeout() {
++        let (registry, fixture) =
++            registry_with_reads(vec![(Duration::from_secs(10), state(vec![], false))]);
++        let locator = Locator::new(&registry, None, Instant::now() + Duration::from_secs(10))
++            .with_observe_baseline(250);
++        let miss = tokio::time::timeout(
++            Duration::from_secs(1),
++            locator.find(&exact_window(), &save_button(), Duration::from_millis(50)),
++        )
++        .await
++        .unwrap()
++        .unwrap_err();
++        assert_eq!(miss.code, "timeout");
++        let calls = fixture.calls.lock().unwrap();
++        assert_eq!(
++            calls.len(),
++            1,
++            "no full lookup may start after its baseline exhausted the shared budget"
++        );
++        assert_eq!(calls[0]["max_elements"], 250);
++        assert!(calls[0].get("full_output").is_none());
++    }
++
+     #[test]
+     fn exact_name_beats_substring_and_roles_fold_across_platforms() {
+         let read = read(
+diff --git a/libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs b/libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs
+index 7ff2e42c9d71869c88c74452f19c5576032f77ab..ab27e6c849769a70753dece4c910e79ce850123a 100644
+--- a/libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs
++++ b/libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs
+@@ -3,7 +3,7 @@
+ use std::collections::{HashMap, HashSet};
+ use std::path::{Component, Path, PathBuf};
+ use std::sync::{Arc, Mutex, OnceLock};
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ use async_trait::async_trait;
+ use serde_json::Value;
+@@ -2220,6 +2220,7 @@ impl ToolRegistry {
+                     | "end_session"
+             );
+         let private_consent_turn = is_existing_profile_prepare(resolved_name, &args);
++        let lock_started = Instant::now();
+         let _desktop_action = if requires_desktop_coordination(
+             resolved_name,
+             &args,
+@@ -2238,6 +2239,24 @@ impl ToolRegistry {
+         } else {
+             None
+         };
++        let lock_wait_ms = lock_started.elapsed().as_millis() as u64;
++        if is_physical_desktop_action(resolved_name) {
++            tracing::info!(
++                tool = resolved_name,
++                phase = "admitted",
++                lock_wait_ms,
++                session = runtime_session.as_deref().unwrap_or(""),
++                pid = args.get("pid").and_then(|value| value.as_i64()),
++                window_id = args.get("window_id").and_then(|value| value.as_u64()),
++                "cua input timing"
++            );
++            // A call can be admitted before its owner disconnects, then sit
++            // behind another agent's input. Ending must be rechecked at the
++            // actual dispatch boundary, after that wait.
++            if let Some(refusal) = refuse_ending_input(&args) {
++                return refusal;
++            }
++        }
+         let pending_turn = should_record
+             .then(|| {
+                 // Use the same trusted identities the recording owner was minted from.
+@@ -2275,11 +2294,22 @@ impl ToolRegistry {
+         // Desktop pixels read off a capped get_desktop_state image are mapped
+         // back to the uncapped capture before any platform interprets them.
+         crate::desktop_capture_scale::map_desktop_args(&mut args);
++        let dispatch_started = Instant::now();
+         let mut result = crate::recording::scope_dispatch_click_capture(
+             pending_turn.as_ref(),
+             tool.invoke(args.clone()),
+         )
+         .await;
++        if is_physical_desktop_action(resolved_name) {
++            tracing::info!(
++                tool = resolved_name,
++                phase = "completed",
++                lock_wait_ms,
++                elapsed_ms = dispatch_started.elapsed().as_millis() as u64,
++                session = runtime_session.as_deref().unwrap_or(""),
++                "cua input timing"
++            );
++        }
+         match resolved_name {
+             "get_desktop_state" if result.is_error != Some(true) => {
+                 crate::desktop_capture_scale::record_desktop_state(
+@@ -5863,6 +5893,52 @@ resources:
+         ));
+     }
+ 
++    #[tokio::test]
++    async fn ending_session_cannot_dispatch_an_input_already_waiting_for_the_desktop_lock() {
++        use std::future::Future;
++        use std::task::Poll;
++
++        let hits = Arc::new(AtomicUsize::new(0));
++        let registry = input_registry(None, hits.clone());
++        let context = standard_context();
++        let runtime_session = context.runtime_session_key("queued-cancel");
++        registry
++            .protected_resource_ownership()
++            .mark_driver_owned_pid(&runtime_session, 42);
++        let lock = desktop_action_coordinator().lock().await;
++        let mut call = Box::pin(registry.invoke_with_context(
++            "click",
++            serde_json::json!({"pid":42,"window_id":7,"session":"queued-cancel","x":10,"y":20}),
++            context,
++        ));
++        // Poll the real registry up to its lock wait; the synthetic adapter
++        // below is never invoked while this test holds the physical lane.
++        std::future::poll_fn(|cx| {
++            assert!(call.as_mut().poll(cx).is_pending());
++            Poll::Ready(())
++        })
++        .await;
++        crate::session::end_session(&runtime_session);
++        assert!(crate::session::is_session_ending(&runtime_session));
++        assert!(
++            !crate::session::is_session_ended(&runtime_session),
++            "the dispatch guard must already be in flight"
++        );
++        drop(lock);
++        let result = tokio::time::timeout(Duration::from_secs(1), call)
++            .await
++            .unwrap();
++        assert_eq!(hits.load(Ordering::SeqCst), 0);
++        assert_eq!(
++            result
++                .structured_content
++                .as_ref()
++                .and_then(|v| v.pointer("/refusal/code"))
++                .and_then(serde_json::Value::as_str),
++            Some("session_ended")
++        );
++    }
++
+     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+     async fn physical_desktop_actions_are_admitted_one_at_a_time() {
+         let active = Arc::new(AtomicUsize::new(0));
+@@ -6099,6 +6175,21 @@ fn protected_refusal(code: &str, message: &str) -> ToolResult {
+     }))
+ }
+ 
++/// Adapters must recheck this after an asynchronous preparation such as a
++/// cursor glide, immediately before dispatching native input. Only the private
++/// lifecycle id minted by the registry is used; public labels grant nothing.
++pub fn refuse_ending_input(args: &Value) -> Option<ToolResult> {
++    args.get("_session_id")
++        .and_then(Value::as_str)
++        .filter(|session| crate::session::is_session_ending(session))
++        .map(|_| {
++            protected_refusal(
++                "session_ended",
++                "session is ending; this input was not dispatched",
++            )
++        })
++}
++
+ fn is_existing_profile_prepare(tool_name: &str, args: &Value) -> bool {
+     tool_name == "browser_prepare"
+         && args
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/apps/mod.rs b/libs/cua-driver/rust/crates/platform-macos/src/apps/mod.rs
+index 8c9d098be6ece310ceb2cbcd4f6997623bd7e317..fa98d4d7903d6d278cffa2856630b8216416e8f8 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/apps/mod.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/apps/mod.rs
+@@ -95,7 +95,7 @@ fn all_pids() -> Vec<i32> {
+ 
+ /// The executable path of one live pid, via `proc_pidpath`. `None` when the
+ /// process has already exited or its path is not readable.
+-fn path_of_pid(pid: i32) -> Option<String> {
++pub(crate) fn path_of_pid(pid: i32) -> Option<String> {
+     extern "C" {
+         fn proc_pidpath(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
+     }
+@@ -1002,26 +1002,14 @@ pub fn bundle_id_for_pid(pid: i32) -> Option<String> {
+     }
+ }
+ 
+-/// Return the localized application name for a running process by PID.
+-/// Uses `ps -p {pid} -o comm=` which gives the command name without path.
+-/// Returns `None` if the PID is unknown or the command fails.
++/// Return the running executable's basename by PID. Kernel proc_pidpath
++/// avoids forking `ps` for every AX read and live-preview frame.
+ pub fn get_app_name_for_pid(pid: i32) -> Option<String> {
+-    let out = Command::new("ps")
+-        .args(["-p", &pid.to_string(), "-o", "comm="])
+-        .output()
+-        .ok()?;
+-    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+-    if raw.is_empty() {
+-        return None;
+-    }
+-    // Strip path prefix: "/Applications/Safari.app/Contents/MacOS/Safari" → "Safari"
+-    Some(
+-        std::path::Path::new(&raw)
+-            .file_name()
+-            .and_then(|n| n.to_str())
+-            .unwrap_or(&raw)
+-            .to_string(),
+-    )
++    let path = path_of_pid(pid)?;
++    std::path::Path::new(&path)
++        .file_name()?
++        .to_str()
++        .map(str::to_owned)
+ }
+ 
+ /// Format the app list in the same text style as libs/cua-driver.
+@@ -1049,8 +1037,8 @@ pub fn format_app_list(apps: &[AppInfo]) -> String {
+ #[cfg(test)]
+ mod tests {
+     use super::{
+-        all_pids, bundle_root_of_executable, finder_folder_handoff, merge_app_lists, path_of_pid,
+-        running_apps_from_processes, AppInfo,
++        all_pids, bundle_root_of_executable, finder_folder_handoff, get_app_name_for_pid,
++        merge_app_lists, path_of_pid, running_apps_from_processes, AppInfo,
+     };
+     use std::collections::HashSet;
+ 
+@@ -1345,6 +1333,11 @@ mod tests {
+         let expected = std::fs::canonicalize(std::env::current_exe().expect("current exe"))
+             .expect("canonical exe");
+         assert_eq!(std::path::Path::new(&path), expected);
++        assert_eq!(
++            get_app_name_for_pid(own).as_deref(),
++            expected.file_name().and_then(|n| n.to_str())
++        );
++        assert_eq!(get_app_name_for_pid(i32::MAX), None);
+     }
+ 
+     #[test]
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/browser/electron_js.rs b/libs/cua-driver/rust/crates/platform-macos/src/browser/electron_js.rs
+index c22f3e9989f2aea16592a8df7712829e0771cbc9..98dd594765ad25c610a1511af082f92144a121d3 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/browser/electron_js.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/browser/electron_js.rs
+@@ -10,38 +10,12 @@ pub struct ElectronJs;
+ impl ElectronJs {
+     /// Returns true if the process at `pid` is an Electron app.
+     pub fn is_electron(pid: i32) -> bool {
+-        // Look up the bundle path from list_running_apps.
+-        let apps = crate::apps::list_running_apps();
+-        let app = apps.iter().find(|a| a.pid == pid);
+-
+-        if let Some(app) = app {
+-            // Try to infer bundle path from app name.
+-            let bundle_path = find_bundle_path_for_app(&app.name);
+-            if let Some(bp) = bundle_path {
+-                let electron_fw = format!("{bp}/Contents/Frameworks/Electron Framework.framework");
+-                if std::path::Path::new(&electron_fw).exists() {
+-                    return true;
+-                }
+-            }
+-        }
+-
+-        // Fallback: check executable via lsof or ps.
+-        // Check if the executable itself links Electron.
+-        if let Ok(exe) = get_exe_path(pid) {
+-            // Check parent dir for Electron Framework.
+-            let exe_path = std::path::Path::new(&exe);
+-            if let Some(parent) = exe_path.parent() {
+-                // e.g. /Applications/Slack.app/Contents/MacOS/Slack → look for Frameworks sibling
+-                if let Some(macos_dir) = parent.parent() {
+-                    let electron_fw = macos_dir.join("Frameworks/Electron Framework.framework");
+-                    if electron_fw.exists() {
+-                        return true;
+-                    }
+-                }
+-            }
+-        }
+-
+-        false
++        // This runs before native AX presses. Enumerating every running app
++        // here used to fork plist readers for every bundle on every click,
++        // holding the global input coordinator for seconds under load.
++        // The kernel's executable for this exact pid is sufficient.
++        crate::apps::path_of_pid(pid)
++            .is_some_and(|path| executable_is_electron(std::path::Path::new(&path)))
+     }
+ 
+     /// Evaluate JavaScript in the Electron app's main (Node.js) process at
+@@ -113,37 +87,51 @@ impl ElectronJs {
+     }
+ }
+ 
+-/// Get the executable path of a process using `ps`.
+-fn get_exe_path(pid: i32) -> anyhow::Result<String> {
+-    let out = std::process::Command::new("ps")
+-        .args(["-p", &pid.to_string(), "-o", "comm="])
+-        .output()?;
+-    let s = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+-    if s.is_empty() {
+-        anyhow::bail!("No exe for pid {pid}");
+-    }
+-    Ok(s)
++/// Detect the framework beside this executable, including nonstandard install
++/// locations. Never infer another process's bundle from a display name.
++fn executable_is_electron(executable: &std::path::Path) -> bool {
++    let Some(macos) = executable
++        .parent()
++        .filter(|p| p.ends_with("Contents/MacOS"))
++    else {
++        return false;
++    };
++    macos.parent().is_some_and(|contents| {
++        contents
++            .join("Frameworks/Electron Framework.framework")
++            .is_dir()
++    })
+ }
+ 
+-/// Find the .app bundle path for an app by name (searches common locations).
+-fn find_bundle_path_for_app(name: &str) -> Option<String> {
+-    let dirs = [
+-        "/Applications",
+-        "/Applications/Utilities",
+-        "/System/Applications",
+-    ];
+-    let home = std::env::var("HOME").unwrap_or_default();
+-    let user_apps = format!("{home}/Applications");
+-
+-    let mut all_dirs: Vec<&str> = dirs.to_vec();
+-    let user_str: &str = &user_apps;
+-    all_dirs.push(user_str);
+-
+-    for dir in all_dirs {
+-        let candidate = format!("{dir}/{name}.app");
+-        if std::path::Path::new(&candidate).exists() {
+-            return Some(candidate);
+-        }
++#[cfg(test)]
++mod tests {
++    use super::executable_is_electron;
++
++    #[test]
++    fn identifies_the_exact_bundle_in_a_nonstandard_install_location() {
++        let dir = tempfile::tempdir().unwrap();
++        let contents = dir.path().join("Trial Apps/聊天客户端.app/Contents");
++        std::fs::create_dir_all(contents.join("Frameworks/Electron Framework.framework")).unwrap();
++        assert!(executable_is_electron(&contents.join("MacOS/Chat")));
++    }
++
++    #[test]
++    fn another_bundle_with_the_same_name_cannot_classify_the_target() {
++        let dir = tempfile::tempdir().unwrap();
++        let electron = dir.path().join("Electron/Calculator.app/Contents");
++        let native = dir.path().join("Native/Calculator.app/Contents");
++        std::fs::create_dir_all(electron.join("Frameworks/Electron Framework.framework")).unwrap();
++        std::fs::create_dir_all(native.join("MacOS")).unwrap();
++        assert!(executable_is_electron(&electron.join("MacOS/Calculator")));
++        assert!(!executable_is_electron(&native.join("MacOS/Calculator")));
++    }
++
++    #[test]
++    fn unrelated_framework_and_missing_executable_fail_closed() {
++        let dir = tempfile::tempdir().unwrap();
++        std::fs::create_dir_all(dir.path().join("Frameworks/Electron Framework.framework"))
++            .unwrap();
++        assert!(!executable_is_electron(&dir.path().join("bin/tool")));
++        assert!(!executable_is_electron(std::path::Path::new("")));
+     }
+-    None
+ }
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/capture.rs b/libs/cua-driver/rust/crates/platform-macos/src/capture.rs
+index 0db5c6f10a71e78356b9a585f5161314bcba166e..f8109723102b6b6aa7f49d5ed5d9c20bd1ffddac 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/capture.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/capture.rs
+@@ -41,11 +41,10 @@
+ 
+ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+ use objc2::rc::autoreleasepool;
+-use std::collections::HashMap;
++use std::collections::{HashMap, VecDeque};
+ use std::hash::Hash;
+ use std::process::Command;
+-use std::sync::atomic::{AtomicBool, Ordering};
+-use std::sync::{mpsc, Mutex, OnceLock};
++use std::sync::{mpsc, Condvar, Mutex, OnceLock};
+ use std::time::{Duration, Instant};
+ 
+ /// Bounded TTL map keyed by insertion time. Std-only; used for the warm SCK
+@@ -365,36 +364,126 @@ const WINDOW_PLAN_CACHE_CAPACITY: usize = 32;
+ /// walk's own 20-second bound. The shell fallback retains its prior behavior.
+ const WINDOW_CAPTURE_NATIVE_TIMEOUT: Duration = Duration::from_secs(3);
+ 
+-/// Permit at most one ScreenCaptureKit worker. If an Apple completion callback
+-/// never fires, the timed-out worker keeps this permit, and every later request
+-/// goes straight to the compatibility fallback instead of leaking more
+-/// blocked threads.
++/// One native worker, with a bounded FIFO for healthy overlapping captures.
++/// A timed-out Apple callback keeps its permit; later calls then fall back
++/// immediately instead of spawning replacement workers or filling the queue.
+ struct NativeCaptureGate {
+-    active: AtomicBool,
++    state: Mutex<NativeCaptureState>,
++    ready: Condvar,
++}
++
++struct NativeCaptureState {
++    next: u64,
++    active: Option<u64>,
++    stalled: bool,
++    waiting: VecDeque<u64>,
+ }
+ 
+ impl NativeCaptureGate {
+     const fn new() -> Self {
+         Self {
+-            active: AtomicBool::new(false),
++            state: Mutex::new(NativeCaptureState {
++                next: 0,
++                active: None,
++                stalled: false,
++                waiting: VecDeque::new(),
++            }),
++            ready: Condvar::new(),
+         }
+     }
+ 
+     fn try_acquire(&'static self) -> Option<NativeCapturePermit> {
+-        self.active
+-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+-            .ok()
+-            .map(|_| NativeCapturePermit { gate: self })
++        let mut state = self
++            .state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if state.active.is_some() || !state.waiting.is_empty() {
++            return None;
++        }
++        state.next += 1;
++        let generation = state.next;
++        state.active = Some(generation);
++        state.stalled = false;
++        Some(NativeCapturePermit {
++            gate: self,
++            generation,
++        })
++    }
++
++    fn acquire(&'static self, timeout: Duration) -> anyhow::Result<NativeCapturePermit> {
++        let started = Instant::now();
++        if let Some(permit) = self.try_acquire() {
++            return Ok(permit);
++        }
++        let mut state = self
++            .state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if state.stalled || state.waiting.len() >= 32 {
++            anyhow::bail!("ScreenCaptureKit capture already in flight");
++        }
++        state.next += 1;
++        let generation = state.next;
++        state.waiting.push_back(generation);
++        loop {
++            if state.stalled {
++                state.waiting.retain(|id| *id != generation);
++                self.ready.notify_all();
++                anyhow::bail!("ScreenCaptureKit capture already in flight");
++            }
++            let Some(left) = timeout
++                .checked_sub(started.elapsed())
++                .filter(|left| !left.is_zero())
++            else {
++                state.waiting.retain(|id| *id != generation);
++                self.ready.notify_all();
++                anyhow::bail!("ScreenCaptureKit capture wait timed out");
++            };
++            if state.active.is_none() && state.waiting.front() == Some(&generation) {
++                state.waiting.pop_front();
++                state.active = Some(generation);
++                state.stalled = false;
++                return Ok(NativeCapturePermit {
++                    gate: self,
++                    generation,
++                });
++            }
++            (state, _) = self
++                .ready
++                .wait_timeout(state, left)
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
++        }
++    }
++
++    fn mark_stalled(&self, generation: u64) {
++        let mut state = self
++            .state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if state.active == Some(generation) {
++            state.stalled = true;
++            self.ready.notify_all();
++        }
+     }
+ }
+ 
+ struct NativeCapturePermit {
+     gate: &'static NativeCaptureGate,
++    generation: u64,
+ }
+ 
+ impl Drop for NativeCapturePermit {
+     fn drop(&mut self) {
+-        self.gate.active.store(false, Ordering::Release);
++        let mut state = self
++            .gate
++            .state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if state.active == Some(self.generation) {
++            state.active = None;
++            state.stalled = false;
++            self.gate.ready.notify_all();
++        }
+     }
+ }
+ 
+@@ -412,9 +501,9 @@ where
+     T: Send + 'static,
+     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+ {
+-    let permit = gate
+-        .try_acquire()
+-        .ok_or_else(|| anyhow::anyhow!("ScreenCaptureKit capture already in flight"))?;
++    let started = Instant::now();
++    let permit = gate.acquire(timeout)?;
++    let generation = permit.generation;
+     let (sender, receiver) = mpsc::sync_channel(1);
+     std::thread::Builder::new()
+         .name("cua-sck-window-capture".into())
+@@ -425,9 +514,10 @@ where
+         })
+         .map_err(|error| anyhow::anyhow!("failed to start ScreenCaptureKit worker: {error}"))?;
+ 
+-    match receiver.recv_timeout(timeout) {
++    match receiver.recv_timeout(timeout.saturating_sub(started.elapsed())) {
+         Ok(result) => result,
+         Err(mpsc::RecvTimeoutError::Timeout) => {
++            gate.mark_stalled(generation);
+             anyhow::bail!(
+                 "ScreenCaptureKit capture timed out after {} ms",
+                 timeout.as_millis()
+@@ -463,7 +553,7 @@ fn build_window_capture_plan(
+     window_id: u32,
+     expected_identity: WindowCaptureIdentity,
+ ) -> anyhow::Result<std::sync::Arc<WindowCapturePlan>> {
+-    use screencapturekit::prelude::{SCContentFilter, SCShareableContent, SCStreamConfiguration};
++    use screencapturekit::prelude::{SCContentFilter, SCShareableContent};
+ 
+     let content = SCShareableContent::get()
+         .map_err(|e| anyhow::anyhow!("SCShareableContent::get failed: {e}"))?;
+@@ -519,9 +609,7 @@ fn build_window_capture_plan(
+     let out_w = rounded_pixel_dim(width_pts * scale, "width")?;
+     let out_h = rounded_pixel_dim(height_pts * scale, "height")?;
+ 
+-    let config = SCStreamConfiguration::new()
+-        .with_width(out_w)
+-        .with_height(out_h);
++    let config = window_capture_config(out_w, out_h);
+ 
+     Ok(std::sync::Arc::new(WindowCapturePlan {
+         filter,
+@@ -530,6 +618,26 @@ fn build_window_capture_plan(
+     }))
+ }
+ 
++/// Output configuration for a single-window capture.
++///
++/// The hardware pointer stays out. ScreenCaptureKit draws it by default, and
++/// with a desktop-independent window filter it grows the captured area to
++/// take in a pointer that sits outside the window, then shrinks that larger
++/// area into the configured `width`x`height`. The window then shows up scaled
++/// (for example to 96.5%) and offset inside an image whose size still matches
++/// its bounds, so the frame check passes with scale 1 and every pixel
++/// coordinate read off it lands off target. `screencapture -l` and the
++/// SkyLight path never include the pointer either.
++fn window_capture_config(
++    out_w: u32,
++    out_h: u32,
++) -> screencapturekit::prelude::SCStreamConfiguration {
++    screencapturekit::prelude::SCStreamConfiguration::new()
++        .with_width(out_w)
++        .with_height(out_h)
++        .with_shows_cursor(false)
++}
++
+ /// Single-frame capture + RGBA/PNG encode from an existing plan.
+ ///
+ /// https://developer.apple.com/documentation/screencapturekit/scscreenshotmanager
+@@ -1104,6 +1212,16 @@ mod tests {
+     use std::rc::Rc;
+     use std::sync::Arc;
+ 
++    /// Regression for trycua/cua#5476: with the pointer outside the window,
++    /// a pointer-showing window capture came back scaled and offset while
++    /// still sized like the window, so clicks aimed from it missed by ~37 px.
++    #[test]
++    fn window_capture_config_leaves_the_pointer_out_at_the_planned_size() {
++        let config = window_capture_config(1240, 900);
++        assert!(!config.shows_cursor());
++        assert_eq!((config.width(), config.height()), (1240, 900));
++    }
++
+     #[test]
+     fn off_space_window_uses_skylight_before_public_backends() {
+         let public_calls = Cell::new(0u32);
+@@ -1471,6 +1589,74 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn healthy_overlapping_reads_wait_instead_of_falling_back() {
++        static GATE: NativeCaptureGate = NativeCaptureGate::new();
++        let (started, observed) = mpsc::channel();
++        let (release, released) = mpsc::channel();
++        let first = std::thread::spawn(move || {
++            run_native_capture_worker(&GATE, Duration::from_secs(5), move || {
++                started.send(()).unwrap();
++                released.recv().unwrap();
++                Ok(1u8)
++            })
++        });
++        observed.recv().unwrap();
++        let second = std::thread::spawn(move || {
++            run_native_capture_worker(&GATE, Duration::from_secs(5), || Ok(2u8))
++        });
++        let deadline = Instant::now() + Duration::from_secs(1);
++        while GATE.state.lock().unwrap().waiting.is_empty() && Instant::now() < deadline {
++            std::thread::yield_now();
++        }
++        let queued = !GATE.state.lock().unwrap().waiting.is_empty();
++        release.send(()).unwrap();
++        assert_eq!(first.join().unwrap().unwrap(), 1);
++        let second = second.join().unwrap();
++        assert!(
++            queued,
++            "second capture must queue while a healthy worker runs"
++        );
++        assert_eq!(
++            second.unwrap(),
++            2,
++            "ordinary overlap must not take the shell fallback"
++        );
++    }
++
++    #[test]
++    fn expired_capture_waiter_never_starts_work_or_blocks_the_next_read() {
++        static GATE: NativeCaptureGate = NativeCaptureGate::new();
++        let held = GATE.try_acquire().unwrap();
++        let called = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let hits = called.clone();
++        let result = run_native_capture_worker(&GATE, Duration::from_millis(10), move || {
++            hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            Ok(1u8)
++        });
++        assert!(result.unwrap_err().to_string().contains("wait timed out"));
++        assert_eq!(called.load(std::sync::atomic::Ordering::SeqCst), 0);
++        assert!(GATE.state.lock().unwrap().waiting.is_empty());
++        drop(held);
++        assert_eq!(
++            run_native_capture_worker(&GATE, Duration::from_secs(1), || Ok(3u8)).unwrap(),
++            3
++        );
++    }
++
++    #[test]
++    fn old_capture_timeout_cannot_poison_a_new_worker() {
++        static GATE: NativeCaptureGate = NativeCaptureGate::new();
++        let old = GATE.try_acquire().unwrap();
++        let old_generation = old.generation;
++        drop(old);
++        let current = GATE.try_acquire().unwrap();
++        GATE.mark_stalled(old_generation);
++        assert!(!GATE.state.lock().unwrap().stalled);
++        assert_eq!(GATE.state.lock().unwrap().active, Some(current.generation));
++        drop(current);
++    }
++
+     #[test]
+     fn pooled_native_worker_returns_work_result_and_error() {
+         static GATE: NativeCaptureGate = NativeCaptureGate::new();
+@@ -1532,10 +1718,10 @@ mod tests {
+ 
+         release_sender.send(()).expect("release original worker");
+         let deadline = Instant::now() + Duration::from_secs(1);
+-        while GATE.active.load(AtomicOrdering::Acquire) && Instant::now() < deadline {
++        while GATE.state.lock().unwrap().active.is_some() && Instant::now() < deadline {
+             std::thread::yield_now();
+         }
+-        assert!(!GATE.active.load(AtomicOrdering::Acquire));
++        assert!(!GATE.state.lock().unwrap().active.is_some());
+ 
+         assert_eq!(
+             run_native_capture_worker(&GATE, Duration::from_secs(1), || {
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs b/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs
+index 358037ea5d65f12ea25c6632e98a8885539cb1d3..aed8ebe50f856050d9878ee30cb376e7b6765be3 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs
+@@ -449,12 +449,19 @@ pub async fn animate_cursor_to_target(key: CursorKey, x: f64, y: f64, target: Op
+     // thread never entered `run_on_main_thread`): the command stays queued
+     // for a loop that starts later, and the action proceeds now. Bounded
+     // either way.
+-    wait_for_arrival(
++    let started = Instant::now();
++    let arrived = wait_for_arrival(
+         rx,
+         RENDER_LOOP_RUNNING.load(Ordering::Acquire),
+         ARRIVAL_TIMEOUT,
+     )
+     .await;
++    tracing::info!(
++        phase = "cursor_arrival",
++        arrived,
++        elapsed_ms = started.elapsed().as_millis() as u64,
++        "cua input timing"
++    );
+ }
+ 
+ /// Waits for `rx` only while a render loop runs, and never longer than
+@@ -710,7 +717,12 @@ unsafe fn run_appkit(_cfg: CursorConfig, rx: std::sync::mpsc::Receiver<OverlayMs
+     // ---- Layer-backed content view ----
+     let content_view: *mut AnyObject = msg_send![win, contentView];
+     let _: () = msg_send![content_view, setWantsLayer: true];
+-    let layer: *mut AnyObject = msg_send![content_view, layer];
++    let root_layer: *mut AnyObject = msg_send![content_view, layer];
++    // Keep the window full-screen for stable ordering, but upload only the
++    // painted tile. A full transparent display-sized CGImage otherwise makes
++    // Core Animation color-convert millions of empty pixels on every tick.
++    let layer: *mut AnyObject = msg_send![class!(CALayer), layer];
++    let _: () = msg_send![root_layer, addSublayer: layer];
+ 
+     // Set layer geometry. contentsScale tells Core Animation that the CGImage
+     // we hand to setContents: is already at retina (`backing_scale`×) pixel
+@@ -803,14 +815,7 @@ fn render_loop(
+ 
+         let woke_from_idle = first_msg.is_some();
+         let now = Instant::now();
+-        let dt = if woke_from_idle {
+-            // The blocking recv() above can span an arbitrarily long idle period.
+-            // Do not charge that time to the first animation tick after a command;
+-            // let the wake-up frame render the newly-applied state at t=0.
+-            0.0
+-        } else {
+-            now.duration_since(last_tick).as_secs_f64().min(0.05)
+-        };
++        let dt = animation_frame_delta(now.duration_since(last_tick), woke_from_idle);
+         last_tick = now;
+ 
+         // Refit before painting, so the frame after a display change (often
+@@ -958,7 +963,7 @@ fn render_loop(
+         // change pixels. A final frame is emitted as animations/fades finish so
+         // the layer is left in the completed/cleared state before blocking.
+         if had_msg || refit || hover_changed || frame_tick_needed || next_frame_tick_needed {
+-            let pixmap = {
++            let (pixmap, scale) = {
+                 let guard = RENDER.lock().unwrap();
+                 if let Some(map) = guard.as_ref() {
+                     // Allocate the pixmap at the screen's PHYSICAL pixel
+@@ -974,18 +979,27 @@ fn render_loop(
+                     let backing_scale_f32 = scale as f32;
+                     note_overlay_frame(map.cursors.values().any(cursor_may_paint));
+                     paint_main_screen(&mut pm, map, backing_scale_f32);
+-                    pm
++                    (pm, scale)
+                 } else {
+                     break;
+                 }
+             };
+ 
+             // Convert to CGImage and update layer on the main queue.
+-            dispatch_set_layer_contents(layer_ptr, pixmap);
++            dispatch_set_layer_contents(layer_ptr, pixmap, scale, win_h);
+         }
+ 
+         frame_tick_needed = next_frame_tick_needed;
+         hover_poll_needed = next_hover_poll_needed;
++        let frame_elapsed = Instant::now().duration_since(last_tick);
++        if frame_elapsed >= Duration::from_millis(80) {
++            tracing::info!(
++                phase = "cursor_frame",
++                elapsed_ms = frame_elapsed.as_millis() as u64,
++                dt_ms = (dt * 1000.0) as u64,
++                "cua input timing"
++            );
++        }
+         if frame_tick_needed {
+             // Sleep remainder of frame budget.
+             let elapsed = Instant::now().duration_since(last_tick);
+@@ -996,6 +1010,18 @@ fn render_loop(
+     }
+ }
+ 
++/// Trajectories are sampled analytically, not integrated in fixed simulation
++/// steps. Charge their full wall time even when compositing misses a frame;
++/// clipping it slows every arrival while the input coordinator is held.
++/// A wake after an idle recv still starts the new animation at t=0.
++fn animation_frame_delta(elapsed: Duration, woke_from_idle: bool) -> f64 {
++    if woke_from_idle {
++        0.0
++    } else {
++        elapsed.as_secs_f64()
++    }
++}
++
+ /// The main display's frame in global top-left points and its backing scale.
+ /// `CGDisplayBounds` is cheap and thread-safe; the scale is re-read only when
+ /// the frame changed, keeping the AppKit-reported scale otherwise.
+@@ -1082,24 +1108,27 @@ fn cursor_is_externally_visible(state: &RenderState) -> bool {
+ 
+ /// Convert a `tiny_skia::Pixmap` to a `CGImage` and set it as the contents
+ /// of the given `CALayer` via `dispatch_async(main_queue, ...)`.
+-fn dispatch_set_layer_contents(layer_ptr: usize, pixmap: tiny_skia::Pixmap) {
+-    // Build the CGImage from the pixmap bytes.
+-    let cg_image_ptr = match pixmap_to_cgimage(&pixmap) {
+-        Some(p) => p,
+-        None => return,
++fn dispatch_set_layer_contents(
++    layer_ptr: usize,
++    pixmap: tiny_skia::Pixmap,
++    scale: f64,
++    full_height: f64,
++) {
++    let tile = painted_tile(&pixmap);
++    let (cg_image_ptr, rect) = match tile {
++        Some(tile) => {
++            let Some(image) = pixmap_to_cgimage(&tile.pixels) else {
++                return;
++            };
++            let rect = tile.layer_rect(full_height, scale);
++            (Some(image), rect)
++        }
++        None => (None, [0.0; 4]),
+     };
++    let payload = Box::new((layer_ptr, cg_image_ptr, rect, scale));
+ 
+-    // Box the payload for the C callback.
+-    let payload = Box::new((layer_ptr, cg_image_ptr));
+-
+-    // GCD symbols from libdispatch (part of the macOS system library stubs).
+-    // `dispatch_get_main_queue()` is an inline C function; the underlying
+-    // symbol is `_dispatch_main_q`, a *struct* (not a pointer).
+-    // We declare it as `u8` (opaque placeholder) and take its ADDRESS to
+-    // obtain the `dispatch_queue_t` (pointer to the struct).
+     #[link(name = "System", kind = "framework")]
+     extern "C" {
+-        // Opaque placeholder — we only ever take &_dispatch_main_q, never read it.
+         static _dispatch_main_q: u8;
+         fn dispatch_async_f(
+             queue: *const c_void,
+@@ -1109,22 +1138,32 @@ fn dispatch_set_layer_contents(layer_ptr: usize, pixmap: tiny_skia::Pixmap) {
+     }
+ 
+     unsafe extern "C" fn set_contents_cb(ctx: *mut c_void) {
+-        let (layer_ptr, cg_image_ptr): (usize, usize) = *Box::from_raw(ctx as *mut _);
++        use objc2_foundation::{NSPoint, NSRect, NSSize};
++        let (layer_ptr, image, rect, scale): (usize, Option<usize>, [f64; 4], f64) =
++            *Box::from_raw(ctx as *mut _);
+         let layer = layer_ptr as *mut objc2::runtime::AnyObject;
+-        // setContents: expects an `id` (type '@'), not a raw void pointer.
+-        // CGImageRef is toll-free bridged to NSObject, so we cast it to *mut AnyObject.
+-        let cg_id = cg_image_ptr as *mut objc2::runtime::AnyObject;
++        // A plain sublayer otherwise implicitly animates its cropped frame,
++        // adding a second motion behind the already-animated cursor pixels.
++        let _: () = objc2::msg_send![objc2::class!(CATransaction), begin];
++        let _: () = objc2::msg_send![objc2::class!(CATransaction), setDisableActions: true];
++        let _: () = objc2::msg_send![layer, setContentsScale: scale];
++        let frame = NSRect::new(
++            NSPoint::new(rect[0], rect[1]),
++            NSSize::new(rect[2], rect[3]),
++        );
++        let _: () = objc2::msg_send![layer, setFrame: frame];
++        let _: () = objc2::msg_send![layer, setHidden: image.is_none()];
++        let cg_id = image.unwrap_or(0) as *mut objc2::runtime::AnyObject;
+         let _: () = objc2::msg_send![layer, setContents: cg_id];
+-        // Release the CGImage ref we retained in pixmap_to_cgimage.
+-        CGImageRelease(cg_image_ptr as *mut c_void);
++        let _: () = objc2::msg_send![objc2::class!(CATransaction), commit];
++        if let Some(image) = image {
++            CGImageRelease(image as *mut c_void);
++        }
+     }
+-
+     extern "C" {
+         fn CGImageRelease(image: *mut c_void);
+     }
+-
+     unsafe {
+-        // &_dispatch_main_q is the queue pointer (same as dispatch_get_main_queue()).
+         let main_queue = &raw const _dispatch_main_q as *const c_void;
+         dispatch_async_f(
+             main_queue,
+@@ -1134,6 +1173,52 @@ fn dispatch_set_layer_contents(layer_ptr: usize, pixmap: tiny_skia::Pixmap) {
+     }
+ }
+ 
++struct PaintedTile {
++    pixels: tiny_skia::Pixmap,
++    left: u32,
++    top: u32,
++}
++
++impl PaintedTile {
++    fn layer_rect(&self, full_height: f64, scale: f64) -> [f64; 4] {
++        [
++            f64::from(self.left) / scale,
++            full_height - f64::from(self.top + self.pixels.height()) / scale,
++            f64::from(self.pixels.width()) / scale,
++            f64::from(self.pixels.height()) / scale,
++        ]
++    }
++}
++
++/// Preserve every nontransparent pixel, including faint trails, focus rings,
++/// labels and multiple cursors. Only truly empty margins are discarded.
++fn painted_tile(pixmap: &tiny_skia::Pixmap) -> Option<PaintedTile> {
++    let (width, height) = (pixmap.width(), pixmap.height());
++    let (mut left, mut top, mut right, mut bottom) = (width, height, 0, 0);
++    for (index, pixel) in pixmap.data().chunks_exact(4).enumerate() {
++        if pixel[3] == 0 {
++            continue;
++        }
++        let (x, y) = ((index as u32) % width, (index as u32) / width);
++        left = left.min(x);
++        top = top.min(y);
++        right = right.max(x + 1);
++        bottom = bottom.max(y + 1);
++    }
++    if left == width {
++        return None;
++    }
++    let mut pixels = tiny_skia::Pixmap::new(right - left, bottom - top)?;
++    let target_stride = pixels.width() as usize * 4;
++    for y in top..bottom {
++        let start = ((y * width + left) * 4) as usize;
++        let target = (y - top) as usize * target_stride;
++        pixels.data_mut()[target..target + target_stride]
++            .copy_from_slice(&pixmap.data()[start..start + target_stride]);
++    }
++    Some(PaintedTile { pixels, left, top })
++}
++
+ /// Raise the normal-level overlay without activating the driver application.
+ ///
+ /// This is used only for an externally visible cursor with no target window.
+@@ -1234,7 +1319,9 @@ fn dispatch_pin_above(win_ptr: usize, target_wid: u64) {
+         }
+     }
+ 
+-    let windows = crate::windows::visible_windows();
++    // Repinning only compares visible layer-0 ordering; Space metadata for
++    // every application is unrelated and expensive during active rendering.
++    let windows = crate::windows::on_screen_windows_any_layer();
+     let raise_front =
+         target_is_frontmost_visible_window(target_wid, crate::apps::frontmost_pid(), &windows);
+     let payload = Box::new((win_ptr, target_wid, raise_front));
+@@ -1379,6 +1466,63 @@ fn pixmap_to_cgimage(pixmap: &tiny_skia::Pixmap) -> Option<usize> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn cropped_overlay_preserves_all_painted_pixels_and_empty_frames_clear() {
++        let mut frame = tiny_skia::Pixmap::new(120, 80).unwrap();
++        assert!(painted_tile(&frame).is_none());
++        for (x, y, alpha) in [(11, 13, 255u8), (15, 15, 1), (37, 54, 90), (119, 79, 255)] {
++            let i = ((y * frame.width() + x) * 4) as usize;
++            frame.data_mut()[i..i + 4].copy_from_slice(&[alpha, 0, 0, alpha]);
++        }
++        let tile = painted_tile(&frame).unwrap();
++        assert_eq!((tile.left, tile.top), (11, 13));
++        assert_eq!((tile.pixels.width(), tile.pixels.height()), (109, 67));
++        let mut restored = tiny_skia::Pixmap::new(frame.width(), frame.height()).unwrap();
++        for y in 0..tile.pixels.height() {
++            let start = (y * tile.pixels.width() * 4) as usize;
++            let end = start + tile.pixels.width() as usize * 4;
++            let target = (((y + tile.top) * frame.width() + tile.left) * 4) as usize;
++            restored.data_mut()[target..target + end - start]
++                .copy_from_slice(&tile.pixels.data()[start..end]);
++        }
++        assert_eq!(
++            restored.data(),
++            frame.data(),
++            "faint trails, all owners and edge pixels must survive"
++        );
++        frame.fill(tiny_skia::Color::TRANSPARENT);
++        assert!(
++            painted_tile(&frame).is_none(),
++            "a cleared scene must not retain the old tile"
++        );
++    }
++
++    #[test]
++    fn cropped_overlay_keeps_retina_positions_and_refitted_screen_geometry() {
++        let tile = PaintedTile {
++            pixels: tiny_skia::Pixmap::new(5, 3).unwrap(),
++            left: 11,
++            top: 13,
++        };
++        assert_eq!(tile.layer_rect(40.0, 2.0), [5.5, 32.0, 2.5, 1.5]);
++        assert_eq!(tile.layer_rect(80.0, 2.0), [5.5, 72.0, 2.5, 1.5]);
++        assert_eq!(tile.layer_rect(80.0, 1.0), [11.0, 64.0, 5.0, 3.0]);
++    }
++
++    #[test]
++    fn a_small_cursor_upload_does_not_include_transparent_display_margins() {
++        let mut frame = tiny_skia::Pixmap::new(1920, 1080).unwrap();
++        for y in 100..116 {
++            for x in 200..216 {
++                let i = ((y * frame.width() + x) * 4) as usize;
++                frame.data_mut()[i..i + 4].copy_from_slice(&[255, 0, 0, 255]);
++            }
++        }
++        let tile = painted_tile(&frame).unwrap();
++        assert_eq!((tile.pixels.width(), tile.pixels.height()), (16, 16));
++        assert!(tile.pixels.data().len() * 1000 < frame.data().len());
++    }
++
+     /// A human-origin session (a Cua Spaces viewer's relayed input) never
+     /// reaches the renderer; an agent's session does. The rule itself lives
+     /// in `cua_driver_core::agent_cursor`.
+@@ -1477,6 +1621,46 @@ mod tests {
+         )
+     }
+ 
++    #[test]
++    fn delayed_frame_reaches_the_planned_arrival_without_extra_lock_time() {
++        let mut map = empty_map();
++        let state = placed(&mut map, "slow-frame");
++        state.apply_command(OverlayCommand::MoveTo {
++            x: 800.0,
++            y: 600.0,
++            end_heading_radians: std::f64::consts::FRAC_PI_4,
++            target: None,
++        });
++        let arrival = state
++            .core
++            .trajectory
++            .as_ref()
++            .expect("a real planned glide")
++            .arrival_t;
++        assert!(arrival > 0.05);
++        let elapsed = Duration::from_secs_f64(arrival + 0.01);
++        assert!(
++            state.tick(animation_frame_delta(elapsed, false)),
++            "a late render frame must signal the elapsed trajectory's arrival"
++        );
++        assert!(!state.tick(0.0), "arrival is signaled exactly once");
++    }
++
++    #[test]
++    fn idle_time_is_not_charged_to_a_new_cursor_glide() {
++        let mut map = empty_map();
++        let state = placed(&mut map, "idle-wake");
++        state.apply_command(OverlayCommand::MoveTo {
++            x: 800.0,
++            y: 600.0,
++            end_heading_radians: std::f64::consts::FRAC_PI_4,
++            target: None,
++        });
++        assert!(!state.tick(animation_frame_delta(Duration::from_secs(3600), true)));
++        assert!(state.core.is_moving());
++        assert_eq!(state.core.motion_t, 0.0);
++    }
++
+     fn placed<'a>(map: &'a mut RenderMap, key: &str) -> &'a mut RenderState {
+         let frame = Some(ScreenFrame::new(0.0, 0.0, 100.0, 100.0));
+         assert!(map.seed_start_if_sentinel(key, 60.0, 60.0, frame));
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs b/libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs
+index 67bfae23e41ab94ee1b865ec6b3c73f2ea1af34e..a2d33d88c5361e8d510f64690716758137b3dd0b 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs
+@@ -683,6 +683,9 @@ impl Tool for ClickTool {
+                     target_rect,
+                 )
+                 .await;
++                if let Some(refusal) = cua_driver_core::tool::refuse_ending_input(&args) {
++                    return refusal;
++                }
+                 self.state
+                     .cursor_registry
+                     .update_position(&cursor_key, cx, cy);
+@@ -731,6 +734,9 @@ impl Tool for ClickTool {
+                     target_rect,
+                 )
+                 .await;
++                if let Some(refusal) = cua_driver_core::tool::refuse_ending_input(&args) {
++                    return refusal;
++                }
+                 // Keep the registry in sync with the overlay so
+                 // get_agent_cursor_state reports a truthful position even when
+                 // the click was dispatched via the AX path (no pixel coords).
+@@ -740,6 +746,10 @@ impl Tool for ClickTool {
+                 self.state.cursor_registry.note_press(&cursor_key, cx, cy);
+             }
+ 
++            if let Some(refusal) = cua_driver_core::tool::refuse_ending_input(&args) {
++                return refusal;
++            }
++
+             // Finder icon/list items can expose a readable AXSelected state
+             // while refusing both AXSelected writes and AXPress. Resolve a
+             // verified coordinate frame only for those collection-like
+@@ -795,13 +805,19 @@ impl Tool for ClickTool {
+             // itself via FocusGuard. After the action returns, detect any
+             // new-window / foreground side-effects and append a one-liner
+             // suffix matching Swift's wording.
++            if let Some(refusal) = cua_driver_core::tool::refuse_ending_input(&args) {
++                return refusal;
++            }
+             let prior_front = apps::frontmost_pid();
+             let foreground = delivery_mode.is_foreground();
++            let snapshot_started = std::time::Instant::now();
+             let snapshot = if foreground {
+                 WindowChangeDetector::snapshot_without_suppression(prior_front)
+             } else {
+                 WindowChangeDetector::snapshot(prior_front)
+             };
++            tracing::info!(target: "cua_driver_core::tool", tool = "click", phase = "ax_snapshot",
++                elapsed_ms = snapshot_started.elapsed().as_millis() as u64, "cua input timing");
+ 
+             // Run AX work on a blocking thread (can't block async executor).
+             // Use `effective_action` so button=right rewrites press → show_menu.
+@@ -812,6 +828,7 @@ impl Tool for ClickTool {
+             // and stomp default for a non-default session).
+             let ck = cursor_key.clone();
+             let selection_modifiers = modifiers.clone();
++            let ax_started = std::time::Instant::now();
+             let result = focus_guard::with_focus_suppressed(
+                 if foreground { None } else { Some(pid) },
+                 prior_front,
+@@ -870,10 +887,14 @@ impl Tool for ClickTool {
+                 },
+             )
+             .await;
++            tracing::info!(target: "cua_driver_core::tool", tool = "click", phase = "ax_dispatch_guard",
++                elapsed_ms = ax_started.elapsed().as_millis() as u64, "cua input timing");
+ 
+             // Drop the wildcard lease + detect window/foreground side-effects.
+             let acted_at = std::time::Instant::now();
+             let changes = super::finish_window_observation(snapshot).await;
++            tracing::info!(target: "cua_driver_core::tool", tool = "click", phase = "ax_observation",
++                elapsed_ms = acted_at.elapsed().as_millis() as u64, "cua input timing");
+ 
+             match result {
+                 Ok(Ok((
+@@ -1119,6 +1140,9 @@ impl Tool for ClickTool {
+             // Animate the visual cursor to the click point and wait for it to
+             // arrive — mirrors Swift's `AgentCursor.shared.animateAndWait(to:)`.
+             crate::cursor::overlay::animate_cursor_to(cursor_key.clone(), screen_x, screen_y).await;
++            if let Some(refusal) = cua_driver_core::tool::refuse_ending_input(&args) {
++                return refusal;
++            }
+             // Keep the registry in sync with the overlay (see AX path above).
+             self.state
+                 .cursor_registry
+@@ -1484,8 +1508,11 @@ fn press_needs_key_window(action: &str, front_pid: Option<i32>, pid: i32, native
+ /// or taking key status from the user's window (the focus record only, as the
+ /// background pixel click does), then let AppKit settle.
+ fn prime_key_window_for_background_press(pid: i32, window_id: u32, action: &str) {
++    let started = std::time::Instant::now();
+     let native = !super::type_text::is_browser_pid(pid)
+         && !crate::browser::electron_js::ElectronJs::is_electron(pid);
++    tracing::info!(target: "cua_driver_core::tool", tool = "click", phase = "ax_target_classification",
++        elapsed_ms = started.elapsed().as_millis() as u64, "cua input timing");
+     if press_needs_key_window(action, apps::frontmost_pid(), pid, native)
+         && crate::input::skylight::activate_without_raise_with(pid, window_id, false)
+     {
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/tools/get_window_state.rs b/libs/cua-driver/rust/crates/platform-macos/src/tools/get_window_state.rs
+index 8c4d118990e6852c30bd200c80fee7f058197806..964e333608cdf8adf2a9828fd9795a740814b71c 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/tools/get_window_state.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/tools/get_window_state.rs
+@@ -23,6 +23,94 @@ static DEF: std::sync::OnceLock<ToolDef> = std::sync::OnceLock::new();
+ /// Slack past `timeout_ms` before the walk task is abandoned: one in-flight AX
+ /// call may still be waiting on its messaging timeout.
+ const AX_WALK_BACKSTOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
++const AX_READ_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
++
++// Bulk AX walks share the process's native accessibility transport. Keep
++// that expensive work bounded; screenshot-only previews do not enter here.
++fn ax_read_gate() -> Arc<tokio::sync::Semaphore> {
++    static GATE: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
++    GATE.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1)))
++        .clone()
++}
++
++#[derive(Debug)]
++enum AxReadError {
++    QueueBusy,
++    Worker(tokio::task::JoinError),
++    Backstop,
++}
++
++async fn acquire_ax_read(
++    gate: Arc<tokio::sync::Semaphore>,
++    queue_wait: std::time::Duration,
++) -> Result<Arc<tokio::sync::OwnedSemaphorePermit>, AxReadError> {
++    let permit = tokio::time::timeout(queue_wait, gate.acquire_owned())
++        .await
++        .map_err(|_| AxReadError::QueueBusy)?
++        .map_err(|_| AxReadError::QueueBusy)?;
++    Ok(Arc::new(permit))
++}
++
++async fn run_ax_read<T, F>(
++    gate: Arc<tokio::sync::Semaphore>,
++    queue_wait: std::time::Duration,
++    backstop: std::time::Duration,
++    work: F,
++) -> Result<(T, Arc<tokio::sync::OwnedSemaphorePermit>), AxReadError>
++where
++    T: Send + 'static,
++    F: FnOnce() -> T + Send + 'static,
++{
++    let lease = acquire_ax_read(gate, queue_wait).await?;
++    let worker_lease = lease.clone();
++    let worker = tokio::task::spawn_blocking(move || {
++        // A timeout drops the JoinHandle, not this native worker. Its permit
++        // must live until the real walk exits, so retries cannot pile up walks.
++        let _permit = worker_lease;
++        work()
++    });
++    let value = tokio::time::timeout(backstop, worker)
++        .await
++        .map_err(|_| AxReadError::Backstop)?
++        .map_err(AxReadError::Worker)?;
++    Ok((value, lease))
++}
++
++fn collapse_closed_menus(
++    include_menu_items: Option<bool>,
++    query: Option<&str>,
++    full_output: bool,
++    observation_only: bool,
++) -> bool {
++    include_menu_items.map_or_else(
++        || query.is_none_or(|q| q.trim().is_empty()) && !full_output && !observation_only,
++        |include| !include,
++    )
++}
++
++/// AX exposes the application's logical window while WindowServer may expose
++/// a transformed presentation frame. A capture matching that smaller frame
++/// alone does not prove a transform for the AX rows returned beside it.
++fn validate_ax_capture_geometry(
++    window_id: u32,
++    bounds: &crate::windows::WindowBounds,
++    ax_frame: Option<[f64; 4]>,
++) -> Result<(), super::px_frame::PxFrameError> {
++    if let Some(ax) = ax_frame {
++        let live = [bounds.x, bounds.y, bounds.width, bounds.height];
++        if !ax
++            .iter()
++            .zip(live)
++            .all(|(a, b)| a.is_finite() && b.is_finite() && (*a - b).abs() <= 1.0)
++        {
++            return Err(super::px_frame::PxFrameError::CaptureUnavailable {
++                window_id,
++                reason: format!("AX window frame {ax:?} disagrees with live WindowServer frame {live:?}; wait for the window geometry to settle before using pixels"),
++            });
++        }
++    }
++    Ok(())
++}
+ 
+ fn def() -> &'static ToolDef {
+     DEF.get_or_init(|| ToolDef {
+@@ -45,6 +133,10 @@ fn def() -> &'static ToolDef {
+                 "window_id": { "type": "integer", "description": "Target window ID from list_windows." },
+                 "query": { "type": "string", "description": "Case-insensitive substring filter: returns matching rows plus ancestors; element_index values are not renumbered. Try this before a full read." },
+                 "capture_mode": cua_driver_core::capture_mode::capture_mode_schema(),
++                "include_menu_items": {
++                    "type": "boolean",
++                    "description": "Expand closed menu-bar menus. By default full_output/query expands them. False keeps titles and any open menu, avoiding unrelated closed-menu walks while preserving the window controls."
++                },
+                 "include_accessibility_tree": {
+                     "type": "boolean",
+                     "description": "Default true. False skips the AX walk and returns the screenshot plus window metadata. Both this and include_screenshot false is an error."
+@@ -271,36 +363,44 @@ impl Tool for GetWindowStateTool {
+ 
+         // A model-facing read lists the menu bar's top-level titles only; a
+         // query or full_output walks every menu as before.
+-        let collapse_menus = query.as_deref().is_none_or(|q| q.trim().is_empty())
+-            && !view.full_output
+-            && !observation_only;
+-        let (tree_result, prepared_snapshot) = if want_tree {
++        let collapse_menus = collapse_closed_menus(
++            args.get("include_menu_items").and_then(Value::as_bool),
++            query.as_deref(),
++            view.full_output,
++            observation_only,
++        );
++        let (tree_result, prepared_snapshot, _ax_read_lease) = if want_tree {
+             let q = query.clone();
+             // `timeout_ms` bounds the walk itself: it returns the partial tree
+             // when the budget runs out. The outer deadline is only a backstop
+             // for an AX call that ignores the per-element messaging timeout
+             // (dropping a spawn_blocking JoinHandle cannot cancel it).
+-            let walk_future = tokio::task::spawn_blocking(move || {
+-                let tree = crate::ax::tree::with_menus_collapsed(collapse_menus, || {
+-                    crate::ax::tree::walk_tree_budgeted(
+-                        pid,
+-                        Some(window_id),
+-                        q.as_deref(),
+-                        max_depth,
+-                        cua_driver_core::walk_budget::WalkBudget::new(timeout_ms, max_elements),
+-                    )
++            // Queueing is bounded separately from the walk's existing budget.
++            let backstop =
++                std::time::Duration::from_millis(timeout_ms) * 2 + AX_WALK_BACKSTOP_GRACE;
++            let walk_future =
++                run_ax_read(ax_read_gate(), AX_READ_QUEUE_WAIT, backstop, move || {
++                    let tree = crate::ax::tree::with_menus_collapsed(collapse_menus, || {
++                        crate::ax::tree::walk_tree_budgeted(
++                            pid,
++                            Some(window_id),
++                            q.as_deref(),
++                            max_depth,
++                            cua_driver_core::walk_budget::WalkBudget::new(timeout_ms, max_elements),
++                        )
++                    });
++                    let payload = crate::ax::snapshot::AxSnapshot::from_nodes(&tree.nodes);
++                    (tree, payload)
+                 });
+-                let payload = crate::ax::snapshot::AxSnapshot::from_nodes(&tree.nodes);
+-                (tree, payload)
+-            });
+             // A launching app is waited on for up to `timeout_ms` before the
+             // walk's own `timeout_ms` starts (see `ax::launch`).
+-            let backstop =
+-                std::time::Duration::from_millis(timeout_ms) * 2 + AX_WALK_BACKSTOP_GRACE;
+-            match tokio::time::timeout(backstop, walk_future).await {
+-                Ok(Ok((tree, payload))) => (Some(tree), Some(payload)),
+-                Ok(Err(e)) => return ToolResult::error(format!("AX tree walk failed: {e}")),
+-                Err(_elapsed) => {
++            match walk_future.await {
++                Ok(((tree, payload), lease)) => (Some(tree), Some(payload), Some(lease)),
++                Err(AxReadError::QueueBusy) => return ToolResult::error(format!(
++                    "AX tree reader for pid={pid} stayed busy for 5 s; this walk was not started. Read screenshot-only, or try a fresh tree later."
++                )),
++                Err(AxReadError::Worker(e)) => return ToolResult::error(format!("AX tree walk failed: {e}")),
++                Err(AxReadError::Backstop) => {
+                     return ToolResult::error(format!(
+                         "AX tree walk for pid={pid} did not return within {} s: an \
+                          accessibility call stopped answering past the {timeout_ms} ms \
+@@ -311,7 +411,17 @@ impl Tool for GetWindowStateTool {
+                 }
+             }
+         } else {
+-            (None, None)
++            // A normal screenshot-only read still probes AX capabilities below;
++            // pure display-only previews perform no AX and bypass this lane.
++            let lease = if display_only {
++                None
++            } else {
++                match acquire_ax_read(ax_read_gate(), AX_READ_QUEUE_WAIT).await {
++                    Ok(lease) => Some(lease),
++                    Err(_) => return ToolResult::error("AX capability reader stayed busy for 5 s; no AX probe was started. Use display_only:true for a preview."),
++                }
++            };
++            (None, None, lease)
+         };
+ 
+         // The window can close, or its CGWindow can be re-parented onto another
+@@ -350,6 +460,12 @@ impl Tool for GetWindowStateTool {
+         // against, and the raw capture's backing scale.
+         let mut screenshot_frame_error = None;
+         let mut screenshot_resize_scale = None;
++        let ax_window_frame = tree_result.as_ref().and_then(|tree| {
++            tree.nodes
++                .iter()
++                .find(|node| node.depth == 0 && node.role == "AXWindow")
++                .and_then(|node| node.frame)
++        });
+         let screenshot = if should_capture {
+             let out_file = screenshot_out_file.clone();
+             let res = tokio::task::spawn_blocking(move || -> Result<
+@@ -368,6 +484,7 @@ impl Tool for GetWindowStateTool {
+                 let bounds = crate::windows::window_bounds_by_id(window_id)
+                     .filter(|b| b.width > 0.0 && b.height > 0.0)
+                     .ok_or(super::px_frame::PxFrameError::WindowNotFound { window_id })?;
++                validate_ax_capture_geometry(window_id, &bounds, ax_window_frame)?;
+                 let raw = crate::capture::screenshot_window_bytes(window_id).map_err(|e| {
+                     super::px_frame::PxFrameError::CaptureUnavailable {
+                         window_id,
+@@ -735,7 +852,11 @@ impl Tool for GetWindowStateTool {
+         // previews poll several times a second.
+         if !display_only {
+             let capture_available = screenshot_dims.is_some();
++            // AX post-processing belongs to the same read. Keep the lease in
++            // both the caller and its native worker if either outlives the other.
++            let probe_lease = _ax_read_lease.clone();
+             let report = tokio::task::spawn_blocking(move || {
++                let _lease = probe_lease;
+                 let facts = crate::ax::exact_target::gather_background_facts(pid, window_id, None);
+                 cua_driver_core::background_input::background_input_capability_report(
+                     cua_driver_core::background_input::ExactWindowTarget { pid, window_id },
+@@ -1761,3 +1882,168 @@ mod tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod ax_read_gate_tests {
++    use super::{collapse_closed_menus, run_ax_read, validate_ax_capture_geometry, AxReadError};
++
++    #[test]
++    fn ax_capture_geometry_refuses_transformed_or_moved_frames_but_keeps_pixel_only_reads() {
++        let bounds = crate::windows::WindowBounds {
++            x: 320.0,
++            y: 120.0,
++            width: 230.0,
++            height: 408.0,
++        };
++        assert!(
++            validate_ax_capture_geometry(2, &bounds, Some([320.0, 120.0, 230.0, 408.0])).is_ok()
++        );
++        assert!(
++            validate_ax_capture_geometry(2, &bounds, Some([320.5, 120.0, 230.0, 407.5])).is_ok()
++        );
++        assert!(validate_ax_capture_geometry(2, &bounds, None).is_ok());
++        for frame in [
++            [143.0, 115.0, 87.0, 154.0],
++            [400.0, 120.0, 230.0, 408.0],
++            [f64::NAN, 120.0, 230.0, 408.0],
++        ] {
++            let error = validate_ax_capture_geometry(2, &bounds, Some(frame)).unwrap_err();
++            let state = super::super::px_frame::error_structured(&error);
++            assert_eq!(state["code"], "px_capture_unavailable");
++            assert!(state["reason"].as_str().unwrap().contains("disagrees"));
++        }
++    }
++
++    #[test]
++    fn explicit_closed_menu_scope_preserves_default_and_full_output_contracts() {
++        assert!(collapse_closed_menus(None, None, false, false));
++        assert!(!collapse_closed_menus(None, None, true, false));
++        assert!(!collapse_closed_menus(None, Some("Save"), false, false));
++        assert!(!collapse_closed_menus(None, None, false, true));
++        assert!(collapse_closed_menus(Some(false), None, true, false));
++        assert!(!collapse_closed_menus(Some(true), None, false, false));
++    }
++    use std::sync::{
++        atomic::{AtomicUsize, Ordering},
++        Arc,
++    };
++    use std::time::Duration;
++
++    #[tokio::test]
++    async fn concurrent_bulk_reads_never_enter_native_work_together() {
++        let gate = Arc::new(tokio::sync::Semaphore::new(1));
++        let active = Arc::new(AtomicUsize::new(0));
++        let peak = Arc::new(AtomicUsize::new(0));
++        let call = || {
++            let (gate, active, peak) = (gate.clone(), active.clone(), peak.clone());
++            run_ax_read(
++                gate,
++                Duration::from_secs(5),
++                Duration::from_secs(5),
++                move || {
++                    let n = active.fetch_add(1, Ordering::SeqCst) + 1;
++                    peak.fetch_max(n, Ordering::SeqCst);
++                    std::thread::sleep(Duration::from_millis(10));
++                    active.fetch_sub(1, Ordering::SeqCst);
++                    42
++                },
++            )
++        };
++        let collect = || async {
++            let (value, _lease) = call().await.unwrap();
++            value
++        };
++        let (a, b, c) = tokio::join!(collect(), collect(), collect());
++        assert_eq!((a, b, c), (42, 42, 42));
++        assert_eq!(peak.load(Ordering::SeqCst), 1);
++    }
++
++    #[tokio::test]
++    async fn a_backstop_does_not_release_the_native_worker_permit() {
++        let gate = Arc::new(tokio::sync::Semaphore::new(1));
++        let (release, blocked) = std::sync::mpsc::channel();
++        let (started, entered) = tokio::sync::oneshot::channel();
++        let first = run_ax_read(
++            gate.clone(),
++            Duration::from_secs(5),
++            Duration::ZERO,
++            move || {
++                let _ = started.send(());
++                let _ = blocked.recv();
++            },
++        )
++        .await;
++        assert!(matches!(first, Err(AxReadError::Backstop)));
++        entered.await.expect("native worker starts");
++        let next = run_ax_read(gate.clone(), Duration::ZERO, Duration::from_secs(5), || {
++            panic!("busy native worker was duplicated")
++        })
++        .await;
++        assert!(matches!(next, Err(AxReadError::QueueBusy)));
++        release.send(()).unwrap();
++        assert_eq!(
++            run_ax_read(gate, Duration::from_secs(5), Duration::from_secs(5), || 7)
++                .await
++                .unwrap()
++                .0,
++            7
++        );
++    }
++
++    #[tokio::test]
++    async fn postprocessing_keeps_the_read_slot_after_the_walk_finishes() {
++        let gate = Arc::new(tokio::sync::Semaphore::new(1));
++        let (value, lease) = run_ax_read(
++            gate.clone(),
++            Duration::from_secs(5),
++            Duration::from_secs(5),
++            || 1,
++        )
++        .await
++        .unwrap();
++        assert_eq!(value, 1);
++        let blocked = run_ax_read(gate.clone(), Duration::ZERO, Duration::from_secs(5), || {
++            panic!("post-processing overlapped the next AX read")
++        })
++        .await;
++        assert!(matches!(blocked, Err(AxReadError::QueueBusy)));
++        drop(lease);
++        let (next, _lease) =
++            run_ax_read(gate, Duration::from_secs(5), Duration::from_secs(5), || 2)
++                .await
++                .unwrap();
++        assert_eq!(next, 2);
++    }
++
++    #[tokio::test]
++    async fn cancellation_while_queued_never_starts_a_late_native_walk() {
++        let gate = Arc::new(tokio::sync::Semaphore::new(1));
++        let held = gate.clone().acquire_owned().await.unwrap();
++        let hits = Arc::new(AtomicUsize::new(0));
++        let work_hits = hits.clone();
++        let queued_gate = gate.clone();
++        let queued = tokio::spawn(async move {
++            run_ax_read(
++                queued_gate,
++                Duration::from_secs(5),
++                Duration::from_secs(5),
++                move || {
++                    work_hits.fetch_add(1, Ordering::SeqCst);
++                },
++            )
++            .await
++        });
++        tokio::task::yield_now().await;
++        queued.abort();
++        assert!(queued.await.unwrap_err().is_cancelled());
++        drop(held);
++        assert_eq!(
++            run_ax_read(gate, Duration::from_secs(5), Duration::from_secs(5), || 9)
++                .await
++                .unwrap()
++                .0,
++            9
++        );
++        assert_eq!(hits.load(Ordering::SeqCst), 0);
++    }
++}
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs b/libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs
+index becd8b6f19521d750be79744337733e5d5af1bab..f11944bda7a50b66d5f730416dc00c81afdf4bc6 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs
+@@ -590,7 +590,10 @@ impl Snapshot {
+ 
+ /// The host's visible layer-0 windows.
+ fn host_windows() -> Vec<WindowInfo> {
+-    windows::visible_windows()
++    // This observer compares on-screen window ids, not Space membership.
++    // Rebuilding every window's Space metadata on every 25ms poll holds up
++    // the action coordinator even though none of that data enters the diff.
++    windows::on_screen_windows_any_layer()
+         .into_iter()
+         .filter(|w| w.layer == 0)
+         .collect()
+diff --git a/libs/cua-driver/rust/crates/platform-macos/src/windows.rs b/libs/cua-driver/rust/crates/platform-macos/src/windows.rs
+index 052e5f83f7affaec476e5402c0140f0d91629725..f88f68cefb59a5a705ff973c333352e7a160a4d5 100644
+--- a/libs/cua-driver/rust/crates/platform-macos/src/windows.rs
++++ b/libs/cua-driver/rust/crates/platform-macos/src/windows.rs
+@@ -441,10 +441,7 @@ pub fn window_info_by_id(window_id: u32) -> Option<WindowInfo> {
+ /// Whether `window_id` is on the current Space of its display. `None` when
+ /// WindowServer does not know the window or Space membership is unreadable.
+ pub fn window_on_current_space_by_id(window_id: u32) -> Option<bool> {
+-    all_windows()
+-        .into_iter()
+-        .find(|w| w.window_id == window_id)?
+-        .on_current_space
++    window_space_view_by_id(window_id)?.on_current_space
+ }
+ 
+ /// WindowServer's Space and on-screen view of one layer-0 window.
+@@ -459,13 +456,28 @@ pub(crate) struct WindowSpaceView {
+ /// [`WindowSpaceView`] of `window_id`, or `None` when WindowServer does not
+ /// list it as a layer-0 window.
+ pub(crate) fn window_space_view_by_id(window_id: u32) -> Option<WindowSpaceView> {
+-    all_windows()
++    // This is a single-window read, used on every click and live capture.
++    // Enumerating Space membership for every other application multiplies
++    // WindowServer IPC by the desktop's window count under parallel previews.
++    window_space_view_in(all_windows_any_layer(), window_id, |id| {
++        let query = crate::input::skylight::SpaceQuery::new()?;
++        let space_ids = query.window_space_ids(id)?;
++        window_on_current_space(Some(&space_ids), query.current_space_for_window(id))
++    })
++}
++
++fn window_space_view_in(
++    windows: impl IntoIterator<Item = WindowInfo>,
++    window_id: u32,
++    mut space: impl FnMut(u32) -> Option<bool>,
++) -> Option<WindowSpaceView> {
++    let window = windows
+         .into_iter()
+-        .find(|w| w.window_id == window_id)
+-        .map(|w| WindowSpaceView {
+-            on_current_space: w.on_current_space,
+-            is_on_screen: w.is_on_screen,
+-        })
++        .find(|w| w.window_id == window_id && w.layer == 0)?;
++    Some(WindowSpaceView {
++        on_current_space: space(window.window_id),
++        is_on_screen: window.is_on_screen,
++    })
+ }
+ 
+ /// Look up a window's bounds by its CGWindowID.
+@@ -769,6 +781,47 @@ mod tests {
+         assert_eq!(windows.len(), 3);
+     }
+ 
++    #[test]
++    fn single_window_space_read_does_not_query_unrelated_windows() {
++        let windows = (1..=100).map(|id| window(id, id as i32, "App"));
++        let mut queried = Vec::new();
++        let view = window_space_view_in(windows, 42, |id| {
++            queried.push(id);
++            Some(false)
++        })
++        .expect("target exists");
++        assert_eq!(
++            queried,
++            [42],
++            "only the requested window may query Space membership"
++        );
++        assert_eq!(view.on_current_space, Some(false));
++        assert!(view.is_on_screen);
++    }
++
++    #[test]
++    fn absent_or_accessory_space_target_does_not_query_other_windows() {
++        let mut accessory = window(42, 42, "Menu");
++        accessory.layer = 101;
++        for id in [42, 99] {
++            assert!(window_space_view_in(
++                vec![window(1, 1, "App"), accessory.clone()],
++                id,
++                |_| panic!("no Space query for an absent layer-0 target")
++            )
++            .is_none());
++        }
++    }
++
++    #[test]
++    fn single_window_space_read_preserves_unknown_membership_and_visibility() {
++        let mut target = window(42, 42, "App");
++        target.is_on_screen = false;
++        let view = window_space_view_in(vec![target], 42, |_| None).expect("target exists");
++        assert_eq!(view.on_current_space, None);
++        assert!(!view.is_on_screen);
++    }
++
+     #[test]
+     fn owner_resolves_same_pid() {
+         let windows = vec![window(42, 800, "TextEdit")];

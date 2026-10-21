@@ -1,0 +1,73 @@
+{
+  "name": "@gugu/session-core",
+  "version": "1.0.0",
+  "description": "Transport-agnostic core runtime primitives for 咕咕",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "Gugu",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./workspace-server/agent-config": "./src/workspace-server/agent-config/index.ts",
+    "./services/fs-watch/worker": "./src/services/fs-watch/worker/index.ts",
+    "./agents/plugins/helpers": "./src/agents/plugins/helpers/index.ts",
+    "./acp/transcript-parser": "./src/acp/reducer/index.ts",
+    "./services/fs-watch/api": "./src/services/fs-watch/api/index.ts",
+    "./agents/agent-run-context": "./src/agents/agent-run-context.ts",
+    "./deps/runtime/install-failure-node": "./src/host-dependencies/runtime/install-failure-node.ts",
+    "./deps/runtime/types": "./src/host-dependencies/runtime/types.ts",
+    "./agents/agent-env": "./src/agents/agent-env.ts",
+    "./workspace-server": "./src/workspace-server/index.ts",
+    "./agents/plugins": "./src/agents/plugins/index.ts",
+    "./deps/runtime": "./src/host-dependencies/runtime/index.ts",
+    "./package.json": "./package.json",
+    "./acp/client": "./src/acp/client.ts",
+    "./session-record/contract": "./src/session-record/contract.ts",
+    "./session-record/message-preview": "./src/session-record/message-preview.ts",
+    "./session-record/live-requests": "./src/session-record/live-requests.ts",
+    "./session-record/reply-process": "./src/session-record/reply-process.ts",
+    "./session-record/live-reply": "./src/session-record/live-reply.ts",
+    "./session-record/question-tools": "./src/session-record/sources/question-tools.ts",
+    "./session-record/session-list-delta": "./src/session-record/session-list-delta.ts",
+    "./session-record": "./src/session-record/index.ts",
+    "./acp/models/permissions": "./src/acp/models/permissions.ts",
+    "./acp/platform-model-address": "./src/acp/models/platform-model-address.ts",
+    "./acp/node": "./src/acp/transport.ts",
+    "./pty/node": "./src/pty/node/index.ts",
+    "./files": "./src/files/index.ts",
+    "./deps": "./src/host-dependencies/capability.ts",
+    "./exec": "./src/exec/index.ts",
+    "./acp": "./src/acp/index.ts",
+    "./mcp": "./src/mcp/index.ts",
+    "./git": "./src/git/index.ts",
+    "./lib": "./src/lib/index.ts",
+    "./pty": "./src/pty/index.ts",
+    "./acp/commands": "./src/acp/commands.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "@gugu/session-shared": "workspace:*",
+    "@gugu/session-wire": "workspace:*",
+    "@parcel/watcher": "^2.5.6",
+    "better-sqlite3": "^12.6.0",
+    "glob": "^13.0.6",
+    "immer": "^10.1.1",
+    "picomatch": "^4.0.4",
+    "semver": "^7.8.4",
+    "smol-toml": "^1.6.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "node-pty": "1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    }
+  },
+  "optionalDependencies": {
+    "fsevents": "2.3.3"
+  }
+}

@@ -1,0 +1,373 @@
+/* @@@6436 设置各内页的唯一排版:页 → 说明 → 分组(标题 + 卡片 + 脚注)→ 行。
+ *
+ * 桌面设置弹窗与手机「我的」渲染的是**同一份标记**。宽窄之间的差别只写在这个文件里:
+ * 容器查询(窄于 440px)和手机壳的内边距各一处 —— ❌ 在内页组件里再写 `mobile ?` 分叉。
+ * 用量 / 活跃两页有自己的图表排版(usage.css,同样靠容器查询换列),这里只让它们的分区标题
+ * 和其它页落在同一条左缘上。
+ *
+ * 写成类而不是行内样式:主渲染进程的行内几何棘轮只减不增(scripts/check-ui-visual-spec.mjs)。
+ *
+ * ⚠️ 带 padding 的几条都写成「元素 + 类」(div.gg-settings-row …):tokens.css 那条全局重置
+ * `*:not(.gugu-skin …) { padding: 0 }` 与单类同权重,而它在打包顺序里排在本文件**后面**
+ * (main.tsx 先 import App 再 import tokens.css)—— 单类写的内边距会被静默清零(usage.css 实撞过)。 */
+
+/* 字阶(#7333 视觉规范):行标题 = 紧凑界面 --font-body(14/20),说明与脚注 = --font-caption(12/18),
+   组标题 14/20 半粗。助理 App 里的设置 / 集成各页(assistant-today.css 的 --ta-fs-row / --ta-fs-sub)读同一对 token。
+   ❌ 在这里另拍字号:字号只从 tokens.css 的角色 token 来。 */
+
+/* 内页的滚动区(SettingsPanel)。它同时是行的查询容器:弹窗里约 750px,手机上约 358px。 */
+div.gg-settings-body {
+  container: gg-settings / inline-size;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-2xl);
+}
+.gg-pane[data-mobile] .gg-settings-body {
+  padding: var(--spacing-xs) var(--spacing-lg) max(var(--spacing-2xl), env(safe-area-inset-bottom));
+}
+
+/* 分区标题(SectionLabel)在设置里与卡片左缘对齐 —— 它在侧栏里的 8px 缩进是为了对齐行内的头像,
+   这里没有那条列。用量 / 活跃页的分区标题也吃这一条。
+   #7333 设置里的组标题是「这一组在说什么」的一句标题,不是侧栏那种灰色小标签:14/20 半粗、前景色。 */
+.gg-settings-body .gg-section-label {
+  height: auto;
+  padding-inline: 0;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+  color: var(--fg);
+}
+
+.gg-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+  min-width: 0;
+}
+
+/* 页首说明、分组说明、分组脚注:一种字号一种颜色(#7333:标注档 12/18)。 */
+.gg-settings-note {
+  margin: 0;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+}
+.gg-settings-note[data-tone='danger'] { color: var(--danger); }
+
+.gg-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.gg-settings-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* 行:[图标] 标题/说明 [控件]。网格而不是 flex —— 窄屏时控件要落到**说明那一列**下面,
+   不是落到图标下面。 */
+div.gg-settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'body control';
+  align-items: center;
+  column-gap: var(--spacing-md);
+  row-gap: var(--spacing-sm);
+  /* #7333 视觉规范:设置行最小 52(≥ 契约的 44 触控下限),描述与翻译换行时照常长高。 */
+  min-height: 52px;
+  padding: var(--spacing-md) var(--spacing-lg);
+}
+.gg-settings-row[data-leading] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'lead body control';
+}
+.gg-settings-row + .gg-settings-row { border-top: 1px solid var(--border); }
+.gg-settings-row[role='button'] { cursor: pointer; }
+.gg-settings-row[aria-disabled='true'] { cursor: default; }
+
+.gg-settings-row-leading {
+  grid-area: lead;
+  display: flex;
+  color: var(--muted-fg);
+}
+.gg-settings-row-body {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gg-settings-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-regular);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.gg-settings-row-description {
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+  overflow-wrap: anywhere;
+}
+.gg-settings-row-control {
+  grid-area: control;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+/* 行尾只读的值(版本号、权限状态)与 ›。 */
+.gg-settings-row-value {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+.gg-settings-row-chevron { flex-shrink: 0; color: var(--faint-fg); }
+
+/* 控件比说明还宽的行(设备的改名/删除、发送测试通知):窄屏时控件换到说明下面,
+   说明不再被挤成「· 版…」。 */
+@container gg-settings (max-width: 440px) {
+  .gg-settings-row[data-stack] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'body' 'control';
+  }
+  .gg-settings-row[data-stack][data-leading] {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'lead body' '. control';
+  }
+  .gg-settings-row[data-stack] .gg-settings-row-control { justify-content: flex-start; }
+}
+
+/* 行内的原生下拉(语言、设备筛选同形)。触控高度与 ui/Button 同一条断点。 */
+select.gg-settings-select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-h-md);
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-body);
+  cursor: pointer;
+}
+@media (max-width: 719px) {
+  select.gg-settings-select { min-height: var(--control-h-touch); }
+}
+
+/* 行内的单行输入(设备改名)。 */
+input.gg-settings-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: var(--control-h-md);
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-body);
+}
+@media (max-width: 719px) {
+  input.gg-settings-input { min-height: var(--control-h-touch); }
+}
+
+/* 模型页那枚 App 图标:行首图标位,28px。 */
+.gg-settings-app-icon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* 设置左栏:组与组之间靠留白,每组上面一行小标题(咕咕 / 我的 / 偏好 / 工作)。不画分隔线 ——
+   十几格按意图分成五组之后,线只是再多一层噪音(调研:macOS / Raycast / Linear 的左栏都是留白 + 灰色组名)。
+   只有一格的组(关于)不画小标题,那一格自己的名字就是标题。 */
+div.gg-settings-nav-group + div.gg-settings-nav-group {
+  margin-top: var(--spacing-lg);
+}
+.gg-settings-nav-caption {
+  padding: 0 var(--spacing-md) var(--spacing-xs);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  font-weight: var(--font-weight-medium);
+  /* #7333 组名要读得出(--faint-fg 是装饰色,过不了 AA)。 */
+  color: var(--muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 内容列:不论弹窗多宽,正文只排到这一列宽(调研:Linear≈640 / Claude≈697 / Raycast≈532),左右居中。
+   开关与按钮因此总在同一条竖线上,不会被拉到弹窗最右边去。手机上屏幕本来就窄,max-width 不起作用。 */
+div.gg-settings-body > * {
+  width: 100%;
+  max-width: var(--settings-col-w, 720px);
+  margin-inline: auto;
+  flex-shrink: 0;
+}
+
+/* 内页最上面那一句说明,由 SettingsPanel 补在没有自带说明的页上(通用、活跃)。 */
+.gg-settings-lede { margin-bottom: var(--spacing-2xl); }
+
+/* 表单页最后的「保存」:靠右一行,失败 / 已保存的小字在按钮左边。 */
+.gg-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+}
+.gg-settings-actions-note {
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+}
+.gg-settings-actions-note[data-tone='danger'] { color: var(--danger); }
+
+/* 整张卡就一句话 + 一个动作(开通咕咕、叫醒它):左对齐、留足内边距。 */
+div.gg-settings-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+}
+
+/* 行内的文字输入给一个固定的舒服宽度(名称、简介、助理的名字),窄屏退到整行。 */
+input.gg-settings-input[data-field='wide'] {
+  width: min(100%, 260px);
+}
+
+/* 左栏:账号条固定,组列表自己滚。 */
+div.gg-settings-nav-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--pane-pad-x);
+}
+div.gg-settings-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 给键盘焦点环留边,不改变菜单文字的对齐列。 */
+  margin-inline: -4px;
+  padding-inline: 4px;
+}
+
+/* 设置是一张导航表,账号只是身份提示。紧凑桌面行仍沿用 nav 胶囊与共享状态层;
+   手机「我的」继续使用原来的大行和两列身份条。 */
+div.gg-settings-nav-pane[data-role='nav']:not([data-mobile]) {
+  width: calc(var(--nav-col-w) - 24px);
+  min-width: calc(var(--nav-col-w) - 24px);
+}
+.gg-settings-nav-pane:not([data-mobile]) > .gg-settings-nav-header {
+  padding-inline: var(--spacing-2xl);
+}
+.gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-group + div.gg-settings-nav-group {
+  margin-top: var(--spacing-sm);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-caption {
+  font-weight: var(--font-weight-regular);
+}
+.gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-scroll {
+  padding-bottom: var(--spacing-sm);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item {
+  min-height: var(--control-h-md);
+  padding-block: calc((var(--control-h-md) - var(--lh-body)) / 2);
+  gap: var(--spacing-sm);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item .gg-list-row-leading {
+  color: var(--muted-fg);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item .gg-list-row-leading svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item .gg-list-row-title {
+  font-weight: var(--font-weight-regular);
+  color: var(--muted-fg);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item[data-selected] .gg-list-row-title {
+  font-weight: var(--font-weight-medium);
+  color: var(--fg);
+}
+.gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item[data-selected] .gg-list-row-leading {
+  color: var(--fg);
+}
+@media (hover: hover) {
+  .gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-item:hover .gg-list-row-title { color: var(--fg); }
+}
+div.gg-settings-identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-md);
+  flex-shrink: 0;
+}
+.gg-settings-identity-avatar { grid-row: 1 / span 2; }
+.gg-settings-identity-name {
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-settings-identity-id {
+  grid-column: 2;
+  min-width: 0;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+.gg-settings-identity-number { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
+.gg-settings-identity-number > span:first-child { flex-shrink: 0; }
+.gg-settings-nav-pane[data-mobile] div.gg-settings-identity {
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 8px 0 14px;
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-identity-name {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-identity-id {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+
+/* 页名与内页正文共用一条左缘。只移动标题车道,右上关闭钮仍在弹窗边缘。 */
+.gg-settings-detail:not([data-mobile]) > .gg-pane-header {
+  padding-inline-start: max(var(--spacing-2xl), calc((100% - var(--settings-col-w, 720px)) / 2));
+  padding-inline-end: var(--spacing-lg);
+}
+.gg-settings-detail:not([data-mobile]) > .gg-pane-header .gg-pane-title {
+  font-size: var(--font-heading);
+  line-height: var(--lh-heading);
+}

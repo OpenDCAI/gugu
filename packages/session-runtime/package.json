@@ -1,0 +1,34 @@
+{
+  "name": "@gugu/session-runtime",
+  "version": "1.0.0",
+  "description": "Runtime implementations for 咕咕 agents",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "Gugu",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./agent-config/node": "./src/agent-config/node/index.ts",
+    "./acp-agents/node": "./src/acp-agents/node/index.ts",
+    "./agent-config": "./src/agent-config/index.ts",
+    "./package.json": "./package.json",
+    "./acp-agents": "./src/acp-agents/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "@gugu/session-core": "workspace:*",
+    "@gugu/session-shared": "workspace:*",
+    "@gugu/session-wire": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "node-pty": "1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": "0.71.1",
+  "assets": {
+    "darwin-x64": {
+      "asset": "frp_0.71.1_darwin_amd64.tar.gz",
+      "sha256": "8acb59b6fb998cc8d209d1373d90bf70fa5ec3efeb4dfbc7bda6ce3abd78cb45"
+    },
+    "darwin-arm64": {
+      "asset": "frp_0.71.1_darwin_arm64.tar.gz",
+      "sha256": "d15d0324b99e14619c9aa46e37f6db588c06a09be4bc6f7948890b6b61077842"
+    },
+    "linux-x64": {
+      "asset": "frp_0.71.1_linux_amd64.tar.gz",
+      "sha256": "1d9875210972a5d1a62b2dc4c48df45ab0af05d3ca1b5e494a014428259df803"
+    },
+    "linux-arm64": {
+      "asset": "frp_0.71.1_linux_arm64.tar.gz",
+      "sha256": "8edf590b0c396fa42f9c147121a76af83cfc2002b08f5aef0ea1008c43482019"
+    },
+    "win32-x64": {
+      "asset": "frp_0.71.1_windows_amd64.zip",
+      "sha256": "b90074b2b6a1d792a7a40f085ac6d276bcab2d1bc60201f8a86ca53ce65ce821"
+    },
+    "win32-arm64": {
+      "asset": "frp_0.71.1_windows_arm64.zip",
+      "sha256": "6c25afb4058f7708937db7064836fec593e941de0e6c2c255982335a9b16d370"
+    }
+  }
+}

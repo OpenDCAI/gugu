@@ -1,0 +1,90 @@
+{
+ "id": "acp-6181-approval-mid-turn",
+ "issues": [
+  "#6181"
+ ],
+ "harness": "copilot task-acp",
+ "sessionId": "S",
+ "expectAnomalies": 0,
+ "source": "#6181 harness-matrix readings",
+ "summary": "a turn waiting on an approval, and a turn in a long tool call: nothing but the attributed turn end may take it to idle (A dropped to idle +5s / +10s with no end event)",
+ "steps": [
+  {
+   "raw": "session/prompt (K1)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "request_permission (Allow once shown)",
+   "event": {
+    "kind": "WaitStarted",
+    "sessionId": "S",
+    "id": "p1",
+    "waitKind": "approval"
+   },
+   "drop": null,
+   "expect": "needs_user",
+   "finished": false
+  },
+  {
+   "raw": "usage_update / 4m55s of waiting",
+   "event": null,
+   "drop": "not an event: time passing and usage updates carry no status",
+   "expect": "needs_user",
+   "finished": false
+  },
+  {
+   "raw": "user clicks Allow once",
+   "event": {
+    "kind": "WaitEnded",
+    "sessionId": "S",
+    "id": "p1"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "prompt_result end_turn",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "session/prompt: run sleep 120 (K3)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "+5s of tool call, usage updates",
+   "event": null,
+   "drop": "not an event",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "prompt_result end_turn",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

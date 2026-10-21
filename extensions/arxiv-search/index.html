@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>arXiv Search</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <form id="search-form" class="search-bar">
+      <input
+        id="query"
+        type="search"
+        name="query"
+        placeholder="Search arXiv — try: attention is all you need"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button type="submit" id="search-button">Search</button>
+    </form>
+
+    <p id="status" class="status" role="status" aria-live="polite">
+      Search arXiv for papers. Results come straight from export.arxiv.org — the one host this
+      extension declared.
+    </p>
+
+    <ul id="results" class="results"></ul>
+
+    <!-- No inline script: the served Content-Security-Policy allows code from this bundle only,
+         which is the same rule that stops an extension from fetching code at runtime. -->
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

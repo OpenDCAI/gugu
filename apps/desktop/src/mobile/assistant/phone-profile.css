@@ -1,0 +1,23 @@
+/*
+ * #7199 手机 <它的名字> 那一格(资料页、自定义、连接应用、设备、聊天工具)手机才要的几样;卡、行、胶囊、输入框都用 assistant-today.css 那一套。
+ * 字号一律走 --ta-* 变量;能点的至少 44 高(咕咕手机触控规范)。
+ */
+
+/* 分段(云端 / 本机 / 其他设备)是会话页那份手写钮,桌面上 32 高,手机上补到 44。 */
+.ta-phone-profile .ta-seg-wide button { min-height: 44px; }
+
+/* 自定义:头像在左、名字在右(照桌面「自定义」对话框)。 */
+.ta-phone-customize-who { display: flex; align-items: center; gap: 16px; }
+
+.ta-phone-error { margin: 0; padding-inline: 6px; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--danger); }
+
+/* 连接应用详情里主按钮那一格:手机上连不了,一条点不动的淡色胶囊说去哪连(❌ 摆一个点了不连的钮)。 */
+.ta-phone-connect-note {
+  margin: 10px 0 0;
+  border-radius: 999px;
+  background: var(--ta-glass);
+  padding: 8px 16px;
+  font-size: var(--ta-fs-note);
+  line-height: var(--ta-lh-note);
+  color: var(--ta-muted);
+}

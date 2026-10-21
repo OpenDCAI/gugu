@@ -1,0 +1,26 @@
+name: Refactor
+description: 架构重构 / API 精简 / 技术债
+title: "[Refactor] "
+labels: [refactor]
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: 现状的问题
+      description: 当前结构/API 有什么不舒服
+    validations:
+      required: true
+  - type: textarea
+    id: target
+    attributes:
+      label: 目标形态
+      description: 重构后应该长什么样
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 影响范围
+      description: 涉及哪些模块/调用方
+    validations:
+      required: false

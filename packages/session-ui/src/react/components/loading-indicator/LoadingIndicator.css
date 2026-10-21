@@ -1,0 +1,76 @@
+/**
+ * 全产品唯一的加载态外观。主壳和会话页是两套 bundle、两个 React 实例，
+ * 但注入的是同一个 document —— 所以这份 CSS 只会存在一份，两边看到的必然一致。
+ * ❌ 别在调用处另加 spinner / 骨架块 / 转场装饰：多一套就是多一种方言，本次改动就是来收方言的。
+ */
+
+.gg-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* 舞台是「墨迹尺寸」的盒子，动画画布比它大得多且四周全透明，
+   靠 absolute 溢出出去。这样布局按看得见的那一簇算，文案不会被一大片空白推远。
+   比例来自实测：真 Chromium 跑满 60 帧、取所有圆的外接框并集，
+   得 120 × 80.4（画布 800 × 600），且正好居中。 */
+.gg-loading-stage {
+  position: relative;
+  flex: none;
+  color: inherit;
+}
+
+/* 行内一档：和按钮/行里的字并排，不换行、不把行撑高。
+   仍是同一个舞台、同一份画布 —— 只有排布从「竖着叠文案」换成「跟着文字走」。 */
+.gg-loading[data-gg-loading='inline'] {
+  display: inline-flex;
+  flex-direction: row;
+  vertical-align: middle;
+  gap: 0;
+  flex: none;
+  line-height: 0;
+}
+
+/* 画布比墨迹大得多(见上),放在列表行尾时那片透明溢出会撑出滚动区。
+   墨迹框是逐帧外接框的并集,裁到它不丢任何一个点;留 2px 给抗锯齿的边。 */
+.gg-loading[data-gg-loading='inline'] .gg-loading-stage {
+  overflow: clip;
+  overflow-clip-margin: 2px;
+}
+
+.gg-loading-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--gg-loading-canvas-width);
+  aspect-ratio: 4 / 3;
+  pointer-events: none;
+}
+
+/* 素材是给深色底画的：两组点分别是纯白（高光）和 #C8C8C8（基色）。
+   浅色主题（--bg-primary: #ffffff）上白的那一半直接消失 —— 实测 8 个点只剩 4 个。
+   这里不改素材一个字节，只把它的两种源色接到宿主的前景色上：
+   高光 = currentColor，基色 = 78.4% —— 78.4% 就是 200/255，取自素材自己的两色之比。
+   ❌ 别把两档并成一档：那会抹掉设计师做的明暗交织，动画会塌成单调的一排点。 */
+.gg-loading-canvas path[fill='rgb(255,255,255)'] {
+  fill: currentColor;
+}
+
+.gg-loading-canvas path[fill='rgb(200,200,200)'] {
+  fill: color-mix(in srgb, currentColor 78.4%, transparent);
+}
+
+.gg-loading-label {
+  max-width: 32ch;
+  text-align: center;
+  /* 11 —— 咕咕字阶里的「标记」档。这行是状态提示，不是要读的正文。
+     会话页并入本体后(#2802 拆掉 shadow root)与主壳同一个 document、同一套 token，
+     所以这里直接用主壳的字阶变量，两边取到的是同一个值。 */
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  opacity: 0.62;
+  color: inherit;
+}

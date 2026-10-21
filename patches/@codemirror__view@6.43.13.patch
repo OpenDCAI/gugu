@@ -1,0 +1,70 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 224fb1129590c9c84b2b91b5d394d25bebae5f91..fffcca1eab448fc0230b6ebf85765ac950220b31 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -7797,9 +7797,16 @@ class EditContextManager {
+         if (update.geometryChanged || update.docChanged || update.selectionSet)
+             update.view.requestMeasure(this.measureReq);
+     }
++    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — the PR is drafted in
++    // gugu-base evidence/2026-09-29-mobile-iframe-app/upstream-pr-draft.md, for code.haverbeke.berlin/codemirror/view;
++    // drop patches/@codemirror__view@6.43.13.patch once a release carries it.
++    // The window starts at the start of the line that holds the start of the main selection (or CxVp.Margin before
++    // the head, on a very long line). Changes on earlier lines, such as a collaborator typing there, then fall before
++    // the window and don't shift the text or selection offsets the IME sees. Android keyboards take such a shift,
++    // when it arrives around a key press, for a cursor move and drop their composition.
+     resetRange(state) {
+-        let { head } = state.selection.main;
+-        this.from = Math.max(0, head - 10000 /* CxVp.Margin */);
++        let { head, from } = state.selection.main;
++        this.from = Math.max(state.doc.lineAt(from).from, head - 10000 /* CxVp.Margin */);
+         this.to = Math.min(state.doc.length, head + 10000 /* CxVp.Margin */);
+     }
+     reset(state) {
+@@ -7820,8 +7827,9 @@ class EditContextManager {
+             this.editContext.updateSelection(start, end);
+     }
+     rangeIsValid(state) {
+-        let { head } = state.selection.main;
+-        return !(this.from > 0 && head - this.from < 500 /* CxVp.MinMargin */ ||
++        let { head, from } = state.selection.main, lineStart = state.doc.lineAt(from).from;
++        return !(this.from < lineStart ||
++            this.from > lineStart && head - this.from < 500 /* CxVp.MinMargin */ ||
+             this.to < state.doc.length && this.to - head < 500 /* CxVp.MinMargin */ ||
+             this.to - this.from > 10000 /* CxVp.Margin */ * 3);
+     }
+diff --git a/dist/index.js b/dist/index.js
+index 522f3b69e1e0bc9c8738282c2b52d0aa4a63543b..45fdda0de49ece82b150e207852f4fb0fcc026bd 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -7792,9 +7792,16 @@ class EditContextManager {
+         if (update.geometryChanged || update.docChanged || update.selectionSet)
+             update.view.requestMeasure(this.measureReq);
+     }
++    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — the PR is drafted in
++    // gugu-base evidence/2026-09-29-mobile-iframe-app/upstream-pr-draft.md, for code.haverbeke.berlin/codemirror/view;
++    // drop patches/@codemirror__view@6.43.13.patch once a release carries it.
++    // The window starts at the start of the line that holds the start of the main selection (or CxVp.Margin before
++    // the head, on a very long line). Changes on earlier lines, such as a collaborator typing there, then fall before
++    // the window and don't shift the text or selection offsets the IME sees. Android keyboards take such a shift,
++    // when it arrives around a key press, for a cursor move and drop their composition.
+     resetRange(state) {
+-        let { head } = state.selection.main;
+-        this.from = Math.max(0, head - 10000 /* CxVp.Margin */);
++        let { head, from } = state.selection.main;
++        this.from = Math.max(state.doc.lineAt(from).from, head - 10000 /* CxVp.Margin */);
+         this.to = Math.min(state.doc.length, head + 10000 /* CxVp.Margin */);
+     }
+     reset(state) {
+@@ -7815,8 +7822,9 @@ class EditContextManager {
+             this.editContext.updateSelection(start, end);
+     }
+     rangeIsValid(state) {
+-        let { head } = state.selection.main;
+-        return !(this.from > 0 && head - this.from < 500 /* CxVp.MinMargin */ ||
++        let { head, from } = state.selection.main, lineStart = state.doc.lineAt(from).from;
++        return !(this.from < lineStart ||
++            this.from > lineStart && head - this.from < 500 /* CxVp.MinMargin */ ||
+             this.to < state.doc.length && this.to - head < 500 /* CxVp.MinMargin */ ||
+             this.to - this.from > 10000 /* CxVp.Margin */ * 3);
+     }

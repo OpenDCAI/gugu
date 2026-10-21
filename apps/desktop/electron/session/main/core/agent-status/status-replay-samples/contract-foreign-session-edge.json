@@ -1,0 +1,43 @@
+{
+ "id": "contract-foreign-session-edge",
+ "issues": [
+  "#6385"
+ ],
+ "harness": "any",
+ "sessionId": "M",
+ "expectAnomalies": 1,
+ "source": "reduce contract (attribution): an edge that is not this session's never counts",
+ "summary": "a subagent turn end routed into the main log by mistake: status unchanged, reported as an anomaly",
+ "steps": [
+  {
+   "raw": "main turn starts",
+   "event": {
+    "kind": "Started",
+    "sessionId": "M"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "subagent's agentStop (sessionId = subagent)",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "SUB"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "main turn ends",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "M"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

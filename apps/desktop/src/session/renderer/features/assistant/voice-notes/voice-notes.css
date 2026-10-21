@@ -1,0 +1,123 @@
+/*
+ * #7199 语音笔记:列表行上的状态、详情的转写、「就这次会议提问」、聊天框上面的录音条。
+ * 颜色与圆角都借助理 App 那套 token(assistant-today.css 的 --ta-*),亮暗两套跟着走。
+ */
+
+/* 列表:周标签一行小字;一条一张玻璃卡,标题最多两行,下面「时间 · 状态」。 */
+.vn-week { margin: 0; padding-inline: 6px; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ta-muted); }
+.vn-note {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--ta-radius-card);
+  background: var(--ta-glass);
+  padding: 16px 22px;
+  text-align: left;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.vn-note:hover { background: var(--ta-glass-hover); }
+.vn-note-title { font-size: var(--font-title); line-height: 22px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.vn-row-detail { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--ta-muted); }
+.vn-status { display: inline-flex; align-items: center; gap: 4px; color: var(--ta-muted); }
+.vn-status svg { width: 12px; height: 12px; }
+.vn-status[data-tone='failed'] { color: #f0443b; }
+.vn-dot { display: inline-block; height: 6px; width: 6px; border-radius: 999px; background: #03a9f4; }
+.vn-status[data-tone='live'] .vn-dot { background: #f0443b; }
+
+.vn-transcript { display: flex; flex-direction: column; gap: 16px; }
+.vn-line header { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; }
+.vn-line p { margin: 4px 0 0 18px; font-size: 15px; line-height: 1.65; color: var(--ta-fg); overflow-wrap: anywhere; }
+.vn-speaker { font-weight: 600; color: var(--ta-fg); }
+.vn-stamp { color: var(--ta-faint); font-variant-numeric: tabular-nums; }
+.vn-speaker-dot { display: inline-block; height: 10px; width: 10px; border-radius: 999px; background: linear-gradient(135deg, #ffdcb3, #ffd099); }
+.vn-speaker-dot[data-tone='1'] { background: linear-gradient(135deg, #b8eaff, #8bdeff); }
+.vn-speaker-dot[data-tone='2'] { background: linear-gradient(135deg, #feccf2, #fbacea); }
+
+/* 「就这次会议提问」:长得像一条输入框,点了把开头填进左边的聊天。 */
+.vn-ask {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ta-composer-bg);
+  box-shadow: var(--ta-composer-shadow);
+  padding: 13px 18px;
+  font-size: var(--font-body);
+  color: var(--ta-muted);
+  cursor: text;
+  text-align: left;
+}
+.vn-ask:hover { color: var(--ta-fg); }
+.vn-ask svg { width: 16px; height: 16px; }
+
+/* ── 录音条:聊天框上面居中一条胶囊 ─────────────────────────────── */
+/* 条子挂着时消息列表底下让出它那一截,最后一条不被盖住。 */
+.ta-chat-col[data-voice-bar] [data-testid='chat-message-list'] { padding-bottom: 56px; }
+.vn-bar {
+  position: absolute;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 10px;
+  border-radius: 999px;
+  background: var(--ta-composer-bg);
+  box-shadow: var(--ta-composer-shadow);
+  backdrop-filter: blur(16px);
+  padding: 6px 8px 6px 10px;
+  font-size: var(--font-body);
+  color: var(--ta-fg);
+  white-space: nowrap;
+}
+.vn-bar-btn {
+  display: inline-flex;
+  height: 30px;
+  width: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ta-glass-strong);
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.vn-bar-btn:hover { background: var(--ta-glass-hover); }
+.vn-bar-btn:disabled { opacity: 0.5; cursor: default; }
+.vn-bar-btn svg { width: 14px; height: 14px; }
+.vn-bar-btn[data-tone='stop'] svg { fill: currentColor; width: 12px; height: 12px; }
+.vn-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ta-muted); }
+.vn-bar-label[data-tone='failed'] { color: #f0443b; }
+.vn-bar-hint { font-size: var(--font-caption); color: var(--ta-faint); }
+.vn-bar-text-btn,
+.vn-bar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.vn-bar-text-btn:hover,
+.vn-bar-link:hover { background: var(--ta-glass-hover); }
+.vn-bar-text-btn svg,
+.vn-bar-link svg { width: 14px; height: 14px; }
+.vn-bar-sub { color: var(--ta-muted); }
+.vn-clock { font-variant-numeric: tabular-nums; color: var(--ta-fg); }
+.vn-wave { display: inline-flex; height: 24px; align-items: center; gap: 2px; }
+.vn-wave span { display: block; width: 3px; min-height: 4px; border-radius: 2px; background: #f0443b; transition: height var(--dur-fast) linear; }
+@media (prefers-reduced-motion: reduce) {
+  .vn-wave span { transition: none; }
+}

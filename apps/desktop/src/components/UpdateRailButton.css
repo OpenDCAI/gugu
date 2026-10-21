@@ -1,0 +1,47 @@
+.gg-sidebar-item.gg-update-rail {
+  width: 40px;
+  height: 40px;
+  gap: 2px;
+  align-content: center;
+}
+
+.gg-update-rail-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-capsule);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.gg-update-rail[data-failed] .gg-update-rail-icon {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.gg-update-rail-progress {
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-update-rail[data-downloading] .gg-update-rail-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.gg-update-rail[aria-busy] {
+  cursor: default;
+}
+
+.gg-update-rail[aria-busy] .gg-update-rail-icon {
+  background: var(--live-soft);
+  color: var(--live);
+}
+
+.gg-update-rail:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

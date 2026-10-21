@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 00c2c279bad1c8f594bda078ce86670efde16c55..324b9d24fe159eecbb24fbd518bffd80bbd57622 100644
+--- a/package.json
++++ b/package.json
+@@ -3,7 +3,7 @@
+   "description": "A headless terminal component that runs in Node.js",
+   "version": "6.0.0",
+   "main": "lib-headless/xterm-headless.js",
+-  "module": "lib/xterm.mjs",
++  "module": "lib-headless/xterm-headless.mjs",
+   "types": "typings/xterm-headless.d.ts",
+   "repository": "https://github.com/xtermjs/xterm.js",
+   "license": "MIT",

@@ -1,0 +1,2 @@
+/* transition: opacity 150ms ease; */
+.empty { transition: opacity var(--dur-fast) var(--ease); }

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- @@@mac-entitlements — Developer ID(仓外分发)用的 hardened runtime 豁免。三条都是
+         Electron 跑起来的必要条件,少一条 app 直接崩,不是"加了更保险"的可选项。
+         ❌ 别加 App Sandbox(com.apple.security.app-sandbox):咕咕要 spawn tmux / 用户的
+         codex·claude CLI / 读写用户选的任意目录,沙箱下全废;Developer ID 分发也不要求沙箱。 -->
+
+    <!-- V8 要可写可执行内存(JIT)。缺 → renderer 起不来。 -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Electron 内部若干路径仍会 mmap 未签名的可执行页(V8 code cache 等)。 -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- 库校验关掉的两个真实理由:
+         1) tmux-bundle/ 里 install_name_tool 重定位过的 vendored dylib(@@@bundle-tmux);
+         2) acp-bundle / 用户侧 node 原生模块(.node)在运行时被 require。
+         开着 library validation 时,这些非同 Team-ID 签名的镜像会被 dyld 拒载。 -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- #7199 这台电脑能做的事。hardened runtime 下,没有这几条,系统连授权弹窗都不弹、直接拒:
+         apple-events = 驱动「邮件」「备忘录」「信息」(osascript 是咕咕的子进程,授权记在咕咕名下);
+         calendars(含提醒事项)/ addressbook / location = 原生助手读写日历、提醒、通讯录与取位置。 -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    <!-- #7199 语音笔记:hardened runtime 下没有这一条,麦克风授权框不弹、录到的全是静音。 -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>

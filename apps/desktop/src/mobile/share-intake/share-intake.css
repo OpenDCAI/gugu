@@ -1,0 +1,117 @@
+/* 「发送到」页(product spec)的样式表。
+ *
+ * ⚠️ 每条选择器都挂在 .gg-si 之下,理由同 agent-watch.css:tokens.css 有一条未分层的全局重置
+ * `*:not(…) { margin:0; padding:0 }`,特异性 (0,1,0) 且排在本表之后 —— 单类选择器写的 padding 会被它平掉。
+ * 几何一律取 tokens.css 的刻度,本表不拍新数(间距 --spacing-xs…2xl = 4/8/12/16/20/24)。
+ */
+
+.gg-si {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.gg-si .gg-si-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gg-si .gg-si-title {
+  font-size: var(--font-title);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gg-si .gg-si-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gg-si .gg-si-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-document);
+  background: var(--bg-secondary);
+  max-height: 30dvh;
+  overflow-y: auto;
+}
+.gg-si .gg-si-preview > * { flex-shrink: 0; }
+
+/* 文字最多三行:这一页是挑会话,不是读全文。 */
+.gg-si .gg-si-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+}
+
+.gg-si .gg-si-thumbs {
+  display: flex;
+  gap: var(--spacing-xs);
+  overflow-x: auto;
+}
+
+.gg-si .gg-si-thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius-control);
+}
+
+.gg-si .gg-si-file {
+  display: flex;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+}
+
+.gg-si .gg-si-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.gg-si .gg-si-file-size {
+  flex-shrink: 0;
+}
+
+.gg-si .gg-si-note {
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+}
+
+.gg-si .gg-si-failures {
+  font-size: var(--font-body);
+  color: var(--danger);
+}
+
+.gg-si .gg-si-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.gg-si .gg-si-empty {
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+}

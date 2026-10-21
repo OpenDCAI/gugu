@@ -1,0 +1,635 @@
+{
+ "source": "10 real session-page runs, copilot 1.0.82, 2026-09-24 (#6385): hook bodies as delivered, product-registered keys only",
+ "runs": [
+  {
+   "run": 1,
+   "mode": "bg",
+   "mainSessionId": "19b1e41e-7d5f-4179-99c1-6fb367489f84",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "19b1e41e-7d5f-4179-99c1-6fb367489f84",
+      "timestamp": 1790228274510
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "19b1e41e-7d5f-4179-99c1-6fb367489f84",
+      "timestamp": 1790228274795,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "e70b83b6-e6db-4ada-9442-cd2bf32eea76",
+      "timestamp": 1790228281707
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "e70b83b6-e6db-4ada-9442-cd2bf32eea76",
+      "transcriptPath": "/home/user/.copilot/session-state/19b1e41e-7d5f-4179-99c1-6fb367489f84/events.jsonl",
+      "timestamp": 1790228307247,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "19b1e41e-7d5f-4179-99c1-6fb367489f84",
+      "transcriptPath": "/home/user/.copilot/session-state/19b1e41e-7d5f-4179-99c1-6fb367489f84/events.jsonl",
+      "timestamp": 1790228324973,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "mode": "bgafter",
+   "mainSessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+      "timestamp": 1790228324450
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+      "timestamp": 1790228324503,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "3a8be5eb-9e56-40aa-ac22-1483dcb61f50",
+      "timestamp": 1790228329882
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+      "transcriptPath": "/home/user/.copilot/session-state/38cb9274-6a69-4eb9-b75c-1336e84c9666/events.jsonl",
+      "timestamp": 1790228333049,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "3a8be5eb-9e56-40aa-ac22-1483dcb61f50",
+      "transcriptPath": "/home/user/.copilot/session-state/38cb9274-6a69-4eb9-b75c-1336e84c9666/events.jsonl",
+      "timestamp": 1790228351849,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+      "timestamp": 1790228351954
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "38cb9274-6a69-4eb9-b75c-1336e84c9666",
+      "transcriptPath": "/home/user/.copilot/session-state/38cb9274-6a69-4eb9-b75c-1336e84c9666/events.jsonl",
+      "timestamp": 1790228355962,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 3,
+   "mode": "sync",
+   "mainSessionId": "c08d91ed-b6bf-4afb-9173-6925b99ca8d5",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "c08d91ed-b6bf-4afb-9173-6925b99ca8d5",
+      "timestamp": 1790228372096
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "c08d91ed-b6bf-4afb-9173-6925b99ca8d5",
+      "timestamp": 1790228372147,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "7ecf47d9-797f-4f9c-8e34-10d1e4e4e556",
+      "timestamp": 1790228376972
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "7ecf47d9-797f-4f9c-8e34-10d1e4e4e556",
+      "transcriptPath": "/home/user/.copilot/session-state/c08d91ed-b6bf-4afb-9173-6925b99ca8d5/events.jsonl",
+      "timestamp": 1790228389696,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "c08d91ed-b6bf-4afb-9173-6925b99ca8d5",
+      "transcriptPath": "/home/user/.copilot/session-state/c08d91ed-b6bf-4afb-9173-6925b99ca8d5/events.jsonl",
+      "timestamp": 1790228393779,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 4,
+   "mode": "bg",
+   "mainSessionId": "97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe",
+      "timestamp": 1790228420519
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe",
+      "timestamp": 1790228420570,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "32c036f0-c830-4404-b56a-3d19a3e746fa",
+      "timestamp": 1790228427796
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "32c036f0-c830-4404-b56a-3d19a3e746fa",
+      "transcriptPath": "/home/user/.copilot/session-state/97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe/events.jsonl",
+      "timestamp": 1790228440786,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe",
+      "transcriptPath": "/home/user/.copilot/session-state/97ba050a-b9d7-49f6-ab72-f9ae7e0d1ebe/events.jsonl",
+      "timestamp": 1790228454241,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 5,
+   "mode": "bgafter",
+   "mainSessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+      "timestamp": 1790228470258
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+      "timestamp": 1790228470312,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "3525642d-7cae-4471-abca-2124c297d4c8",
+      "timestamp": 1790228477413
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+      "transcriptPath": "/home/user/.copilot/session-state/4f053dda-d031-436b-ba69-b086f3555cac/events.jsonl",
+      "timestamp": 1790228479799,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "3525642d-7cae-4471-abca-2124c297d4c8",
+      "transcriptPath": "/home/user/.copilot/session-state/4f053dda-d031-436b-ba69-b086f3555cac/events.jsonl",
+      "timestamp": 1790228499928,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+      "timestamp": 1790228500030
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "4f053dda-d031-436b-ba69-b086f3555cac",
+      "transcriptPath": "/home/user/.copilot/session-state/4f053dda-d031-436b-ba69-b086f3555cac/events.jsonl",
+      "timestamp": 1790228503371,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 6,
+   "mode": "sync",
+   "mainSessionId": "992dcd99-0f59-4de7-b41d-a6d9841e5689",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "992dcd99-0f59-4de7-b41d-a6d9841e5689",
+      "timestamp": 1790228520944
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "992dcd99-0f59-4de7-b41d-a6d9841e5689",
+      "timestamp": 1790228520992,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "6547ac1e-137f-4c54-9e33-c90c9703bf70",
+      "timestamp": 1790228526201
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "6547ac1e-137f-4c54-9e33-c90c9703bf70",
+      "transcriptPath": "/home/user/.copilot/session-state/992dcd99-0f59-4de7-b41d-a6d9841e5689/events.jsonl",
+      "timestamp": 1790228539418,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "992dcd99-0f59-4de7-b41d-a6d9841e5689",
+      "transcriptPath": "/home/user/.copilot/session-state/992dcd99-0f59-4de7-b41d-a6d9841e5689/events.jsonl",
+      "timestamp": 1790228540982,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 7,
+   "mode": "bg",
+   "mainSessionId": "249f9303-61ca-41d2-a474-d3b75548ffca",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "249f9303-61ca-41d2-a474-d3b75548ffca",
+      "timestamp": 1790228569795
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "249f9303-61ca-41d2-a474-d3b75548ffca",
+      "timestamp": 1790228569851,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "b625717b-bbe1-4f5d-931f-b4885d1c3909",
+      "timestamp": 1790228574988
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "b625717b-bbe1-4f5d-931f-b4885d1c3909",
+      "transcriptPath": "/home/user/.copilot/session-state/249f9303-61ca-41d2-a474-d3b75548ffca/events.jsonl",
+      "timestamp": 1790228588352,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "249f9303-61ca-41d2-a474-d3b75548ffca",
+      "transcriptPath": "/home/user/.copilot/session-state/249f9303-61ca-41d2-a474-d3b75548ffca/events.jsonl",
+      "timestamp": 1790228599763,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 8,
+   "mode": "bgafter",
+   "mainSessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+      "timestamp": 1790228617766
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+      "timestamp": 1790228617823,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "3ea833df-558f-40c0-ad0d-2d44aacd3628",
+      "timestamp": 1790228621471
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+      "transcriptPath": "/home/user/.copilot/session-state/0d3111fa-2364-4083-ba10-c782e97625b7/events.jsonl",
+      "timestamp": 1790228623002,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "3ea833df-558f-40c0-ad0d-2d44aacd3628",
+      "transcriptPath": "/home/user/.copilot/session-state/0d3111fa-2364-4083-ba10-c782e97625b7/events.jsonl",
+      "timestamp": 1790228644677,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+      "timestamp": 1790228644785
+     },
+     "who": "main"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+      "transcriptPath": "/home/user/.copilot/session-state/0d3111fa-2364-4083-ba10-c782e97625b7/events.jsonl",
+      "timestamp": 1790228648554,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 9,
+   "mode": "sync",
+   "mainSessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2",
+      "timestamp": 1790228663500
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2",
+      "timestamp": 1790228663554,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "790eb4be-38ff-4115-b628-45abcffb41e3",
+      "timestamp": 1790228669005
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "790eb4be-38ff-4115-b628-45abcffb41e3",
+      "transcriptPath": "/home/user/.copilot/session-state/ba3af8c9-6af9-4555-b6f1-4d62d03aaab2/events.jsonl",
+      "timestamp": 1790228677052,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2",
+      "transcriptPath": "/home/user/.copilot/session-state/ba3af8c9-6af9-4555-b6f1-4d62d03aaab2/events.jsonl",
+      "timestamp": 1790228688824,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  },
+  {
+   "run": 10,
+   "mode": "bg",
+   "mainSessionId": "3642c90d-5a82-44f6-b0d5-43b79ef4e3d7",
+   "events": [
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "3642c90d-5a82-44f6-b0d5-43b79ef4e3d7",
+      "timestamp": 1790228713016
+     },
+     "who": "main"
+    },
+    {
+     "hook": "sessionStart",
+     "type": "session",
+     "body": {
+      "sessionId": "3642c90d-5a82-44f6-b0d5-43b79ef4e3d7",
+      "timestamp": 1790228713063,
+      "source": "new"
+     },
+     "who": "main"
+    },
+    {
+     "hook": "userPromptSubmitted",
+     "type": "start",
+     "body": {
+      "sessionId": "5abe05e3-4784-4d90-9d2f-7b3af013b54d",
+      "timestamp": 1790228721510
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "5abe05e3-4784-4d90-9d2f-7b3af013b54d",
+      "transcriptPath": "/home/user/.copilot/session-state/3642c90d-5a82-44f6-b0d5-43b79ef4e3d7/events.jsonl",
+      "timestamp": 1790228733357,
+      "stopReason": "end_turn"
+     },
+     "who": "subagent"
+    },
+    {
+     "hook": "agentStop",
+     "type": "stop",
+     "body": {
+      "sessionId": "3642c90d-5a82-44f6-b0d5-43b79ef4e3d7",
+      "transcriptPath": "/home/user/.copilot/session-state/3642c90d-5a82-44f6-b0d5-43b79ef4e3d7/events.jsonl",
+      "timestamp": 1790228749206,
+      "stopReason": "end_turn"
+     },
+     "who": "main"
+    }
+   ]
+  }
+ ]
+}

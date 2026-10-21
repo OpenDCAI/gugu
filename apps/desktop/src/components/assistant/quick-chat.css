@@ -1,0 +1,73 @@
+/* #7199 快速聊天小窗:无边框、顶上 48px 一条可拖的横栏,中间消息,底下一个圆角输入框。 */
+.qc {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--font-body);
+}
+.qc-head {
+  display: flex;
+  height: 48px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.qc-who { display: inline-flex; min-width: 0; align-items: center; gap: 8px; font-weight: 600; }
+.qc-who > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qc-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; overflow-y: auto; padding: 8px 16px 12px; }
+.qc-msg { max-width: 86%; align-self: flex-start; overflow-wrap: anywhere; line-height: 1.6; }
+.qc-msg[data-mine] { align-self: flex-end; border-radius: 18px; background: var(--bubble-mine); padding: 8px 14px; }
+.qc-msg[data-sending='sending'] { opacity: 0.6; }
+.qc-plain { white-space: pre-wrap; }
+.qc-other { color: var(--muted-fg); }
+.qc-system { align-self: center; font-size: var(--font-caption); color: var(--faint-fg); }
+.qc-error { display: block; font-size: var(--font-caption); color: var(--danger); }
+.qc-note { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--muted-fg); }
+.qc-note-title { font-size: var(--font-title); font-weight: 600; color: var(--fg); }
+.qc-compose { flex-shrink: 0; padding: 4px 12px 12px; }
+.qc-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--input-bg);
+  padding: 8px 8px 8px 16px;
+}
+.qc-box textarea {
+  max-height: 160px;
+  min-height: 24px;
+  flex: 1;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 3px 0;
+  font: inherit;
+  line-height: 1.5;
+  color: var(--fg);
+  outline: none;
+  field-sizing: content;
+}
+.qc-box .qc-send {
+  display: inline-flex;
+  height: 30px;
+  width: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  cursor: pointer;
+}
+.qc-box .qc-send:disabled { opacity: 0.3; cursor: default; }
+.qc-box .qc-send svg { width: 16px; height: 16px; }

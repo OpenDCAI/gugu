@@ -1,0 +1,602 @@
+import type { HookNotice } from './lib/hook-notice';
+import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
+import type {
+  AcpPermissionRequest,
+  OpenedOutput,
+  PlanEntryPriority,
+  PlanEntryStatus,
+  PlanState,
+  TerminalExit,
+  ToolNode,
+  ToolStatus,
+  TranscriptItem,
+  TranscriptMessage,
+  TranscriptThinking,
+  TranscriptTurn,
+  TranscriptTurnOutcome,
+} from '@gugu/session-core/acp/client';
+
+export type {
+  AcpPermissionRequest,
+  OpenedOutput,
+  PlanEntryPriority,
+  PlanEntryStatus,
+  PlanState,
+  TerminalExit,
+  ToolNode,
+  ToolStatus,
+  TranscriptItem,
+  TranscriptMessage,
+  TranscriptThinking,
+  TranscriptTurn,
+  TranscriptTurnOutcome,
+};
+
+export type ChatRole = 'user' | 'assistant' | 'thought';
+
+export type ThinkingStatus = 'thinking' | 'done';
+
+/**
+ * An image attachment shown as a thumbnail at the top of a user message bubble.
+ *
+ * `dataUrl` carries the inline image for display; when it is absent (the source
+ * content could not be resolved, e.g. on reload when the agent did not replay
+ * the bytes) the renderer shows a neutral fallback tile instead.
+ */
+export type ChatAttachment = {
+  id: string;
+  name: string;
+  /**
+   * 画成缩略图还是画成一枚文件 chip。缺席 = `'image'`(历史生产者只送图)。
+   *
+   * ⚠️ 两种都长在**同一条附件条**上 —— owner 2026-09-10:「这里的逻辑和创建任务时候保持
+   * 一致才对」。此前非图片附件是正文里一枚裸的文字 pill,同一条消息里两件附件长成两个样子。
+   */
+  kind?: 'image' | 'file';
+  /** Data URL for inline display; absent when content can't be resolved -> fallback tile. */
+  dataUrl?: string;
+};
+
+/** @deprecated 用 `ChatAttachment` —— 附件条不再只画图。 */
+export type ChatImageAttachment = ChatAttachment;
+
+export type ChatMessage = {
+  kind: 'message';
+  id: string;
+  seq?: number;
+  role: ChatRole;
+  /** Markdown source text. */
+  text: string;
+  /** True while the agent is still writing to this message. */
+  streaming?: boolean;
+  /** Image attachments rendered as a thumbnail strip above the text (user messages). */
+  attachments?: ChatAttachment[];
+  /**
+   * 这条消息**开始**到达的时刻（epoch ms）。缺席 = 不知道（回放来的历史没有真时刻，
+   * 与 `TranscriptTurn.startedAt` 同一条合同）。折叠头拿它当段与段的边界（#5350）。
+   */
+  at?: number;
+  /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
+  guguDelivery?: DeliveryReading;
+  /**
+   * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
+   * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
+   */
+  hookNotice?: HookNotice;
+};
+
+export type ChatToolCall = {
+  kind: 'tool';
+  id: string;
+  name: string;
+  status: ToolStatus;
+  awaitingPermission?: boolean;
+  /**
+   * Why this call failed, when the host knows it as a separate string.
+   *
+   * ⚠️ Nothing on the ACP path sets this: a tool call has no error field in the
+   * protocol, and a failure's text arrives in the same `content` the reducer
+   * decodes into `result`. So on the product path the failure section reads
+   * `result`, and this field is only for hosts that genuinely hold the reason
+   * apart from the output. Setting both keeps both — they are then two readings,
+   * not one text stored twice.
+   */
+  error?: string;
+  /** Short one-line synopsis shown alongside the tool name. */
+  inputSummary?: string;
+  /**
+   * The arguments the agent handed the tool, shown in the expanded request
+   * panel. Absent when the provider reported none — the row then has nothing to
+   * expand and renders as a plain line, exactly as it did before the panel
+   * existed.
+   */
+  request?: string;
+  /** What the tool returned, shown in the expanded result panel. */
+  result?: string;
+  /**
+   * 工具交回来的图(画图用的地址),在头下面画成一条缩略图 —— 不用点开就看得见,见 tool-images.ts。
+   * 缺席 = 这次调用没交图,行和从前一样。
+   */
+  images?: string[];
+  /** Id of the parent tool call (for hierarchical rendering). */
+  parentId?: string;
+};
+
+export type SubagentPhase = 'spawning' | 'running' | 'completed' | 'failed';
+
+/**
+ * 一次**并行派发**的卡组(#4981),对应上游 `elements-subagent-list`。
+ *
+ * 上游那句话是这套东西的全部理由:「派给多个子 agent 天然就是一个回合里的多次工具调用,
+ * 一个 worker 一次;**这个列表不是任何单次调用的 UI,它是从所有调用汇总出来的**。」
+ * 所以它不是新工具,是若干 `subagent` 行的聚合 —— 派五个就是一组五张卡,而不是五行散落。
+ *
+ * ⚠️ 这里**没有内层折叠**:外面 `turn-process` 已经折过一层了(#4874/#4981),
+ * 再套一层就要点两次才看得见人。上游同样没有折叠 —— 列表本身就是视觉主体。
+ */
+export type ChatSubagentListItem = {
+  id: string;
+  /** 派它去做什么 —— 卡上那行字。拿不到就退到通用词,❌ 不编。 */
+  name: string;
+  /** 它实际跑在哪个模型上;供应商没给就不画这一格。 */
+  model?: string;
+  status: ToolStatus;
+  phase: SubagentPhase;
+  /** 它自己已经跑完的步数 —— 卡上写的就是这个数(owner:「步数才能表达出来进度」)。 */
+  completedSteps: number;
+};
+
+export type ChatSubagentList = {
+  kind: 'subagent-list';
+  id: string;
+  agents: readonly ChatSubagentListItem[];
+};
+
+export type ChatSubagentToolCall = {
+  reasoning?: string;
+  kind: 'subagent';
+  id: string;
+  name: string;
+  status: ToolStatus;
+  phase: SubagentPhase;
+  agentId?: string;
+  request?: string;
+  result?: string;
+  /**
+   * 这个子任务被要求做什么（#4981）——供应商在派活时给的那句描述。
+   *
+   * ⚠️ 叫 `task` 不叫 `inputSummary`:行上要说的是**领域概念**（这个子 agent 干嘛去了），
+   * 不是它从哪个传输字段来的。
+   *
+   * 没有它的时候,并行派出去的 N 个子任务在界面上是 N 行一模一样的「Agent 已完成」——
+   * owner 真机验收时一次就摞了 8 行(2026-09-05)。链路上其实一直有这句话:
+   * claude 的 enrich 从 Task 工具的 `rawInput.description` 提出来,`upsertSpecialEvent`
+   * 也存进了条目的 `inputSummary`,**只有这一层没读**。
+   */
+  task?: string;
+  background?: boolean;
+  awaitingPermission?: boolean;
+  /** Optional failure message shown in the failed state tooltip. */
+  error?: string;
+  /** Id of the parent tool call (for hierarchical rendering). */
+  parentId?: string;
+};
+
+/**
+ * A thinking / reasoning row produced by the agent before it replies.
+ *
+ * While `status === 'thinking'` the row shows a fixed-height streaming window
+ * with the tail of the reasoning text truncated/faded at the top.
+ * When `status === 'done'` the row collapses to a "Thought for {duration}s"
+ * header that can be expanded to reveal the full reasoning text.
+ */
+export type ChatThinking = {
+  kind: 'thinking';
+  id: string;
+  seq?: number;
+  segmentId?: string;
+  status: ThinkingStatus;
+  text: string;
+  startedAt: number;
+  durationMs?: number;
+};
+
+/** ACP tool-call categories that represent file operations. */
+export type FileOpKind = 'read' | 'edit' | 'delete' | 'move';
+
+/** A single file touched by a file-operation tool call. */
+export type FileOp = {
+  path: string;
+};
+
+/**
+ * A file-operation tool call row (read / edit / delete / move).
+ *
+ * Single file (ops.length <= 1): renders as an inline row, e.g. "Read foo.tsx".
+ * When a payload exists, the row discloses it and the filename still opens the file.
+ * Multiple files (ops.length > 1): renders as a collapsible header "Read 2 files ›"
+ * that expands to a per-file list. While `status === 'running'` the collapsed
+ * header shows a fixed-height streaming preview window (like ChatThinking).
+ *
+ * Collapse semantics are inverted: the stored "collapsed" bool means "expanded"
+ * (same convention as ChatThinking).
+ */
+export type ChatFileOpToolCall = {
+  kind: 'file-op';
+  id: string;
+  op: FileOpKind;
+  status: ToolStatus;
+  request?: string;
+  result?: string;
+  awaitingPermission?: boolean;
+  /** Optional failure message shown in the error icon's native tooltip. */
+  error?: string;
+  /** Accumulating list of files touched. Replaced (not appended) on each update. */
+  ops: FileOp[];
+  /** Id of the parent tool call (for hierarchical rendering). */
+  parentId?: string;
+};
+
+/**
+ * An execute tool call row — ACP `kind: 'execute'` commands (e.g. Bash).
+ *
+ * A collapsible header line ("Execute" or the provider's inputSummary) above a
+ * monospace body carrying the command and its output, clamped in the collapsed
+ * state and scrollable when expanded. Original arguments and additional result
+ * metadata use the shared tool payload panel under that body.
+ *
+ * `startedAt` / `durationMs` have no producer on the ACP path — the presenter
+ * writes `startedAt: 0` and never writes `durationMs`, and no execute renderer
+ * reads either. They describe a row-local timer this row does not have; only
+ * thinking carries one. Treat them as unpopulated, not as available readings.
+ */
+export type ChatExecute = {
+  kind: 'execute';
+  id: string;
+  /** The shell command, e.g. "ls -a". Empty string until the command-bearing update arrives. */
+  command: string;
+  /** Optional provider-supplied purpose shown as the execute card title. */
+  inputSummary?: string;
+  /** Static tool output, or live terminal output when available. */
+  outputText?: string;
+  request?: string;
+  result?: string;
+  status: ToolStatus;
+  awaitingPermission?: boolean;
+  /** Optional failure message shown in the error icon's native tooltip. */
+  error?: string;
+  /** Unpopulated on the ACP path — see the type's doc comment. */
+  startedAt: number;
+  /** Unpopulated on the ACP path — see the type's doc comment. */
+  durationMs?: number;
+  terminalId?: string;
+  /**
+   * How the embedded terminal's process ended, once it has ended.
+   *
+   * First-hand: the client spawns the process for `terminal/create`, so this is
+   * our own reading of our own child rather than anything the provider reports.
+   * Absent means "not known" — the command is still running, the agent never
+   * asked for a client terminal, or the exit landed outside this view's lifetime.
+   * Absent is never rendered as success.
+   */
+  exitStatus?: TerminalExit;
+  /** Id of the parent tool call (for hierarchical rendering). */
+  parentId?: string;
+};
+
+/**
+ * A diff preview row — produced by ACP `kind: 'edit'` tool calls.
+ *
+ * Renders a compact, non-scrollable preview of the first changed region
+ * (capped at 12 lines with ±1 context), with syntax + diff highlighting.
+ * One `ChatDiff` is created per changed file within a single tool call.
+ *
+ * `oldText` is the replaced region (old_string). `null` means a new file —
+ * all `newText` lines are additions.
+ */
+export type ChatDiff = {
+  kind: 'diff';
+  /** `${toolCallId}:${path}` — unique per file within a tool call. */
+  id: string;
+  /** Full path; basename and extension derived in the component. */
+  path: string;
+  /** The replaced region, or null for new files. */
+  oldText: string | null;
+  newText: string;
+  status: ToolStatus;
+  awaitingPermission?: boolean;
+  /** Optional failure message shown in the error icon's native tooltip. */
+  error?: string;
+  /** Id of the parent tool call (for hierarchical rendering). */
+  parentId?: string;
+};
+
+/**
+ * Resolved addressing target for a resource link.
+ *
+ * `workspace-file` — the URI resolves to a file inside the current workspace;
+ *   `path` is the workspace-relative or absolute path, ready for the editor.
+ * `external` — an http(s) URL or other browser-openable resource.
+ * `opaque` — a custom MCP server scheme the client cannot resolve locally.
+ */
+export type ResourceTarget =
+  | { kind: 'workspace-file'; path: string }
+  | { kind: 'external'; url: string }
+  | { kind: 'opaque' };
+
+/**
+ * A resource-link row — produced by ACP `resource_link` content blocks inside
+ * agent messages, emitted as a standalone row (split from the surrounding message).
+ *
+ * The `target` is pre-resolved by the desktop enrichment transform before the
+ * item enters chat-ui, so the renderer stays transport-agnostic.
+ *
+ * Renders as a compact card: mime icon, `title ?? name`, secondary line
+ * derived from `target` (path / host / scheme), and optional size.
+ * Clicking a `workspace-file` target opens it in the editor.
+ */
+export type ChatResourceLink = {
+  kind: 'resource-link';
+  id: string;
+  /** Original ACP URI, preserved for display and copy. */
+  uri: string;
+  /** Required resource name. */
+  name: string;
+  /** Optional human-friendly label (preferred for display over `name`). */
+  title?: string;
+  /** Optional one-line description shown below the title. */
+  description?: string;
+  /** MIME type hint; drives the file-type icon. */
+  mimeType?: string;
+  /** File size in bytes; shown when present. */
+  size?: number;
+  /** Pre-resolved addressing target. */
+  target: ResourceTarget;
+  status?: ToolStatus;
+  /** Optional failure message shown in the error icon's native tooltip. */
+  error?: string;
+};
+
+/** Lifecycle status of a single plan entry. Mirrors ACP `PlanEntryStatus`. */
+/**
+ * A single task entry within an agent execution plan.
+ *
+ * `content` is a markdown-capable description of the task.
+ * `status` and `priority` mirror the ACP `PlanEntry` schema.
+ */
+export type ChatPlanEntry = {
+  content: string;
+  status: PlanEntryStatus;
+  priority: PlanEntryPriority;
+};
+
+/**
+ * An agent execution plan row — produced by ACP `plan` / `plan_update` session updates.
+ *
+ * Renders as a collapsible checklist (collapsed by default to a capped preview
+ * window; click the header to expand the full list). Each entry shows a status
+ * glyph (○ / ◐ / ●) and its markdown content (wrapped text). The plan replaces
+ * its entries wholesale on each ACP update.
+ *
+ * While `streaming` is true, entries are still being appended: the collapsed
+ * preview auto-scrolls to the newest task and the header shimmers. Cleared on
+ * turn completion.
+ */
+export type ChatPlan = {
+  kind: 'plan';
+  id: string;
+  entries: ChatPlanEntry[];
+  /** True while tasks are still being appended (drives preview auto-scroll + shimmer). */
+  streaming?: boolean;
+};
+
+export type TurnOutcomeItem = {
+  kind: 'turn-outcome';
+  id: string;
+  /** 这一行所收尾的那个 turn。「丢弃」按 turn 记状态，所以行里必须拿得到它。 */
+  turnId: string;
+  outcome: TranscriptTurnOutcome;
+  /**
+   * 这一轮的原始用户指令，由 `flattenTier` 从 turn 自己的第一条 user message 抄来；
+   * 只有 `initiator === 'user'` 的 turn 有。agent 自己发起的后台 turn 没有指令可还，
+   * 于是这里是 undefined，那一行就不渲染「取回指令」（见 `ChatCommands.onRestorePrompt`）。
+   */
+  prompt?: string;
+};
+
+
+/**
+ * 一轮交出来的一份东西,画成一张附件卡,挂在这一轮最后那条回复下面。
+ * 由 `flattenTier` 从这一轮成功的 `session_open_in_tab` 调用造出来:那次调用照常是过程里的一步,
+ * 卡片另挂在最后。同一份东西一轮只挂一张。
+ */
+export type OpenedOutputItem = {
+  kind: 'opened-output';
+  id: string;
+  turnId: string;
+  output: OpenedOutput;
+  /** 这一组里第几张(从 0 数)、一共几张:一组卡连成一块时,首尾的圆角与中间的分隔线靠它。 */
+  index: number;
+  count: number;
+};
+
+/**
+ * 日界分隔行：它下面那些 turn 属于一个新的日历日。
+ *
+ * 由 `flattenTier` 在 turn 的日历日发生变化时插进单元流，**不是**某条消息的一部分 ——
+ * 它有自己的 item id，所以 `scrollToItem(某条消息)` 仍然落在那条消息上，而不是落在
+ * 它头顶的日界上。
+ *
+ * `startedAt` 抄自开启这一天的那个 turn 的 `TranscriptTurn.startedAt`，因此它永远是一个
+ * 真实读数：没有时刻的 turn 根本不会产生这一行（见 turn.ts 上 `startedAt` 的合同）。
+ */
+export type DaySeparatorItem = {
+  kind: 'day-separator';
+  id: string;
+  /** Epoch ms —— 这一天第一个 turn 的开始时刻。 */
+  startedAt: number;
+};
+
+/**
+ * 一轮工作的时间头（#4874 → #4981）：用户问一句之后、最终回复之前的全部事情
+ * （语义折叠后的工具句、中间发言、改动）上面的一行，写的是**跑了多久**。
+ *
+ * owner 2026-09-06：「我的 toolcall 以语义的形式来表达,多个 toolcall 拼成一段带量化的
+ * 一段话……这也是折叠。整体来讲,就套个时间头」「时间头本身算是过程的折叠,只不过是运行
+ * 完成后,时间头是对过程的折叠」。
+ * ⇒ 跑着的时候「已处理 16s」在数、底下的内容摊开着看得见；跑完了同一条头收起整轮过程
+ * （不分几步，点开还原），写总时长。语义句（`tool-run`）是过程**里**的折叠，头是整轮的。
+ * ❌ 不再写「过程 · N 步」；❌ agent 自发的一轮（完成通知、后续 cycle）没有头 ——
+ * 头回答的是「这一问花了多久」。
+ *
+ * 由 `flattenTier` 在宿主开了 `SegmentCtx.foldTurnProcess`（Base 视图）时插进单元流；
+ * 展开与否读的是 ViewState 的那一把折叠开关（同 tool-group），所以切 tab、重挂 view
+ * 都不丢。被用户打断（cancelled）或异常（error）收尾的轮没有头——那些轮本来就带
+ * turn-outcome 行，过程正是读者要看的东西。
+ *
+ * 回放拿不到 outcome（`loadSession` 只重放内容、不重放回合边界），已提交层里
+ * outcome 缺席实际只有这一个来源，按「不折」处理会让重开的会话一条都不折 ——
+ * 所以缺席也折，判据见 `planTurnFold`。
+ */
+export type TurnProcessItem = {
+  kind: 'turn-process';
+  id: string;
+  turnId: string;
+  /**
+   * 这一轮还在跑：头上的时间在数、带微光，底下的内容**默认摊开**（点一下收起）；
+   * 落定后同一条头默认收起、写的是总时长（点开还原）。
+   */
+  live?: boolean;
+  /**
+   * 这一轮什么时候开始的（`TranscriptTurn.startedAt`）。缺席 = 不知道（回放来的），
+   * 那就不写时间 —— 一个会少报的计时器比没有计时器更糟（`turn-process.def.tsx` 头注）。
+   * ❌ 不拿组件挂载时刻代替：虚拟列表滚出视窗就卸载，滚回来会从 0 重数。
+   */
+  startedAt?: number;
+  /** 这一轮什么时候结束的（并进来的话是最后一个回合的 `endedAt`）。缺席 = 不知道。 */
+  endedAt?: number;
+};
+
+/** Action strip after a known completed turn that did not produce reply text. */
+export type TurnCompletionItem = {
+  kind: 'turn-completion';
+  id: string;
+  turnId: string;
+  text: string;
+};
+
+/**
+ * 一段**连续的工具调用**折成的一句话（#4981，owner 2026-09-06）：
+ * 「搜索了 3 个模式、读了 2 个文件、跑了 12 条命令」。
+ *
+ * owner 的模型：除文本消息之外全是 tool call，连续的 tool call 可以折叠；文本与思考不折
+ * （改文件起初不折，owner 同日改口「除了 ai 文本以外都语义化折叠」）。
+ * 这就是 Claude Code 里「Searched for 3 patterns, read 2 files, ran 12 shell commands」那一行。
+ * 展开还原成原始行；两条起折，一条就是一行。切段规则见 `state/tool-run.ts`。
+ *
+ * 与 `turn-process` 的关系：人问的那一轮外面套一条时间头（语义折叠后还剩两行以上才有开合，
+ * 只剩这一句时头只写时长、不折）；agent 自发的一轮没有头，这一句自己就是折叠。
+ * 展开与否读的是同一把 ViewState 开关。
+ */
+export type ToolRunItem = {
+  kind: 'tool-run';
+  id: string;
+  turnId: string;
+  /** 已经成句的摘要。由 flatten 用宿主的 translator 拼好，行里只画。 */
+  label: string;
+  /** 折进去的行数。 */
+  stepCount: number;
+  /** 这一段里还有在跑的调用（活动层）⇒ 头上微光。 */
+  live?: boolean;
+};
+
+/**
+ * 这条会话**此刻**的状态：引擎没装、正在更新、要登录、连接断了、provider 那侧的会话没了……
+ *
+ * # 为什么它是 Synthetic（视图自己造的行），而不是转录条目
+ *
+ * owner 2026-09-19：「任何 bug 都不应该让会话打不开才对吧,也不应该有任何需要横幅性质的
+ * ui 表达,有问题就像消息一样贴消息列表才对吧」⇒ 位置是列表里的一行。
+ *
+ * 但它与 `session-notice`（转录条目）**不是**一件事，判据是**寿命**：
+ * - `session-notice` 记的是**发生过**的事（模型没了、上下文被重开），属于这段历史，落库、重开还在；
+ * - 这一条记的是**现在的条件**（引擎还没装上），条件一消失它就该消失 ⇒ ❌ 不进历史，
+ *   否则装好引擎之后，那句「没装」会永远留在对话里。
+ *
+ * ⇒ 它跟 `working` / `turn-outcome` 同族：由 flatten 按会话状态当场造出来，贴在列表末尾。
+ */
+export type SessionConditionItem = {
+  kind: 'session-condition';
+  id: string;
+  /** 哪一种条件。行上的文案与内联动作按它取，❌ 不去匹配 detail 里的文字。 */
+  code: SessionConditionCode;
+  /** Whether the transcript actually renders content above this row, derived by flatten. */
+  hasVisibleHistory: boolean;
+  /** 运行时/provider 自己那句原文，给排查用（悬停可见），❌ 不摊进正文。 */
+  detail: string;
+  /**
+   * 宿主已经按界面语言写好的那句话，替换 code 的默认说法。只给「这一刻的状态」要带数字 / 名字的条件用
+   * （例如别的机器断线时「和 Linux 1 的连接断了，5 秒后重连」，#6264）；缺省 = 按 code 取默认文案。
+   */
+  label?: string;
+  /**
+   * 这一刻能做的事，按重要性排，最多两件；没有就只说事实（例如引擎正在更新：等几秒就好）。
+   *
+   * ⚠️ 为什么允许两件：登录闸那一条两件都不能少 —— owner 2026-09-04 的原话是
+   * 「我已经登录了,这里没有个登录完成的按钮」。「去登录」与「我登好了」是两个不同的动作，
+   * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
+   */
+  actions?: readonly { label: string; run: () => void }[];
+  /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
+  labelValues?: Readonly<Record<string, string | number>>;
+};
+
+export type SessionConditionCode =
+  | 'harness-missing'
+  | 'harness-updating'
+  | 'auth-required'
+  | 'provider-session-missing'
+  | 'adapter-lost'
+  | 'start-failed'
+  /** 会话在**别的机器**上,而那台机器此刻问不到(离线 / 没回话)(#6264)。 */
+  | 'machine-unreachable'
+  /** 那台机器连得上,但有件事要人知道:磁盘快满了、两边版本对不上(#6264)。宿主总是给 label。 */
+  | 'machine-attention'
+  /**
+   * 这条会话用的咕咕模型要开会员才能用(会员中途到期,#7056)。下一轮之前就停下说清,给两条去路:
+   * 换一个模型、去网页续费 —— ❌ 悄悄换模型接着跑。
+   */
+  | 'membership-required';
+
+export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
+
+/** Successful file edits presented once below a settled turn's reply. */
+export type FileChangeSummaryItem = {
+  kind: 'file-change-summary';
+  id: string;
+  turnId: string;
+  files: { path: string; diffs: ChatDiff[]; adds: number; dels: number }[];
+};
+
+export type SyntheticItem =
+  | SessionConditionItem
+  | TurnOutcomeItem
+  | OpenedOutputItem
+  | FileChangeSummaryItem
+  | DaySeparatorItem
+  | TurnProcessItem
+  | TurnCompletionItem
+  | ToolRunItem;
+
+export type ChatItem =
+  | TranscriptItem
+  | ChatMessage
+  | ChatToolCall
+  | ChatSubagentToolCall
+  | ChatSubagentList
+  | ChatThinking
+  | ChatFileOpToolCall
+  | ChatExecute
+  | ChatDiff
+  | ChatResourceLink
+  | ChatPlan;

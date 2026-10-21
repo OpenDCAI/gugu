@@ -1,0 +1,125 @@
+{
+ "id": "qwen-bg-shell",
+ "issues": [
+  "#6377"
+ ],
+ "harness": "qwen-code 0.22.3",
+ "source": "#6377 recorded qwen hooks",
+ "sessionId": "69b155ef-c284-4813-8045-e8301d5158d4",
+ "expectAnomalies": 0,
+ "summary": "background shell: qwen does not list shells in background_tasks ⇒ idle between Stop and the self-started round (a missing fact, shown explicitly); the self-started round (no UserPromptSubmit) is opened by its prompt_id",
+ "steps": [
+  {
+   "raw": "05:09:48 SessionStart",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "05:09:49 UserPromptSubmit prompt_id=…##0 (first event of this prompt_id)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "69b155ef-c284-4813-8045-e8301d5158d4"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:16 PreToolUse prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:16 PostToolUse prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:16 UserPromptSubmit prompt_id=…##0",
+   "event": null,
+   "drop": "same prompt_id as the open turn (qwen sends it before every model call)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:25 MessageDisplay prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:25 MessageDisplay prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:10:25 Stop prompt_id=…##0 background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "69b155ef-c284-4813-8045-e8301d5158d4",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "05:10:26 Notification prompt_id=…##0 idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact (qwen sends it 0.3–1s after every Stop)",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "05:11:21 MessageDisplay prompt_id=…##1 (first event of this prompt_id)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "69b155ef-c284-4813-8045-e8301d5158d4"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:11:21 MessageDisplay prompt_id=…##1",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:11:21 MessageDisplay prompt_id=…##1",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:11:21 Stop prompt_id=…##1 background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "69b155ef-c284-4813-8045-e8301d5158d4",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "05:11:21 Notification prompt_id=…##1 idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact (qwen sends it 0.3–1s after every Stop)",
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

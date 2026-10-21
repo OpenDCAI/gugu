@@ -1,0 +1,7 @@
+/* 类名定义在 CSS 文件里 —— 它的 hover/active 根本不出现在 tsx 的类名串里。 */
+.legacy-hover-only { border: none; background: transparent; }
+.legacy-hover-only:hover { background: var(--hover); }
+
+.legacy-full { border: none; background: transparent; }
+.legacy-full:hover { background: var(--hover); }
+.legacy-full:active { background: var(--press); }

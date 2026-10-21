@@ -1,0 +1,329 @@
+{
+ "id": "claude-6377-background-tasks",
+ "issues": [
+  "#6377",
+  "#6167"
+ ],
+ "harness": "claude 2.1.281",
+ "source": "#6377 recorded Claude TUI hooks",
+ "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+ "expectAnomalies": 0,
+ "summary": "three rounds (bg shell, bg subagent, bg sleep 100 with an idle_prompt in between): working until the notification round ends with background_tasks=[]; exactly one turn-end edge per round",
+ "steps": [
+  {
+   "raw": "03:46:55 SessionStart",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "03:46:55 UserPromptSubmit (user)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:02 PreToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:02 PostToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:02 PostToolBatch",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:08 Stop background_tasks=[('shell', 'running')]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:08 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:47:47 UserPromptSubmit <task-notification> (claude-injected)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:00 Stop background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "03:48:00 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "03:48:42 UserPromptSubmit (user)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:50 PreToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:50 PostToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:50 SubagentStart",
+   "event": null,
+   "drop": "claude reports background work in the Stop snapshot; subagent edges are not a second source",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:50 PostToolBatch",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:55 PreToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:56 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:48:56 Stop background_tasks=[('subagent', 'running')]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:39 PostToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:40 PostToolBatch",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:40 PreToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:41 PostToolBatch",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:45 SubagentStop",
+   "event": null,
+   "drop": "claude reports background work in the Stop snapshot; subagent edges are not a second source",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:46 UserPromptSubmit <task-notification> (claude-injected)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:49:53 Stop background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "03:49:53 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "03:50:53 Notification idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact about background work (#6377: arrives 60s after Stop while it still runs)",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "03:52:00 UserPromptSubmit (user)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:52:05 PreToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:52:05 PostToolUse",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:52:05 PostToolBatch",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:52:11 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:52:11 Stop background_tasks=[('shell', 'running')]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:53:11 Notification idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact about background work (#6377: arrives 60s after Stop while it still runs)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:53:45 UserPromptSubmit <task-notification> (claude-injected)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:53:50 MessageDisplay",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "03:53:50 Stop background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "61d63fa6-99b1-49f1-a2f5-a608ef73a6bd",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "03:54:51 Notification idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact about background work (#6377: arrives 60s after Stop while it still runs)",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "03:57:33 SubagentStop",
+   "event": null,
+   "drop": "claude reports background work in the Stop snapshot; subagent edges are not a second source",
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

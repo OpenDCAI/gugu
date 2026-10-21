@@ -1,0 +1,104 @@
+/* #7333 Desktop content roles. Phone settings retain their full-width rows. */
+.gg-settings-detail:not([data-mobile]) { --settings-col-w: 640px; }
+[data-settings-section='usage'] .gg-settings-detail,
+[data-settings-section='activity'] .gg-settings-detail { --settings-col-w: 760px; }
+.gg-settings-detail:not([data-mobile]) > .gg-pane-header {
+  height: auto;
+  min-height: 0;
+  padding-top: var(--spacing-2xl);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 0;
+  flex-shrink: 0;
+}
+.gg-settings-detail:not([data-mobile]) div.gg-settings-body { padding-top: 0; padding-bottom: var(--spacing-2xl); }
+.gg-settings-detail:not([data-mobile]) .gg-settings-page { gap: var(--spacing-2xl); }
+.gg-settings-detail:not([data-mobile]) .gg-settings-lede { margin-bottom: var(--spacing-2xl); }
+.gg-settings-detail:not([data-mobile]) .gg-settings-group > .gg-settings-card {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.gg-settings-detail:not([data-mobile]) .gg-settings-group > .gg-section-label { font-weight: var(--font-weight-medium); }
+.gg-settings-detail:not([data-mobile]) div.gg-settings-row { padding-inline: 0; column-gap: var(--spacing-2xl); }
+.gg-settings-detail:not([data-mobile]) .gg-settings-row-description { max-width: 48ch; }
+.gg-settings-detail:not([data-mobile]) .gg-settings-row + .gg-settings-row { border-top-color: var(--border-color); }
+
+/* Navigation is a separate role, including mixed groups with read-only values. */
+.gg-settings-detail:not([data-mobile]) div.gg-settings-row[role='button'] {
+  padding: var(--spacing-md);
+  margin-block: var(--spacing-xs);
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: color-mix(in oklab, var(--fg) 2.4%, transparent);
+  column-gap: var(--spacing-md);
+}
+.gg-settings-detail:not([data-mobile]) .gg-settings-row[role='button'] .gg-settings-row-title { font-weight: var(--font-weight-medium); }
+.gg-settings-detail:not([data-mobile]) .gg-settings-row[role='button'] .gg-settings-row-leading {
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+}
+@media (hover: hover) {
+  .gg-settings-detail:not([data-mobile]) .gg-settings-row[role='button']:hover:not([aria-disabled='true']) { background-color: var(--hover); }
+}
+.gg-settings-detail:not([data-mobile]) .gg-settings-row[role='button']:active:not([aria-disabled='true']) { background-color: var(--press); }
+.gg-settings-detail:not([data-mobile]) [data-settings-group='navigation'] > .gg-settings-card { display: flex; flex-direction: column; }
+
+/* Identity and status summaries earn a surface; they are not settings tables. */
+.gg-settings-detail:not([data-mobile]) [data-settings-group='summary'] > .gg-settings-card {
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-surface);
+  background: var(--muted);
+}
+.gg-settings-detail:not([data-mobile]) [data-settings-group='summary'] .gg-settings-row { min-height: 0; padding: 0; }
+.gg-settings-detail:not([data-mobile]) [data-settings-group='summary'] .gg-settings-row + .gg-settings-row {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--border-color);
+}
+.gg-settings-detail:not([data-mobile]) [data-settings-group='summary'] .gg-settings-row[data-leading] .gg-settings-row-title {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Editors keep labels beside their own controls rather than at the far edge. */
+.gg-settings-detail:not([data-mobile]) div.gg-settings-row[data-settings-layout='field'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'title' 'control' 'description';
+  align-items: start;
+  align-content: start;
+  gap: 0;
+  border: 0;
+}
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-body { display: contents; }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-title { grid-area: title; }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-description { grid-area: description; margin-top: var(--spacing-sm); }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-control { justify-content: flex-start; margin-top: var(--spacing-sm); }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-control > * { width: 100%; }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] input.gg-settings-input[data-field='wide'] { width: 100%; }
+.gg-settings-detail:not([data-mobile]) [data-settings-layout='field'] .gg-settings-row-value { white-space: normal; overflow-wrap: anywhere; }
+.gg-settings-detail:not([data-mobile]) [data-settings-group='summary'] [data-settings-layout='field'] .gg-settings-row-control { max-width: 360px; }
+.gg-settings-detail:not([data-mobile]) [data-settings-group='editor'] > .gg-settings-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--spacing-2xl);
+  row-gap: var(--spacing-md);
+}
+.gg-settings-detail:not([data-mobile]) [data-settings-group='editor'] .gg-settings-row { padding-block: 0; }
+.gg-settings-detail:not([data-mobile]) [data-settings-group='danger'] { padding-top: var(--spacing-lg); border-top: 1px solid var(--border-color); }
+@container gg-settings (max-width: 540px) {
+  .gg-settings-detail:not([data-mobile]) [data-settings-group='editor'] > .gg-settings-card { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* A page with only a real availability/error message is a status surface. */
+.gg-settings-detail:not([data-mobile]) .gg-settings-page > p.gg-settings-note:only-child {
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-surface);
+  background: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}

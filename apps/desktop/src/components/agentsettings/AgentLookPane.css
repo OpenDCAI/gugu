@@ -1,0 +1,719 @@
+/* 形象工坊(AgentLookPane):像游戏里的捏人 —— 左边一座带光的小舞台(小鸟站在台子上,点哪格它当场换),
+   右边是颜色球 / 表情卡。舞台底色、台子、选中环都跟着选中的身体颜色走(--gg-look-color,注册成 <color> 才能平滑过渡)。
+   只有这一屏用这些类,不分层 ⇒ 压得过 ui/Button 的工具类(色球、表情卡借 Button 的行为,外形在这里画)。 */
+
+@property --gg-look-color {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #f3e2c3;
+}
+
+.gg-look-wrap {
+  container-type: inline-size;
+}
+
+.gg-look {
+  --gg-look-stage-top-mix: 34%;
+  --gg-look-stage-bottom-mix: 8%;
+  --gg-look-glow-mix: 30%;
+  --gg-look-star: color-mix(in oklab, white 88%, var(--gg-look-color));
+  --gg-look-star-glow: color-mix(in oklab, var(--gg-look-color) 70%, black 10%);
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--spacing-xl);
+  /* 定高 = 设置页正文那一格的高度:右边格子多了在自己里面滚,舞台不跟着被撑长 */
+  height: 452px;
+  transition: --gg-look-color var(--dur-slow) var(--ease);
+}
+
+[data-theme='light'] .gg-look {
+  --gg-look-stage-top-mix: 74%;
+  --gg-look-stage-bottom-mix: 18%;
+  --gg-look-glow-mix: 92%;
+  /* 浅色舞台上白星星看不见:换成暖金色的星屑 */
+  --gg-look-star: oklch(0.82 0.13 80);
+  --gg-look-star-glow: rgb(255 255 255 / 0.9);
+}
+
+/* ───────────── 舞台 ───────────── */
+
+.gg-look-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-2xl); /* #7333 大卡片 16(thread 现在是 composer 的 24) */
+  background:
+    radial-gradient(130% 62% at 50% 0%, color-mix(in oklab, var(--gg-look-color) var(--gg-look-stage-top-mix), var(--bg)) 0%, transparent 100%),
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--gg-look-color) var(--gg-look-stage-top-mix), var(--bg)) 0%,
+      color-mix(in oklab, var(--gg-look-color) var(--gg-look-stage-bottom-mix), var(--bg)) 82%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--gg-look-color) 38%, var(--border));
+}
+
+/* 点阵底纹:中间清楚、四周淡出,像捏人界面的网格台面 */
+.gg-look-dots {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--fg) 16%, transparent) 1px, transparent 1.6px);
+  background-size: 14px 14px;
+  mask-image: radial-gradient(ellipse 85% 58% at 50% 44%, #000 0%, transparent 78%);
+  opacity: 0.6;
+}
+
+.gg-look-stage-top {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 22px;
+}
+
+.gg-look-tag {
+  padding: 4px 8px;
+  border-radius: var(--radius-capsule);
+  background: color-mix(in oklab, var(--bg) 72%, transparent);
+  color: var(--muted-fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+}
+
+.gg-look-tag--draft {
+  background: var(--fg);
+  color: var(--bg);
+  font-family: inherit;
+  letter-spacing: 0;
+  animation: gg-look-pop 260ms var(--ease-pop);
+}
+
+/* 小鸟站的那一块:台子贴底,小鸟脚踩台面 */
+.gg-look-scene {
+  position: relative;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 236px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.gg-look-glow {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  width: 230px;
+  height: 230px;
+  translate: -50% 0;
+  z-index: -1;
+  border-radius: var(--radius-capsule);
+  background: radial-gradient(circle, color-mix(in oklab, white var(--gg-look-glow-mix), var(--gg-look-color)) 0%, transparent 64%);
+  opacity: 0.85;
+}
+
+.gg-look-podium {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  width: 152px;
+  height: 30px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 58% 66% at 50% 34%, color-mix(in oklab, white 62%, var(--gg-look-color)) 0%, transparent 100%),
+    color-mix(in oklab, var(--gg-look-color) 82%, white);
+  box-shadow:
+    0 7px 0 color-mix(in oklab, var(--gg-look-color) 72%, black 16%),
+    0 18px 22px -10px color-mix(in oklab, var(--gg-look-color) 40%, black 45%);
+}
+
+.gg-look-hero {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 14px;
+  line-height: 0;
+}
+
+.gg-look-twinkle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  color: var(--gg-look-star);
+  filter: drop-shadow(0 0 3px var(--gg-look-star-glow));
+  opacity: 0;
+  animation: gg-look-twinkle 3.4s ease-in-out infinite;
+}
+
+.gg-look-twinkle--a { left: 26px; top: 26px; }
+.gg-look-twinkle--b { right: 24px; top: 70px; width: 9px; height: 9px; animation-delay: 1.15s; }
+.gg-look-twinkle--c { left: 40px; bottom: 74px; width: 8px; height: 8px; animation-delay: 2.3s; }
+
+/* 落定 / 保存时从小鸟身上迸出的一圈星星 */
+.gg-look-burst {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.gg-look-ray {
+  --gg-ray-a: 0deg;
+  position: absolute;
+  left: -6px;
+  top: -6px;
+  width: 12px;
+  height: 12px;
+  color: var(--gg-look-star);
+  filter: drop-shadow(0 0 4px var(--gg-look-star-glow));
+  opacity: 0;
+  animation: gg-look-ray 720ms var(--ease) forwards;
+}
+
+.gg-look-ray[data-i='1'] { --gg-ray-a: 45deg; }
+.gg-look-ray[data-i='2'] { --gg-ray-a: 90deg; width: 9px; height: 9px; }
+.gg-look-ray[data-i='3'] { --gg-ray-a: 135deg; }
+.gg-look-ray[data-i='4'] { --gg-ray-a: 180deg; width: 9px; height: 9px; }
+.gg-look-ray[data-i='5'] { --gg-ray-a: 225deg; }
+.gg-look-ray[data-i='6'] { --gg-ray-a: 270deg; width: 9px; height: 9px; }
+.gg-look-ray[data-i='7'] { --gg-ray-a: 315deg; }
+
+.gg-look-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  max-width: 100%;
+  margin-top: var(--spacing-md);
+  text-align: center;
+}
+
+.gg-look-plate-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: var(--font-heading);
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gg-look-plate-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-fg);
+  font-size: var(--font-body);
+  line-height: 1.3;
+}
+
+.gg-look-plate-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-capsule);
+  background: var(--gg-look-color);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--fg) 18%, transparent);
+}
+
+.gg-look-note {
+  margin-top: var(--spacing-sm);
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* 「试试状态」:点一下,舞台上的小鸟演下一个状态(空闲 → 运行中 → 等你批准 → 做完了) */
+.gg-look-try.gg-look-try {
+  gap: 6px;
+  min-height: 0;
+  margin-top: var(--spacing-md);
+  padding: 6px 12px 6px 10px;
+  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+  border-radius: var(--radius-capsule);
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  color: var(--fg);
+  font-size: var(--font-caption);
+}
+
+.gg-look-try.gg-look-try:hover:not([data-disabled]) {
+  background: var(--bg);
+}
+
+.gg-look-try-play {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid currentColor;
+}
+
+.gg-look-try-kicker {
+  color: var(--muted-fg);
+}
+
+.gg-look-try-state {
+  font-weight: 600;
+}
+
+/* ───────────── 右边:颜色球 / 表情卡 ───────────── */
+
+.gg-look-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-width: 0;
+  min-height: 0;
+}
+
+.gg-look-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.gg-look-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.gg-look-readonly {
+  color: var(--faint-fg);
+  font-size: var(--font-caption);
+}
+
+.gg-look-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+}
+
+.gg-look-tab.gg-look-tab {
+  gap: 6px;
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--muted-fg);
+  font-size: var(--font-body);
+}
+
+.gg-look-tab.gg-look-tab[aria-selected='true'] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px var(--border);
+}
+
+.gg-look-tab-count {
+  color: var(--faint-fg);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-look-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 6px 6px var(--spacing-sm);
+  overflow-y: auto;
+}
+
+/* 一格(色球或表情卡)。借 Button 的键盘与禁用行为,外形全在这里 */
+.gg-look-cell.gg-look-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  min-height: 0;
+  padding: 8px 2px 6px;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  white-space: normal;
+}
+
+.gg-look-cell.gg-look-cell:hover:not([data-disabled]) {
+  background: var(--hover);
+}
+
+.gg-look-cell.gg-look-cell[data-disabled] {
+  cursor: default;
+}
+
+.gg-look-cell-label {
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.gg-look-cell[aria-checked='true'] .gg-look-cell-label {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.gg-look-colors {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-sm) var(--spacing-xs);
+}
+
+/* 色球:一颗有高光的软糖球 */
+.gg-look-orb {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-capsule);
+  background:
+    radial-gradient(circle at 32% 27%, rgb(255 255 255 / 0.95) 0 8%, rgb(255 255 255 / 0) 30%),
+    radial-gradient(circle at 50% 58%, var(--gg-orb) 0 50%, color-mix(in oklab, var(--gg-orb) 80%, black 14%) 100%);
+  box-shadow:
+    inset 0 -4px 7px color-mix(in oklab, var(--gg-orb) 58%, black 22%),
+    0 5px 10px -4px color-mix(in oklab, var(--gg-orb) 45%, black 45%);
+  transition: transform var(--dur-med) var(--ease-pop), box-shadow var(--dur-med) var(--ease);
+}
+
+.gg-look-cell:hover:not([data-disabled]) .gg-look-orb {
+  transform: translateY(-2px) scale(1.05);
+}
+
+.gg-look-cell[aria-checked='true'] .gg-look-orb {
+  transform: scale(1.06);
+  box-shadow:
+    inset 0 -4px 7px color-mix(in oklab, var(--gg-orb) 58%, black 22%),
+    0 0 0 3px var(--bg),
+    0 0 0 5px var(--fg);
+}
+
+.gg-look-check {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+  border-radius: var(--radius-capsule);
+  background: var(--fg);
+  color: var(--bg);
+  animation: gg-look-pop 260ms var(--ease-pop);
+}
+
+/* 「已经有兄弟穿这个颜色了」:球角上蹲着一只同色的小鸟(悬停看是谁) */
+.gg-look-taken {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+
+.gg-look-hint {
+  margin-top: var(--spacing-md);
+  color: var(--faint-fg);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+}
+
+.gg-look-face-group + .gg-look-face-group {
+  margin-top: var(--spacing-lg);
+}
+
+.gg-look-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  margin: 0 2px var(--spacing-sm);
+}
+
+.gg-look-group-title {
+  color: var(--fg);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.gg-look-group-hint {
+  color: var(--faint-fg);
+  font-size: var(--font-caption);
+}
+
+.gg-look-faces {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.gg-look-face-cell.gg-look-face-cell {
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+}
+
+.gg-look-face-cell.gg-look-face-cell[aria-checked='true'] {
+  background: color-mix(in oklab, var(--gg-look-color) 34%, var(--bg));
+  box-shadow: inset 0 0 0 2px var(--fg);
+}
+
+.gg-look-face {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  line-height: 0;
+}
+
+.gg-look-face .gg-look-check {
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+}
+
+.gg-look-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+}
+
+.gg-look-foot-gap {
+  flex: 1 1 auto;
+}
+
+.gg-look-dice:hover:not([data-disabled]) .gg-look-dice-icon {
+  animation: gg-look-wobble 560ms var(--ease);
+}
+
+.gg-look-dice[data-rolling] .gg-look-dice-icon {
+  animation: gg-look-roll 340ms linear infinite;
+}
+
+.gg-look-save.gg-look-save {
+  min-width: 88px;
+}
+
+/* ───────────── 窄(手机全屏的设置页):舞台在上、格子在下,底栏贴底 ───────────── */
+
+@container (max-width: 560px) {
+  .gg-look {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .gg-look-scene {
+    min-height: 220px;
+  }
+
+  .gg-look-scroll {
+    overflow: visible;
+  }
+
+  /* 设置页手机正文底下留了 max(24px, 安全区) 的内边距;贴底的那一条要把这段也盖住,否则格子从它底下露出来 */
+  .gg-look-foot {
+    --gg-look-foot-under: max(24px, env(safe-area-inset-bottom));
+    position: sticky;
+    bottom: calc(-1 * var(--gg-look-foot-under));
+    z-index: 1;
+    padding-bottom: calc(var(--spacing-sm) + var(--gg-look-foot-under));
+    margin-bottom: calc(-1 * var(--gg-look-foot-under));
+    background: var(--bg);
+  }
+}
+
+@keyframes gg-look-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(0deg);
+  }
+
+  50% {
+    opacity: 0.95;
+    transform: scale(1) rotate(45deg);
+  }
+}
+
+@keyframes gg-look-ray {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--gg-ray-a)) translateY(-14px) scale(0.3);
+  }
+
+  25% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: rotate(var(--gg-ray-a)) translateY(-92px) scale(1);
+  }
+}
+
+@keyframes gg-look-pop {
+  0% {
+    transform: scale(0.4);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes gg-look-wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  30% {
+    transform: rotate(-16deg);
+  }
+
+  65% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes gg-look-roll {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 装扮页签:一个位置一排小胶囊,穿着的那件下面一排配色圆点 */
+.gg-look-outfit-note {
+  min-height: 1.5em;
+  margin: 0 2px var(--spacing-sm);
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+}
+
+.gg-look-outfit-group + .gg-look-outfit-group {
+  margin-top: var(--spacing-md);
+}
+
+.gg-look-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gg-look-chip.gg-look-chip {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  font-weight: 500;
+}
+
+.gg-look-chip.gg-look-chip:hover:not([data-disabled]) {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.gg-look-chip.gg-look-chip[aria-checked='true'] {
+  border-color: var(--fg);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.gg-look-swatches {
+  display: flex;
+  gap: 10px;
+  margin: 10px 2px 0;
+}
+
+.gg-look-swatch.gg-look-swatch {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+}
+
+.gg-look-swatch-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-capsule);
+  background: var(--gg-swatch);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+}
+
+.gg-look-swatch[aria-checked='true'] .gg-look-swatch-dot {
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 0.12),
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--fg);
+}
+
+.gg-look-outfit-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+/* 手机:胶囊和配色圆点也要够一根手指(触控 ≥ 44px) */
+@media (max-width: 719px) {
+  .gg-look-chip.gg-look-chip {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+
+  .gg-look-swatch.gg-look-swatch {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .gg-look-swatches {
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-look,
+  .gg-look-orb {
+    transition: none;
+  }
+
+  .gg-look-twinkle {
+    opacity: 0.6;
+    animation: none;
+  }
+
+  .gg-look-ray,
+  .gg-look-check,
+  .gg-look-tag--draft,
+  .gg-look-dice .gg-look-dice-icon {
+    animation: none;
+  }
+}

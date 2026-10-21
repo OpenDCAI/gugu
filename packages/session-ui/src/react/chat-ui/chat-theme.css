@@ -1,0 +1,120 @@
+/*
+ * chat-theme.css — host override preset for @gugu/session-chat-ui.
+ *
+ * This file is the "host override" layer that sits on top of chat-ui's built-in
+ * default theme (theme.css.ts). It rebinds the --chat-* contract variables to
+ * the session-page design-system semantic tokens so chat-ui integrates with the
+ * desktop app's visual language.
+ *
+ * Theming model:
+ *   chat-ui default (theme.css.ts :where())   — self-contained defaults
+ *   └── this file (.emlight / .emdark rules)  — overrides colors/radii for desktop
+ *
+ * Import alongside @gugu/session-ui/theme/theme.css and semantic.css in the host app.
+ * The desktop session page imports this at startup. The specificity of .emlight / .emdark
+ * beats the :where() defaults regardless of stylesheet load order.
+ *
+ * Font families and typography metrics are emitted by ChatRoot from ChatConfig;
+ * CSS-only font overrides would make pretext measure different glyphs than the DOM.
+ */
+
+.emlight,
+.emdark {
+  /* ── Foregrounds ────────────────────────────────────────────────────────── */
+  --chat-fg: var(--em-foreground);
+  --chat-fg-body: var(--em-foreground-body);
+  --chat-fg-muted: var(--em-foreground-muted);
+  --chat-fg-passive: var(--em-foreground-passive);
+
+  /* ── Backgrounds ────────────────────────────────────────────────────────── */
+  /* Bind to the concrete --em-surface-paper token (not the --em-surface indirection):
+   * --em-surface is declared once at :root as var(--em-surface-base) and is NOT
+   * re-declared by .emdark, so it stays frozen at the light :root value and
+   * breaks in dark mode. --em-surface-paper IS redefined per-theme under
+   * .emlight/.emdark, and matches the ChatComposer's bg-surface (which resolves
+   * to --em-surface-paper inside the panel's .surface-paper scope). */
+  --chat-bg: var(--em-surface-paper);
+  --chat-bg-1: var(--em-background-1);
+  --chat-bg-2: var(--em-background-2);
+  --chat-bg-3: var(--em-background-3);
+
+  /* @@@state-ladder-mix 交互三态。绑到 paper 这一层的具体档位(理由同上:对话根不在任何
+   * .surface-* 房间里,用 --em-surface-hover 那个相对指向会退回 base 值)。这样对话流里的
+   * 行悬浮/按下/选中,与侧栏、菜单、composer 走的是同一条阶梯、同一个深度。
+   * bg-1/-2/-3 保持原样,它们是**表面**阶梯(卡片底、代码块底),不是状态。 */
+  --chat-bg-hover: var(--em-surface-paper-hover);
+  --chat-bg-press: var(--em-surface-paper-press);
+  --chat-bg-selected: var(--em-surface-paper-selected);
+
+  /* ── Border ─────────────────────────────────────────────────────────────── */
+  --chat-border: var(--em-border);
+
+  /* ── User message card ───────────────────────────────────────────────────── */
+  /* Elevated surface to match the ChatComposer (bg-surface-base-emphasis). */
+  --chat-user-card-bg: var(--em-surface-base-emphasis);
+  --chat-user-card-border: var(--em-border);
+  --chat-user-card-border-hover: var(--em-border-1);
+
+  /* ── Context-mention pill ────────────────────────────────────────────────── */
+  /* Mirror the ChatComposer MentionPill. Bind to a CONCRETE elevation token
+   * rather than the scope-relative --em-surface-hover indirection: the chat root
+   * sits outside any .surface-* scope, so --em-surface-hover falls back to the
+   * base value (white in dark mode). --em-surface-base-emphasis-hover is one rung
+   * above the user-card surface, so the chip stays visible on the card and on
+   * the paper transcript background in both themes. */
+  --chat-mention-chip-bg: var(--em-surface-base-emphasis-hover);
+  --chat-mention-chip-fg: var(--em-foreground);
+  /* @@@chrome-is-ink (Refs #6104) — mention chip **一档**,不按种类分色。
+     design.md Reject:「Rainbow type badges, colored category chips」。
+     四种 kind 现在全部落在 chip 那一档上;区分靠图标与文字,不靠色相。 */
+  --chat-mention-file-bg: var(--chat-mention-chip-bg);
+  --chat-mention-file-fg: var(--chat-mention-chip-fg);
+  --chat-mention-issue-bg: var(--chat-mention-chip-bg);
+  --chat-mention-issue-fg: var(--chat-mention-chip-fg);
+  --chat-mention-symbol-bg: var(--chat-mention-chip-bg);
+  --chat-mention-symbol-fg: var(--chat-mention-chip-fg);
+  --chat-mention-custom-bg: var(--chat-mention-chip-bg);
+  --chat-mention-custom-fg: var(--chat-mention-chip-fg);
+
+  /* ── Diff / VCS ─────────────────────────────────────────────────────────── */
+  --chat-diff-added: var(--em-foreground-diff-added);
+  --chat-diff-deleted: var(--em-foreground-diff-deleted);
+  --chat-diff-modified: var(--em-foreground-diff-modified);
+
+  /* ── Chat-specific semantic vars ────────────────────────────────────────── */
+  /* @@@live-accent (Refs #6109) — 转录里唯一表示「在动」的色。定义处是
+     apps/desktop/src/styles/tokens.css 的 --live;脱开咕咕宿主(独立 storybook)时
+     退回 --em-foreground-info,它是同一个蓝。 */
+  --chat-live: var(--live, var(--em-foreground-info));
+  /* 「等你批准」:不是错误、也不是 live,走 warning 那一档。它消掉的是 tool / diff /
+     file-op / collapse-header 四个文件各抄一份的裸 #eab308。 */
+  --chat-fg-permission: var(--em-foreground-warning);
+  --chat-link: var(--em-foreground-info);
+  --chat-bubble-user: var(--em-background-3);
+  --chat-bubble-user-fg: var(--em-foreground);
+  --chat-mention-bg: var(--chat-mention-chip-bg);
+  --chat-mention-fg: var(--chat-mention-chip-fg);
+  /* --em-neutral-1 is lightest gray in light mode and near-black in dark mode */
+  --chat-code-bg: var(--em-neutral-1);
+  --chat-table-header-bg: var(--em-background-1);
+
+  /* ── Non-color design tokens ─────────────────────────────────────────────── */
+  /* Mirror @gugu/session-ui/theme/theme.base.css so chat-ui inherits the app radius scale. */
+  /* @@@shape-table (Refs #6104) — 逐字等值于 apps/desktop/src/styles/tokens.css 的 8 档语义表。
+     xl 从 0.875rem(14px)落到 12px(表里没有 14 这一档);用户气泡那一档改名 thread(16px)。 */
+  --chat-radius-sm: 6px;
+  --chat-radius-md: 8px;
+  --chat-radius-xl: 12px;
+  --chat-radius-thread: 16px;
+  --chat-radius-full: 9999px;
+}
+
+/* ── Inline code chip: semi-transparent tint ────────────────────────────────── */
+.emlight {
+  --chat-code-inline-bg: rgba(0, 0, 0, 0.06);
+}
+
+.emdark {
+  --chat-code-inline-bg: rgba(255, 255, 255, 0.08);
+  --chat-code-bg: var(--em-neutral-1);
+}

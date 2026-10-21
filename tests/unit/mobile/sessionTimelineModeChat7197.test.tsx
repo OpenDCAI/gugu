@@ -1,0 +1,56 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Device } from '@gugu/core/shared/types/chat'
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { SessionTimelinePage } from '../../../apps/desktop/src/mobile/agent-watch/SessionTimelinePage'
+import { emptyAgentWatchTimeline } from '../../../apps/desktop/src/mobile/agent-watch/agent-watch-store'
+import { translateSessionMessage } from '../../../apps/desktop/src/session/renderer/localization/locale-store'
+import { clickElement, createNode, createReactHarness, waitForCondition } from '../../support/testHarness'
+
+// #7197 会话页的模式按钮:「对话」那行有没有咕咕身份看会话自己带不带 agent id —— 通讯录里还没有它的名字
+// (agentOfSession 给 undefined)时 ❌ 说「还没有咕咕身份」。
+
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({
+  useAgentWatchSession: () => ({
+    timeline: emptyAgentWatchTimeline(), phase: 'ready', error: null, actionError: null, dismissActionError: vi.fn(),
+    waitingForRecord: false, reload: vi.fn(), loadOlder: vi.fn(), send: vi.fn(), pendingSends: [], respond: vi.fn(),
+    sending: false, respondingItemId: null, cancel: vi.fn(), cancelling: false,
+  }),
+}))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/AgentThread', () => ({ AgentThread: () => null }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/StatusGlyph', () => ({ SessionAvatar: () => null }))
+
+const device = { device_id: 'device-1', label: 'Mac', is_online: true, last_seen_at: null } as unknown as Device
+const session = (extra: Partial<SessionpageSessionSummary> = {}): SessionpageSessionSummary => ({
+  conversationId: 'conversation-1', projectId: 'project-1', title: 'Task one', harness: 'claude', runtime: 'pty',
+  agentStatus: null, lastInteractedAt: '2026-10-15T00:00:00.000Z', supported: true, ...extra,
+})
+const chatRow = () => document.querySelector<HTMLElement>('[data-testid="agent-watch-mode-chat"]')
+
+let harness: ReturnType<typeof createReactHarness>
+beforeEach(() => { harness = createReactHarness() })
+afterEach(() => harness.cleanup())
+
+async function openMenu(): Promise<void> {
+  await clickElement(document.querySelector<HTMLElement>('[data-testid="agent-watch-mode-open"]')!)
+  await waitForCondition(() => chatRow() !== null, 'mode menu opened')
+}
+
+describe('SessionTimelinePage mode button → 对话', () => {
+  it('the session has an agent but the contacts have no name for it yet: 对话 still goes to that agent', async () => {
+    const onOpenChat = vi.fn()
+    await harness.render(createNode(SessionTimelinePage, { device, session: session({ agent: { userId: 'agent-1' } }), agent: undefined, onBack: vi.fn(), onOpenChat }))
+    await openMenu()
+    expect(chatRow()?.getAttribute('aria-disabled')).not.toBe('true')
+    expect(chatRow()?.textContent).not.toContain(translateSessionMessage('task.modeChatNeedsIdentity'))
+    await clickElement(chatRow()!)
+    expect(onOpenChat).toHaveBeenCalledWith('agent-1')
+  })
+
+  it('the session has no agent: 对话 is greyed with the reason', async () => {
+    await harness.render(createNode(SessionTimelinePage, { device, session: session({ agent: null }), agent: undefined, onBack: vi.fn(), onOpenChat: vi.fn() }))
+    await openMenu()
+    expect(chatRow()?.getAttribute('aria-disabled')).toBe('true')
+    expect(chatRow()?.textContent).toContain(translateSessionMessage('task.modeChatNeedsIdentity'))
+  })
+})

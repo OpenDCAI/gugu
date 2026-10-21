@@ -1,0 +1,244 @@
+import { describe, expect, it, vi } from 'vitest'
+
+// 线本身由注入的 deps 替掉;真的 deviceRpc 模块在测试里不求值(它一加载就挂 Supabase / 渲染层全局)。
+vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: vi.fn(), subscribeDeviceRpcEvents: vi.fn() }))
+import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { openRemoteSessionHostPipe, SessionHostTooOldError } from '@/lib/remoteSessionHost'
+import { SESSION_HOST_FRAME_EVENT, SESSION_HOST_READY_EVENT } from '@/session/shared/lib/ipc/session-host-device-frames'
+
+type Call = { type: string; payload: Record<string, unknown> }
+type Reply = { result?: unknown; error?: { code: string; message: string } }
+
+function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {}) {
+  const calls: Call[] = []
+  const upgrades: string[] = []
+  let listener: ((payload: unknown) => void) | null = null
+  let resubscribed: ((rejoin: boolean) => void) | undefined
+  const deps = {
+    call: (async (_device: string, type: string, payload: unknown) => {
+      const call = { type, payload: payload as Record<string, unknown> }
+      calls.push(call)
+      return reply(call)
+    }) as never,
+    subscribe: ((
+      _device: string,
+      cb: (payload: unknown) => void,
+      options?: { onChannelResubscribed?: (rejoin: boolean) => void },
+    ) => {
+      listener = cb
+      resubscribed = options?.onChannelResubscribed
+      return () => {
+        listener = null
+      }
+    }) as never,
+    newClientId: () => 'client00000001',
+    isSshMachine: () => options.ssh === true,
+    requestUpgrade: async (deviceId: string) => {
+      upgrades.push(deviceId)
+      return true
+    },
+  }
+  return { deps, calls, upgrades, push: (payload: unknown) => listener?.(payload), resubscribe: (rejoin = true) => resubscribed?.(rejoin) }
+}
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('remote task host pipe over device RPC', () => {
+  it('opens, batches frames into one request, and delivers pushes in seq order', async () => {
+    const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+    const frames: unknown[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({
+      onFrame: (f) => frames.push(f),
+      onClose: () => undefined,
+    })
+    pipe.send('{"t":"hb"}')
+    pipe.send('{"t":"sub","channel":"x"}')
+    await flush()
+    const frameCalls = device.calls.filter((c) => c.type === 'taskhost.frame')
+    expect(frameCalls).toHaveLength(1)
+    expect(frameCalls[0]!.payload.frames).toHaveLength(2)
+    device.push({ type: SESSION_HOST_FRAME_EVENT, client: 'client00000001', seq: 1, frames: [{ f: 'second' }] })
+    device.push({ type: SESSION_HOST_FRAME_EVENT, client: 'someone-else', seq: 0, frames: [{ f: 'not mine' }] })
+    device.push({
+      type: SESSION_HOST_FRAME_EVENT,
+      client: 'client00000001',
+      seq: 0,
+      frames: [
+        { f: 'fir', p: 0, n: 2 },
+        { f: 'st', p: 1, n: 2 },
+      ],
+    })
+    expect(frames).toEqual(['first', 'second'])
+  })
+
+  it('takes pushes still wrapped in the broadcast shell (SSH link and cloud deliver them that way)', async () => {
+    const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+    const frames: unknown[] = []
+    await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: (f) => frames.push(f), onClose: () => undefined })
+    device.push({
+      type: 'broadcast',
+      event: 'broadcast',
+      payload: { type: SESSION_HOST_FRAME_EVENT, client: 'client00000001', seq: 0, frames: [{ f: 'hello' }] },
+    })
+    expect(frames).toEqual(['hello'])
+  })
+
+  it('reports an old machine that does not know the task host verbs', async () => {
+    const device = fakeDevice(() => ({ error: { code: 'unknown_method', message: 'unknown device RPC type' } }))
+    const error = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch(
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(SessionHostTooOldError)
+    // 各处认「版本太旧」的同一个码(界面说版本太旧,❌ 退回旧界面)。
+    expect(error).toMatchObject({ code: 'server_outdated' })
+    // 远程隧道的机器:等它空闲时自己升,这台桌面 ❌ 发起升级。
+    expect(device.upgrades).toEqual([])
+  })
+
+  it('远程 SSH 的机器不认任务页宿主:当场请主进程替它升级(照 VS Code Remote-SSH 装一份对得上的)', async () => {
+    const device = fakeDevice(() => ({ error: { code: 'unknown_method', message: 'unknown device RPC type' } }), { ssh: true })
+    const error = await openRemoteSessionHostPipe('d22', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch(
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(SessionHostTooOldError)
+    expect(device.upgrades).toEqual(['d22'])
+  })
+
+  it('升级只因为版本:开线的其它失败(拒绝、出错、超时、传输断了)都照实抛出,❌ 替它升级', async () => {
+    for (const code of ['internal_error', 'not_found', 'ssh_unreachable', 'ssh_link_refused', 'device_offline', 'forbidden']) {
+      const device = fakeDevice(() => ({ error: { code, message: 'nope' } }), { ssh: true })
+      const error = await openRemoteSessionHostPipe('d22', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch(
+        (e: unknown) => e,
+      )
+      expect(error).not.toBeInstanceOf(SessionHostTooOldError)
+      expect(error).toMatchObject({ code })
+      expect(device.upgrades).toEqual([])
+    }
+    const timedOut = fakeDevice(
+      () => {
+        throw Object.assign(new Error('timed out'), { name: 'DeviceRpcTimeoutError' })
+      },
+      { ssh: true },
+    )
+    const error = await openRemoteSessionHostPipe('d22', timedOut.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch(
+      (e: unknown) => e,
+    )
+    expect(error).not.toBeInstanceOf(SessionHostTooOldError)
+    expect(timedOut.upgrades).toEqual([])
+  })
+
+  it('closes when the machine no longer knows the window', async () => {
+    let known = true
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.frame' && !known ? { error: { code: 'not_open', message: '' } } : { result: { protocol: REMOTE_PROTOCOL_VERSION } },
+    )
+    const reasons: string[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({
+      onFrame: () => undefined,
+      onClose: (r) => reasons.push(r),
+    })
+    known = false
+    pipe.send('{"t":"hb"}')
+    await flush()
+    await flush()
+    expect(reasons).toEqual(['frame rejected: not_open'])
+  })
+
+  it('closes when the channel comes back after a drop (pushes in the gap are gone)', async () => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    const reasons: string[] = []
+    await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r) => reasons.push(r) })
+    device.resubscribe()
+    expect(reasons).toEqual(['channel resubscribed'])
+  })
+
+  it('#6264 开窗口时报这台桌面是哪一版(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到就不报', async () => {
+    const device = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+    const desktop = { id: 'dev-self', version: '0.2.160', protocol: 2 }
+    await openRemoteSessionHostPipe('dev', { ...device.deps, desktop: async () => desktop })({ onFrame: () => undefined, onClose: () => undefined })
+    expect(device.calls[0]).toEqual({ type: 'taskhost.open', payload: { client: 'client00000001', protocol: REMOTE_PROTOCOL_VERSION, desktop } })
+    const bare = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+    await openRemoteSessionHostPipe('dev', { ...bare.deps, desktop: async () => null })({ onFrame: () => undefined, onClose: () => undefined })
+    expect(bare.calls[0]).toEqual({ type: 'taskhost.open', payload: { client: 'client00000001', protocol: REMOTE_PROTOCOL_VERSION } })
+  })
+
+  it('一套说法(协议 6):那台机器开窗口的应答里没报协议,或报的低于 MIN_SERVER_PROTOCOL ⇒ 太旧,窗口当场关掉', async () => {
+    for (const opened of [{ opened: true }, { opened: true, protocol: MIN_SERVER_PROTOCOL - 1 }]) {
+      const device = fakeDevice(() => ({ result: opened }))
+      const error = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch(
+        (e: unknown) => e,
+      )
+      expect(error).toBeInstanceOf(SessionHostTooOldError)
+      expect(device.calls.map((c) => c.type)).toEqual(['taskhost.open', 'taskhost.close'])
+    }
+    const current = fakeDevice(() => ({ result: { opened: true, protocol: MIN_SERVER_PROTOCOL } }))
+    await expect(openRemoteSessionHostPipe('dev', current.deps)({ onFrame: () => undefined, onClose: () => undefined })).resolves.toBeDefined()
+  })
+
+  // 冷启动实撞(手机点进一台机器晚 5 s):频道头一回订上正好落在开线那一问在路上的时候,被当成重接放弃了。
+  it('开线时频道是头一回订上(rejoin=false):不放弃,窗口照常开好', async () => {
+    let answer: (reply: Reply) => void = () => undefined
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.open' ? (new Promise<Reply>((resolve) => { answer = resolve }) as unknown as Reply) : { result: { closed: true } },
+    )
+    const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined })
+    await flush()
+    device.resubscribe(false)
+    answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
+    await expect(opening).resolves.toBeDefined()
+    expect(device.calls.map((c) => c.type)).toEqual(['taskhost.open'])
+  })
+
+  it('开线那一问还在路上时频道重接上了:当场放弃(❌ 干等 15 s 超时);那一问迟到成功就把多开的窗口关掉', async () => {
+    let answer: (reply: Reply) => void = () => undefined
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.open' ? (new Promise<Reply>((resolve) => { answer = resolve }) as unknown as Reply) : { result: { closed: true } },
+    )
+    const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    await flush()
+    device.resubscribe()
+    expect(await opening).toMatchObject({ code: 'channel_resubscribed' })
+    answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
+    await flush()
+    expect(device.calls.map((c) => c.type)).toEqual(['taskhost.open', 'taskhost.close'])
+  })
+
+  it('那台机器的宿主刚起来(开线那一问是对着没起来的它发的):当场放弃这一问(❌ 干等 15 s 超时);那一问迟到成功就把多开的窗口关掉', async () => {
+    let answer: (reply: Reply) => void = () => undefined
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.open' ? (new Promise<Reply>((resolve) => { answer = resolve }) as unknown as Reply) : { result: { closed: true } },
+    )
+    const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    await flush()
+    // 广播外壳里的那一声(咕咕云与 SSH 都这样送)
+    device.push({ type: 'broadcast', event: 'broadcast', payload: { type: SESSION_HOST_READY_EVENT } })
+    expect(await opening).toMatchObject({ code: 'host_restarted' })
+    answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
+    await flush()
+    expect(device.calls.map((c) => c.type)).toEqual(['taskhost.open', 'taskhost.close'])
+  })
+
+  it('watchPeerRestart:不开任何窗口也听着那台机器的「宿主起来了」(客户端退避等着时没有管道),别的推送不算;取消后不再报', async () => {
+    const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+    const restarts: string[] = []
+    const unwatch = openRemoteSessionHostPipe('dev', device.deps).watchPeerRestart!(() => restarts.push('restart'))
+    device.push({ type: SESSION_HOST_FRAME_EVENT, client: 'someone', seq: 0, frames: [{ f: 'x' }] })
+    device.push({ type: 'something-else' })
+    expect(restarts).toEqual([])
+    device.push({ type: 'broadcast', event: 'broadcast', payload: { type: SESSION_HOST_READY_EVENT } })
+    expect(restarts).toEqual(['restart'])
+    expect(device.calls).toEqual([])
+    unwatch()
+    device.push({ type: SESSION_HOST_READY_EVENT })
+    expect(restarts).toEqual(['restart'])
+  })
+
+  // 复核 137:SSH 设备连接上没有 ready 这一声(它只说在云频道上),听也白听;那边重起由设备连接自己接回。
+  it('watchPeerRestart:远程 SSH 的机器不挂听者', () => {
+    const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }), { ssh: true })
+    const subscribe = vi.spyOn(device.deps, 'subscribe')
+    const unwatch = openRemoteSessionHostPipe('ssh-dev', device.deps).watchPeerRestart!(() => undefined)
+    expect(subscribe).not.toHaveBeenCalled()
+    unwatch()
+  })
+})

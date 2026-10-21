@@ -1,0 +1,69 @@
+.agent-harness-badge,
+.agent-harness-icon {
+  width: var(--agent-harness-size);
+  height: var(--agent-harness-size);
+  flex-shrink: 0;
+}
+
+.agent-harness-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.agent-harness-icon {
+  display: inline-flex;
+}
+
+.agent-harness-icon span,
+.agent-harness-icon img,
+.agent-harness-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 内联的品牌 svg 自带 <title>(Claude / OpenAI …),指针落在它上面就弹原生提示。
+   字形只是画,不做命中目标 ⇒ 悬停落到外层,由外层决定弹什么。 */
+.agent-harness-icon * {
+  pointer-events: none;
+}
+
+.agent-harness-artwork--inverted {
+  filter: invert(1);
+}
+
+.agent-harness-icon[data-agent-harness="unavailable"] {
+  color: var(--danger);
+}
+
+/* @@@6009 —— 兜底字形的着色。形状已经不同(见 AgentHarnessIdentity.tsx 的 FALLBACK_GLYPHS),
+   颜色是第二道区分,语义沿用通讯录那套映射(components/contactAgentTone.ts:52-61):
+   pending = 灰(转瞬态、不是故障)、removed = --color-danger(终局)、unavailable = --danger。
+   ❌ 别把 removed 并到 --danger:那两档在通讯录里就是刻意分开的两个 token。 */
+.agent-harness-icon[data-agent-harness="pending"] {
+  color: var(--text-tertiary);
+}
+
+.agent-harness-icon[data-agent-harness="removed"] {
+  color: var(--color-danger);
+}
+
+/* 「确认中」是**转瞬态**:慢转一圈让它与静止的墓碑/云端在余光里也分得开。
+   keyframes 复用 tokens.css 的 av-status-spin,❌ 别再定义一份同名的。 */
+.agent-harness-icon[data-agent-harness="pending"] svg {
+  animation: av-status-spin 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-harness-icon[data-agent-harness="pending"] svg {
+    animation: none;
+  }
+}

@@ -1,0 +1,19 @@
+.ta-onb.first-run-harness-panel { width: min(520px, 100%); gap: 0; padding: 32px; border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; backdrop-filter: none; }
+.first-run-harness-panel .ta-onb-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); color: var(--text-primary); }
+.first-run-harness-panel .ta-onb-sub { margin-top: var(--spacing-sm); font-size: var(--font-body); line-height: var(--lh-body); }
+.first-run-harness-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); width: 100%; margin: 28px 0; }
+.first-run-harness-choice { display: flex; flex-direction: column; align-items: stretch; gap: var(--spacing-md); padding: var(--spacing-xl); text-align: left; border: 1px solid var(--border); border-radius: var(--radius-surface); cursor: pointer; }
+.first-run-harness-choice:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+.first-run-harness-choice[data-selected='true'] { border-color: var(--border-strong); background: var(--muted); }
+.first-run-harness-heading { display: flex; align-items: center; gap: var(--spacing-md); }
+.first-run-harness-heading input { width: 16px; height: 16px; margin: 0 0 0 auto; accent-color: var(--primary); }
+.first-run-harness-heading h2 { margin: 0; font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; color: var(--text-primary); }
+.first-run-harness-status { margin: 2px 0 0; font-size: var(--font-body); line-height: var(--lh-body); color: var(--text-secondary); }
+.first-run-harness-actions { margin-top: 0; }
+.first-run-harness-actions > button { width: 100%; }
+.first-run-install-notification { position: fixed; right: 16px; bottom: 16px; z-index: var(--z-toast); width: min(340px, calc(100vw - 32px)); padding: var(--spacing-lg); border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); color: var(--text-primary); font-size: var(--font-body); line-height: var(--lh-body); }
+.first-run-install-notification-heading, .first-run-install-task-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
+.first-run-install-notification-heading strong { font-weight: 500; }
+.first-run-install-task { margin-top: var(--spacing-md); }
+.first-run-install-task-heading > span + span { color: var(--text-secondary); }
+@media (max-width: 480px) { .first-run-harness-choices { grid-template-columns: 1fr; } }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#F7F8FA</color>
+    <color name="colorPrimaryDark">#F7F8FA</color>
+    <color name="colorAccent">#07C160</color>
+    <color name="gugu_mobile_shell_surface">#F7F8FA</color>
+    <!-- 系统栏底下的窗口底色,跟页面色调走(MobileShellChrome):等于 tokens.css 浅、深两套的 bg 变量。 -->
+    <color name="gugu_mobile_shell_bar_light">#FFFFFF</color>
+    <color name="gugu_mobile_shell_bar_dark">#181818</color>
+</resources>

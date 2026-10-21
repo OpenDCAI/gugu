@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="my_images" path="." />
+    <cache-path name="my_cache_images" path="." />
+    <!-- 应用内更新下好的包(GuguAppUpdatePlugin 的 DIR),经这一行交给系统安装器读。 -->
+    <files-path name="app_update" path="app-update/" />
+    <!-- 分享给别的 App 的附件(GuguSharePlugin 的 OUT_DIR),经这一行交给接收方读。 -->
+    <cache-path name="share_out" path="share-out/" />
+</paths>

@@ -1,0 +1,175 @@
+import groovy.json.JsonSlurper
+
+apply plugin: 'com.android.application'
+
+// @@@buildgradle-version-sync - APK versionName/versionCode must track the JS package version
+// in the repo-root package.json, not be hardcoded. 管长 found build.gradle wrote them statically,
+// so bumping package.json never reached the APK (shipped 0.1.5 APK still read versionName 0.1.1).
+// rootProject = the android project (apps/mobile/android); ../.../package.json = repo root.
+def guguPackageJson = new JsonSlurper().parseText(rootProject.file("../../../package.json").text)
+
+// @@@tier-build-android (#5807) — 与 electron-builder.cjs 的 @@@tier-build 同一件事,安卓这一侧的落法。
+// GUGU_TIER=beta 出的是**另一个应用**:独立 applicationId ⇒ 独立沙箱、独立图标条目、独立登录态,
+// 与正式版在同一台手机上并存。❌ 不能共用 applicationId —— 那不是"并存",是把正式版原地换成一个
+// 连着共享测试库的包,而用户会以为自己的聊天记录没了(两套后端各有各的数据)。
+// namespace 保持 app.gugu.chat 不动:它是 R 类的包名、不是安装身份,换掉会把资源引用全打散。
+def guguTier = (System.getenv("GUGU_TIER")?.trim()) ?: "production"
+if (!(guguTier in ["production", "beta"])) {
+    // 桌面还有 acceptance-<tag> 那一档,安卓没有任何通道发它 —— 与其安静地出一个正式版身份的包,
+    // 不如当场说不认识。
+    throw new GradleException("Unknown GUGU_TIER '${guguTier}' — 安卓只出 production / beta 两种包")
+}
+def guguIsBeta = guguTier == "beta"
+def guguApplicationId = guguIsBeta ? "app.gugu.chat.beta" : "app.gugu.chat"
+def guguAppLabel = guguIsBeta ? "咕咕 Beta" : "咕咕"
+
+// @@@build-version (#4703) — 版本是**构建参数**,不改 package.json。桌面那两条(electron-builder 的
+// extraMetadata.version、vite 的 __APP_VERSION__)读的是同一个 GUGU_BUILD_VERSION,安卓这条原先漏了:
+// 于是 beta APK 的「关于」会报 base 版本(如 0.2.45),与同一次构建的 mac/win 包(0.2.45-beta.712.1)
+// 对不上账 —— 出问题时没人说得清手机上装的是哪一次的代码。缺省仍是仓库版本号。
+def guguVersionName = (System.getenv("GUGU_BUILD_VERSION")?.trim()) ?: (guguPackageJson.version as String)
+// versionCode = major*10000 + minor*100 + patch — a monotonic int derived from semver so every
+// release's code exceeds the last (0.1.5 → 105, > the old hardcoded 4). \d+ keeps prerelease tags
+// (e.g. -beta) from breaking the parse.
+// ⇒ 同一个 base 下的多个 beta(0.2.45-beta.712.1 / .713.1)取到**同一个** versionCode(245),
+// 这是有意的:安卓只拦 versionCode 变小的降级安装,相等照样能覆盖,而 beta 通道本就不做回滚。
+// 真正排先后的是 versionName 里的 run 号,人眼与「关于」页读的都是它。
+def guguVersionNumbers = (guguVersionName =~ /\d+/).findAll()
+def guguVersionCode = ((guguVersionNumbers[0] ?: '0') as int) * 10000 \
+    + ((guguVersionNumbers[1] ?: '0') as int) * 100 \
+    + ((guguVersionNumbers[2] ?: '0') as int)
+// @@@android-update-channel — 这个包追哪条更新线、去哪儿问新版本。
+// 线由 tier 定,与上面的 applicationId 同一个判据:beta 追 beta、正式追正式,两条互不可见
+// (跨线「更新」是拿另一个应用去替换自己,签名都对不上)。清单地址与桌面 feed 同住
+// updateFeeds.json —— 改域名只改那一处,打包期的这里与桌面主进程读的是同一份。
+// 发行身份(published / local)同桌面一样是显式的构建参数,缺省 = local = 不自动更新:
+// 本机随手打的包去追线上的包,装的时候签名对不上,只会得到一次装不上的「更新」。
+// 判据本身不在这里:原生这边只把这三样事实交给 capacitorAppUpdate.ts,由它套用与桌面同一份
+// shared/update-policy.ts。
+def guguUpdateFeeds = new JsonSlurper().parseText(rootProject.file("../../desktop/electron/updateFeeds.json").text)
+def guguUpdateChannel = guguIsBeta ? "beta" : "stable"
+def guguUpdateManifestUrl = (guguIsBeta ? guguUpdateFeeds.androidBeta : guguUpdateFeeds.androidStable) as String
+if (!guguUpdateManifestUrl?.startsWith("https://")) {
+    throw new GradleException("updateFeeds.json 里没有 ${guguUpdateChannel} 线的安卓清单地址(androidStable / androidBeta)")
+}
+def guguBuildDistribution = (System.getenv("GUGU_BUILD_DISTRIBUTION")?.trim()) ?: "local"
+if (!(guguBuildDistribution in ["local", "published"])) {
+    throw new GradleException("Unknown GUGU_BUILD_DISTRIBUTION '${guguBuildDistribution}' — expected local or published")
+}
+def guguAllowLocalHttp = System.getenv("GUGU_DB_TARGET") == "local" \
+    && System.getenv("GUGU_ANDROID_ALLOW_LOCAL_HTTP") == "1"
+// @@@android-market-root — App 市场在下载站上的根(updateFeeds.json 的 market,桌面主进程读的同一份),原生读取器
+// (DownloadSite)读市场时只收它下面的相对路径,跟过重定向以后的地址也得还在它下面。debug 包可以用 GUGU_MARKET_BASE 指到一份
+// 本地测试市场,与桌面开发形态的同名开关一样;正式包只认 updateFeeds.json 那一个地址。
+def guguMarketRoot = guguUpdateFeeds.market as String
+if (!guguMarketRoot?.startsWith("https://") || !guguMarketRoot.endsWith("/")) {
+    throw new GradleException("updateFeeds.json 里的 market 要是 https:// 开头、/ 结尾的地址")
+}
+// @@@server-login-app-link — `gugu-server login` 打出的 `https://<库>/functions/v1/server-login?code=…` 直接进 App
+// (AndroidManifest 的 autoVerify 那一条;库那一侧的 assetlinks.json 在 nmhjklnm/gugu-supabase deploy/app-links)。
+// 主机 = 这个包连的那个库,由网页构建同一个选库函数给出(GUGU_DB_TARGET / .envs / shell),❌ 在这里另写一份或写死。
+def guguRepoRoot = rootProject.file("../../..")
+def guguDbHost = providers.exec {
+    workingDir guguRepoRoot
+    commandLine "node", "scripts/build-env-preflight.mjs", "--print-host"
+}.standardOutput.asText.get().trim()
+if (!(guguDbHost ==~ /^[A-Za-z0-9.-]+(:\d+)?$/)) {
+    throw new GradleException("build-env-preflight --print-host 没给出库主机(收到 '${guguDbHost}')")
+}
+def guguMarketOverride = System.getenv("GUGU_MARKET_BASE")?.trim()
+def guguDebugMarketRoot = guguMarketOverride ? (guguMarketOverride.endsWith("/") ? guguMarketOverride : guguMarketOverride + "/") : guguMarketRoot
+
+android {
+    namespace = "app.gugu.chat"
+    compileSdk = rootProject.ext.compileSdkVersion
+    buildFeatures.buildConfig = true
+    def guguKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+    def guguKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    def guguKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+    def guguKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+    def hasGuguReleaseSigning = guguKeystorePath && guguKeystorePassword && guguKeyAlias && guguKeyPassword
+
+    defaultConfig {
+        applicationId guguApplicationId
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode guguVersionCode
+        versionName guguVersionName
+        // 应用名跟着档位走,所以它的唯一出处在这里,不在 res/values/strings.xml
+        // (两处都写 = 资源重复,AGP 直接报错;留在 strings.xml 则 beta 与正式版在桌面上同名,
+        //  两个图标一模一样,点哪个全靠猜)。manifest 仍按 @string/... 引用,一个字都不用改。
+        resValue "string", "app_name", guguAppLabel
+        resValue "string", "title_activity_main", guguAppLabel
+        // 系统「打开方式」里那一项(AndroidManifest 的 VIEW intent-filter):跟着档位走,beta 与正式版同机时分得清发给谁。
+        resValue "string", "share_target_open_with", "发送到${guguAppLabel}"
+        // App Links 的 <data android:host> 不带端口(本地库 127.0.0.1:54321 那种只是没有可验证的链接,不影响别的)。
+        manifestPlaceholders.guguDbHost = guguDbHost.replaceFirst(/:\d+$/, "")
+        buildConfigField "String", "GUGU_UPDATE_CHANNEL", "\"${guguUpdateChannel}\""
+        buildConfigField "String", "GUGU_UPDATE_MANIFEST_URL", "\"${guguUpdateManifestUrl}\""
+        buildConfigField "String", "GUGU_BUILD_DISTRIBUTION", "\"${guguBuildDistribution}\""
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasGuguReleaseSigning) {
+                storeFile file(guguKeystorePath)
+                storePassword guguKeystorePassword
+                keyAlias guguKeyAlias
+                keyPassword guguKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            buildConfigField "boolean", "GUGU_ALLOW_LOCAL_HTTP", guguAllowLocalHttp ? "true" : "false"
+            buildConfigField "String", "GUGU_MARKET_ROOT", "\"${guguDebugMarketRoot}\""
+            // 本地测试市场多半是局域网里的 http:只有指过去的 debug 包才放开明文。
+            manifestPlaceholders.guguUsesCleartextTraffic = guguAllowLocalHttp || guguDebugMarketRoot.startsWith("http://")
+        }
+        release {
+            buildConfigField "boolean", "GUGU_ALLOW_LOCAL_HTTP", "false"
+            buildConfigField "String", "GUGU_MARKET_ROOT", "\"${guguMarketRoot}\""
+            manifestPlaceholders.guguUsesCleartextTraffic = false
+            minifyEnabled false
+            if (hasGuguReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

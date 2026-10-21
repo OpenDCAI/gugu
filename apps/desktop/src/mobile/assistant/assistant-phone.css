@@ -1,0 +1,89 @@
+/*
+ * #7199 手机底栏「助理」那一格(owner 10-16:咕咕底栏一直在):页头(它的头像 + 名字、搜索、齿轮)、页顶分段、聊天或某一格。
+ * 变量、卡片、空态、正文都在 assistant-today.css(.ta-phone 与桌面的 .ta-app 共用一组,收在咕咕自己的 token 上);这里只管手机的骨架。
+ */
+
+.ta-phone {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--ta-panel-bg);
+  color: var(--ta-fg);
+}
+
+/* ── 页头是共用的 PaneHeader(见 MobileAssistantApp):这里只管左边「头像 + 名字」那一块。 ── */
+
+.ta-phone-identity-title { display: flex; align-items: center; }
+.ta-phone-identity {
+  display: inline-flex;
+  min-width: 0;
+  height: var(--control-h-touch);
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--ta-fg);
+}
+.ta-phone-identity-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 页顶分段(与桌面右边面板那排同一个 .ta-seg):五段等分整宽,一次点到;选中那段吃 --ta-seg-active。 */
+.ta-phone-seg { display: flex; flex-shrink: 0; margin: 0 16px 8px; }
+.ta-phone-seg button { flex: 1; min-width: 0; min-height: 36px; padding: 7px 4px; text-align: center; }
+
+/* ── 中间:聊天常驻(只藏不卸),别的格在一个滚动体里。 ── */
+
+.ta-phone-chat { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.ta-phone-chat[hidden] { display: none; }
+.ta-phone .ta-chat { padding-top: 0; }
+/* 输入条下面就是咕咕底栏(它管安全区):这里 ❌ 再垫安全区、❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
+.ta-phone .ta-chat [data-chat-composer] { padding: 8px 12px !important; border-top: 0 !important; }
+.ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 24px; -webkit-overflow-scrolling: touch; }
+/* 还打不开聊天时(没开通 / 正在准备 / 读不到):那一格居中一块,与桌面开通引导同一团柔光。 */
+.ta-phone-gate { display: flex; flex: 1; min-height: 0; overflow-y: auto; align-items: center; justify-content: center; padding: 0 24px 24px; }
+
+/* ── 各格里手机才有的几样 ── */
+
+.ta-phone-actions { display: flex; align-items: center; gap: 10px; }
+.ta-phone-actions .ta-seg-wide { flex: 1; min-width: 0; }
+.ta-phone-hero { padding-top: 12px; }
+
+/* ── 这些钮是 ui/Button(主 app 不手写钮):它的默认(居中、32 高、不换行、控件圆角)按助理 App 的样子覆盖回来;
+      手机上能点的胶囊至少 44 高(咕咕手机触控规范)。 ── */
+
+.ta-phone .ta-pill-btn,
+.ta-phone .ta-solid-btn { min-height: 44px; }
+.ta-about-link {
+  display: inline;
+  height: auto;
+  border-radius: 0;
+  padding: 0;
+  white-space: normal;
+  text-align: left;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+/* ── 底栏「咕咕」一格在还没有它时:默认咕咕淡一点 + 角上小「+」(底栏在 .ta-phone 之外,只读咕咕自己的 token) ── */
+.ta-phone-bar-gugu { position: relative; display: inline-flex; }
+.ta-phone-bar-gugu > :first-child { opacity: 0.5; }
+.ta-phone-bar-plus {
+  position: absolute;
+  right: -7px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-circle);
+  background: var(--primary);
+  color: var(--primary-fg);
+}

@@ -1,0 +1,423 @@
+/* 咕咕 App 样式层 —— /_gugu/<ver>/ui.css。gugu.js 把它放在每个 App 页面 <head> 的最前面（app-runtime-protocol.ts 的 APP_RUNTIME_UI_CSS）。
+ *
+ * 整份在最低的 @layer gugu 里：App 自己写的任何 CSS（不分层的，或它自己声明的层）都压得过它，不需要 !important，也不需要开关。
+ * 写普通的语义 HTML 就是咕咕的样子；画布、游戏、编辑器照常写自己的 CSS。
+ *
+ * 构建时（vite.config.mts 的 buildAppRuntime）在这份文件前面接上 app-palette.mjs 从 tokens.css 解出的那一块：
+ * 全部 --em-* 刻度与深浅两套颜色，按 <html data-gugu-theme>（ui.js 照 context.themeMode 设）选用。这里不写一个数值。
+ *
+ * 写法约定：元素级规则一律包在 :where() 里（特异度 0），层内的类（.muted、.primary……）总能盖过元素默认；
+ * 悬停只在 (hover: hover) 下给（触屏没有悬停）；触屏尺寸跟 (pointer: coarse), (hover: none) 走（安卓 14 模拟器的
+ * WebView 113 把触屏报成 pointer: fine、hover: none），不跟视口宽度走 ——
+ * App 的视口就是它所在的格子，桌面侧栏 440 宽也是鼠标，不该拿到 44px 的触控尺寸。
+ * 焦点照宿主（tokens.css 的 @@@focus-visible-7333，#7333 用户裁决，取代 2026-07-24「任何情况都无环」与 10-05
+ * 「借悬停那一档当焦点」）：键盘焦点画环（2px --em-focus-ring，外扩 2px），鼠标点击不留环；文字输入以光标和墨色边框
+ * 为焦点，不画环。悬停 / 按下的底色只表示悬停 / 按下，不再兼作焦点。
+ * 只用 WebView 113 认得的东西：@layer、:has()、color-mix()、oklch()；不用 popover、light-dark()、CSS 嵌套。
+ */
+
+/* 正文是系统字体（#7333，与咕咕 tokens.css 同一条栈，不内嵌文件）；等宽仍用咕咕那份 JetBrains Mono 拉丁片。中文落各平台原生字体。 */
+@font-face { font-family: 'JetBrains Mono Variable'; font-style: normal; font-weight: 100 800; font-display: swap; src: url(../../../../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+@layer gugu {
+
+/* 触屏（手机壳）：控件全取触控档 44、行内距放大（ui/Button 的 max-[719px] 档、.gg-list-row[data-mobile]）。
+   正文 14 由前面那块按 tokens.css 的移动规则给出。 */
+@media (pointer: coarse), (hover: none) {
+  :root {
+    --em-control-h-sm: var(--em-control-h-touch); --em-control-h-md: var(--em-control-h-touch); --em-control-h-lg: var(--em-control-h-touch);
+    --em-row-pad: 10px; --em-row-gap: 12px;
+  }
+}
+
+/* ── 页面 ──────────────────────────────────────────────────────────────────────────────── */
+:where(*), :where(*)::before, :where(*)::after { box-sizing: border-box; }
+:where(html) { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+/* 页边距放在 margin 上，和浏览器默认的 8px 同一处：自己排版的 App 都写 body { margin: 0 }（仓外 100 个里 44 个写了），
+   它们的版面一像素不动；只写语义 HTML 的页拿到咕咕的边距。放 padding 上会叠在铺满的 App（工作区）里面。 */
+:where(body) {
+  margin: var(--em-spacing-lg);
+  background: var(--em-background);
+  color: var(--em-foreground);
+  font-family: var(--em-font-sans);
+  font-size: var(--em-font-body);
+  line-height: var(--em-lh-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: anywhere;
+}
+/* 群侧栏 440、话题 340、手机 412：边距收到 12，与咕咕面板的 --pane-pad-x 同值 */
+@media (max-width: 560px) { :where(body) { margin: var(--em-spacing-md); } }
+/* 不给 main 限宽：仓外 100 个 App 里 45 个用 <main> 当自己版面的外框，只有 3 个自己定了宽度 —— 限 720 会把其余
+   42 个的看板、棋盘在全屏里挤成一条（样稿里本有这一条，A/B 后删）。 */
+:where(img, svg, video, canvas, iframe) { max-width: 100%; }
+/* 收窄时按原比例缩：canvas 只缩宽不缩高会变形，按 canvas.width 换算坐标的游戏就点不准（L11 复核 51） */
+:where(img, video, canvas) { height: auto; }
+:where(:focus:not(:focus-visible)) { outline: none; }
+:where(:focus-visible) { outline: 2px solid var(--em-focus-ring); outline-offset: 2px; }
+/* 文字输入：浏览器对鼠标点进去也报 :focus-visible，焦点由光标 + 墨色边框表示（见「表单」） */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='reset'], [type='color'], [type='file'], [type='image']), textarea, [contenteditable]):where(:focus-visible) { outline: none; }
+:where([hidden]):not([hidden='until-found']) { display: none; }
+
+/* ── 文字 ──────────────────────────────────────────────────────────────────────────────── */
+:where(h1, h2, h3, h4, h5, h6) { margin: 0 0 var(--em-spacing-sm); color: var(--em-foreground); font-weight: 600; }
+:where(h1) { font-size: var(--em-font-page); line-height: var(--em-lh-page); letter-spacing: -0.02em; }
+:where(h2) { font-size: var(--em-font-heading); line-height: var(--em-lh-heading); letter-spacing: -0.01em; }
+:where(h3) { font-size: var(--em-font-title); line-height: var(--em-lh-title); letter-spacing: -0.01em; }
+:where(h4) { font-size: var(--em-font-body); line-height: var(--em-lh-body); }
+/* h5/h6 = 咕咕的分区标签（「Agent / 个人 / 群组」那种）：标注档 12/18 semibold，次级色，字距 .04em */
+:where(h5, h6) { font-size: var(--em-font-caption); line-height: var(--em-lh-caption); letter-spacing: 0.04em; color: var(--em-foreground-muted); }
+/* 窄格子里标题整体降一档：面板标题栏（16 semibold）已经写着 App 名，页面里的标题不该比它还抢 */
+@media (max-width: 560px) {
+  :where(h1) { font-size: var(--em-font-heading); line-height: var(--em-lh-heading); }
+  :where(h2) { font-size: var(--em-font-title); line-height: var(--em-lh-title); }
+  :where(h3) { font-size: var(--em-font-body); line-height: var(--em-lh-body); }
+}
+:where(h2, h3, h4, h5, h6):where(:not(:first-child)) { margin-top: var(--em-spacing-xl); }
+
+:where(p, ul, ol, dl, table, pre, blockquote, figure, form, fieldset, details, progress, meter, .card, .list, .stack, .row) { margin: 0 0 var(--em-spacing-md); }
+:where(body, main, section, article, aside, header, footer, .card, details, dialog, li, td, th, form, fieldset, figure, blockquote) > :where(:last-child) { margin-bottom: 0; }
+:where(ul, ol):not(.list) { padding-inline-start: 1.25em; }
+:where(li) + :where(li) { margin-top: 2px; }
+:where(strong, b) { font-weight: 600; }
+:where(small) { font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); }
+/* 链接 = 信息 = 「活的」，咕咕全 app 同一个蓝（--live）；不带下划线，悬停才有 */
+:where(a) { color: var(--em-foreground-info); text-decoration: none; }
+@media (hover: hover) { :where(a):hover { text-decoration: underline; text-underline-offset: 2px; } }
+:where(code, kbd, samp, pre) { font-family: var(--em-font-mono); }
+:where(code) { padding: 1px 5px; border-radius: var(--em-radius-document); background: var(--em-background-3); }
+:where(pre) { padding: var(--em-spacing-sm) var(--em-spacing-md); border-radius: var(--em-radius-document); background: var(--em-background-3); overflow-x: auto; white-space: pre; overflow-wrap: normal; }
+:where(pre code) { padding: 0; background: none; }
+:where(kbd) { padding: 0 5px; border: 1px solid var(--em-border-1); border-radius: var(--em-radius-document); font-size: var(--em-font-caption); line-height: var(--em-lh-caption); }
+/* 引用 = 咕咕的引用条：2px 竖轨，次级色 */
+:where(blockquote) { margin-inline: 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--em-border-1); color: var(--em-foreground-muted); }
+:where(hr) { height: 1px; margin: var(--em-spacing-lg) 0; border: 0; background: var(--em-border); }
+::placeholder { color: var(--em-foreground-passive); opacity: 1; }
+
+/* 图标的默认尺寸放在按钮前面：同为 0 特异度，按钮里的图标规则（18 号、对齐）排在后面才盖得过它（L11 复核 51 补看） */
+:where(gugu-icon) { display: inline-block; flex: none; width: var(--em-icon-sm); height: var(--em-icon-sm); vertical-align: -3px; color: inherit; }
+:where(gugu-icon[size='md']) { width: var(--em-icon-md); height: var(--em-icon-md); }
+:where(gugu-icon[size='lg']) { width: var(--em-icon-lg); height: var(--em-icon-lg); }
+:where(gugu-icon):not(:defined) { visibility: hidden; }
+/* ── 按钮 ──────────────────────────────────────────────────────────────────────────────── */
+/* 默认 = 咕咕 Button 的 secondary：强一档的 hairline 框、透明底；悬停叠 --hover，按下叠 --press。
+   排版照浏览器自己的按钮（inline-block、文字按 text-align 放；不折行：中文按钮在 App 自己的 flex 条里会被逐字折开），高度由上下内距凑成一行字时的控件高：
+   App 写的 text-align: left、自己的 padding 都照样生效（A/B：#6909 的 ⋯ 菜单项写了 text-align: left，按钮改成 flex 居中后被挤到了中间）。 */
+:where(button, input:is([type='button'], [type='submit'], [type='reset']), a.primary, a.danger) {
+  display: inline-block; vertical-align: middle;
+  margin: 0;
+  padding: calc((var(--em-control-h-md) - 1lh - 2px) / 2) 14px;
+  border: 1px solid var(--em-border-1);
+  border-radius: var(--em-radius-control);
+  background-color: transparent;
+  color: var(--em-foreground);
+  font: inherit; font-size: var(--em-font-body); font-weight: 500; line-height: var(--em-lh-body);
+  text-align: center; text-decoration: none; white-space: nowrap;
+  cursor: pointer; user-select: none;
+  transition: background-color var(--em-dur-fast) var(--em-ease), border-color var(--em-dur-fast) var(--em-ease), opacity var(--em-dur-fast) var(--em-ease), color var(--em-dur-fast) var(--em-ease);
+}
+@media (hover: hover) {
+  :where(button, input:is([type='button'], [type='submit'], [type='reset'])):where(:hover:not(:disabled)) { background-color: var(--em-hover); }
+}
+:where(button, input:is([type='button'], [type='submit'], [type='reset'])):where(:active:not(:disabled)) { background-color: var(--em-press); }
+
+/* 主按钮 = 墨（暗色下近白、浅色下近黑），反馈走透明度阶梯 .88 / .78，不改底色、不缩放 */
+:where(button, input, a).primary { border-color: transparent; background-color: var(--em-accent-9); color: var(--em-accent-contrast); }
+/* 危险 = 咕咕唯一的那个红；字色与 ui/Button 的 danger 变体相同：红底白字（--em-color-white），明暗两侧一样。
+   ❌ 用 --em-accent-contrast：那是墨色主按钮的反相字，暗色下是表面色 #181818，红底上就成了深灰字（#7333）。 */
+:where(button, input, a).danger { border-color: transparent; background-color: var(--em-foreground-destructive); color: var(--em-color-white); }
+@media (hover: hover) {
+  :where(button, input, a):is(.primary, .danger):hover:not(:disabled) { background-color: var(--em-accent-9); opacity: 0.88; }
+  :where(button, input, a).danger:hover:not(:disabled) { background-color: var(--em-foreground-destructive); }
+}
+:where(button, input, a):is(.primary, .danger):active:not(:disabled) { opacity: 0.78; }
+/* 其它元素上的 .danger 是「出事了」的字色，.primary 是墨色强调 */
+:where(:not(button, input, a)).danger { color: var(--em-foreground-destructive); }
+
+:where(button, input):disabled { opacity: 0.58; cursor: not-allowed; }
+
+/* 只有一个图标、带 aria-label 的按钮 = 咕咕的 IconButton（tokens.css 的 .gg-icon-btn + .gg-ghost）：方形、无框、图标 18，
+   颜色 faint → muted → fg 三档内移动；按下叠 --press，开着（aria-pressed / aria-expanded）是 muted 底 + fg，开着再悬停 / 按下叠一层。
+   认 aria-label 而不是「只有一个子元素」：CSS 看不见文字节点，「图标 + 文字」的按钮也只有一个子元素；图标钮本来就必须有 aria-label（ui/IconButton 同规）。
+   .primary / .danger 的图标钮仍是实底按钮：字色固定（反相墨 / 白），反馈只走透明度，三档颜色规则不碰它们。 */
+:where(button[aria-label]):where(:has(> gugu-icon:only-child)) {
+  width: var(--em-control-h-md); height: var(--em-control-h-md); padding: 0; line-height: calc(var(--em-control-h-md) - 2px);
+  border-color: transparent; color: var(--em-foreground-passive);
+}
+/* 带字的按钮（没有 aria-label）图标在字前，隔 6 */
+:where(button:not([aria-label]), a.primary, a.danger) > :where(gugu-icon:first-child) { margin-inline-end: 6px; }
+/* 悬停变 muted 只给没开着的：开着的（aria-pressed / aria-expanded）悬停仍是 fg，照 .gg-ghost[data-on] —— 这条是 (0,2,0)，
+   不排除就压过下面那条 0 特异度的开着字色。 */
+@media (hover: hover) { :where(button[aria-label]):where(:has(> gugu-icon:only-child)):where(:not(.primary, .danger, [aria-pressed='true'], [aria-expanded='true'])):hover:not(:disabled) { color: var(--em-foreground-muted); } }
+:where(button[aria-label]):where(:has(> gugu-icon:only-child)):where(:not(.primary, .danger)):where([aria-pressed='true'], [aria-expanded='true']) { background-color: var(--em-background-3); color: var(--em-foreground); }
+@media (hover: hover) { :where(button[aria-label]):where(:has(> gugu-icon:only-child)):where(:not(.primary, .danger)):where([aria-pressed='true'], [aria-expanded='true']):where(:hover:not(:disabled)) { background-image: linear-gradient(var(--em-hover), var(--em-hover)); } }
+:where(button[aria-label]):where(:has(> gugu-icon:only-child)):where(:not(.primary, .danger)):where([aria-pressed='true'], [aria-expanded='true']):where(:active:not(:disabled)) { background-image: linear-gradient(var(--em-press), var(--em-press)); }
+/* 禁用：同 .gg-ghost:disabled —— 淡到 .4、faint 字、透明底（实底的 .primary / .danger 仍按全体按钮的 .58） */
+:where(button[aria-label]):where(:has(> gugu-icon:only-child)):where(:not(.primary, .danger)):disabled { opacity: 0.4; background-color: transparent; color: var(--em-foreground-passive); }
+:where(button[aria-label]) > :where(gugu-icon:only-child) { width: var(--em-icon-md); height: var(--em-icon-md); vertical-align: -4px; }
+:where(button[aria-label]):where(.primary):where(:has(> gugu-icon:only-child)) { color: var(--em-accent-contrast); }
+:where(button[aria-label]):where(.danger):where(:has(> gugu-icon:only-child)) { color: var(--em-color-white); }
+
+/* ── 表单 ──────────────────────────────────────────────────────────────────────────────── */
+/* 输入框 = 咕咕 Field：36 高、强一档 hairline、透明底；悬停边框往墨色走 45%，聚焦边框 = 墨，文字框不加环（下拉框键盘聚焦时照常有环）。
+   排在哪儿照浏览器（行内）：label 里由 label 那一列撑满，.row 里由 .row 分宽；自己摆的输入框不会被换成块。 */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='reset'], [type='color'], [type='file'], [type='hidden'], [type='image']), select, textarea) {
+  min-height: var(--em-control-h-lg); vertical-align: middle;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--em-border-1);
+  border-radius: var(--em-radius-control);
+  background-color: transparent;
+  color: var(--em-foreground);
+  font: inherit; font-size: var(--em-font-body); line-height: var(--em-lh-body);
+  transition: border-color var(--em-dur-fast) var(--em-ease);
+}
+:where(textarea) { display: block; width: 100%; min-height: 80px; padding: 7px 10px; resize: vertical; }
+@media (hover: hover) {
+  :where(input, select, textarea):where(:hover:not(:focus, :disabled, :read-only)) { border-color: color-mix(in oklab, var(--em-accent-9) 45%, var(--em-border-1)); }
+  :where(select):where(:hover:not(:focus, :disabled)) { border-color: color-mix(in oklab, var(--em-accent-9) 45%, var(--em-border-1)); }
+}
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='reset'], [type='color'], [type='file'], [type='hidden'], [type='image']), select, textarea):where(:focus) { border-color: var(--em-accent-9); }
+:where(input, select, textarea):where([aria-invalid='true']) { border-color: var(--em-foreground-destructive); }
+/* 只读：底色压灰，悬停不再「自报可编辑」 */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit'], [type='reset']), textarea):where(:read-only) {
+  border-color: var(--em-border); background-color: var(--em-background-3); color: var(--em-foreground-passive); cursor: default;
+}
+:where(input, select, textarea):disabled { opacity: 0.58; cursor: not-allowed; }
+/* 搜索框 = 咕咕 SearchField 的底：muted 底 + 常态 hairline */
+:where(input[type='search']) { border-color: var(--em-border); background-color: var(--em-background-3); }
+:where(input[type='search'])::-webkit-search-cancel-button { display: none; }
+/* 下拉：去掉系统箭头，用两段渐变画一个跟随主题的小三角 */
+:where(select) {
+  appearance: none; -webkit-appearance: none;
+  padding-inline-end: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--em-foreground-passive) 50%), linear-gradient(135deg, var(--em-foreground-passive) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 11px) 52%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+:where(select[multiple], select[size]:not([size='1'])) { padding: 4px; background-image: none; }
+
+/* 勾选框 = 咕咕通讯录多选的那颗圈（ContactSearch.tsx 的 SelectionCheckbox）：18 圆、选中填墨 + 反相勾 */
+:where(input[type='checkbox']:not([role='switch']), input[type='radio']) {
+  appearance: none; -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: var(--em-avatar-xs); height: var(--em-avatar-xs);
+  margin: 0;
+  border: 1px solid var(--em-border-1);
+  border-radius: var(--em-radius-capsule);
+  background: transparent;
+  vertical-align: -4px;
+  cursor: pointer;
+  transition: background-color var(--em-dur-fast) var(--em-ease), border-color var(--em-dur-fast) var(--em-ease);
+}
+@media (hover: hover) { :where(input[type='checkbox'], input[type='radio']):where(:hover:not(:checked, :disabled)) { border-color: color-mix(in oklab, var(--em-accent-9) 45%, var(--em-border-1)); } }
+:where(input[type='checkbox']:not([role='switch'])):checked { border-color: var(--em-accent-9); background-color: var(--em-accent-9); }
+:where(input[type='checkbox']:not([role='switch'])):checked::after {
+  content: ''; position: absolute; left: 5.5px; top: 2.5px; width: 4px; height: 8px;
+  border: solid var(--em-accent-contrast); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg);
+}
+/* 单选：同一颗圈，选中是墨色粗环 */
+:where(input[type='radio']):checked { border: 5px solid var(--em-accent-9); background-color: var(--em-accent-contrast); }
+/* 开关 = 咕咕 Switch（ui/Switch.tsx，#7333）：32×20 轨道、14 旋钮。关 = 填充面（muted）+ 一圈细边、灰旋钮；
+   开 = 墨色轨道、反相旋钮。悬停 .88 / 按下 .78 整颗一起淡（实底不能靠叠色：浅色下开着的轨道是纯黑） */
+:where(input[type='checkbox'][role='switch']) {
+  appearance: none; -webkit-appearance: none;
+  position: relative; flex: none;
+  width: 32px; height: 20px; margin: 0;
+  border: 0; border-radius: var(--em-radius-capsule);
+  background-color: var(--em-background-3);
+  box-shadow: inset 0 0 0 1px var(--em-border);
+  vertical-align: -5px; cursor: pointer;
+  transition: background-color var(--em-dur-fast) var(--em-ease), opacity var(--em-dur-fast) var(--em-ease);
+}
+:where(input[type='checkbox'][role='switch'])::before {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+  border-radius: var(--em-radius-capsule); background-color: var(--em-foreground-muted);
+  transition: transform var(--em-dur-med) ease-out, background-color var(--em-dur-fast) var(--em-ease);
+}
+:where(input[type='checkbox'][role='switch']):checked { background-color: var(--em-accent-9); box-shadow: none; }
+:where(input[type='checkbox'][role='switch']):checked::before { transform: translateX(12px); background-color: var(--em-accent-contrast); }
+@media (hover: hover) { :where(input[type='checkbox'][role='switch']):hover:not(:disabled) { opacity: 0.88; } }
+:where(input[type='checkbox'][role='switch']):active:not(:disabled) { opacity: 0.78; }
+:where(input[type='checkbox'], input[type='radio']):disabled { opacity: 0.5; cursor: default; }
+:where(input[type='range'], progress, meter) { accent-color: var(--em-accent-9); }
+:where(input[type='range']) { width: 100%; margin: 0; }
+
+/* label 包住输入框：标签在上，14 medium 次级色（ui/Field 的 Label），间距 6 */
+:where(label):where(:has(> :is(input:not([type='checkbox'], [type='radio'], [type='range']), select, textarea))) {
+  display: flex; flex-direction: column; gap: 6px;
+  color: var(--em-foreground-muted); font-weight: 500;
+}
+:where(label) > :where(input, select, textarea) { font-weight: 400; }
+/* label 包住勾选框 / 单选 / 开关：一行，点字也能切换 */
+:where(label):where(:has(> input:is([type='checkbox'], [type='radio']))) {
+  display: inline-flex; align-items: center; gap: var(--em-spacing-sm);
+  min-height: var(--em-control-h-sm); cursor: pointer;
+}
+:where(fieldset) { min-width: 0; padding: 0; border: 0; }
+:where(legend) { padding: 0; margin-bottom: var(--em-spacing-sm); font-size: var(--em-font-caption); line-height: var(--em-lh-caption); font-weight: 600; letter-spacing: 0.04em; color: var(--em-foreground-muted); }
+:where(fieldset) > :where(label) + :where(label) { margin-top: 2px; }
+:where(fieldset) > :where(label:has(> input:is([type='checkbox'], [type='radio']))) { display: flex; }
+
+/* ── 表格：「印在页上的东西」—— 表头用分区标签的字，行之间一条 hairline，数字等宽 ───────────── */
+:where(table) { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+:where(th) {
+  padding: 6px var(--em-spacing-sm); border-bottom: 1px solid var(--em-border);
+  font-size: var(--em-font-caption); line-height: var(--em-lh-caption); font-weight: 600; letter-spacing: 0.04em;
+  color: var(--em-foreground-muted); text-align: start; white-space: nowrap;
+}
+:where(td) { padding: var(--em-spacing-sm); border-bottom: 1px solid var(--em-border); vertical-align: middle; }
+:where(tr):where(:last-child) > :where(td) { border-bottom: 0; }
+:where(tfoot) :where(td, th) { border-top: 1px solid var(--em-border-1); border-bottom: 0; font-weight: 600; color: var(--em-foreground); }
+@media (hover: hover) { :where(tbody tr):hover > :where(td) { background-color: var(--em-hover); } }
+:where(caption) { padding-bottom: var(--em-spacing-sm); text-align: start; color: var(--em-foreground-muted); }
+
+/* ── 折叠 ─────────────────────────────────────────────────────────────────────────────── */
+:where(summary) {
+  display: flex; align-items: center; gap: var(--em-spacing-sm);
+  min-height: var(--em-control-h-md); list-style: none;
+  font-weight: 500; cursor: pointer; user-select: none;
+}
+:where(summary)::-webkit-details-marker { display: none; }
+:where(summary)::before {
+  content: ''; flex: none; width: 6px; height: 6px; margin: 0 3px;
+  border-right: 1.5px solid var(--em-foreground-passive); border-bottom: 1.5px solid var(--em-foreground-passive);
+  transform: rotate(-45deg); transition: transform var(--em-dur-fast) var(--em-ease);
+}
+:where(details[open]) > :where(summary)::before { transform: rotate(45deg); }
+:where(details[open]) > :where(summary) { margin-bottom: var(--em-spacing-xs); }
+@media (hover: hover) { :where(summary):hover::before { border-color: var(--em-foreground); } }
+
+/* ── 进度 ─────────────────────────────────────────────────────────────────────────────── */
+:where(progress, meter) {
+  appearance: none; -webkit-appearance: none;
+  display: block; width: 100%; height: 6px;
+  border: 0; border-radius: var(--em-radius-capsule); overflow: hidden;
+  background: var(--em-border);
+}
+:where(progress)::-webkit-progress-bar { background: var(--em-border); border-radius: var(--em-radius-capsule); }
+:where(progress)::-webkit-progress-value { background: var(--em-accent-9); border-radius: var(--em-radius-capsule); transition: width var(--em-dur-med) var(--em-ease); }
+:where(meter)::-webkit-meter-bar { height: 6px; border: 0; background: var(--em-border); border-radius: var(--em-radius-capsule); }
+:where(meter)::-webkit-meter-optimum-value { background: var(--em-accent-9); }
+:where(meter)::-webkit-meter-suboptimum-value { background: var(--em-foreground-warning); }
+:where(meter)::-webkit-meter-even-less-good-value { background: var(--em-foreground-destructive); }
+
+/* ── 分段标签：role="tablist" 里的 role="tab" = 咕咕 SegmentedTabs 的 pill（#7333）：控件圆角 8；选中 = 中性实底（muted）+ fg ── */
+:where([role='tablist']) { display: flex; flex-wrap: wrap; gap: var(--em-spacing-xs); margin: 0 0 var(--em-spacing-md); }
+:where([role='tablist']) > :where([role='tab']) {
+  padding: calc((var(--em-control-h-md) - 1lh) / 2) var(--em-spacing-lg);
+  border: 0; border-radius: var(--em-radius-control);
+  background-color: transparent; color: var(--em-foreground-muted); font-weight: 500;
+}
+@media (hover: hover) { :where([role='tablist']) > :where([role='tab']):where(:hover:not([aria-selected='true'], :disabled)) { background-color: var(--em-hover); color: var(--em-foreground); } }
+:where([role='tablist']) > :where([role='tab']):where(:active:not([aria-selected='true'], :disabled)) { background-color: var(--em-press); color: var(--em-foreground); }
+:where([role='tablist']) > :where([role='tab'][aria-selected='true']) { background-color: var(--em-background-3); color: var(--em-foreground); }
+
+/* ── 状态行：role="status" 是一条中性的说明，role="alert" 是出错 ─────────────────────────── */
+:where([role='status'], [role='alert']) {
+  margin: 0 0 var(--em-spacing-md); padding: 6px 10px; border-radius: var(--em-radius-control);
+  background: var(--em-background-3); color: var(--em-foreground-muted);
+}
+:where([role='alert']) { background: var(--em-background-destructive); color: var(--em-foreground-destructive); white-space: pre-wrap; }
+/* 空的时候不占地方，但留在无障碍树里：拿空 status 当朗读区的 App，第一句话才不会被读屏漏掉（L11 复核 51） */
+:where([role='status'], [role='alert']):empty { margin: 0; padding: 0; }
+
+/* ── 对话框 = 宿主的 dialog 角色（#7333）：16 圆角 + dialog 组合投影（轮廓在投影里，不画边框）。
+      卡片仍是 surface 12、不加投影；页面里会投影的只有浮层（lift）与对话框（dialog）两档 ─────────── */
+:where(dialog) {
+  width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+  padding: var(--em-spacing-xl); border: 0; border-radius: var(--em-radius-dialog);
+  background: var(--em-background-1); color: var(--em-foreground);
+  box-shadow: var(--em-shadow-dialog);
+}
+/* WebView 113 的 ::backdrop 拿不到页面上的变量（Chrome 122 才继承），所以这里写死一档中性遮罩 */
+:where(dialog)::backdrop { background: rgb(0 0 0 / 0.5); }
+:where(dialog) > :where(form[method='dialog']):last-child,
+:where(dialog) > :where(.row):last-child { justify-content: flex-end; }
+
+/* ── 七个类 ───────────────────────────────────────────────────────────────────────────── */
+/* .card：一块内容。hairline + 卡片面（深色下比页面高一档，浅色下同色靠线分开），12 圆角；不加投影（不是浮层） */
+:where(.card) {
+  display: block;
+  padding: var(--em-spacing-md);
+  border: 1px solid var(--em-border);
+  border-radius: var(--em-radius-xl);
+  background: var(--em-background-1);
+}
+@media (min-width: 561px) { :where(.card) { padding: var(--em-spacing-lg); } }
+:where(.card) > :where(h2, h3, h4):first-child { margin-top: 0; }
+/* .row：一行，放不下就折行；.stack：一列。里面的东西不再自带外边距，只听 gap */
+:where(.row) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--em-spacing-sm); }
+:where(.stack) { display: flex; flex-direction: column; gap: var(--em-spacing-md); }
+:where(.row, .stack) > :where(*) { margin: 0; }
+:where(.row) > :where(input:not([type='checkbox'], [type='radio']), select) { flex: 1 1 140px; width: auto; min-width: 0; }
+:where(.row) > :where(label:has(> :is(input, select, textarea))) { flex: 1 1 140px; min-width: 0; }
+/* 和输入框同一行的按钮跟着输入框高，两者顶底对齐 */
+:where(.row):where(:has(> :is(input:not([type='checkbox'], [type='radio']), select))) > :where(button:not(:has(> gugu-icon:only-child))) { padding-block: calc((var(--em-control-h-lg) - 1lh - 2px) / 2); }
+.muted { color: var(--em-foreground-muted); }
+
+/* .list：咕咕 ListRow 的几何 —— 行内距 8、间距 10、圆角 8；行之间不画线，靠悬停 / 选中的底色 */
+:where(.list) { display: flex; flex-direction: column; gap: 2px; padding: 0; list-style: none; }
+:where(.list) > :where(*) {
+  display: flex; align-items: center; gap: var(--em-row-gap);
+  width: 100%; min-width: 0; margin: 0;
+  padding: var(--em-row-pad);
+  border: 0; border-radius: var(--em-radius-control);
+  background-color: transparent; color: inherit;
+  font-weight: 400; text-align: start; text-decoration: none; white-space: normal; line-height: var(--em-lh-body);
+  transition: background-color var(--em-dur-fast) var(--em-ease);
+}
+:where(.list) > :where(button, a) { justify-content: flex-start; min-height: 0; cursor: pointer; }
+/* 行里的文字块：一列，标题一行截断，副标题次级色 */
+:where(.list) > * > :where(div, p) { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; margin: 0; }
+:where(.list) > * > :where(div, p) > :where(*) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:where(.list) > * > :where(div, p) > :where(strong, b):first-child { font-weight: 500; }
+:where(.list) > * > :where(div, p) > :where(span, small, .muted) { color: var(--em-foreground-muted); font-size: var(--em-font-body); line-height: var(--em-lh-body); }
+:where(.list) > * > :where(small, time, gugu-time) { flex: none; margin-inline-start: auto; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-passive); font-variant-numeric: tabular-nums; }
+:where(.list) > * > :where(button):last-child { flex: none; margin-inline-start: auto; }
+:where(.list) > * > :where(button[aria-label]:has(> gugu-icon:only-child)) { width: var(--em-control-h-sm); height: var(--em-control-h-sm); line-height: calc(var(--em-control-h-sm) - 2px); }
+/* 行的状态照宿主 .gg-row：悬停 --hover、按下 --press；选中是 --selected，选中后再悬停 / 按下是在选中底上叠一层（不换掉选中色）。
+   禁用的行不响应悬停与按下，按各类行自己的禁用写法认：按钮 = :disabled（含 disabled 的 fieldset 里的），role 项 / 链接 /
+   [tabindex] 行 = aria-disabled="true"，label 行 = 它直接包着的输入框 :disabled。全部 0 特异度，选中排在悬停 / 按下后面才压得住。 */
+@media (hover: hover) {
+  :where(.list) > :where(a, button, label, [role='button'], [role='option'], [tabindex]):where(:hover:not(:disabled, [aria-disabled='true'], label:has(> input:disabled))) { background-color: var(--em-hover); }
+}
+:where(.list) > :where(a, button, label, [role='button'], [role='option'], [tabindex]):where(:active:not(:disabled, [aria-disabled='true'], label:has(> input:disabled))) { background-color: var(--em-press); }
+:where(.list) > :where([aria-selected='true'], [aria-current]:not([aria-current='false']), :has(> input:checked)) { background-color: var(--em-selected); }
+@media (hover: hover) {
+  :where(.list) > :where([aria-selected='true'], [aria-current]:not([aria-current='false']), :has(> input:checked)):where(:hover:not(:disabled, [aria-disabled='true'], label:has(> input:disabled))) { background-image: linear-gradient(var(--em-hover), var(--em-hover)); }
+}
+:where(.list) > :where([aria-selected='true'], [aria-current]:not([aria-current='false']), :has(> input:checked)):where(:active:not(:disabled, [aria-disabled='true'], label:has(> input:disabled))) { background-image: linear-gradient(var(--em-press), var(--em-press)); }
+:where(.list) > :where(label) { cursor: pointer; }
+/* 列表放在卡片里：行往外让出自己的内距，行里的字与卡片里其它内容左对齐，悬停底色离卡片边只剩一点 */
+:where(.card) > :where(.list) { margin-inline: calc(var(--em-row-pad) * -1); }
+
+/* ── 宿主组件的外框（内部在 ui.js 的 shadow DOM 里） ───────────────────────────────────── */
+:where(gugu-avatar) { display: inline-flex; align-items: center; gap: var(--em-spacing-sm); flex: none; min-width: 0; vertical-align: middle; }
+:where(gugu-avatar[name]) { flex: 0 1 auto; }
+:where(gugu-avatar):not(:defined) { min-width: var(--em-avatar-sm); min-height: var(--em-avatar-sm); }
+:where(gugu-time) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+:where(gugu-empty) {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--em-spacing-sm);
+  min-height: 160px; padding: var(--em-spacing-2xl) var(--em-spacing-lg);
+  text-align: center; color: var(--em-foreground-muted);
+}
+:where(gugu-empty) > :where(*) { margin: 0; }
+:where(gugu-empty) > :where(button, a.primary) { margin-top: var(--em-spacing-xs); }
+
+/* ── 滚动条：只给鼠标指针的宿主（触屏交还系统的悬浮条），同 tokens.css ───────────────────── */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--em-border); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--em-foreground-passive); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(*), :where(*)::before, :where(*)::after { transition-duration: 0.01ms; animation-duration: 0.01ms; animation-iteration-count: 1; }
+}
+
+} /* @layer gugu */

@@ -1,0 +1,1889 @@
+/* 咕咕 Design Tokens — dark-first */
+/* #1077 Tailwind v4：@import 取代 @tailwind 三件套;@config 沿用 gugu 既有 JS 配置(自定义色板 + content,
+   其 content 已含 streamdown dist 扫描);@custom-variant 让 Streamdown 的 dark: 变体跟随 gugu 的
+   [data-theme=dark];@theme 把 Streamdown 的 shadcn 语义色映射到 gugu canonical 变量 → 随主题自动切换。 */
+/* The task renderer shares Gugu's document after #2804, so its session-ui layers and Gugu's
+   Tailwind layers now participate in one global cascade. Declare their combined order before
+   either stack emits rules; otherwise session-ui's reset layer is discovered after utilities and
+   its heading reset wins over typography utilities. */
+@layer reset, tokens, theme, base, components, recipes, utilities;
+@import 'tailwindcss';
+/* 动效层:官方 assistant-ui 的入场/退场(animate-in / fade-in / slide-in-from-*)靠这组工具类,
+   它们不在 Tailwind 内置里。相对路径是因为 pnpm 严格布局下 apps/desktop 里没有这个包的软链;
+   位置必须紧跟 tailwindcss —— @import 排在其它语句之后会被 PostCSS 直接判错。 */
+@import '../../../../node_modules/tw-animate-css/dist/tw-animate.css';
+@config '../../../../tailwind.config.cjs';
+/* v4 默认不扫 node_modules,@config 的 content 也不驱动扫描 → 显式 @source 指向 Streamdown dist,
+   否则它输出的工具类(bg-muted / space-y-4 / dark:* 等)不生成 → 消息 markdown 裸样式。 */
+@source '../../node_modules/streamdown/dist';
+/* 从 assistant-ui 官方 registry 拷进来的那批组件也要显式登记:实测(2026-09-05,真机探针带阴阳对照)
+   只在这批文件里出现的类(mb-14 / pt-4 / mt-auto / text-base)一个都没生成,而别处也在用的类(flex /
+   gap-4)照常 —— 也就是说这个目录压根没进扫描面。症状极具欺骗性:布局"半对",输入框钉不住底、
+   字号回落到继承值、动效全无,看起来像"抄得不像",其实是整批工具类被静默丢掉。 */
+@source '../components/assistant-ui';
+/* 动效层。assistant-ui 官方那套的入场/退场(animate-in / fade-in / slide-in-from-*、
+   accordion 展开)全靠这组工具类,而它们**不在 Tailwind 内置里** —— 不引这个包，
+   官方组件照样渲染、照样不报错，只是一切都硬切，正是"看着不如人家"的那一半。
+   tw-animate-css 是 tailwindcss-animate 的 v4 版（v3 那个插件在 v4 里不工作）。 */
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* shadcn/ui 语义色 → gugu canonical 变量的完整桥。
+ *
+ * ⚠️ 只有**写在 @theme 块里**的 --color-* 才会变成 Tailwind utility。文件下方设计 token 段
+ * 里那些 --color-xxx 不会生成 utility，但同名声明仍会在运行时覆盖 @theme 的变量值。
+ * 因此本块里的 --color-* 是保留命名空间，文件下方不得重新声明；品牌主色统一用 --primary。这个区别是坑：
+ * Tailwind v4 对 @theme 里没有的 color key **静默丢掉整条 utility**，不报错、不警告，
+ * 结果就是 `bg-card` 写了等于没写（#2319 实翻过一次）。
+ *
+ * 原来只桥了 7 个（为 Streamdown 加的），shadcn 标准 19 个里有 12 个是哑的。既然
+ * 咕咕的目标栈是 base-ui + shadcn/ui + tailwind，这里补全，粘过来的 shadcn 组件才能直接用。
+ *
+ * 两处映射不是字面对应，特此说明：
+ *   accent  —— shadcn 语义是「高亮项底色」（Select/Menu/Command 的当前项），不是品牌色。
+ *              gugu 的 --accent 是品牌色 #fff/#000，直接映过去会让每个高亮项变成白块。
+ *              所以映到 --hover。要品牌色请用 primary。
+ *   input   —— shadcn 里这是输入框**边框**色（border-input），不是背景，映到 --border-color。
+ *   sidebar —— shadcn 的 sidebar 家族色，但这里**不是给导航侧栏用的**：Streamdown 2.5.0 拿它当
+ *              「代码块 / 表格 / mermaid 的外框垫层」（dist 里 9 处：bg-sidebar ×3、border-sidebar ×2、
+ *              bg-sidebar/80 ×2、bg-sidebar/70 ×2）。容器结构是外框 `bg-sidebar p-2` 包着内胆
+ *              `bg-background p-4`，所以这个色是气泡与代码正文之间那一圈 8px 的垫子。
+ *              选 --muted 而不是同名的 --sidebar：--sidebar（暗 #15171e）比气泡（#1c1e26/#1b2230）**暗**，
+ *              垫层会陷进气泡里；--muted（暗 #1f2128）正好比气泡高一档，垫层浮起、内胆 --bg 下沉，
+ *              读作「浮起的框 + 凹陷的代码井」。且 Streamdown 的行内代码与表头本来就用 bg-muted，
+ *              映到 --muted 让行内代码与围栏代码落在同一表面家族。
+ *              ⚠️ 只补 --color-sidebar 一个：shadcn 的 sidebar-foreground/-primary/-accent/-border/-ring
+ *              目前无人消费，补了也无从验证；真有人用了会被 streamdownThemeKeys 那条守卫照出来。
+ */
+@theme {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-fg);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--color-white);
+  --color-border: var(--border);
+  --color-input: var(--border-color);
+  --color-ring: var(--primary);
+  --color-sidebar: var(--muted);
+  /* @@@live-accent (Refs #6104) — design.md 的唯一 accent(streaming / running / connected /
+     currently selected)。会话页那张 @theme 早就登记了这两档,主 app 这张没有 ⇒ 主 app 里只能写
+     `text-[var(--live)]` 这种任意值。登记之后两边都是 `text-live` / `bg-live-soft`,
+     同一个名字在同一个 document 里解析成同一个色(#2802 之后两张表进同一个 document)。
+     值的定义处仍是本文件下方的 --live / --live-soft,这里只是 Tailwind 那半边的桥。 */
+  --color-live: var(--live);
+  --color-live-soft: var(--live-soft);
+  /* @@@ui-ruler 字号工具类与字阶对齐:五档字号与行高成对钉死(#7333 起为 12/14/16/20/24,
+     行高 18/20/24/28/32;见下方 @@@type-ladder)。 */
+  --text-xs: var(--font-size-xs);
+  --text-xs--line-height: var(--lh-caption);
+  --text-sm: var(--font-size-sm);
+  --text-sm--line-height: var(--lh-body);
+  --text-base: var(--font-size-md);
+  --text-base--line-height: var(--lh-title);
+  --text-lg: var(--font-size-lg);
+  --text-lg--line-height: var(--lh-heading);
+  --text-xl: var(--font-size-xl);
+  --text-xl--line-height: var(--lh-page);
+  /* @@@text-md (Refs #6104) — `text-md` 是 --font-size-md 那一档(#7333 起 16/24,= --font-title,
+     与 text-base 同值)。会话页 index.css 的 @theme 里有一份逐字等值的副本:会话页那张表要字面量。 */
+  --text-md: var(--font-size-md);
+  --text-md--line-height: var(--lh-title);
+  /* @@@text-chrome-body (Refs #6104) — 界面自己的正文(紧凑 UI,#7333 起 14/20)的**角色名**,
+     与 --font-body 同值。会话页 index.css 的 @theme 里有一份逐字等值的副本。 */
+  --text-chrome-body: var(--font-size-sm);
+  --text-chrome-body--line-height: var(--lh-body);
+  /* @@@three-faces (Refs #6104) — 三面:Display / Sans / Mono,按含义分不按字号分(#7333 起前两面都是系统字体)。
+     写在 @theme 里才会生成 font-display / font-sans / font-mono 三个 utility;
+     写在下面的 :root 段里只会覆盖值、不生成类(本文件开头那段坑记的就是这件事)。 */
+  --font-display: var(--font-family-system);
+  --font-sans: var(--font-family-system);
+  --font-mono: var(--font-family-mono);
+}
+
+.window-drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.window-no-drag-region,
+.window-no-drag-region *,
+.window-drag-region button,
+.window-drag-region input,
+.window-drag-region textarea,
+.window-drag-region select,
+.window-drag-region a,
+.window-drag-region [role='button'],
+.window-drag-region [data-window-no-drag='true'] {
+  -webkit-app-region: no-drag;
+}
+
+/* @@@1238-titlebar-tokens — 无边框标题栏协调（#1238）。
+   macOS 原生交通灯需要比 60px rail 多一点横向呼吸；其他平台继续使用 60px rail。 */
+:root {
+  --titlebar-traffic-lights-width: 0px;
+  --sidebar-rail-width: 60px;
+}
+:root[data-platform='mac'] {
+  --titlebar-traffic-lights-width: 60px;
+  --sidebar-rail-width: 68px;
+}
+
+/* @@@rail-inset — 侧栏 rail 的上下留白,**按平台一个数**。
+   ❌ 别写回 `.gg-sidebar-rail { padding: … }`:那条规则的特指度是 (0,1,0),与本文件
+   `*:not(.gugu-skin, …)` 那条全局重置**相同**,而重置写在后面 ⇒ 组件自己的 padding
+   一次都没生效过(2026-09-19 实测:mac 的 padding-bottom 与 Windows 的上下两侧都是 0px,
+   而声明写的是 `32px 0 14px`)。mac 当时看起来是对的,只因为它另有一条
+   `:root[data-platform='mac'] .gg-sidebar-rail`(0,3,0)把 top 顶了回去 —— 于是同一个缺陷
+   在 mac 上被遮住、在 Windows 上露出来,读成「Windows 忘了让位」。
+   ⇒ 值放这里、规则用 `:root .gg-sidebar-rail`(0,2,0)压过重置,三个平台同一条路径。 */
+:root {
+  --sidebar-rail-pad-top: 32px;
+  --sidebar-rail-pad-bottom: 14px;
+}
+:root[data-platform='mac'] {
+  /* 交通灯在左上角,rail 的第一个元素必须整体下移到它们下面。 */
+  --sidebar-rail-pad-top: 58px;
+}
+
+/* 最左侧列表头位于 rail 右边，仅为超出 rail 的交通灯宽度预留空间。 */
+:root {
+  --titlebar-list-header-inset: max(0px, calc(var(--titlebar-traffic-lights-width) - var(--sidebar-rail-width)));
+}
+
+/* @@@panel-toggles (#6753) — 列表栏开关浮在内容左上角的平台(mac / Linux / 网页)上,最左列表头要让出它那条车道
+   (= window-chrome 的 SHELL_RESTORE_LANE_PX);Windows 的开关在标题栏行,不让。 */
+:root {
+  --list-toggle-lane: 40px;
+}
+:root[data-window-titlebar='row'] {
+  --list-toggle-lane: 0px;
+}
+/* 对话页那颗由壳挂(WindowControls),坐标与会话页根部那颗相同:rail 宽 + 8,28px 在 40px 带里居中。 */
+.gg-list-toggle-float {
+  position: fixed;
+  top: 6px;
+  left: calc(var(--sidebar-rail-width) + 8px);
+  z-index: var(--z-chrome);
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+/* 让出车道后,默认宽(240)放不下「标题 + 新建 Agent 整钮 + ＋」,标题会被压成一个字母:列表头内容盒窄于 206px 时
+   「新建 Agent」只留图标(全名仍在提示里)。容器查询量的是内容盒,车道 / 内距已扣掉,所以 Windows 不必另判。
+   206 ≈ 英文标题 41 + 间距 4 + 整钮 119 + 间距 2 + ＋ 32 = 198(mac1 实测),留一点余量。 */
+[data-testid='chat-list-pane'] .gg-pane-header {
+  container-type: inline-size;
+}
+@container (max-width: 205px) {
+  [data-testid='chat-create-agent-draft-action'] > [data-button-label] {
+    display: none;
+  }
+}
+/* 会话列表收起时,对话头左端同样让出这条车道(与会话页会话头同一条,session-chat-column.tsx)。 */
+[data-list-collapsed] ~ * [data-chat-area-header] {
+  padding-inline-start: max(var(--pane-pad-x), var(--list-toggle-lane));
+}
+
+/* 顶栏右上是「动作车道」:会话页的工作区面板开关常驻在那儿(TitlebarActions,top 6px + 28px 按钮;
+   分享与待办已归消息栏动作组,跟着聊天栏走,见 titlebar-actions.tsx)。
+   任何飘在右上的转瞬层(toast、分享浮层)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
+   那正是实机看到的「组件堆叠」:全局 toast 正好盖住会话页顶栏那排按钮。
+   有标题栏行的平台(Windows)车道整体下移一行:main.tsx 按 window-chrome 的 titlebarActionsLane 写真值,
+   这里的 40px 只是 JS 执行前与 web 的默认。 */
+:root {
+  --titlebar-actions-lane: 40px;
+}
+
+/* @@@win-titlebar-row — Windows 的独立标题栏行(WindowTitleBar.tsx)。高度由 main.tsx 从 window-chrome
+   写入(没有这一行的平台是 0);`data-window-titlebar='row'` 也由它落,CSS ❌ 自己再按平台名判一遍。
+   标题栏行只是窗口外框多出的一行:壳根让出它的高度(标题栏是 fixed 的),其下的区域关系与 mac 同一套 ——
+   rail、列表与标题栏同在窗口底层(--shell-bg),阅读面是 desktop-shell.css 的内缩圆角面。
+   内容边界只保留透明边线与共享圆角的裁切,可见轮廓仍只归阅读面,不再叠一套外框。 */
+:root {
+  --window-titlebar-height: 0px;
+}
+:root[data-window-titlebar='row'] {
+  /* rail 顶上原来那 32px 是给「窗口顶沿」留的呼吸;现在顶沿是标题栏,rail 从标题栏下沿起。 */
+  --sidebar-rail-pad-top: 8px;
+}
+/* ⚠️ 选择器按结构而不是给 MainLayout 加类名:那个文件在 IM 迁移账本里,
+   有行数预算(scripts/im-architecture-migration-gate.json)。 */
+:root[data-window-titlebar='row'] [data-gugu-shell-phase] {
+  padding-top: var(--window-titlebar-height);
+}
+/* #7585 删除窗口内容边界后,Windows 列表文字从灰阶变成 LCD 彩边。Chromium 152.0.7977.54 的
+   cc/layers/picture_layer_impl.cc:751 按 contents_opaque_for_text 判 LCD;Blink 的
+   third_party/blink/renderer/platform/graphics/compositing/content_layer_client_impl.cc:205 从绘制区域推导这个标志。
+   gugu-base f0b55b15f evidence/2026-10-20-win-mac-align/ 的同实例矩阵证明:边线或圆角单独都不够,
+   透明 1px 边线 + 共享 12px 圆角能恢复灰阶,撤销又回彩边;底色与 OverlayScrollbar 均已排除。
+   这是独立标题行与不透明内容的窗口接壤边界,不属于列表组件。mac 与 Linux 都没有这条独立行,
+   沿用原来的几何;阅读面仍是 desktop-shell.css 的唯一可见轮廓。 */
+:root[data-window-titlebar='row'][data-window-material='opaque'] [data-gugu-shell-phase] > .gg-sidebar-rail + div {
+  border-top: 1px solid transparent;
+  border-left: 1px solid transparent;
+  /* 压过 MainLayout 的内联 borderRadius:var(--radius-page),不新造 Windows 圆角档。 */
+  border-top-left-radius: var(--radius-surface) !important;
+}
+/* 任务页是 fixed overlay,窗口边界裁不到它;它的角沿透明边线内缘接上同一个表面圆角。 */
+:root[data-window-titlebar='row'][data-window-material='opaque'] [data-emdash-slot='task'] {
+  border-top-left-radius: calc(var(--radius-surface) - 1px);
+}
+/* 拖窗口只归标题栏:壳里其余的拖拽区一律退订 —— 标准 Windows 应用里,内容区的标题、侧栏都不拖窗口,
+   双击它们也不会最大化。三种写法全覆盖:主渲染层的 .window-drag-region、侧栏 rail、
+   会话页的 Tailwind 任意属性类(它与咕咕同在 light DOM,见 EmdashSessionFrame 的 @@@task-fusion)。
+   收窄到壳根 [data-gugu-shell-phase]:壳崩了之后的兜底页(ShellErrorBoundary)还靠自己那条拖拽带。 */
+:root[data-window-titlebar='row'] [data-gugu-shell-phase] :is(.window-drag-region, .gg-sidebar-rail, [class~='[-webkit-app-region:drag]']) {
+  -webkit-app-region: no-drag;
+}
+
+/* @@@window-layer (#6699) — 标题栏行属于窗口外框,不是应用内容:铺满窗口的层一律铺在它下面
+   (没有这一行的平台 --window-titlebar-height 是 0,几何不变)。咕咕自己的全窗口层挂 `.gg-window-layer`
+   (Sheet 原语、AgentPresetsPanel),几何只在这里定义;下面单列的是改不了 class 的第三方根。
+   ❌ 让层铺满整窗、靠 z 压在标题栏下面:这些层都退订了拖拽(window-no-drag-region),而 Electron 的拖拽区
+   按文档顺序做矩形相减 —— 盒子一铺过标题栏行,就把行的拖拽区减掉,模态开着时窗口拖不动。
+   `:root` 抬一级权重:.pswp 自带 `top:0; height:100%`,两份 CSS 在产物里谁先谁后不固定(见 imagePreview.css)。 */
+:root :is(.gg-window-layer, .pswp, [data-streamdown='table-fullscreen']) {
+  position: fixed;
+  inset: var(--window-titlebar-height) 0 0 0;
+  height: auto;
+}
+
+/* @@@streamdown-fullscreen (#6699) — Streamdown 表格「全屏」是唯一不经咕咕浮层原语的全窗口层:它自己
+   `createPortal` 到 body,写死 `fixed inset-0 z-50`,也不退订拖拽。于是 Windows 上它从窗口顶沿铺起、
+   又低于标题栏行(--z-chrome),顶上那排「复制 / 下载 / ×」整个钻到标题栏底下,× 正压在窗口关闭钮下面,
+   只剩 Esc 能退;Linux 上浮动的窗口按钮压着它;mac 上那一排落在会话页顶栏的拖拽带里,点击被拖窗口吞掉。
+   几何归上面 @@@window-layer 那条;这里用它自己的样式钩子补上咕咕其余的约定:进模态那一档、整块退订拖拽
+   (同 ui/Sheet)。不分层 ⇒ 压过它的 z-50(@layer utilities)。 */
+[data-streamdown='table-fullscreen'] {
+  z-index: var(--z-modal);
+  -webkit-app-region: no-drag;
+}
+
+/* @@@822-titlebar-controls — main.tsx 从 window-chrome SSOT 写入实际宽度。
+   这里的 0 只负责 JS 执行前和 web 的安全默认值。 */
+:root {
+  --titlebar-controls-width: 0px;
+}
+
+:root {
+  /* Colors */
+  /* @@@one-knob — 这一族全部改成引用 canonical token,❌ 不再各抄一份 hex。
+     ⚠️ 唯一的例外是 --color-white:它**不是**中性族的一员,而是「绝对白」这个名字本身 ——
+     消费它的是 .text-destructive-foreground(白字画在饱和红上,见 docs/ui-visual-spec.md §7
+     那整段:它是 19 条语义桥里唯一不走两段式的一条,靠的是 Tailwind 默认主题那条**另一个**机制)。
+     把它染成 oklch(0.995 0 0) 会让那条契约在会话页作用域里悄悄换值 ——
+     design-tokens-3334 那条 browser 判据当场判红,而它判得对:
+     「画在产品表面之外/饱和色上的文字」与 @@@one-knob 管的中性族是两件事
+     (同一条豁免还覆盖 danger chip 的字与扫码浮层的字,各自就地注明)。 */
+  --color-white: #fff;
+  --color-bg-sidebar: var(--page);
+  --color-bg-chat-list: var(--sidebar);
+  --color-bg-chat-area: var(--bg);
+  --color-bg-window: var(--page);
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--muted-fg);
+  --color-text-placeholder: var(--faint-fg);
+  --color-text-link: var(--live);   /* @@@live-accent —— 链接与「信息」走同一个蓝 */
+  --color-text-danger: #e64340;
+  --color-divider: var(--border);
+  --color-bubble-received: var(--bubble-agent);
+  --color-bubble-sent: var(--bubble-own);
+  --color-active-item: var(--selected);
+  --color-hover-item: var(--hover); /* @@@2322 收敛别名,新代码 ❌ 用旧名 → --hover */
+  --color-unread-badge: #fa5151;
+  --color-switch-on: var(--primary);
+  --color-switch-off: color-mix(in oklab, var(--fg) 20%, transparent);
+  /* Typography */
+  /* @@@system-font (#7333) — 用户 2026-10-17 批准的视觉规范:正文是**系统字体**
+     (mac `-apple-system` = SF,Windows `Segoe UI`),中文落各平台自己的原生中文字体。
+     Sora(styles/sora.css)不再在这条栈上;会话页 transcript 的测量栈在 lib/chat/font-stack.ts,
+     随 #7308 的补丁一起换,换之前它仍按自己那条栈量和画(两边各自一致)。
+     @@@cjk-per-platform — 这条栈从前只点了 mac 的名(`-apple-system` / `PingFang SC` /
+     `Helvetica Neue` 三个在 Windows 上都不存在)⇒ Windows 的中文落到系统随便给的兜底。
+     2026-09-19 实测:Windows 正文中文的 canvas 位图指纹**等于该平台 generic sans**,macOS 不等于。
+     ⇒ 补上 Windows 的对位(`Segoe UI` 管拉丁、`Microsoft YaHei` 管中文),顺序保证
+     **mac 的解析结果逐字不变**(PingFang 仍在 YaHei 之前命中,Segoe UI 在 mac 上不存在被跳过)。
+     ⚠️ ❌ 不内嵌一支汉字字体去做「两端同一支」:owner 2026-09-14 实测后否掉过
+     (见 styles/sarasa-mono.css 的抬头:「中文的脸被换掉了,我要原来那张脸」+ 多背 2.84MB)。
+     两端各用各的原生脸是**要的结果**,这里修的是「由谁来点这个名」。
+     ⚠️ 中文是全角,字宽恒等于字号 ⇒ 这条改动**不影响排版**(实测两端元素宽度逐像素相同)。 */
+  --font-family-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  /* @@@font-single-source (#3334) — 正文与等宽的规格各只有这一处,会话页 renderer 与
+     transcript 都从这里取(见 session/renderer/index.css 的 --font-sans/--font-mono,以及
+     session/renderer/lib/chat/shared-chat-context.ts 的 SESSION_CHAT_FONT_STACK)。
+     ⚠️ transcript 那一路**必须**拿到字面值而不是 var():字体是它的测量输入,pretext 要用字体
+     简写离屏算字形宽度,拿不到 CSS 变量。所以那边是同一份规格的第二次书写,由
+     font-stack-parity-3334 这条判据钉住两者一致 —— ❌ 改这里不改那里。 */
+  --font-family-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Menlo', 'Monaco', 'Cascadia Mono', 'Consolas', monospace;
+  /* @@@three-faces (Refs #6104) — design.md 的三面制:Display / Sans / Mono,**按含义分,不按字号分**。
+     咕咕这一面与 --font-sans **同脸**(都是 Sora):owner 已定的品牌脸只有这一支,
+     而 #3334 的实测读数是「标题与正文共用同一支 Sora」,那是当前产品的事实。
+     ⇒ 这里立的是**角色**而不是第二支字体:h1/h2/h3 与「页面自己的声音」引用 --font-display,
+     正文引用 --font-sans;哪天品牌给出第二支标题脸,只改这一行,全部标题跟着走。
+     ❌ 别把它当「更大的字号」用 —— 字号由角色 token 出(见下方 @@@type-ladder)。
+     ⚠️ Sora 不含中文(sora.css 的 unicode-range 零个 CJK 区段),所以三面在中文侧本来就同脸,
+     这条差异只在拉丁字形上成立。
+     三个名字登记在本文件顶部的 @theme 块里(那才会生成 font-display / font-sans / font-mono
+     三个 utility),这里只留说明。 */
+  /* @@@type-ladder-7333 — 视觉规范的字级组合(用户 2026-10-17 批准,角色裁决见 #7333):
+     12/18 标注 · 14/20 紧凑界面 · 16/24 消息与长段正文、面板标题 · 20/28 页内标题 · 24/32 页级标题。
+     紧凑界面的 14/20 只给导航、菜单、设置行、工具条这类短文本;长段落一律 16/24(行高 ≥1.5)。 */
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-base: 1.4286; /* = 20/14:继承到 14px 正文时正好 20px,大字号按比例放大不会叠行 */
+  /* @@@type-ladder (#817) - semantic type scale: heading > title > body > caption.
+     Aliases the raw size scale so components express ROLE (title/body/caption)
+     instead of magic px. Apply via these tokens, not hardcoded fontSize. */
+  --font-heading: var(--font-size-lg);    /* 20/28 — 页内大标题 */
+  --font-title: var(--font-size-md);       /* 16/24 — 面板头、对话框标题 */
+  --font-body: var(--font-size-sm);        /* 14/20 — 紧凑界面:导航、菜单、设置行、列表、工具条 */
+  --font-caption: var(--font-size-xs);     /* 12/18 — 时间、计数、辅助说明 */
+  /* 消息与长段正文(IM 人聊 / IM agent 的气泡正文、文档预览):16/24。与 --font-title 同号不同角色。 */
+  --font-prose: var(--font-size-md);
+  --text-code: 13px; /* 等宽诊断与代码；与会话页代码角色13/20一致，冷启动时也可独立消费。 */
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+
+  /* ── Shape:assistant-ui design.md 的 8 档语义表(owner 2026-09-22 裁决,Refs #6104) ──────
+     全仓圆角**只有这一份定义**。会话页 index.css 的 @theme、tailwind.config.cjs 的 borderRadius、
+     packages/session-ui、packages/session-chat-ui(及已拆出的中台 nmhjklnm/gugu-console、顾客面板 nmhjklnm/gugu-website 的 dashboard/)一律逐字等值,
+     ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
+     三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
+     ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mjs 的
+     radiusScaleParity 逐档比对,改一处不改另一处 `pnpm lint` 当场红。 */
+  --radius-page: 0;
+  /* #7333 视觉规范的小档:徽标、行内小块。 */
+  --radius-xs: 4px;
+  --radius-document: 6px;   /* 印在页上的东西:代码面、表格、图版、规格框 —— 也是 kbd / 行内代码 / 最小图标钮那一档 */
+  /* @@@one-name (Refs #6104) — 6px 这一档只有一个定义处。--radius-sm 与 --radius-document
+     同值两名,留着两个数字就早晚会分叉;但名字不能删 —— Tailwind 的 `rounded-sm` 要它。
+     ⇒ 降为别名。新代码用语义名 --radius-document。 */
+  --radius-sm: var(--radius-document);
+  --radius-control: 8px;    /* 按钮、输入框、头部 CTA */
+  --radius-md: 8px;         /* = --radius-control(design.md 把这两个名字并列给同一档) */
+  --radius-surface: 12px;   /* 菜单、popover、分组卡(#7333:10 → 12) */
+  --radius-xl: 12px;        /* toast、浮起来的小卡片、设置分组卡 */
+  /* #7333 较大的全局 Sheet / Dialog 外壳(设置弹窗等)。内部卡片仍是 12 ⇒ 不拿 --radius-xl 一起放大。 */
+  --radius-dialog: 16px;
+  /* #7333 IM 气泡(用户消息 20)。会话页通用对话的气泡归 #7308。 */
+  --radius-bubble: 20px;
+  --radius-thread: 24px;    /* composer(主输入入口,#7333:16 → 24) —— 产品语汇,❌ 不上 marketing chrome */
+  --radius-capsule: 9999px; /* switch、头像、状态点、导航行 */
+  /* @@@radius-tab-ear (Refs #6104) — **表外的几何例外**,不是第 9 档。
+     工作区页签是 Chrome 式的:自己的上两角圆 9px,同时靠两枚外探的伪元素(会话页 index.css 的
+     .session-tab-ears::before/::after,9px 的径向渐变)把页签与它装的那块内容连成一个形。
+     两处必须是**同一个数** —— 差 1px 就在接缝处露出一条亮边。所以它有名字不是为了进刻度表,
+     是为了让这条耦合写在一个地方。❌ 别拿它当「表上多了一档 9」去别处用。
+     会话页 index.css 的 @theme 里有一份逐字等值的副本(那张表要字面量)。 */
+  --radius-tab-ear: 9px;
+  /* 真·正圆(而不是胶囊)只有这一个名字。❌ 别再劫持 --radius-full / rounded-full 去画正圆:
+     它在非正方形上画出来的是椭圆(SegmentedTabs.tsx:33 就是被这件事逼着绕开的)。 */
+  --radius-circle: 50%;
+  /* 数字别名 —— 只为 Tailwind 兼容存在,全部映射到上表。design.md:「Reach for the semantic name」 */
+  --radius-lg: var(--radius-control);
+  --radius-2xl: var(--radius-dialog);
+  --radius-3xl: var(--radius-bubble);
+  --radius-4xl: var(--radius-thread);
+  --radius-full: var(--radius-capsule);
+  /* @@@2322 时代的短名(--r / --r-lg / --r-xl / --r-bubble / --r-pill)**已删**
+     (Refs #6104,2026-09-22)。它们上一轮是新名的别名,好让各区分批改消费点;消费点改完
+     (全仓 `var(--r…)` 命中为 0,含 e2e 与 tests)就该收摊 —— 留着一张"也能用的旧表"
+     就是留着下一个人照旧表写,而旧表里的 --r-lg 是 12、新表里的 --radius-lg 是 8,
+     同一个"lg"两个值,那正是 #6103 审计里六套刻度的来路。
+     ⚠️ 删掉之后 `var(--r-lg)` 是 computed-value-time 无效 ⇒ border-radius 静默落回 0(方角),
+     不报错。所以它不会炸,会**直角化** —— 看到哪儿突然出现方角,先来这里对名字。 */
+  /* @@@bubble-radius - thread 档大圆角、靠头像侧单角收成 5px */
+  --radius-bubble-sent: var(--radius-bubble) 5px var(--radius-bubble) var(--radius-bubble);
+  --radius-bubble-received: 5px var(--radius-bubble) var(--radius-bubble) var(--radius-bubble);
+
+  /* @@@menu — 统一下拉菜单,值见设计稿 (.menu/.mi)。
+     :root = 深色（设计稿 [data-theme=dark] 的值）；浅色覆盖见 [data-theme=light]。容器项高 36px / 图标 20px。 */
+  /* design.md shape 表:menu/popover/tooltip = surface(10px)。原值是设计稿的 --r-xl(16px),
+     那一档现在只属于 composer 与用户气泡(--radius-thread)。 */
+  --radius-menu: var(--radius-surface);
+  /* ❌ --menu-border 已删(Refs #6104,2026-09-22):浮层不再画描边(design.md「Do not stack a
+     border, a ring, and a shadow on one edge」)⇒ 它的最后一个消费者(ui/Menu)去掉了 border,
+     全仓零引用。一个没人读的边框色留着,只会让下一个人以为菜单还该有边。 */
+  --shadow-menu: var(--shadow-lift);               /* @@@shadow-lift —— 菜单是浮层,走唯一那一档 */
+  --menu-danger: var(--danger);                    /* @@@2322 收敛别名 → --danger */
+  --menu-bg: var(--popover);
+  --menu-fg: var(--fg);
+  --menu-icon: var(--faint-fg);
+  --menu-item-hover: var(--hover);                 /* @@@2322 收敛别名 → --hover */
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     @@@shadow-lift (Refs #6104) — design.md:「**Shadows are zeroed globally.
+     Only a floating surface may lift.**」+ Reject 列表的「ornamental shadows」。
+     原来这里一次定义 13 个具名 shadow,其中 --shadow-card / --shadow-panel 的**名字本身**
+     就指向非浮层;全仓 97 处 shadow-* 工具类里有 13 处是 shadow-none —— 「默认有阴影、个别
+     关掉」,与 design.md「默认清零、只有浮层点亮」方向相反。
+
+     ⚠️ 为什么不是 `* { box-shadow: none }`:本文件那条 `*:not(.gugu-skin…)` 重置**不分层**,
+     而分层规则(Tailwind 的 @layer utilities)恒输给不分层的 —— 一条全局清零会连浮层的 lift
+     一起压掉,且没有任何选择器权重能救回来。所以清零的做法是**把非浮层那几个名字删掉**:
+     删掉之后 `var(--shadow-card)` 是 computed-value-time 无效,box-shadow 落回初始值 none,
+     结果与全局清零一致,而浮层那一档照样点得亮。
+       已删:--shadow-card / --shadow-panel / --shadow-sm / --shadow-switch-knob
+             (残留消费点见 docs/ui-visual-spec.md §6 的清单,归第二阶段改成密度分层)
+     浮层那一档是 --shadow-lift(就定义在下面第一行,浅色侧只重定义它自己)。其余名字全部
+     留着但**只是它的别名** —— 浮层只有一种表达,深浅不是可选项:
+     两个都能「浮起来」的浮层若投影一深一浅,读到的是「它们不是一类东西」,而它们是。 */
+  /* **定义处**:全 app 只有这一档投影,给 dropdown / popover / dialog / toast / sheet。
+     非浮层一律靠密度分层(bg-foreground/[0.025]),❌ 不给阴影。
+     投影是投下来的光,不是一个面的颜色 ⇒ 它不在 @@@one-knob 的中性族里,用中性黑是对的。 */
+  /* @@@shadow-layers-7333 — 视觉规范:浮层不是一团大投影,而是「半像素轮廓 + 近影 + 宽而弱的环境影」组合。
+     三档各管一类:--shadow-lift 菜单/popover/tooltip/toast;--shadow-dialog 较大的 Sheet/Dialog 外壳;
+     --shadow-composer 主输入入口。非浮层照旧不给阴影(靠表面分层)。半像素轮廓画在阴影里,不另加 border。 */
+  --shadow-lift: 0 0 0 0.5px rgb(255 255 255 / 0.16), 0 8px 28px rgb(0 0 0 / 0.36);
+  --shadow-dialog: 0 0 0 0.5px rgb(255 255 255 / 0.14), 0 16px 48px rgb(0 0 0 / 0.5);
+  --shadow-composer: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+
+  --shadow-dropdown: var(--shadow-lift);
+  --shadow-modal: var(--shadow-dialog);
+  --shadow-popover: var(--shadow-lift);
+  --shadow-popover-strong: var(--shadow-lift);
+  --shadow-overlay-panel: var(--shadow-lift);
+  --shadow-floating: var(--shadow-lift);
+  --shadow-toast: var(--shadow-lift);
+  --shadow-toast-card: var(--shadow-lift);
+  --shadow-call-panel: var(--shadow-lift);
+  --shadow-drawer: var(--shadow-dialog);
+  --shadow-drawer-strong: var(--shadow-dialog);
+
+  /* Layout */
+  --width-sidebar: 64px;
+  --width-chat-list: 220px;
+
+  /* @@@2322 动效 token —— 全产品仅 3 曲线 × 3 档时长(设计 SSOT),❌ 魔数时长/easing、❌ transition:all。
+     存量 --transition-* 转为别名(时长+曲线双值,仅可用于 `transition: <属性> var(--transition-*)` 简写),旧引用自动升级。 */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);        /* 标准:状态切换/进出场/位移,默认一律用它 */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1); /* 折叠展开(高度/宽度)微弹感 */
+  --ease-pop: cubic-bezier(0.16, 1, 0.3, 1);     /* Dialog/Popover 弹出 */
+  /* #7333 视觉规范:常用 150ms、较大转换 300ms;三档用途不变(product spec)。 */
+  --dur-fast: 150ms;   /* 状态色切换、reveal、出场、chevron */
+  --dur-med: 200ms;    /* 进场位移(消息/菜单/popover)、对话框 */
+  --dur-slow: 300ms;   /* Sheet/抽屉滑入、挤占列宽度、折叠面板 */
+  --transition-fast: var(--dur-fast) var(--ease);
+  --transition-normal: var(--dur-med) var(--ease);
+  --transition-slow: var(--dur-slow) var(--ease);
+
+  /* @@@1899 z-index 语义阶梯 — 全部层叠顺序的 SSOT，❌ 新增 zIndex 魔数（挑下面的语义层；
+     不够用则在此扩阶梯）。同语义同 token；同 token 内叠序由 DOM 序裁决（后挂载者在上）。
+     局部段（组件内 stacking context 用）：*/
+  --z-base: 0;             /* 默认层 */
+  --z-raised: 1;           /* 内容浮起：sticky 段头、卡片压住装饰层 */
+  --z-float: 10;           /* 面板内抽屉/角标/覆盖面（backdrop 与内容同层，DOM 序定上下） */
+  --z-overlay-local: 50;   /* 面板内浮层：emoji picker、斜杠命令、@ 提及 */
+  /* 全局段（fixed/portal 层）：*/
+  --z-chrome: 1000;        /* 窗口 chrome：WindowControls（win/linux 自绘钮） */
+  --z-modal: 2000;         /* 模态层：Sheet 及 backdrop+卡片式对话框 */
+  --z-menu: 2100;          /* 右键/下拉菜单——可开在 modal 之上 */
+  --z-banner: 2300;        /* 全局通知横幅/浮动状态卡（更新、余额、下载进度、发现） */
+  --z-popover: 2400;       /* 锚定信息浮层：资料卡、已读回执、近期动作、token 悬浮卡 */
+  --z-modal-top: 2500;     /* 从 popover 内开出的次级模态（#1862 海报对话框） */
+  --z-settings: 5000;      /* 设置面板：高于全部工作区弹窗、低于 overlay/toast（#1182） */
+  --z-settings-modal: 5100; /* 设置内次级模态：确认弹窗等必须盖过设置面板 */
+  --z-overlay: 10000;      /* 全屏遮罩：图片预览、扫码 */
+  --z-toast: 10010;        /* 最顶：toast 必须盖过图片预览遮罩（#1892③） */
+  --z-chrome-menu: 10020;  /* 窗口 chrome 弹出的菜单（Windows 标题栏的文件/编辑/视图/帮助）。页面层都铺在标题栏行下面
+                              （@@@window-layer），行一直点得到，从它开出来的菜单就得开在任何页面层之上（#6699） */
+
+  /* ── Semantic theme tokens ───────────────────────────────────────────────── */
+  --bg-primary: var(--bg);
+  --bg-secondary: color-mix(in oklab, var(--page) 70%, transparent);
+  --bg-settings: var(--card);
+  --bg-elevated: var(--card);
+  /* 三档文字色。⚠️ 第三档**不是正文色**，是装饰色（图标、状态点、禁用态）。
+     实测（tests/unit/desktop/styles/textContrast.test.ts 会持续核）：
+       档次        暗色对 --card   亮色对 --page
+       primary       13.49            17.18
+       secondary      5.03             4.54
+       tertiary       3.42             2.68   ← 两套主题、四种表面**全部**低于正文 AA 的 4.5
+     而且这个色板结构上装不下三档可读文字：亮色下把 tertiary 提到刚好过 4.5 要取到
+     #767676，与 secondary 的 #737373 只差 3 个色阶，肉眼无差 —— 提亮等于把三档压成两档。
+     所以约定是「换用途」不是「换值」：承载信息的文字一律 primary / secondary。 */
+  --text-primary: var(--fg);
+  --text-secondary: var(--muted-fg);
+  --text-tertiary: var(--faint-fg);
+  --border-color: var(--border);
+  --border-subtle: var(--border-strong);
+  /* @@@primary-ink —— 品牌色 = 墨,与 --primary 同一个值,❌ 不是第二个 accent。 */
+  --accent: var(--primary);
+  --text-on-accent: var(--primary-fg);
+  --bubble-mine: var(--bubble-own);
+  --bubble-other: var(--bubble-agent);
+  --chat-row-active: var(--selected); /* @@@2322 收敛别名 → --selected */
+  --chat-row-hover: var(--hover);     /* @@@2322 收敛别名 → --hover */
+  --input-bg: color-mix(in oklab, var(--fg) 6%, transparent);
+  --input-card-bg: color-mix(in oklab, var(--fg) 6%, transparent);
+  --sidebar-bg: color-mix(in oklab, var(--page) 85%, transparent);
+  --nav-rail: var(--page); /* #7333 rail 与会话列表同在窗口底层(窗口/侧栏材质一层) */
+  --topbar-bg: color-mix(in oklab, var(--page) 80%, transparent);
+
+  /* Overlays / scrims */
+  --bg-overlay-soft: rgba(0,0,0,0.28);
+  --bg-overlay-modal: rgba(0,0,0,0.56);
+  --bg-overlay-strong: rgba(0,0,0,0.35);
+  --modal-bg: var(--card);
+  --modal-border: var(--border-subtle);
+  --modal-shadow: var(--shadow-modal);
+
+  /* Component aliases — host primitives and the session-page skin bridge share these semantics. */
+  /* #7333 开关:关 = 填充面 + 灰旋钮,开 = 墨色轨道 + 表面色旋钮(Switch.tsx 读 --primary-fg)。 */
+  --switch-track-on: var(--primary);
+  --switch-track-off: var(--muted);
+  --switch-thumb: var(--muted-fg);
+
+  /* Call status panel */
+  --bg-call-panel: rgba(17,17,20,0.94);
+  --bg-accent-soft: rgba(255,255,255,0.10);
+
+  /* Text on tinted/translucent surfaces */
+  --text-on-overlay: color-mix(in oklab, var(--fg) 72%, transparent);
+  --text-on-bubble-strong: color-mix(in oklab, var(--fg) 92%, transparent);
+  --text-on-bubble-muted: color-mix(in oklab, var(--fg) 75%, transparent);
+
+  /* Quote bar (reply preview) */
+  --bubble-quote-bar-mine: color-mix(in oklab, var(--fg) 35%, transparent);
+  --bubble-quote-bar-other: color-mix(in oklab, var(--fg) 25%, transparent);
+
+  /* @@@live-accent —— 链接 = 信息 = live,全 app 同一个蓝。 */
+  --text-link: var(--live);
+  --text-quote-author: #7b8ba7;
+  /* @@@one-red (Refs #6104) — 「出事了」这件事只有一个红。原来同一族有四个名字各拍一个值:
+     --danger(#ef4444)/ --color-danger(#FF3B30,iOS 系统红)/ --badge-red(#FA5151)/
+     --text-error(#FF6B6B),明暗两侧还各分叉一次 —— 同屏能同时出现三种红,而它们说的是同一句话。
+     ⇒ 只留 --danger 一个定义处,其余三个降为别名(名字留着:消费点与判据都按名字写,
+     agent 状态经 `--agent-tone-removed` 引它)。
+     ⚠️ 别把 needs_user 与 removed 这两个**状态**并掉 —— 它们靠形状/字号分,不只靠色相分
+     (agentContactRowDotClass:needs_user 是 8px 黄色字形、removed 是 5px 色点)。 */
+  --color-danger: var(--danger);
+  /* agent 标识 ⚡bolt 的琥珀。设计稿定的「明暗一致」——所以它只在 :root 出现一次，
+     不随主题变。原先这个字面值在 ChatListPanel / ChatAreaPanel / ContactsPanel /
+     ContactProfileCard 四处各抄了一遍，改一次要找齐四处。 */
+  /* @@@chrome-is-ink (Refs #6104) — agent 身份标识属 chrome ⇒ 墨色。
+     原值是琥珀 #e0a13a(H=75.6),design.md:「Emphasis comes from weight, size, and the fill
+     percentage of the foreground, not from hue」。 */
+  --agent-bolt: var(--fg);
+  --color-draft: #FA8C16;
+  --color-warning-highlight: #FFE566;
+
+  /* @@@one-knob — 这一族原来 chroma 精确为 0,是盖在面族之上的**第二族**中性。 */
+  --text-muted:       oklch(0.845 0 0); /* was #CCCCCC */
+  --text-icon-default: oklch(0.450 0 0); /* was #555555 */
+  --text-icon-soft:    oklch(0.510 0 0); /* was #666666 */
+  --text-icon-stroke:  oklch(0.640 0 0); /* was #8C8C8C */
+
+  /* ── Extended semantic tokens (D1 cleanup) ──────────────────────────────── */
+
+  /* Brand / accent variants */
+  --accent-hover: oklch(0.860 0 0); /* was #d4d4d4 */
+  --accent-glow-soft: color-mix(in oklab, var(--fg) 12%, transparent);
+  --accent-tint-row: var(--selected); /* @@@2322 收敛别名 → --selected */
+
+  /* Transparent fill (gradient endpoints, ghost button backgrounds) */
+  --bg-transparent: transparent;
+
+  /* Auth / login page surfaces */
+  --bg-auth-page: var(--page); /* was #0e0d12 —— H=294,离面族 26° */
+
+  /* Status / feedback text */
+  --text-error: var(--danger);           /* @@@one-red 别名 → --danger */
+
+  /* 浮起来的那层面(toast / modal 卡片 / switch 旋钮)。名字是历史的,值早就该跟主题走。 */
+  --surface-white: var(--card);
+  --text-on-white: var(--fg);
+
+  /* Toast type accents */
+  --toast-success: #16a34a;
+  --toast-error: #FA5151;
+  --toast-info: var(--live);
+  /* warning 复用 @@@3079-semantic 的 --warn —— 语义已有名字,❌ 不为 toast 另拍一个色相 */
+  --toast-warning: var(--warn);
+
+  /* Notification/unread badge (sidebar/contacts), red highlight */
+  --badge-red: var(--danger);            /* @@@one-red 别名 → --danger */
+
+  /* @@@chrome-is-ink (Refs #6104) — 设置页分类图标原来是四个高彩度色相
+     (262.5 / 82.5 / 182.5 / 244.7),正是 design.md Reject 列表里的
+     「Rainbow type badges, colored category chips, and icons dropped into tinted tiles」。
+     六档现在同一个墨色:要区分靠图标字形与标签,不靠色相。
+     名字保留,因为消费点在别的区(第二阶段)。 */
+  --category-account:       var(--fg);
+  --category-notifications: var(--fg);
+  --category-appearance:    var(--fg);
+  --category-keys:          var(--fg);
+  --category-storage:       var(--fg);
+  --category-about:         var(--fg);
+
+  /* Group chat / light modal surfaces (locked light, even in dark theme)。
+     「锁死浅色」是这组的语义;#7333 起与其余中性一样是纯灰,明度不随主题翻。 */
+  --modal-light-bg:            oklch(0.995 0 0); /* was #fff */
+  --modal-light-text:          oklch(0.213 0 0); /* was #191919 */
+  --modal-light-text-muted:    oklch(0.735 0 0); /* was #AAAAAA */
+  --modal-light-divider:       oklch(0.930 0 0); /* was #EBEBEB */
+  --modal-light-input-border:  oklch(0.900 0 0); /* was #E0E0E0 */
+  --modal-light-disabled-bg:   oklch(0.845 0 0); /* was #CCCCCC */
+  --modal-light-secondary-text: oklch(0.450 0 0); /* was #555 */
+  --modal-light-row-selected: var(--selected);
+  --modal-light-row-hover:     oklch(0.968 0 0); /* was #F5F5F5 */
+  --modal-light-shadow: var(--shadow-lift);
+  --bg-overlay-modal-light: var(--bg-overlay-modal);
+
+  --border-spinner-on-dark: color-mix(in oklab, var(--fg) 50%, transparent);
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     ❌ 组件里别再写 #fff / #000 / bg-white / text-black / 裸 gray-* zinc-* 类:中性一律取下面这几个名字。
+     @@@neutral-gray-7333 — #7333 起默认中性表面是**纯灰**(用户 2026-10-17 批准,F-01 的 --tint 冷色相旋钮退役);
+     前景用 #1a1c1f(亮)/ #dfdfdf(暗),它本身略带色 ⇒ 由它派生的次级文字也带一点,❌ 说成「全部 C=0」。 */
+
+  /* @@@live-accent (Refs #6104) — design.md「One accent at a time, and the accent is blue」。
+     --live 是全 app **唯一**表示 streaming / running / connected / currently selected 的色。
+     页面上没有活着的东西,页面就没有蓝。
+     ❌ 它不是品牌色(品牌走 --primary = 墨),❌ 不做装饰,❌ 不再开第二个蓝。
+     浅色 = blue-500(#3b82f6 实算 oklch 0.623 0.188 259.8),暗色提一档到 blue-400
+     (#60a5fa → 0.714 0.143 254.6),这样在深底上仍然读得出「它在动」。 */
+  --live: oklch(0.714 0.143 255);
+  --live-soft: color-mix(in oklab, var(--live) 14%, transparent);
+  /* 选中文字的底:半透明蓝,只叠底、不改字色 —— 页面、反色的用户气泡、代码高亮上原来的字色都还读得出。 */
+  --text-selection: color-mix(in oklab, var(--live) 32%, transparent);
+
+  /* @@@canonical-tokens — 设计稿的 :root token 名。
+     #7333 起取值是纯灰表面(见上方 @@@neutral-gray-7333)。 */
+  --bg:       #181818; /* 内容表面 */
+  --page:     #121212; /* 窗口底层:rail、会话列表 */
+  --card:     #212121; /* 局部表面:分组卡、浮层(gray-fixed-800) */
+  --popover:  #212121;
+  --sidebar:  var(--page);
+  --fg:       #dfdfdf; /* gray-fixed-150 */
+  --muted:    #2a2a2a; /* 填充面(分段底、输入底):比 --card 高一档,卡片里也分得出 */
+  /* 次级文字 = 前景 62% 混进 --bg:对 --card 5.24、对 --muted 4.67(过 AA 4.5)。 */
+  --muted-fg: #939393;
+  /* 装饰色(图标、禁用、状态点),❌ 承载信息:对 --bg 3.69。 */
+  --faint-fg: #727272;
+  /* @@@primary-ink (Refs #6104) — design.md:chrome 是墨色,主按钮是前景/背景反相。
+     暗色下「墨」就是近白的前景端 —— 值不变,只是不再写成 #fff 这个族外字面量。 */
+  --primary:    var(--fg); /* 墨 = 前景(发送钮:前景底、表面色字) */
+  --primary-fg: var(--bg);
+  /* @@@hairline-10 (Refs #6104) — design.md:「A hairline is border-foreground/10」。
+     原来是 #ffffff0e(alpha≈5.5%),本文件下方 prefers-contrast 那段的注释自己就写着
+     「实测对比度约 1.05:1,对低视力用户等于不存在」——而那条只在用户主动打开系统开关时生效,
+     常态值原封不动。现在常态就是 10%,prefers-contrast 那档继续往上加。 */
+  /* @@@hairline-7333 — 暗色分支:轻边界 8%、强调边界 16%。 */
+  --border: color-mix(in oklab, var(--fg) 8%, transparent);
+  --border-strong: color-mix(in oklab, var(--fg) 16%, transparent);
+  --hover: color-mix(in oklab, var(--fg) 4%, transparent);
+  /* @@@selected-neutral-7333 — 选中 = 前景 7.5% 的中性层(用户裁决);live 蓝只留给运行/连接/链接这类真实语义。 */
+  --selected: color-mix(in oklab, var(--fg) 7.5%, transparent);
+  --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
+  --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
+  /* @@@state-ladder-mix (#2322) 上面三档的「实色配方」。--hover/--press/--selected 是半透明叠色,
+     叠在任何面上都成立;而会话页的设计系统(vanilla-extract 生成的 --em-surface-* 契约)只吃**实色**,
+     没有叠色这一层。于是把同一条阶梯拆成「叠什么色 + 叠多少」,让皮肤桥能对每个面 color-mix 出
+     **同一深度**的实色 —— 两边从此同源。
+     amount 就是上面 8 位十六进制第 4 段的百分比换算:06→2.4%、10→6.3%、14→7.8%。
+     ❌ 别在桥里另拍一组百分比(桥历史上拍的是 92%/85%,即 8%/15%,正是两边深浅对不上的根因)。 */
+  /* 叠什么色 = 前景色,一条式子通吃明暗两侧(暗色下 --fg 近白 = 叠白,浅色下 --fg 近黑 = 叠黑)。 */
+  --state-tint: var(--fg);
+  --state-tint-selected: var(--fg); /* @@@selected-neutral-7333 */
+  --state-hover-amount: 4%;
+  --state-press-amount: 6%;
+  --state-selected-amount: 7.5%;
+  /* @@@no-glass (Refs #6104) — design.md 的 Reject 列表逐字点名「glass」与 ornamental shadows:
+     「The paper here is a structural register, never a texture」。
+     三个名字**保留**(消费点 MainLayout.tsx 由第二阶段改),但取值已经不是玻璃了:
+     实色面 + 同一条 hairline + 唯一那档 lift。❌ 别把 rgba + backdrop-filter 加回来。 */
+  --glass-bg: var(--card);
+  --glass-border: var(--border);
+  --shadow-glass: var(--shadow-lift);
+  /* #7333 气泡也回到纯灰:别人的一档、自己的高一档(左右位置 + 明度区分,不靠色相)。 */
+  --bubble-agent: #242424;
+  --bubble-own:   #2e2e2e;
+  /* --r / --r-lg / --r-xl / --r-bubble / --r-pill 这批短名**已经删了**(见上方 shape 表的说明)。
+     ❌ 别在这里(或任何地方)把它们再定义一遍,那正是「六套刻度」的来路。 */
+  /* Listen Mode segmented pill — design .lmseg. */
+  --listen-mode-bg: var(--muted);
+  --listen-mode-fg: var(--muted-fg);
+  --listen-mode-active-bg: oklch(0.306 0 0); /* was #2c2f38 */
+  --listen-mode-active-fg: var(--fg);
+  --listen-mode-active-shadow: none; /* @@@shadow-lift —— 分段控件不是浮层 */
+  --green: #16a34a;
+  /* @@@chrome-is-ink (Refs #6104) — design.md 的 Reject 列表逐字点名「icons dropped into tinted tiles」。
+     团队分组原来是三个色相(H=55.5 / 281.1 / 154.3)的彩底 + 彩图标;现在三组都是同一层前景密度底,
+     要区分靠**名字与字重**,不靠色相。名字留着是因为消费点在别的区,取值已经不带色相了。 */
+  --team-peach: color-mix(in oklab, var(--fg) 4%, transparent);   --team-peach-ico: color-mix(in oklab, var(--fg) 8%, transparent);
+  --team-lav:   color-mix(in oklab, var(--fg) 4%, transparent);   --team-lav-ico:   color-mix(in oklab, var(--fg) 8%, transparent);
+  --team-mint:  color-mix(in oklab, var(--fg) 4%, transparent);   --team-mint-ico:  color-mix(in oklab, var(--fg) 8%, transparent);
+}
+
+/* @@@type-mobile-body —— 移动端正文 ≥14px(#1787)。#7333 起 --font-body 全局就是 14,这里不再需要单独的媒体查询。 */
+
+
+/* ── Light theme overrides ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: var(--bg);
+  --bg-secondary: rgba(249,249,249,0.85);
+  --bg-settings: var(--muted);
+  /* @@@elevated-opaque - elevated surfaces float above message content; a translucent value
+     bleeds the text underneath through pop-out menus/cards (no backdrop blur backs it). Keep
+     it opaque like the dark theme so floating surfaces stay readable. */
+  --bg-elevated: var(--card);
+  --sidebar-bg: rgba(237,237,237,0.85);
+  --nav-rail: var(--page); /* #7333 rail 与会话列表同在窗口底层 */
+  --topbar-bg: rgba(249,249,249,0.85);
+  --input-bg: rgba(255,255,255,0.6);
+  --input-card-bg: rgba(255,255,255,0.78);
+  /* @@@bubble-fill - received 暖灰、own 极淡冷蓝，无边框。
+     橙色仍只作真 accent（按钮/未读/选中微染），不进气泡。 */
+  --bubble-other: #f4f4f4;
+  /* @@@bubble-mine-neutral (#815 → #7333) 自己的消息深一档的纯灰,区分但不喧哗。 */
+  --bubble-mine: #ebebeb;
+  --text-primary: var(--fg);
+  --text-secondary: var(--muted-fg);
+  --text-tertiary: var(--faint-fg);
+  --border-color: var(--border);
+  --border-subtle: var(--border-strong);
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--muted-fg);
+  --color-text-placeholder: var(--faint-fg);
+  --color-divider: var(--border);
+  --color-active-item: var(--selected);
+  --color-bubble-received: rgba(255,255,255,0.85);
+  --color-switch-off: rgba(0,0,0,0.15);
+  /* @@@shadow-lift —— 浅色侧**只**重定义这一档,上面那一排别名跟着它走,
+     ❌ 不在这里再抄一份深浅。 */
+  --shadow-lift: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 3px 7.5px rgb(0 0 0 / 0.04), 0 0 20px rgb(0 0 0 / 0.05);
+  --shadow-dialog: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 10px 40px rgb(0 0 0 / 0.086), 0 30px 90px rgb(0 0 0 / 0.063);
+  /* composer:1px 轮廓 + 近影 + 宽环境影(--elevation-composer)。 */
+  --shadow-composer: 0 0 0 1px rgb(0 0 0 / 0.04), 0 2px 8px rgb(0 0 0 / 0.04), 0 4px 80px 8px rgb(0 0 0 / 0.024);
+  --bg-overlay-soft: rgba(0,0,0,0.18);
+  --bg-overlay-modal: rgba(0,0,0,0.44);
+  --bg-overlay-strong: rgba(0,0,0,0.28);
+  --modal-bg: var(--card);
+  --modal-border: var(--border-subtle);
+  --modal-shadow: var(--shadow-modal);
+  --bg-call-panel: rgba(249,249,249,0.96);
+  --bg-accent-soft: rgba(0,0,0,0.06);
+  /* @@@primary-ink — 浅色品牌色 = 墨(--primary) */
+  --accent: var(--primary);       /* @@@primary-ink —— 浅色侧的品牌色 = 墨 */
+  --color-switch-on: var(--primary);
+  --text-on-accent: var(--primary-fg);
+  --text-on-overlay: rgba(0,0,0,0.6);
+  --text-on-bubble-strong: rgba(0,0,0,0.85);
+  --text-on-bubble-muted: rgba(0,0,0,0.55);
+  --bubble-quote-bar-mine: rgba(0,0,0,0.18);
+  --bubble-quote-bar-other: rgba(0,0,0,0.14);
+  --text-muted: color-mix(in oklab, var(--fg) 40%, var(--bg));
+  --text-icon-default: color-mix(in oklab, var(--fg) 55%, var(--bg));
+  --text-icon-soft: color-mix(in oklab, var(--fg) 45%, var(--bg));
+  --text-icon-stroke: color-mix(in oklab, var(--fg) 40%, var(--bg));
+
+  /* ── Extended semantic tokens (D1 cleanup) — light overrides ───────────── */
+
+  --accent-hover: oklch(0.320 0 0); /* was #333333 */
+  --accent-glow-soft: rgba(0,0,0,0.08);
+  /* @@@faint-selection - 选中行近乎无感;值随 :root 别名走 --selected(#3b82f612)。 */
+
+  --bg-transparent: transparent;
+
+  --bg-auth-page: var(--page);
+
+  --text-error: var(--danger);           /* @@@one-red 别名 → --danger(两侧同一个红) */
+
+  --surface-white: var(--card);
+  --text-on-white: var(--fg);
+
+  --toast-success: #16a34a;
+  --toast-error: #E64340;
+  /* @@@live-accent (Refs #6104) — 「信息」= live,全 app 同一个蓝。暗色侧上一轮已经改了,
+     浅色侧漏了 ⇒ 同一个 toast 在明暗两侧是两个不同的蓝。 */
+  --toast-info: var(--live);
+  --toast-warning: var(--warn);
+
+  --badge-red: var(--danger);            /* @@@one-red 别名 → --danger */
+
+  /* Avatar palette stays brand-fixed across themes for identity continuity */
+
+  /* Modal-light tokens stay light surfaces in both themes (modal is intentionally white) */
+
+  --border-spinner-on-dark: color-mix(in oklab, var(--fg) 40%, transparent);
+
+  /* @@@canonical-tokens 浅色覆盖 —— #7333 亮色:#fff 内容 / #f9f9f9 底层 / #1a1c1f 前景。 */
+  --live: oklch(0.623 0.188 260); /* blue-500 #3b82f6 —— 浅底上用满饱和这一档 */
+  --bg:       #ffffff; /* 内容表面 */
+  --page:     #f9f9f9; /* 窗口底层:rail、会话列表(gray-fixed-50) */
+  --card:     #ffffff;
+  --popover:  #ffffff;
+  --sidebar:  var(--page);
+  --fg:       #1a1c1f; /* 亮色前景 */
+  --muted:    #ededed; /* 填充面(gray-fixed-100) */
+  /* 次级文字 = 前景 66% 混白:对 --bg 5.5、对 --page 5.22、对 --muted 4.69(都过 AA 4.5)。 */
+  --muted-fg: #68696b;
+  /* 装饰色:对 --bg 3.12。 */
+  --faint-fg: #919293;
+  --primary:    var(--fg);
+  --primary-fg: var(--bg);
+  /* hairline 与状态叠色的式子与暗色侧**逐字相同**:叠的是 --fg,而 --fg 自己分主题。 */
+  /* @@@hairline-7333 亮色分支:8% / 12%。 */
+  --border: color-mix(in oklab, var(--fg) 8%, transparent);
+  --border-strong: color-mix(in oklab, var(--fg) 12%, transparent);
+  --hover: color-mix(in oklab, var(--fg) 4%, transparent);
+  --selected: color-mix(in oklab, var(--fg) 7.5%, transparent); /* @@@selected-neutral-7333 */
+  --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
+  --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
+  /* @@@state-ladder-mix 浅色配方(说明见 :root),#7333 起与暗色侧同一组数。 */
+  --state-tint: var(--fg); /* 浅色下 --fg 近黑 = 叠黑;与暗色侧同一条式子 */
+  --state-tint-selected: var(--fg); /* @@@selected-neutral-7333 */
+  --state-hover-amount: 4%;
+  --state-press-amount: 6%;
+  --state-selected-amount: 7.5%;
+  /* @@@no-glass — 见 :root 那段。实色面 + hairline + 唯一那档 lift。 */
+  --glass-bg: var(--card);
+  --glass-border: var(--border);
+  --shadow-glass: var(--shadow-lift);
+  --bubble-agent: #f4f4f4;
+  --bubble-own:   #ebebeb;
+  --listen-mode-active-bg: var(--bg);
+  --listen-mode-active-fg: var(--fg);
+  --listen-mode-active-shadow: none; /* @@@shadow-lift —— 分段控件不是浮层,浅色侧也不给 */
+  --green: #16a34a;
+  /* @@@chrome-is-ink — 与暗色侧同一条式子,见 :root 那段。 */
+  --team-peach: color-mix(in oklab, var(--fg) 4%, transparent);   --team-peach-ico: color-mix(in oklab, var(--fg) 8%, transparent);
+  --team-lav:   color-mix(in oklab, var(--fg) 4%, transparent);   --team-lav-ico:   color-mix(in oklab, var(--fg) 8%, transparent);
+  --team-mint:  color-mix(in oklab, var(--fg) 4%, transparent);   --team-mint-ico:  color-mix(in oklab, var(--fg) 8%, transparent);
+}
+
+/* ── 侧栏渐进底色(设置 · 通用,默认关) ───────────────────────────────────────────
+   @@@sidebar-tint owner 2026-09-10:「最左边菜单栏是这个色,消息列表是白色,会话列表要介于
+   两者之间」。开关的真值是 `<html data-sidebar-tint="on">`(见 lib/sidebarTint.ts),这里只改写
+   `--sidebar` 一个 token —— 会话列表/通讯录/设置导航列(.gg-pane[data-role='nav'])与会话页左栏
+   (皮肤桥把 .bg-background-tertiary 与 --em-background-secondary 都接在它上面)本来就同吃这一档,
+   所以一处改完全都跟上;会话页那棵 Shadow DOM 靠自定义属性继承拿到同一个值。
+   ❌ 别去动 --nav-rail 或 --bg:这个选项要补的是**中间**那一档,两头是参照物。
+
+   权重说明:下面第一条 (0,2,0) 压得过 [data-theme="light"] (0,1,0),所以浅色必须由第二条
+   (0,3,0) 接住 —— 少了它浅色主题会拿到深色那一档。 */
+:root[data-sidebar-tint='on'] {
+  /* #7333 起 rail 与会话列表默认同在窗口底层(#121212),内容 #181818。打开这一项,会话列表取两者之间那一档,
+     三栏重新成一条阶梯;仍压在卡片面 --card(#212121)之下,侧栏里的卡片不会消失。 */
+  --sidebar: #151515;
+}
+
+:root[data-theme='light'][data-sidebar-tint='on'] {
+  /* 浅色:rail 与会话列表默认都是 --page(#f9f9f9),内容 #fff。打开这一项,会话列表取两者之间的 #fcfcfc。
+     次级文字 --muted-fg(#68696b)在它上面 5.4:1(tests/unit/desktop/styles/textContrast7333.test.ts 钉着)。 */
+  --sidebar: #fcfcfc;
+}
+
+/* ── @@@window-material-css (#7333) 窗口底层材质 ─────────────────────────────────────────────
+   真值是 `<html data-window-material>`:只由主进程按系统信号写(electron/window-material.ts,只有 mac 主窗可能是 native),
+   ❌ 在 CSS 里再按平台名或 prefers-reduced-transparency 自己判一遍 —— 两个真值会打架。
+   native 时:窗口底层那两块(最左栏、壳里的导航列)让出底色,透出系统 vibrancy;内容表面(聊天、详情、设置卡片)
+   一律保持不透明,正文不受背后变化干扰。浮层仍是不透明面 + 投影 —— 那是当前的可读降级,不等于原生 glass。
+   壳根与内容容器的底色走 --shell-bg(MainLayout 内联读它);它们透明之后,每个内容面得自己画 --bg。 */
+:root {
+  --shell-bg: var(--nav-rail);
+}
+:root[data-window-material='native'] {
+  --shell-bg: transparent;
+  --nav-rail: transparent;
+}
+/* 不透明窗口(Windows / Linux / mac 减弱透明度)的浅色:底层若是 --page(#f9f9f9),就比会话页签条 --muted(#ededed)
+   还浅,层次倒成「壳 > 条 < 内容」,一屏几块时每块顶上一条深带压在浅壳上。底层与页签条同取 --muted:
+   条与底层连成一片、内容面是唯一的亮面 —— 与 mac 原生材质下的关系一致。暗色本来就是 --page #121212 < 条 #181818,不动。
+   ❌ 再深一档(gray-fixed-150 #dfdfdf):标题栏菜单与列表次级文字 --muted-fg 在它上面只有 4.12,不过 AA 4.5。
+   --sidebar 只在壳里改:设置弹窗挂在 body 上,它的左栏不是窗口底层;「侧栏渐进底色」打开时照旧由它定列表那一档。 */
+:root[data-window-material='opaque'][data-theme='light'] {
+  --nav-rail: var(--muted);
+}
+:root[data-window-material='opaque'][data-theme='light']:not([data-sidebar-tint='on']) [data-gugu-shell-phase] {
+  --sidebar: var(--muted);
+}
+/* 只管壳里的导航列;设置弹窗(挂在 body 上,不在壳里)的左栏照旧是 --sidebar 实色。 */
+:root[data-window-material='native'] [data-gugu-shell-phase] .gg-pane[data-role='nav'] {
+  background: transparent;
+}
+/* 「侧栏渐进底色」打开时:导航列在材质上再铺一层内容色的薄纱,三栏仍是一条阶梯(rail 透 → 列表半透 → 内容实)。 */
+:root[data-window-material='native'][data-sidebar-tint='on'] [data-gugu-shell-phase] .gg-pane[data-role='nav'] {
+  background: color-mix(in oklab, var(--bg) 40%, transparent);
+}
+/* 任务页(会话页嵌在壳里):停靠的项目/会话列透出材质,它背后的几层(会话页外框、.gugu-skin 根)跟着让出底色;
+   正文(WorkspaceContentLayout 的 bg-background)与各块(screen-frame)照旧不透明。
+   浮出预览(data-peek,盖在正文上)❌ 透:那一层要稳定的不透明面。拖入文件时的高亮底(bg-background-2)也保留。
+   ❌ 把 .bg-background-tertiary 这个通用类一律清空:正文里的分块也用它。
+   外框与 .gugu-skin 根只在「这一页真有一列停靠侧栏」时才让(:has):资源库、助理这类整页不在工作区布局里,
+   它们靠根的底色当正文底,不能跟着透。 */
+:root[data-window-material='native'] .gg-session-frame:has([data-workspace-left-panel]:not(.hidden)),
+:root[data-window-material='native'] .gugu-skin:has([data-workspace-left-panel]:not(.hidden)),
+:root[data-window-material='native'] .gugu-skin [data-workspace-left-panel] > :not([data-peek]),
+:root[data-window-material='native'] .gugu-skin [data-workspace-left-panel] > :not([data-peek]) [data-region='left-sidebar']:not(.bg-background-2) {
+  background-color: transparent;
+}
+:root[data-window-material='native'][data-sidebar-tint='on'] .gugu-skin [data-workspace-left-panel] > :not([data-peek]) {
+  background-color: color-mix(in oklab, var(--bg) 40%, transparent);
+}
+
+/* #7610 owner 选 C:列表、工作区上下留边与右侧导航共用接近白色的整块底。
+   外层圆角归这块工作区,不再只圈右侧正文;布局处方见 desktop-shell.css。
+   从既有 sidebar 档取色,渐进底色开关也只改这一份真值。 */
+:root[data-window-material='native'][data-theme='light'] {
+  --desktop-workspace-bg: var(--sidebar);
+}
+
+/* @@@reset-layer (#6699) — 全局清零住在最底的 `reset` 层(本文件第 9 行排的层序)。
+   它从前**不分层**:不分层的规则整体压过所有层,于是 Tailwind 工具类(`@layer utilities`)、
+   本文件自己的 `@layer components`、以及任何同权重又排在它前面的普通规则,落在 `.gugu-skin`
+   外面的元素上时 margin / padding 一律被抹成 0 —— 没有报错,样式照写,画出来是 0。挂到 body 上的浮层首当其冲:
+   Streamdown 表格「全屏」的「复制 / 下载 / ×」和看图的顶栏(`.gg-image-viewer__bar` 的 16px)都贴死窗口右上角,
+   压在 Windows / Linux 的窗口按钮上(#6699);聊天里的 markdown 表格没有单元格内边距、嵌套列表被拍平、
+   菜单分隔线的 `my-1` 不生效。
+   挪进层之前在真 Electron 上逐元素比过主应用约 20 个界面(登录、会话列表、群聊/私聊、成员面板、各菜单、
+   通讯录、设置八个分区、看图、群设置、Windows 标题栏及其菜单)挪前挪后的计算 margin / padding:
+   变化只有上面这几族「写了却没生效」的间距,外加侧栏头像按钮的 2px;`.gugu-skin` 内 0 处(读数见 #6699)。
+   Tailwind 的 preflight(`@layer base`)本来就对每个元素做同样的清零,这一条留在 reset 层只为不依赖它。
+   `.gugu-skin`(会话页自带 preflight)照旧豁免。 */
+@layer reset {
+  *:not(.gugu-skin, .gugu-skin *) {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+html, body {
+  background: transparent;
+}
+
+body {
+  font-family: var(--font-family-system);
+  /* #7333 继承的默认字号 = 紧凑界面 14(没写字号的界面文字落在这一档;长段正文自己用 --font-prose)。 */
+  font-size: var(--font-body);
+  color: var(--text-primary);
+  line-height: var(--line-height-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+button, [role="button"] {
+  transition: background var(--transition-fast);
+}
+
+/* @@@focus-visible-7333 — 键盘焦点有环,鼠标点击不留环(用户 2026-10-17 裁决,取代 2026-07-24「任何情况都无环」;
+   product spec 焦点条)。
+   - 鼠标/触摸聚焦(:focus 但不 :focus-visible):不画。
+   - 键盘聚焦:2px live 色环,外偏 2px,跟着元素圆角走。放在 @layer base:组件要换自己的焦点表达时用工具类覆盖得了。
+   - 文字输入(input / textarea / contenteditable)以光标为焦点指示,不画环 —— 浏览器对它们鼠标点击也报 :focus-visible。 */
+:focus:not(:focus-visible) { outline: none; }
+@layer base {
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit']), textarea, [contenteditable]):focus-visible { outline: none; }
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: var(--color-text-placeholder);
+}
+
+/* Themed scrollbar —— 只给鼠标指针的宿主。
+   ::-webkit-scrollbar 一旦被定义,WebKit/Blink 就把那个元素换成**经典**滚动条:常驻、占布局宽度。
+   桌面上这正是想要的细条;触屏上却把系统自带的「滚动时才浮出、停下就消失」的悬浮条换掉了 ——
+   安卓 App 里每个可滚区域右侧都钉着一道 4px 灰条,还把内容挤窄 4px。触屏交还给系统。 */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* @@@5649 发送中 = 虚线环在环上流动;停下即「已发出」的实线空心环(同位、同半径,切换不跳)。周长 2π·5.5≈34.56。 */
+@keyframes gg-ring-march {
+  to { stroke-dashoffset: -34.56; }
+}
+.gg-ring-march { animation: gg-ring-march 1.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .gg-ring-march { animation: none; }
+}
+
+@keyframes msgEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* @@@typing-dots (#1102) — agent「运行中 ●●●」内联指示器的跳动圆点,逐值抄设计稿 .typing .tdots i 的 tbounce。 */
+@keyframes tbounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes gg-menu-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes gg-as-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes av-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes av-status-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes gg-thread-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* @@@1696 统一运行态「流光状态词」：一束亮带从文字里扫过（配 background-clip:text）。
+   区别于 skeleton-shimmer（骨架屏 200%→-200%）：此处 160%→-60% 是设计稿 #1687/#1696 定的运行态节奏。 */
+@keyframes running-shimmer {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+
+@keyframes ggCNaPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* @@@1278-sheet — responsive Sheet/Dialog primitive (components/ui/Sheet.tsx). Backdrop fades in;
+   desktop content pops (scale, like naModalPop); mobile bottom-sheet slides up from the bottom edge
+   (max-sm slide-in-from-bottom, as a gugu keyframe since tailwindcss-animate isn't installed). */
+@keyframes gg-sheet-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gg-sheet-pop-in {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes gg-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* @@@scan (#537-A) - while a native QR scan runs, ML Kit renders the camera BEHIND the WebView.
+   Make the app transparent and hide its content so the camera shows; only the scan overlay stays. */
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+body.barcode-scanner-active #root {
+  visibility: hidden;
+}
+.gugu-scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+.gugu-scan-frame {
+  width: 240px;
+  height: 240px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--radius-xl);
+  /* ⚠️ 这不是投影,是**遮罩**:0 0 0 9999px 把取景框以外的整个画面压暗。
+     @@@shadow-lift 的「只有浮层可以 lift」管的是装饰性投影,不管用阴影画的遮罩。 */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
+/* ⚠️ 这两处的白**不是**中性族的一员:它画在实时摄像头画面上(不是产品的任何一个面),
+   底色不可知 ⇒ 只能取绝对白 + 文字阴影。@@@one-knob 的「族外中性」禁令不适用于
+   「画在产品表面之外的东西上」的文字。 */
+.gugu-scan-hint {
+  color: #fff;
+  font-size: var(--font-body);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.gugu-scan-cancel {
+  margin-top: 8px;
+  padding: 10px 28px;
+  border: none;
+  border-radius: var(--radius-capsule);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-title);
+}
+
+/* @@@1323-m5 加成员「+」按钮 hover（对标 SSOT `.gm-add:hover` L255）。inline 无法表达 :hover 故走类。 */
+.gg-gm-add {
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.gg-gm-add:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+/* @@@1787 触屏按压反馈：全 app 的行/按钮反馈原本只挂 :hover(onMouseEnter),触屏点按毫无响应。
+   无 hover 能力的设备上按压给一档可感知底色；!important 压过内联 background。 */
+/* @@@state-ladder-mix (#2322) 2026-09-09:这条按压规则原本整个包在 `@media (hover: none)` 里,
+   于是**桌面鼠标下它是死的** —— 二十多个文件挂着它以为自己有按下反馈,实际上一个像素都不动。
+   (同一次改动里,ui/Button、ui/IconButton、ui/ListRow、ui/Switch 反过来把这个类摘掉了:
+   它们自己已经有按下档,再叠一层就是按下比选中还深,阶梯倒过来。所以这条只服务那些
+   **没有**自己按下档的元素。)
+   product spec 写得很明确:「按下:**桌面(鼠标)与触屏都要有** —— 不允许
+   只有触屏有按压反馈」。所以按压本身移出媒体查询;留在媒体查询里的只剩触屏专属的那一条
+   (去掉 iOS 的灰色点按高亮块,桌面根本没有这个东西)。 */
+.gg-pressable:active {
+  /* 铺一层叠色,而**不是**替换 background-color。
+     `.gg-pressable` 挂在各种底子上:透明的幽灵钮、实色的主按钮、有自己底色的失败条按钮。
+     替换 background 会把实色底整块换成半透明黑 —— 按下瞬间按钮"变没了"。
+     ❌ 别用 `box-shadow: inset ... !important` 来铺(本条一开始就是那么写的):
+     box-shadow 是**一条**属性,那样会把元素自己的投影、以及用阴影画的环整条盖掉,
+     带阴影的卡片/按钮一按就"拍平"。background-image 是独立的一层,同样跟随
+     border-radius、同样盖得住实色底,却不跟任何人抢 box-shadow。
+     `!important` 只为压过内联 background,影响面仅限 background-image。 */
+  background-image: linear-gradient(var(--press), var(--press)) !important;
+}
+@media (hover: none) {
+  .gg-pressable {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+
+/* @@@1708 「来源消息」跳转：主列表定位到被点消息后闪一下高亮，帮用户在长列表里对齐视线。
+   1.4s 由 product spec 拍板(旧值 1.8s),与 hooks/useSourceMessageReveal.ts 里清 flashMessageId 的定时器一致；用主题化 tint+ring token，明暗自适应。 */
+@keyframes msg-src-flash {
+  0%, 18% {
+    background: var(--accent-tint-row);
+    box-shadow: 0 0 0 2px var(--accent-glow-soft);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.msg-src-flash {
+  border-radius: var(--radius-control);
+  animation: msg-src-flash 1.4s ease-out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   @@@2322 交互状态与动效地基(P1) —— 规范全文(活样例)docs/ui-states-motion-spec.html,
+   行为预期 product spec。六态:rest/hover/press/selected/focus/disabled,
+   缺态=bug。状态一律 CSS(伪类/data 属性),❌ onMouseEnter+useState、❌ 命令式改 style。
+   叠色阶梯:hover(--hover) < press(--press) < selected(--selected)。
+   悬浮态一律包在 `@media (hover: hover)` 里:触屏没有「悬浮」,浏览器却会把点过的元素当成一直悬浮着 ——
+   手机上点进一行再返回,那一行就一直灰着(2026-09-23 手机端走查实拍)。按下/选中不受影响。
+   (Tailwind v4 的 hover: 变体本来就带这条媒体查询,手写的类要自己带。) */
+:root {
+  --danger: #ef4444;
+  --danger-tint: #ef44441a;
+  --danger-tint-press: #ef44442e;
+  /* @@@3079-semantic 语义三色补齐。danger 早就有 token,而「在线」与「启动中/未响应」一直是
+     组件里各写各的十六进制(#16a34a / #f59e0b 散在 ContactProfileCard、ContactsPanel…)。
+     颜色表达的是**含义**,含义必须有名字 —— 硬编码色值既破暗色主题,也让「琥珀到底是警告还是激活中」
+     只能靠读注释。ok 复用既有 --green,warn 是本次唯一新增。 */
+  --ok: var(--green);
+  --warn: #f59e0b;
+  --ok-tint: color-mix(in srgb, var(--ok) 12%, transparent);
+  --warn-tint: color-mix(in srgb, var(--warn) 14%, transparent);
+  /* #6448 agent 状态的颜色只在这里定义一次(owner 2026-09-25 定表),会话页、聊天、手机都经
+     `agentStatusColorVar`(packages/core/src/shared/agentStatusPresentation.ts)取这几个名字:
+     在跑 / 后台在跑 = 橙(聊天侧沿用的那个),需要你 = --warn 黄,出错 = --danger 红,在线 = 绿(可达)。
+     做完只加粗不上色,空闲不上色。 */
+  --agent-tone-running: #ff5f1f;
+  --agent-tone-needs-user: var(--warn);
+  --agent-tone-error: var(--danger);
+  --agent-tone-online: var(--green);
+  --agent-tone-removed: var(--color-danger);
+  --agent-tone-muted: var(--text-tertiary);
+}
+[data-theme='light'] {
+  --danger-tint: #ef444414;
+  --danger-tint-press: #ef444424;
+}
+
+/* 列表行:会话/联系人/任务/文件/成员行。选中挂 data-selected(React: data-selected={sel || undefined})。 */
+.gg-row {
+  transition: background var(--dur-fast) var(--ease);
+}
+/* #2598 置顶行常驻底色(飞书式:靠底色辨识,❌ 另起分隔条/标题栏——见 #1323/#1331 做减法先例)。
+   刻意排在交互态之前:同特异度下后写的赢,hover/press/selected 照常盖过常驻态。 */
+.gg-row[data-pinned] { background: var(--pinned); }
+@media (hover: hover) { .gg-row:hover { background: var(--hover); } }
+.gg-row:active { background: var(--press); }
+.gg-row[data-selected] { background: var(--selected); }
+/* @@@state-ladder-mix 「当前态 + 一档」。选中/开态本身已经有底色,再写一条 background 只会
+   把它**换掉** —— 指针经过时选中色反而消失。改用 background-image 铺一层纯色渐变:底色留着,
+   上面叠一层 hover/press 叠色,正好等于「当前态再深一档」。不透明底与半透明底都成立。 */
+@media (hover: hover) { .gg-row[data-selected]:hover { background-image: linear-gradient(var(--hover), var(--hover)); } }
+.gg-row[data-selected]:active { background-image: linear-gradient(var(--press), var(--press)); }
+/* #3253 行内 hover 动作钮（删除）是行的 DOM 同级 —— 行本身是 <button>，按钮不能嵌按钮。
+   指针一移到钮上，行自身的 :hover 就假掉、底色闪一下；由外层 host 接管补上。
+   pinned/selected 用 :not() 显式让开，别靠特异度赛跑去猜谁赢。 */
+@media (hover: hover) { .gg-row-host:hover > .gg-row:not([data-selected]):not([data-pinned]) { background: var(--hover); } }
+
+/* Ghost 图标钮:导航轨/composer 图标/消息工具条/关闭钮。「开」态挂 data-on。
+   图标色只在 faint-fg → muted-fg → fg 三档内移动,不引入色相。 */
+.gg-ghost {
+  border: none;
+  background: transparent;
+  color: var(--faint-fg);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+@media (hover: hover) { .gg-ghost:hover { background: var(--hover); color: var(--muted-fg); } }
+.gg-ghost:active { background: var(--press); }
+.gg-ghost[data-on] { background: var(--muted); color: var(--fg); }
+/* 开态的图标钮同理:叠一层,别把 --muted 换成更浅的 --hover。 */
+@media (hover: hover) { .gg-ghost[data-on]:hover { background-image: linear-gradient(var(--hover), var(--hover)); } }
+.gg-ghost[data-on]:active { background-image: linear-gradient(var(--press), var(--press)); }
+.gg-ghost:disabled { opacity: 0.4; cursor: default; background: transparent; color: var(--faint-fg); }
+
+/* 填充主钮:实色底,反馈走透明度阶梯,❌ 改底色、❌ 缩放。 */
+.gg-fill {
+  border: none;
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-radius: var(--radius-capsule);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+@media (hover: hover) { .gg-fill:hover { opacity: 0.88; } }
+.gg-fill:active { opacity: 0.78; }
+.gg-fill:disabled { opacity: 0.4; cursor: default; }
+
+/* 危险项:删除/退群/注销。状态反馈唯一允许的色相。 */
+.gg-danger-item {
+  color: var(--danger);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+@media (hover: hover) { .gg-danger-item:hover { background: var(--danger-tint); } }
+/* @@@state-ladder-mix 按下比悬浮深一档 —— 以前 hover 与 active 同色,危险项按下毫无反馈。
+   危险项是唯一允许带色相的状态,所以按下仍留在 danger 色系里,只把 tint 调深。 */
+.gg-danger-item:active { background: var(--danger-tint-press); }
+
+/* 分段控件/tab:容器级激活(--muted 系),与行选中(--selected)是两种语义,不得混用。 */
+.gg-seg {
+  display: flex;
+  gap: 6px;
+  background: var(--muted);
+  border-radius: var(--radius-capsule);
+  padding: 3px;
+}
+.gg-seg > button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted-fg);
+  border-radius: var(--radius-capsule);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+@media (hover: hover) { .gg-seg > button:hover { color: var(--fg); } }
+.gg-seg > button[data-on] { background: var(--listen-mode-active-bg); color: var(--listen-mode-active-fg); box-shadow: var(--listen-mode-active-shadow); }
+
+/* 菜单项:右键/下拉菜单(容器样式归 ui/Menu)。 */
+.gg-mi {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-control); /* 菜单外 12 − 内距 4 = 8 */
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+@media (hover: hover) { .gg-mi:hover { background: var(--hover); } }
+.gg-mi:active { background: var(--press); }
+.gg-mi[data-danger] { color: var(--danger); }
+@media (hover: hover) { .gg-mi[data-danger]:hover { background: var(--danger-tint); } }
+.gg-mi[data-disabled] { opacity: 0.4; pointer-events: none; }
+
+/* 输入框:无焦点环(owner 拍板,光标即焦点指示);过渡只留边框色。 */
+.gg-input {
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+/* Ghost 强调 tone:文字型 ghost(如「新建 Agent」),rest 高一档 muted-fg、hover 抬至 fg(SSOT .newa/.gm-add)。
+   @@@2322-P2 加 :not(:disabled)——本组声明在 .gg-ghost:disabled 之后,同权重后者胜,禁用钮否则会被抬色。 */
+.gg-ghost[data-tone='strong']:not(:disabled) { color: var(--muted-fg); }
+@media (hover: hover) { .gg-ghost[data-tone='strong']:hover:not(:disabled) { color: var(--fg); } }
+
+/* 拖拽把手:列宽 resizer。hover/拖动中 = --selected 填充(SSOT .resizer)——「可拖」要有可见 affordance,
+   ❌ 只在拖动中才给反馈。宿主注意别再内联 background(内联会压死类的 :hover)。 */
+.gg-resizer { transition: background var(--dur-fast) var(--ease); }
+.gg-resizer:hover,
+.gg-resizer[data-dragging] { background: var(--selected); }
+
+/* @@@2322 win/linux 自绘窗控钮(WindowControls):hover 从命令式 e.currentTarget.style 迁到类。
+   色值逐值保持现状;关闭钮 hover 红底 #E81123 是 Windows 平台惯例,专属色保留,❌ 归一到 --hover/--danger。 */
+.gg-winctl {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: default;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.gg-winctl:hover { background-color: var(--hover); color: var(--text-primary); }
+.gg-winctl--close:hover { background-color: #E81123; color: #fff; }
+
+/* 悬浮显现:消息 hover 工具条/卡片快捷操作。❌ display:none 切换(闪跳);focus-within 保键盘可达。 */
+.gg-reveal { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.gg-reveal-host:hover .gg-reveal,
+.gg-reveal:focus-within { opacity: 1; }
+
+/* 系统减弱动态:全部动效降级为即时。iteration-count 必须配对压成 1——
+   只压时长的话 infinite 动画(spinner/pulse/shimmer)会变成每圈 0.01ms 的高频闪烁,比不降级更糟。 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   系统无障碍偏好（macOS 系统设置 → 辅助功能 → 显示）
+   浏览器把这两个开关暴露成媒体查询。默认渲染完全不受影响 —— 只有用户
+   自己打开了对应开关才生效，所以是纯增量、零回归。
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* 「提高对比度」。
+   ⚠️ 这段注释原来写的是「真正的病灶是边框:--border-color 是 #ffffff0e(alpha≈5.5%),
+   实测对比度约 1.05:1,对低视力用户等于不存在」—— 而处置是只在这个系统开关下把它提到 0.55,
+   **常态值原封不动**。#6104 把常态提到了 design.md 的 10%(见上面 @@@hairline-10),
+   所以这一档现在是「在 10% 之上再往上加」,不再是「常态看不见、开了才有」。
+   ❌ 不动字号字重 —— 那会改变版式;只把线加粗,并把二档文字提到一档。
+   @@@one-knob:这里也不能引入族外中性,一律 color-mix 前景色。 */
+@media (prefers-contrast: more) {
+  :root,
+  [data-theme='light'] {
+    --border: color-mix(in oklab, var(--fg) 55%, transparent);
+    --border-color: color-mix(in oklab, var(--fg) 55%, transparent);
+    --border-subtle: color-mix(in oklab, var(--fg) 45%, transparent);
+    --border-strong: color-mix(in oklab, var(--fg) 72%, transparent);
+    --color-divider: color-mix(in oklab, var(--fg) 55%, transparent);
+    --text-secondary: var(--text-primary);
+    --muted-fg: var(--text-primary);
+    /* 三档是装饰色（见上方文字色注释），提到二档取值即可 —— 仍比正文轻，但不再是那个过不了 AA 的值 */
+    --text-tertiary: var(--muted-fg);
+    --faint-fg: var(--muted-fg);
+  }
+}
+
+/* 「减少透明度」。半透明表面在这个开关下要换成实色：叠在什么上面就取什么的实色，
+   否则底下的内容会透上来，正是这个开关要消除的干扰。 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --bg-secondary: var(--card);
+    --input-bg: var(--card);
+    --input-card-bg: var(--card);
+    --glass-bg: var(--card);
+    /* 同一条阶梯的**实色**版:把叠色就地 mix 进它所在的面,而不是另拍两个 hex。 */
+    --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
+    --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+  }
+
+  [data-theme='light'] {
+    --bg-secondary: var(--card);
+    --input-bg: var(--card);
+    --input-card-bg: var(--card);
+    --glass-bg: var(--card);
+    --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
+    --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   @@@ui-ruler 几何标尺(2026-09-03 UI 架构统一)——全 app 只有这一把尺子。
+   审计读数(apps/desktop/src/components + pages,不含 task):inline style 1337 处、面板头顶边 47/52/77 三种、
+   导航列宽 220/272/184 三种、行内距 7/8/9/13、头像 32/38/40、图标 13/15/16/18/20/22、控件高 28/30/32/34/36/44、
+   圆角 2/3/4/5/6/7/8/9/10/11/12/14/16/20/22。同一角色(列/面板头/列表行/图标钮/分区标签)有 3–5 种实现。
+   「不像大厂」的本质不是配色,是几何没有统一的标尺:每处自己拍数。下面这组 token + 原型类就是那把尺子,
+   原语(ui/Pane · ui/ListRow · ui/IconButton · ui/SectionLabel · ui/Chip)只消费这里,业务面只消费原语。
+   ❌ 新代码再写 fontSize/borderRadius/padding 字面量(scripts/check-ui-visual-spec.mjs 棘轮只减不增)。 */
+:root {
+  /* 面板/列头:所有 tab 的标题坐在同一条基线上(会话列表 / 通讯录 / 发现 / 设置 / 会话头) */
+  --pane-header-h: 52px;
+  --pane-header-h-touch: 56px;
+  --pane-pad-x: 12px;                 /* 导航列左右内距 */
+  --nav-col-w: 240px;                 /* 会话列表与通讯录同一列宽(JS 镜像 lib/uiRuler.ts,有 parity 测试钉住) */
+  /* 控件高三档 + 触控档。Button sm/md/lg、IconButton、SearchField、Field 全部只取这四个值 */
+  --control-h-sm: 28px;
+  --control-h-md: 32px;
+  --control-h-lg: 36px;
+  --control-h-xl: 40px; /* #7333 突出入口 */
+  --control-h-touch: 44px;
+  /* @@@focus-visible-7333 键盘焦点环的颜色:live 是「当前在这儿」的那一个蓝。 */
+  --focus-ring: var(--live);
+  /* 图标三档 + 导航轨专用 */
+  --icon-sm: 16px;
+  --icon-md: 18px;
+  --icon-lg: 20px;
+  --icon-rail: 22px;
+  /* 头像阶梯(Avatar SIZE_MAP 镜像) */
+  --avatar-xs: 18px;
+  --avatar-sm: 32px;
+  --avatar-md: 40px;
+  --avatar-lg: 64px;
+  --avatar-xl: 96px;
+  /* 行高与字号配对——之前 Tailwind 算出来的 14.67/18.57/26.44 都是没人定过的数 */
+  --lh-caption: 18px;
+  --lh-body: 20px;
+  --lh-title: 24px;
+  --lh-heading: 28px;
+  --lh-page: 32px;
+  --lh-prose: 24px; /* --font-prose 的行高:16/24 */
+  /* @@@type-12 这里曾有过一个 12px 的「副标题」档 —— 字阶外偷偷长出来的第六档(主 renderer 174 处)。
+     owner 2026-09-03 拍板消灭它:11、12、13 相邻各差 1px,人眼分辨不出,三档在干一档的事。
+     分流规则(已执行完):要读的内容 → --font-body(13) 配次级色;只是标记(时间戳/计数/徽标/归属小字)
+     → --font-caption(11)。层级靠颜色与字重,字号是最后手段。
+     ❌ 别再把它加回来,也❌ 别写裸 12px —— scripts/check-ui-visual-spec.mjs 是硬闸,一处都判红。 */
+  /* 列表行 */
+  --row-pad: 8px;
+  --row-gap: 10px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   @@@type-role (Refs #6104) — 两个**此前全仓零 CSS 定义**的类,现在真有定义了。
+
+   它们从 #3334 起就写在产品源码里(gg-type-page-title 8 处 / gg-type-display 3 处),
+   但只是 visual-scale-guard 的**逃生标记** —— 一个只有尺子读得懂、浏览器读不懂的类名。
+   于是「页级标题」这件事靠每个消费点自己再写一遍 text-xl font-semibold tracking-tight,
+   写漏一样就少一样(实测 page-header.tsx / page-layout.tsx / import-header.tsx 三处都没有
+   font-semibold)。design.md:「Type roles are a closed set … **Use the role.
+   Do not compose a one-off size.**」⇒ 角色自己得带上它的排版。
+
+   ⚠️ 放在 @layer components 而不是不分层:不分层恒压过 @layer utilities,那会让这两个类
+   把消费点上的任何 text- / font- / tracking- 工具类**全部**顶掉 —— 角色应该给出默认,不应该夺权。
+   现在的次序是「角色出默认 → utility 可覆盖」。
+   ⚠️ 主 app 与会话页拆掉 shadow root 之后进的是同一个 document(#2802),所以这一份定义
+   两边都到得了;脱开咕咕样式表的独立会话页构建拿不到它(与改之前一样,不是回归)。 */
+@layer components {
+  /* 页级标题:一页只有一个。20/28 semibold + 紧字距。 */
+  .gg-type-page-title {
+    font-family: var(--font-display);
+    font-size: var(--font-size-xl);
+    line-height: var(--lh-page);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: -0.02em;
+  }
+
+  /* display:字号由**内容/可读性**驱动而非 chrome 字阶(渲染出来的 markdown 标题、
+     要照着念的配对码)。所以这里只定「这是页面自己的声音」这一面,❌ 不定字号 ——
+     定了就等于把它拉回 chrome 字阶,而它存在的理由正是不在那条阶梯上。 */
+  .gg-type-display {
+    font-family: var(--font-display);
+  }
+}
+
+/* 列:导航列(会话列表/通讯录/设置导航)与详情列。同一角色同一底色、同一分隔线。 */
+.gg-pane { display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
+.gg-pane[data-role='nav'] {
+  width: var(--nav-col-w);
+  min-width: var(--nav-col-w);
+  flex: 0 0 auto;
+  background: var(--sidebar);
+  border-inline-end: 1px solid var(--border);
+}
+.gg-pane[data-role='detail'] { flex: 1 1 auto; background: var(--bg); overflow: hidden; }
+.gg-pane[data-mobile] { width: 100%; min-width: 0; flex: 1 1 auto; border-inline-end: none; }
+
+/* 面板头:固定高、标题 + 右侧动作车道;可拖窗。标题永远同一档(title 16/24 semibold),移动壳升页级 24/32。 */
+.gg-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--pane-header-h);
+  padding: 0 var(--pane-pad-x);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+.gg-pane-header[data-mobile] { height: var(--pane-header-h-touch); }
+.gg-pane-header[data-divider] { border-bottom: 1px solid var(--border); }
+.gg-pane-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0; /* #7333 系统字体自带光学字距,不再收紧 */
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.gg-pane-header[data-mobile] .gg-pane-title {
+  font-size: var(--font-size-xl);
+  line-height: var(--lh-page);
+  letter-spacing: -0.02em;
+}
+/* 细进度条(手机附件卡从那台电脑取文件):原生 <progress>,读屏自带进度;颜色同更新下载那条。 */
+.gg-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: var(--radius-capsule);
+  overflow: hidden;
+  appearance: none;
+  background: var(--border-strong);
+}
+.gg-progress::-webkit-progress-bar { background: var(--border-strong); border-radius: var(--radius-capsule); }
+.gg-progress::-webkit-progress-value { background: var(--accent); border-radius: var(--radius-capsule); transition: width var(--transition-normal); }
+.gg-progress::-moz-progress-bar { background: var(--accent); border-radius: var(--radius-capsule); }
+/* 标题下面一行小字(手机文件预览的「HTML · 791 B」):标题仍是 h2,两行一起占标题那一格。 */
+.gg-pane-title-stack { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
+.gg-pane-title-stack > .gg-pane-title { flex: none; }
+.gg-pane-meta {
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* margin-left:auto:动作区永远贴右。标题是字符串时 .gg-pane-title 自己 flex:1 撑满;传节点(手机任务页的标题 + 状态)不撑,
+   ⋯ 就会紧贴在标题后面。 */
+.gg-pane-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; margin-left: auto; -webkit-app-region: no-drag; }
+
+/* 列表行:会话行/联系人行/设置导航行/成员行。状态(hover/press/selected/pinned)由 .gg-row 供给,这里只管几何。 */
+.gg-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--row-gap);
+  width: 100%;
+  padding: var(--row-pad);
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-control);
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+.gg-list-row[data-mobile] { padding: 10px; gap: 12px; }
+/* #7333 导航行(侧栏、设置左栏):胶囊。普通列表行(联系人、成员)不挂这个变体,保持控件档圆角。 */
+.gg-list-row[data-variant='nav'] { border-radius: var(--radius-capsule); padding-inline: var(--spacing-md); }
+.gg-list-row-leading { flex-shrink: 0; display: flex; position: relative; }
+.gg-list-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gg-list-row-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gg-list-row-title {
+  flex: 0 1 auto;   /* 贴合内容:附件(⚡ / chip)紧跟名字,时间靠 meta 的 margin-inline-start:auto 推到右端 */
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 标题旁的附件(设备名 chip)让位给名字:chip 最宽 40%、收缩权重 8 倍于名字,空间不够时先截 chip。
+   原来名字被 chip 挤成一个字(「论」+ MacBook Pro),就是没有这条优先级。 */
+.gg-list-row-line > .gg-chip { flex-shrink: 8; max-width: 40%; }
+.gg-list-row-line > .gg-list-row-title + * { flex-shrink: 0; }
+.gg-list-row-line > .gg-list-row-title + .gg-chip { flex-shrink: 8; }
+.gg-list-row[data-emphasis] .gg-list-row-title { font-weight: var(--font-weight-semibold); }
+.gg-list-row[data-mobile] .gg-list-row-title { font-size: var(--font-size-md); line-height: var(--lh-title); }
+.gg-list-row-subtitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 空预览也保留正文行高,避免第二行只剩 chip 时头像、标签和相邻行错位。 */
+  min-height: var(--lh-body);
+  /* @@@type-12 二级文本 = 正文字号 + 次级色（层级靠颜色不靠字号）；原来 12px 是字阶外的第六档。 */
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-list-row[data-mobile] .gg-list-row-subtitle { font-size: var(--font-body); line-height: var(--lh-body); }
+.gg-list-row-meta {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--faint-fg);
+  font-variant-numeric: tabular-nums;
+}
+.gg-list-row-trailing { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
+
+/* 分区标签:「Agent / 个人 / 群组」「通用」……全 app 一种写法(#7333:12/18 medium,muted-fg,不加字距 —— 系统字体不需要)。 */
+.gg-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--row-pad);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+  color: var(--muted-fg);
+  user-select: none;
+}
+.gg-section-label[data-interactive] { cursor: pointer; border-radius: var(--radius-control); }
+.gg-section-label[data-interactive]:hover { color: var(--fg); }
+
+/* 图标钮:一种实现。颜色三态来自 .gg-ghost(必须同时挂),这里只定尺寸(sm 28 / md 32 / lg 36;手机上 md / lg 为触控 44)。
+   取代 chatPresentation.ICON_BTN(28,4px 圆角)、GHOST_BTN(30,药丸)、mheadIconClass(32 网格)三份副本。 */
+.gg-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  padding: 0;
+  border: 0;
+}
+.gg-icon-btn[data-size='sm'] { width: var(--control-h-sm); height: var(--control-h-sm); }
+.gg-icon-btn[data-size='lg'] { width: var(--control-h-lg); height: var(--control-h-lg); }
+/* 手机壳里(IconButton 自己读 useMobileShell,和页面分形态是同一个判断):md / lg 长到触控高度;sm 是行内的
+   (附件药丸、卡片角的移除钮),样子不变,点击区由 ::after 撑到触控高度。❌ 再让调用方逐个传「这是手机」——漏一处就是一颗 28px 的钮。
+   position 用 :where() 归零特异性:调用方自己的 absolute(卡片角那颗)照样生效。 */
+.gg-icon-btn[data-mobile][data-size='md'], .gg-icon-btn[data-mobile][data-size='lg'] { width: var(--control-h-touch); height: var(--control-h-touch); }
+:where(.gg-icon-btn[data-mobile][data-size='sm']) { position: relative; }
+.gg-icon-btn[data-mobile][data-size='sm']::after {
+  content: '';
+  position: absolute;
+  inset: calc((var(--control-h-sm) - var(--control-h-touch)) / 2);
+}
+.gg-icon-btn[data-shape='pill'] { border-radius: var(--radius-capsule); }
+.gg-icon-btn > svg { display: block; width: var(--icon-md); height: var(--icon-md); }
+.gg-icon-btn[data-size='sm'] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.gg-icon-btn[data-size='lg'] > svg { width: var(--icon-lg); height: var(--icon-lg); }
+
+/* 小标签 chip:设备名 / 群聊 / 共享 / 计数。18px 高、药丸、caption 字号,可截断,不抢名字的宽度。 */
+.gg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-capsule);
+  background: var(--muted);
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: 18px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+.gg-chip[data-tone='accent'] { background: var(--primary); color: var(--primary-fg); font-weight: var(--font-weight-semibold); }
+/* danger chip 的字画在饱和红上,取绝对白是对比度决定的,不是中性族的一员(同上)。 */
+.gg-chip[data-tone='danger'] { background: var(--danger); color: #fff; font-weight: var(--font-weight-semibold); }
+.gg-chip[data-tone='ok'] { background: var(--ok-tint); color: var(--ok); }
+.gg-chip[data-tone='warn'] { background: var(--warn-tint); color: var(--warn); }
+.gg-chip[data-appearance='plain'] { background: transparent; }
+/* 计数徽标:同一 chip 的圆形变体(未读数) */
+.gg-chip[data-shape='count'] { min-width: 18px; padding: 0 5px; justify-content: center; font-variant-numeric: tabular-nums; }
+
+/* #5111 设置→账户 头像上传钮的**内容**。钮本身是 ui/Button variant=ghost(hover/press/disabled
+   全部由那份变体表出,这里不重复一遍);这三条只管钮里面那块 40px 的头像与上传中的遮罩。 */
+.gg-avatar-upload-frame {
+  position: relative;
+  display: block;
+  width: var(--avatar-md);
+  height: var(--avatar-md);
+  border-radius: var(--radius-circle);
+  overflow: hidden;
+}
+
+.gg-avatar-upload-busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-overlay-strong);
+}
+
+.gg-avatar-upload-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-spinner-on-dark);
+  border-top-color: var(--surface-white);
+  border-radius: var(--radius-circle);
+  animation: spin 0.6s linear infinite;
+}
+
+/* @@@5856 话题锚点 —— 它是**那条消息的附件**,不是另一条消息(owner 2026-09-19:
+   「话题只是某一条消息的附件的思路你懂不」)。Discord 能不画连接线,是因为它每条消息都左对齐、
+   共用一条视觉轨;咕咕的气泡左右交替,所以「我挂在上面那一条上」这件事必须自己说出来 ——
+   一条 1px 的折线从气泡底边拐进锚点,贴哪一侧由 data-side 决定。
+   ❌ 不给底色、不给边框:它比它所附属的那条消息还重就本末倒置了,hover 才浮出来。 */
+/* @@@5856 话题锚点 = 挂在那条气泡上的附件,不是另一条消息。
+   「从属」只靠两样说清:与气泡同一侧、边对边对齐,外侧一条 2px 竖轨从气泡底角接下来。
+   竖轨用的是产品自己的引用条语汇(--bubble-quote-bar-*),❌ 不新造一种记号。
+   前一版在气泡外侧画了个折线弯钩(Discord 的做法):那要求锚点相对气泡缩进、弯钩活在头像那条空槽里,
+   而这里锚点与气泡边对边,弯钩只能长在气泡**外面**,实机上看就是头像旁边一个连不着任何东西的小钩。 */
+/* @@@5856 系统消息里的「全部撤回」:句子里的一段强调色文字,不是底下一颗按钮。
+   咕咕的强调色是单色明度差(--primary 浅色下是纯黑、深色下是白),所以「强调」= 比这句灰字更实,
+   可点则靠 hover 下划线表达。字号字重继承上下文,❌ 不让它比句子本身更大。 */
+.gg-agent-flood-undo {
+  color: var(--primary);
+  font-size: inherit;
+  font-weight: var(--font-weight-medium);
+  line-height: inherit;
+}
+.gg-agent-flood-undo:hover:not([data-disabled]) { background: transparent; text-decoration: underline; }
+
+/* @@@6386 「X 加入了群聊」里的名字:比灰字深一档;可点的是行内按钮(点了在输入框里 @ 他),
+   外形压成文字,悬停/键盘聚焦用下划线示意(全局无焦点环,见 @@@2322)。 */
+.gg-member-join-name,
+.gg-member-join-name-static {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+.gg-member-join-name { font-size: inherit; line-height: inherit; cursor: pointer; }
+.gg-member-join-name:hover,
+.gg-member-join-name:focus-visible { background: transparent; color: var(--primary); text-decoration: underline; }
+
+.gg-topic-anchor { position: relative; }
+.gg-topic-anchor::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--bubble-quote-bar-other);
+  pointer-events: none;
+}
+.gg-topic-anchor[data-side='theirs'] { align-items: flex-start; padding-left: 10px; }
+.gg-topic-anchor[data-side='theirs']::before { left: 0; }
+.gg-topic-anchor[data-side='mine'] { align-items: flex-end; padding-right: 10px; }
+.gg-topic-anchor[data-side='mine']::before { right: 0; background: var(--bubble-quote-bar-mine); }
+
+/* @@@5856 会话列表里的话题子行:挂在来源那条线底下,❌ 不是一条平级的会话(owner:「怎么还有把一个
+   topic 当做群的形式表达」)。缩进 + 一条竖轨是「从属」唯一读得出来的两样;❌ 不给它头像 ——
+   头像是身份的东西,话题不是一个身份,给了它就立刻长得像个群。 */
+/* @@@5856 名册 / 附件嵌在话题分栏里(头栏 👥 对话题已经没有入口了,见 TopicSplitPane)。
+   宽度与边线由分栏给的外壳管(RightPanel width="fill"),这里只收头。
+   嵌进来的附件面板自带的「标题 + 关闭」收掉:标题分栏那条头已经说了(话题名 + 引自哪一句),
+   关闭由分栏头上那两颗切换键负责。留着就是两条头叠着摆 + 两颗都能返回的 × —— owner 的「卡里套卡」。
+   名册的头由分栏自己画(TopicSplitPane),本来就不带关闭;改名住在里面,它是控件不是标题。 */
+.gg-topic-split-members .gg-hist-hh { display: none; }
+
+.gg-topic-subrows { position: relative; }
+.gg-topic-subrows::before {
+  content: '';
+  position: absolute;
+  left: 27px;
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border-subtle);
+}
+
+/* @@@agent-chat-hero 与 agent 单聊的头栏(AgentChatHero):没有实线,头像独自居中在标准高度的头栏里,名字 + 引擎小图标
+   靠左(普通头栏标题的位置),动作图标留在右角;没有第二行字、没有额外高度。
+   小鸟(画布 80,手机 56;身体约占画布高的 82%)比标准头栏高,桌面上画布上沿贴窗格顶边、向下探出约 24px;
+   header 抬一层 z-index,探出的部分压在消息列表之上。手机的头栏是 56px,56 的画布正好装下,仍然垂直居中。
+   传了照片的 agent 是一张圆图(没有 data-hero-bird):保持原来的尺寸居中,不上移、不探出。
+   头像用绝对定位 + inset:0/margin:auto 居中(❌ 不用 transform:Button 的按压态占着 transform),所以它在**整条头栏**里居中,
+   而不是在「标题与动作图标之间」居中;名字最多占标题槽的一半,宽名字只会截断、不会撞上中间的头像。
+   ❌ 不在列表顶边做渐隐遮罩(owner 10-13:阴影太显,把紧贴头栏的时间戳都糊了):头栏下沿就是列表的裁切线。
+   ❌ 也不把头栏做成浮在列表上的浮层 —— 头栏是 Electron 的拖窗口区,盖在列表上会让那一条的滚轮/点击失效(Windows)。 */
+.gg-pane-header.gg-agent-header { position: relative; z-index: 1; }
+.gg-agent-hero { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.gg-agent-hero-name { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 50%; font-weight: 600; font-size: var(--font-body); line-height: var(--lh-body); color: var(--fg); min-width: 0; }
+.gg-agent-header .gg-agent-hero-avatar { position: absolute; inset: 0; margin: auto; width: fit-content; height: fit-content; }
+/* 桌面小鸟:画布上边那 12%(≈9.6px)透明留白是引擎给蹦跳留的余量 —— 窗格根节点 overflow:hidden 且头栏就在窗口顶,
+   画布上沿必须落在窗格顶边以内,蹦起来头才不会被裁。按钮自带 1px 透明边框,所以上移 1px 让画布上沿正好是 0;
+   身体顶边离窗格顶边 ≈ 10px,往下长出头栏约 24px(AGENT_HERO_OVERHANG_PX)。 */
+.gg-agent-header:not([data-mobile]) .gg-agent-hero-avatar[data-hero-bird] { top: -1px; bottom: auto; }

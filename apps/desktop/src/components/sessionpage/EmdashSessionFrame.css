@@ -1,0 +1,98 @@
+.gg-session-frame {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+.gg-session-frame-host {
+  width: 100%;
+  height: 100%;
+}
+
+.gg-session-frame-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-raised);
+  background: var(--bg);
+  color: var(--muted-fg);
+}
+
+.gg-session-frame-loading {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.gg-session-frame-error {
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-xl);
+}
+
+.gg-session-frame-error-card {
+  display: flex;
+  width: min(420px, 100%);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-2xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl); /* #7333 页面里的卡片 12 */
+  background: var(--card);
+  /* @@@shadow-lift (Refs #6104) — 这是页面里的一张错误卡,不是浮层 ⇒ 不给投影。
+     原来是 var(--shadow-card),那个 token 已删(design.md:阴影全局清零,只有浮层可以 lift)。 */
+  text-align: center;
+}
+
+.gg-session-frame-error-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  color: var(--text-secondary);
+}
+
+.gg-session-frame-error-title {
+  color: var(--text-primary);
+  font-size: var(--font-title);
+  font-weight: var(--font-weight-semibold);
+}
+
+.gg-session-frame-error-copy {
+  max-width: 34ch;
+  color: var(--text-tertiary);
+  font-size: var(--font-body);
+  line-height: 1.6;
+}
+
+.gg-session-frame-retry {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--primary);
+  color: var(--primary-fg);
+  font: inherit;
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+/* @@@task-web-host — 网页版宿主未连接时,把宿主地址一并给出(用户要核对/照着起宿主)。 */
+.gg-session-frame-error-endpoint {
+  display: block;
+  margin-top: var(--space-2, 8px);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 11px);
+  color: var(--text-secondary);
+  word-break: break-all;
+}

@@ -1,0 +1,23 @@
+# Open Source License
+
+Gugu (咕咕) is licensed under a modified version of the Apache License 2.0, with the following additional conditions:
+
+1. Gugu may be utilized commercially, including as a backend service for other applications or as an internal collaboration platform for enterprises. Should the conditions below be met, a commercial license must be obtained from the producer:
+
+a. Multi-tenant service: Unless explicitly authorized by the producer in writing, you may not use the Gugu source code to operate a multi-tenant environment.
+    - Tenant Definition: Within the context of Gugu, one tenant corresponds to one customer, an individual or an organization, to whom a deployment is provided. A deployment used by one individual for personal purposes, or by one organization for its own members, employees and their assistants (agents), is a single tenant and does not require a commercial license, regardless of how many accounts, devices or assistants it contains.
+    - Operating a deployment that serves multiple unrelated individuals or organizations, for example as a hosted or managed service offered to the public or to customers, constitutes a multi-tenant environment.
+
+b. LOGO and copyright information: In the process of using Gugu's frontend, you may not remove or modify the LOGO or copyright information in the Gugu applications. This restriction is inapplicable to uses of Gugu that do not involve its frontend.
+    - Frontend Definition: For the purposes of this license, the "frontend" of Gugu includes all components located in the `apps/` directory and the user interface packages under `packages/` when running Gugu from the raw source code, or the desktop, mobile and web applications built from them.
+
+2. As a contributor, you should agree that:
+
+a. The producer can adjust the open-source agreement to be more strict or relaxed as deemed necessary.
+b. Your contributed code may be used for commercial purposes, including but not limited to its cloud business operations.
+
+Apart from the specific conditions mentioned above, all other rights and restrictions follow the Apache License 2.0, whose full text is included in this repository as `LICENSE-APACHE-2.0` (also available at http://www.apache.org/licenses/LICENSE-2.0).
+
+Third-party components included in or distributed with this repository, such as dependencies, vendored code, patches of third-party packages and bundled tools, remain under their own original licenses; these conditions do not apply to them.
+
+© 2026 北京具意智能科技有限公司 (Beijing Juyi Intelligent Technology Co., Ltd.)

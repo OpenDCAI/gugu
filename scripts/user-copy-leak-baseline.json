@@ -1,0 +1,272 @@
+[
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/en-US/contacts.ts",
+    "count": 3
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/en-US/discover.ts",
+    "count": 8
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/en-US/main.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/en-US/messaging.ts",
+    "count": 11
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/en-US/settings.ts",
+    "count": 9
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/zh-CN/contacts.ts",
+    "count": 3
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/zh-CN/discover.ts",
+    "count": 8
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/zh-CN/main.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/zh-CN/messaging.ts",
+    "count": 11
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/i18n/locales/zh-CN/settings.ts",
+    "count": 9
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/session/renderer/features/settings/agents-page/agent-install.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/session/renderer/localization/messages-capabilities.ts",
+    "count": 4
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/session/renderer/localization/messages-session-workflows.ts",
+    "count": 32
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "apps/desktop/src/session/renderer/localization/messages.ts",
+    "count": 10
+  },
+  {
+    "rule": "copy-leaks-internal-detail",
+    "file": "packages/session-chat-ui/src/localization.tsx",
+    "count": 4
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/main.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/model-access.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/session/main/core/sessions/impl/local-session.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/session/main/core/extensions/extensions-service.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/session/main/core/github/services/github-host-service.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/electron/sessionpage/opencode-serve-attach-transport.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/components/chat/AgentSessionpagePresentation.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/components/discover/PostComments.tsx",
+    "count": 3
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/components/sessionpage/AgentSharePopover.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/lib/teamProvisionSaga.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/pages/explore/PlazaMomentsPane.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/pages/explore/PlazaPostCard.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/pages/explore/WorkbenchPane.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/store/chatOutbox.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/store/contacts.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/session/renderer/features/settings/agents-page/AcpAuthenticateSignIn.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "apps/desktop/src/session/renderer/features/sessions/stores/git-worktree-store.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "packages/core/src/cloud/deviceRuntimeHost.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "packages/session-runtime/src/acp-agents/connection/acp-agent-connection.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-field",
+    "file": "packages/session-runtime/src/acp-agents/runtime/session-manager.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/components/AddFriendSearch.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/browser/browser-toolbar-actions.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/acp/acp-chat-store.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/settings/components/BrowserSettingsCard.tsx",
+    "count": 4
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/settings/components/ExtensionsSettingsCard.tsx",
+    "count": 6
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/settings/components/GitHubAccountsSection.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/settings/components/KeyboardSettingsCard.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sidebar/sidebar-session-item.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sidebar/use-sidebar-drop.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/components/commit-card.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/components/pr-entry/pr-entry.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/diff-view/changes-panel/pr-section.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/editor/editor-file-tree.tsx",
+    "count": 6
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/git-action-handlers.ts",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/start-side-session.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/features/sessions/stores/project-sessions-store.ts",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/lib/components/github-device-flow-modal.tsx",
+    "count": 1
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/lib/components/titlebar/open-in-menu.tsx",
+    "count": 2
+  },
+  {
+    "rule": "copy-leaks-raw-error-slot",
+    "file": "apps/desktop/src/session/renderer/lib/providers/github-context-provider.tsx",
+    "count": 1
+  }
+]

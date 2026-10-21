@@ -1,0 +1,11 @@
+{
+  // User-owned settings must survive the Gugu registration edit.
+  "$version": 4,
+  "mcpServers": {
+    // Keep this server and its formatting unchanged.
+    "userOwned": {
+      "command": "my-user-server",
+      "args": ["--keep"]
+    }
+  }
+}

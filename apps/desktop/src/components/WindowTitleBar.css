@@ -1,0 +1,91 @@
+/* @@@win-titlebar-row — Windows 独立标题栏行(WindowTitleBar.tsx)。
+   ⚠️ 选择器都带 `:root`:tokens.css 那条 `*:not(.gugu-skin, …){margin:0;padding:0}` 与单个类同特指度,
+   谁后加载谁赢;带上 `:root` 才稳压(与 Sidebar.css 的 @@@rail-inset 同一处方)。 */
+
+:root .gg-titlebar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--window-titlebar-height);
+  z-index: var(--z-chrome);
+  display: flex;
+  align-items: center;
+  /* 与最左侧栏同色:同在窗口底层。 */
+  background: var(--nav-rail);
+  color: var(--text-secondary);
+  font-family: var(--font-family-system);
+  font-size: var(--font-body);
+  user-select: none;
+  /* 整条是拖拽区;下面每个可点的东西各自退订。 */
+  -webkit-app-region: drag;
+}
+
+/* ← → 占侧栏那一列:与 rail 同宽、居中,菜单栏于是正好从 rail 右缘起。 */
+:root .gg-titlebar-nav {
+  width: var(--sidebar-rail-width);
+  flex: 0 0 var(--sidebar-rail-width);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+/* 面板开关(#6753)。左那颗离 ← → 格子 8px = mac 上那颗离 rail 的 8px(window-chrome 的 TITLEBAR_LEFT_EDGE_GAP_PX),
+   两个平台同一个横坐标;右那颗离窗口控件 8px(TITLEBAR_ACTION_EDGE_GAP_PX)。 */
+:root .gg-titlebar-panel-toggle {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+:root .gg-titlebar-panel-toggle[data-edge='start'] {
+  margin-inline: 8px 4px;
+}
+:root .gg-titlebar-panel-toggle[data-edge='end'] {
+  margin-inline-end: 8px;
+}
+:root .gg-titlebar-panel-toggle:empty {
+  display: none;
+}
+
+:root .gg-titlebar-menubar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+:root .gg-titlebar-menu-trigger {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: default;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+/* 键盘在菜单栏里左右走时,落点靠底色标出来 —— ❌ 焦点环(@@@no-focus-ring,owner 拍板全站无环)。 */
+:root .gg-titlebar-menu-trigger:hover,
+:root .gg-titlebar-menu-trigger:focus-visible,
+:root .gg-titlebar-menu-trigger[data-popup-open] {
+  background: var(--press);
+  color: var(--text-primary);
+}
+
+/* 下拉菜单的弹层(ui/Menu 的同一张浮层),只多给一个最小宽度,让快捷键列对齐。 */
+:root .gg-titlebar-menu-popup {
+  min-width: 200px;
+}
+
+:root .gg-titlebar-spacer {
+  flex: 1 1 auto;
+  align-self: stretch;
+}
+
+:root .gg-titlebar-controls {
+  display: flex;
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+}

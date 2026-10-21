@@ -1,0 +1,90 @@
+/*
+ * #7199 手机「连接应用」的连接页手机才要的几样(表单、等回跳、设备码、二维码);卡、行、输入框、钮都用 assistant-today.css 那一套。
+ * 字号一律走 --ta-* 变量;能点的至少 44 高(咕咕手机触控规范)。
+ */
+
+.ta-phone-setup { display: flex; flex-direction: column; gap: 14px; }
+
+/* 表单一格:输入框占满,保密的那格右边叠一个「显示 / 隐藏」。 */
+.ta-phone-setup-field { position: relative; display: block; }
+.ta-phone-setup-field .ta-input { padding-right: 52px; min-height: 44px; }
+.ta-phone-setup-reveal {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  min-width: 44px;
+  min-height: 44px;
+  margin: auto 0;
+  border-radius: 999px;
+  color: var(--ta-muted);
+}
+.ta-phone-setup-reveal svg { width: 18px; height: 18px; }
+
+/* 等回跳:三步说明(编号在字外,换行对齐)。 */
+.ta-phone-setup-steps {
+  margin: 0;
+  padding: 0 6px 0 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  color: var(--ta-fg);
+}
+
+.ta-phone-setup-actions { display: flex; flex-direction: column; gap: 10px; }
+.ta-phone-setup-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 6px;
+  font-size: var(--ta-fs-note);
+  line-height: var(--ta-lh-note);
+  color: var(--ta-muted);
+}
+
+/* 设备码:大一号、等宽、字距拉开,方便隔着屏幕核对;可整段选。 */
+.ta-phone-setup-code {
+  border-radius: 16px;
+  background: var(--ta-glass-strong);
+  padding: 18px 16px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--ta-fs-page);
+  line-height: var(--ta-lh-page);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--ta-fg);
+  user-select: all;
+  word-break: break-all;
+}
+
+/* 二维码:白底(扫码要对比度),不随主题变。 */
+.ta-phone-setup-qr {
+  align-self: center;
+  width: 200px;
+  height: 200px;
+  border-radius: 16px;
+  background: #fff;
+  padding: 8px;
+}
+
+.ta-phone-setup-prereq { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 16px; }
+
+/* 失败:先一句哪一步没成,对方的话作小字,再一个「重试」。 */
+.ta-phone-setup-fail { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ta-phone-setup-detail {
+  margin: 0;
+  padding-inline: 6px;
+  font-size: var(--ta-fs-sub);
+  line-height: var(--ta-lh-sub);
+  color: var(--ta-muted);
+  overflow-wrap: anywhere;
+}
+
+/* 详情里的状态、危险钮。 */
+.ta-phone-warn { color: var(--warn); }
+.ta-phone-setup .ta-wide-btn,
+.ta-wide-btn[data-tone='danger'] { min-height: 44px; }
+.ta-wide-btn[data-tone='danger'] { color: var(--danger); }

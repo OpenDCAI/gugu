@@ -1,0 +1,14 @@
+/* transition: opacity 1s ease; */
+.card {
+  transition: opacity 150ms ease;
+}
+
+.multi-line {
+  transition:
+    color .2s ease,
+    opacity 0.15s ease;
+}
+
+.token {
+  transition: opacity var(--dur-fast) var(--ease);
+}

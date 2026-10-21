@@ -1,0 +1,82 @@
+.acp-agent-create {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 24px;
+  background: var(--bg-primary);
+}
+
+.acp-agent-create-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.acp-agent-create-composer {
+  width: min(672px, 100%);
+  min-width: 0;
+}
+
+.acp-agent-create-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.acp-agent-create-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  max-width: 180px;
+  padding: 0 7px;
+  font-size: var(--font-body);
+}
+
+.acp-agent-create-project {
+  max-width: 220px;
+  padding: 0 7px;
+  font-size: var(--font-body);
+}
+
+.acp-agent-create-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acp-agent-create-device-status {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+.acp-agent-create-error {
+  margin: 10px 4px 0;
+  color: var(--text-error);
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+.acp-agent-create-sheet-content {
+  padding: 16px;
+}
+
+/* 模型下拉里的分组名与「这一组为什么空」(#6264)。 */
+.acp-agent-create-model-group {
+  padding: 6px 8px 2px;
+  font-size: var(--font-caption);
+  color: var(--text-tertiary);
+}
+.acp-agent-create-model-note {
+  padding: 2px 8px 6px;
+  font-size: var(--font-caption);
+  color: var(--text-tertiary);
+}

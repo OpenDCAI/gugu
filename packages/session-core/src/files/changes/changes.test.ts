@@ -1,0 +1,260 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type {
+  IWatchService,
+  WatchEvent,
+  WatchHandle,
+  WatchOptions,
+} from '../../services/fs-watch/api';
+import { FileChanges } from './changes';
+import type { FileChangeUpdate } from './types';
+
+class ManualWatchService implements IWatchService {
+  async nudge(): Promise<boolean> {
+    return false;
+  }
+  private consumers: Array<{
+    onEvents: (events: WatchEvent[]) => void;
+    options: WatchOptions;
+  }> = [];
+
+  readonly roots: string[] = [];
+  readonly ignores: Array<string[] | undefined> = [];
+  readonly recursive: Array<boolean | undefined> = [];
+
+  get watchCount(): number {
+    return this.consumers.length;
+  }
+
+  watch(
+    root: string,
+    onEvents: (events: WatchEvent[]) => void,
+    options: WatchOptions = {}
+  ): WatchHandle {
+    this.roots.push(root);
+    this.ignores.push(options.ignore);
+    this.recursive.push(options.recursive);
+    this.consumers.push({ onEvents, options });
+    return {
+      ready: async () => {},
+      release: async () => {},
+    };
+  }
+
+  emit(events: WatchEvent[]): void {
+    for (const consumer of this.consumers) consumer.onEvents(events);
+  }
+
+  resync(): void {
+    for (const consumer of this.consumers) consumer.options.onResync?.();
+  }
+
+  async dispose(): Promise<void> {}
+}
+
+describe('FileChanges feed', () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  async function createFiles() {
+    root = await mkdtemp(path.join(tmpdir(), 'emdash-files-'));
+    const watcher = new ManualWatchService();
+    const files = new FileChanges({ rootPath: root, watcher });
+    return { files, watcher };
+  }
+
+  it('maps raw watch events to neutral file changes', async () => {
+    const { files, watcher } = await createFiles();
+    await mkdir(path.join(root!, 'src'));
+    await writeFile(path.join(root!, 'src/index.ts'), 'content');
+    await writeFile(path.join(root!, '..valid-name'), 'content');
+    const updates: FileChangeUpdate[] = [];
+
+    const subscription = files.watch((update) => updates.push(update));
+    expect(subscription.success).toBe(true);
+
+    watcher.emit([
+      { kind: 'update', path: path.join(root!, 'src/index.ts') },
+      { kind: 'create', path: path.join(root!, 'src') },
+      { kind: 'update', path: path.join(root!, '..valid-name') },
+      { kind: 'delete', path: path.join(root!, 'missing.ts') },
+    ]);
+
+    expect(updates).toEqual([
+      {
+        kind: 'changes',
+        changes: [
+          { kind: 'update', path: path.join(root!, 'src/index.ts'), entryType: 'file' },
+          { kind: 'create', path: path.join(root!, 'src'), entryType: 'directory' },
+          { kind: 'update', path: path.join(root!, '..valid-name'), entryType: 'file' },
+          { kind: 'delete', path: path.join(root!, 'missing.ts'), entryType: 'unknown' },
+        ],
+      },
+    ]);
+  });
+
+  // 订阅范围必须等于声明的范围。订整根再过滤,代价由用户挑的目录有多大决定 ——
+  // macOS 上的 watcher 按未忽略 entry 数逐个开 fd,家目录那种根本订不上。
+  it('subscribes to the declared paths, not the whole root', async () => {
+    const { files, watcher } = await createFiles();
+    const src = path.join(root!, 'src');
+    await mkdir(src);
+
+    const subscription = files.watch(() => {}, { paths: [src] });
+
+    expect(subscription.success).toBe(true);
+    expect(watcher.roots).toEqual([src]);
+  });
+
+  // 单层监视(远端文件树:只看展开着的目录那一层):嵌套的目录各订各的,❌ 被外层吞掉。
+  it('watches each declared directory on its own level when recursive is false', async () => {
+    const { files, watcher } = await createFiles();
+    const src = path.join(root!, 'src');
+    const nested = path.join(src, 'lib');
+    await mkdir(nested, { recursive: true });
+
+    const subscription = files.watch(() => {}, { paths: [src, nested, src], recursive: false });
+
+    expect(subscription.success).toBe(true);
+    expect(watcher.roots).toEqual([src, nested]);
+    expect(watcher.recursive).toEqual([false, false]);
+  });
+
+  it('falls back to the root only when no paths are declared', async () => {
+    const { files, watcher } = await createFiles();
+
+    const subscription = files.watch(() => {});
+
+    expect(subscription.success).toBe(true);
+    expect(watcher.roots).toEqual([root]);
+  });
+
+  // exclude 是「拿到事件再丢」,ignore 是「压根不去监听」——只有后者能省下代价,
+  // 所以调用方声明的剪枝必须真的落到订阅层,不能停在消费者侧。
+  it('hands the declared ignore globs to the watch layer', async () => {
+    const { files, watcher } = await createFiles();
+
+    const subscription = files.watch(() => {}, { ignore: ['**/node_modules/**'] });
+
+    expect(subscription.success).toBe(true);
+    expect(watcher.ignores).toEqual([['**/node_modules/**']]);
+  });
+
+  it('filters optional watched paths', async () => {
+    const { files, watcher } = await createFiles();
+    await mkdir(path.join(root!, 'src'));
+    await mkdir(path.join(root!, 'other'));
+    await writeFile(path.join(root!, 'src/index.ts'), 'content');
+    await writeFile(path.join(root!, 'other/index.ts'), 'content');
+    const updates: FileChangeUpdate[] = [];
+
+    const subscription = files.watch((update) => updates.push(update), {
+      paths: [path.join(root!, 'src')],
+    });
+    expect(subscription.success).toBe(true);
+
+    watcher.emit([
+      { kind: 'update', path: path.join(root!, 'src/index.ts') },
+      { kind: 'update', path: path.join(root!, 'other/index.ts') },
+    ]);
+
+    expect(updates).toEqual([
+      {
+        kind: 'changes',
+        changes: [{ kind: 'update', path: path.join(root!, 'src/index.ts'), entryType: 'file' }],
+      },
+    ]);
+  });
+
+  it('includes previously ignored paths by default and supports caller exclusions', async () => {
+    const { files, watcher } = await createFiles();
+    await mkdir(path.join(root!, 'node_modules'), { recursive: true });
+    await writeFile(path.join(root!, 'node_modules/pkg.js'), 'content');
+    await writeFile(path.join(root!, '.DS_Store'), 'content');
+    const updates: FileChangeUpdate[] = [];
+
+    const subscription = files.watch((update) => updates.push(update), {
+      exclude: (absPath) => absPath.endsWith('.DS_Store'),
+    });
+    expect(subscription.success).toBe(true);
+
+    watcher.emit([
+      { kind: 'update', path: path.join(root!, 'node_modules/pkg.js') },
+      { kind: 'update', path: path.join(root!, '.DS_Store') },
+    ]);
+
+    expect(updates).toEqual([
+      {
+        kind: 'changes',
+        changes: [
+          { kind: 'update', path: path.join(root!, 'node_modules/pkg.js'), entryType: 'file' },
+        ],
+      },
+    ]);
+  });
+
+  it('classifies symlink watch events explicitly', async () => {
+    const { files, watcher } = await createFiles();
+    await writeFile(path.join(root!, 'target.txt'), 'content');
+    try {
+      await symlink('target.txt', path.join(root!, 'link.txt'), 'file');
+    } catch {
+      // Some environments disallow symlink creation.
+      return;
+    }
+    const updates: FileChangeUpdate[] = [];
+
+    const subscription = files.watch((update) => updates.push(update));
+    expect(subscription.success).toBe(true);
+
+    watcher.emit([{ kind: 'create', path: path.join(root!, 'link.txt') }]);
+
+    expect(updates).toEqual([
+      {
+        kind: 'changes',
+        changes: [{ kind: 'create', path: path.join(root!, 'link.txt'), entryType: 'symlink' }],
+      },
+    ]);
+  });
+
+  it('emits resync updates when the native watcher recovers from a gap', async () => {
+    const { files, watcher } = await createFiles();
+    const updates: FileChangeUpdate[] = [];
+
+    const subscription = files.watch((update) => updates.push(update));
+    expect(subscription.success).toBe(true);
+    watcher.resync();
+
+    expect(updates).toEqual([{ kind: 'resync' }]);
+  });
+
+  it('rejects invalid watched paths', async () => {
+    const { files } = await createFiles();
+
+    const subscription = files.watch(() => {}, { paths: ['src'] });
+
+    expect(subscription.success).toBe(false);
+    if (!subscription.success) expect(subscription.error.type).toBe('invalid-path');
+  });
+
+  it('returns a disposed error when watched after disposal', async () => {
+    const { files } = await createFiles();
+    files.dispose();
+
+    const subscription = files.watch(() => {});
+
+    expect(subscription.success).toBe(false);
+    if (!subscription.success) {
+      expect(subscription.error).toMatchObject({
+        type: 'fs-error',
+        message: 'FileChanges disposed',
+      });
+    }
+  });
+});

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>咕咕 UI 状态与动效规范 · v0 评审稿</title>
+<style>
+/* ══ 咕咕 canonical tokens（逐值取自 apps/desktop/src/styles/tokens.css）══ */
+:root{
+  --bg:#111318; --page:#0e1014; --card:#1a1c24; --popover:#1a1c24; --sidebar:#15171e;
+  --fg:#e5e5e5; --muted:#1f2128; --muted-fg:#8b8b93; --faint-fg:#6f6f78;
+  --primary:#fff; --primary-fg:#000;
+  --border:#ffffff0e; --border-strong:#ffffff1f;
+  --hover:#ffffff06; --selected:#ffffff14; --press:#ffffff10;
+  --r:8px; --r-lg:12px; --r-xl:16px; --r-pill:9999px;
+  --shadow-menu:0 6px 12px rgba(0,0,0,.12);
+  /* ── 本规范新增 ── */
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --ease-spring:cubic-bezier(.22,1,.36,1);
+  --ease-pop:cubic-bezier(.16,1,.3,1);
+  --dur-fast:120ms; --dur-med:180ms; --dur-slow:260ms;
+  --danger:#ef4444; --danger-tint:#ef44441a;
+}
+[data-theme="light"]{
+  --bg:#fff; --page:#fafafa; --card:#fff; --popover:#fff; --sidebar:#fff;
+  --fg:#171717; --muted:#f3f4f6; --muted-fg:#737373; --faint-fg:#9a9aa2;
+  --primary:#000; --primary-fg:#fff;
+  --border:#0000000f; --border-strong:#0000001f;
+  --hover:#00000006; --selected:#3b82f612; --press:#0000000d;
+  --shadow-menu:0 6px 12px rgba(0,0,0,.12);
+  --danger-tint:#ef444414;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'PingFang SC','Helvetica Neue',sans-serif;background:var(--page);color:var(--fg);font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto;padding:48px 32px 120px}
+header.hd{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+h1{font-size:22px;font-weight:600;letter-spacing:.2px}
+.vtag{font-size:11px;color:var(--faint-fg);border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:2px 10px}
+.sub{color:var(--muted-fg);font-size:13px;margin-bottom:40px}
+.sub code{font-size:12px}
+h2{font-size:16px;font-weight:600;margin:52px 0 6px;padding-top:20px;border-top:1px solid var(--border)}
+h2 .no{color:var(--faint-fg);font-weight:500;margin-right:8px}
+h3{font-size:13.5px;font-weight:600;margin:26px 0 10px;color:var(--fg)}
+p.desc{color:var(--muted-fg);font-size:13px;margin-bottom:18px}
+p.desc b{color:var(--fg);font-weight:500}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--muted);border-radius:4px;padding:1px 5px}
+pre{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 18px;overflow-x:auto;font-size:12.5px;line-height:1.7;margin:14px 0}
+pre code{background:none;padding:0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0}
+th{text-align:left;font-weight:500;color:var(--muted-fg);font-size:12px;padding:7px 10px;border-bottom:1px solid var(--border-strong)}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+td code{white-space:nowrap}
+.ok{color:#16a34a}.bad{color:var(--danger)}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px;margin:20px 0}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px}
+.stat .n{font-size:22px;font-weight:600;letter-spacing:.3px}
+.stat .l{font-size:11.5px;color:var(--muted-fg);margin-top:2px}
+.demo{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-xl);padding:22px;margin:14px 0;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.demo .cap{width:100%;font-size:11.5px;color:var(--faint-fg);margin-top:-6px}
+.themebtn{position:fixed;top:20px;right:20px;z-index:10}
+.rulelist{list-style:none;counter-reset:r}
+.rulelist li{counter-increment:r;padding:10px 0 10px 40px;position:relative;border-bottom:1px solid var(--border);font-size:13.5px}
+.rulelist li::before{content:counter(r);position:absolute;left:4px;top:9px;width:22px;height:22px;border-radius:50%;background:var(--muted);color:var(--muted-fg);font-size:11px;display:grid;place-items:center}
+.rulelist b{font-weight:600}
+.rulelist .x{color:var(--danger)}
+.note{border-left:2px solid var(--border-strong);padding:6px 14px;color:var(--muted-fg);font-size:12.5px;margin:14px 0}
+
+/* ══ 规范原型类（§3 的活样例即用这套 CSS，可整段拷进 tokens.css）══ */
+.gg-row{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:var(--r);cursor:pointer;user-select:none;
+  transition:background var(--dur-fast) var(--ease)}
+.gg-row:hover{background:var(--hover)}
+.gg-row:active{background:var(--press)}
+.gg-row[data-selected]{background:var(--selected)}
+.gg-row[data-selected]:active{background:var(--selected)}
+
+.gg-ghost{display:inline-grid;place-items:center;width:30px;height:30px;border:none;background:transparent;color:var(--faint-fg);
+  border-radius:var(--r);cursor:pointer;font-size:15px;
+  transition:background var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+.gg-ghost:hover{background:var(--hover);color:var(--muted-fg)}
+.gg-ghost:active{background:var(--press)}
+.gg-ghost[data-on]{background:var(--muted);color:var(--fg)}
+.gg-ghost:disabled{opacity:.4;cursor:default;background:transparent;color:var(--faint-fg)}
+
+.gg-fill{display:inline-flex;align-items:center;gap:6px;border:none;background:var(--primary);color:var(--primary-fg);
+  padding:7px 16px;border-radius:var(--r-pill);font-size:13px;font-weight:500;cursor:pointer;
+  transition:opacity var(--dur-fast) var(--ease)}
+.gg-fill:hover{opacity:.88}
+.gg-fill:active{opacity:.78}
+.gg-fill:disabled{opacity:.4;cursor:default}
+
+.gg-danger-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);cursor:pointer;color:var(--danger);font-size:13px;
+  transition:background var(--dur-fast) var(--ease)}
+.gg-danger-item:hover{background:var(--danger-tint)}
+.gg-danger-item:active{background:var(--danger-tint)}
+
+.gg-seg{display:flex;gap:6px;background:var(--muted);border-radius:var(--r-pill);padding:3px;width:260px}
+.gg-seg button{flex:1;border:none;background:transparent;color:var(--muted-fg);font-size:12px;padding:6px 0;border-radius:var(--r-pill);font-weight:500;cursor:pointer;
+  transition:background var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.gg-seg button:hover{color:var(--fg)}
+.gg-seg button.on{background:#2c2f38;color:var(--fg)}
+[data-theme="light"] .gg-seg button.on{background:var(--bg);box-shadow:0 1px 2px #0000001a}
+
+.gg-input{background:transparent;border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:8px 14px;color:var(--fg);font-size:13px;width:220px;outline:none;
+  transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.gg-input::placeholder{color:var(--faint-fg)}
+.gg-input:focus-visible{outline:none;border-color:var(--border-strong)}
+
+.gg-reveal{opacity:0;transition:opacity var(--dur-fast) var(--ease)}
+.gg-reveal-host:hover .gg-reveal,.gg-reveal:focus-within{opacity:1}
+
+.gg-menu{background:var(--popover);border:1px solid rgba(0,0,0,.04);border-radius:var(--r-xl);box-shadow:var(--shadow-menu);padding:6px;width:200px}
+.gg-mi{display:flex;align-items:center;gap:9px;height:36px;padding:0 10px;border-radius:var(--r-lg);cursor:pointer;font-size:13px;
+  transition:background var(--dur-fast) var(--ease)}
+.gg-mi:hover{background:var(--hover)}
+.gg-mi:active{background:var(--press)}
+.gg-mi .ic{color:var(--faint-fg);width:20px;text-align:center}
+.gg-mi.danger{color:var(--danger)}
+.gg-mi.danger:hover{background:var(--danger-tint)}
+
+/* demo 辅助 */
+.dm-avatar{width:30px;height:30px;border-radius:50%;background:#6b7a99;color:#fff;font-size:12px;display:grid;place-items:center;flex-shrink:0}
+.dm-col{display:flex;flex-direction:column;min-width:0}
+.dm-name{font-size:13px;font-weight:500}
+.dm-prev{font-size:12px;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.dm-time{font-size:11px;color:var(--faint-fg);margin-left:auto}
+.rowlist{width:300px;background:var(--sidebar);border:1px solid var(--border);border-radius:var(--r-lg);padding:6px}
+.statechip{font-size:11px;color:var(--faint-fg);border:1px dashed var(--border-strong);border-radius:6px;padding:2px 8px}
+
+/* ══ 动效样例 ══ */
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(6px)}to{opacity:1;transform:none}}
+@keyframes naPop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes popOut{from{opacity:1;transform:none}to{opacity:0;transform:scale(.97) translateY(6px)}}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes sheetDown{from{transform:translateY(0)}to{transform:translateY(100%)}}
+@keyframes flashHi{0%,18%{background:var(--selected);box-shadow:0 0 0 2px var(--border-strong)}100%{background:transparent;box-shadow:0 0 0 2px transparent}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.mo-stage{position:relative;width:230px;height:150px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;flex-shrink:0}
+.mo-stage .lbl{position:absolute;top:8px;left:10px;font-size:11px;color:var(--faint-fg)}
+.mo-menu{position:absolute;top:34px;left:10px;display:none}
+.mo-menu.in{display:block;animation:pop .15s var(--ease)}
+.mo-menu.out{display:block;animation:popOut .12s var(--ease) forwards}
+.mo-pv{position:absolute;top:34px;left:10px;width:150px;background:var(--popover);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-menu);padding:10px 12px;font-size:12px;color:var(--muted-fg);display:none}
+.mo-pv.in{display:block;animation:naPop .16s var(--ease)}
+.mo-sheet{position:absolute;left:0;right:0;bottom:0;height:64%;background:var(--card);border-top:1px solid var(--border-strong);border-radius:var(--r-xl) var(--r-xl) 0 0;padding:12px 14px;font-size:12px;color:var(--muted-fg);transform:translateY(100%)}
+.mo-sheet.in{animation:sheetUp .26s var(--ease) forwards}
+.mo-sheet.out{animation:sheetDown .18s var(--ease) forwards}
+.mo-msgs{position:absolute;inset:30px 10px 10px;display:flex;flex-direction:column;gap:6px;justify-content:flex-end}
+.mo-msg{align-self:flex-start;background:var(--card);border-radius:5px 12px 12px 12px;padding:5px 10px;font-size:12px;color:var(--muted-fg);animation:up var(--dur-med) var(--ease) both}
+.mo-flash{position:absolute;inset:auto 10px 12px;padding:6px 10px;border-radius:8px;font-size:12px;color:var(--muted-fg)}
+.mo-flash.go{animation:flashHi 1.4s var(--ease)}
+.mo-cols{position:absolute;inset:30px 10px 10px;display:flex;gap:0}
+.mo-main{flex:1;background:var(--card);border-radius:8px}
+.mo-hist{width:0;overflow:hidden;border-left:1px solid transparent;background:var(--sidebar);transition:width var(--dur-slow) var(--ease);border-radius:0 8px 8px 0}
+.mo-hist.on{width:46%;border-left-color:var(--border)}
+.gg-spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--border-strong);border-top-color:var(--fg);animation:spin .8s linear infinite}
+.replay{margin-top:6px}
+@media (prefers-reduced-motion: reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="themebtn"><button class="gg-ghost" id="themeToggle" title="切换明暗" style="width:34px;height:34px">◐</button></div>
+<div class="wrap">
+
+<header class="hd"><h1>咕咕 UI 状态与动效规范</h1><span class="vtag">v0 评审稿 · 2026-07-23</span></header>
+<p class="sub">统一全产品的交互状态与动效。产品有两侧：gugu 自绘组件（tokens.css），和任务页——它实为 <b>Base UI 1.3 + 两套皮肤</b>（vanilla-extract 设计系统 + shadcn 形的 Tailwind 层），并无 Radix/shadcn 本体。本页所有样例是<b>活的</b>——可以 hover、按住、点选、回放。规范经你点头后落盘仓库并开始迁移。</p>
+
+<!-- ════════ 0 现状 ════════ -->
+<h2><span class="no">0</span>为什么要立这套规范：现状审计</h2>
+<p class="desc">对 <code>apps/desktop/src</code>（105 个 tsx）全量扫描的结果。结论：<b>token 层是齐的，产品层没人消费</b>——每个面板各写各的。</p>
+<div class="statgrid">
+  <div class="stat"><div class="n">4 套</div><div class="l">hover 写法并存（useState 13 / 改 DOM 22 / Tailwind 35 / CSS 9）</div></div>
+  <div class="stat"><div class="n">4 个</div><div class="l">「选中态」token 各用各的；官方 --selected 全库仅 1 处引用</div></div>
+  <div class="stat"><div class="n">0 处</div><div class="l">桌面端按下态（:active 只有触屏媒体查询里 1 条）</div></div>
+  <div class="stat"><div class="n">39 : 6</div><div class="l">内联 transition 魔数 vs 走 token（duration-[120ms] 这种非 token 值 ×14）</div></div>
+  <div class="stat"><div class="n">12 个</div><div class="l">弹窗共用 Sheet，全部只有入场、没有出场（关闭瞬间消失）</div></div>
+  <div class="stat"><div class="n">295 个</div><div class="l">手写 &lt;button&gt;；components/ui 里没有 Button/Spinner/Tabs 任何原语</div></div>
+  <div class="stat"><div class="n">4 个</div><div class="l">spinner keyframe 名 × 5 种时长全排列</div></div>
+  <div class="stat"><div class="n">0 处</div><div class="l">面板折叠/挤占列的尺寸过渡（全部瞬跳）</div></div>
+</div>
+<div class="note">会话页侧体检结论：状态覆盖健康（纯 CSS + data 属性，无 JS hover 反模式，出场动画齐全），但 <b>没有 --hover/--selected/--press 语义 token</b>——皮肤桥目前用 color-mix 92%/85% 凭空合成状态色，与 gugu 的 6%/10%/12% 阶梯对不上；另有 <code>hover:bg-muted</code>/<code>focus:bg-accent</code> 一批死类（token 未定义、不生成规则）。见 §5.3。</div>
+
+<!-- ════════ 1 原则 ════════ -->
+<h2><span class="no">1</span>五条原则</h2>
+<ol class="rulelist">
+  <li><b>状态是语法，不是装饰。</b>每个可交互元素必须回答六态：rest / hover / press / selected(如适用) / focus-visible / disabled(如适用)。缺态 = bug，和缺 loading/empty 同级。</li>
+  <li><b>状态一律 CSS。</b>伪类（:hover/:active）或 data 属性（data-selected/data-on）。<span class="x">❌ onMouseEnter+useState、❌ e.currentTarget.style 命令式改 DOM</span>——这两类是现状最大的分裂源（13+22 处）。</li>
+  <li><b>色值、时长、easing 全走 token。</b><span class="x">❌ 魔数（0.2s / 120ms / ease / linear）、❌ transition: all</span>。</li>
+  <li><b>中性外壳。</b>状态反馈只用中性叠色与透明度（hover 6% → press 10% → selected 12%），不引入新色相；唯一例外是危险项的 <code>--danger-tint</code>。（对应 design-lessons L2/L4：专业感来自做减法。）</li>
+  <li><b>有入必有出。</b>浮层入场/出场成对；宽高变化必须过渡；<code>prefers-reduced-motion</code> 全局降级（本页已带）。</li>
+</ol>
+
+<!-- ════════ 2 状态 token ════════ -->
+<h2><span class="no">2</span>状态 token：四档叠色 + 焦点环</h2>
+<p class="desc">全部已存在于 tokens.css，本规范只做两件事：<b>消灭重复别名、补 danger/focus 两个缺口</b>。强度阶梯：hover &lt; press &lt; selected。</p>
+<table>
+<tr><th>token</th><th>暗色</th><th>亮色</th><th>语义</th></tr>
+<tr><td><code>--hover</code></td><td><code>#ffffff06</code></td><td><code>#00000006</code></td><td>悬浮：所有可点元素的底色反馈</td></tr>
+<tr><td><code>--press</code></td><td><code>#ffffff10</code></td><td><code>#0000000d</code></td><td>按下：桌面 :active + 触屏 .gg-pressable，比 hover 深一档</td></tr>
+<tr><td><code>--selected</code></td><td><code>#ffffff14</code></td><td><code>#3b82f612</code></td><td>持久选中：当前会话行/联系人行等「你在哪」</td></tr>
+<tr><td><code>--muted</code></td><td><code>#1f2128</code></td><td><code>#f3f4f6</code></td><td>激活容器：tab/segment/开关图标的「开」态底</td></tr>
+<tr><td><code>--danger</code> / <code>--danger-tint</code> <span class="statechip">新增</span></td><td><code>#ef4444</code> / <code>#ef44441a</code></td><td>同 / <code>#ef444414</code></td><td>危险项文字 / 危险项 hover 底（现状 30+ 处硬编码收敛于此）</td></tr>
+<tr><td>焦点环 <span class="statechip">维护者拍板 07-24</span></td><td colspan="2"><b>全废</b>:<code>*:focus, *:focus-visible { outline: none }</code></td><td>「任何情况都无环,有环不是好的设计」;白色 2px 环与一切替代细环一并废止;❌ 组件私自加 outline/ring;输入框光标即焦点指示</td></tr>
+</table>
+<h3>token 收敛表（一次别名化，存量引用零成本升级）</h3>
+<table>
+<tr><th>废止（改为别名指向右列）</th><th>统一到</th><th>现状引用</th></tr>
+<tr><td><code>--chat-row-hover</code> · <code>--menu-item-hover</code> · <code>--color-hover-item</code>(僵尸,0 引用)</td><td><code>--hover</code></td><td>15 / 4 / 0 次</td></tr>
+<tr><td><code>--accent-tint-row</code>(事实标准,11 次) · <code>--chat-row-active</code>(3 次)</td><td><code>--selected</code></td><td>值本就相同，纯别名</td></tr>
+<tr><td><code>--menu-danger</code> 及硬编码 <code>#ef44441a</code></td><td><code>--danger</code> / <code>--danger-tint</code></td><td>30+ 处</td></tr>
+</table>
+<div class="note">红色系另有 --color-danger #FF3B30 / --text-danger #E64340 / --toast-error #FA5151 三个历史值，不在本次范围强改，规范只定「新代码一律 --danger」。</div>
+
+<!-- ════════ 3 原型配方 ════════ -->
+<h2><span class="no">3</span>八个原型配方（活样例）</h2>
+<p class="desc">全产品的可交互元素归为 8 个原型，每个原型一份固定配方。样例即规范实现（§5 的 CSS 就是本页在用的）。</p>
+
+<h3>3.1 列表行 gg-row —— 会话行 / 联系人行 / 任务行 / 文件行 / 成员行</h3>
+<div class="demo">
+  <div class="rowlist" id="rowDemo">
+    <div class="gg-row" data-selected><div class="dm-avatar">枫</div><div class="dm-col"><div class="dm-name">枫叶 · 当前选中</div><div class="dm-prev">selected = --selected，持久标识</div></div><div class="dm-time">14:02</div></div>
+    <div class="gg-row"><div class="dm-avatar" style="background:#7e8c6f">禾</div><div class="dm-col"><div class="dm-name">禾生（hover 我 / 按住我）</div><div class="dm-prev">hover = --hover，按下 = --press</div></div><div class="dm-time">13:47</div></div>
+    <div class="gg-row"><div class="dm-avatar" style="background:#8a7aa0">Q</div><div class="dm-col"><div class="dm-name">Qwen 助手</div><div class="dm-prev">点击可切换选中（demo）</div></div><div class="dm-time">周二</div></div>
+  </div>
+  <div class="cap">规则：hover/press 用伪类；选中用 <code>data-selected</code> 属性（React 里 <code>data-selected={isActive || undefined}</code>）。❌ 再用 onMouseEnter。</div>
+</div>
+
+<h3>3.2 Ghost 图标钮 gg-ghost —— 导航轨 / composer 图标 / 消息工具条 / 关闭钮</h3>
+<div class="demo">
+  <button class="gg-ghost" title="hover→底色+字色抬一档">✎</button>
+  <button class="gg-ghost" data-on title="激活态 = --muted 底 + --fg">◉</button>
+  <button class="gg-ghost" disabled title="disabled = opacity .4">✕</button>
+  <span class="statechip">rest: faint-fg</span><span class="statechip">hover: --hover + muted-fg</span><span class="statechip">press: --press</span><span class="statechip">on: --muted + fg</span><span class="statechip">disabled: opacity .4</span>
+  <div class="cap">「开」态（如导航轨当前页）用 <code>data-on</code>；图标色阶只在 faint-fg → muted-fg → fg 三档内移动，不引入色相。</div>
+</div>
+
+<h3>3.3 填充主钮 gg-fill —— 发送 / 确认 / CTA</h3>
+<div class="demo">
+  <button class="gg-fill">发送</button>
+  <button class="gg-fill" disabled>发送</button>
+  <button class="gg-fill" id="loadBtn"><span class="gg-spinner" style="display:none;border-top-color:var(--primary-fg);border-color:color-mix(in srgb,var(--primary-fg) 30%,transparent);border-top-color:var(--primary-fg)"></span><span>保存</span></button>
+  <div class="cap">填充钮底色是实色，反馈走透明度阶梯：hover .88 → press .78 → disabled .4。loading = 内嵌统一 spinner + 文案保留（点「保存」试试）。❌ 改底色、❌ 缩放。</div>
+</div>
+
+<h3>3.4 危险项 —— 删除 / 退群 / 注销</h3>
+<div class="demo">
+  <div style="width:200px">
+    <div class="gg-danger-item"><span class="ic">🗑</span>删除聊天</div>
+  </div>
+  <div class="cap">文字 <code>--danger</code>，hover 底 <code>--danger-tint</code>。这是状态反馈唯一允许的色相。</div>
+</div>
+
+<h3>3.5 Tab / 分段控件 gg-seg —— Listen Mode / 设置导航 / 子 tab</h3>
+<div class="demo">
+  <div class="gg-seg" id="segDemo"><button class="on">passive</button><button>adaptive</button><button>active</button></div>
+  <div class="cap">选中 = 暗色 #2c2f38 / 亮色白底+微影（listen-mode token 既有值）；hover 只抬字色。选中态属于「容器级激活」，用 --muted 系而非 --selected（行选中与 tab 选中是两种语义）。</div>
+</div>
+
+<h3>3.6 菜单项 gg-mi —— 右键菜单 / 下拉菜单</h3>
+<div class="demo">
+  <div class="gg-menu">
+    <div class="gg-mi"><span class="ic">↩</span>回复</div>
+    <div class="gg-mi"><span class="ic">⎘</span>复制</div>
+    <div class="gg-mi danger"><span class="ic">🗑</span>删除</div>
+  </div>
+  <div class="cap">36px 行高 / 16px 容器圆角 / 12px 项圆角（--menu 既有 token）。全部菜单必须走 <code>ui/Menu</code>——现状只有 3 个文件在用，其余全是手搓副本。</div>
+</div>
+
+<h3>3.7 输入框 —— 搜索 / composer / 表单</h3>
+<div class="demo">
+  <input class="gg-input" placeholder="点进来:无环,光标即焦点指示">
+  <div class="cap">维护者拍板(07-24)「任何情况都无环」:焦点环全废——输入框光标即焦点指示,按钮/行任何获焦方式都不出环。</div>
+</div>
+
+<h3>3.8 悬浮显现 gg-reveal —— 消息工具条 / 卡片快捷操作</h3>
+<div class="demo">
+  <div class="gg-reveal-host" style="display:flex;align-items:center;gap:10px;background:var(--card);border-radius:5px 12px 12px 12px;padding:8px 12px;max-width:340px">
+    <span style="font-size:13px">hover 这条消息，工具条淡入 →</span>
+    <span class="gg-reveal" style="display:flex;gap:2px"><button class="gg-ghost" style="width:26px;height:26px">↩</button><button class="gg-ghost" style="width:26px;height:26px">⋯</button></span>
+  </div>
+  <div class="cap">opacity 0→1，--dur-fast。❌ display:none 切换（不可过渡、闪跳）；focus-within 时也要显现（键盘可达）。</div>
+</div>
+
+<!-- ════════ 4 动效系统 ════════ -->
+<h2><span class="no">4</span>动效系统：3 条曲线 × 3 档时长</h2>
+<p class="desc">全产品只允许下面 3 条 easing 和 3 档时长（设计 SSOT），存量 <code>--transition-fast/normal/slow</code> 改为指向新 token，旧引用自动升级。</p>
+<table>
+<tr><th>token</th><th>值</th><th>用途</th></tr>
+<tr><td><code>--ease</code></td><td><code>cubic-bezier(.2,.8,.2,1)</code></td><td>标准曲线：状态切换、进出场、位移，默认一律用它</td></tr>
+<tr><td><code>--ease-spring</code></td><td><code>cubic-bezier(.22,1,.36,1)</code></td><td>折叠展开（高度/宽度）微弹感</td></tr>
+<tr><td><code>--ease-pop</code></td><td><code>cubic-bezier(.16,1,.3,1)</code></td><td>Dialog/Popover 弹出（Radix spring 同款）</td></tr>
+<tr><td><code>--dur-fast</code> 120ms</td><td colspan="2">状态色切换、reveal、出场、chevron 旋转</td></tr>
+<tr><td><code>--dur-med</code> 180ms</td><td colspan="2">进场位移（消息、菜单、popover）、对话框</td></tr>
+<tr><td><code>--dur-slow</code> 260ms</td><td colspan="2">Sheet/抽屉滑入、挤占列宽度、折叠面板</td></tr>
+</table>
+
+<h3>场景表 + 活样例（点「回放」）</h3>
+<div class="demo">
+  <div class="mo-stage"><span class="lbl">菜单：pop 入 150ms / 出 120ms 反放</span>
+    <div class="mo-menu gg-menu" style="width:150px" id="moMenu"><div class="gg-mi"><span class="ic">↩</span>回复</div><div class="gg-mi"><span class="ic">⎘</span>复制</div></div>
+  </div>
+  <div class="mo-stage"><span class="lbl">锚定浮层：naPop 160ms（-4px 落下）</span><div class="mo-pv" id="moPv">资料卡 / 已读回执<br>这类锚定浮层用 naPop</div></div>
+  <div class="mo-stage"><span class="lbl">Sheet：入 260ms / 出 180ms</span><div class="mo-sheet" id="moSheet">底部 Sheet（移动端）<br>桌面 Dialog 用 pop-in 180ms --ease-pop</div></div>
+  <div class="cap"><button class="gg-fill replay" id="replayOverlays">回放浮层三连</button>　规则：<b>有入必有出</b>，出场 = 入场反放、时长降一档（fast）。实现：卸载前加 <code>data-closing</code>，onAnimationEnd 再真正 unmount；会话页侧用 Base UI 的 <code>data-[ending-style]</code>。</div>
+</div>
+<div class="demo">
+  <div class="mo-stage"><span class="lbl">消息进场：up 180ms（8px 抬升）</span><div class="mo-msgs" id="moMsgs"></div></div>
+  <div class="mo-stage"><span class="lbl">定位闪烁：flashHi 1.4s</span><div class="mo-flash" id="moFlash">跳转定位到的那条消息</div></div>
+  <div class="mo-stage"><span class="lbl">挤占列：width 260ms（历史/工作区面板）</span><div class="mo-cols"><div class="mo-main"></div><div class="mo-hist" id="moHist"></div></div></div>
+  <div class="cap"><button class="gg-fill replay" id="replayContent">回放内容三连</button>　挤占列/折叠面板必须过渡（现状 0 处）；spinner 全库统一为一个 keyframe <code>spin</code> 0.8s linear：<span class="gg-spinner" style="display:inline-block;vertical-align:-3px;margin-left:4px"></span></div>
+</div>
+
+<h3>动效禁则</h3>
+<ol class="rulelist">
+  <li><span class="x">❌ transition: all</span> —— 指明属性（background / color / opacity / transform / width）。</li>
+  <li><span class="x">❌ 魔数时长/easing</span> —— Tailwind 侧只允许 <code>duration-[var(--dur-fast)]</code> 等 token 形式。</li>
+  <li><span class="x">❌ 自造 keyframe</span> —— 先查 §4 场景表和既有 keyframes（gg-menu-pop / gg-sheet-* / running-shimmer / skeleton-shimmer / spin），确实没有再新增并登记进规范。</li>
+  <li><b>reduced-motion 必须尊重</b> —— tokens.css 加全局降级（本页样式表末行即范本）。</li>
+</ol>
+
+<!-- ════════ 5 实现机制 ════════ -->
+<h2><span class="no">5</span>实现机制</h2>
+<p class="desc">规范落地 = <b>一段 CSS + 两条 React 约定 + 一张会话页皮肤映射表</b>。本页 §3 的样例就是跑在这段 CSS 上。</p>
+<h3>5.1 tokens.css 追加（拷贝即用）</h3>
+<pre><code>/* 动效 token */
+--ease: cubic-bezier(.2,.8,.2,1);
+--ease-spring: cubic-bezier(.22,1,.36,1);
+--ease-pop: cubic-bezier(.16,1,.3,1);
+--dur-fast: 120ms;  --dur-med: 180ms;  --dur-slow: 260ms;
+/* 存量三件套改为别名 → 旧引用自动升级 */
+--transition-fast: var(--dur-fast) var(--ease);
+--transition-normal: var(--dur-med) var(--ease);
+--transition-slow: var(--dur-slow) var(--ease);
+/* 状态补缺 */
+--danger: #ef4444;  --danger-tint: #ef44441a;   /* light: #ef444414 */
+/* 焦点环全废(维护者拍板 07-24「任何情况都无环」) */
+*:focus, *:focus-visible { outline: none; }
+/* 收敛别名（值不变，指向归一） */
+--chat-row-hover: var(--hover);  --menu-item-hover: var(--hover);
+--accent-tint-row: var(--selected);  --chat-row-active: var(--selected);
+--menu-danger: var(--danger);
+
+/* 原型类 .gg-row / .gg-ghost / .gg-fill / .gg-seg / .gg-mi /
+   .gg-danger-item / .gg-input / .gg-reveal —— 全文见本页源码 &lt;style&gt; 第二段，
+   连同触屏 .gg-pressable 合并为「交互状态」一节 */
+
+/* iteration-count 必须配对压 1:只压时长的话 infinite 动画会高频闪烁,比不降级更糟 */
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important}
+}</code></pre>
+<h3>5.2 React 约定</h3>
+<table>
+<tr><th>场景</th><th>写法</th></tr>
+<tr><td>hover / press</td><td>CSS 伪类，组件不写任何 JS。<span class="bad">迁移即删 onMouseEnter/onMouseLeave/命令式 style（35 处）</span></td></tr>
+<tr><td>选中 / 激活</td><td><code>data-selected={sel || undefined}</code> / <code>data-on={on || undefined}</code>，样式交给原型类</td></tr>
+<tr><td>条件类名</td><td><code>cn()</code> 合并（shadcn 纪律），❌ 模板字符串三元</td></tr>
+<tr><td>浮层出场</td><td>关闭时先置 <code>data-closing</code> → onAnimationEnd 再卸载；统一封进 ui/Menu 与 ui/Sheet，12 个弹窗一次获益</td></tr>
+<tr><td>loading</td><td>新建 <code>ui/Spinner</code>（spin 0.8s linear 唯一实现），钮内 loading = spinner + 原文案，❌ 4 套 keyframe</td></tr>
+</table>
+<h3>5.3 会话页（Base UI）侧：三件事</h3>
+<p class="desc"><b>① 皮肤桥收口（最重要）。</b>桥（EmdashTaskFrame 的 GUGU_SKIN_BRIDGE_CSS）现在自造 <code>color-mix 92%/85%</code> 合成 hover/selected；改为按 gugu 阶梯合成，两侧视觉从此同源：</p>
+<pre><code>/* 皮肤桥内，X = 各 surface 基色；比例即 gugu 状态阶梯 */
+--em-surface-X-hover:    color-mix(in srgb, X, var(--fg) 4%);   /* ≈ --hover 6% 视觉档 */
+--em-surface-X-selected: color-mix(in srgb, X, var(--fg) 8%);   /* ≈ --selected 12% 视觉档 */
+/* 动效 token 一并注入桥：--ease / --dur-fast / --dur-med / --dur-slow */</code></pre>
+<p class="desc"><b>② 状态语义 ↔ Base UI data 属性对照。</b>会话页新代码按此表挂状态（B 层 Tailwind variant / A 层 vanilla-extract selector 同一语义）：</p>
+<table>
+<tr><th>规范状态</th><th>Base UI 写法</th><th>落色</th></tr>
+<tr><td>hover</td><td><code>hover:</code> / <code>&amp;:hover</code></td><td>背景梯队递进（≈ --hover 档）</td></tr>
+<tr><td>press</td><td><code>data-pressed</code> / <code>:active</code></td><td>≈ --press 档</td></tr>
+<tr><td>selected</td><td><code>data-checked</code> / <code>data-selected</code> / <code>aria-selected</code></td><td>≈ --selected 档（A 层即 vars.surfaceSelected）</td></tr>
+<tr><td>激活容器（下拉开着）</td><td><code>data-open</code> / <code>data-popup-open</code> / <code>aria-expanded</code></td><td>--muted 档</td></tr>
+<tr><td>菜单键盘高亮</td><td><code>focus:</code>（Base UI 把 highlight 反射为真实 focus）</td><td>hover 同档</td></tr>
+<tr><td>disabled</td><td><code>data-disabled</code> / <code>disabled:</code></td><td>opacity .5</td></tr>
+<tr><td>入场 / 出场</td><td><code>data-open:animate-in</code> / <code>data-closed:animate-out</code>（Sheet 用 <code>data-starting/ending-style</code>）</td><td>时长对齐 §4 场景表</td></tr>
+</table>
+<p class="desc"><b>③ 清死类。</b>B 层残留的 <code>hover:bg-muted</code> / <code>focus:bg-accent</code> 等 shadcn 语义类在会话页的 @theme 里根本未定义（0 规则生成），逐个换成真实背景梯队 token——同一菜单里 item 走真类、subtrigger 走死类的隐性不一致即源于此。</p>
+<div class="note">方向说明：会话页的出场范式（data-closed + animate-out）比 gugu 侧健康，gugu 的 ui/Menu、ui/Sheet 出场实现向它看齐；反过来，状态 token 化（--hover/--selected/--press 阶梯）以 gugu 为准、经皮肤桥供给会话页。两侧各取所长。</div>
+
+<!-- ════════ 6 迁移 ════════ -->
+<h2><span class="no">6</span>迁移路线与守护</h2>
+<table>
+<tr><th>阶段</th><th>内容</th><th>体量</th></tr>
+<tr><td>P1 地基</td><td>tokens 追加 + 原型类 + reduced-motion + 焦点环全废，一个 PR</td><td>小</td></tr>
+<tr><td>P2 高频面</td><td>会话列表 / 导航轨 / 联系人 / composer 迁到原型类，删四套 hover 写法；selected 归一</td><td>中</td></tr>
+<tr><td>P3 浮层</td><td>菜单全部收编 ui/Menu；ui/Sheet + ui/Menu 加出场；缺入场的 popover 补 naPop</td><td>中</td></tr>
+<tr><td>P4 原语</td><td>新建 ui/Button（ghost/fill/danger 三 variant）+ ui/Spinner，长尾按钮按文件清单收编</td><td>大，可分批</td></tr>
+<tr><td>守护</td><td>CI 冻结计数（同 god-file 行数冻结机制）：<code>onMouseEnter</code> 与内联 transition 魔数的出现次数 head ≤ origin/main，只减不增</td><td>一条脚本</td></tr>
+</table>
+<div class="note"><b>拍板记录（2026-07-23，维护者全部通过）</b>：① selected 亮色保留蓝 tint（#3b82f612）；② 定位闪烁统一 1.4s（P2 随高频面迁移落地，需同步 JS 定时器）；③ ui/Button 原语按 P4 节奏分批收编 295 个手写按钮。落地跟踪：issue #2322。</div>
+
+</div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+$('#themeToggle').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'};
+/* 行选中 demo */
+$$('#rowDemo .gg-row').forEach(r=>r.onclick=()=>{$$('#rowDemo .gg-row').forEach(x=>x.removeAttribute('data-selected'));r.setAttribute('data-selected','')});
+/* segment demo */
+$$('#segDemo button').forEach(b=>b.onclick=()=>{$$('#segDemo button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
+/* fill loading demo */
+$('#loadBtn').onclick=e=>{const b=e.currentTarget,sp=b.querySelector('.gg-spinner'),tx=b.querySelectorAll('span')[1];sp.style.display='inline-block';tx.textContent='保存中…';b.disabled=true;setTimeout(()=>{sp.style.display='none';tx.textContent='保存';b.disabled=false},1400)};
+/* 浮层三连回放 */
+$('#replayOverlays').onclick=()=>{
+  const m=$('#moMenu'),p=$('#moPv'),s=$('#moSheet');
+  [m,p,s].forEach(x=>x.className=x.className.replace(/ (in|out)/g,''));
+  void m.offsetWidth;
+  m.classList.add('in');p.classList.add('in');s.classList.add('in');
+  setTimeout(()=>{m.classList.remove('in');m.classList.add('out');s.classList.remove('in');s.classList.add('out');p.classList.remove('in')},1600);
+  setTimeout(()=>{[m,p,s].forEach(x=>x.classList.remove('out'))},2100);
+};
+/* 进入视口自动回放一次 */
+const seen=new Set();
+new IntersectionObserver(es=>es.forEach(e=>{
+  if(!e.isIntersecting)return;const id=e.target.id;
+  if(seen.has(id))return;seen.add(id);
+  (id==='replayOverlays'?$('#replayOverlays'):$('#replayContent')).click();
+}),{threshold:1}).observe($('#replayOverlays'));
+setTimeout(()=>{new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting&&!seen.has('c')){seen.add('c');$('#replayContent').click()}
+}),{threshold:1}).observe($('#replayContent'))},0);
+/* 内容三连回放 */
+$('#replayContent').onclick=()=>{
+  const box=$('#moMsgs');box.innerHTML='';
+  ['先到的消息','第二条 stagger 40ms','第三条'].forEach((t,i)=>{const d=document.createElement('div');d.className='mo-msg';d.style.animationDelay=(i*40)+'ms';d.textContent=t;box.appendChild(d)});
+  const f=$('#moFlash');f.classList.remove('go');void f.offsetWidth;f.classList.add('go');
+  const h=$('#moHist');h.classList.toggle('on');
+};
+</script>
+</body>
+</html>

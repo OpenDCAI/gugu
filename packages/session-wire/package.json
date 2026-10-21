@@ -1,0 +1,34 @@
+{
+  "name": "@gugu/session-wire",
+  "version": "1.0.0",
+  "description": "Transport-agnostic live model and mutation primitives for 咕咕",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "Gugu",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./util/process-runtime": "./src/util/process-runtime/index.ts",
+    "./observability": "./src/observability/index.ts",
+    "./process/node": "./src/process/node/index.ts",
+    "./package.json": "./package.json",
+    "./util/mobx": "./src/util/mobx/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./process": "./src/process/index.ts",
+    "./worker": "./src/worker/index.ts",
+    "./live": "./src/live/index.ts",
+    "./util": "./src/util/index.ts",
+    "./api": "./src/api/index.ts",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gugu/session-shared": "workspace:*",
+    "immer": "^10.1.1",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "mobx": "^6.16.1"
+  }
+}

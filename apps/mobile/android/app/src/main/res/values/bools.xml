@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 系统是不是浅色(@@@mobile-light-shell):夜间模式下取 values-night 那一份。 -->
+    <bool name="gugu_system_light">true</bool>
+</resources>

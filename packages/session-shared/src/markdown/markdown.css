@@ -1,0 +1,342 @@
+/* The one markdown typography of Gugu (#6718) — every markdown body carries `.gg-md` plus one density:
+ *   .gg-md--compact      chat bubbles, transcript, cards: inherits the host's font size, line height 1.5
+ *   .gg-md--comfortable  documents and file previews: 16/24 reading type
+ *
+ * #7333 视觉规范:正文行高 1.5(16px 正文即 24),标题按字阶 1.5em / 1.25em / 1em(16 正文下 = 24 / 20 / 16,
+ * 行高 32 / 28 / 24,h3 与正文同号靠字重),行内代码与提及 0.875em(16 正文下 = 14),代码块等宽 13。
+ *
+ * Unlayered on purpose: Streamdown bakes Tailwind utilities (@layer utilities) into its elements, and an
+ * unlayered declaration beats every layer regardless of specificity. Every selector is scoped under
+ * `.gg-md`, so nothing reaches outside a markdown body.
+ *
+ * Muted colours are mixed from currentColor, so the same rules read correctly on an accent-coloured bubble. */
+
+.gg-md {
+  --md-muted: color-mix(in oklab, currentColor 68%, transparent);
+  --md-faint: color-mix(in oklab, currentColor 45%, transparent);
+  --md-rule: color-mix(in oklab, currentColor 16%, transparent);
+  --md-rule-soft: color-mix(in oklab, currentColor 9%, transparent);
+  --md-fill: color-mix(in oklab, currentColor 5%, transparent);
+  --md-fill-strong: color-mix(in oklab, currentColor 9%, transparent);
+  --md-link: var(--text-link);
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  overflow-wrap: break-word;
+}
+
+.gg-md--compact {
+  --md-gap: 0.5em;
+  --md-h1: 1.5em;
+  --md-h2: 1.25em;
+  --md-h3: 1em;
+  --md-h-top: 0.9em;
+  --md-h-bottom: 0.3em;
+  --md-indent: 1.35em;
+  --md-li-gap: 0.12em;
+  --md-code-pad: 8px 10px;
+  --md-code-size: 13px;
+  --md-code-leading: 20px; /* 代码块 13/20:等宽那一面自己的档(#7333) */
+  --md-cell-pad: 0.3em 0.75em 0.3em 0;
+  line-height: 1.5;
+}
+
+.gg-md--comfortable {
+  --md-gap: 0.9em;
+  --md-h1: 1.5em;
+  --md-h2: 1.25em;
+  --md-h3: 1em;
+  --md-h-top: 1.5em;
+  --md-h-bottom: 0.45em;
+  --md-indent: 1.45em;
+  --md-li-gap: 0.2em;
+  --md-code-pad: 12px 14px;
+  --md-code-size: 13px;
+  --md-code-leading: 20px;
+  --md-cell-pad: 0.45em 0.9em 0.45em 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* ── block rhythm ────────────────────────────────────────────────────────── */
+.gg-md > *,
+.gg-md :is(li, blockquote) > :is(p, ul, ol, blockquote, pre, table, hr, div) {
+  margin: 0 0 var(--md-gap);
+}
+.gg-md > :first-child { margin-top: 0; }
+.gg-md > :last-child,
+.gg-md :is(li, blockquote) > :last-child { margin-bottom: 0; }
+
+.gg-md :is(h1, h2, h3, h4, h5, h6) {
+  margin: var(--md-h-top) 0 var(--md-h-bottom);
+  font-weight: 600;
+  line-height: 1.5;
+  color: inherit;
+}
+/* 行高随字阶:24/32 · 20/28 · 16/24(16 正文下),写成比例才能跟着宿主的正文字号走。 */
+.gg-md h1 { font-size: var(--md-h1); line-height: 1.3333; }
+.gg-md h2 { font-size: var(--md-h2); line-height: 1.4; }
+.gg-md h3 { font-size: var(--md-h3); }
+.gg-md :is(h4, h5, h6) { font-size: 1em; }
+.gg-md > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+
+/* ── inline ──────────────────────────────────────────────────────────────── */
+.gg-md :is(strong, b) { font-weight: 600; }
+.gg-md a {
+  color: var(--md-link);
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklab, var(--md-link) 40%, transparent);
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+.gg-md--on-accent a { color: inherit; text-decoration-color: currentColor; }
+.gg-md :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--md-fill-strong);
+  font-family: var(--font-family-mono);
+  font-size: 0.875em; /* 16 正文下 = 14(#7333);跟着周围正文字号走 */
+  color: inherit;
+}
+.gg-md [data-mention] { font-weight: 600; }
+
+/* ── lists ───────────────────────────────────────────────────────────────── */
+.gg-md :is(ul, ol) { padding-left: var(--md-indent); list-style-position: outside; }
+.gg-md ul { list-style-type: disc; }
+.gg-md ul ul { list-style-type: circle; }
+.gg-md ul ul ul { list-style-type: square; }
+.gg-md ol { list-style-type: decimal; }
+.gg-md ol ol { list-style-type: lower-alpha; }
+.gg-md li { margin: 0; padding: 0; }
+.gg-md li + li { margin-top: var(--md-li-gap); }
+.gg-md li > :is(ul, ol) { margin-top: var(--md-li-gap); }
+.gg-md li > p { display: block; margin: 0; }
+.gg-md li > p + p { margin-top: var(--md-gap); }
+.gg-md li::marker { color: var(--md-faint); }
+/* task list: the checkbox sits in the indent, wrapped lines hang at the same column as the text */
+.gg-md li:has(> input[type='checkbox'], > p:first-child > input[type='checkbox']) { list-style: none; }
+.gg-md li :is(> input, > p:first-child > input)[type='checkbox'] {
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 calc(var(--md-indent) - 1.05em) 0 calc(0.1em - var(--md-indent));
+  vertical-align: -0.12em;
+  accent-color: var(--md-link);
+}
+
+/* ── quote, rule, footnotes ──────────────────────────────────────────────── */
+.gg-md blockquote {
+  padding: 0 0 0 0.85em;
+  border-left: 2px solid var(--md-rule);
+  color: var(--md-muted);
+  font-style: normal;
+}
+.gg-md hr {
+  height: 1px;
+  margin: calc(var(--md-gap) * 1.5) 0;
+  border: 0;
+  background: var(--md-rule);
+}
+.gg-md :is(section[data-footnotes], .footnotes) {
+  margin-top: calc(var(--md-gap) * 1.5);
+  padding-top: 0.6em;
+  border-top: 1px solid var(--md-rule-soft);
+  color: var(--md-muted);
+  font-size: 0.75em; /* 16 正文下 = 12,标注档(#7333) */
+}
+.gg-md :is(sup a, [data-footnote-backref]) { text-decoration: none; }
+.gg-md .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── tables: scroll inside their own box instead of squeezing a column to one character ── */
+.gg-md table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  /* 16 正文下 = 14/20,紧凑界面档(#7333)。行高要自己写:继承 .gg-md 的 1.5 会落成 14/21;单元格继承它。 */
+  font-size: 0.875em;
+  line-height: calc(20 / 14);
+}
+.gg-md :is(th, td) {
+  min-width: 6em;
+  max-width: 24em;
+  padding: var(--md-cell-pad);
+  border: 0;
+  border-bottom: 1px solid var(--md-rule-soft);
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* The transcript's tables are sanitized HTML: a column's alignment is only the cell's `align`, which the rule above overrides. */
+.gg-md :is(th, td)[align='center'] { text-align: center; }
+.gg-md :is(th, td)[align='right'] { text-align: right; }
+.gg-md th { border-bottom-color: var(--md-rule); color: var(--md-muted); font-weight: 500; }
+.gg-md :is(thead, tbody, tr) { border: 0; background: transparent; }
+.gg-md tbody tr:last-child > td { border-bottom: 0; }
+.gg-md [data-streamdown='table-wrapper'] { gap: 2px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.gg-md [data-streamdown='table-wrapper'] > div { border: 0; border-radius: 0; background: transparent; }
+.gg-md .gg-md-table-scroll { overflow-x: auto; }
+/* 宽表格右边还有内容时,右缘一道渐隐;滑到最右就消失(owner 2026-10-02)。转录(gg-md-table-scroll)与
+   聊天/手机(Streamdown 的表格滚动层)同一条规则。滚动驱动动画,不写脚本:表格不溢出时滚动时间线无效、不画;
+   不认 animation-timeline 的旧内核(WebView < 115)不画,与此前一样。 */
+.gg-md :is(.gg-md-table-scroll, [data-streamdown='table-wrapper'] > div) {
+  animation: gg-md-table-more linear both;
+  animation-timeline: scroll(self inline);
+}
+@keyframes gg-md-table-more {
+  from, 99% {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+  to { -webkit-mask-image: none; mask-image: none; }
+}
+
+/* ── code ────────────────────────────────────────────────────────────────── */
+.gg-md pre {
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--md-code-size);
+  line-height: var(--md-code-leading);
+  white-space: pre;
+}
+.gg-md > pre { padding: var(--md-code-pad); border-radius: 8px; background: var(--md-fill); }
+.gg-md [data-streamdown='code-block'] {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--md-fill);
+}
+.gg-md [data-streamdown='code-block-header'] {
+  height: auto;
+  padding: 6px 8px 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--md-faint);
+  /* 代码头(语言标签):代码头专用档 12/16(#7333),❌ 当通用标注 12/18 用。 */
+  font-size: 12px;
+  line-height: 16px;
+}
+.gg-md [data-streamdown='code-block-body'] {
+  padding: var(--md-code-pad);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.gg-md [data-streamdown='code-block-body'] :is(pre, code) { background: transparent; }
+/* Streamdown 2.5 gives a code line its `block` class only when line numbers are on. Its lines only: code painted by
+   `paintHighlight` (the transcript's runs, App pages) is one span per token with the line breaks between them. */
+.gg-md [data-streamdown='code-block-body'] pre > code > span { display: block; }
+/* Streamdown's `dark:` token colour never resolves under Gugu's theme attribute: read the dual-theme var. */
+[data-theme='dark'] .gg-md [data-streamdown='code-block-body'] span[style*='--shiki-dark'] {
+  color: var(--shiki-dark);
+}
+
+/* ── math ────────────────────────────────────────────────────────────────── */
+/* KaTeX ships `.katex-display{display:block}` unlayered; (0,2,0) wins it. `safe` falls back to start
+   alignment when a formula is wider than the body, so its beginning scrolls into view instead of being cut. */
+.gg-md .katex-display {
+  display: flex;
+  justify-content: safe center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+/* `sourceLines` sets display math in a block that says its lines (to-html.ts): the block keeps the rhythm, as the
+   formula does on its own. */
+.gg-md > [data-line] > .katex-display { margin: 0; }
+
+/* ── transcript (session-chat-ui html blocks; the font comes inline from the chat theme) ── */
+.gg-md--transcript { display: flow-root; }
+/* 转录里的链接跟会话主题的链接色走:用户气泡把它设成气泡字色,反色气泡上不再是蓝字压黑底。 */
+.gg-md--transcript { --md-link: var(--chat-link, var(--text-link)); }
+/* 序号画在列表盒子外面(outside),而转录的每一行在内容列的左缘裁切(行的 paint containment):
+   1.35em 只放得下「9. 」,两位数「12. 」约宽一个数字,左边那位被裁掉。补一个数字宽,序号回到列表自己的缩进里;
+   不动 contain(它是行的裁切,渲染与命中对照都靠它)。三位数的列表仍会被裁。 */
+.gg-md--transcript ol { padding-left: calc(var(--md-indent) + 1ch); }
+.gg-md--flat :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0 0 var(--md-gap);
+  font-size: 1em;
+  font-weight: inherit;
+  letter-spacing: normal;
+}
+.gg-md .gg-md-plain { white-space: pre-wrap; }
+.gg-md .gg-md-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--chat-mention-chip-bg, var(--md-fill-strong));
+  box-shadow: 0 0 0 1px var(--md-rule-soft);
+  color: var(--chat-mention-chip-fg, inherit);
+  font-size: 0.875em; /* 16 正文下 = 14,与 chat 配置的 mention 角色同号(#7333) */
+  line-height: 1.3;
+  cursor: pointer;
+}
+.gg-md .gg-md-mention[data-mention-tone='command'] {
+  background: var(--chat-mention-custom-bg, var(--md-fill-strong));
+  color: var(--chat-mention-custom-fg, inherit);
+}
+.gg-md .gg-md-mention-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  overflow: hidden;
+}
+.gg-md .gg-md-mention-icon > img { width: 100%; height: 100%; object-fit: contain; }
+/* 图片在转录里不加载、画成一枚 chip(高度要在绘制前定、渲染时什么都不取,见 to-html 的 imageChip):
+   与提及同一副样子,前面一枚图片字形(Solar gallery-linear),点开是原图地址 —— ❌ 画成一条裸链接,看着像坏图。 */
+.gg-md a.gg-md-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--md-fill-strong);
+  box-shadow: 0 0 0 1px var(--md-rule-soft);
+  color: inherit;
+  font-size: 0.92em;
+  line-height: 1.3;
+  text-decoration: none;
+}
+.gg-md a.gg-md-image::before {
+  content: '';
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='1.5'%3E%3Cpath d='M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2s7.071 0 8.535 1.464C22 4.93 22 7.286 22 12s0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z'/%3E%3Ccircle cx='16' cy='8' r='2'/%3E%3Cpath stroke-linecap='round' d='m2 12.5l1.752-1.533a2.3 2.3 0 0 1 3.14.105l4.29 4.29a2 2 0 0 0 2.564.222l.299-.21a3 3 0 0 1 3.731.225L21 18.5'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='1.5'%3E%3Cpath d='M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2s7.071 0 8.535 1.464C22 4.93 22 7.286 22 12s0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z'/%3E%3Ccircle cx='16' cy='8' r='2'/%3E%3Cpath stroke-linecap='round' d='m2 12.5l1.752-1.533a2.3 2.3 0 0 1 3.14.105l4.29 4.29a2 2 0 0 0 2.564.222l.299-.21a3 3 0 0 1 3.731.225L21 18.5'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* A chat bubble's pill pointing at a group file (App 引用 pill): a link drawn as the file mention — no underline, the
+   chip's colour, and a long label cut with an ellipsis rather than pushing the bubble wider (a phone's width). */
+.gg-md a.gg-file-pill { max-width: 100%; text-decoration: none; color: var(--chat-mention-chip-fg, inherit); vertical-align: bottom; }
+.gg-md a.gg-file-pill .gg-file-pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Code coloured by `paintHighlight` (the transcript's runs, App pages through gugu.markdown()): every token carries the
+   dual-theme vars. A host page says dark with `data-theme`, an App page with `data-gugu-theme`. */
+.gg-md pre code span[style*='--shiki-light'] { color: var(--shiki-light); }
+:is([data-theme='dark'], [data-gugu-theme='dark']) .gg-md pre code span[style*='--shiki-light'] { color: var(--shiki-dark); }
+/* Streaming: text appended since the last paint fades in. Opacity only — the run was measured without it. */
+.gg-md .gg-md-fresh {
+  animation: gg-md-fresh var(--gg-md-fresh-duration, 200ms) cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+@keyframes gg-md-fresh {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gg-md .gg-md-fresh { animation: none; }
+}

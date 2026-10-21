@@ -1,0 +1,103 @@
+/*
+ * Reads as part of gugu because it borrows the host's palette rather than
+ * inventing one: the surface is given --em-* theme variables, so light and dark
+ * follow the app without this extension knowing which is active.
+ */
+
+:root {
+  --surface: var(--em-background, #ffffff);
+  --surface-raised: var(--em-background-1, #f6f6f7);
+  --text: var(--em-foreground, #17171a);
+  --text-muted: var(--em-foreground-muted, #6a6a72);
+  --border: var(--em-border, rgba(0, 0, 0, 0.1));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: var(--surface);
+  color: var(--text);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+.search-bar {
+  display: flex;
+  gap: 8px;
+}
+
+#query {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+}
+
+#query:focus-visible,
+#search-button:focus-visible {
+  outline: 2px solid var(--em-primary-button-background, #4a6cf7);
+  outline-offset: 1px;
+}
+
+#search-button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--em-primary-button-background, #4a6cf7);
+  color: var(--em-primary-button-foreground, #ffffff);
+  font: inherit;
+  cursor: pointer;
+}
+
+#search-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.status {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+}
+
+.results {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paper {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.paper-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.paper-meta {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.paper-summary {
+  margin: 8px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

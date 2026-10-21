@@ -1,0 +1,40 @@
+{
+ "id": "claude-presence-done-not-fed-twice",
+ "issues": [
+  "#presence-interrupt"
+ ],
+ "harness": "claude 2.1.301",
+ "source": "gugu-base notes/2026-10-16-osc-7501 (esc-latency/ mac1 hooks; rendezvous-presence/ ThinkPad presence + hooks in one run)",
+ "sessionId": "7e5c0000-0000-4000-8000-000000000003",
+ "expectAnomalies": 0,
+ "summary": "a finished turn: the synchronous Stop hook lands 0.14 s before the presence idle, so the idle meets a stopped log and is dropped",
+ "steps": [
+  {
+   "raw": "hook UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000003"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook Stop",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000003"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "presence busy → idle",
+   "event": null,
+   "drop": "stop cancelled while not working: the translator drops it (the turn already ended as done)",
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

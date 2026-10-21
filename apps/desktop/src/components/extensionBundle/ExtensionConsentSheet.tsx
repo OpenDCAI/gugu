@@ -1,0 +1,140 @@
+import { useEffect, useId, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  EXTENSION_CONSENT_ANSWER_EVENT,
+  EXTENSION_CONSENT_EVENT,
+  type ExtensionConsentAnswerDetail,
+  type ExtensionConsentEventDetail,
+  type ExtensionConsentRequester,
+} from '../../session/shared/extensions/host-actions'
+import { useChatStore } from '../../store/chatContext'
+import { Avatar } from '../Avatar'
+import { Button } from '../ui/Button'
+import { Sheet } from '../ui/Sheet'
+import { ConsentBody } from './ConsentDetails'
+import { AppPlacesEditor } from './AppPlaces'
+import { applyPlaceChanges } from '../../session/shared/extensions/app-places'
+import { ForumConsent } from './ForumConsent'
+
+type Ask = Extract<ExtensionConsentEventDetail, { type: 'ask' }>
+
+/** D-31 The agent that asked, as the chat list draws it: its face beside 「〈agent〉要装 X」. */
+function RequesterFace({ requester }: { requester: ExtensionConsentRequester }) {
+  const { identitiesById } = useChatStore('identitiesById')
+  const identity = requester.agentUserId ? identitiesById[requester.agentUserId] : undefined
+  return (
+    <span data-testid="extension-consent-requester" className="shrink-0">
+      <Avatar size={32} name={requester.name} avatarUrl={identity?.avatar ?? null} seed={requester.agentUserId ?? undefined} isAgent />
+    </span>
+  )
+}
+
+/**
+ * An install's consent, asked where the person is (摩擦单 F6): drawn by the shell over whatever is on
+ * screen — the group chat, its side panel, the session page — and the view never changes for it. After
+ * they answer they are where they were. The session page asks through EXTENSION_CONSENT_EVENT.
+ */
+export function ExtensionConsentSheet() {
+  // 论坛 (9): the other things an App asks the person to consent to here — moving a bounty's community points, assigning an agent.
+  return (
+    <>
+      <InstallConsentSheet />
+      <ForumConsent />
+    </>
+  )
+}
+
+function InstallConsentSheet() {
+  const { t } = useTranslation('messaging')
+  const [ask, setAsk] = useState<Ask | null>(null)
+  /** D-30: the places switched on for 「给哪些 agent」 — what the ask had on at first, then the person's own choice. */
+  const [enableIn, setEnableIn] = useState<string[]>([])
+  /** owner 10-16: the other computers ticked to install on too — none until the person ticks one. */
+  const [alsoOn, setAlsoOn] = useState<string[]>([])
+  const titleId = useId()
+
+  useEffect(() => {
+    const onEvent = (event: Event) => {
+      const detail = (event as CustomEvent<ExtensionConsentEventDetail>).detail
+      if (!detail) return
+      if (detail.type === 'ask') {
+        detail.shown = true
+        setEnableIn((detail.places ?? []).filter((place) => place.enabled).map((place) => place.id))
+        setAlsoOn([])
+        setAsk(detail)
+      } else if (detail.type === 'close') {
+        setAsk((current) => (current?.requestId === detail.requestId ? null : current))
+      }
+    }
+    window.addEventListener(EXTENSION_CONSENT_EVENT, onEvent)
+    return () => window.removeEventListener(EXTENSION_CONSENT_EVENT, onEvent)
+  }, [])
+
+  if (!ask) return null
+  const answer = (outcome: ExtensionConsentAnswerDetail['outcome']) => {
+    setAsk(null)
+    const detail: ExtensionConsentAnswerDetail = {
+      requestId: ask.requestId,
+      outcome,
+      ...(ask.places ? { enableIn } : {}),
+      ...(ask.alsoOn ? { alsoOn } : {}),
+    }
+    window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_ANSWER_EVENT, { detail }))
+  }
+  return (
+    // The visible title names the sheet (`titleId`): without it the sheet adds a hidden copy, and the title is read twice.
+    <Sheet onClose={() => answer('dismissed')} desktopWidth="420px" testId="extension-consent-sheet" titleId={titleId}>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 !p-5">
+        <div className="flex items-center gap-2">
+          {ask.requester ? <RequesterFace requester={ask.requester} /> : null}
+          <div id={titleId} className="min-w-0 text-[length:var(--font-title)] font-semibold text-[var(--text-primary)]">
+            {ask.title}
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto text-[length:var(--font-body)] text-[var(--text-secondary)]">
+          <ConsentBody description={ask.description} details={ask.details} />
+          {ask.places ? (
+            // D-30 (主人 10-06「肯定是能选的啊」): which agents get its tools — every agent here unless the person picks; changed any
+            // time on the App's row in 「App」.
+            <div className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-enable-in">
+              <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.title')}</div>
+              <AppPlacesEditor
+                places={ask.places}
+                machineName={ask.machine}
+                enabled={new Set(enableIn)}
+                onChange={(changes) => setEnableIn((ids) => applyPlaceChanges(ids, changes))}
+                installing
+              />
+            </div>
+          ) : null}
+          {ask.alsoOn?.length ? (
+            // owner 10-16「装的时候一次选好装到哪几台」: the same App, the same permissions, on these computers too — each named.
+            <fieldset className="!mt-3 flex flex-col gap-1" data-testid="extension-consent-also-on">
+              <legend className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.appEnable.alsoOn')}</legend>
+              {ask.alsoOn.map((machine) => (
+                <label key={machine.id} className="flex items-center gap-2" title={machine.disabledReason}>
+                  <input
+                    type="checkbox"
+                    data-testid={`extension-consent-also-on-${machine.id}`}
+                    disabled={machine.disabledReason !== undefined}
+                    checked={alsoOn.includes(machine.id)}
+                    onChange={(event) => setAlsoOn((ids) => (event.target.checked ? [...ids, machine.id] : ids.filter((id) => id !== machine.id)))}
+                  />
+                  <span>{machine.label}</span>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" data-testid="extension-consent-cancel" onClick={() => answer('declined')}>
+            {ask.cancelLabel ?? t('common.cancel')}
+          </Button>
+          <Button data-testid="extension-consent-confirm" onClick={() => answer('confirmed')}>
+            {ask.confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}

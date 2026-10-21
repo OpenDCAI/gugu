@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <!-- @@@mobile-light-shell - The WebView answers `prefers-color-scheme` from android:isLightTheme of this theme (Capacitor's
+         BridgeActivity makes it the activity's and the application's; Chromium DarkModeHelper reads it there), and a Light
+         parent says true even on a dark phone: 「跟随系统」 was always light. It says what the system is (values-night); the
+         system bars follow the page's own tone (MobileShellChrome), not this. -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:isLightTheme" tools:targetApi="q">@bool/gugu_system_light</item>
+    </style>
+
+
+    <!-- @@@mobile-launch-loading (#5714) - 点开 App 到界面画出来,全程只有一个加载动效,中间不换脸。
+         不设 `windowSplashScreenAnimatedIcon` 时 Android 12+ 会回落到 `android:icon`,
+         把自适应图标圆形裁出中心 2/3(鸽子缺脚少翅,像张头像)—— 这里明确指成
+         @drawable/splash_loading,那是「咕咕唯一的加载态」那段动效照着素材量出来的安卓版本
+         (由 scripts/gen-mobile-splash-avd.mjs 生成,❌ 别手改)。
+         底色也必须一种到底:系统启动画面与其后的窗口底色(@drawable/splash)同用
+         gugu_mobile_shell_surface,否则启动中途会跳一次色。 -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/gugu_mobile_shell_surface</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_loading</item>
+        <!-- 1000ms 是平台给动画的上限;动效本身循环播,真正的落幕时机是 WebView 画出第一帧。 -->
+        <item name="windowSplashScreenAnimationDuration">1000</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

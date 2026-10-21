@@ -1,0 +1,17 @@
+{
+  "name": "@gugu/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agentTypes": "./src/agentTypes.ts",
+    "./billing": "./src/billing/index.ts",
+    "./billing/*": "./src/billing/*",
+    "./cloud/*": "./src/cloud/*",
+    "./local/*": "./src/local/*",
+    "./shared/*": "./src/shared/*"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}

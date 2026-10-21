@@ -1,0 +1,64 @@
+{
+ "id": "claude-6380-exit-mid-turn",
+ "issues": [
+  "#6380"
+ ],
+ "harness": "claude (pty)",
+ "sessionId": "S",
+ "expectAnomalies": 0,
+ "source": "#6380 A/B readings (cells fgkill, bgkill)",
+ "summary": "claude killed mid-turn (fgkill) and while background work runs (bgkill): the process exit is an ordinary event in the log ⇒ idle; A stayed working forever because the exit reset never arrived",
+ "steps": [
+  {
+   "raw": "user prompt",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "pty exits (claude killed mid-turn)",
+   "event": {
+    "kind": "Interrupted",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "new claude spawned, user prompt",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "Stop background_tasks=[shell running]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "pty exits while the background shell still runs (bgkill)",
+   "event": {
+    "kind": "Interrupted",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+diff --git a/dist/providers/chromeSqlite/shared.js b/dist/providers/chromeSqlite/shared.js
+index 0984013e89cd9d33c720e9783ada946798cb0472..ab7ca6b61ade74494242967351109dc732c62dfb 100644
+--- a/dist/providers/chromeSqlite/shared.js
++++ b/dist/providers/chromeSqlite/shared.js
+@@ -313,6 +313,10 @@ function copySidecar(sourceDbPath, target, suffix) {
+     }
+ }
+ function buildHostWhereClause(hosts, column) {
++    // gugu patch (#7191): `*` = every host. One OR chain per host overflows SQLite's expression depth (1000) for a real profile.
++    if (hosts.includes("*")) {
++        return "1=1";
++    }
+     const clauses = [];
+     for (const host of hosts) {
+         // Chrome cookies often live on parent domains (e.g. .google.com for gemini.google.com).
+diff --git a/dist/providers/firefoxSqlite.js b/dist/providers/firefoxSqlite.js
+index 6621f8b1341c2258340132ebbb7a3858f7b96aca..5fd06662f7123b5042466a07cb15d0d33cd8f9a5 100644
+--- a/dist/providers/firefoxSqlite.js
++++ b/dist/providers/firefoxSqlite.js
+@@ -297,6 +297,10 @@ function copySidecar(sourceDbPath, target, suffix) {
+     }
+ }
+ function buildHostWhereClause(hosts) {
++    // gugu patch (#7191): `*` = every host (see chromeSqlite/shared.js).
++    if (hosts.includes("*")) {
++        return "1=1";
++    }
+     const clauses = [];
+     for (const host of hosts) {
+         for (const candidate of expandHostCandidates(host)) {
+diff --git a/dist/util/hostMatch.js b/dist/util/hostMatch.js
+index 25f2822ff09112ac43e7e6d91d88deacb6d9dd09..9230edd50c67c086a768d0454a03e561e422a303 100644
+--- a/dist/util/hostMatch.js
++++ b/dist/util/hostMatch.js
+@@ -1,4 +1,8 @@
+ export function hostMatchesCookieDomain(host, cookieDomain, hostOnly = false) {
++    // gugu patch (#7191): origin `https://*` means every host — a one-shot import of the whole cookie store.
++    if (host === "*") {
++        return true;
++    }
+     const normalizedHost = host.toLowerCase();
+     const normalizedDomain = cookieDomain.startsWith(".") ? cookieDomain.slice(1) : cookieDomain;
+     const domainLower = normalizedDomain.toLowerCase();

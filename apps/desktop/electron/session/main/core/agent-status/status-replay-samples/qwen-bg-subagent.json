@@ -1,0 +1,146 @@
+{
+ "id": "qwen-bg-subagent",
+ "issues": [
+  "#6377"
+ ],
+ "harness": "qwen-code 0.22.3",
+ "source": "#6377 recorded qwen hooks",
+ "sessionId": "44284e01-53f9-4f4b-b04e-eaaf2dbca28b",
+ "expectAnomalies": 0,
+ "summary": "background subagent: working until the notification round's Stop lists it as completed",
+ "steps": [
+  {
+   "raw": "05:17:35 SessionStart",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "05:17:35 UserPromptSubmit prompt_id=…##0 (first event of this prompt_id)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "44284e01-53f9-4f4b-b04e-eaaf2dbca28b"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:51 PreToolUse prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:51 SubagentStart [subagent]",
+   "event": null,
+   "drop": "the subagent's own hook",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:51 PostToolUse prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:51 UserPromptSubmit prompt_id=…##0",
+   "event": null,
+   "drop": "same prompt_id as the open turn (qwen sends it before every model call)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:55 MessageDisplay prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:55 MessageDisplay prompt_id=…##0",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:55 Stop prompt_id=…##0 background_tasks=['running']",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "44284e01-53f9-4f4b-b04e-eaaf2dbca28b",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:17:56 Notification prompt_id=…##0 idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact (qwen sends it 0.3–1s after every Stop)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:02 PreToolUse [subagent]",
+   "event": null,
+   "drop": "the subagent's own hook",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:42 PostToolUse [subagent]",
+   "event": null,
+   "drop": "the subagent's own hook",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:46 SubagentStop [subagent]",
+   "event": null,
+   "drop": "the subagent's own hook",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:57 MessageDisplay prompt_id=…##1 (first event of this prompt_id)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "44284e01-53f9-4f4b-b04e-eaaf2dbca28b"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:57 MessageDisplay prompt_id=…##1",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:18:57 Stop prompt_id=…##1 background_tasks=['completed']",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "44284e01-53f9-4f4b-b04e-eaaf2dbca28b",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "05:18:57 Notification prompt_id=…##1 idle_prompt",
+   "event": null,
+   "drop": "idle_prompt carries no fact (qwen sends it 0.3–1s after every Stop)",
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

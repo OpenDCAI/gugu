@@ -1,0 +1,107 @@
+.document-preview-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: var(--font-body);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.document-preview-status-error { flex-direction: column; color: var(--danger); }
+
+.document-preview-html {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  border: 0;
+  background: var(--bg-primary);
+}
+
+.document-preview-office {
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.document-preview-docx-body .docx-wrapper {
+  padding: 12px !important;
+  background: transparent !important;
+}
+
+.document-preview-docx-body section.docx {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  margin: 0 0 12px !important;
+  padding: 28px !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  box-shadow: none !important;
+}
+
+.document-preview-docx-body section.docx:last-child { margin-bottom: 0 !important; }
+.document-preview-docx-body img,
+.document-preview-docx-body table { max-width: 100% !important; }
+
+.document-preview-pdf {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.document-preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+}
+
+.document-preview-toolbar button { width: 32px; height: 32px; }
+.document-preview-page-count { width: 56px; color: var(--text-secondary); font-size: var(--font-caption); text-align: center; }
+.document-preview-zoom { width: 42px; color: var(--text-tertiary); font-size: var(--font-caption); text-align: center; }
+.document-preview-toolbar-divider { width: 1px; height: 18px; margin: 0 4px; background: var(--border-subtle); }
+
+.document-preview-pdf-viewport {
+  display: flex;
+  min-height: 360px;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 12px;
+  background: var(--bg-secondary);
+}
+
+.document-preview-pdf-viewport canvas {
+  display: block;
+  max-width: none;
+  border: 1px solid var(--border-subtle);
+  /* PDF 的页面是**被渲染的产品内容**(白纸),不是产品的一个面 ⇒ 这个白不受 @@@one-knob 管。 */
+  background: white;
+  /* @@@shadow-lift (Refs #6104) — 页面不是浮层,投影去掉;它和页边那条 hairline 从前叠在同一条边上。 */
+}
+
+.document-preview-pptx-shell { position: relative; min-height: 100%; background: var(--bg-secondary); }
+.document-preview-pptx-shell > .document-preview-status { position: absolute; inset: 0; z-index: 2; }
+.document-preview-pptx { box-sizing: border-box; min-height: 100%; overflow: auto; padding: 12px; }
+.document-preview-pptx > * { max-width: 100%; }
+
+
+
+/* #7191 Excel:查看器自己画表格(canvas)、自带工作表标签和滚动条,外壳只给它一块定高的区域。 */
+.document-preview-xlsx-shell { position: relative; display: flex; height: 100%; min-height: 360px; flex-direction: column; background: var(--bg-secondary); }
+.document-preview-xlsx-shell > .document-preview-status { position: absolute; inset: 0; z-index: 2; }
+.document-preview-xlsx { position: relative; flex: 1; min-height: 0; }
+.document-preview-notice { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-primary); color: var(--text-secondary); font-size: var(--font-caption); }

@@ -1,0 +1,105 @@
+{
+  "_": [
+    "#3922 —— 状态串台那一族的登记表。它**不判对错**,只要求每个『收主体参数且返回值』的 renderer hook",
+    "说出一句『它如何避开这一类』。为什么是登记而不是探测:让脚本去猜一个 hook 对不对,猜错就是假红,",
+    "而假红会训练所有人去点重跑(仓库有这条教训)。登记表把注意力放到该放的地方,不冒充正确性证明。",
+    "",
+    "这一族的形状:hook 收一个主体参数,但状态只能在副作用里追上它;副作用落在绘制之后(有的还要加一次",
+    "异步往返),于是切换那一刻,『上一个主体的答案』被消费方盖上『当前主体的身份』,造出一条看起来完全",
+    "合法的假事实 —— 下游门控识别不了它,因为它就是一份真读数,只是属于别人。实例:#3911 #3921 #3922。",
+    "",
+    "how 的取值:",
+    "  subject-scoped —— 状态与它描述的主体一起存,主体不符时交出『还不知道』",
+    "  keyed-map      —— 结果按 key 存 map,取用**当前参数**算出的 key ⇒ 换主体立刻换 key(发生在渲染期)",
+    "  derived        —— 没有自有 state,值全部由下游 hook 当场派生",
+    "  no-own-state   —— 只有 ref / useMemo,不承载『关于某个主体的读数』"
+  ],
+  "apps/desktop/src/hooks/useForwardedSource.ts::useForwardedSource": {
+    "how": "keyed-map",
+    "why": "出处按 message id 存模块级 map,渲染期用**当前** messageId 取值;自有 state 只是一个重绘计数器,不承载读数 ⇒ 换消息立刻换答案。"
+  },
+  "apps/desktop/src/hooks/useSessionpageSessionStartupFailure.ts::useSessionpageSessionStartupFailure": {
+    "how": "derived",
+    "why": "无自有的主体读数:值在渲染期由当前 conversationId 从账本快照(useSyncExternalStore)里当场挑出;唯一自有状态是「桥装上了没有」,与主体无关。"
+  },
+  "apps/desktop/src/hooks/useAgentDisplayStatus.ts::useAgentDisplayStatus": {
+    "how": "subject-scoped",
+    "why": "#3839:换 agent 时在渲染期换掉 state(adjust-state-on-prop-change),不在副作用里补一刀。"
+  },
+  "apps/desktop/src/hooks/useAgentDisplayStatus.ts::useAgentDisplayStatuses": {
+    "how": "keyed-map",
+    "why": "statuses 按 agentUserId 存 map,消费方按当前 id 取用。"
+  },
+  "apps/desktop/src/hooks/useAgentDisplayStatus.ts::useAgentRecentActivity": {
+    "how": "keyed-map",
+    "why": "activity 按 agentUserId 存 map。"
+  },
+  "apps/desktop/src/hooks/useAgentHarnessIdentity.ts::useAgentHarnessIdentity": {
+    "how": "keyed-map",
+    "why": "#6002:useSyncExternalStore 在渲染期用当前 agentId 读取 presence map 的 harness 原始值;切换身份同步更换 snapshot 与订阅,不靠 effect 将上一个 agent 的答案追到新主体。"
+  },
+  "apps/desktop/src/hooks/useAgentRunningStatus.ts::useAgentRunningStatus": {
+    "how": "derived",
+    "why": "无自有 state:全部由下游 hook 当场派生,再经 gateActivityToAgent / gateRunningStatusToChat 两维门控。"
+  },
+  "apps/desktop/src/hooks/useAgentStream.ts::useAgentStream": {
+    "how": "keyed-map",
+    "why": "map[agentStreamKey(当前 conversationId, threadRootId)] —— 换主体立刻换 key。"
+  },
+  "apps/desktop/src/hooks/useAgentTurnFailure.ts::useAgentTurnFailure": {
+    "how": "keyed-map",
+    "why": "failure = map[agentStreamKey(当前参数)] —— 换主体立刻换 key。"
+  },
+  "apps/desktop/src/hooks/useGroupCollabRemovedAgentGate.ts::useGroupCollabRemovedAgentGate": {
+    "how": "no-own-state",
+    "why": "只有 ref + useMemo 出的操作对象,不承载『关于某个主体的读数』。"
+  },
+  "apps/desktop/src/hooks/useSessionpageAgentProjection.ts::useSessionpageAgentProjection": {
+    "how": "subject-scoped",
+    "why": "#3911:ProjectionState 带上它描述的 agentUserId,主体不符时交出『还不知道』。owner 报的跨 agent 状态传染就出在这里。"
+  },
+  "apps/desktop/src/hooks/useSessionpageSessionTimeline.ts::useSessionpageSessionTimeline": {
+    "how": "subject-scoped",
+    "why": "state 与 conversationId 一起存,增量只并进同一 conversationId 的 state,返回前要求当前 conversationId 匹配;切换主体的第一帧不会消费上一个会话的动作,也不会把上一个会话的待答审批显示在这个会话上。"
+  },
+  "apps/desktop/src/hooks/useRemoteAgentQuestion.ts::useRemoteAgentQuestion": {
+    "how": "subject-scoped",
+    "why": "状态带设备 ID 与会话 ID 组成的 key，绘制时只返回当前 key 的问题与可用性；切到本机会话或另一设备时立即交出空读数，旧订阅回调由 alive 标记丢弃，增量只并入同一 key 的问题。回答回调绑定当前设备和会话，不会将旧问题当作新主体的事实。"
+  },
+  "apps/desktop/src/hooks/useTopics.ts::useTopicsOfChat": {
+    "how": "subject-scoped",
+    "why": "#5856:state 里带着 forChatId(这份读数是关于哪条线的),返回处在渲染期比对当前 sourceChatId —— 不符就交出空清单 + loading。切线那一帧不会把上一条线的话题端出去,锚点卡也就不会挂到别人的消息底下。晚到的响应另有 loadSeqRef 丢弃。"
+  },
+  "apps/desktop/src/hooks/useTopicSurface.ts::useTopicSurface": {
+    "how": "subject-scoped",
+    "why": "#5856:话题分栏贴着来源线开,所以它也是「关于某条线」的读数。splitState 存 {forChatId, topic},渲染期与当前 chatId 比对,不符即视为没开分栏 —— 靠 effect 清空会慢一帧,那一帧里 A 线的分栏会挂在 B 线旁边。清单部分委托给 useTopicsOfChat(同样 subject-scoped)。"
+  },
+  "apps/desktop/src/hooks/useAgentFloodNotice.ts::useAgentFloodNotice": {
+    "how": "subject-scoped",
+    "why": "#5856:state 存 {forChatId, messageId},返回处按当前 chatId 收口。切会话那一帧不会把上一个群的「自动调档」系统消息判定端出去 —— 那会让撤回按钮短暂挂错群。"
+  },
+  "apps/desktop/src/hooks/useReadReceiptPanel.ts::useReadReceiptPanel": {
+    "how": "subject-scoped",
+    "why": "selection 同存 chatId/messageId,渲染时先与当前 chatId 比对,不符立即返回 null;消息和读位只从当前会话派生。effect 负责清理选择,防串台不依赖 effect 的执行时机。"
+  },
+  "apps/desktop/src/hooks/useTopicLine.ts::useTopicLine": {
+    "how": "subject-scoped",
+    "why": "#6470:话题分栏那条线的消息窗口存 {forChatId, messages},已读水位表的主体记在 memberReadSeqsChatRef(reconcile 先写它、再 setState);返回处都先比对当前 chatId,不符就交空列表 / 空表(空表 = 不画已读环,不是「没人读」)。换话题时 epoch +1,在途的旧读取拿着旧号回来一律不落;线级修订也只落在 line.chatId() 对得上的那条上。"
+  },
+  "apps/desktop/src/hooks/useAgentHeaderStatusText.ts::useAgentHeaderStatusText": {
+    "how": "derived",
+    "why": "没有自有 state:状态、所在设备、引擎全部由 useAgentDisplayStatus(agentUserId) 与设备 store 当场派生,主体一换即换。"
+  },
+  "apps/desktop/src/hooks/useTopicScopedMemberProfile.ts::useTopicScopedMemberProfile": {
+    "how": "subject-scoped",
+    "why": "话题名册与它描述的那条话题存在一起({chatId, snapshot}),渲染时先比对当前 topicChatId —— 不符就当作「还不知道」:从分栏点开的名片退成单人卡、不画档位也不给编辑控件。切到另一条话题的那一帧不会把上一条话题的档位画在新话题的名片上,也不会把改档写向错的 chat。"
+  },
+  "apps/desktop/src/hooks/useAgentMessagePreview.ts::useAgentMessagePreview": {
+    "how": "subject-scoped",
+    "why": "#6357:状态连同 `chatId:agentId` 一起存,渲染期主体不符就交出 connecting/idle;副作用只写属于当前主体的那一格。"
+  },
+  "apps/desktop/src/hooks/useStoredAgentTurnFailure.ts::useStoredAgentTurnFailure": {
+    "how": "subject-scoped",
+    "why": "快照携带账号、聊天、话题与Agent集合组成的subject；不符时立即返回空读数，取消旧主体请求；同主体只认最新读请求，迟到结果不能覆盖新事件。"
+  }
+}

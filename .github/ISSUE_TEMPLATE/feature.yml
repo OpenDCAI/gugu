@@ -1,0 +1,19 @@
+name: Feature
+description: 新能力 / 新需求
+title: "[Feature] "
+labels: [feature]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 想解决什么问题
+      description: 为什么需要它，谁会用
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 设想方案
+      description: UI / API / 交互草图皆可
+    validations:
+      required: false

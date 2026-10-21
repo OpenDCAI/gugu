@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>文件夹</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body data-state="message" data-mode="split">
+  <aside class="files" aria-label="files">
+    <div class="files-head">
+      <input id="filter" class="filter" type="search" autocomplete="off" />
+      <button id="new-doc" class="btn" type="button" hidden></button>
+      <button id="new-folder" class="btn" type="button" hidden></button>
+      <button id="upload" class="btn" type="button" hidden></button>
+    </div>
+    <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
+    <nav id="crumbs" class="crumbs" hidden></nav>
+    <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
+    <div id="list-banner" class="banner" role="status" hidden></div>
+    <p id="files-empty" class="empty" hidden></p>
+    <ul id="file-list" class="file-list" role="listbox"></ul>
+  </aside>
+  <main class="doc">
+    <header class="doc-head">
+      <div class="doc-name">
+        <button id="back" class="back" type="button"><svg class="back-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span id="back-label"></span></button>
+        <h1 id="doc-title" class="doc-title"></h1>
+        <span id="doc-status" class="status"></span>
+        <div id="peers" class="peers"></div>
+      </div>
+      <div class="doc-actions">
+        <div class="modes" role="group">
+          <button id="mode-edit" class="mode" type="button"></button>
+          <button id="mode-split" class="mode" type="button"></button>
+          <button id="mode-preview" class="mode" type="button"></button>
+        </div>
+        <div class="json-actions">
+          <button id="json-discard" class="btn" type="button"></button>
+          <button id="json-apply" class="btn primary" type="button"></button>
+        </div>
+        <!-- Wide: these two sit in the row. Narrow: they fold behind ⋯, which opens them in the page's one menu (#menu). -->
+        <button id="download" class="btn fold" type="button" hidden></button>
+        <button id="open-with" class="btn fold" type="button" hidden></button>
+        <button id="more" class="btn more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden>⋯</button>
+      </div>
+    </header>
+    <div id="banner" class="banner" role="status" hidden></div>
+    <div id="doc-info" class="doc-info" hidden></div>
+    <p id="doc-message" class="empty doc-message"></p>
+    <div class="panes">
+      <div id="editor" class="editor"></div>
+      <article id="preview" class="preview"></article>
+    </div>
+  </main>
+  <div id="menu" class="menu" role="menu" hidden></div>
+  <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
+  <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
+    <div class="dialog-box">
+      <h2 id="move-title" class="dialog-title"></h2>
+      <ul id="move-targets" class="move-targets"></ul>
+      <div class="dialog-actions"><button id="move-cancel" class="btn" type="button"></button></div>
+    </div>
+  </div>
+  <!-- After an upload: a name that was already in the folder — both kept, or the old one replaced. -->
+  <div id="conflicts" class="dialog" role="dialog" aria-modal="true" hidden>
+    <div class="dialog-box">
+      <ul id="conflict-list" class="conflict-list"></ul>
+      <div class="dialog-actions"><button id="conflicts-done" class="btn" type="button"></button></div>
+    </div>
+  </div>
+  <!-- Beside a selection, in the source or the preview (app.js places it). -->
+  <div id="sel-bar" class="sel-bar" hidden>
+    <button id="copy-sel" type="button"></button>
+    <button id="cite-sel" type="button"></button>
+    <button id="hold-sel" type="button"></button>
+  </div>
+  <!-- The places kept with ＋, cited together (the 演示稿's way of gathering): at the bottom of the file. -->
+  <div id="held-bar" class="held-bar" role="toolbar" hidden>
+    <span id="held-count" class="held-count"></span>
+    <button id="held-cite" class="held-cite" type="button"></button>
+    <button id="held-clear" class="held-clear" type="button">✕</button>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

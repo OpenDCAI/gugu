@@ -1,0 +1,62 @@
+{
+ "id": "contract-error-latch",
+ "issues": [
+  "#6167"
+ ],
+ "harness": "claude (StopFailure)",
+ "sessionId": "S",
+ "expectAnomalies": 0,
+ "source": "hook-status-derivation: a failed turn stays error until the next turn; idle_prompt is not an event",
+ "summary": "StopFailure ⇒ error; the 60s idle_prompt changes nothing; the next user turn clears it",
+ "steps": [
+  {
+   "raw": "UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "StopFailure (API 403)",
+   "event": {
+    "kind": "Error",
+    "sessionId": "S",
+    "reason": "api_error"
+   },
+   "drop": null,
+   "expect": "error",
+   "finished": false
+  },
+  {
+   "raw": "Notification idle_prompt (60s later)",
+   "event": null,
+   "drop": "idle_prompt carries no status fact",
+   "expect": "error",
+   "finished": false
+  },
+  {
+   "raw": "UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "Stop background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

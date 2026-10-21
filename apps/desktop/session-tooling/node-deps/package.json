@@ -1,0 +1,8 @@
+{
+  "name": "gugu-session-tooling-node-deps",
+  "private": true,
+  "description": "Isolated better-sqlite3 compiled for system Node (not Electron), used by the task page's DB/migration Vitest projects so the repo-root copy can stay Electron-compiled at all times. The version MUST stay identical to the root package.json's better-sqlite3 — otherwise the tests exercise a different major than the app ships.",
+  "dependencies": {
+    "better-sqlite3": "^12.6.0"
+  }
+}

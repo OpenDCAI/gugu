@@ -1,0 +1,778 @@
+export default {
+  "agent": {
+    "identity": {
+      "pending": "Agent · identifying harness",
+      "unavailable": "Agent harness unavailable",
+      "removed": "Removed agent",
+      "cloud": "Gagent"
+    },
+    "fallbackName": "Assistant",
+    "hostStale": {
+      "hint": "This Agent's device runs an older Gugu, so some activity may be missing.",
+      "label": "Host outdated"
+    },
+    "notification": {
+      "online": "Agent is online",
+      "replyFailed": "Agent reply failed",
+      "startedWorking": "Agent started working",
+      "startFailed": "Agent startup failed"
+    },
+    "offlineWarning": "Currently offline and may not respond promptly",
+    "wakeRefused": "{{name}} can't come online right now: ",
+    "taskpage": {
+      "permission": {
+        "allow": "Allow",
+        "queuePosition": "({{current}} of {{total}})",
+        "alreadyAnswered": "Already answered elsewhere.",
+        "noLongerWaiting": "No longer waiting: this ask is over, nothing was installed.",
+        "failed": "The approval did not go through. Open it in Tasks to answer."
+      },
+      "open": "Open in Tasks",
+      "openFailed": "Could not open in Tasks: {{reason}}",
+      "mode": {
+        "menu": "Mode: {{mode}}",
+        "chat": "Chat",
+        "code": "Code",
+        "general": "Work",
+        "switchToCode": "Switch to Code mode",
+        "switchToGeneral": "Switch to Work mode"
+      },
+      "review": {
+        "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",
+        "title": "Agent is waiting for MCP review"
+      },
+      "statusSourceFault": {
+        "title": "This task's status source is broken: interrupting it with Esc may not update its status"
+      },
+      "providerBlocker": {
+        "action": "Open the task terminal to continue.",
+        "title": "Agent is blocked by provider setup"
+      },
+      "recoveryFailed": {
+        "retry": "Retry recovery",
+        "retryError": "Recovery retry failed. Try again.",
+        "retrying": "Retrying recovery…",
+        "title": "Task recovery failed",
+        "unknown": "The task could not be recovered."
+      },
+      "startupFailure": {
+        "retry": "Retry",
+        "retrying": "Retrying…",
+        "title": "Task failed to start"
+      },
+      "statusReadFailed": "Could not read the task status: {{reason}}"
+    },
+    "turnFailure": {
+      "statusReadFailed": "Reply status could not be read. Please retry.",
+      "weeklyQuota": "Weekly usage limit reached. This account cannot reply right now.",
+      "monthlyQuota": "Monthly usage limit reached. This account cannot reply right now.",
+      "rateLimited": "Too many requests. Please try again shortly.",
+      "quota": "This model account has reached its usage limit. Switch models or wait for the limit to reset.",
+      "modelUnavailable": "The model service is unavailable. Retry later or choose another model.",
+      "changeModel": "Change model",
+      "close": "Close",
+      "generic": "This Agent could not complete the reply",
+      "offline": "The device disconnected before the reply completed",
+      "retry": "Retry",
+      "retrying": "Retrying…",
+      "timeout": "This Agent did not respond in time"
+    }
+  },
+  "announcement": {
+    "contentPlaceholder": "Write an announcement…",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this announcement?",
+    "deleteTitle": "Delete announcement",
+    "edit": "Edit",
+    "editTitle": "Edit announcement",
+    "empty": "No group announcements",
+    "like": "Like",
+    "loading": "Loading…",
+    "pin": "Pin announcement",
+    "pinned": "Pinned",
+    "post": "Post announcement",
+    "posting": "Posting…",
+    "title": "Group announcements",
+    "unlike": "Unlike",
+    "unpin": "Unpin"
+  },
+  "chatArea": {
+    "agentLocation": {
+      "cloud": "Gugu Cloud",
+      "local": "This device"
+    },
+    "agentSettings": "Agent settings",
+    "attachment": "[Attachment]",
+    "backToList": "Back to chats",
+    "conversationProfile": "View chat details",
+    "downloadFailed": "Could not download the file",
+    "filePreview": { "close": "Close file preview", "download": "Download", "openExternal": "Open externally", "loading": "Reading file…", "rendering": "Rendering preview…", "renderFailed": "Could not render this file", "sheetTruncated": "This spreadsheet is too large, so only the first part is shown. Open it in an Office app to see everything.", "openInOffice": "Open in Office app", "previewLimits": "This document is too large or complex to preview safely.", "unsupported": "This file type cannot be previewed here. Download or open it externally.", "readFailed": "Could not read the file ({{status}})", "pdfControls": "PDF controls", "previousPage": "Previous page", "nextPage": "Next page", "zoomOut": "Zoom out", "zoomIn": "Zoom in", "fitWidth": "Fit width", "pdfPage": "PDF page {{page}}" },
+    "empty": {
+      "chats": "Select a chat to start chatting",
+      "contacts": "Select a contact to view details"
+    },
+    "engineMissing": "Engine unknown",
+    "engineMissingTitle": "This Agent's engine is not configured",
+    "firstConversationDescription": "Send a message to start your first conversation.",
+    "firstConversationTitle": "Say hello to {{name}}",
+    "importedHistoryLoadFailed": "Could not load imported history",
+    "loadFailedBody": "It couldn't be loaded this time — the chat isn't empty. Try again.",
+    "loadFailedCopy": "Copy",
+    "loadFailedDetails": "Details",
+    "loadFailedHideDetails": "Hide details",
+    "loadFailedRetry": "Retry",
+    "loadFailedStale": "Couldn't load the latest messages; showing what was loaded earlier.",
+    "loadFailedTitle": "Couldn't load this chat",
+    "management": {
+      "actionFailed": "{{action}} failed: {{reason}}",
+      "clear": "Clear",
+      "clearConfirm": "Clear all chat history?",
+      "clearHistory": "Clear chat history",
+      "dissolve": "Dissolve group",
+      "dissolveConfirm": "Dissolving this group removes every member. Continue?",
+      "exit": "Leave group",
+      "exitConfirm": "Leave this group?",
+      "notificationFailed": "Could not update notifications: {{reason}}",
+      "notifications": "Message notifications",
+      "pin": "Pin chat",
+      "pinFailed": "Could not update the pin: {{reason}}",
+      "processing": "Working…",
+      "searchHistory": "Search chat history",
+      "unpin": "Unpin chat"
+    },
+    "returnToLatest": "Jump to latest",
+    "newMessages": "{{count}} new messages ↓",
+    "newMessages_one": "{{count}} new message ↓",
+    "newMessages_other": "{{count}} new messages ↓",
+    "unreadAbove": "↑ {{count}} new messages",
+    "unreadAbove_one": "↑ {{count}} new message",
+    "unreadAbove_other": "↑ {{count}} new messages",
+    "noMessages": "No messages yet. Send one to start chatting.",
+    "notificationLevel": {
+      "all": "All",
+      "important": "Important only",
+      "label": "Message notification level",
+      "none": "None"
+    },
+    "operationFailed": "The operation failed. Try again.",
+    "pinnedMessage": "📌 One pinned message",
+    "searchMessages": "Search messages",
+    "searchNoResults": "No messages found for “{{query}}”",
+    "selectedMessages": "{{count}} selected",
+    "selectedMessages_one": "{{count}} selected",
+    "selectedMessages_other": "{{count}} selected",
+    "sendReply": "Send reply",
+    "settings": {
+      "conversation": "Chat settings",
+      "group": "Group settings",
+      "members": "Chat members"
+    },
+    "appEnable": {
+      "title": "Which agents get it",
+      "alsoOn": "Also install on",
+      "machine": "This computer",
+      "all": "All agents",
+      "allSub": "Including the agents in each project",
+      "chosen": "Agents, groups and projects · {{count}}",
+      "project": "Project",
+      "cardGroup": "Card's chat",
+      "agent": "Your agent",
+      "members": "{{count}} people",
+      "remove": "Stop giving it to {{name}}",
+      "add": "Add an agent, group or project…",
+      "emptyInstall": "None chosen yet. You can install without, and add some later in Apps.",
+      "empty": "None chosen yet.",
+      "hint": "The agents chosen, and the agents in the groups chosen, can use its tools.",
+      "pickerTitle": "Add an agent, group or project",
+      "search": "Search agents, groups, projects or topics",
+      "agents": "Your agents",
+      "recent": "Groups talked in recently",
+      "topicHint": "Topic “{{name}}” is in this group",
+      "picked": "{{count}} chosen",
+      "done": "Done",
+      "noPlaces": "You have no agents and are in no groups yet",
+      "noMatch": "Nothing found",
+      "used": "Given to: ",
+      "hereAll": "All agents here",
+      "hereAllOn": "All agents on {{machine}}",
+      "more": "{{names}} and {{count}} in all",
+      "none": "Not given to any agent yet — no agent has its tools"
+    },
+    "peek": {
+      "openFull": "Open in full",
+      "session": "Task",
+      "unsupported": "This file type cannot be previewed. Open it with the system app."
+    },
+    "openWith": {
+      "always": "Always use this App",
+      "back": "Back",
+      "more": "More",
+      "maximize": "Maximize pane",
+      "restore": "Restore pane",
+      "resize": "Resize the panel",
+      "offer": "Open it with “{{name}}”",
+      "appFiles": "Files of “{{name}}”",
+      "fileUnavailable": "This file can't be opened here: it may have been deleted, or be outside this chat.",
+      "noOpener": "No App on this device opens “{{name}}”, and the Gugu market has none that does.",
+      "marketUnreadable": "No App on this device opens “{{name}}”, and the Gugu market can't be reached right now. Try again later.",
+      "offerFromMarket": "It is an App from the Gugu market: install it here once.",
+      "switchedOffWhy": "This file belongs to “{{name}}”, which is installed but switched off. Turn it on and the file opens in it.",
+      "switchOn": "Turn on",
+      "switchFailed": "It was not turned on. Try again later.",
+      "arriving": "“{{name}}” is being set up. The file opens here as soon as it is in.",
+      "arrivingWaits": "“{{name}}” is not in yet: it could not be fetched from the download site this time. Try again — it also goes in by itself the next time gugu starts.",
+      "arrivingRetry": "Try again",
+      "installFailed": "It did not install. Try again later.",
+      "offerWhy": "This file belongs to “{{name}}”, which is not installed here yet. Install it and the file opens in it.",
+      "updateHere": "This chat has version {{version}}",
+      "update": "Update",
+      "default": "Default",
+      "showRaw": "Show the raw content",
+      "hideRaw": "Hide the raw content",
+      "install": "Install",
+      "unavailable": "This App cannot open here right now: it is not installed, or it is switched off.",
+      "title": "Open “{{name}}” with"
+    },
+    "source": {
+      "notVisible": "The source message is not in this view. It may not be loaded or may be in a thread."
+    },
+    "suggestions": {
+      "help": "What can you help me with?",
+      "introduction": "Tell me about yourself"
+    }
+  },
+  "chatList": {
+    "addContact": "Add contact",
+    "clearSearch": "Clear search",
+    "create": "New",
+    "createTask": "New task",
+    "createAgent": "New Agent",
+    "createGroup": "New group chat",
+    "delete": "Delete",
+    "disableNotifications": "Mute notifications",
+    "draft": "[Draft]",
+    "moreTopics": "More · {{count}}",
+    "moreTopics_one": "More · {{count}}",
+    "moreTopics_other": "More · {{count}}",
+    "empty": "No chats yet",
+    "emptyHint": "Use “New Agent” above to start your first conversation",
+    "emptyHintMobile": "Create an agent from the Projects tab to start your first conversation",
+    "enableNotifications": "Enable notifications",
+    "markUnreadFailed": "Could not mark this chat unread. Try again.",
+    "muted": "Notifications muted",
+    "noResults": "No chats found",
+    "listLabel": "Chats",
+    "pin": "Pin",
+    "rowTag": {
+      "group": "Group chat"
+    },
+    "scan": "Scan",
+    "search": "Search",
+    "unpin": "Unpin"
+  },
+  "chatService": {
+    "errors": {
+      "announcementRequired": "Announcement content is required",
+      "cloudAgentGroupUnsupported": "Cloud Agents cannot join group chats yet",
+      "removeMemberFailed": "Could not remove this member. You may not have permission, or the member may have already left.",
+      "setListenModeFailed": "Not changed. The listen mode is still what it was."
+    },
+    "groupAction": {
+      "joined": "Joined the group chat",
+      "roleUpdated": "Group role updated"
+    },
+    "runtimeOpen": {
+      "cmuxUnavailable": "Could not connect to the run window. Turn on tmux in project settings, then retry.",
+      "incomplete": "The runtime window information is incomplete, so it cannot be opened.",
+      "localMissing": "This Agent's runtime window is not on this device. Open it from the device where the Agent is running.",
+      "opened": "Agent runtime window opened",
+      "remoteUnsupported": "This Agent is running on another device. Its runtime window cannot be opened here yet.",
+      "removed": "This Agent was removed, so its runtime window cannot be opened.",
+      "staleTmux": "This Agent's runtime window on this device has closed.",
+      "unavailable": "This Agent does not have a runtime window to open yet.",
+      "unbound": "This Agent is not connected to a runtime device yet."
+    },
+    "scheduler": {
+      "paused": "Automatic assignment is paused until manually resumed",
+      "resumed": "Automatic assignment is on and queued tasks will be assigned again"
+    },
+    "taskAction": {
+      "cancelled": "Task cancelled",
+      "paused": "Task paused and waiting to re-enter the queue",
+      "retried": "Task returned to the execution queue",
+      "transferred": "Requested reassignment to another Agent"
+    }
+  },
+  "common": {
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "collapse": "Collapse",
+    "discard": "Discard",
+    "done": "Done",
+    "download": "Download",
+    "expand": "Expand",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "save": "Save",
+    "saving": "Saving…",
+    "send": "Send",
+    "settings": "Settings"
+  },
+  "attachmentView": {
+    "fileGone": "File deleted",
+    "fileUnavailable": "File unavailable right now",
+    "imageUnavailable": "Image unavailable right now",
+    "newerInFolder": "Newer version in the folder",
+    "retry": "Retry"
+  },
+  "composer": {
+    "agent": {
+      "disabledReason": {
+        "removed": "This Agent was removed and cannot receive more messages.",
+        "retiredCloud": "Gugu Cloud Agent is retired. You can still view its message history."
+      },
+      "placeholder": {
+        "retiredCloud": "Gugu Cloud Agent is retired"
+      }
+    },
+    "attachmentContextMissing": "Could not send the attachment because the chat is no longer available",
+    "attachmentPersistenceFailed": "Could not save {{fileName}}",
+    "attach": "Add",
+    "cancelQuote": "Cancel reply",
+    "commands": {
+      "clear": "Clear the composer",
+      "shrug": "Insert ¯\\_(ツ)_/¯"
+    },
+    "disabled": "You cannot send messages in this chat",
+    "exitWhisper": "Exit whisper mode",
+    "file": "File",
+    "memberType": {
+      "agent": "Agent",
+      "all": "Everyone",
+      "member": "Member"
+    },
+    "mentionAll": "Everyone",
+    "mentionMembers": "Mention a member",
+    "mentionNoMatch": "No matching members",
+    "placeholder": "Write a message… Type / for commands",
+    "removeAttachment": "Remove {{fileName}}",
+    "removeFilePill": "Remove {{label}}",
+    "sendFailed": "Could not send: {{reason}}",
+    "slashCommands": "Slash commands",
+    "whisperBanner": "Whisper to {{name}} · only visible to you both",
+    "whisperPlaceholder": "Whisper to {{name}}…"
+  },
+  "emoji": {
+    "quickReactions": "Quick reactions",
+    "reactWith": "React with {{emoji}}"
+  },
+  "forward": {
+    "batchPreview": "Forward {{count}} messages",
+    "batchPreview_one": "Forward {{count}} message",
+    "batchPreview_other": "Forward {{count}} messages",
+    "failed": "Could not forward the message",
+    "forwarding": "Forwarding…",
+    "noResults": "No chats found",
+    "noTargets": "No chats available for forwarding",
+    "preview": {
+      "attachment": "[Attachment]",
+      "card": "[Card]",
+      "empty": "[Empty message]"
+    },
+    "searchChats": "Search chats",
+    "selectAtLeastOne": "Select at least one chat",
+    "selected": "{{count}} selected",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "shareFailed": "Couldn't share. Try again later.",
+    "shareToApps": "Share to other apps",
+    "title": "Forward"
+  },
+  "group": {
+    "addMember": "Add member",
+    "agentFlood": {
+      "ledgerLoadFailed": "Could not read the ledger for this automatic change, so undo is unavailable. Reopen this line in a moment and try again.",
+      "undoAll": "Undo all",
+      "undoFailed": "The undo did not go through; listen modes are unchanged. Tap Undo all again.",
+      "undoing": "Undoing…",
+      "undone": "Undone"
+    },
+    "collab": {
+      "loadTimeout": "Collaboration data took too long to load. Try again."
+    },
+    "editName": "Edit group name",
+    "memberFallback": {
+      "removedAgent": "Removed Agent",
+      "unknown": "Unknown member"
+    },
+    "memberJoined": {
+      "joined": " joined the group chat",
+      "mentionHint": "Mention {{name}} in the message box",
+      "separator": ", "
+    },
+    "memberList": {
+      "agentLeave": "Take it out of this group",
+      "clearSearch": "Clear search",
+      "createAgent": "New Agent in this group",
+      "invite": "Invite members",
+      "makeAdmin": "Make admin",
+      "manage": "Manage {{name}}",
+      "noMatches": "No members match \"{{query}}\"",
+      "revokeAdmin": "Remove admin",
+      "search": "Search members, owners or engines",
+      "setActive": "Switch to active",
+      "setPassive": "Switch to passive",
+      "loadFailed": "Could not load the member list. Close and reopen 👥 to try again.",
+      "notParticipant": "You are not in this topic yet, so its member list is not visible. Say something in it to join.",
+      "sectionAgents": "Agents",
+      "sectionPeople": "People",
+      "title": "Group members",
+      "titleTopic": "Topic members"
+    },
+    "topicInvite": {
+      "title": "Add topic members",
+      "hint": "Choose members from the source chat. An invitation message will be sent in the topic.",
+      "search": "Search members",
+      "message": "{{names}} You are invited to join this topic.",
+      "confirm": "Add ({{count}})",
+      "empty": "No other members of the source chat are available to add.",
+      "noResults": "No matching members.",
+      "failed": "The invitation did not complete. Please try again."
+    },
+    "join": {
+      "denied": {
+        "agentNotOwned": "You can only add your own Agents",
+        "agentOwnerLeft": "This Agent's owner has left the group, so the request no longer applies",
+        "alreadyDecided": "This request has already been handled",
+        "generic": "Couldn't join the group. Please try again later",
+        "groupArchived": "This group has been disbanded",
+        "memberLimit": "The group is full. Raise the member limit first",
+        "notMember": "You're no longer in this group",
+        "requesterLeft": "The person who asked has left the group, so the request no longer applies"
+      }
+    },
+    "nameLoading": "Loading…",
+    "namePlaceholder": "Group name",
+    "picker": {
+      "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
+      "agentRequestRejected": "Your last request was declined; you can submit again",
+      "pendingApproval": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
+      "pendingApproval_one": "Submitted for approval: {{count}} Agent will join once the owner or an admin approves",
+      "pendingApproval_other": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
+      "add": "Add",
+      "addAgents": "Add Agents ({{count}})",
+      "addAgents_one": "Add Agent ({{count}})",
+      "addAgents_other": "Add Agents ({{count}})",
+      "adding": "Adding…",
+      "allFailed": "{{failed}} failed: {{reason}}",
+      "guguId": "Gugu ID {{number}}",
+      "guguIdUnassigned": "Gugu ID not assigned",
+      "humanPermissionError": "You do not have permission to invite people",
+      "humanPermissionHint": "You cannot invite people, but you can still add your own Agents.",
+      "inviteHumans": "Invite people ({{count}})",
+      "inviteHumans_one": "Invite person ({{count}})",
+      "inviteHumans_other": "Invite people ({{count}})",
+      "noAgentResults": "No matching Agents",
+      "noAgents": "No Agents available to add",
+      "noContactResults": "No matching contacts",
+      "noContacts": "No contacts available to invite",
+      "partialFailure": "{{succeeded}} added, {{failed}} failed: {{reason}}",
+      "searchAgents": "Search Agents",
+      "searchContacts": "Search contacts",
+      "selection": "Add {{count}} members to the group",
+      "selection_one": "Add {{count}} member to the group",
+      "selection_other": "Add {{count}} members to the group",
+      "selectionHint": "Select one or more members to add",
+      "title": "Add group members"
+    },
+    "renameFailed": "Rename did not go through — check your connection or permissions, then press Enter again",
+    "renameHintTopic": "Rename topic",
+    "renamePlaceholderTopic": "Topic name",
+    "settings": {
+      "notLoaded": "Group settings are still loading. Try again in a moment.",
+      "manage": "Group management",
+      "saveFailed": "Could not save. The previous setting has been restored; try again.",
+      "sectionAgents": "Agent collaboration",
+      "sectionChat": "Chat",
+      "sectionInvite": "Invitations",
+      "sectionJoin": "Joining",
+      "sectionMembers": "Members",
+      "agentJoinRequestedBy": "{{name}} asked to add this Agent",
+      "accept": "Approve",
+      "agentFloodTopics": "Topic thresholds",
+      "agentFloodTopicsFailed": "Could not load topics.",
+      "agentFloodPermissionsFailed": "Could not load topic permissions. Read-only for now.",
+      "agentFloodLoadFailed": "Could not load the threshold. Reopen settings to retry.",
+      "agentFloodSaveFailed": "Could not save the threshold. Please try again.",
+      "agentFloodThreshold": "Turn agents passive past this many",
+      "agentFloodThresholdAria": "How many agents before they all turn passive",
+      "agentFloodThresholdDefaultHint": "Leave empty for the product default. Currently effective: {{count}}. Past the line only an @ mention wakes them.",
+      "agentFloodThresholdError": "This must be a whole number of 1 or more",
+      "agentFloodThresholdInheritHint": "Leave empty to follow the source line. Currently effective: {{count}}. Past the line only an @ mention wakes them.",
+      "agentApproval": "Require approval for Agents",
+      "agentApprovalAria": "Require approval when an Agent joins",
+      "agentApprovalDescription": "Agents added by regular members join only after the owner or an admin accepts them in Contacts › New requests",
+      "allowMemberInvite": "Let members invite people",
+      "allowMemberInviteAria": "Allow regular members to invite contacts",
+      "allowMemberInviteDescription": "Regular members can invite their contacts",
+      "avatarUpdated": "Group avatar updated",
+      "avatarUploadFailed": "Could not upload the group avatar: {{reason}}",
+      "changeAvatar": "Click or drop an image to change the group avatar",
+      "copyLink": "Copy link",
+      "description": "Group description",
+      "descriptionPlaceholder": "Describe this group in one sentence…",
+      "descriptionUnset": "No group description",
+      "discoverable": "List in Explore",
+      "discoverableAria": "List this group in Explore",
+      "discoverableDescription": "Let anyone find this group in Explore by its name, description, or creator and request to join",
+      "dissolve": "Dissolve group",
+      "dissolveConfirm": "Dissolving this group removes every member. Continue?",
+      "emptyMembers": "No group members",
+      "groupFallback": "Group",
+      "hideHistory": "Hide chat history",
+      "hideHistoryAria": "Hide earlier chat history from new members",
+      "hideHistoryDescription": "New members cannot see messages sent before they joined",
+      "imageRequired": "Choose an image file",
+      "imageTooLarge": "The file must be 5 MB or smaller",
+      "inviteCopied": "Invite link copied",
+      "inviteCopyFailed": "Could not copy the link. Copy it manually.",
+      "inviteLink": "Invite link",
+      "inviteLinkAria": "Enable the group invite link",
+      "inviteLinkDescription": "Let people join this group through a link",
+      "joinMode": "How to join",
+      "joinModeDescriptions": {
+        "approval": "An admin must approve each request",
+        "inviteOnly": "Only admin invitations can add members",
+        "open": "Anyone with the link or QR code can join"
+      },
+      "joinModeOptions": {
+        "approval": "Approval required",
+        "inviteOnly": "Invite only",
+        "open": "Join directly"
+      },
+      "leave": "Leave group",
+      "leaveConfirm": "Leave this group?",
+      "loadFailed": "Could not load group settings: {{reason}}",
+      "memberCount": "{{count}} members",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members",
+      "memberLimit": "Member limit",
+      "memberLimitError": "The member limit must be an integer of 1 or more",
+      "members": "Group members",
+      "posterCta": "Scan to join and collaborate with AI",
+      "posterQrCaption": "Scan to join the group",
+      "posterSubtitle": "Group chat · {{count}} members",
+      "posterSubtitle_one": "Group chat · {{count}} member",
+      "posterSubtitle_other": "Group chat · {{count}} members",
+      "reject": "Reject",
+      "removeConfirm": "Remove {{name}} from the group?",
+      "removeMember": "Remove {{name}} from the group",
+      "removeMemberTitle": "Remove from group",
+      "requestsLoadFailed": "Could not load join requests: {{reason}}",
+      "role": {
+        "admin": "Admin",
+        "owner": "Owner"
+      },
+      "rules": "Collaboration rules",
+      "rulesPlaceholder": "Core principles, direction, and collaboration agreements…",
+      "rulesUnset": "No collaboration rules",
+      "shareLinkHint": "Share this link to invite people to the group",
+      "sharePoster": "Share group poster",
+      "title": "Group settings",
+      "unavailable": "Unavailable",
+      "uploading": "Uploading"
+    }
+  },
+  "header": {
+    "announcement": "Group announcement",
+    "history": "History",
+    "memberList": "Members",
+    "more": "More actions",
+    "searchChat": "Search chat",
+    "searchConversation": "Search this chat",
+    "groupFolder": "Group folder",
+    "folder": "Folder"
+  },
+  "history": {
+    "searchTopics": "Search topics",
+    "createTopic": "New topic",
+    "downloadFile": "Download {{fileName}}",
+    "empty": {
+      "searchTopics": "No matching topics",
+      "attachments": "No attachments yet",
+      "imported": "No imported history",
+      "topics": "No topics yet"
+    },
+    "fileMeta": "{{senderName}} · {{size}} · {{date}}",
+    "filters": {
+      "all": "All",
+      "documents": "Documents",
+      "images": "Images",
+      "mine": "Mine"
+    },
+    "tabs": {
+      "attachments": "Attachments",
+      "imported": "Imported history",
+      "topics": "Topics"
+    },
+    "title": "History",
+    "topicMeta": "{{participantCount}} people · {{messageCount}} messages · {{date}}"
+  },
+  "importedHistory": {
+    "agentRole": "Agent",
+    "backToList": "Back to imported history",
+    "label": "Imported history",
+    "turnMeta": "{{count}} turns · {{date}}",
+    "turnMeta_one": "{{count}} turn · {{date}}",
+    "turnMeta_other": "{{count}} turns · {{date}}",
+    "userRole": "You",
+    "view": "View {{title}}"
+  },
+  "message": {
+    "myAgentSuffix": " (my agent)",
+    "agentOwnerUnavailableSuffix": " (owner unavailable)",
+    "agentOwnerSuffix": " ({{owner}}'s agent)",
+    "actions": {
+      "comingSoon": "Coming soon",
+      "copy": "Copy text",
+      "delete": "Delete",
+      "edit": "Edit",
+      "forward": "Forward",
+      "more": "More",
+      "openTopic": "Open a topic",
+      "react": "React",
+      "reply": "Reply",
+      "select": "Select"
+    },
+    "attachment": "[Attachment]",
+    "copied": "Copied",
+    "copyFailed": "Could not copy. Select the text and copy it manually.",
+    "forwarded": "↪ Forwarded",
+    "forwardedFrom": "↪ From {{line}}",
+    "me": "Me",
+    "read": "Read",
+    "readCount": "Read by {{read}}",
+    "readUnreadCount": "Read by {{read}} · unread by {{unread}}",
+    "receipt": {
+      "allRead": "Read by everyone",
+      "noneRead": "No one has read this yet",
+      "title": "Read receipt"
+    },
+    "retracted": "Message retracted",
+    "sendStatus": {
+      "failed": "Not delivered",
+      "failedActions": "Undelivered message actions",
+      "failedHint": "Not delivered. Click to retry or discard.",
+      "sending": "Sending"
+    },
+    "unread": "Unread",
+    "aiSent": "AI sent",
+    "agentSentForYou": "Sent for you by {{agent}}",
+    "openSendingAgent": "Open {{agent}}’s chat",
+    "sendingAgentRemoved": "The sending Agent has been removed",
+    "openSendingAgentFailed": "Could not open the sending Agent’s chat",
+    "viaApp": "Sent for you by the “{{app}}” App",
+    "viaAppFor": "Sent for {{name}} by the “{{app}}” App",
+    "voice": "Voice message {{duration}}",
+    "whisperBoth": "Whisper · only visible to you both",
+    "whisperOnlyYou": "Whisper · only visible to you",
+    "whisperTo": "Whisper to {{name}} · only visible to you both",
+    "widget": "[Widget]",
+    "widgetCard": {
+      "empty": "No content",
+      "loading": "Loading"
+    }
+  },
+  "outbox": {
+    "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",
+    "discarded": "Discarded",
+    "offscreenFailure": "A message was not delivered. Return to its chat to retry or discard it.",
+    "recipientMissing": "The recipient is no longer available. The message was not sent.",
+    "sendFailed": "Could not send"
+  },
+  "shareIntake": {
+    "back": "Back",
+    "failures": "Couldn't read: {{names}}",
+    "listSeparator": ", ",
+    "noChats": "No chats yet",
+    "noResults": "No matching chats",
+    "nothingToSend": "Nothing to send",
+    "reason": {
+      "refused": "Gugu's own files can't be shared here",
+      "tooLarge": "over 100 MB",
+      "unreadable": "couldn't be read"
+    },
+    "searchChats": "Search chats",
+    "title": "Send to"
+  },
+  "topic": {
+    "anchor": {
+      "lead": "Topic",
+      "separator": " · ",
+      "messageCount": "{{count}} messages",
+      "messageCount_one": "{{count}} message",
+      "participantCount": "{{count}} participants",
+      "participantCount_one": "{{count}} participant",
+      "observer": "View only",
+      "observerHint": "You can see this topic, but its messages will not notify you",
+      "openedBy": "by {{name}}",
+      "quiet": "No one has spoken yet"
+    },
+    "breadcrumb": {
+      "sourceDeleted": "The source message was deleted, but this topic remains",
+      "sourcePreview": "From: {{preview}}"
+    },
+    "openFailed": "The topic did not open. That message may have just been deleted — try another one.",
+    "pane": {
+      "attachments": "Attachments",
+      "members": "Members",
+      "collapseSplit": "Collapse split view",
+      "collapseSplitHint": "Collapse the split view; the topic stays open",
+      "composerPlaceholder": "Say something in this topic…",
+      "empty": "No one has spoken in this topic yet",
+      "resize": "Drag to resize the topic pane"
+    }
+  },
+  "forum": {
+    "communityPoints": "{{count}} community points",
+    "communityPoints_one": "{{count}} community point",
+    "communityPoints_other": "{{count}} community points",
+    "consent": {
+      "cancel": "Cancel",
+      "postTitle": "Post a bounty",
+      "postBody": "{{amount}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
+      "postConfirm": "Post",
+      "reward": "Bounty: {{amount}} points",
+      "days": "Ends in {{count}} days", "days_one": "Ends in {{count}} day", "days_other": "Ends in {{count}} days",
+      "visibility": { "public": "Answers are public", "poster_only": "Answers seen by you only, public once it ends" },
+      "acceptTitle": "Accept answers",
+      "acceptBody": "The points go to the answerers, the bounty ends, and answers seen by you only become public. This cannot be undone.",
+      "acceptConfirm": "Accept",
+      "awardLine": "{{name}} · {{amount}} points",
+      "endTitle": "End bounty",
+      "endBody": "End the bounty without accepting an answer. If nobody ever answered, the points come back to you; if someone did, they are gone.",
+      "endConfirm": "End bounty",
+      "assignTitle": "Assign an agent",
+      "assignBody": "Pick one of your agents to answer this post. It gets the post now, and what the poster or you say there later.",
+      "assignConfirm": "Assign",
+      "noAgents": "You have no agents yet.",
+      "failed": "That did not go through. Please try again.",
+      "error": {
+        "insufficient": "Not enough community points.",
+        "activeLimit": "You can have at most 3 open bounties.",
+        "tooEarly": "Answers can be accepted 24 hours after posting.",
+        "pastGrace": "More than 24 hours past the deadline: answers can no longer be accepted.",
+        "toSelf": "You cannot accept your own answer or your own agents'.",
+        "splitMismatch": "The points you give must add up to the bounty.",
+        "settled": "This bounty has already ended.",
+        "accountTooNew": "Posting, replying and assigning open 3 days after sign-up, once you have signed in on a device.",
+        "blocked": "The poster has blocked you: you and your agents cannot take part in this post.",
+        "identityLimit": "You and your agents can use at most 3 identities in one post."
+      }
+    }
+  },
+  "filePill": {
+    "picked": "Picked on version {{version}}"
+  }
+} as const;

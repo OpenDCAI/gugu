@@ -1,0 +1,69 @@
+{
+ "id": "claude-presence-background-finishes",
+ "issues": [
+  "#presence-interrupt"
+ ],
+ "harness": "claude 2.1.301",
+ "source": "gugu-base notes/2026-10-16-osc-7501 (esc-latency/ mac1 hooks; rendezvous-presence/ ThinkPad presence + hooks in one run)",
+ "sessionId": "7e5c0000-0000-4000-8000-000000000004",
+ "expectAnomalies": 0,
+ "summary": "run_in_background: parked after the turn; the background shell finishing is shell → busy (Claude's own task-notification turn) → idle, ending as done, never as interrupted",
+ "steps": [
+  {
+   "raw": "hook UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000004"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook Stop background_tasks=1",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000004",
+    "backgroundTasks": 1
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "presence busy → shell",
+   "event": null,
+   "drop": "shell is background work, not an interrupt",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook UserPromptSubmit (task-notification)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000004"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook Stop background_tasks=[]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000004",
+    "backgroundTasks": 0
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "presence busy → idle",
+   "event": null,
+   "drop": "stop cancelled while not working: dropped",
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

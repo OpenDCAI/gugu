@@ -1,0 +1,797 @@
+// @vitest-environment jsdom
+import { act, createElement, Fragment, Profiler, useCallback, useMemo, useState, type SetStateAction } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { InputArea } from '../../../../apps/desktop/src/components/chat/InputArea'
+import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
+import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
+import { chatStore, contactsStore } from '../../../support/testHarness'
+import { ContactsContext } from '../../../../apps/desktop/src/store/contactsContext'
+import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
+import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/mention'
+const { toastMock } = vi.hoisted(() => ({
+  toastMock: vi.fn(),
+}))
+// jsdom has no text layout; the caret library is the measuring instrument, so stand in for it.
+const { caretMock } = vi.hoisted(() => ({ caretMock: vi.fn(() => ({ left: 0, top: 5, height: 20 })) }))
+vi.mock('textarea-caret', () => ({ default: caretMock }))
+vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
+  useToast: () => ({ toast: toastMock }),
+}))
+let container: HTMLDivElement
+let root: Root
+async function flush() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+beforeEach(() => {
+  setLocalePreference('zh-CN')
+  toastMock.mockClear()
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:gugu-preview')
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+})
+afterEach(() => {
+  act(() => {
+    root.unmount()
+  })
+  container.remove()
+  setLocalePreference('zh-CN')
+  vi.restoreAllMocks()
+})
+describe('InputArea', () => {
+  it('switches composer chrome without changing the draft or command token', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend: vi.fn(async () => {}) }))
+    })
+    await flush()
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+    await act(async () => {
+      setter?.call(textarea, '用户草稿 /clear')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(textarea.placeholder).toBe('发送消息… 输入 / 唤起命令')
+    await act(async () => {
+      setLocalePreference('en-US')
+    })
+    expect(textarea.placeholder).toBe('Write a message… Type / for commands')
+    expect(textarea.value).toBe('用户草稿 /clear')
+    expect(container.querySelector('button[aria-label="Send"]')).not.toBeNull()
+  })
+  // @@@6200 spec composer「Typing writes only the text」: one keystroke = one commit. A second commit per key means
+  // an effect wrote state after the keystroke's commit — under fast input React counts those as nested updates and
+  // throws #185 mid-typing (measured in the product: ~50 back-to-back keys). act() drains every lane, so the
+  // throw itself can't be reproduced here; the per-key commit count is the contract that prevents it.
+  it('#6200 a keystroke commits once — no state write trails the input', async () => {
+    let commits = 0
+    await act(async () => {
+      root.render(createElement(Profiler, { id: 'composer', onRender: () => { commits += 1 } },
+        createElement(InputArea, { onSend: vi.fn(async () => {}) })))
+    })
+    await flush()
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+    // The first input after mount also yields one commit in which no component renders (no update origin —
+    // measured with a devtools commit hook); it is not a state write and never repeats, so count from key 2.
+    await act(async () => {
+      setter?.call(textarea, 'h')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+    const perKey: number[] = []
+    for (const value of ['he', 'hel', 'hell', 'hello']) {
+      const before = commits
+      await act(async () => {
+        setter?.call(textarea, value)
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await flush()
+      perKey.push(commits - before)
+    }
+    expect(perKey).toEqual([1, 1, 1, 1])
+    expect(textarea.value).toBe('hello')
+  })
+  it('revokes pending image preview urls when unmounted', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend: vi.fn(async () => {}) }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null
+    expect(input).not.toBeNull()
+    const file = new File(['image'], 'avatar.png', { type: 'image/png' })
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [file],
+    })
+    await act(async () => {
+      input?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await flush()
+    expect(URL.createObjectURL).toHaveBeenCalledWith(file)
+    act(() => {
+      root.unmount()
+    })
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
+  })
+  it('restores pending attachments and reports send failures', async () => {
+    const file = new File(['image'], 'avatar.png', { type: 'image/png' })
+    const onSendAttachments = vi.fn(async () => {
+      throw new Error('upload denied')
+    })
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}),
+        onSendAttachments,
+      }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null
+    expect(input).not.toBeNull()
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [file],
+    })
+    await act(async () => {
+      input?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await flush()
+    expect(container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)).toHaveLength(1)
+    const sendButton = Array.from(container.querySelectorAll('button')).find((button) => button.getAttribute('aria-label') === '发送')
+    expect(sendButton).toBeDefined()
+    await act(async () => {
+      sendButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
+    })
+    await flush()
+    expect(onSendAttachments).toHaveBeenCalledWith([file], { toUserIds: [], isWhisper: false, onSent: expect.any(Function) })
+    expect(container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)).toHaveLength(1)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
+    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied', 'error')
+  })
+  it('#2188 restores only the text when every attachment committed before the text failed', async () => {
+    const file = new File(['report'], 'report.txt', { type: 'text/plain' })
+    const onSendAttachments = vi.fn(async (files: File[], opts?: { onSent?: (f: File, index: number) => void }) => {
+      files.forEach((f, index) => opts?.onSent?.(f, index))
+    })
+    const onSend = vi.fn()
+      .mockRejectedValueOnce(new Error('text denied'))
+      .mockResolvedValueOnce(undefined)
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend, onSendAttachments }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await typeInComposer('send this text after the file')
+    await clickSend()
+    expect(onSendAttachments).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('send this text after the file')
+    expect(container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`), 'the committed attachment must not return to the draft').toHaveLength(0)
+    expect(toastMock).toHaveBeenCalledWith('发送失败：text denied', 'error')
+    await clickSend()
+    expect(onSendAttachments, 'retry must not resend the committed attachment').toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledTimes(2)
+  })
+  it('#2188 a mid-batch attachment failure restores the failed AND remaining files, never the committed one', async () => {
+    const sentFile = new File(['a'], 'already-sent.txt', { type: 'text/plain' })
+    const failedFile = new File(['b'], 'failed-verification.txt', { type: 'text/plain' })
+    const remainingFile = new File(['c'], 'never-attempted.txt', { type: 'text/plain' })
+    const onSendAttachments = vi.fn<(files: File[], opts?: { onSent?: (f: File, index: number) => void }) => Promise<void>>(async (files, opts) => {
+      opts?.onSent?.(files[0], 0)
+      throw new Error('second file denied')
+    })
+    const onSend = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend, onSendAttachments }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [sentFile, failedFile, remainingFile] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await typeInComposer('text never attempted')
+    await clickSend()
+    const chips = container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)
+    expect(chips, 'the failed file and the remaining file return to the draft').toHaveLength(2)
+    expect(chips[0].textContent).toContain('failed-verification.txt')
+    expect(chips[1].textContent).toContain('never-attempted.txt')
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value, 'the unattempted text stays recoverable').toBe('text never attempted')
+    expect(onSend, 'the text half never ran').toHaveBeenCalledTimes(0)
+    onSendAttachments.mockImplementationOnce(async (files: File[], opts?: { onSent?: (f: File, index: number) => void }) => {
+      files.forEach((f, index) => opts?.onSent?.(f, index))
+    })
+    await clickSend()
+    expect(onSendAttachments).toHaveBeenCalledTimes(2)
+    expect(onSendAttachments.mock.calls[1]?.[0], 'retry sends ONLY the uncommitted files, in order').toEqual([failedFile, remainingFile])
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+  it('uses disabled placeholder and hover hint independently', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}),
+        disabled: true,
+        disabledReason: 'Agent 正在激活，完成后可发送消息',
+        placeholder: 'Agent 正在激活中，稍后即可对话…',
+      }))
+    })
+    const textarea = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLTextAreaElement | null
+    expect(textarea).not.toBeNull()
+    expect(textarea?.disabled).toBe(true)
+    expect(textarea?.placeholder).toBe('Agent 正在激活中，稍后即可对话…')
+    expect(textarea?.title).toBe('Agent 正在激活，完成后可发送消息')
+    const sendButton = Array.from(container.querySelectorAll('button')).find((button) => button.getAttribute('aria-label') === '发送')
+    expect(sendButton).toBeDefined()
+    expect(sendButton?.disabled).toBe(true)
+    expect(sendButton?.title).toBe('发送')
+  })
+  // @@@at-mention-draft (#951) - a stateful ChatContext provider so draft TEXT + @-mention targets actually
+  function StatefulHost({ chatId, onSend, onSendAttachments, groupMembers = [] }: { chatId: string | null; onSend: (c: string, o?: unknown) => Promise<void>; onSendAttachments?: (files: File[], opts?: unknown) => Promise<void>; groupMembers?: GroupRosterCandidate[] }) {
+    const [drafts, setDrafts] = useState<Record<string, string>>({})
+    const [draftMentions, setDM] = useState<Record<string, DraftMention[]>>({})
+    // @@@draft-attachment (#1872) - also round-trip queued attachments through the store, parallel to text.
+    const [draftAttachments, setDA] = useState<Record<string, DraftAttachment[]>>({})
+    const setDraft = useCallback((id: string, update: SetStateAction<string>) => setDrafts((p) => ({
+      ...p,
+      [id]: typeof update === 'function' ? update(p[id] ?? '') : update,
+    })), [])
+    const setDraftMentions = useCallback((id: string, m: DraftMention[]) => setDM((p) => ({ ...p, [id]: m })), [])
+    const setDraftAttachments = useCallback((id: string, a: DraftAttachment[]) => setDA((p) => ({ ...p, [id]: a })), [])
+    const value = useMemo(() => ({
+      ...chatStore(),
+      drafts,
+      draftMentions,
+      draftAttachments,
+      setDraft,
+      setDraftMentions,
+      setDraftAttachments,
+    }), [drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments])
+    return createElement(ChatStoreProvider, { value }, createElement(InputArea, {
+      onSend,
+      onSendAttachments,
+      chatId,
+      isGroupChat: true,
+      groupMembers,
+    }))
+  }
+  function rosterMember(id: string, name: string, type: 'human' | 'agent' = 'human'): GroupRosterCandidate {
+    return { id, name, type }
+  }
+  async function typeInComposer(value: string) {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(textarea, value)
+      textarea.selectionStart = value.length
+      textarea.selectionEnd = value.length
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+  }
+  async function clickMentionOption(name: string) {
+    const option = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes(name))
+    expect(option, `mention option "${name}" should be in the picker`).toBeTruthy()
+    await act(async () => {
+      option!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await flush()
+  }
+  async function clickSend() {
+    const sendButton = Array.from(container.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === '发送')
+    await act(async () => {
+      sendButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
+    })
+    await flush()
+  }
+  async function pressEnter() {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await Promise.resolve()
+    })
+  }
+  it('a second Enter while a batch is in flight does not resend the same attachments', async () => {
+    let finish: () => void = () => {}
+    const beforeSend = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    const onSendAttachments = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend: vi.fn(async () => {}), onSendAttachments, beforeSend }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['a'], 'a.txt', { type: 'text/plain' })] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await pressEnter()
+    await pressEnter()
+    await act(async () => { finish(); await Promise.resolve() })
+    await flush()
+    expect(beforeSend).toHaveBeenCalledTimes(1)
+    expect(onSendAttachments).toHaveBeenCalledTimes(1)
+  })
+  it('a failed send merges back into a draft typed while it was in flight instead of overwriting it', async () => {
+    let rejectSend: (e: Error) => void = () => {}
+    const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend: vi.fn(async () => {}), onSendAttachments }))
+    })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['a'], 'first.txt', { type: 'text/plain' })] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await typeInComposer('first words')
+    await clickSend()
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['b'], 'added-mid-send.txt', { type: 'text/plain' })] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await typeInComposer('typed mid-send')
+    await act(async () => { rejectSend(new Error('upload denied')); await Promise.resolve() })
+    await flush()
+    const chips = container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)
+    expect(Array.from(chips).map((chip) => chip.textContent)).toEqual([
+      expect.stringContaining('first.txt'),
+      expect.stringContaining('added-mid-send.txt'),
+    ])
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('first words\ntyped mid-send')
+  })
+  it('#1872 a send that fails after switching chats restores into the ORIGINAL chat, not the active one', async () => {
+    let rejectSend: (e: Error) => void = () => {}
+    const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
+    const chips = () => container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
+    })
+    await flush()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['secret'], 'secret.txt', { type: 'text/plain' })] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await flush()
+    expect(chips()).toHaveLength(1)
+    await clickSend()
+    expect(onSendAttachments).toHaveBeenCalledTimes(1)
+    expect(chips(), 'optimistic clear emptied the composer').toHaveLength(0)
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-b', onSend: vi.fn(async () => {}), onSendAttachments }))
+    })
+    await flush()
+    await act(async () => { rejectSend(new Error('upload denied')); await Promise.resolve() })
+    await flush()
+    expect(chips(), 'failed send must not leak into the now-active chat-b').toHaveLength(0)
+    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied', 'error')
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend: vi.fn(async () => {}), onSendAttachments }))
+    })
+    await flush()
+    expect(chips(), 'failed send is recoverable in its original chat-a').toHaveLength(1)
+  })
+  it('a send failing after the user came back and drafted anew merges into that draft instead of overwriting it', async () => {
+    let rejectSend: (e: Error) => void = () => {}
+    const onSendAttachments = vi.fn(() => new Promise<void>((_, reject) => { rejectSend = reject }))
+    const chips = () => container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)
+    const render = async (chatId: string) => {
+      await act(async () => { root.render(createElement(StatefulHost, { chatId, onSend: vi.fn(async () => {}), onSendAttachments })) })
+      await flush()
+    }
+    const attach = async (name: string) => {
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement
+      Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], name, { type: 'text/plain' })] })
+      await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+      await flush()
+    }
+    await render('chat-a')
+    await attach('first.txt')
+    await typeInComposer('first words')
+    await clickSend()
+    await render('chat-b')
+    await render('chat-a')
+    await attach('second.txt')
+    await typeInComposer('second words')
+    await render('chat-b')
+    await act(async () => { rejectSend(new Error('upload denied')); await Promise.resolve() })
+    await flush()
+    await render('chat-a')
+    expect(Array.from(chips()).map((chip) => chip.textContent)).toEqual([
+      expect.stringContaining('first.txt'),
+      expect.stringContaining('second.txt'),
+    ])
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('first words\nsecond words')
+  })
+  it('#2188 after attachment success, a late text failure restores only text into the ORIGINAL chat', async () => {
+    let rejectText: (e: Error) => void = () => {}
+    const onSendAttachments = vi.fn(async (files: File[], opts?: unknown) => {
+      files.forEach((f, index) => (opts as { onSent?: (f: File, index: number) => void } | undefined)?.onSent?.(f, index))
+    })
+    const onSend = vi.fn(() => new Promise<void>((_, reject) => { rejectText = reject }))
+    const chips = () => container.querySelectorAll(`[data-testid="${AUTOMATION_TEST_IDS.pendingAttachmentPreview}"]`)
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
+    })
+    await flush()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['sent'], 'sent.txt', { type: 'text/plain' })] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await typeInComposer('unsent text')
+    await clickSend()
+    expect(onSendAttachments).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(chips(), 'optimistic clear emptied chat-a while text is in flight').toHaveLength(0)
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-b', onSend, onSendAttachments }))
+    })
+    await flush()
+    await act(async () => { rejectText(new Error('text denied')); await Promise.resolve() })
+    await flush()
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('')
+    expect(chips(), 'the committed attachment must not leak into chat-b').toHaveLength(0)
+    await act(async () => {
+      root.render(createElement(StatefulHost, { chatId: 'chat-a', onSend, onSendAttachments }))
+    })
+    await flush()
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('unsent text')
+    expect(chips(), 'the committed attachment must not be restored into chat-a either').toHaveLength(0)
+  })
+  it('#951 token-boundary: typing @Bobby routes to Bobby, never Bob (no substring misroute)', async () => {
+    const groupMembers = [rosterMember('u-bob', 'Bob'), rosterMember('u-bobby', 'Bobby')]
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers })) })
+    await flush()
+    await typeInComposer('@Bob')
+    await clickMentionOption('Bob') // picks Bob → mentionTargets=[u-bob], text "@Bob "
+    await typeInComposer('@Bobby ')
+    await clickSend()
+    // @@@1703: a typed @Bobby now resolves to the real member at send time (whole-token match) → u-bobby.
+    expect(onSend).toHaveBeenCalledWith('@Bobby', expect.objectContaining({ toUserIds: ['u-bobby'] }))
+  })
+  it('#6819 a pick of Claude lapses once the text reads @Claude 2 (longest match, as send routing reads it)', async () => {
+    const groupMembers = [rosterMember('u-claude', 'Claude'), rosterMember('u-claude-2', 'Claude 2')]
+    const onSend = vi.fn(async () => {})
+    await act(async () => { root.render(createElement(StatefulHost, { chatId: 'group-1', onSend, groupMembers })) })
+    await flush()
+    await typeInComposer('@Claude')
+    await clickMentionOption('Claude')
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('@Claude ')
+    await typeInComposer('@Claude 2 ')
+    await clickSend()
+    expect(onSend).toHaveBeenCalledWith('@Claude 2', expect.objectContaining({ toUserIds: ['u-claude-2'] }))
+  })
+  it('C1 会话就绪不挡上屏:输入框立刻清空、onSend 立刻被调,就绪交给投递前置', async () => {
+    const readiness = new Promise<void>(() => {}) // 模拟重开会话:永远没就绪
+    const beforeSend = vi.fn(() => readiness)
+    const onSend = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(InputArea, { onSend, beforeSend, chatId: 'dm-agent' }))
+    })
+    await typeInComposer('你好')
+    await clickSend()
+    expect((container.querySelector('textarea') as HTMLTextAreaElement).value, '输入框不等会话就绪').toBe('')
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledWith('你好', expect.objectContaining({ beforeDeliver: beforeSend }))
+    expect(beforeSend, '文字消息的就绪由 outbox 在投递前 await,composer 不自己挡').not.toHaveBeenCalled()
+  })
+  it('#1641 preserves @, reply, whisper, DM, and @all routing precedence', async () => {
+    const agent = rosterMember('agent-codex', 'Codex 8', 'agent')
+    const onSend = vi.fn(async () => {})
+    const render = async (props: Record<string, unknown>) => {
+      await act(async () => {
+        root.render(createElement(InputArea, {
+          onSend,
+          chatId: 'group-1',
+          isGroupChat: true,
+          groupMembers: [agent],
+          ...props,
+        }))
+      })
+      await flush()
+    }
+    await render({})
+    await typeInComposer('@Codex 8 请检查')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('@Codex 8 请检查', expect.objectContaining({
+      toUserIds: ['agent-codex'],
+      replyToMessageId: null,
+    }))
+    await render({ quoteContent: { messageId: 'message-1', senderName: 'Codex 8', content: '原消息' } })
+    await typeInComposer('Codex 8 收到')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('Codex 8 收到', expect.objectContaining({
+      toUserIds: [],
+      replyToMessageId: 'message-1',
+    }))
+    await render({ whisperTarget: { userId: 'human-private', displayName: '私聊对象' } })
+    await typeInComposer('Codex 8 这条只发给人类')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('Codex 8 这条只发给人类', expect.objectContaining({
+      toUserIds: ['human-private'],
+      replyToMessageId: null,
+      isWhisper: true,
+    }))
+    await render({ isGroupChat: false })
+    await typeInComposer('Codex 8 这是 DM')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('Codex 8 这是 DM', expect.objectContaining({
+      toUserIds: [],
+      replyToMessageId: null,
+    }))
+    await render({})
+    await typeInComposer('@所有人 大家看一下')
+    await clickSend()
+    expect(onSend).toHaveBeenLastCalledWith('@所有人 大家看一下', expect.objectContaining({
+      toUserIds: ['*'],
+      replyToMessageId: null,
+    }))
+  })
+  it('@@@2104 updates candidates from the subscribed roster without a chat switch', async () => {
+    const agentA = rosterMember('a-1', '旧成员', 'agent')
+    const agentB = rosterMember('a-2', '新入群 Agent', 'agent')
+    const onSend = vi.fn(async () => {})
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend,
+        chatId: 'group-1',
+        isGroupChat: true,
+        groupMembers: [agentA],
+      }))
+    })
+    await flush()
+    const ta = container.querySelector('textarea') as HTMLTextAreaElement
+    const setVal = (v: string, caret: number) => {
+      const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+      s?.call(ta, v); ta.selectionStart = caret; ta.selectionEnd = caret
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    await act(async () => { setVal('@', 1) })
+    await flush()
+    expect(container.textContent).toContain('旧成员')
+    expect(container.textContent).not.toContain('新入群 Agent')
+    await act(async () => { setVal('', 0) })
+    await flush()
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend,
+        chatId: 'group-1',
+        isGroupChat: true,
+        groupMembers: [agentA, agentB],
+      }))
+    })
+    await flush()
+    await act(async () => { setVal('@', 1) })
+    await flush()
+    expect(container.textContent).toContain('新入群 Agent')
+  })
+  it('#2166 warns only for an explicitly offline resolved agent status', async () => {
+    const offlineAgent = rosterMember('offline-agent', '设备离线 Agent', 'agent')
+    const reachableAgent = rosterMember('reachable-agent', '可对话 Agent', 'agent')
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}),
+        chatId: 'group-1',
+        isGroupChat: true,
+        groupMembers: [offlineAgent, reachableAgent],
+        agentStatuses: { 'offline-agent': 'offline', 'reachable-agent': 'idle' },
+      }))
+    })
+    await flush()
+    await typeInComposer('@')
+    const offlineOption = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('设备离线 Agent'))
+    const reachableOption = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('可对话 Agent'))
+    expect(offlineOption?.textContent).toContain('当前不在线，可能无法及时回复')
+    expect(reachableOption?.textContent).not.toContain('当前不在线，可能无法及时回复')
+    expect(offlineOption?.getAttribute('data-agent-display-status')).toBe('offline')
+    expect(reachableOption?.getAttribute('data-agent-display-status')).toBe('idle')
+    await act(async () => {
+      offlineOption?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await flush()
+    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="offline-agent"]')?.textContent)
+      .toContain('当前不在线，可能无法及时回复')
+    expect(container.querySelector('[data-agent-status-surface="mention-selection"][data-agent-id="reachable-agent"]')).toBeNull()
+  })
+  it('3a a name with a space stays pickable, and picking it closes the popup', async () => {
+    const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend, chatId: 'group-1', isGroupChat: true,
+        groupMembers: [rosterMember('a-2', 'Claude 2', 'agent'), rosterMember('a-3', 'gpt-5.4', 'agent')],
+      }))
+    })
+    await flush()
+    await typeInComposer('@Claude 2')
+    const options = () => Array.from(container.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '')
+    expect(options().some((text) => text.includes('Claude 2'))).toBe(true)
+    await typeInComposer('@gpt5')
+    expect(options().some((text) => text.includes('gpt-5.4'))).toBe(true)
+    await typeInComposer('@Claude 2')
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    await flush()
+    expect(textarea.value).toBe('@Claude 2 ')
+    await act(async () => { textarea.dispatchEvent(new Event('select', { bubbles: true })) })
+    await flush()
+    expect(container.querySelector('[role="listbox"]')).toBeNull()
+  })
+  it('#6722 keeps the keyboard-highlighted mention visible beyond the first popup viewport', async () => {
+    const members = Array.from({ length: 12 }, (_, index) =>
+      rosterMember(`agent-${index}`, `Agent ${index}`, 'agent'))
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}),
+        chatId: 'group-1',
+        isGroupChat: true,
+        groupMembers: members,
+      }))
+    })
+    await flush()
+    await typeInComposer('@')
+
+    const options = Array.from(container.querySelectorAll<HTMLElement>('[role="option"]'))
+    expect(options).toHaveLength(13)
+    const scrollIntoView = options.map(() => vi.fn())
+    options.forEach((option, index) => {
+      Object.defineProperty(option, 'scrollIntoView', {
+        configurable: true,
+        value: scrollIntoView[index],
+      })
+    })
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      for (let index = 0; index < 12; index += 1) {
+        textarea.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+          cancelable: true,
+        }))
+      }
+    })
+    await flush()
+
+    expect(options[12].getAttribute('aria-selected')).toBe('true')
+    expect(scrollIntoView[12]).toHaveBeenCalledWith({ block: 'nearest' })
+
+    await pressEnter()
+    await flush()
+    expect(textarea.value).toBe('@Agent 11 ')
+  })
+  it('#6722 keeps a valid highlight when the open mention roster shrinks', async () => {
+    const onSend = vi.fn(async () => {})
+    const members = Array.from({ length: 5 }, (_, index) =>
+      rosterMember(`agent-${index}`, `Agent ${index}`, 'agent'))
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend,
+        isGroupChat: true,
+        groupMembers: members,
+      }))
+    })
+    await flush()
+    await typeInComposer('@')
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) {
+        textarea.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+          cancelable: true,
+        }))
+      }
+    })
+    await flush()
+    expect(container.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Agent 4')
+
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend,
+        isGroupChat: true,
+        groupMembers: members.slice(0, 2),
+      }))
+    })
+    await flush()
+
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(3)
+    expect(container.querySelector('[role="option"][aria-selected="true"]')?.textContent).toContain('Agent 1')
+    await pressEnter()
+    await flush()
+    expect(textarea.value).toBe('@Agent 1 ')
+  })
+  // The aside (topic split) composer never registers as the global focus target, so its in-conversation
+  // follow-ups must name their own textarea — otherwise the registered main composer takes the caret.
+  it('the aside composer keeps focus after picking a mention with Enter and after sending with Enter', async () => {
+    const onSendAside = vi.fn(async () => {})
+    const members = [rosterMember('a-1', 'Ada', 'agent')]
+    await act(async () => {
+      root.render(createElement(Fragment, null,
+        createElement(InputArea, { onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true, groupMembers: members }),
+        createElement(InputArea, { onSend: onSendAside, chatId: 'topic-1', isGroupChat: true, groupMembers: members, surface: 'aside' })))
+    })
+    await flush()
+    const main = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLTextAreaElement
+    const aside = container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposerAside}"]`) as HTMLTextAreaElement
+    expect(main).not.toBeNull()
+    const nextFrames = () => act(async () => { for (let i = 0; i < 3; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve)) })
+    const pressEnter = () => act(async () => { aside.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    aside.focus()
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set?.call(aside, '@Ad')
+      aside.selectionStart = aside.selectionEnd = 3
+      aside.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+    await pressEnter()
+    await nextFrames()
+    expect(aside.value).toBe('@Ada ')
+    expect(document.activeElement, 'picking a mention moved the caret to the main composer').toBe(aside)
+    await pressEnter()
+    await nextFrames()
+    expect(onSendAside).toHaveBeenCalledTimes(1)
+    expect(document.activeElement, 'sending moved the caret to the main composer').toBe(aside)
+  })
+  it('3a finds members by pinyin and by the alias the owner gave them', async () => {
+    await act(async () => {
+      root.render(createElement(ContactsContext.Provider, {
+        value: contactsStore({ contacts: [{ id: 'u-1', display_name: 'Ada Lovelace', avatar: null, bio: null, alias: '数学家' }] }),
+      }, createElement(InputArea, {
+        onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
+        groupMembers: [rosterMember('u-1', 'Ada Lovelace'), rosterMember('u-2', '张三丰')],
+      })))
+    })
+    await flush()
+    const options = () => Array.from(container.querySelectorAll('[role="option"]')).map((el) => el.textContent ?? '')
+    await typeInComposer('@zsf')
+    expect(options().some((text) => text.includes('张三丰'))).toBe(true)
+    await typeInComposer('@数学')
+    expect(options().some((text) => text.includes('Ada Lovelace'))).toBe(true)
+  })
+  it('3a no match keeps the popup with「没有匹配的成员」until the text reads as a sentence', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
+        groupMembers: [rosterMember('u-1', 'Ada')],
+      }))
+    })
+    await flush()
+    await typeInComposer('@nobody')
+    expect(container.querySelector('[data-testid="mention-no-match"]')?.textContent).toBe('没有匹配的成员')
+    expect(container.querySelector('[role="option"]')).toBeNull()
+    await typeInComposer('@nobody, hi')
+    expect(container.querySelector('[role="listbox"]')).toBeNull()
+  })
+  it('2a the @ popup follows the @ character instead of pinning to the box corner', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}), chatId: 'group-1', isGroupChat: true,
+        groupMembers: [rosterMember('u-1', 'Ada')],
+      }))
+    })
+    await flush()
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    const composerRoot = container.firstElementChild as HTMLElement
+    composerRoot.getBoundingClientRect = () => new DOMRect(0, 500, 600, 62)
+    textarea.getBoundingClientRect = () => new DOMRect(48, 520, 480, 30)
+    caretMock.mockReturnValue({ left: 120, top: 5, height: 20 })
+    await typeInComposer('hello @')
+    const picker = () => container.querySelector('[data-testid="mention-picker"]') as HTMLElement
+    // 触发字符是 index 6 的那个 @;弹层左边 = textarea 左 48 + 光标 120,底边在那一行上方 6px
+    expect(caretMock).toHaveBeenLastCalledWith(textarea, 6)
+    expect(picker().style.left).toBe('168px')
+    expect(picker().style.bottom).toBe(`${62 - 25 + 6}px`)
+  })
+  it('2a composer close buttons (attachment / whisper / quote) are the shared 28px IconButton', async () => {
+    await act(async () => {
+      root.render(createElement(InputArea, {
+        onSend: vi.fn(async () => {}), chatId: 'group-1',
+        whisperTarget: { userId: 'u-1', displayName: 'Ada' }, onExitWhisper: vi.fn(),
+        quoteContent: { messageId: 'm-1', senderName: 'Ada', content: 'hi' }, onQuoteConsumed: vi.fn(),
+      }))
+    })
+    await flush()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('__chat_composer_attach_files', { detail: { files: [new File(['x'], 'note.txt', { type: 'text/plain' })] } }))
+    })
+    await flush()
+    for (const label of ['移除 note.txt', '退出悄悄话', '取消引用']) {
+      const button = container.querySelector(`button[aria-label="${label}"]`)
+      expect(button?.getAttribute('data-slot'), label).toBe('icon-button')
+      expect(button?.getAttribute('data-size'), label).toBe('sm')
+    }
+  })
+})

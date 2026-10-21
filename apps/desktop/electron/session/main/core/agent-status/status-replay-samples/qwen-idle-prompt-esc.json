@@ -1,0 +1,34 @@
+{
+ "id": "qwen-idle-prompt-esc",
+ "issues": [
+  "#6421"
+ ],
+ "harness": "qwen",
+ "source": "packages/session-plugins/src/agents/impl/qwen/hooks.ts:90 (Esc sends no Stop, only Notification idle_prompt)",
+ "sessionId": "7e5c0000-0000-4000-8000-000000000005",
+ "expectAnomalies": 0,
+ "summary": "qwen Esc: the idle_prompt notification is its only cancel edge — the translator branch that turns it into an interrupted stop stays for qwen",
+ "steps": [
+  {
+   "raw": "hook UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000005"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook Notification idle_prompt (Esc)",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000005",
+    "outcome": "cancelled"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

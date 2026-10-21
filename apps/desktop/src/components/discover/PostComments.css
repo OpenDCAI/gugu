@@ -1,0 +1,244 @@
+/* @@@comments-subordinate 评论区是正文的注解,不是第二篇正文 —— 所以它比正文**更窄、更小、更扁**。
+   在此之前它是反过来的:正文 var(--font-body)=13px,而评论正文写死 14px、评论作者名写死 14px
+   (正文作者名才是 13px),评论列还与正文等宽。字号阶梯倒挂 = 注解在版面上压过了它注解的东西。
+   下面三件事各自对应一句诉求:窄 = 评论列右侧留白 + 左栏收窄;小 = 全部回到 var(--font-*) 阶梯并低正文一档;
+   扁 = 行内网格(见 .gg-pcomment)+ 收紧的行距与间距。手机段落照旧放大回可读/可点尺寸。 */
+.gg-disc .gg-pcomments {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.gg-disc .gg-pcomments-state {
+  min-height: 34px;
+  padding: 10px 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.gg-disc .gg-pcomments-loading,
+.gg-disc .gg-pcomments-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gg-disc .gg-pcomments-error {
+  color: var(--danger);
+}
+
+.gg-disc .gg-pcomments-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-right: auto;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: gg-spin 0.7s linear infinite;
+}
+
+.gg-disc .gg-pcomment-list {
+  display: grid;
+  gap: 12px;
+  /* 窄:评论列的可读宽度显式小于正文列(正文占满卡片内容宽)。 */
+  padding-right: 32px;
+  padding-bottom: 12px;
+}
+
+/* 头像跨两行占左栏,名字与时间共用第一行,正文在第二行 —— 一条单行评论从 110px+ 降到约 60px。
+   左栏是 auto 而**不是**写死 px:头像按钮的尺寸由 MomentAuthorProfile 的 tight 布尔以内联 px 给出,
+   轨道跟着它量,CSS 因此不需要复述那个断点,也就不可能与它分叉。 */
+.gg-disc .gg-pcomment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* MomentAuthorProfile 把头像按钮与名字按钮包在一个 flex 容器里;display:contents 让这两个按钮
+   直接成为上面这张网格的格子,从而各就各位 —— ❌ 不为了排版把作者块拆开(资料卡弹层挂在它身上)。 */
+.gg-disc .gg-pcomment .gg-moment-author {
+  display: contents;
+}
+
+.gg-disc .gg-pcomment .gg-moment-author > button:first-child {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: start;
+}
+
+.gg-disc .gg-pcomment .gg-moment-author-name {
+  grid-column: 2;
+  grid-row: 1;
+  /* 负 margin 抵掉按钮自身的左内边距,让名字与下一行正文左边缘严格对齐。 */
+  margin-left: -4px;
+  padding: 2px 4px;
+}
+
+/* 只有紧致态才放弃 44px 高 —— 这个条件与头像按钮的 34px 出自同一个布尔(tight),
+   ❌ 不能写成媒体查询:那样 capacitor 宽屏会拿到桌面高度却仍是移动 shell,触控目标白丢。 */
+.gg-disc .gg-pcomment .gg-moment-author-tight .gg-moment-author-name {
+  min-height: 0;
+}
+
+.gg-disc .gg-pcomment-main {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.gg-disc .gg-pcomment-replyto {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gg-disc .gg-pcomment-time {
+  grid-column: 3;
+  grid-row: 1;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.gg-disc .gg-pcomment-text {
+  margin-top: 2px;
+  color: var(--text-primary);
+  /* 与正文同一阶梯,不再写死 14px 压过正文。 */
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+.gg-disc .gg-pcomment-media {
+  margin-top: 6px;
+  max-width: 300px;
+}
+
+.gg-disc .gg-pcomment-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  /* 抵掉 ghost 按钮的左内边距,动作行与正文左边缘对齐。 */
+  margin-left: -8px;
+}
+
+.gg-disc .gg-pcomment-row-actions [data-slot='button'] {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.gg-disc .gg-pcomment-compose {
+  padding-top: 12px;
+  padding-right: 32px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.gg-disc .gg-pcomment-replying {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  margin-bottom: 8px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.gg-disc .gg-pcomment-input {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  outline: none;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-body);
+  line-height: 1.5;
+  transition: border-color var(--dur-med) var(--ease);
+}
+
+.gg-disc .gg-pcomment-input:focus {
+  border-color: var(--border-strong);
+}
+
+.gg-disc .gg-pcomment-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.gg-disc .gg-pcomment-attachments {
+  margin-top: 8px;
+}
+
+.gg-disc .gg-pcomment-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.gg-disc .gg-pcomment-compose-error {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* 手机:窄屏没有可让的横向余量,把右侧留白收回;正文与输入放大到 --font-title(移动端正文下限是 14px,字阶里没有 14 → 15)。
+   头像按钮尺寸与作者名的 44px 触控目标不在这里管 —— 它们由 tight 布尔单点决定(见上),
+   否则就会与 useMobileShell 分叉。「扁」的部分(行内网格)在两端都保留。 */
+@media (max-width: 719.98px) {
+  .gg-disc .gg-pcomments {
+    padding-top: 14px;
+  }
+
+  .gg-disc .gg-pcomment-list {
+    gap: 14px;
+    padding-right: 0;
+  }
+
+  .gg-disc .gg-pcomment {
+    column-gap: 6px;
+  }
+
+  .gg-disc .gg-pcomment-text {
+    font-size: var(--font-body);
+  }
+
+  .gg-disc .gg-pcomment-time {
+    font-size: var(--font-caption);
+  }
+
+  .gg-disc .gg-pcomment-compose {
+    padding-right: 0;
+  }
+
+  .gg-disc .gg-pcomment-input {
+    font-size: var(--font-body);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-disc .gg-pcomment-input {
+    transition: none;
+  }
+
+  .gg-disc .gg-pcomments-spinner {
+    animation-duration: 2s;
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "@gugu/session-shared",
+  "version": "1.0.0",
+  "description": "Shared primitives for 咕咕",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "Gugu",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    "./logger/context-node": "./src/logger/context-node.ts",
+    "./logger/transport": "./src/logger/transport/index.ts",
+    "./logger/context": "./src/logger/context.ts",
+    "./package.json": "./package.json",
+    "./logger/pino": "./src/logger/pino/index.ts",
+    "./logger/node": "./src/logger/node/index.ts",
+    "./markdown": "./src/markdown/index.ts",
+    "./markdown/dialect": "./src/markdown/dialect.ts",
+    "./markdown.css": "./src/markdown/markdown.css",
+    "./plugins": "./src/plugins/index.ts",
+    "./result": "./src/result/index.ts",
+    "./logger": "./src/logger/index.ts",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fast-redact": "^3.5.0",
+    "micromark-util-character": "^2.1.1",
+    "micromark-util-types": "^2.0.2",
+    "pino": "^9.14.0",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-cjk-friendly": "^2.0.1",
+    "remark-cjk-friendly-gfm-strikethrough": "^2.0.1",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "zod": "^4.4.3"
+  }
+}

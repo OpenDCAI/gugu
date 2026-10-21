@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- app_name / title_activity_main 由 app/build.gradle 的 resValue 按 GUGU_TIER 生成
+         (@@@tier-build-android):正式版「咕咕」、beta「咕咕 Beta」。两处都写会资源重复,AGP 直接报错。 -->
+    <string name="package_name">app.gugu.chat</string>
+    <string name="custom_url_scheme">app.gugu.chat</string>
+    <!-- #7199 健康:Health Connect 授权页「隐私权政策」点进来的那一页(HealthRationaleActivity)。 -->
+    <string name="health_rationale_title">咕咕怎么用你的健康数据</string>
+    <string name="health_rationale_body">咕咕只读 Health Connect 里的步数、距离、活动消耗、心率、静息心率、心率变异性、睡眠、锻炼、血氧、呼吸频率、体重和体脂,不写入、不改动。\n\n只有你在咕咕「我的 → 这台手机」里打开「健康」之后,你在云电脑上的个人助理问到时(比如你问它「我昨晚睡得怎么样」),咕咕才在这台手机上读一次,把那一次的结果交给它回答。咕咕不在后台整份上传你的健康数据。\n\n随时可以在「我的 → 这台手机」里断开「健康」,或在系统的 Health Connect 里收回权限。</string>
+</resources>

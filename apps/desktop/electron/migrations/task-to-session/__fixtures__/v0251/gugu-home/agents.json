@@ -1,0 +1,118 @@
+{
+  "agents": [
+    {
+      "name": "Codex 1",
+      "agent_type": "codex",
+      "path": "/Users/mac1/gugu-t2s-mig-old-profile/task-home",
+      "gugu_user_id": "1463a17a-d7d4-4ddd-b2bc-91f0b9a5421c",
+      "prompt": "",
+      "created_at": 1790928881.995,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "65ec21fd-0bfc-40b0-875a-7faad340bdb0",
+        "taskpage_group_chat_id": "",
+        "emdash_project_id": "",
+        "emdash_task_id": "e3b6afd1-c518-4d47-bc70-2105e55ab891",
+        "taskpage_provider_id": "codex",
+        "taskpage_session_surface": "task-tui",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    },
+    {
+      "name": "Codex 2",
+      "agent_type": "codex",
+      "path": "/Users/mac1/work/t2s-mig/repo",
+      "gugu_user_id": "df03fd31-2088-44dd-b238-c798d6f7c186",
+      "prompt": "",
+      "created_at": 1790929019.257,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "56f9fde9-3fad-4ba1-b8e1-641ceb71f203",
+        "taskpage_group_chat_id": "b6ede45e-fe18-49a4-a6d9-75c39e5f6e26",
+        "emdash_project_id": "82c2cfe4-5ce8-4cfe-992f-96171992bb82",
+        "emdash_task_id": "3ad60cb5-46c5-473e-9ae1-919813f6d0e7",
+        "taskpage_provider_id": "codex",
+        "taskpage_session_surface": "task-tui",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    },
+    {
+      "name": "Claude 1",
+      "agent_type": "claude-code",
+      "path": "/Users/mac1/work/t2s-mig/repo",
+      "gugu_user_id": "be43d077-90ff-4ea4-ad55-c7a2449287b7",
+      "prompt": "",
+      "created_at": 1790929074.212,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "0f2b4d2a-5d8e-4841-a0ed-499cc1e196fa",
+        "taskpage_group_chat_id": "b6ede45e-fe18-49a4-a6d9-75c39e5f6e26",
+        "emdash_project_id": "82c2cfe4-5ce8-4cfe-992f-96171992bb82",
+        "emdash_task_id": "b01cfa60-c3ef-42b3-9cbf-e5a55132679c",
+        "taskpage_provider_id": "claude",
+        "taskpage_session_surface": "task-acp",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    },
+    {
+      "name": "Claude 2",
+      "agent_type": "claude-code",
+      "path": "/Users/mac1/gugu-t2s-mig-old-profile/task-home",
+      "gugu_user_id": "a76c1eb0-6d76-4564-9032-c0e3dcfc9998",
+      "prompt": "",
+      "created_at": 1790929448.204,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "1fe278e9-5c37-4db7-ae37-236bff14f073",
+        "taskpage_group_chat_id": "",
+        "emdash_project_id": "",
+        "emdash_task_id": "0e95c4f0-291b-44d9-a200-af85eec97678",
+        "taskpage_provider_id": "claude",
+        "taskpage_session_surface": "task-tui",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    },
+    {
+      "name": "Codex 4",
+      "agent_type": "codex",
+      "path": "/Users/mac1/work/t2s-mig/repo",
+      "gugu_user_id": "1978b444-9ffa-44c0-a3c5-c1606f5bd226",
+      "prompt": "",
+      "created_at": 1790929628.724,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "c3a76042-ef9b-4bc8-b132-18c816b13646",
+        "taskpage_group_chat_id": "b6ede45e-fe18-49a4-a6d9-75c39e5f6e26",
+        "emdash_project_id": "82c2cfe4-5ce8-4cfe-992f-96171992bb82",
+        "emdash_task_id": "3e9ef413-d843-4524-a90a-8693100d6f25",
+        "taskpage_provider_id": "codex",
+        "taskpage_session_surface": "task-tui",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    },
+    {
+      "name": "Claude 3",
+      "agent_type": "claude-code",
+      "path": "/Users/mac1/work/t2s-mig/repo",
+      "gugu_user_id": "6dcdb7ef-eaa2-4e3e-a136-70d819778513",
+      "prompt": "",
+      "created_at": 1790929915.641,
+      "cache": {
+        "taskpage_direct_chat_id": "",
+        "emdash_conversation_id": "19835060-23da-417c-b4b2-0f29edb89de1",
+        "taskpage_group_chat_id": "b6ede45e-fe18-49a4-a6d9-75c39e5f6e26",
+        "emdash_project_id": "82c2cfe4-5ce8-4cfe-992f-96171992bb82",
+        "emdash_task_id": "75527bc8-70fc-4c1c-a699-5166eabdec37",
+        "taskpage_provider_id": "claude",
+        "taskpage_session_surface": "task-acp",
+        "taskpage_owner_user_id": "b711649d-abb8-4792-ab67-7f1f6edb794c",
+        "taskpage_cloud_identity_state": "ready"
+      }
+    }
+  ]
+}

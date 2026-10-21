@@ -1,0 +1,46 @@
+{
+ "id": "claude-presence-esc-on-approval",
+ "issues": [
+  "#presence-interrupt"
+ ],
+ "harness": "claude 2.1.301",
+ "source": "gugu-base notes/2026-10-16-osc-7501 (esc-latency/ mac1 hooks; rendezvous-presence/ ThinkPad presence + hooks in one run)",
+ "sessionId": "7e5c0000-0000-4000-8000-000000000001",
+ "expectAnomalies": 0,
+ "summary": "Esc on the approval prompt: no hook comes (mac1 5/5 for 150 s); the presence file goes waiting → idle 0.22 s after the key",
+ "steps": [
+  {
+   "raw": "hook UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000001"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "hook PermissionRequest",
+   "event": {
+    "kind": "WaitStarted",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000001",
+    "id": "permission_prompt",
+    "waitKind": "approval"
+   },
+   "drop": null,
+   "expect": "needs_user",
+   "finished": false
+  },
+  {
+   "raw": "presence waiting → idle (Esc)",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000001",
+    "outcome": "cancelled"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

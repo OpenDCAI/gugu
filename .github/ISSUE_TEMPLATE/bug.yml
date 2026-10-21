@@ -1,0 +1,32 @@
+name: Bug
+description: 功能坏了 / 不符合预期
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 期望行为 vs 实际行为
+      placeholder: |
+        期望：…
+        实际：…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: OS / 版本 / 构建 (e.g. macOS 14 / 0.x.x / dev)
+    validations:
+      required: false

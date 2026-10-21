@@ -1,0 +1,693 @@
+import {
+  ComposerAddAttachment,
+  ComposerAttachments,
+  UserMessageAttachments,
+} from "./attachment.aui";
+import { File } from "./file";
+import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
+import { Image } from "./image";
+import { MarkdownText } from "./markdown-text";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningRoot,
+  ReasoningText,
+  ReasoningTrigger,
+} from "./reasoning.aui";
+import { PauseFollowProvider, ResumeFollowAtBottom } from "./thread-follow";
+import { ToolFallback } from "./tool-fallback.aui";
+import {
+  ToolGroupContent,
+  ToolGroupRoot,
+  ToolGroupTrigger,
+} from "./tool-group.aui";
+import { ComposerAboveExtras, ComposerExtras, ThreadTailExtras, useComposerPlaceholder, useComposerStop } from "./composer-extras";
+import { useAuiCopy } from "./copy";
+import { TooltipIconButton } from "./tooltip-icon-button";
+import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
+import { live } from "./elements/surfaces";
+import { cn } from "@/lib/utils";
+import {
+  ActionBarMorePrimitive,
+  ActionBarPrimitive,
+  AuiIf,
+  type AssistantState,
+  ComposerPrimitive,
+  ErrorPrimitive,
+  groupPartByType,
+  MessagePrimitive,
+  SuggestionPrimitive,
+  ThreadPrimitive,
+  type FileMessagePartComponent,
+  type ImageMessagePartComponent,
+  type ToolCallMessagePartComponent,
+  useAuiState,
+} from "@assistant-ui/react";
+import {
+  ArrowDown as ArrowDownIcon,
+  ArrowUp as ArrowUpIcon,
+  Check as CheckIcon,
+  Copy as CopyIcon,
+  Download as DownloadIcon,
+  Mic as MicIcon,
+  MoreHorizontal as MoreHorizontalIcon,
+  Square as SquareIcon,
+} from "@/lib/icons";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ComponentType,
+  type FC,
+  type PropsWithChildren,
+} from "react";
+
+export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
+
+/**
+ * Optional component overrides for the thread. `AssistantMessage` and
+ * `Welcome` replace whole sections; `UserMessage` can replace the user-role
+ * renderer for message formats that need domain-specific normalization. The
+ * remaining slots override how the assistant message renders tool calls and
+ * part groups. Tool UIs registered
+ * by name (toolkit `render`, `useAssistantDataUI`) take precedence over
+ * `ToolFallback`.
+ */
+export type ThreadComponents = {
+  AssistantMessage?: ComponentType | undefined;
+  UserMessage?: ComponentType | undefined;
+  Welcome?: ComponentType | undefined;
+  ToolFallback?: ToolCallMessagePartComponent | undefined;
+  ToolGroup?:
+    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
+    | undefined;
+  ReasoningGroup?:
+    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
+    | undefined;
+  /** 连着的思考 + 工具调用那一组;不给就是一层不折的容器(官方模板)。 */
+  ChainOfThoughtGroup?:
+    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
+    | undefined;
+  /** 哪些 part 归进哪一组;不给就是官方模板那一份(`DEFAULT_GROUP_BY`)。需要按 part 的名字分(比如某种 data part)时才换。 */
+  groupBy?: ThreadGroupBy | undefined;
+};
+
+export type ThreadGroupBy = ComponentProps<typeof MessagePrimitive.GroupedParts>["groupBy"];
+
+/** 官方模板的分组:思考与工具调用各自成组,外面再套一层 chain-of-thought;独立展示的工具调用不进组。 */
+export const DEFAULT_GROUP_BY: ThreadGroupBy = groupPartByType({
+  reasoning: ["group-chainOfThought", "group-reasoning"],
+  "tool-call": ["group-chainOfThought", "group-tool"],
+  "standalone-tool-call": [],
+});
+
+export type ThreadProps = {
+  components?: ThreadComponents | undefined;
+  autoFocus?: boolean | undefined;
+};
+
+const EMPTY_COMPONENTS: ThreadComponents = {};
+
+const ThreadComponentsContext =
+  createContext<ThreadComponents>(EMPTY_COMPONENTS);
+
+// 入场动画只给线程**有过内容之后**才追加的行。挂上那一刻已在线上的行不是新到的(换页带过来的那句),
+// 空着挂上、第一批才到的也不是(那是读进来的历史:手机进运行中的任务,整段历史从透明淡入 + 上滑一遍,
+// 只剩不带动画的过程头孤零零一行,owner 10-12「进去就颤两下」);重播一遍就是从透明闪出来。
+// 行按位置复用(见 ThreadMessages),所以在行挂载时定一次、❌ 之后再切类(切类会重启动画)。
+const ThreadMountedContext = createContext<{ current: boolean }>({ current: true });
+function useEntersAnimated(): boolean {
+  const mounted = useContext(ThreadMountedContext);
+  const [enters] = useState(() => mounted.current);
+  return enters;
+}
+
+// Startup exposes a loading placeholder thread; treat it as a new chat so
+// the composer mounts centered. Loads after startup keep the docked layout.
+const isNewChatView = (s: AssistantState) =>
+  s.thread.messages.length === 0 &&
+  (!s.thread.isLoading || s.threads.isLoading);
+
+// A switched thread that is still fetching its history: skeleton, not welcome.
+const isHistoryLoadingView = (s: AssistantState) =>
+  s.thread.messages.length === 0 &&
+  s.thread.isLoading &&
+  !s.thread.isDisabled &&
+  !s.threads.isLoading;
+
+const ThreadHistorySkeleton: FC = () => (
+  <div
+    data-slot="aui_thread-history-skeleton"
+    role="status"
+    className="animate-in fade-in fill-mode-both flex flex-col gap-y-6 [animation-delay:150ms] [animation-duration:200ms]"
+  >
+    <span className="sr-only">Loading task</span>
+    <Skeleton className="ml-auto h-9 w-2/5 rounded-xl motion-reduce:animate-none" />
+    <div className="flex flex-col gap-y-2">
+      <Skeleton className="h-4 w-11/12 motion-reduce:animate-none" />
+      <Skeleton className="h-4 w-4/5 motion-reduce:animate-none" />
+      <Skeleton className="h-4 w-3/5 motion-reduce:animate-none" />
+    </div>
+    <Skeleton className="ml-auto h-9 w-1/3 rounded-xl motion-reduce:animate-none" />
+    <div className="flex flex-col gap-y-2">
+      <Skeleton className="h-4 w-10/12 motion-reduce:animate-none" />
+      <Skeleton className="h-4 w-2/3 motion-reduce:animate-none" />
+    </div>
+  </div>
+);
+
+export const Thread: FC<ThreadProps> = ({
+  components = EMPTY_COMPONENTS,
+  autoFocus = true,
+}) => {
+  const isEmpty = useAuiState(isNewChatView);
+
+  return (
+    <ThreadComponentsContext.Provider value={components}>
+      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+    </ThreadComponentsContext.Provider>
+  );
+};
+
+const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
+  isEmpty,
+  autoFocus,
+}) => {
+  const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const mounted = useRef(false);
+  useEffect(() => { if (!isEmpty) mounted.current = true; }, [isEmpty]);
+  const [following, setFollowing] = useState(true);
+  const pauseFollow = useCallback(() => setFollowing(false), []);
+  const resumeFollow = useCallback(() => setFollowing(true), []);
+
+  return (
+    <ThreadMountedContext.Provider value={mounted}>
+    <PauseFollowProvider value={pauseFollow}>
+    <ThreadPrimitive.Root
+      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      style={{
+        ["--thread-max-width" as string]: "44rem",
+        ["--composer-bg" as string]: "var(--color-card)",
+        // @@@radius-thread (Refs #6105) — 官方默认 1.5rem(24px) 正是 design.md「a rounded-3xl composer」
+        // 点名禁的那个形状。composer 与用户气泡同属 thread 档(16px)。
+        ["--composer-radius" as string]: "var(--radius-thread)",
+        ["--composer-padding" as string]: "8px",
+      }}
+    >
+      {/* 跟到底(官方默认锚)。❌ turnAnchor="top":它关掉跟底,改在 isRunning 期间把用户那句钉顶,
+          而手机线程的 isRunning 只算「这台手机正在发」(AgentThread),钉顶永远不生效 ⇒ 新消息沉在屏外。
+          人点开 / 收起一行时暂停跟底，回到底部再恢复(thread-follow.tsx)。 */}
+      <ThreadPrimitive.Viewport
+        data-slot="aui_thread-viewport"
+        autoScroll={following}
+        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
+      >
+        <ResumeFollowAtBottom paused={!following} onResume={resumeFollow} />
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
+            isEmpty && "justify-center",
+          )}
+        >
+          <AuiIf condition={isNewChatView}>
+            <Welcome />
+          </AuiIf>
+          <AuiIf condition={isHistoryLoadingView}>
+            <ThreadHistorySkeleton />
+          </AuiIf>
+
+          <div
+            data-slot="aui_message-group"
+            className="mb-14 flex flex-col gap-y-6 empty:hidden"
+          >
+            <ThreadMessages />
+            {/* 咕咕加的第三个宿主插槽:时间线末尾、在流里(待答的审批/提问卡)。 */}
+            <ThreadTailExtras />
+          </div>
+
+          <ThreadPrimitive.ViewportFooter
+            className={cn(
+              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6",
+              // @@@radius-page (Refs #6105) — ViewportFooter 是贴底满宽带:
+              // design.md「Never round a full-bleed surface」⇒ 不带圆角。
+              !isEmpty && "sticky bottom-0 mt-auto",
+            )}
+          >
+            <ThreadScrollToBottom />
+            <ThreadFollowupSuggestions />
+            {/* 咕咕加的第二个宿主插槽:输入框**正上方**(发送失败)。这一带贴底、没有高度上限,
+                待答的审批/提问卡 ❌ 放这里 —— 一张比视口高的卡会把整个视口盖住,见 ThreadTailExtras。 */}
+            <ComposerAboveExtras />
+            <Composer autoFocus={autoFocus} />
+            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
+              <ThreadSuggestions />
+            </AuiIf>
+          </ThreadPrimitive.ViewportFooter>
+        </div>
+      </ThreadPrimitive.Viewport>
+    </ThreadPrimitive.Root>
+    </PauseFollowProvider>
+    </ThreadMountedContext.Provider>
+  );
+};
+
+const ThreadMessage: FC = () => {
+  const {
+    AssistantMessage: AssistantMessageComponent = AssistantMessage,
+    UserMessage: UserMessageComponent = UserMessage,
+  } =
+    useContext(ThreadComponentsContext);
+  const role = useAuiState((s) => s.message.role);
+
+  if (role === "user") return <UserMessageComponent />;
+  return <AssistantMessageComponent />;
+};
+
+const MESSAGE_COMPONENTS = { Message: ThreadMessage };
+
+// 咕咕改的:行的 key 是从「往前补页之前的第一条」数起的位置,❌ 官方 ThreadPrimitive.Messages 的裸下标。
+// 往前补进更早的一页时,裸下标会把每条已有消息挪进一个新建的行:整条线重新挂载,入场动画也重播一遍(#6952;
+// 那时消息根还带着 content-visibility:auto 的 200px 占位,新行下一帧才量出真高,读者那一行跟着跳 —— 占位已去掉,
+// 见 AssistantMessage)。从原来的第一条数起,补页前后已有的行 key 不变,只有新的一页是新行。末尾照旧按位置:乐观那一行被记录顶掉(换了
+// id)时还是同一行,❌ 按 id 挂(那样会重挂、再淡入一遍)。第一条整个换了(记录换了世代)就从头数。
+// 往前补进来的行是更早的历史,不是新到的,不播入场动画:紧挨着读者那一行上面的就在屏上,它的位移动画一结束,
+// 浏览器的滚动锚定就不补偿那一帧上方行画出真高时的收缩,读者那一行照样跳(mac1 实测 −536 px)。
+const HISTORY_ROW = { current: false };
+const ThreadMessages: FC = () => {
+  const mounted = useContext(ThreadMountedContext);
+  const messages = useAuiState((s) => s.thread.messages);
+  const firstId = messages[0]?.id;
+  const [origin, setOrigin] = useState({ firstId, offset: 0 });
+  let offset = origin.offset;
+  if (origin.firstId !== firstId) {
+    const prepended = messages.findIndex((message) => message.id === origin.firstId);
+    offset = prepended > 0 ? origin.offset + prepended : 0;
+    setOrigin({ firstId, offset });
+  }
+  return messages.map((_, index) => (
+    <ThreadMountedContext.Provider key={index - offset} value={index < offset ? HISTORY_ROW : mounted}>
+      <ThreadPrimitive.MessageByIndex index={index} components={MESSAGE_COMPONENTS} />
+    </ThreadMountedContext.Provider>
+  ));
+};
+
+const ThreadScrollToBottom: FC = () => {
+  const c = useAuiCopy();
+  return (
+    <ThreadPrimitive.ScrollToBottom asChild>
+      <TooltipIconButton
+        tooltip={c.scrollToBottom}
+        variant="outline"
+        className="aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-full p-4 disabled:invisible"
+      >
+        <ArrowDownIcon />
+      </TooltipIconButton>
+    </ThreadPrimitive.ScrollToBottom>
+  );
+};
+
+const ThreadWelcome: FC = () => {
+  const c = useAuiCopy();
+  return (
+    <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
+      {/*
+        官方这句是 `How can I help you today?` —— 那是「开一个新对话」的口气。
+        这一页是**在看别人机器上已经存在的一条会话**:空着的意思是「这条会话还没有内容」,
+        不是「来跟我说点什么吧」。口气错了会让人以为自己进错了地方。
+      */}
+      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-lg font-medium tracking-tight duration-200">
+        {c.emptyTitle}
+      </h1>
+      <p className="aui-thread-welcome-hint text-muted-foreground mt-1.5 text-sm">
+        {c.emptyHint}
+      </p>
+    </div>
+  );
+};
+
+const ThreadSuggestions: FC = () => {
+  return (
+    <div className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-4">
+      <ThreadPrimitive.Suggestions>
+        {() => <ThreadSuggestionItem />}
+      </ThreadPrimitive.Suggestions>
+    </div>
+  );
+};
+
+const ThreadSuggestionItem: FC = () => {
+  return (
+    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
+      <SuggestionPrimitive.Trigger send asChild>
+        <Button
+          variant="ghost"
+          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-[var(--radius-control)] border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+        >
+          <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
+          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
+        </Button>
+      </SuggestionPrimitive.Trigger>
+    </div>
+  );
+};
+
+const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+  const c = useAuiCopy();
+  // 咕咕加的:宿主可指定占位文字(新建页不是「回复」)。没给就是官方原样。
+  const placeholder = useComposerPlaceholder() ?? c.placeholder;
+  return (
+    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+      <ComposerPrimitive.AttachmentDropzone asChild>
+        <div
+          data-slot="aui_composer-shell"
+          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full cursor-text flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) transition-[border-color] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))]"
+        >
+          <ComposerAttachments />
+          <ComposerPrimitive.Input
+            placeholder={placeholder}
+            className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
+            rows={1}
+            autoFocus={autoFocus}
+            enterKeyHint="send"
+            aria-label={c.composerLabel}
+          />
+          <ComposerAction />
+        </div>
+      </ComposerPrimitive.AttachmentDropzone>
+    </ComposerPrimitive.Root>
+  );
+};
+
+const ComposerAction: FC = () => {
+  const c = useAuiCopy();
+  const hostStop = useComposerStop();
+  const sendButton = (
+    <ComposerPrimitive.Send asChild>
+      <TooltipIconButton
+        tooltip={c.send}
+        side="bottom"
+        type="button"
+        variant="default"
+        size="icon"
+        className="aui-composer-send size-7 rounded-full"
+        aria-label={c.send}
+      >
+        <ArrowUpIcon className="aui-composer-send-icon size-4" />
+      </TooltipIconButton>
+    </ComposerPrimitive.Send>
+  );
+  return (
+    <div className="aui-composer-action-wrapper relative flex items-center justify-between">
+      {/* 咕咕加的唯一一处结构改动:操作行左侧留给宿主(会话选项胶囊)。
+          位置照 orca —— 它的 MobileNativeChatComposer 就是把选项摆在这一行的左边。 */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <ComposerAddAttachment />
+        <ComposerExtras />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <AuiIf condition={(s) => s.thread.capabilities.dictation}>
+          <AuiIf condition={(s) => s.composer.dictation == null}>
+            <ComposerPrimitive.Dictate asChild>
+              <TooltipIconButton
+                tooltip={c.dictate}
+                side="bottom"
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="aui-composer-dictate text-muted-foreground hover:text-foreground size-7 rounded-full"
+                aria-label={c.dictateStart}
+              >
+                <MicIcon className="aui-composer-dictate-icon size-4" />
+              </TooltipIconButton>
+            </ComposerPrimitive.Dictate>
+          </AuiIf>
+          <AuiIf condition={(s) => s.composer.dictation != null}>
+            <ComposerPrimitive.StopDictation asChild>
+              <TooltipIconButton
+                tooltip={c.dictateStop}
+                side="bottom"
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                aria-label={c.dictateStop}
+              >
+                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
+              </TooltipIconButton>
+            </ComposerPrimitive.StopDictation>
+          </AuiIf>
+        </AuiIf>
+        <AuiIf condition={(s) => !s.thread.isRunning || !s.thread.capabilities.cancel}>
+          {hostStop ? (
+            <>
+              {/* 咕咕加的:宿主的停止键(远端在跑)。空输入框 = 停止;打了字 = 发送(排队)。 */}
+              <AuiIf condition={(s) => s.composer.isEmpty}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon"
+                  className="aui-composer-cancel size-7 rounded-full"
+                  aria-label={c.stop}
+                  aria-busy={hostStop.stopping}
+                  disabled={hostStop.stopping}
+                  onClick={hostStop.onStop}
+                  data-testid="agent-watch-stop"
+                >
+                  <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
+                </Button>
+              </AuiIf>
+              <AuiIf condition={(s) => !s.composer.isEmpty}>{sendButton}</AuiIf>
+            </>
+          ) : (
+            sendButton
+          )}
+        </AuiIf>
+        <AuiIf condition={(s) => s.thread.isRunning && s.thread.capabilities.cancel}>
+          <ComposerPrimitive.Cancel asChild>
+            <Button
+              type="button"
+              variant="default"
+              size="icon"
+              className="aui-composer-cancel size-7 rounded-full"
+              aria-label={c.stop}
+            >
+              <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
+            </Button>
+          </ComposerPrimitive.Cancel>
+        </AuiIf>
+      </div>
+    </div>
+  );
+};
+
+const MessageError: FC = () => {
+  return (
+    <MessagePrimitive.Error>
+      <ErrorPrimitive.Root className="aui-message-error-root border-destructive bg-destructive/10 text-destructive dark:bg-destructive/5 mt-2 rounded-md border p-3 text-sm dark:text-red-200">
+        <ErrorPrimitive.Message className="aui-message-error-message line-clamp-2" />
+      </ErrorPrimitive.Root>
+    </MessagePrimitive.Error>
+  );
+};
+
+export const AssistantMessage: FC = () => {
+  const c = useAuiCopy();
+  const {
+    ToolFallback: ToolFallbackComponent = ToolFallback,
+    ToolGroup,
+    ReasoningGroup,
+    ChainOfThoughtGroup,
+    groupBy = DEFAULT_GROUP_BY,
+  } = useContext(ThreadComponentsContext);
+
+  // 行按位置复用(见 ThreadMessages):同一行可能换成另一条消息,正文按 id 重挂(❌ 留着上一条的正文)。
+  const messageId = useAuiState((s) => s.message.id);
+  const enters = useEntersAnimated();
+
+  const ACTION_BAR_PT = "pt-1.5";
+  // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
+  const ACTION_BAR_HEIGHT = `min-h-7.5 ${ACTION_BAR_PT}`;
+
+  // ❌ content-visibility:auto + contain-intrinsic-size:官方模板带的。没画过的行先按 200px 估高,滑到 / 展开 / 新消息到达时
+  // 才换成真高 ⇒ scrollHeight 在读者手底下变,画面一跳一跳(手机实测:送达一条消息,正在跑的那块一帧上跳 200px)。
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_assistant-message-root"
+      data-role="assistant"
+      className={cn(enters && "fade-in slide-in-from-bottom-1 animate-in duration-150", "relative -mb-7.5 pb-7.5")}
+    >
+      <div
+        key={messageId}
+        data-slot="aui_assistant-message-content"
+        className="text-foreground px-2 leading-relaxed wrap-break-word"
+      >
+        <MessagePrimitive.GroupedParts groupBy={groupBy}>
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-chainOfThought":
+                if (ChainOfThoughtGroup) {
+                  return <ChainOfThoughtGroup group={part}>{children}</ChainOfThoughtGroup>;
+                }
+                return <div data-slot="aui_chain-of-thought">{children}</div>;
+              case "group-tool":
+                if (ToolGroup) {
+                  return <ToolGroup group={part}>{children}</ToolGroup>;
+                }
+                return (
+                  <ToolGroupRoot variant="ghost">
+                    <ToolGroupTrigger
+                      count={part.indices.length}
+                      active={part.status.type === "running"}
+                    />
+                    <ToolGroupContent>{children}</ToolGroupContent>
+                  </ToolGroupRoot>
+                );
+              case "group-reasoning": {
+                if (ReasoningGroup) {
+                  return (
+                    <ReasoningGroup group={part}>{children}</ReasoningGroup>
+                  );
+                }
+                const running = part.status.type === "running";
+                return (
+                  <ReasoningRoot streaming={running}>
+                    <ReasoningTrigger active={running} />
+                    <ReasoningContent aria-busy={running}>
+                      <ReasoningText>{children}</ReasoningText>
+                    </ReasoningContent>
+                  </ReasoningRoot>
+                );
+              }
+              case "text":
+                return <MarkdownText />;
+              case "reasoning":
+                return <Reasoning {...part} />;
+              case "tool-call":
+                return part.toolUI ?? <ToolFallbackComponent {...part} />;
+              case "data":
+                return part.dataRendererUI;
+              case "file":
+                return (
+                  <div data-slot="aui_assistant-message-file" className="py-1">
+                    <File {...part} />
+                  </div>
+                );
+              case "image":
+                return (
+                  <div data-slot="aui_assistant-message-image" className="py-1">
+                    <Image {...part} />
+                  </div>
+                );
+              case "indicator":
+                return (
+                  <span
+                    data-slot="aui_assistant-message-indicator"
+                    // @@@live-accent (Refs #6105) —— 「正在回」这一点是 streaming 态,走唯一那个 accent。
+                    className={cn(live, "animate-pulse font-sans motion-reduce:animate-none")}
+                    aria-label={c.running}
+                  >
+                    {"●"}
+                  </span>
+                );
+              default:
+                return null;
+            }
+          }}
+        </MessagePrimitive.GroupedParts>
+        <MessageError />
+      </div>
+
+      <div
+        data-slot="aui_assistant-message-footer"
+        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+      >
+        <AssistantActionBar />
+      </div>
+    </MessagePrimitive.Root>
+  );
+};
+
+const AssistantActionBar: FC = () => {
+  const c = useAuiCopy();
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="not-last"
+      className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
+    >
+      <ActionBarPrimitive.Copy asChild>
+        <TooltipIconButton tooltip={c.copy}>
+          <AuiIf condition={(s) => s.message.isCopied}>
+            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
+          </AuiIf>
+          <AuiIf condition={(s) => !s.message.isCopied}>
+            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
+          </AuiIf>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Copy>
+      <ActionBarMorePrimitive.Root>
+        <ActionBarMorePrimitive.Trigger asChild>
+          <TooltipIconButton
+            tooltip={c.more}
+            className="data-[state=open]:bg-accent"
+          >
+            <MoreHorizontalIcon />
+          </TooltipIconButton>
+        </ActionBarMorePrimitive.Trigger>
+        <ActionBarMorePrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5"
+        >
+          <ActionBarPrimitive.ExportMarkdown asChild>
+            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
+              <DownloadIcon className="size-4" />
+              {c.exportMarkdown}
+            </ActionBarMorePrimitive.Item>
+          </ActionBarPrimitive.ExportMarkdown>
+        </ActionBarMorePrimitive.Content>
+      </ActionBarMorePrimitive.Root>
+    </ActionBarPrimitive.Root>
+  );
+};
+
+const UserFilePart: FileMessagePartComponent = (part) => (
+  <div data-slot="aui_user-message-file" className="py-1">
+    <File {...part} />
+  </div>
+);
+
+const UserImagePart: ImageMessagePartComponent = (part) => (
+  <div data-slot="aui_user-message-image" className="py-1">
+    <Image {...part} />
+  </div>
+);
+
+// 咕咕没有分支、也没有重发:官方模板里的分支切换器(BranchPicker)、编辑重发、重新生成都删了。
+// 消息下面冒出「‹ 2/2 ›」只会是仓库里多了一份幽灵行(#6901);上游重新拷这个文件时 ❌ 把它们带回来。
+export const UserMessage: FC = () => {
+  const enters = useEntersAnimated();
+  return (
+    <MessagePrimitive.Root
+      data-slot="aui_user-message-root"
+      className={cn(enters && "fade-in slide-in-from-bottom-1 animate-in duration-150", "grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 [&:where(>*)]:col-start-2")}
+      data-role="user"
+    >
+      <UserMessageAttachments />
+
+      <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
+        <div className="aui-user-message-content peer bg-muted text-foreground rounded-[var(--radius-thread)] px-4 py-2 wrap-break-word empty:hidden">
+          <MessagePrimitive.Parts
+            components={{ File: UserFilePart, Image: UserImagePart }}
+          />
+        </div>
+      </div>
+    </MessagePrimitive.Root>
+  );
+};

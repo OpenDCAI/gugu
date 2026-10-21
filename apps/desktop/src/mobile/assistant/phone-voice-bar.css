@@ -1,0 +1,36 @@
+/*
+ * #7199 手机助理 App 的录音条:样子沿用桌面那条胶囊(voice-notes.css 的 .vn-bar*),这里只改手机的几处:
+ * 触控 ≥44px;要读的几种(没给麦克风、传失败、它在休息)是一块能换行的卡,❌ 一行 nowrap 把话截掉;
+ * 条子挂着时聊天消息列表底下让出它那一截(桌面那条规则只认 .ta-chat-col)。
+ */
+.ta-phone-chat[data-voice-bar] [data-testid='chat-message-list'] { padding-bottom: 64px; }
+/* 条子在输入框上方居中一条,「灵感」胶囊同一排靠右:条子挂着时让位,❌ 叠在一起。 */
+.ta-phone-chat[data-voice-bar] .ta-ideas-pill { display: none; }
+
+.ta-phone .vn-bar { z-index: 20; padding: 6px 8px 6px 10px; }
+.ta-phone .vn-bar-btn { height: 44px; width: 44px; }
+.ta-phone .vn-bar-text-btn,
+.ta-phone .vn-bar-link { min-height: 44px; padding: 4px 12px; }
+
+/* 读的那几种:左边一段话,下面一排动作靠右。 */
+.ta-phone .vn-bar[data-notice] {
+  width: calc(100% - 32px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  border-radius: var(--ta-radius-card, 20px);
+  padding: 12px 8px 4px 16px;
+  white-space: normal;
+}
+.ta-phone .vn-bar[data-notice] .vn-bar-label { overflow: visible; text-overflow: clip; font-size: var(--font-body); line-height: 1.5; }
+.vn-bar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+
+/* 波形条:高度 = 4px + 音量(--vn-level 0–1,组件按帧写)× 这一根的倍数 × 20px。 */
+.ta-phone .vn-wave span { height: calc(4px + var(--vn-level, 0) * var(--vn-mult, 1) * 20px); }
+.ta-phone .vn-wave span:nth-child(1),
+.ta-phone .vn-wave span:nth-child(7) { --vn-mult: 0.75; }
+.ta-phone .vn-wave span:nth-child(2),
+.ta-phone .vn-wave span:nth-child(6) { --vn-mult: 0.9; }
+.ta-phone .vn-wave span:nth-child(3),
+.ta-phone .vn-wave span:nth-child(5) { --vn-mult: 0.8; }
+.ta-phone .vn-wave span:nth-child(4) { --vn-mult: 1; }

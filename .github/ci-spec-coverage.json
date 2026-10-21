@@ -1,0 +1,17 @@
+{
+  "version": 3,
+  "automaticExecutors": [
+    {
+      "id": "pr-web-smoke-slice",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "web-smoke",
+      "requiredGate": "gate"
+    }
+  ],
+  "exemptionReasons": {
+    "credentialed-dev-database-integration": "Requires owner-approved test-environment credentials and writes fixture data through the live Supabase service boundary; normal source CI has neither that credential handoff nor an isolated database lifecycle."
+  },
+  "exemptions": {
+    "tests/integration/service/integration.test.ts": "credentialed-dev-database-integration"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "session": {
+    "id": "ses_04bab05efffeenXbwdK7eGRTb6",
+    "title": "New session - 2026-07-30T18:41:35.760Z",
+    "time_created": 1785436895760,
+    "time_updated": 1785436905345
+  },
+  "messages": [
+    {
+      "id": "msg_fb454ff76001OSVQf7jV2YkieM",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436897142,
+      "time_updated": 1785436902153,
+      "data": "{\"role\":\"user\",\"time\":{\"created\":1785436897142},\"agent\":\"build\",\"model\":{\"providerID\":\"openai\",\"modelID\":\"gpt-5.6-sol\"},\"summary\":{\"diffs\":[]}}"
+    },
+    {
+      "id": "msg_fb4550097001qIPYtoqW1Kiqoo",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436897431,
+      "time_updated": 1785436902124,
+      "data": "{\"parentID\":\"msg_fb454ff76001OSVQf7jV2YkieM\",\"role\":\"assistant\",\"mode\":\"build\",\"agent\":\"build\",\"path\":{\"cwd\":\"/tmp/tmp.DA0wGcB63e\",\"root\":\"/\"},\"cost\":0.096085,\"tokens\":{\"total\":19027,\"input\":18989,\"output\":38,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"modelID\":\"gpt-5.6-sol\",\"providerID\":\"openai\",\"time\":{\"created\":1785436897431,\"completed\":1785436902122},\"finish\":\"tool-calls\"}"
+    },
+    {
+      "id": "msg_fb45512f1001d1dug7LR32eirc",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436902129,
+      "time_updated": 1785436904879,
+      "data": "{\"parentID\":\"msg_fb454ff76001OSVQf7jV2YkieM\",\"role\":\"assistant\",\"mode\":\"build\",\"agent\":\"build\",\"path\":{\"cwd\":\"/tmp/tmp.DA0wGcB63e\",\"root\":\"/\"},\"cost\":0.014955,\"tokens\":{\"total\":19089,\"input\":1163,\"output\":6,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":17920}},\"modelID\":\"gpt-5.6-sol\",\"providerID\":\"openai\",\"time\":{\"created\":1785436902129,\"completed\":1785436904877},\"finish\":\"stop\"}"
+    }
+  ],
+  "parts": [
+    {
+      "id": "prt_fb454ff830012Jwb9habkmuNw1",
+      "message_id": "msg_fb454ff76001OSVQf7jV2YkieM",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436897410,
+      "time_updated": 1785436897413,
+      "data": "{\"type\":\"text\",\"text\":\"\\\"Read the file a.txt in the current directory and reply with only the single word it contains.\\\"\"}"
+    },
+    {
+      "id": "prt_fb4550cf8001uvcRCqKMBOdnSk",
+      "message_id": "msg_fb4550097001qIPYtoqW1Kiqoo",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436900600,
+      "time_updated": 1785436900602,
+      "data": "{\"type\":\"step-start\"}"
+    },
+    {
+      "id": "prt_fb4550f80001R0CkJeEOVbXnpR",
+      "message_id": "msg_fb4550097001qIPYtoqW1Kiqoo",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436901249,
+      "time_updated": 1785436902103,
+      "data": "{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"call_Ty8MGpEGAmqyRCgajFpX7S6v\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"/tmp/tmp.DA0wGcB63e/a.txt\",\"limit\":10,\"offset\":1},\"output\":\"<path>/tmp/tmp.DA0wGcB63e/a.txt</path>\\n<type>file</type>\\n<content>\\n1: gravitas\\n\\n(End of file - total 1 lines)\\n</content>\",\"metadata\":{\"preview\":\"gravitas\",\"truncated\":false,\"loaded\":[],\"display\":{\"type\":\"file\",\"path\":\"/tmp/tmp.DA0wGcB63e/a.txt\",\"text\":\"gravitas\",\"lineStart\":1,\"lineEnd\":1,\"totalLines\":1,\"truncated\":false}},\"title\":\"tmp/tmp.DA0wGcB63e/a.txt\",\"time\":{\"start\":1785436902077,\"end\":1785436902101}},\"metadata\":{\"openai\":{\"itemId\":\"fc_0c616d18a28adbaa016a6b9ad95774819aa7b8b22225c9dea7\"}}}"
+    },
+    {
+      "id": "prt_fb45512dd001svKl6C3ALnSgE9",
+      "message_id": "msg_fb4550097001qIPYtoqW1Kiqoo",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436902110,
+      "time_updated": 1785436902112,
+      "data": "{\"reason\":\"tool-calls\",\"type\":\"step-finish\",\"tokens\":{\"total\":19027,\"input\":18989,\"output\":38,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"cost\":0.096085}"
+    },
+    {
+      "id": "prt_fb4551c6500185j1EygEUeq5CT",
+      "message_id": "msg_fb45512f1001d1dug7LR32eirc",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436904550,
+      "time_updated": 1785436904552,
+      "data": "{\"type\":\"step-start\"}"
+    },
+    {
+      "id": "prt_fb4551c6c001uwrxG6Ar4WIPTN",
+      "message_id": "msg_fb45512f1001d1dug7LR32eirc",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436904557,
+      "time_updated": 1785436904864,
+      "data": "{\"type\":\"text\",\"text\":\"gravitas\",\"time\":{\"start\":1785436904556,\"end\":1785436904862},\"metadata\":{\"openai\":{\"itemId\":\"msg_0550c133b7e9b9be016a6b9adc8f24819bb5b710b35522dda4\",\"phase\":\"final_answer\"}}}"
+    },
+    {
+      "id": "prt_fb4551da4001ultAMd6hcaWybO",
+      "message_id": "msg_fb45512f1001d1dug7LR32eirc",
+      "session_id": "ses_04bab05efffeenXbwdK7eGRTb6",
+      "time_created": 1785436904868,
+      "time_updated": 1785436904870,
+      "data": "{\"reason\":\"stop\",\"type\":\"step-finish\",\"tokens\":{\"total\":19089,\"input\":1163,\"output\":6,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":17920}},\"cost\":0.014955}"
+    }
+  ]
+}

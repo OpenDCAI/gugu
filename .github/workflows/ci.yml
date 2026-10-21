@@ -1,0 +1,258 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: community-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  CI: true
+  GUGU_SUPABASE_URL: http://127.0.0.1:54321
+  VITE_SUPABASE_URL: http://127.0.0.1:54321
+  GUGU_SUPABASE_ANON_KEY: community-build-placeholder
+  VITE_SUPABASE_ANON_KEY: community-build-placeholder
+jobs:
+  policy:
+    name: Source checks
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - name: Check frozen source file growth
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          failed=0
+          for file in \
+            apps/desktop/src/components/ContactsPanel.tsx \
+            apps/desktop/src/components/ChatAreaPanel.tsx \
+            apps/desktop/src/lib/chat.ts \
+            apps/desktop/src/store/chat.tsx \
+            apps/desktop/src/components/chat/GroupMembersSection.tsx \
+            apps/desktop/src/components/chat/InputArea.tsx \
+            apps/desktop/src/components/chat/MessageBubble.tsx; do
+            base_lines=$(git show "FETCH_HEAD:$file" | wc -l | tr -d ' ')
+            head_lines=$(wc -l < "$file" | tr -d ' ')
+            if [ "$head_lines" -gt "$base_lines" ]; then
+              echo "::error file=$file::Frozen source grew: $base_lines -> $head_lines"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - run: node scripts/ui-state-debt-check.mjs --root apps/desktop/src
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Verify e2e and integration spec execution coverage
+        run: |
+          args=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            args+=(--base FETCH_HEAD --head HEAD --base-ref "${{ github.base_ref }}" --event-action "${{ github.event.action }}")
+          fi
+          node scripts/ci-spec-coverage.mjs "${args[@]}"
+  unit:
+    name: Unit tests (${{ matrix.shard }}/2)
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/2
+  renderer-build:
+    name: Renderer build (web target)
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:renderer:ci
+  desktop-build:
+    name: Desktop app build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux libnss3 libgtk-3-0t64 libgbm1 libasound2t64
+      - if: runner.os == 'macOS'
+        run: command -v tmux || brew install tmux
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:app:ci
+      - run: pnpm rebuild:native
+  android-build:
+    name: Android debug build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: ./.github/actions/setup-community
+      - run: pnpm android:build
+  session-db:
+    name: Session database, chat UI browser and tooling
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
+      # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
+      # off by a line on Linux), so this browser project stays here.
+      - run: pnpm exec playwright install chromium
+      - run: pnpm exec vitest run --project session-chat-ui-browser
+  session-browser:
+    name: Session browser project
+    # On GitHub-hosted macOS (macos-14 and macos-15 alike) a full session-browser run turns animation,
+    # IME and tab-density cases red that pass there in isolation, on Linux runners and on local Macs;
+    # until that host difference is understood this project runs on Linux (87/87 green there).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec vitest run --project session-browser
+  web-smoke:
+    name: Web E2E (${{ matrix.id }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: local
+            runtime: local
+            db_target: ''
+            playwright_project: ci-local
+            shard_arg: ''
+    env:
+      GUGU_DB_TARGET: ${{ matrix.db_target }}
+      GUGU_E2E_CI_PROJECT: ${{ matrix.runtime }}
+      GUGU_E2E_PORT: '4173'
+      # The vite dev server serving the renderer needs the same heap headroom as the build.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - name: Bind run-owned web resources
+        run: echo "GUGU_E2E_RUN_ID=community-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run automatically discovered CI web specs
+        run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
+      - name: Verify local Playwright artifacts exist
+        if: ${{ always() }}
+        run: test -d playwright-report && test -d test-results
+      - name: Upload Playwright report and test artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: web-e2e-${{ matrix.id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: error
+          retention-days: 14
+  supabase-contract:
+    name: Client and community database contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GUGU_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
+      GUGU_INSTALL_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
+      # Supabase CLI default registry public.ecr.aws runs out of anonymous quota on hosted runners;
+      # the same images are mirrored to GHCR.
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-community
+      - name: Read public backend version
+        env:
+          BACKEND_DEPLOY_KEY: ${{ secrets.GUGU_SUPABASE_DEPLOY_KEY_RO }}
+        run: |
+          if [ -n "$BACKEND_DEPLOY_KEY" ]; then echo "HAS_BACKEND_DEPLOY_KEY=true" >> "$GITHUB_ENV"; fi
+          echo "BACKEND_REPOSITORY=$(node -p "require('./.github/community-backend.json').repository")" >> "$GITHUB_ENV"
+          echo "BACKEND_REF=$(node -p "require('./.github/community-backend.json').ref")" >> "$GITHUB_ENV"
+      # While the backend repository is private, the default GITHUB_TOKEN cannot read it; a read-only
+      # deploy key on that repository is the only credential used here. Once it is public the secret
+      # can be deleted and the anonymous checkout below takes over unchanged.
+      - if: ${{ env.HAS_BACKEND_DEPLOY_KEY == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPOSITORY }}
+          ref: ${{ env.BACKEND_REF }}
+          path: .gugu-supabase
+          ssh-key: ${{ secrets.GUGU_SUPABASE_DEPLOY_KEY_RO }}
+          persist-credentials: false
+      - if: ${{ env.HAS_BACKEND_DEPLOY_KEY != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPOSITORY }}
+          ref: ${{ env.BACKEND_REF }}
+          path: .gugu-supabase
+          persist-credentials: false
+      - run: pnpm --dir .gugu-supabase install --frozen-lockfile
+      - run: pnpm --dir .gugu-supabase test:db:start
+      - run: pnpm --dir .gugu-supabase test:installation
+      - run: pnpm exec vitest run --project supabase-contract
+      - if: ${{ always() }}
+        run: pnpm --dir .gugu-supabase test:db:stop
+  gate:
+    name: Typecheck, lint, and test
+    if: ${{ always() }}
+    needs: [policy, unit, renderer-build, desktop-build, android-build, session-db, session-browser, web-smoke, supabase-contract]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all upstream jobs to have passed
+        run: |
+          if [ "${{ needs.policy.result }}" != "success" ] ||
+             [ "${{ needs.unit.result }}" != "success" ] ||
+             [ "${{ needs.renderer-build.result }}" != "success" ] ||
+             [ "${{ needs.desktop-build.result }}" != "success" ] ||
+             [ "${{ needs.android-build.result }}" != "success" ] ||
+             [ "${{ needs.session-db.result }}" != "success" ] ||
+             [ "${{ needs.session-browser.result }}" != "success" ] ||
+             [ "${{ needs.web-smoke.result }}" != "success" ] || \
+             [ "${{ needs.supabase-contract.result }}" != "success" ]; then
+            exit 1
+          fi

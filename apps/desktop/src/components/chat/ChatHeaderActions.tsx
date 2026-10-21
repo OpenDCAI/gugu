@@ -1,0 +1,238 @@
+import type { RefObject } from 'react'
+import { observer } from 'mobx-react-lite'
+import { useTranslation } from 'react-i18next'
+import { useChatStore } from '../../store/chatContext'
+import { useChatFolderName } from './chatFolderName'
+import { Bell, Clock, LayoutGrid, MoreHorizontal, Search, Settings, Users } from '@/lib/icons'
+import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
+import { IconButton } from '../ui/IconButton'
+import { DropdownMenu, MenuItem } from '../ui/Menu'
+import { OpenAppMenuItems } from './OpenAppMenuItems'
+
+
+// #1234 消息头右上的 action icon。
+//
+// @@@ui-ruler 这里原本手写 `mheadIconClass`(32 网格 + `.gg-ghost` + `max-[719px]:size-11`),
+// 那正好**逐条等于** ui/IconButton —— 图标钮的唯一实现(尺寸取 --control-h-*、图标取 --icon-*、
+// 三态与 data-on 来自 .gg-ghost)。本地副本删除,触控档归 IconButton 自己(它读 useMobileShell,
+// Capacitor 原生壳也命中)。
+
+interface ChatHeaderActionsProps {
+  isGroupChat: boolean
+  // @@@5856 「场所型」会话 = 群 + 话题(isRoomChat)。搜索/成员这两颗按钮问的是「这是不是一个
+  // 有自己名字、自己成员的场所」,不是「这是不是群」⇒ 话题一样要有。工作区不问这个:私聊也有自己的文件。
+  // ⋯ 菜单里的群公告仍按 isGroupChat 分叉(话题没有公告)。
+  isRoomChat: boolean
+  searchMode: boolean
+  workspacePanelOpen: boolean
+  memberListOpen: boolean
+  historyPanelOpen: boolean
+  showHeaderMenu: boolean
+  mobile?: boolean
+  /** 页头最右还摆着模式按钮(手机 Agent 私聊,#7197)。 */
+  modeButton?: boolean
+  moreButtonRef: RefObject<HTMLButtonElement | null>
+  onEnterSearchMode: () => void
+  onOpenWorkspacePanel: () => void
+  onCloseWorkspacePanel: () => void
+  onOpenSettingsDrawer: () => void
+  onOpenMemberList: () => void
+  onCloseRightSurfaces: () => void
+  onOpenHistoryPanel: () => void
+  onCloseHistoryPanel: () => void
+  onToggleHeaderMenu: () => void
+  onCloseHeaderMenu: () => void
+  onOpenAnnouncement: () => void
+}
+
+export const ChatHeaderActions = observer(function ChatHeaderActions({
+  isGroupChat,
+  isRoomChat,
+  searchMode,
+  workspacePanelOpen,
+  memberListOpen,
+  historyPanelOpen,
+  showHeaderMenu,
+  mobile,
+  modeButton,
+  moreButtonRef,
+  onEnterSearchMode,
+  onOpenWorkspacePanel,
+  onCloseWorkspacePanel,
+  onOpenSettingsDrawer,
+  onOpenMemberList,
+  onCloseRightSurfaces,
+  onOpenHistoryPanel,
+  onCloseHistoryPanel,
+  onToggleHeaderMenu,
+  onCloseHeaderMenu,
+  onOpenAnnouncement,
+}: ChatHeaderActionsProps) {
+  const { t } = useTranslation('messaging')
+  const { activeChatId } = useChatStore('activeChatId')
+  const folderName = useChatFolderName(activeChatId) // 群文件夹 / 文件夹 (chatFolderName.ts)
+  const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯(五颗图标会把群名挤成「手机端设…」),搜索/工作区/历史收进 ⋯
+  // 手机 Agent 私聊页头最右多了模式按钮(#7197):同一个收法,历史收进 ⋯ —— 四颗时 agent 名被挤成「Co…」、文件夹钻到头像底下(验收实拍)。
+  const compactAgent = Boolean(mobile && modeButton && !compactRoom)
+  return (
+    <>
+      {/* @@@1161 会话头右上 action icon 行(aria-label key 在 chatHeader 命名空间):
+            searchMessages(在对话中搜索) · widgetList(工作区) · memberList(成员列表) · moreActions(更多操作)。
+          全部走 Solar 图标族(@/lib/icons):
+            Search(放大镜) / LayoutGrid(嵌套圆角矩形=工作区) / Users(双人) / MoreHorizontal(三描边圆点)。
+          #1102 曾把搜索塞进 ⋯,搜索应是头栏顶层 icon,故恢复为顶层。
+          历史 icon 暂保留(不丢能力),是否并入工作区面板待 owner 拍板(#1161)。 */}
+      {/* 搜索 — #1323 模块2(owner 校准,反 #1102):SSOT `.singlemenu`(L655)把「搜索聊天」放在
+          DM 的 ⋯ 下拉里、DM 顶栏只 history+more;故顶栏搜索 icon 仅场所型会话保留,DM 移入下拉(见下方菜单)。 */}
+      {isRoomChat && !compactRoom && (
+        <IconButton
+          data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton}
+          on={searchMode || undefined}
+          title={t('header.searchConversation')}
+          aria-label={t('header.searchConversation')}
+          aria-pressed={searchMode}
+          onClick={onEnterSearchMode}
+        >
+          <Search />
+        </IconButton>
+      )}
+      {/* 工作区 — widgetList(Solar LayoutGrid)。群、话题、私聊都有(主人 10-05「私聊也是得有面板的」):
+          每个对话都有自己的云端文件和右栏。手机群聊收进 ⋯(见 compactRoom),手机私聊图标少,留在页头。
+          @@@1366 历史已拆回独立按钮(见下),本按钮只代表工作区面板:工作区开 = active,点击切换工作区开合。
+          (历史与工作区仍同槽位互斥,由 handleOpen*Panel 内部保证。) */}
+      {!compactRoom && (
+        <IconButton
+          on={workspacePanelOpen || undefined}
+          title={folderName}
+          aria-label={folderName}
+          aria-pressed={workspacePanelOpen}
+          onClick={() => {
+            if (workspacePanelOpen) onCloseWorkspacePanel()
+            else onOpenWorkspacePanel()
+          }}
+        >
+          <LayoutGrid />
+        </IconButton>
+      )}
+      {/* 成员列表 — memberList(Solar Users)。
+          @@@5856 owner 2026-09-18:「我们现在的问题是把群成员按钮误认为群设置按钮了,而之前的设置按钮
+          还是设置按钮,这导致群列表消失了,而我们补的就是这个消失。」
+          #1485 恢复这颗按钮时把它接到了 onOpenSettingsDrawer —— 于是产品里**没有任何入口**能打开成员列表
+          本身:两颗不同的按钮(👥 与 ⋯→设置)落在同一个抽屉上,成员列表只是抽屉里的一段。
+          现在它接 onOpenMemberList,打开真正的成员列表面板(人/Agent 分两段、每个 agent 一行显示它的引擎、
+          模型、跑在哪与响应档位——product spec)。
+          ⋯→设置仍然是群设置抽屉,两颗按钮从此各归各。群与话题都有。 */}
+      {isRoomChat && (
+        <IconButton
+          data-testid={AUTOMATION_TEST_IDS.chatHeaderMembersButton}
+          on={memberListOpen || undefined}
+          title={t('header.memberList')}
+          aria-label={t('header.memberList')}
+          aria-pressed={memberListOpen}
+          onClick={() => {
+            // @@@1503 对称:开走 closeRightSurfaces()+开自己,关也走 closeRightSurfaces()。
+            if (memberListOpen) onCloseRightSurfaces()
+            else onOpenMemberList()
+          }}
+        >
+          <Users />
+        </IconButton>
+      )}
+      {/* 历史 — @@@1366(owner 2026-06-20 撤销 #1161):历史=查看面板(线程/附件/导入历史),≠工作区,恢复
+          独立头栏按钮;群聊 + 私聊都该有(owner 论断)。点开 HistoryPanel(与工作区同槽位互斥)。 */}
+      {!compactRoom && !compactAgent && <IconButton
+        on={historyPanelOpen || undefined}
+        title={t('header.history')}
+        aria-label={t('header.history')}
+        aria-pressed={historyPanelOpen}
+        onClick={() => {
+          if (historyPanelOpen) onCloseHistoryPanel()
+          else onOpenHistoryPanel()
+        }}
+      >
+        <Clock />
+      </IconButton>}
+      {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
+          群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
+          契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
+      <DropdownMenu.Root
+        open={showHeaderMenu}
+        modal={false}
+        onOpenChange={(open) => {
+          if (open) onToggleHeaderMenu()
+          else onCloseHeaderMenu()
+        }}
+      >
+        <DropdownMenu.Trigger
+          ref={moreButtonRef}
+          data-testid={AUTOMATION_TEST_IDS.chatHeaderMoreButton}
+          title={t('header.more')}
+          aria-haspopup="menu"
+          aria-pressed={showHeaderMenu}
+          render={(
+            <IconButton
+              on={showHeaderMenu || undefined}
+              aria-label={t('header.more')}
+            >
+              <MoreHorizontal />
+            </IconButton>
+          )}
+        />
+        {showHeaderMenu && (
+          <DropdownMenu.Content
+            data-testid={AUTOMATION_TEST_IDS.groupHeaderMenu}
+            side="bottom"
+            align="end"
+            sideOffset={4}
+            style={{ minWidth: 148 }}
+          >
+            {compactRoom && (<>
+              <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />}>{t('header.searchConversation')}</MenuItem>
+              <MenuItem onClick={onOpenWorkspacePanel} icon={<LayoutGrid size={16} />}>{folderName}</MenuItem>
+              <MenuItem onClick={() => onOpenHistoryPanel()} icon={<Clock size={16} />}>{t('header.history')}</MenuItem>
+            </>)}
+            {isGroupChat ? (
+              <>
+                <MenuItem
+                  render={<button type="button" />}
+                  nativeButton
+                  data-testid={AUTOMATION_TEST_IDS.groupMenuAnnouncement}
+                  onClick={onOpenAnnouncement}
+                  icon={<Bell size={16} />}
+                >{t('header.announcement')}</MenuItem>
+                <MenuItem
+                  render={<button type="button" />}
+                  nativeButton
+                  data-testid={AUTOMATION_TEST_IDS.groupMenuSettings}
+                  onClick={onOpenSettingsDrawer}
+                  icon={<Settings size={16} />}
+                >{t('common.settings')}</MenuItem>
+              </>
+            ) : (
+              <>
+                {compactAgent && <MenuItem onClick={() => onOpenHistoryPanel()} icon={<Clock size={16} />}>{t('header.history')}</MenuItem>}
+                {/* #1323 模块2 — SSOT `.singlemenu`(L655):DM ⋯ 下拉首项「搜索聊天」(放大镜),开搜索模式。手机话题上面那组已有搜索,不再出第二个。 */}
+                {!compactRoom && <MenuItem
+                  render={<button type="button" />}
+                  nativeButton
+                  data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton}
+                  onClick={onEnterSearchMode}
+                  icon={<Search size={16} />}
+                >{t('header.searchChat')}</MenuItem>}
+                <MenuItem
+                  render={<button type="button" />}
+                  nativeButton
+                  data-testid={AUTOMATION_TEST_IDS.groupMenuSettings}
+                  onClick={onOpenSettingsDrawer}
+                  icon={<Settings size={16} />}
+                >{t('common.settings')}</MenuItem>
+              </>
+            )}
+            {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
+            {activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
+          </DropdownMenu.Content>
+        )}
+      </DropdownMenu.Root>
+    </>
+  )
+})

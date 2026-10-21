@@ -1,0 +1,184 @@
+// @vitest-environment jsdom
+//
+// @@@5856 话题这一面的三条**看不见但会坏**的接线 —— product spec。
+// 这三条都属于「不写判据就永远没人发现」的那类:界面上不会报错,只是某件事一直不发生。
+//   ① 分栏里读过的消息要推已读水位。不推 ⇒ 那条话题在会话列表里永远挂着未读,
+//      而「通知只到参与者」的另一半正是「读过了就别再叫我」。
+//   ② 别人在我正看的这条线上开了话题 ⇒ 当场重拉清单(服务端给来源线成员发 chat_changed,
+//      迁移 20260918223500)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
+//      反例同样钉住:别的线上开话题 ❌ 不许触发重拉(那是白跑一次往返)。
+//   ③ 分栏里 @ 到的人要真的写进 to_user_ids —— 那是「被 @ 进来」的唯一通路。
+import { act, createElement, useEffect } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
+import { createNode, createReactHarness, message, renderWithAppProviders } from '../../support/testHarness'
+
+const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
+const getMessages = vi.fn<() => Promise<MessageItem[]>>()
+const markRead = vi.fn<(chatId: string, seq: number) => Promise<unknown>>()
+const writeMessage = vi.fn()
+const onCreateFailed = vi.fn()
+
+vi.mock('../../../apps/desktop/src/lib/topics', () => ({
+  topicService: {
+    listTopicsOfChat: (sourceChatId: string) => listTopicsOfChat(sourceChatId),
+    createTopic: vi.fn(),
+  },
+}))
+vi.mock('../../../apps/desktop/src/lib/chat', () => ({
+  chatService: {
+    getMessages: (...args: unknown[]) => getMessages(...(args as [])),
+    markRead: (chatId: string, seq: number) => markRead(chatId, seq),
+    getOtherMembersReadSeqs: () => Promise.resolve({}),
+    revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
+  },
+}))
+vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
+  writeIdempotentChatMessage: (row: unknown) => {
+    writeMessage(row)
+    return Promise.resolve({ ...(row as Record<string, unknown>), seq: 99 })
+  },
+}))
+
+const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
+type Surface = ReturnType<typeof useTopicSurface>
+
+function topic(overrides: Partial<TopicSummary> = {}): TopicSummary {
+  return {
+    chat_id: 'topic-1', name: '分片下载失败', source_message_id: 'msg-1', creator_user_id: 'user-1',
+    last_message_at: '2026-09-18T00:00:00.000Z', message_count: 1, participant_count: 1,
+    is_participant: true, ...overrides,
+  }
+}
+
+type RevisionListener = (operations: readonly { revision: string; event: string; payload: unknown }[]) => void | Promise<void>
+let listeners: Map<string, Set<RevisionListener>>
+const subscribeAccountRevision = (event: string, listener: RevisionListener) => {
+  let bucket = listeners.get(event)
+  if (!bucket) { bucket = new Set(); listeners.set(event, bucket) }
+  bucket.add(listener)
+  return () => { bucket.delete(listener) }
+}
+/** 载荷与 sync_since 同形(resource_key + tombstone);extra 补各事件自己的键。 */
+async function emit(event: string, chatId: string, extra: Record<string, unknown> = {}) {
+  await act(async () => {
+    for (const listener of listeners.get(event) ?? []) await listener([{ revision: '1', event, payload: { chat_id: chatId, tombstone: false, ...extra } }])
+    await Promise.resolve()
+  })
+}
+
+let harness: ReturnType<typeof createReactHarness>
+let surface: Surface | null
+function Probe({ chatKind = 'group' }: { chatKind?: 'group' | 'topic' }) {
+  surface = useTopicSurface({
+    chat: { id: 'chat-A', kind: chatKind },
+    userId: 'user-1',
+    closeRightSurfaces: () => {},
+    subscribeAccountRevision,
+    onCreateFailed,
+  })
+  return null
+}
+// 打开分栏这一步本身要在 act 里做,否则 setState 的警告会淹掉真实断言。
+function OpenSplit({ chatId, name }: { chatId: string; name: string }) {
+  const target = surface
+  useEffect(() => { target?.openSplit({ chatId, name }) }, [target, chatId, name])
+  return null
+}
+
+beforeEach(() => {
+  listeners = new Map()
+  surface = null
+  listTopicsOfChat.mockReset().mockResolvedValue([topic()])
+  getMessages.mockReset().mockResolvedValue([])
+  markRead.mockReset().mockResolvedValue(undefined)
+  writeMessage.mockReset()
+  harness = createReactHarness()
+})
+afterEach(() => harness.cleanup())
+
+async function mount() {
+  await renderWithAppProviders(harness, createNode(Probe, {}))
+  await act(async () => { await Promise.resolve(); await Promise.resolve() })
+}
+async function openSplit() {
+  await harness.render(createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })))
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+}
+
+describe('分栏里读过的东西要推已读水位', () => {
+  it('分栏加载出消息之后按最大 seq 推一次', async () => {
+    getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 7 })])
+    await openSplit()
+    expect(markRead).toHaveBeenCalledWith('topic-1', 7)
+  })
+
+  it('同一批消息 ❌ 不重复推;水位涨了才再推一次', async () => {
+    getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 })])
+    await openSplit()
+    expect(markRead).toHaveBeenCalledTimes(1)
+    getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 9 })])
+    // 迁移前的旧行不带消息本体 ⇒ 线走补洞(问已验证尾之后还有什么)
+    await emit('message_created', 'topic-1', { entity_id: 'm2' })
+    expect(markRead).toHaveBeenCalledTimes(2)
+    expect(markRead).toHaveBeenLastCalledWith('topic-1', 9)
+  })
+
+  it('空话题不推 —— 没读到任何东西就没有水位可言', async () => {
+    getMessages.mockResolvedValue([])
+    await openSplit()
+    expect(markRead).not.toHaveBeenCalled()
+  })
+})
+
+describe('别人在这条线上开了话题,清单当场重拉', () => {
+  it('来源线的 chat_changed 触发重拉', async () => {
+    await mount()
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
+    await emit('chat_changed', 'chat-A')
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(2)
+  })
+
+  it('反例:别的线上的 chat_changed ❌ 不许重拉(否则上一条判据是死的)', async () => {
+    await mount()
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
+    await emit('chat_changed', 'some-other-chat')
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('#6010 摘要参与人数随来源线的失效通知更新', () => {
+  it('非参与者也重读人数；加入、退出不依赖话题新消息，其他来源线不影响它', async () => {
+    listTopicsOfChat.mockResolvedValue([topic({ participant_count: 1, is_participant: false })])
+    await mount()
+    expect(surface?.anchorsByMessageId.get('msg-1')?.[0]?.participant_count).toBe(1)
+    for (const count of [2, 1]) {
+      listTopicsOfChat.mockResolvedValue([topic({ participant_count: count, is_participant: false })])
+      await emit('chat_changed', 'chat-A')
+      expect(surface?.anchorsByMessageId.get('msg-1')?.[0]?.participant_count).toBe(count)
+      expect(surface?.topics[0]?.is_participant).toBe(false)
+    }
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(3)
+    await emit('chat_changed', 'chat-B')
+    expect(listTopicsOfChat).toHaveBeenCalledTimes(3)
+    expect(getMessages).not.toHaveBeenCalled()
+  })
+})
+
+describe('分栏里 @ 到的人写进 to_user_ids', () => {
+  it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
+    await openSplit()
+    await act(async () => { await surface?.sendInSplit('@所有人 看一下', ['*']) })
+    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      chatId: 'topic-1', toUserIds: ['*'], content: '@所有人 看一下', threadRootId: null,
+    }))
+  })
+
+  it('有收件人时原样带上,没有时是 null(❌ 不发空数组)', async () => {
+    await openSplit()
+    await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9']) })
+    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: 'topic-1', toUserIds: ['agent-9'] }))
+    await act(async () => { await surface?.sendInSplit('我先看看') })
+    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ toUserIds: null }))
+  })
+})

@@ -1,0 +1,61 @@
+{
+ "id": "copilot-6385-run09-sync",
+ "issues": [
+  "#6385"
+ ],
+ "harness": "copilot 1.0.82",
+ "source": "#6385 recorded copilot hooks (product-registered keys only, as #6414)",
+ "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2",
+ "expectAnomalies": 0,
+ "summary": "mode sync: the subagent's agentStop never ends the main turn (#6414); copilot reports no background work, so a main turn that ends before its background subagent goes idle (known missing fact)",
+ "steps": [
+  {
+   "raw": "05:44:23 userPromptSubmitted [main] (user)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:23 sessionStart [main]",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:29 userPromptSubmitted [sub]",
+   "event": null,
+   "drop": "the subagent's prompt cannot self-prove (no transcriptPath); it lands inside the open main turn (10/10)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:30 permissionRequest [main]",
+   "event": null,
+   "drop": "auto-approved in this run (nobody clicked, the turn went on) ⇒ no status (hook-status-derivation)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:37 agentStop [sub]",
+   "event": null,
+   "drop": "subagent turn end, self-proved by transcriptPath (#6385/#6414) — carries no status, not a turn end",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:48 agentStop [main]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "ba3af8c9-6af9-4555-b6f1-4d62d03aaab2"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

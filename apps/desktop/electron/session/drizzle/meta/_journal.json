@@ -1,0 +1,272 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1776084172070,
+      "tag": "0000_cuddly_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1776180612307,
+      "tag": "0001_skinny_robin_chapel",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776700840315,
+      "tag": "0002_noisy_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1776845763296,
+      "tag": "0003_even_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776862823258,
+      "tag": "0004_material_flatman",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1776938559947,
+      "tag": "0005_add_pull_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776959681864,
+      "tag": "0006_bumpy_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777399834705,
+      "tag": "0007_bent_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1778075084353,
+      "tag": "0008_past_shinko_yamashiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778239261398,
+      "tag": "0009_lean_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1778265683858,
+      "tag": "0010_unique_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1778682711721,
+      "tag": "0011_chunky_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1780078332368,
+      "tag": "0012_great_layla_miller",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1780138463727,
+      "tag": "0013_chief_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1780416535358,
+      "tag": "0014_third_shooting_star",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1780718295895,
+      "tag": "0015_dapper_quasimodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1782334767797,
+      "tag": "0016_concerned_carnage",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1782521937933,
+      "tag": "0017_promote_session_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1782848813631,
+      "tag": "0018_repair_workspaces_ssh_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1783057726358,
+      "tag": "0019_eager_meteorite",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1784569555841,
+      "tag": "0020_fearless_zzzax",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1784902231915,
+      "tag": "0021_aspiring_mysterio",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785081481325,
+      "tag": "0022_cultured_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1787006084270,
+      "tag": "0023_extension_originated_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1787006084271,
+      "tag": "0024_conversation_runtime_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1787006084272,
+      "tag": "0025_task_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1787104000000,
+      "tag": "0026_task_attachment_original_path",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1787190000000,
+      "tag": "0027_conversation_archived_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1787190000001,
+      "tag": "0028_conversation_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1787190000002,
+      "tag": "0029_usage_run_intervals",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1787190000003,
+      "tag": "0030_usage_model_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1787190000004,
+      "tag": "0031_conversation_agent_status_detail",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1787190000005,
+      "tag": "0032_task_to_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1787190000006,
+      "tag": "0033_session_naming",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1787190000007,
+      "tag": "0034_agent_schedules",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1787190000008,
+      "tag": "0035_permission_mode_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1787190000009,
+      "tag": "0036_project_folders",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1787190000010,
+      "tag": "0037_project_root_detach",
+      "breakpoints": true
+    }
+  ]
+}

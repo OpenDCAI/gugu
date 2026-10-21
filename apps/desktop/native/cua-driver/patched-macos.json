@@ -1,0 +1,26 @@
+{
+  "upstreamRepository": "https://github.com/trycua/cua.git",
+  "upstreamCommit": "6d6c734c127025fb39ad5d585a10382808b39dc1",
+  "upstreamTag": "cua-driver-rs-v0.36.0",
+  "includesUpstreamCaptureFix": "757ae8cedb87f8c8d2441f748aee7236767b18a0",
+  "revision": "0.36.0-gugu.1",
+  "patch": "patches/0.36.0-gugu.1.patch",
+  "patchSha256": "54eb2251f895aae6815e675bad4e83274c3f96ec0ce235db39f49516eb96cddf",
+  "rustcRelease": "1.98.0-nightly",
+  "rustcCommitPrefix": "f28ac764c",
+  "rustcCommitDate": "2026-06-23",
+  "sourceHashes": {
+    "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/flow_tests.rs": "464b7a4bc156f01ca13535cd55ffe98fe5b4b3659c859375ea0984d89c1a982c",
+    "libs/cua-driver/rust/crates/cua-driver-core/src/batch_tools/locate.rs": "8ed92251e7a02ff0cb121cef1c420d5785cf0cb453e88868f6e76f81c859ad5c",
+    "libs/cua-driver/rust/crates/cua-driver-core/src/tool.rs": "65265951ab4cfab72ca09d3cb165dae4eb0bbac8f1117995b8144aa48b6f87c5",
+    "libs/cua-driver/rust/crates/platform-macos/src/apps/mod.rs": "c4befb81221c5c8a94e76a5caae698b8d85e1683e7619036a4124e4d735acc44",
+    "libs/cua-driver/rust/crates/platform-macos/src/browser/electron_js.rs": "f9459abdd038d9720a7baee55e477472135f22f3a2ee6f859dadae81da48eeb5",
+    "libs/cua-driver/rust/crates/platform-macos/src/capture.rs": "d92cf072ba4042aacc7ea8032052b94e233e458e9289eb7848f0bf3fbf81cb95",
+    "libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs": "00e13d7430518830b14a573b8c85a5d83ba4f75dddd156e54fa3b0fd92f875a8",
+    "libs/cua-driver/rust/crates/platform-macos/src/tools/click.rs": "c400f58c3bbe1209c50dc887a1caf34bdbf94d9d75c3e7bc5160125a802a88be",
+    "libs/cua-driver/rust/crates/platform-macos/src/tools/get_window_state.rs": "fcfb008e99ad9d9087550ed954ed73fc618f1231d330e00c551b4a74c22d47f2",
+    "libs/cua-driver/rust/crates/platform-macos/src/window_change_detector.rs": "ef49e181d91495a3316cdeee228fca5c7b4cccee6aaea27d7bdea93c8af34010",
+    "libs/cua-driver/rust/crates/platform-macos/src/windows.rs": "d61f9d21583dd03da38b6068ef99c96c499b50602d865770704b91cd37b6a3a0"
+  },
+  "acceptedArm64BinarySha256": "0fd3bf23957bd24487ffbc3807892253866bbf1231969b82ab2799a9fc1c2548"
+}

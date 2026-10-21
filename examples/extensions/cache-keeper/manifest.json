@@ -1,0 +1,23 @@
+{
+  "id": "cache-keeper",
+  "name": "cache 保温器",
+  "description": "替闲着的会话在提示缓存凉掉之前发一轮最便宜的 ping,让下次再用时按 0.1 倍读缓存,而不是按约 1.9 倍整份重写。每个会话一个开关;ping 失败或会话报错就自己退让;报错停下的会话可以一次排队续上。",
+  "author": "咕咕",
+  "categories": ["dev-tools"],
+  "version": "0.2.0",
+  "apiVersion": 3,
+  "entry": "keeper.html",
+  "background": { "entry": "background.html" },
+  "permissions": {
+    "capabilities": ["agents:read:all", "agents:control:all"],
+    "network": []
+  },
+  "contributes": {
+    "tabs": [
+      {
+        "name": "keeper",
+        "title": "保温器"
+      }
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gugu App look</title>
+<!-- Every element, class and component of ui.css / ui.js on one page, each captioned with the markup that draws it:
+     the picture guide apps-ui shows (rendered from this build, extension-look-picture.ts). Plain HTML only — no CSS of its own. -->
+<link rel="stylesheet" href="ui.css">
+<script src="ui.js"></script>
+<script>
+  // The picture is taken in one theme or the other: ?theme=light|dark (an App page gets it from context.themeMode).
+  document.documentElement.dataset.guguTheme = new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light';
+</script>
+</head>
+<body>
+<main>
+<h1>h1 · Page title</h1>
+<h2>h2 · Section</h2>
+<h3>h3 · Title</h3>
+<p>p · Body text, <a href="#">a · link</a>, <strong>strong</strong>, <code>code</code>, <kbd>kbd</kbd>. <small>small · times, counts</small> <span class="muted">.muted · secondary text</span></p>
+<h5>h5 · section label</h5>
+
+<div class="row">
+  <button class="primary">button.primary</button>
+  <button>button</button>
+  <button class="danger">.danger</button>
+  <button disabled>disabled</button>
+  <button aria-label="refresh"><gugu-icon name="refresh"></gugu-icon></button>
+</div>
+<div class="row">
+  <input placeholder="input — in .row, a button beside it matches its height">
+  <button><gugu-icon name="plus"></gugu-icon>Add</button>
+</div>
+
+<label>label &gt; input
+  <input value="Saturday trip">
+</label>
+<div class="row">
+  <label>label &gt; select<select><option>Fri 22:00</option></select></label>
+  <label>input[type=number]<input type="number" value="1"></label>
+</div>
+<label>textarea
+  <textarea rows="2" placeholder="placeholder"></textarea>
+</label>
+<fieldset>
+  <legend>fieldset legend</legend>
+  <label><input type="checkbox" checked> checkbox</label>
+  <label><input type="radio" name="r" checked> radio</label>
+  <label><input type="checkbox" role="switch" checked> input[role=switch]</label>
+</fieldset>
+
+<h5>ul.list — rows: gugu-avatar · div &gt; strong + span · gugu-time / button</h5>
+<ul class="list">
+  <li tabindex="0"><gugu-avatar label="Lin"></gugu-avatar><div><strong>Lin</strong><span>voted for the sea</span></div><gugu-time datetime="0"></gugu-time></li>
+  <li tabindex="0" aria-selected="true"><gugu-avatar label="Weekly"></gugu-avatar><div><strong>aria-selected="true"</strong><span>the selected row</span></div><button>Remind</button></li>
+</ul>
+
+<table>
+  <thead><tr><th>table · th</th><th style="text-align:end">amount</th></tr></thead>
+  <tbody><tr><td>Train tickets</td><td style="text-align:end">412.00</td></tr><tr><td>Dinner</td><td style="text-align:end">356.50</td></tr></tbody>
+</table>
+
+<details open><summary>details · summary</summary><progress value="3" max="5"></progress></details>
+
+<div class="card stack">
+  <strong>.card · .stack</strong>
+  <div role="tablist"><button role="tab" aria-selected="true">[role=tab]</button><button role="tab" aria-selected="false">Done</button></div>
+  <div role="status">[role=status] · a note</div>
+  <div role="alert">[role=alert] · an error</div>
+</div>
+
+<gugu-empty icon="checklist"><strong>gugu-empty</strong><small>Nothing here yet</small><button class="primary">Start</button></gugu-empty>
+
+<div class="row">
+  <gugu-icon name="bell"></gugu-icon><gugu-icon name="users"></gugu-icon><gugu-icon name="search"></gugu-icon><gugu-icon name="settings"></gugu-icon>
+  <gugu-icon name="trash-2"></gugu-icon><gugu-icon name="pin"></gugu-icon><gugu-icon name="check"></gugu-icon><gugu-icon name="chevron-right"></gugu-icon>
+  <small>gugu-icon name="bell" …</small>
+</div>
+</main>
+<script>
+  // gugu-time above: 3 minutes ago, whenever the picture is taken.
+  for (const t of document.querySelectorAll('gugu-time')) t.setAttribute('datetime', new Date(Date.now() - 180000).toISOString());
+</script>
+</body>
+</html>

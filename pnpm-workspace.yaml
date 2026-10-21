@@ -1,0 +1,61 @@
+# @@@task-fusion (#2802) - 会话页的 7 个包是
+# `packages/session-*`,渲染层在 `apps/desktop/src/session`,主进程在 `apps/desktop/electron/session`。
+# 因此这里不再有第二组 glob —— 全仓成员就是下面两行。
+# ❌ 仍不含 apps/desktop/session-tooling/node-deps:那是有意留在 workspace 外的逃生口(自带
+# package-lock.json 走 npm),用途是让根 better-sqlite3 保持 electron 编译、同时给测试一份
+# system-node 编译的副本。吸进 workspace 会毁掉这个隔离。
+packages:
+  - apps/*
+  - packages/*
+# @@@allow-builds - pnpm 10/11 gate postinstall build scripts behind this allowlist (read from here,
+# not package.json). Without it a fresh pnpm-11 machine (ThinkPad/Windows) skips electron's binary
+# download and `pnpm install` exits non-zero on the ignored builds, failing every `pnpm build:*`.
+# Kept in sync with package.json's pnpm.onlyBuiltDependencies, which older pnpm 9 (CI / mac) reads.
+allowBuilds:
+  # @ffmpeg-installer ships a per-platform binary package, each with a postinstall
+  # that chmod's the ffmpeg binary executable. The e2e video compositing (video.ts)
+  # needs it runnable, so every platform a contributor/test-machine might use is allowed.
+  '@ffmpeg-installer/darwin-arm64': true
+  '@ffmpeg-installer/darwin-x64': true
+  '@ffmpeg-installer/linux-arm64': true
+  '@ffmpeg-installer/linux-x64': true
+  '@ffmpeg-installer/win32-x64': true
+  # @@@sessionpage-spike - the session page's native addons; built for node here, then rebuilt for electron 28
+  # ABI 119 by `pnpm rebuild:native` (@electron/rebuild).
+  # @@@task-fusion (#2802) — better-sqlite3 曾被 pin 在 ^11,理由写的是「^12 drops node 18」。那条理由
+  # 已作废:engines.node 是 >=24、.node-version 是 24.14.0,node 18 不再是目标。而会话页一侧用的是
+  # ^12.6.0 —— 原则是**低版本升到高版本的稳定版求一致**,不是让两个大版本并存,故统一到 ^12.6.0。
+  # ⚠️ 改动它必须同步改 apps/desktop/session-tooling/node-deps/package.json:那份是 DB 测试用的
+  # system-node 副本,版本一旦漂开,测试跑的就不是出厂跑的那个大版本。
+  better-sqlite3: true
+  node-pty: true
+  # @@@sessionpage — the session-page fs-watch worker require()s it at runtime; N-API (prebuilt, ABI-stable →
+  # no electron-rebuild). Must be a gugu dep so it resolves from the bundle's require path (#confirmed
+  # via ci-device boot: MODULE_NOT_FOUND '@parcel/watcher' disabled the whole session-page backend).
+  '@parcel/watcher': true
+  electron: true
+  esbuild: true
+  # @@@single-install (Phase 2) - 会话页依赖需要构建的
+  # 四个。会话页的依赖由根 install 装,构建脚本也只认根这份 allowlist。
+  core-js: true
+  nx: true
+  protobufjs: true
+  sqlite3: true
+# @@@single-install (Phase 2) - 有意**不**把 @openai/codex-* 与 @anthropic-ai/claude-agent-sdk-*
+# 共 14 个平台二进制列进 ignoredOptionalDependencies:咕咕真的用它们:apps/desktop/electron/engine-downloader.ts 按
+# `node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/…` 解析原生 bin,
+# scripts/fetch-acp-adapters.mjs 也依赖同一批包。实测当前 .pnpm 里确有
+# @openai+codex@0.142.5-linux-x64 / @anthropic-ai+claude-agent-sdk-linux-x64。
+# 把它们列进 ignore = 静默掐断咕咕的 ACP 引擎,且只在运行时才炸。
+# ignoredBuiltDependencies(cpu-features / ssh2)则在 package.json —— 那两个只是
+# "别编译",不影响解析。
+# @@@supported-architectures (#2282) - mac 桌面包双架构(x64+arm64)发布:@parcel/watcher 的 native 走
+# per-cpu platform 包(optional),pnpm 默认只装 host cpu 变体 → arm64 构建机上 x64 asar 永缺
+# watcher native。声明双 cpu 让两个变体都安装(供 electron-builder 物化进两 arch 的 asar,由
+# scripts/verify-packaged-natives.mjs 真 subscribe 验证);os 仍只装当前平台。
+supportedArchitectures:
+  os:
+    - current
+  cpu:
+    - x64
+    - arm64

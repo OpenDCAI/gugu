@@ -1,0 +1,22 @@
+/* 转发页里「分享到其他应用」那一行(ShareToAppsRow)。
+ *
+ * 行的几何沿用 ListRow(.gg-list-row);这里只把内距对齐到转发页自己的会话行(左右 16px),并和下面的会话列表隔一条线。
+ * 选择器写成两级 (0,2,0):tokens.css 那条未分层的全局 margin/padding 重置是 (0,1,0),单类选择器写的 padding 会被它平掉。
+ */
+
+.gg-list-row.gg-share-apps-row {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.gg-share-apps-row .gg-share-apps-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-circle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--muted);
+  color: var(--text-primary);
+}

@@ -1,0 +1,117 @@
+import * as autocomplete from '@codemirror/autocomplete';
+import * as commands from '@codemirror/commands';
+import * as langJson from '@codemirror/lang-json';
+import * as langMarkdown from '@codemirror/lang-markdown';
+import * as language from '@codemirror/language';
+import * as lint from '@codemirror/lint';
+import * as search from '@codemirror/search';
+import * as cmState from '@codemirror/state';
+import * as cmView from '@codemirror/view';
+import * as lezerCommon from '@lezer/common';
+import * as lezerHighlight from '@lezer/highlight';
+import * as lezerMarkdown from '@lezer/markdown';
+import { basicSetup, minimalSetup } from 'codemirror';
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import * as Y from 'yjs';
+import { guguError } from './host';
+import { imeHold, keepCaretAboveKeyboard, sameLineHold } from './ime-hold';
+import { internals } from './open-file';
+
+/**
+ * `/_gugu/<ver>/codemirror.js` — the platform's pinned CodeMirror 6, and the one-line binding.
+ *
+ * Shipped by the platform rather than bundled by the App: two copies of `@codemirror/state`
+ * cannot live in one editor (an extension from one is "unrecognized" by the other), and an
+ * App without a build step could not import CodeMirror at all under `script-src 'self'`.
+ *
+ * The binding is a convenience over the general text API (insert / delete / delta /
+ * anchors); ProseMirror, a textarea or anything else binds through that instead.
+ */
+
+const { EditorView, keymap } = cmView;
+const { Compartment, EditorState, Prec, StateEffect } = cmState;
+type Extension = cmState.Extension;
+const { markdown, markdownLanguage } = langMarkdown;
+const { json } = langJson;
+
+/**
+ * `markdownLanguage` is GFM (tables, strikethrough, task lists): `markdown({ base: markdownLanguage })`, or its parser for a
+ * preview. 摩擦单 F25: the modules themselves too, whole — `view` (Decoration, ViewPlugin, MatchDecorator …), `state`,
+ * `language`, `commands`, `search`, `autocomplete`, `lint`, `langMarkdown`, `langJson`, `lezerCommon`, `lezerHighlight`,
+ * `lezerMarkdown` — the very copies the binding uses, so an App's own plugin or decoration works on a bound editor
+ * (a second copy of @codemirror/state would not: its facets and fields are not this one's).
+ */
+export const codemirror = Object.freeze({
+  EditorView,
+  EditorState,
+  basicSetup,
+  minimalSetup,
+  keymap,
+  markdown,
+  markdownLanguage,
+  json,
+  view: cmView,
+  state: cmState,
+  language,
+  commands,
+  search,
+  autocomplete,
+  lint,
+  langMarkdown,
+  langJson,
+  lezerCommon,
+  lezerHighlight,
+  lezerMarkdown,
+});
+
+export function bindCodemirror(view: unknown, file: unknown): () => void {
+  if (!(view instanceof EditorView)) {
+    throw guguError('invalid', 'Create the editor with the EditorView from gugu.codemirror(); another copy of CodeMirror cannot be bound');
+  }
+  const openFile = file && typeof file === 'object' ? internals.get(file) : undefined;
+  if (!openFile || openFile.type !== 'text') throw guguError('invalid', 'bind.codemirror takes a text file from gugu.files.open(…), or f.textAt(path)');
+  const inner = openFile.internalsForBinding();
+  const compartment = new Compartment();
+  // Every App's editor gets these two mobile fixes by binding (真源 §4).
+  const hold = imeHold(view, () => inner.holdRemote(), { keyboardSession: inner.keyboardSession });
+  const stopCaretWatch = keepCaretAboveKeyboard(view);
+
+  /**
+   * Make the editor show exactly the replica, then attach the collaboration extension.
+   * The content swap happens while the compartment is empty, so it is not echoed back into
+   * the (possibly stale) replica.
+   */
+  const extensionFor = (): Extension => {
+    const text = inner.text;
+    if (view.state.doc.toString() !== text.toString()) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text.toString() } });
+    }
+    const undoManager = new Y.UndoManager(text);
+    return [
+      yCollab(text, inner.awareness, { undoManager }),
+      // Undo only undoes this person's typing; ahead of any history() the App's setup brought.
+      Prec.highest(keymap.of(yUndoManagerKeymap)),
+      EditorState.readOnly.of(inner.readOnly),
+      hold.extension,
+    ];
+  };
+
+  view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(extensionFor())) });
+  const sameLine = () => sameLineHold(view, inner.text, (inspector) => inner.inspectRemote(inspector), hold);
+  let stopSameLine = sameLine();
+  // The file moved to a new epoch: a new replica, so a new binding on it.
+  const offSwap = inner.onSwap(() => {
+    hold.swapped();
+    stopSameLine();
+    view.dispatch({ effects: compartment.reconfigure([]) });
+    view.dispatch({ effects: compartment.reconfigure(extensionFor()) });
+    stopSameLine = sameLine();
+  });
+  return () => {
+    offSwap();
+    stopSameLine();
+    stopCaretWatch();
+    hold.destroy();
+    view.dispatch({ effects: compartment.reconfigure([]) });
+  };
+}

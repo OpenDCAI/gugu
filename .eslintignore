@@ -1,0 +1,9 @@
+apps/desktop/src/**/*.js
+dist/
+dist-electron/
+out/
+release/
+node_modules/
+apps/mobile/android/
+playwright-report/
+test-results/

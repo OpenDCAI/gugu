@@ -1,0 +1,11 @@
+/*
+ * Chat engine font imports.
+ *
+ * Font imports must be here so they are requested before any measurement runs.
+ */
+
+/* @@@font-single-source (Refs #6104) — Inter 的自托管 @import 已删:本包默认 sans 改成与宿主
+ * 同栈(Sora + 各平台原生中文),Inter 不再出现在任何一条栈里,再托管就是纯净重。
+ * Sora 由宿主自托管(apps/desktop/src/styles/sora.css);脱离宿主时这条栈回落到系统 sans,
+ * 这是**要的结果** —— 包不该自己塞一张和产品不一样的脸。 */
+@import '@fontsource-variable/jetbrains-mono/index.css';

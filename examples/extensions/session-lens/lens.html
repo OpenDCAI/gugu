@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>任务镜</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        padding: 10px 12px;
+        overflow: auto;
+        background: var(--em-background);
+        color: var(--em-foreground);
+        font: 12px/1.6 -apple-system, system-ui, "PingFang SC", sans-serif;
+      }
+      h2 { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--em-foreground-muted); letter-spacing: .04em; }
+      dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; }
+      dt { color: var(--em-foreground-muted); white-space: nowrap; }
+      dd { margin: 0; word-break: break-all; font-family: ui-monospace, Menlo, monospace; }
+      .pill { display: inline-block; padding: 0 6px; border: 1px solid var(--em-border); border-radius: 999px; font-family: inherit; }
+      ol { margin: 0; padding-left: 20px; }
+      li { margin: 2px 0; }
+      li small { color: var(--em-foreground-muted); font-family: ui-monospace, Menlo, monospace; margin-left: 4px; }
+      .muted { color: var(--em-foreground-muted); }
+      .err { color: #c0392b; white-space: pre-wrap; font-family: ui-monospace, Menlo, monospace; }
+      .alive { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--em-border); color: var(--em-foreground-muted); }
+    </style>
+  </head>
+  <body>
+    <h2>这一格现在给谁看</h2>
+    <dl id="where"></dl>
+    <div id="files" class="muted" style="margin-top:4px"></div>
+    <h2>这个任务</h2>
+    <dl id="agent"></dl>
+    <h2>最近 10 条用户消息</h2>
+    <div id="history" class="muted">…</div>
+    <div class="alive" id="alive"></div>
+    <script src="lens.js"></script>
+  </body>
+</html>

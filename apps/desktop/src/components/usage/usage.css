@@ -1,0 +1,282 @@
+/* 用量页(product spec)。
+ *
+ * 这一页是全产品唯一的数据可视化面,所以有自己的一组图表色:热力图五档暖色(owner 看过设计稿拍的,
+ * 2026-09-23);模型/引擎的图表与表格见文件末尾那一层,分类色用 VChart 默认色板。
+ * 产品其余部分的「墨」主色(--primary)在这里只用于文字与控件。
+ *
+ * 布局用容器查询:同一个组件在设置弹窗(~770px)和手机「我的」(~340px)里自己换列数,
+ * ❌ 不靠 mobile prop 分叉两套标记。
+ */
+.gg-usage {
+  container-type: inline-size;
+  --usage-heat-0: color-mix(in oklab, var(--fg) 7%, transparent);
+  --usage-heat-1: oklch(0.42 0.08 45);
+  --usage-heat-2: oklch(0.55 0.13 45);
+  --usage-heat-3: oklch(0.68 0.16 45);
+  --usage-heat-4: oklch(0.80 0.15 55);
+  display: grid;
+  gap: var(--spacing-2xl);
+  min-width: 0;
+}
+
+[data-theme="light"] .gg-usage {
+  --usage-heat-1: oklch(0.90 0.05 50);
+  --usage-heat-2: oklch(0.80 0.10 48);
+  --usage-heat-3: oklch(0.69 0.15 45);
+  --usage-heat-4: oklch(0.56 0.15 40);
+}
+
+.gg-usage-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
+/* 手机(同 tokens.css 的 720 断点):时间范围四项等分占满一行、收紧内边距,标签不折行 ——
+   英文 360 下桌面那副 px-4 放不下,「7 days」被折成两行。 */
+@media (max-width: 719px) {
+  .gg-usage-toolbar .gg-segtabs { flex: 1 0 100%; }
+  .gg-usage-toolbar .gg-segtab { flex: 1 1 0; justify-content: center; padding-inline: var(--spacing-sm); white-space: nowrap; }
+}
+
+.gg-usage-section { display: grid; gap: var(--spacing-md); min-width: 0; }
+.gg-usage-hint { font-size: var(--font-caption); color: var(--muted-fg); font-weight: var(--font-weight-regular); }
+.gg-usage-card { border: 1px solid var(--border); border-radius: var(--radius-xl); padding: var(--spacing-lg); min-width: 0; }
+.gg-usage-muted { color: var(--muted-fg); font-size: var(--font-body); }
+.gg-usage-caption { color: var(--muted-fg); font-size: var(--font-caption); }
+
+/* 总览:四格,窄处两格 */
+.gg-usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--spacing-sm); }
+@container (max-width: 560px) { .gg-usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.gg-usage-tile { border: 1px solid var(--border); border-radius: var(--radius-xl); padding: var(--spacing-md) var(--spacing-md); min-width: 0; }
+.gg-usage-tile-value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gg-usage-up { color: oklch(0.65 0.13 150); }
+.gg-usage-down { color: var(--muted-fg); }
+
+/* 热力图 */
+.gg-usage-heat-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); }
+.gg-usage-heat-head b { font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+.gg-usage-heat { position: relative; min-width: 0; }
+.gg-usage-months { position: relative; height: 16px; margin-left: 26px; font-size: var(--font-caption); color: var(--muted-fg); }
+.gg-usage-months span { position: absolute; top: 0; white-space: nowrap; }
+.gg-usage-heat-row { display: flex; gap: var(--spacing-xs); min-width: 0; }
+.gg-usage-days { display: grid; grid-template-rows: repeat(7, 1fr); width: 22px; flex: none; font-size: var(--font-caption); color: var(--muted-fg); line-height: 1; align-items: center; }
+.gg-usage-grid { flex: 1; min-width: 0; display: grid; gap: 3px; grid-auto-columns: minmax(0, 1fr); }
+.gg-usage-cell { aspect-ratio: 1; min-width: 0; width: 100%; border-radius: 2px; transition: transform var(--dur-fast) var(--ease); }
+.gg-usage-cell:hover, .gg-usage-cell:focus-visible { transform: scale(1.3); box-shadow: 0 0 0 1px var(--fg); }
+@media (prefers-reduced-motion: reduce) { .gg-usage-cell { transition: none; } }
+.gg-usage-heat-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); margin-top: var(--spacing-sm); }
+.gg-usage-legend { display: inline-flex; align-items: center; gap: 3px; font-size: var(--font-caption); color: var(--muted-fg); }
+.gg-usage-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+.gg-usage-tip {
+  background: var(--popover);
+  color: var(--fg);
+  /* #7333 浮层只有一种表达:提示条圆角 8 + --shadow-lift(半像素轮廓已在投影里,不另画边)。 */
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  font-size: var(--font-caption);
+  box-shadow: var(--shadow-lift);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: var(--z-settings, 50);
+}
+.gg-usage-quip { background: var(--muted); border-radius: var(--radius-control); padding: var(--spacing-sm) var(--spacing-md); font-size: var(--font-body); }
+
+/* 积分段加载占位 */
+.gg-usage-bars { height: 96px; }
+
+.gg-usage-skeleton { background: var(--muted); border-radius: var(--radius-control); animation: gg-usage-pulse 1.4s ease-in-out infinite; }
+@keyframes gg-usage-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .gg-usage-skeleton { animation: none; } }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 用量看板层(#6334):模型调用分析、消耗分布与使用日志的卡片、表格、标签。
+ * 字号落在咕咕字阶的 11/13 档(见 tokens.css @@@type-12)。
+ * ─────────────────────────────────────────────────────────────────────────── */
+.gg-usage {
+  --na-radius-lg: 0.625rem;
+  --na-radius-md: calc(0.625rem - 2px);
+  --na-radius-sm: calc(0.625rem - 4px);
+  --na-success: oklch(0.696 0.17 162.5);
+  --na-warning: oklch(0.769 0.188 70.1);
+  --na-destructive: oklch(0.704 0.191 22.2);
+  --na-info: oklch(0.613 0.14 239.9);
+  --na-chart-1: oklch(0.76 0.14 250);
+  --na-chart-2: oklch(0.76 0.13 200);
+  --na-chart-3: oklch(0.76 0.13 285);
+  --na-chart-4: oklch(0.75 0.16 325);
+  --na-chart-5: oklch(0.76 0.14 155);
+  --na-table-header: color-mix(in oklch, var(--fg) 6%, var(--bg));
+  --na-row-hover: color-mix(in oklch, var(--muted) 50%, var(--bg));
+}
+[data-theme="light"] .gg-usage {
+  --na-success: oklch(0.596 0.145 163.2);
+  --na-warning: oklch(0.681 0.162 75.8);
+  --na-destructive: oklch(0.577 0.245 27.3);
+  --na-info: oklch(0.588 0.158 242);
+  --na-chart-1: oklch(0.72 0.18 250);
+  --na-chart-2: oklch(0.65 0.15 200);
+  --na-chart-3: oklch(0.7 0.12 280);
+  --na-chart-4: oklch(0.68 0.19 325);
+  --na-chart-5: oklch(0.68 0.16 155);
+  --na-table-header: color-mix(in oklch, var(--fg) 1.5%, var(--bg));
+}
+
+/* IconBadge:bg-{tone}/10 text-{tone} */
+.na-icon-badge { display: flex; flex-shrink: 0; align-items: center; justify-content: center; color: var(--na-tone); background: color-mix(in oklch, var(--na-tone) 10%, transparent); }
+.na-icon-badge[data-size="sm"] { width: 28px; height: 28px; border-radius: var(--na-radius-md); }
+.na-icon-badge[data-size="sm"] svg { width: 14px; height: 14px; }
+.na-icon-badge[data-size="stat"] { width: 28px; height: 28px; border-radius: var(--na-radius-md); }
+.na-icon-badge[data-size="stat"] svg { width: 14px; height: 14px; }
+@container (max-width: 560px) {
+  .na-icon-badge[data-size="stat"] { width: 16px; height: 16px; border-radius: var(--na-radius-sm); }
+  .na-icon-badge[data-size="stat"] svg { width: 10px; height: 10px; }
+}
+[data-tone="info"] { --na-tone: var(--na-info); }
+[data-tone="success"] { --na-tone: var(--na-success); }
+[data-tone="warning"] { --na-tone: var(--na-warning); }
+[data-tone="chart-2"] { --na-tone: var(--na-chart-2); }
+[data-tone="chart-4"] { --na-tone: var(--na-chart-4); }
+
+/* LogStatCards:overflow-hidden rounded-lg border / grid divide-x / 单元 px-5 py-4 */
+.na-stats { overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); }
+.na-stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); min-width: 0; }
+.na-stat { min-width: 0; padding: 16px 20px; border-left: 1px solid color-mix(in oklch, var(--border) 60%, transparent); }
+.na-stat:first-child { border-left: 0; }
+.na-stat-title { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.na-stat-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-fg); font-size: var(--font-caption); line-height: 16px; font-weight: var(--font-weight-medium); letter-spacing: .05em; text-transform: uppercase; }
+.na-stat-value { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-family: var(--font-mono); font-size: var(--font-size-xl); font-weight: 700; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.na-stat-desc { margin-top: 4px; color: color-mix(in oklch, var(--muted-fg) 60%, transparent); font-size: var(--font-caption); }
+@container (max-width: 700px) {
+  .na-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .na-stat { border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent); }
+}
+@container (max-width: 560px) {
+  .na-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .na-stat { padding: 6px 10px; }
+  .na-stat:last-child:nth-child(odd) { grid-column: span 2; }
+  .na-stat-value { margin-top: 4px; font-size: var(--font-size-md); }
+  .na-stat-desc { display: none; }
+}
+
+/* 只有两格的统计条(并行)各占一半,任何宽度都不折行。 */
+.gg-usage .na-stats-grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gg-usage .na-stats-grid[data-cols="2"] .na-stat { border-top: 0; }
+
+/* 积分概览:一张卡左右两栏,右栏 19rem 渐变底余额面板。 */
+.na-overview { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--card, var(--bg)); box-shadow: 0 1px 2px color-mix(in oklab, black 5%, transparent); }
+.na-overview-main { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 20px; }
+.na-overview-head { display: flex; align-items: center; gap: 8px; }
+.na-overview-head b { font-size: var(--font-body); font-weight: var(--font-weight-semibold); }
+.na-overview-head .na-status { margin-left: 4px; }
+.na-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-fg); font-size: var(--font-caption); }
+.na-status i { width: 6px; height: 6px; border-radius: 9999px; background: var(--muted-fg); }
+.na-status i[data-tone="success"] { background: var(--na-success); }
+.na-status i[data-tone="destructive"] { background: var(--na-destructive); }
+.na-sub { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: color-mix(in oklch, var(--bg) 60%, transparent); }
+.na-sub-title { font-size: var(--font-body); font-weight: var(--font-weight-medium); color: var(--fg); }
+.na-sub-meta { color: var(--muted-fg); font-size: var(--font-caption); }
+.na-sub-meter { display: grid; gap: 4px; margin-top: 4px; }
+.na-sub-meter .na-sub-meta { justify-self: end; font-variant-numeric: tabular-nums; }
+.na-footnote { margin: 0; color: color-mix(in oklch, var(--muted-fg) 80%, transparent); font-size: var(--font-caption); line-height: 1.7; }
+.na-overview-balance {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 16px; padding: 20px;
+  border-left: 1px solid var(--border);
+  background: linear-gradient(135deg,
+    color-mix(in oklch, var(--na-chart-2) 12%, var(--bg)),
+    color-mix(in oklch, oklch(0.82 0.04 155) 8%, var(--bg)),
+    color-mix(in oklch, var(--na-chart-1) 7%, var(--bg)));
+}
+.na-balance-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.na-balance-label { color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); }
+.na-balance-value { color: var(--fg); font-family: var(--font-mono); font-size: calc(var(--font-size-xl) * 1.4); font-weight: var(--font-weight-semibold); letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.na-balance-rate { margin: -8px 0 0; color: var(--muted-fg); font-size: var(--font-caption); line-height: 1.6; }
+.na-balance-rate[data-blocked] { color: var(--danger); }
+.na-balance-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.na-balance-cell { min-width: 0; padding: 8px 10px; border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--bg) 60%, transparent); }
+.na-balance-cell span { display: flex; align-items: center; gap: 4px; color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); line-height: 1; }
+.na-balance-cell span svg { width: 12px; height: 12px; }
+.na-balance-cell b { display: block; margin-top: 6px; font-size: var(--font-caption); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+/* 整行宽的按钮,文案(英文尤其)比 360 宽:允许换行、高度跟着长(Button 只有 min-height),❌ 冲出卡片被裁掉。 */
+.na-balance-button { justify-content: space-between; width: 100%; white-space: normal; text-align: left; padding-block: var(--spacing-sm); }
+.na-balance-button svg { width: 16px; height: 16px; }
+@container (max-width: 720px) {
+  .na-overview { grid-template-columns: minmax(0, 1fr); }
+  .na-overview-balance { border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* 邀请好友卡:沿用图表卡的壳,体里一行统计 + 一行邀请链接 */
+.na-referral { display: grid; gap: 12px; padding: 16px 20px; }
+.na-referral-stats { display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted-fg); font-size: var(--font-body); font-variant-numeric: tabular-nums; }
+/* 只读的邀请链接可以截断(复制按钮拷的是全文):这一行是 grid 子项,自动最小宽 = 输入框的固有宽 + 按钮,
+   不归零就把整行撑出卡片;输入框也不沿用 .na-input 的 min-width:10rem。 */
+.na-referral-link { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.na-referral-link .na-input { min-width: 0; color: var(--muted-fg); }
+.na-balance-link { display: block; text-decoration: none; }
+
+/* 图表卡:overflow-hidden rounded-lg border;头 border-b px-5 py-3;体 h-96 p-2 */
+.na-card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); min-width: 0; }
+.na-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.na-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 标题不让位(否则被右侧说明挤成「邀请好 / 友」逐字折行),说明占剩余宽度、自己换行。 */
+.na-card-title b { flex-shrink: 0; font-size: var(--font-body); font-weight: var(--font-weight-semibold); }
+.na-card-title span { min-width: 0; color: var(--muted-fg); font-size: var(--font-caption); }
+.na-card-body { height: 384px; padding: 8px; }
+@container (max-width: 560px) {
+  .na-card-head { padding: 8px 12px; }
+  .na-card-body { height: 300px; padding: 6px; }
+}
+/* 分段开关:bg-muted/60 的槽、2px 内衬、h-8;项 rounded-md、选中 bg-background shadow-sm */
+.na-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.na-seg { display: inline-flex; height: 32px; max-width: 100%; overflow-x: auto; padding: 2px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.na-seg-item { min-height: 0; display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-radius: var(--na-radius-md); background: transparent; color: var(--muted-fg); font: inherit; font-size: var(--font-caption); font-weight: var(--font-weight-medium); cursor: pointer; transition: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.na-seg-item:hover { color: var(--fg); }
+.na-seg-item[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklab, black 12%, transparent); }
+.na-seg-item svg { width: 14px; height: 14px; }
+
+/* 使用日志表 */
+.na-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: color-mix(in oklch, var(--card, var(--bg)) 50%, transparent); }
+.na-input { height: 32px; min-width: 10rem; flex: 1 1 10rem; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--na-radius-lg); background: var(--bg); color: var(--fg); font: inherit; font-size: var(--font-body); }
+.na-table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--na-radius-lg); transition: opacity var(--dur-fast) var(--ease); }
+.na-table-wrap[data-busy] { pointer-events: none; opacity: .6; }
+.na-table { width: 100%; border-collapse: collapse; font-size: var(--font-body); font-variant-numeric: tabular-nums; }
+.na-table thead th { position: sticky; top: 0; z-index: 1; height: 40px; padding: 0 8px; background: var(--na-table-header); color: var(--fg); text-align: left; font-weight: var(--font-weight-medium); white-space: nowrap; border-bottom: 1px solid var(--border); }
+.na-table tbody tr { height: 60px; border-bottom: 1px solid var(--border); transition: background-color var(--dur-fast) var(--ease); }
+.na-table tbody tr:last-child { border-bottom: 0; }
+.na-table tbody tr:hover { background: var(--na-row-hover); }
+.na-table td { padding: 8px; vertical-align: middle; white-space: nowrap; font-weight: var(--font-weight-medium); }
+.na-cell-stack { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.na-mono-xs { font-family: var(--font-mono); font-size: var(--font-caption); }
+.na-type { margin-left: -6px; padding: 0 6px; font-size: var(--font-caption); color: var(--na-success); }
+.na-badge { display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: none; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--border) 60%, transparent); border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--muted) 30%, transparent); color: var(--fg); white-space: nowrap; cursor: copy; transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.na-badge:hover { filter: brightness(.95); }
+.na-badge:active { transform: scale(.95); }
+.na-badge-icon { display: flex; width: 18px; height: 18px; align-items: center; justify-content: center; }
+.na-badge-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 9999px; background: currentColor; }
+.na-cost { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--border) 80%, transparent); border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--muted) 60%, transparent); color: var(--fg); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+.na-tokens-sub { display: flex; align-items: center; gap: 4px; color: color-mix(in oklch, var(--muted-fg) 60%, transparent); font-size: var(--font-caption); }
+.na-empty { display: flex; height: 400px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; }
+.na-empty-icon { display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; }
+.na-empty b { font-size: var(--font-body); font-weight: var(--font-weight-medium); }
+.na-empty span { color: var(--muted-fg); font-size: var(--font-body); }
+.na-skel-row td { height: 52px; padding: 12px 8px; }
+.na-skel { height: 16px; border-radius: var(--na-radius-sm); background: var(--muted); animation: gg-usage-pulse 1.4s ease-in-out infinite; }
+/* 分页:总计 / 每页行数 / 首·上·页码·下·末 */
+.na-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 12px; }
+.na-pager-total { font-size: var(--font-body); font-weight: var(--font-weight-medium); }
+.na-pager-total span { color: color-mix(in oklch, var(--muted-fg) 80%, transparent); }
+.na-pager-size { display: inline-flex; align-items: center; gap: 8px; color: color-mix(in oklch, var(--muted-fg) 80%, transparent); font-size: var(--font-body); font-weight: var(--font-weight-medium); }
+.na-pager-size select { height: 32px; width: 70px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: var(--na-radius-lg); background: var(--bg); color: var(--fg); font: inherit; font-weight: var(--font-weight-medium); font-variant-numeric: tabular-nums; }
+.na-pager-btns { display: inline-flex; align-items: center; gap: 8px; }
+.na-pager-btn { min-height: 0; display: inline-flex; height: 32px; min-width: 32px; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--bg); color: var(--muted-fg); font: inherit; font-size: var(--font-body); font-variant-numeric: tabular-nums; cursor: pointer; transition: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.na-pager-btn:hover:not(:disabled):not([data-disabled]) { color: var(--fg); background: var(--muted); }
+.na-pager-btn:disabled, .na-pager-btn[data-disabled] { color: color-mix(in oklch, var(--muted-fg) 50%, transparent); cursor: default; }
+.na-pager-btn[aria-current="page"] { border-color: var(--primary); background: var(--primary); color: var(--primary-fg); font-weight: var(--font-weight-semibold); }
+.na-pager-btn svg { width: 16px; height: 16px; }
+.na-pager-ellipsis { padding: 0 2px; color: color-mix(in oklch, var(--muted-fg) 60%, transparent); font-size: var(--font-body); }
+@container (max-width: 480px) {
+  .na-pager-size, .na-pager-edge { display: none; }
+}

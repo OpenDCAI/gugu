@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  系统启动画面退场后、WebView 画出第一帧之前露出的窗口底色。@@@mobile-launch-no-icon (#5714)
+  起与 `windowSplashScreenBackground` 同用一个颜色 —— 此前这里写死 #F7F4EE、那边是 #F7F8FA,
+  启动中途会跳一次色。一段启动只该有一种底色。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/gugu_mobile_shell_surface" />
+</shape>

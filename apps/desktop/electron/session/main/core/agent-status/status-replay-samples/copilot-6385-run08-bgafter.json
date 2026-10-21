@@ -1,0 +1,81 @@
+{
+ "id": "copilot-6385-run08-bgafter",
+ "issues": [
+  "#6385"
+ ],
+ "harness": "copilot 1.0.82",
+ "source": "#6385 recorded copilot hooks (product-registered keys only, as #6414)",
+ "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7",
+ "expectAnomalies": 0,
+ "summary": "mode bgafter: the subagent's agentStop never ends the main turn (#6414); copilot reports no background work, so a main turn that ends before its background subagent goes idle (known missing fact)",
+ "steps": [
+  {
+   "raw": "05:43:37 userPromptSubmitted [main] (user)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:43:37 sessionStart [main]",
+   "event": null,
+   "drop": "not a status fact",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:43:41 userPromptSubmitted [sub]",
+   "event": null,
+   "drop": "the subagent's prompt cannot self-prove (no transcriptPath); it lands inside the open main turn (10/10)",
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:43:43 agentStop [main]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "05:43:46 permissionRequest [main]",
+   "event": null,
+   "drop": "auto-approved in this run (nobody clicked, the turn went on) ⇒ no status (hook-status-derivation)",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "05:44:04 agentStop [sub]",
+   "event": null,
+   "drop": "subagent turn end, self-proved by transcriptPath (#6385/#6414) — carries no status, not a turn end",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "05:44:04 userPromptSubmitted [main] <system_notification> (copilot-injected)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "05:44:08 agentStop [main]",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "0d3111fa-2364-4083-ba10-c782e97625b7"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

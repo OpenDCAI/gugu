@@ -1,0 +1,160 @@
+// @vitest-environment jsdom
+// #7348 新账号的第一次打开(product spec):认识你 → 认识咕咕 → 开通咕咕;老账号 / 走完的直接进主界面;
+// 进度读不到如实说 + 重试,❌ 当新账号重走,❌ 当走完放行。
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { clickElement, createNode, createReactHarness, renderWithAppProviders, typeInto, waitForCondition } from '../../../support/testHarness'
+
+const io = vi.hoisted(() => ({
+  readFirstRunProgress: vi.fn(),
+  writeOccupation: vi.fn(async () => undefined),
+  finishFirstRun: vi.fn(async () => '2026-10-16T00:00:00Z'),
+  requestAssistantSetupHandoff: vi.fn(),
+}))
+vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
+const auth = vi.hoisted(() => ({ updateNickname: vi.fn(async () => ({ success: true })), updateAvatar: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: auth }))
+
+const { FirstRunGate } = await import('../../../../apps/desktop/src/components/firstRun/FirstRunGate')
+
+const user = { id: 'u1', email: 'neo@example.com', nickname: 'neo' }
+const byTestId = (root: ParentNode, id: string) => root.querySelector<HTMLElement>(`[data-testid="${id}"]`)
+
+async function renderGate(overrides: Partial<typeof user & { identityPending: boolean }> = {}) {
+  const harness = createReactHarness()
+  const node = createNode(FirstRunGate, { user: { ...user, ...overrides } }, createNode('div', { 'data-testid': 'main-product' }))
+  await renderWithAppProviders(harness, node, { auth: { ...user, ...overrides } })
+  return harness
+}
+
+afterEach(() => {
+  vi.clearAllMocks()
+  sessionStorage.clear()
+})
+
+describe('first run gate (#7348)', () => {
+  it('finished / existing accounts go straight to the product', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'done', occupation: null })
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'product rendered')
+      expect(byTestId(harness.container, 'first-run-profile')).toBeNull()
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  it('unreadable progress says so and retries; it neither replays the flow nor lets you through', async () => {
+    io.readFirstRunProgress.mockRejectedValueOnce(new Error('permission denied for table users'))
+    io.readFirstRunProgress.mockResolvedValueOnce({ stage: 'done', occupation: null })
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'first-run-unreadable'), 'unreadable screen')
+      // 原因进日志,屏上只说读不到 + 重试(仓库的文案规则:❌ 把内部失败描述拼进用户文案)
+      expect(harness.container.textContent).not.toContain('permission denied for table users')
+      expect(byTestId(harness.container, 'first-run-retry')).not.toBeNull()
+      expect(byTestId(harness.container, 'main-product')).toBeNull()
+      expect(byTestId(harness.container, 'first-run-profile')).toBeNull()
+      await clickElement(byTestId(harness.container, 'first-run-retry')!)
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'product after retry')
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  it('does not wait for the identity to finish hydrating (a hydration that never lands must not leave the gate spinning)', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'done', occupation: null })
+    const harness = await renderGate({ identityPending: true, nickname: '' })
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'product rendered while identity is pending')
+      expect(io.readFirstRunProgress).toHaveBeenCalledWith('u1')
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  it('profile: a name that arrives after hydration fills the field, but never overwrites what the person typed', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'profile', occupation: null })
+    const harness = createReactHarness()
+    const render = (overrides: Partial<typeof user & { identityPending: boolean }>) =>
+      renderWithAppProviders(harness, createNode(FirstRunGate, { user: { ...user, ...overrides } }, createNode('div', { 'data-testid': 'main-product' })))
+    try {
+      await render({ identityPending: true, nickname: '' })
+      await waitForCondition(() => !!byTestId(harness.container, 'first-run-profile'), 'profile screen before hydration')
+      const name = () => byTestId(harness.container, 'first-run-name') as HTMLInputElement
+      expect(name().value).toBe('')
+      await render({ nickname: 'neo' })
+      expect(name().value).toBe('neo')
+      await typeInto(name(), 'Neo')
+      await render({ nickname: 'neo-renamed-elsewhere' })
+      expect(name().value).toBe('Neo')
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  it('profile: name prefilled, occupation required ("other" needs its sentence), then the intro', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'profile', occupation: null })
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'first-run-profile'), 'profile screen')
+      const name = byTestId(harness.container, 'first-run-name') as HTMLInputElement
+      expect(name.value).toBe('neo')
+      const next = byTestId(harness.container, 'first-run-profile-continue') as HTMLButtonElement
+      expect(next.disabled).toBe(true)
+      await clickElement(byTestId(harness.container, 'first-run-occupation-other')!)
+      expect(next.disabled).toBe(true)
+      await typeInto(byTestId(harness.container, 'first-run-occupation-other-text') as HTMLInputElement, '律师')
+      await typeInto(name, 'Neo')
+      expect(next.disabled).toBe(false)
+      await clickElement(next)
+      await waitForCondition(() => !!byTestId(harness.container, 'first-run-intro'), 'intro screen')
+      expect(auth.updateNickname).toHaveBeenCalledWith('u1', 'Neo')
+      expect(io.writeOccupation).toHaveBeenCalledWith('u1', { key: 'other', text: '律师' })
+    } finally {
+      harness.cleanup()
+    }
+  })
+
+  it('intro: "set up my Gugu" finishes the flow and hands off to the assistant setup; "look around" just finishes', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'intro', occupation: { key: 'research' } })
+    const first = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(first.container, 'assistant-intro-primary'), 'intro buttons')
+      expect(first.container.querySelectorAll('[data-intro-row]')).toHaveLength(3)
+      await clickElement(byTestId(first.container, 'assistant-intro-primary')!)
+      await waitForCondition(() => !!byTestId(first.container, 'main-product'), 'product after start')
+      expect(io.finishFirstRun).toHaveBeenCalled()
+      expect(io.requestAssistantSetupHandoff).toHaveBeenCalledWith('u1')
+    } finally {
+      first.cleanup()
+    }
+    vi.clearAllMocks()
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'intro', occupation: { key: 'research' } })
+    const second = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(second.container, 'assistant-intro-later'), 'later link')
+      await clickElement(byTestId(second.container, 'assistant-intro-later')!)
+      await waitForCondition(() => !!byTestId(second.container, 'main-product'), 'product after later')
+      expect(io.finishFirstRun).toHaveBeenCalled()
+      expect(io.requestAssistantSetupHandoff).not.toHaveBeenCalled()
+    } finally {
+      second.cleanup()
+    }
+  })
+
+  it('a failed finish keeps you on the intro and says it did not save (❌ silently entering the product)', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'intro', occupation: { key: 'design' } })
+    io.finishFirstRun.mockRejectedValueOnce(new Error('network down'))
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'assistant-intro-later'), 'later link')
+      await clickElement(byTestId(harness.container, 'assistant-intro-later')!)
+      await waitForCondition(() => !!harness.container.querySelector('[role="alert"]'), 'error shown')
+      expect(harness.container.textContent).not.toContain('network down')
+      expect(byTestId(harness.container, 'main-product')).toBeNull()
+      expect(byTestId(harness.container, 'assistant-intro-later')).not.toBeNull()
+    } finally {
+      harness.cleanup()
+    }
+  })
+})

@@ -1,0 +1,172 @@
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { ChevronLeft, Maximize2, X } from '@/lib/icons'
+import { sessionPeek } from '../../session/renderer/app/session-peek'
+import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail, type PeekTarget } from '../../session/shared/extensions/app-runtime-protocol'
+import type { FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
+import { localizedManifestText } from '../../session/shared/extensions/catalog'
+import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
+import { useMobileShell } from '../../hooks/useMobileShell'
+import { platform } from '../../platform'
+import { openAttachmentInSystemApp } from '../../lib/attachmentBytes'
+import { classifyDocumentPreview } from '../chat/documentPreview'
+import { MessageFilePreviewPanel } from '../chat/MessageFilePreviewPanel'
+import { readPreview, type PreviewFile } from '../chat/useMessageFilePreview'
+import { Button } from '../ui/Button'
+import { IconButton } from '../ui/IconButton'
+import { PaneHeader } from '../ui/Pane'
+import { ClaimedPage } from './ClaimedPage'
+import { PhoneAppFrame } from './PhoneAppFrame'
+
+// Desktop-only and phone-only halves, loaded where they are drawn.
+const PeekLocalFile = lazy(() => import('../../session/renderer/features/extensions/peek-local-file').then((m) => ({ default: m.PeekLocalFile })))
+const PeekSessionTimeline = lazy(() => import('../../mobile/agent-watch/PeekSessionTimeline').then((m) => ({ default: m.PeekSessionTimeline })))
+
+export function AppPeek({ target, slotKey, beside, onClose }: { target: PeekTarget; slotKey: string; beside: boolean; onClose: () => void }) {
+  const { t } = useTranslation('messaging')
+  const mobile = useMobileShell()
+  // A chat file nobody here opens is the host's own preview, header and all (its back closes the peek).
+  if (target.kind === 'chat' && target.detail.choice.kind === 'none') return <ChatFilePeek target={target} onClose={onClose} />
+  const title = target.kind === 'chat' ? target.detail.name : target.kind === 'local' ? target.name : t('chatArea.peek.session')
+  const full = openFull(target)
+  return (
+    <>
+      <PaneHeader
+        title={title}
+        divider
+        {...(mobile ? { mobile: true } : {})}
+        leading={beside ? undefined : (
+          <IconButton size={mobile ? 'lg' : 'sm'} data-testid="app-peek-back" onClick={onClose} aria-label={t('chatArea.openWith.back')}>
+            <ChevronLeft />
+          </IconButton>
+        )}
+        actions={
+          <>
+            {full ? (
+              <IconButton size={mobile ? 'lg' : 'sm'} data-testid="app-peek-full" onClick={() => (full(), onClose())} aria-label={t('chatArea.peek.openFull')} title={t('chatArea.peek.openFull')}>
+                <Maximize2 />
+              </IconButton>
+            ) : null}
+            {beside ? (
+              <IconButton size="sm" data-testid="app-peek-close" onClick={onClose} aria-label={t('common.close')}>
+                <X />
+              </IconButton>
+            ) : null}
+          </>
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-primary)]">
+        <Suspense fallback={null}>
+          {target.kind === 'chat' ? (
+            <ChatFileOpener detail={target.detail} slotId={`${slotKey}#peek`} />
+          ) : target.kind === 'local' ? (
+            <PeekLocalFile target={target} tabId={`peek:${slotKey}`} />
+          ) : platform.kind === 'electron' ? (
+            <SessionPeekBox sessionId={target.sessionId} projectId={target.projectId} />
+          ) : (
+            <PeekSessionTimeline sessionId={target.sessionId} onBack={onClose} />
+          )}
+        </Suspense>
+      </div>
+    </>
+  )
+}
+
+/** Where the peek's 「open in full」 goes: where the thing lives, the way it opens without a peek; none for a project's file. */
+function openFull(target: PeekTarget): (() => void) | null {
+  if (target.kind === 'chat') return () => window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: target.detail }))
+  if (target.kind === 'session' && platform.kind === 'electron') {
+    return () => void import('./peekFullSession').then(({ openSessionInFull }) => openSessionInFull(target))
+  }
+  return null
+}
+
+/** A chat file an App here opens: that App's page made for the file (as 「用 X 打开」 makes it); several, the person picks. */
+function ChatFileOpener({ detail, slotId }: { detail: AppOpenWithDetail; slotId: string }) {
+  const { t } = useTranslation('messaging')
+  const [picked, setPicked] = useState<FileOpenerCandidate | null>(detail.choice.kind === 'one' ? detail.choice.candidate : null)
+  if (!picked) {
+    const candidates = detail.choice.kind === 'choose' ? detail.choice.candidates : []
+    return (
+      <div className="flex flex-col gap-3 !p-4" data-testid="app-peek-open-with">
+        <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.title', { name: detail.name })}</div>
+        {candidates.map((candidate) => (
+          <Button key={candidate.tabKind} variant="secondary" data-open-with={candidate.tabKind} onClick={() => setPicked(candidate)}>
+            {localizedManifestText(candidate.app, installedExtensionsStore.locale).name}
+          </Button>
+        ))}
+      </div>
+    )
+  }
+  return platform.kind === 'electron' ? (
+    <ClaimedPage slotId={slotId} chatId={detail.chatId} kind={picked.tabKind} itemId={detail.itemId} />
+  ) : (
+    <PhoneAppFrame
+      kind={picked.tabKind}
+      tabId={slotId}
+      chatId={detail.chatId}
+      itemId={detail.itemId}
+      onOpenWith={(asked) => window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: asked }))}
+      testId="app-peek-frame"
+      missingTestId="app-peek-missing"
+    />
+  )
+}
+
+/** A chat file nobody here opens: the chat's own preview of it, read the one way the chat reads it (`readPreview`). */
+function ChatFilePeek({ target, onClose }: { target: Extract<PeekTarget, { kind: 'chat' }>; onClose: () => void }) {
+  const { t } = useTranslation('messaging')
+  const mobile = useMobileShell()
+  const file: PreviewFile = {
+    kind: 'file',
+    fileName: target.detail.name,
+    mimeType: target.file.contentType,
+    sizeBytes: target.file.size,
+    source: { kind: 'item', itemId: target.detail.itemId, version: target.file.version },
+  }
+  const kind = classifyDocumentPreview(file)
+  const [read, setRead] = useState<{ content: string | ArrayBuffer | null; videoUrl?: string; error?: string } | null>(null)
+  useEffect(() => {
+    let live = true
+    setRead(null)
+    if (kind !== 'unsupported') {
+      void readPreview(file, kind).then(
+        (done) => live && setRead(done),
+        (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
+      )
+    }
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the item and its version are the file's identity
+  }, [target.detail.itemId, target.file.version])
+  const system = () => void openAttachmentInSystemApp(file.source, file.fileName)
+  return (
+    <MessageFilePreviewPanel
+      fill
+      mobile={mobile}
+      file={file}
+      kind={kind}
+      content={read?.content ?? null}
+      {...(read?.videoUrl ? { videoUrl: read.videoUrl } : {})}
+      loading={kind !== 'unsupported' && read === null}
+      {...(read?.error ? { error: read.error } : kind === 'unsupported' ? { error: t('chatArea.peek.unsupported') } : {})}
+      onOpenExternal={system}
+      onClose={onClose}
+    />
+  )
+}
+
+/**
+ * Desktop: the box a session's own page is drawn over (`sessionPeek`, workspace.tsx) — the same page, conversation and
+ * composer as its row opens, never a second one. Held while this box is up.
+ */
+function SessionPeekBox({ sessionId, projectId }: { sessionId: string; projectId: string }) {
+  const [box, setBox] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!box) return undefined
+    sessionPeek.open({ sessionId, projectId, box })
+    return () => sessionPeek.close(sessionId)
+  }, [box, sessionId, projectId])
+  return <div ref={setBox} className="min-h-0 flex-1" data-testid="app-peek-session" />
+}

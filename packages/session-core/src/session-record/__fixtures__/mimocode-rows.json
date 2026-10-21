@@ -1,0 +1,628 @@
+{
+ "sessions": [
+  {
+   "session": {
+    "id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+    "title": "已脱敏-1",
+    "time_created": 1788981037294,
+    "time_updated": 1788981269052
+   },
+   "messages": [
+    {
+     "id": "msg_g001a087956f0e001MBYwUKQcL",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "general-1",
+     "time_created": 1788981112590,
+     "time_updated": 1788981112590,
+     "data": "{\"role\": \"user\", \"time\": {\"created\": 1788981112590}, \"agent\": \"general\", \"model\": {\"providerID\": \"xiaomi\", \"modelID\": \"mimo-v2.5\"}}"
+    },
+    {
+     "id": "msg_g001a087956f15001rWDUZQ5tA",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "general-1",
+     "time_created": 1788981112597,
+     "time_updated": 1788981112867,
+     "data": "{\"parentID\": \"msg_g001a087956f0e001MBYwUKQcL\", \"role\": \"assistant\", \"mode\": \"general\", \"agent\": \"general\", \"path\": {\"cwd\": \"已脱敏-2\", \"root\": \"已脱敏-3\"}, \"cost\": 0, \"tokens\": {\"input\": 0, \"output\": 0, \"reasoning\": 0, \"cache\": {\"read\": 0, \"write\": 0}}, \"modelID\": \"mimo-v2.5\", \"providerID\": \"xiaomi\", \"time\": {\"created\": 1788981112597, \"completed\": 1788981112867}, \"error\": {\"name\": \"APIError\", \"data\": {\"message\": \"已脱敏-4\", \"statusCode\": 401, \"isRetryable\": false, \"responseHeaders\": {\"cache-control\": \"已脱敏-5\", \"connection\": \"已脱敏-6\", \"content-length\": \"已脱敏-7\", \"content-type\": \"已脱敏-8\", \"date\": \"已脱敏-9\", \"expires\": \"已脱敏-10\", \"pragma\": \"已脱敏-11\", \"server\": \"已脱敏-12\", \"vary\": \"已脱敏-13\", \"x-mife-upstream-status\": \"已脱敏-14\"}, \"responseBody\": \"已脱敏-15\", \"metadata\": {\"url\": \"已脱敏-16\"}}}}"
+    },
+    {
+     "id": "msg_g001a0879449390018Owb1Lxjl",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981037369,
+     "time_updated": 1788981129071,
+     "data": "{\"role\": \"user\", \"time\": {\"created\": 1788981037369}, \"agent\": \"build\", \"model\": {\"providerID\": \"gugu\", \"modelID\": \"gpt-5.6\"}, \"summary\": {\"diffs\": []}}"
+    },
+    {
+     "id": "msg_g001a087944950001XxbLNx0Wz",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981037392,
+     "time_updated": 1788981045155,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-17\", \"root\": \"已脱敏-18\"}, \"cost\": 0, \"tokens\": {\"total\": 30431, \"input\": 30332, \"output\": 85, \"reasoning\": 14, \"cache\": {\"write\": 0, \"read\": 0}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981037392, \"completed\": 1788981045154}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981045169,
+     "time_updated": 1788981054915,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-19\", \"root\": \"已脱敏-20\"}, \"cost\": 0, \"tokens\": {\"total\": 30632, \"input\": 252, \"output\": 137, \"reasoning\": 35, \"cache\": {\"write\": 0, \"read\": 30208}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981045169, \"completed\": 1788981054915}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a087948dc7001xelYSt5gC",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981054919,
+     "time_updated": 1788981072535,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-21\", \"root\": \"已脱敏-22\"}, \"cost\": 0, \"tokens\": {\"total\": 31195, \"input\": 6792, \"output\": 267, \"reasoning\": 72, \"cache\": {\"write\": 0, \"read\": 24064}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981054919, \"completed\": 1788981072535}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a08794d29b001h52t3orFj",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981072539,
+     "time_updated": 1788981085404,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-23\", \"root\": \"已脱敏-24\"}, \"cost\": 0, \"tokens\": {\"total\": 31439, \"input\": 978, \"output\": 232, \"reasoning\": 21, \"cache\": {\"write\": 0, \"read\": 30208}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981072539, \"completed\": 1788981085404}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a0879504e0001KlIF3xn23",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981085408,
+     "time_updated": 1788981095514,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-25\", \"root\": \"已脱敏-26\"}, \"cost\": 0, \"tokens\": {\"total\": 31597, \"input\": 1276, \"output\": 29, \"reasoning\": 84, \"cache\": {\"write\": 0, \"read\": 30208}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981085408, \"completed\": 1788981095513}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a087952c5e00131vLqqu5s",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981095518,
+     "time_updated": 1788981112673,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-27\", \"root\": \"已脱敏-28\"}, \"cost\": 0, \"tokens\": {\"total\": 31744, \"input\": 348, \"output\": 131, \"reasoning\": 33, \"cache\": {\"write\": 0, \"read\": 31232}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981095518, \"completed\": 1788981112673}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a087956f660015fqau76Wk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981112678,
+     "time_updated": 1788981128959,
+     "data": "{\"parentID\": \"msg_g001a0879449390018Owb1Lxjl\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-29\", \"root\": \"已脱敏-30\"}, \"cost\": 0, \"tokens\": {\"total\": 31826, \"input\": 530, \"output\": 34, \"reasoning\": 30, \"cache\": {\"write\": 0, \"read\": 31232}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981112678, \"completed\": 1788981128959}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a08795af01001xCJ3gyRDI",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981128961,
+     "time_updated": 1788981255919,
+     "data": "{\"role\": \"user\", \"time\": {\"created\": 1788981128961}, \"agent\": \"build\", \"model\": {\"providerID\": \"gugu\", \"modelID\": \"gpt-5.6\"}, \"summary\": {\"diffs\": []}}"
+    },
+    {
+     "id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981128965,
+     "time_updated": 1788981179435,
+     "data": "{\"parentID\": \"msg_g001a08795af01001xCJ3gyRDI\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-31\", \"root\": \"已脱敏-32\"}, \"cost\": 0, \"tokens\": {\"total\": 33405, \"input\": 283, \"output\": 820, \"reasoning\": 46, \"cache\": {\"write\": 0, \"read\": 32256}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981128965, \"completed\": 1788981179435}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a087967430001uEKuINgnf",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981179440,
+     "time_updated": 1788981210322,
+     "data": "{\"parentID\": \"msg_g001a08795af01001xCJ3gyRDI\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-33\", \"root\": \"已脱敏-34\"}, \"cost\": 0, \"tokens\": {\"total\": 34196, \"input\": 1325, \"output\": 478, \"reasoning\": 137, \"cache\": {\"write\": 0, \"read\": 32256}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981179440, \"completed\": 1788981210322}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a08796ecd6001GIEv2UXAF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981210326,
+     "time_updated": 1788981238777,
+     "data": "{\"parentID\": \"msg_g001a08795af01001xCJ3gyRDI\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-35\", \"root\": \"已脱敏-36\"}, \"cost\": 0, \"tokens\": {\"total\": 34830, \"input\": 931, \"output\": 496, \"reasoning\": 123, \"cache\": {\"write\": 0, \"read\": 33280}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981210326, \"completed\": 1788981238777}, \"finish\": \"tool-calls\"}"
+    },
+    {
+     "id": "msg_g001a087975bfe001o9HoaDmhF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981238782,
+     "time_updated": 1788981255757,
+     "data": "{\"parentID\": \"msg_g001a08795af01001xCJ3gyRDI\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-37\", \"root\": \"已脱敏-38\"}, \"cost\": 0, \"tokens\": {\"total\": 35107, \"input\": 1711, \"output\": 75, \"reasoning\": 41, \"cache\": {\"write\": 0, \"read\": 33280}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981238782, \"completed\": 1788981255757}, \"finish\": \"stop\"}"
+    },
+    {
+     "id": "msg_g001a087979e92001tjrcfagEk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981255826,
+     "time_updated": 1788981269081,
+     "data": "{\"role\": \"user\", \"time\": {\"created\": 1788981255826}, \"agent\": \"build\", \"model\": {\"providerID\": \"gugu\", \"modelID\": \"gpt-5.6\"}, \"summary\": {\"diffs\": []}}"
+    },
+    {
+     "id": "msg_g001a087979e9a001MDs0kT3nW",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "agent_id": "main",
+     "time_created": 1788981255834,
+     "time_updated": 1788981268973,
+     "data": "{\"parentID\": \"msg_g001a087979e92001tjrcfagEk\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-39\", \"root\": \"已脱敏-40\"}, \"cost\": 0, \"tokens\": {\"total\": 35145, \"input\": 2847, \"output\": 24, \"reasoning\": 18, \"cache\": {\"write\": 0, \"read\": 32256}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1788981255834, \"completed\": 1788981268972}, \"finish\": \"stop\"}"
+    }
+   ],
+   "parts": [
+    {
+     "id": "prt_g001a087944939002blW1d7wx1",
+     "message_id": "msg_g001a0879449390018Owb1Lxjl",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981037372,
+     "time_updated": 1788981037372,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-41\"}"
+    },
+    {
+     "id": "prt_g001a08794494e001ahSrZIRwd",
+     "message_id": "msg_g001a0879449390018Owb1Lxjl",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981037390,
+     "time_updated": 1788981037390,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-42\", \"synthetic\": true}"
+    },
+    {
+     "id": "prt_g001a087945c2f001fLfR643PP",
+     "message_id": "msg_g001a087944950001XxbLNx0Wz",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981042223,
+     "time_updated": 1788981042224,
+     "data": "{\"snapshot\": \"已脱敏-43\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a087945c32001jW8hIbpoB",
+     "message_id": "msg_g001a087944950001XxbLNx0Wz",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981042226,
+     "time_updated": 1788981042243,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-44\", \"time\": {\"start\": 1788981042226, \"end\": 1788981042243}}"
+    },
+    {
+     "id": "prt_g001a087945c44001dGwB2Mwqy",
+     "message_id": "msg_g001a087944950001XxbLNx0Wz",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981042244,
+     "time_updated": 1788981045079,
+     "data": "{\"type\": \"tool\", \"tool\": \"view_image\", \"callID\": \"call_1z0rLQ5LC8LODkZrZnRjziWG\", \"state\": {\"status\": \"error\", \"input\": {\"path\": \"已脱敏-45\", \"detail\": \"已脱敏-46\"}, \"error\": \"已脱敏-47\", \"time\": {\"start\": 1788981045075, \"end\": 1788981045078}}}"
+    },
+    {
+     "id": "prt_g001a087946758001lSwoFlyRt",
+     "message_id": "msg_g001a087944950001XxbLNx0Wz",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981045118,
+     "time_updated": 1788981045118,
+     "data": "{\"reason\": \"已脱敏-48\", \"snapshot\": \"已脱敏-49\", \"type\": \"step-finish\", \"tokens\": {\"total\": 30431, \"input\": 30332, \"output\": 85, \"reasoning\": 14, \"cache\": {\"write\": 0, \"read\": 0}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a087947b7b0015vg8JFOYz",
+     "message_id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981050235,
+     "time_updated": 1788981050235,
+     "data": "{\"snapshot\": \"已脱敏-50\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a087947b7b003LnyOSRngj",
+     "message_id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981050235,
+     "time_updated": 1788981050236,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-51\", \"time\": {\"start\": 1788981050235, \"end\": 1788981050236}}"
+    },
+    {
+     "id": "prt_g001a087947b7c002LuPgkyLub",
+     "message_id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981050236,
+     "time_updated": 1788981054777,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-52\", \"time\": {\"start\": 1788981050236, \"end\": 1788981054776}}"
+    },
+    {
+     "id": "prt_g001a087948103001MKdYY6D6I",
+     "message_id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981051651,
+     "time_updated": 1788981054840,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_29EXeUyampLnIDtQghpF59K6\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-53\", \"description\": \"已脱敏-54\"}, \"output\": \"已脱敏-55\", \"metadata\": {\"output\": \"已脱敏-56\", \"exit\": 0, \"description\": \"已脱敏-57\", \"truncated\": false}, \"title\": \"已脱敏-58\", \"time\": {\"start\": 1788981054838, \"end\": 1788981054840}}}"
+    },
+    {
+     "id": "prt_g001a087948d79001pl1h2yQJQ",
+     "message_id": "msg_g001a0879467b1001kkACcMp2P",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981054880,
+     "time_updated": 1788981054880,
+     "data": "{\"reason\": \"已脱敏-59\", \"snapshot\": \"已脱敏-60\", \"type\": \"step-finish\", \"tokens\": {\"total\": 30632, \"input\": 252, \"output\": 137, \"reasoning\": 35, \"cache\": {\"write\": 0, \"read\": 30208}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08794b57d001XEh62198U",
+     "message_id": "msg_g001a087948dc7001xelYSt5gC",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981065085,
+     "time_updated": 1788981065085,
+     "data": "{\"snapshot\": \"已脱敏-61\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08794b57f0012PNwbghMY",
+     "message_id": "msg_g001a087948dc7001xelYSt5gC",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981065087,
+     "time_updated": 1788981065107,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-62\", \"time\": {\"start\": 1788981065087, \"end\": 1788981065107}}"
+    },
+    {
+     "id": "prt_g001a08794b594001t1b1x47NZ",
+     "message_id": "msg_g001a087948dc7001xelYSt5gC",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981065108,
+     "time_updated": 1788981072460,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_lfYa4TcfJxymE13UBtZRPk82\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-63\", \"description\": \"已脱敏-64\"}, \"output\": \"已脱敏-65\", \"metadata\": {\"output\": \"已脱敏-66\", \"exit\": 1, \"description\": \"已脱敏-67\", \"truncated\": false}, \"title\": \"已脱敏-68\", \"time\": {\"start\": 1788981072457, \"end\": 1788981072459}}}"
+    },
+    {
+     "id": "prt_g001a08794d24c001oHlufeBV2",
+     "message_id": "msg_g001a087948dc7001xelYSt5gC",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981072498,
+     "time_updated": 1788981072498,
+     "data": "{\"reason\": \"已脱敏-69\", \"snapshot\": \"已脱敏-70\", \"type\": \"step-finish\", \"tokens\": {\"total\": 31195, \"input\": 6792, \"output\": 267, \"reasoning\": 72, \"cache\": {\"write\": 0, \"read\": 24064}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08794f03c001DFLNJcC4A",
+     "message_id": "msg_g001a08794d29b001h52t3orFj",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981080124,
+     "time_updated": 1788981080125,
+     "data": "{\"snapshot\": \"已脱敏-71\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08794f03e0016hwg3Rxph",
+     "message_id": "msg_g001a08794d29b001h52t3orFj",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981080126,
+     "time_updated": 1788981080139,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-72\", \"time\": {\"start\": 1788981080126, \"end\": 1788981080139}}"
+    },
+    {
+     "id": "prt_g001a08794f04b002BkwEnDqRY",
+     "message_id": "msg_g001a08794d29b001h52t3orFj",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981080139,
+     "time_updated": 1788981085329,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_nqDR7EJEa7o6God47hN2HWZD\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-73\", \"description\": \"已脱敏-74\"}, \"output\": \"已脱敏-75\", \"metadata\": {\"output\": \"已脱敏-76\", \"exit\": 0, \"description\": \"已脱敏-77\", \"truncated\": false}, \"title\": \"已脱敏-78\", \"time\": {\"start\": 1788981085327, \"end\": 1788981085329}}}"
+    },
+    {
+     "id": "prt_g001a0879504920016ejNwf2XA",
+     "message_id": "msg_g001a08794d29b001h52t3orFj",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981085367,
+     "time_updated": 1788981085367,
+     "data": "{\"reason\": \"已脱敏-79\", \"snapshot\": \"已脱敏-80\", \"type\": \"step-finish\", \"tokens\": {\"total\": 31439, \"input\": 978, \"output\": 232, \"reasoning\": 21, \"cache\": {\"write\": 0, \"read\": 30208}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a087952893001r81Ewrygt",
+     "message_id": "msg_g001a0879504e0001KlIF3xn23",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981094547,
+     "time_updated": 1788981094547,
+     "data": "{\"snapshot\": \"已脱敏-81\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a087952894001dbGLAcbYz",
+     "message_id": "msg_g001a0879504e0001KlIF3xn23",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981094548,
+     "time_updated": 1788981094550,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-82\", \"time\": {\"start\": 1788981094548, \"end\": 1788981094550}}"
+    },
+    {
+     "id": "prt_g001a087952897001fFusHp5oE",
+     "message_id": "msg_g001a0879504e0001KlIF3xn23",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981094551,
+     "time_updated": 1788981095418,
+     "data": "{\"type\": \"tool\", \"tool\": \"actor\", \"callID\": \"call_MLKjL6UI2UMo0foo03CFf5QW\", \"state\": {\"status\": \"completed\", \"input\": {\"operation\": {\"action\": \"已脱敏-83\", \"vision\": true, \"limit\": 10}}, \"output\": \"已脱敏-84\", \"metadata\": {\"count\": 2, \"total\": 2, \"vision\": true, \"truncated\": false}, \"title\": \"已脱敏-85\", \"time\": {\"start\": 1788981095417, \"end\": 1788981095418}}}"
+    },
+    {
+     "id": "prt_g001a087952bfb001CKw5cQE0p",
+     "message_id": "msg_g001a0879504e0001KlIF3xn23",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981095460,
+     "time_updated": 1788981095461,
+     "data": "{\"reason\": \"已脱敏-86\", \"snapshot\": \"已脱敏-87\", \"type\": \"step-finish\", \"tokens\": {\"total\": 31597, \"input\": 1276, \"output\": 29, \"reasoning\": 84, \"cache\": {\"write\": 0, \"read\": 30208}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a0879562df001VA8iAhFyw",
+     "message_id": "msg_g001a087952c5e00131vLqqu5s",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981109471,
+     "time_updated": 1788981109472,
+     "data": "{\"snapshot\": \"已脱敏-88\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a0879562e1001WEqOqXENR",
+     "message_id": "msg_g001a087952c5e00131vLqqu5s",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981109473,
+     "time_updated": 1788981109525,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-89\", \"time\": {\"start\": 1788981109473, \"end\": 1788981109524}}"
+    },
+    {
+     "id": "prt_g001a087956315001cGdsc7I2B",
+     "message_id": "msg_g001a087952c5e00131vLqqu5s",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981109525,
+     "time_updated": 1788981112588,
+     "data": "{\"type\": \"tool\", \"tool\": \"actor\", \"callID\": \"call_3h3sUapWdRX9YewKaTJCO1Ka\", \"state\": {\"status\": \"completed\", \"input\": {\"operation\": {\"action\": \"已脱敏-90\", \"subagent_type\": \"已脱敏-91\", \"model\": \"已脱敏-92\", \"description\": \"已脱敏-93\", \"prompt\": \"已脱敏-94\"}}, \"output\": \"已脱敏-95\", \"metadata\": {\"sessionId\": \"已脱敏-96\", \"actorId\": \"已脱敏-97\", \"model\": {\"modelID\": \"mimo-v2.5\", \"providerID\": \"xiaomi\"}, \"truncated\": false}, \"title\": \"已脱敏-98\", \"time\": {\"start\": 1788981112586, \"end\": 1788981112588}}}"
+    },
+    {
+     "id": "prt_g001a087956f0e002yYsHAbHyW",
+     "message_id": "msg_g001a087956f0e001MBYwUKQcL",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981112591,
+     "time_updated": 1788981112591,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-99\"}"
+    },
+    {
+     "id": "prt_g001a087956f13001axKxAKC9C",
+     "message_id": "msg_g001a087956f0e001MBYwUKQcL",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981112595,
+     "time_updated": 1788981112595,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-100\", \"synthetic\": true}"
+    },
+    {
+     "id": "prt_g001a087956f0d0019F7r3NgOk",
+     "message_id": "msg_g001a087952c5e00131vLqqu5s",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981112633,
+     "time_updated": 1788981112634,
+     "data": "{\"reason\": \"已脱敏-101\", \"snapshot\": \"已脱敏-102\", \"type\": \"step-finish\", \"tokens\": {\"total\": 31744, \"input\": 348, \"output\": 131, \"reasoning\": 33, \"cache\": {\"write\": 0, \"read\": 31232}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08795ad1e001yvd1GTInV",
+     "message_id": "msg_g001a087956f660015fqau76Wk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981128478,
+     "time_updated": 1788981128479,
+     "data": "{\"snapshot\": \"已脱敏-103\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08795ad20001IxH4sKp6D",
+     "message_id": "msg_g001a087956f660015fqau76Wk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981128480,
+     "time_updated": 1788981128531,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-104\", \"time\": {\"start\": 1788981128480, \"end\": 1788981128531}}"
+    },
+    {
+     "id": "prt_g001a08795ad54001JvSPQn3o3",
+     "message_id": "msg_g001a087956f660015fqau76Wk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981128532,
+     "time_updated": 1788981128878,
+     "data": "{\"type\": \"tool\", \"tool\": \"actor\", \"callID\": \"call_a2VFU0OXeovciXstnv9V7GR2\", \"state\": {\"status\": \"completed\", \"input\": {\"operation\": {\"action\": \"已脱敏-105\", \"actor_id\": \"已脱敏-106\", \"timeout_ms\": 120000}}, \"output\": \"已脱敏-107\", \"metadata\": {\"actor_id\": \"已脱敏-108\", \"status\": \"idle\", \"lastOutcome\": \"已脱敏-109\", \"truncated\": false}, \"title\": \"已脱敏-110\", \"time\": {\"start\": 1788981128878, \"end\": 1788981128878}}}"
+    },
+    {
+     "id": "prt_g001a08795aeaf001znaV7Ysup",
+     "message_id": "msg_g001a087956f660015fqau76Wk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981128918,
+     "time_updated": 1788981128918,
+     "data": "{\"reason\": \"已脱敏-111\", \"snapshot\": \"已脱敏-112\", \"type\": \"step-finish\", \"tokens\": {\"total\": 31826, \"input\": 530, \"output\": 34, \"reasoning\": 30, \"cache\": {\"write\": 0, \"read\": 31232}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08795af02001R7XuI69rt",
+     "message_id": "msg_g001a08795af01001xCJ3gyRDI",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981128962,
+     "time_updated": 1788981128962,
+     "data": "{\"type\": \"text\", \"synthetic\": true, \"text\": \"已脱敏-113\"}"
+    },
+    {
+     "id": "prt_g001a0879619fe001wKlvHAtU4",
+     "message_id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981156350,
+     "time_updated": 1788981156350,
+     "data": "{\"snapshot\": \"已脱敏-114\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a0879619ff001VGCbwb6Fu",
+     "message_id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981156351,
+     "time_updated": 1788981156363,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-115\", \"time\": {\"start\": 1788981156351, \"end\": 1788981156363}}"
+    },
+    {
+     "id": "prt_g001a087961a0b002IByMsoaUD",
+     "message_id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981156363,
+     "time_updated": 1788981179305,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-116\", \"time\": {\"start\": 1788981156363, \"end\": 1788981179304}}"
+    },
+    {
+     "id": "prt_g001a08796201e001f65BrR91k",
+     "message_id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981157918,
+     "time_updated": 1788981179359,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_78FBQjtfJiB61LpkeK8ZQAhf\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-117\", \"description\": \"已脱敏-118\"}, \"output\": \"已脱敏-119\", \"metadata\": {\"output\": \"已脱敏-120\", \"exit\": 0, \"description\": \"已脱敏-121\", \"truncated\": false}, \"title\": \"已脱敏-122\", \"time\": {\"start\": 1788981179355, \"end\": 1788981179359}}}"
+    },
+    {
+     "id": "prt_g001a0879673df002Fbrhh2o4q",
+     "message_id": "msg_g001a08795af05001WAfsp5YvS",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981179398,
+     "time_updated": 1788981179398,
+     "data": "{\"reason\": \"已脱敏-123\", \"snapshot\": \"已脱敏-124\", \"type\": \"step-finish\", \"tokens\": {\"total\": 33405, \"input\": 283, \"output\": 820, \"reasoning\": 46, \"cache\": {\"write\": 0, \"read\": 32256}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08796be84001z94AQl2eW",
+     "message_id": "msg_g001a087967430001uEKuINgnf",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981198468,
+     "time_updated": 1788981198469,
+     "data": "{\"snapshot\": \"已脱敏-125\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08796be86001f3GAIDEFE",
+     "message_id": "msg_g001a087967430001uEKuINgnf",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981198470,
+     "time_updated": 1788981198541,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-126\", \"time\": {\"start\": 1788981198470, \"end\": 1788981198540}}"
+    },
+    {
+     "id": "prt_g001a08796bece001mV2sLkcEG",
+     "message_id": "msg_g001a087967430001uEKuINgnf",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981198542,
+     "time_updated": 1788981210246,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_ZOiwqqzZZftYKHFbP2qMCE15\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-127\", \"description\": \"已脱敏-128\"}, \"output\": \"已脱敏-129\", \"metadata\": {\"output\": \"已脱敏-130\", \"exit\": 0, \"description\": \"已脱敏-131\", \"truncated\": false}, \"title\": \"已脱敏-132\", \"time\": {\"start\": 1788981210243, \"end\": 1788981210246}}}"
+    },
+    {
+     "id": "prt_g001a08796ec860025A3AUsYcQ",
+     "message_id": "msg_g001a087967430001uEKuINgnf",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981210285,
+     "time_updated": 1788981210285,
+     "data": "{\"reason\": \"已脱敏-133\", \"snapshot\": \"已脱敏-134\", \"type\": \"step-finish\", \"tokens\": {\"total\": 34196, \"input\": 1325, \"output\": 478, \"reasoning\": 137, \"cache\": {\"write\": 0, \"read\": 32256}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a087972c6d001d035FRbJj",
+     "message_id": "msg_g001a08796ecd6001GIEv2UXAF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981226605,
+     "time_updated": 1788981226605,
+     "data": "{\"snapshot\": \"已脱敏-135\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a087972c6e001ac18GCt4E",
+     "message_id": "msg_g001a08796ecd6001GIEv2UXAF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981226606,
+     "time_updated": 1788981226633,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-136\", \"time\": {\"start\": 1788981226606, \"end\": 1788981226633}}"
+    },
+    {
+     "id": "prt_g001a087972c8a001he5Hio3ut",
+     "message_id": "msg_g001a08796ecd6001GIEv2UXAF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981226634,
+     "time_updated": 1788981238699,
+     "data": "{\"type\": \"tool\", \"tool\": \"bash\", \"callID\": \"call_R87HMQL0mLvlWgpN0bRPDtUp\", \"state\": {\"status\": \"completed\", \"input\": {\"command\": \"已脱敏-137\", \"description\": \"已脱敏-138\"}, \"output\": \"已脱敏-139\", \"metadata\": {\"output\": \"已脱敏-140\", \"exit\": 0, \"description\": \"已脱敏-141\", \"truncated\": false}, \"title\": \"已脱敏-142\", \"time\": {\"start\": 1788981238696, \"end\": 1788981238698}}}"
+    },
+    {
+     "id": "prt_g001a087975bab002sg2hv42F9",
+     "message_id": "msg_g001a08796ecd6001GIEv2UXAF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981238740,
+     "time_updated": 1788981238740,
+     "data": "{\"reason\": \"已脱敏-143\", \"snapshot\": \"已脱敏-144\", \"type\": \"step-finish\", \"tokens\": {\"total\": 34830, \"input\": 931, \"output\": 496, \"reasoning\": 123, \"cache\": {\"write\": 0, \"read\": 33280}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a08797932b0018YKbxRYw4",
+     "message_id": "msg_g001a087975bfe001o9HoaDmhF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981252907,
+     "time_updated": 1788981252908,
+     "data": "{\"snapshot\": \"已脱敏-145\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08797932d001jK60hhw40",
+     "message_id": "msg_g001a087975bfe001o9HoaDmhF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981252909,
+     "time_updated": 1788981252909,
+     "data": "{\"type\": \"reasoning\", \"text\": \"已脱敏-146\", \"time\": {\"start\": 1788981252909, \"end\": 1788981252909}}"
+    },
+    {
+     "id": "prt_g001a08797932e001hZfon6JS3",
+     "message_id": "msg_g001a087975bfe001o9HoaDmhF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981252910,
+     "time_updated": 1788981255682,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-147\", \"time\": {\"start\": 1788981252910, \"end\": 1788981255682}}"
+    },
+    {
+     "id": "prt_g001a087979e04001bF48LugZi",
+     "message_id": "msg_g001a087975bfe001o9HoaDmhF",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981255722,
+     "time_updated": 1788981255722,
+     "data": "{\"reason\": \"已脱敏-148\", \"snapshot\": \"已脱敏-149\", \"type\": \"step-finish\", \"tokens\": {\"total\": 35107, \"input\": 1711, \"output\": 75, \"reasoning\": 41, \"cache\": {\"write\": 0, \"read\": 33280}}, \"cost\": 0}"
+    },
+    {
+     "id": "prt_g001a087979e920026E697AR7L",
+     "message_id": "msg_g001a087979e92001tjrcfagEk",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981255827,
+     "time_updated": 1788981255827,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-150\"}"
+    },
+    {
+     "id": "prt_g001a08797cfd80015EWnERG3L",
+     "message_id": "msg_g001a087979e9a001MDs0kT3nW",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981268440,
+     "time_updated": 1788981268441,
+     "data": "{\"snapshot\": \"已脱敏-151\", \"type\": \"step-start\"}"
+    },
+    {
+     "id": "prt_g001a08797cfda001w4R0PpX04",
+     "message_id": "msg_g001a087979e9a001MDs0kT3nW",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981268442,
+     "time_updated": 1788981268894,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-152\", \"time\": {\"start\": 1788981268442, \"end\": 1788981268893}}"
+    },
+    {
+     "id": "prt_g001a08797d19f001aRSCjsb8a",
+     "message_id": "msg_g001a087979e9a001MDs0kT3nW",
+     "session_id": "ses_-ffe5f786bb711ffeldFqCnVlM",
+     "time_created": 1788981268936,
+     "time_updated": 1788981268936,
+     "data": "{\"reason\": \"已脱敏-153\", \"snapshot\": \"已脱敏-154\", \"type\": \"step-finish\", \"tokens\": {\"total\": 35145, \"input\": 2847, \"output\": 24, \"reasoning\": 18, \"cache\": {\"write\": 0, \"read\": 32256}}, \"cost\": 0}"
+    }
+   ]
+  },
+  {
+   "session": {
+    "id": "ses_-ffe5f2cdd1beeffeB3JjB7tc3",
+    "title": "已脱敏-155",
+    "time_created": 1790248674321,
+    "time_updated": 1790248715941
+   },
+   "messages": [
+    {
+     "id": "msg_g001a0d322e417001K6y2Il5BB",
+     "session_id": "ses_-ffe5f2cdd1beeffeB3JjB7tc3",
+     "agent_id": "main",
+     "time_created": 1790248674347,
+     "time_updated": 1790248674497,
+     "data": "{\"role\": \"user\", \"time\": {\"created\": 1790248674347}, \"agent\": \"build\", \"model\": {\"providerID\": \"gugu\", \"modelID\": \"gpt-5.6\"}, \"systemMode\": \"已脱敏-156\", \"harness\": \"已脱敏-157\", \"summary\": {\"diffs\": []}}"
+    },
+    {
+     "id": "msg_g001a0d322e45e001S89sNWBRt",
+     "session_id": "ses_-ffe5f2cdd1beeffeB3JjB7tc3",
+     "agent_id": "main",
+     "time_created": 1790248674398,
+     "time_updated": 1790248870733,
+     "data": "{\"parentID\": \"msg_g001a0d322e417001K6y2Il5BB\", \"role\": \"assistant\", \"mode\": \"build\", \"agent\": \"build\", \"path\": {\"cwd\": \"已脱敏-158\", \"root\": \"已脱敏-159\"}, \"cost\": 0, \"tokens\": {\"input\": 0, \"output\": 0, \"reasoning\": 0, \"cache\": {\"read\": 0, \"write\": 0}}, \"modelID\": \"gpt-5.6\", \"providerID\": \"gugu\", \"time\": {\"created\": 1790248674398}, \"error\": {\"name\": \"APIError\", \"data\": {\"message\": \"已脱敏-160\", \"statusCode\": 503, \"isRetryable\": true, \"responseHeaders\": {\"content-length\": \"已脱敏-161\", \"content-type\": \"已脱敏-162\", \"date\": \"已脱敏-163\", \"referrer-policy\": \"已脱敏-164\", \"x-client-request-id\": \"已脱敏-165\", \"x-content-type-options\": \"已脱敏-166\", \"x-frame-options\": \"已脱敏-167\", \"x-request-id\": \"已脱敏-168\"}, \"responseBody\": \"已脱敏-169\", \"metadata\": {\"providerID\": \"gugu\", \"allow404Retry\": \"已脱敏-170\", \"url\": \"已脱敏-171\"}}}}"
+    }
+   ],
+   "parts": [
+    {
+     "id": "prt_g001a0d322e417002erUiVgYR3",
+     "message_id": "msg_g001a0d322e417001K6y2Il5BB",
+     "session_id": "ses_-ffe5f2cdd1beeffeB3JjB7tc3",
+     "time_created": 1790248674355,
+     "time_updated": 1790248674356,
+     "data": "{\"type\": \"text\", \"text\": \"已脱敏-172\"}"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,237 @@
+/* The host's palette arrives as --em-* variables; no fallbacks, so a wrong name shows. Its color-scheme too (ui.css,
+   by gugu's theme): `light dark` here would hand the native parts back to the OS's. */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* the family is gugu's (ui.css): a document's preview reads in the same face as every other gugu surface */
+  font-size: 13px;
+  line-height: 1.55;
+  background: var(--em-background);
+  color: var(--em-foreground);
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; }
+.btn, .mode { white-space: nowrap; }
+
+/* One pane at a time, at every width (F32): the list, or the file. A file opens as its own page, handed by the host
+   (context.file: no list, the host's header has the way back); the list's page shows a file itself only when no App
+   opens it (its details, to download) or on a host without openWith — then with its own Back. */
+body.no-list .files, body.show-doc .files { display: none; }
+body:not(.show-doc):not(.no-list) .doc { display: none; }
+
+/* ── list ─────────────────────────────────────────────────────── */
+.files { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
+.files-head { display: flex; gap: 6px; padding: 10px; flex: none; }
+.filter {
+  flex: 1; min-width: 0; padding: 4px 8px; border-radius: 6px;
+  border: 1px solid var(--em-border); background: var(--em-background); color: var(--em-foreground);
+}
+.file-list { list-style: none; margin: 0; padding: 0 6px 10px; overflow: auto; flex: 1; min-height: 0; }
+.file { display: flex; align-items: center; border-radius: 7px; }
+.file[aria-selected="true"] { background: color-mix(in srgb, var(--em-accent-11) 14%, transparent); }
+.file:hover { background: color-mix(in srgb, var(--em-foreground) 6%, transparent); }
+.file-open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+  padding: 6px 8px; border: none; background: none; text-align: left; cursor: pointer;
+}
+.file-title { display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+.file-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-mark { flex: none; width: 16px; height: 16px; border-radius: 4px; object-fit: cover; color: var(--em-foreground-muted); }
+/* Who · when, and what it is unless it is markdown (most files are). The column names are drawn only when wide. */
+.file-meta { font-size: 11px; color: var(--em-foreground-muted); }
+.file-meta > :not(:empty) ~ :not(:empty)::before { content: " · "; }
+.file-meta[data-type="Markdown"] > :last-child, .list-head { display: none; }
+/* One ⋯ per row: on hover, always where nothing hovers (a phone — the WebView 113 emulator says pointer: fine there, but
+   hover: none), and while its menu is open (the menu stands beside it). */
+.row-more { flex: none; width: 28px; margin-right: 4px; font-size: 14px; visibility: hidden; }
+.file:hover .row-more, .file:focus-within .row-more, .row-more[aria-expanded="true"] { visibility: visible; }
+@media (hover: none) { .row-more { visibility: visible; } }
+.icon-btn {
+  border: none; background: none; cursor: pointer; font-size: 11px; padding: 2px 5px; border-radius: 5px;
+  color: var(--em-foreground-muted);
+}
+.icon-btn:hover { background: color-mix(in srgb, var(--em-foreground) 8%, transparent); color: var(--em-foreground); }
+.rename-input {
+  flex: 1; margin: 3px 4px; padding: 4px 6px; border-radius: 5px;
+  border: 1px solid var(--em-accent-11); background: var(--em-background); color: var(--em-foreground);
+}
+.empty { margin: 16px; color: var(--em-foreground-muted); }
+/* Wide (a full-screen panel): the same rows as a table — name, who made it, when it changed, what it is — under column
+   names that stay put. Still the one scroll. The 40px are the row's ⋯ and the name's padding. */
+@container (min-width: 700px) {
+  .file-list { padding: 0 16px 16px; }
+  .list-head, .file-open { display: grid; grid-template-columns: minmax(0, 1fr) 150px 120px 110px; align-items: center; column-gap: 12px; }
+  .list-head {
+    position: sticky; top: 0; z-index: 1; padding: 8px 40px 6px 8px; font-size: 11px;
+    color: var(--em-foreground-muted); background: var(--em-background); border-bottom: 1px solid var(--em-border);
+  }
+  .file { border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--em-border) 60%, transparent); }
+  .file-open { padding: 9px 8px; }
+  .file-meta { display: contents; font-size: 12px; }
+  .file-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta > :not(:empty) ~ :not(:empty)::before { content: none; }
+  .file-meta[data-type="Markdown"] > :last-child { display: block; }
+}
+
+/* ── folders (子文件夹) ───────────────────────────────────────────
+   Where the list is: the way up and each folder from the top, every one a place to drop a file on. */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 0 10px 6px; font-size: 12px; color: var(--em-foreground-muted); }
+.crumbs[hidden] { display: none; }
+.crumb {
+  border: none; background: none; cursor: pointer; padding: 3px 6px; border-radius: 6px; color: inherit;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.crumb:hover { background: color-mix(in srgb, var(--em-foreground) 8%, transparent); color: var(--em-foreground); }
+.crumb[aria-current="page"] { color: var(--em-foreground); font-weight: 600; cursor: default; }
+.crumb-sep { opacity: .6; }
+.crumbs .back { display: inline-flex; margin-right: 4px; }
+.folder-mark { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--em-foreground-muted); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.file[data-system] .folder-mark { stroke: var(--em-accent-11); }
+.file.drop-target, .crumb.drop-target { background: color-mix(in srgb, var(--em-accent-11) 18%, transparent); }
+.file-path { font-size: 11px; color: var(--em-foreground-muted); }
+/* A dialog over the page: 「移动到…」 and what an upload found already there. */
+.dialog { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--em-foreground) 24%, transparent); }
+.dialog[hidden] { display: none; }
+.dialog-box {
+  width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; gap: 8px; padding: 14px;
+  border: 1px solid var(--em-border); border-radius: 10px; background: var(--em-background);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--em-foreground) 20%, transparent);
+}
+.dialog-title { margin: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.move-targets, .conflict-list { list-style: none; margin: 0; padding: 0; overflow: auto; min-height: 0; }
+.move-target {
+  width: 100%; display: flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; text-align: left;
+  padding: 6px 8px; border-radius: 6px; color: inherit;
+}
+.move-target:hover { background: color-mix(in srgb, var(--em-foreground) 6%, transparent); }
+.move-target:disabled { cursor: default; opacity: .45; }
+.conflict { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--em-border); }
+.conflict:last-child { border-bottom: none; }
+.conflict-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A finger (AGENTS.md 移动端规范: a target at least 44px, text at least 14px): the crumbs, the way up, the places to move to. */
+@media (pointer: coarse) {
+  .crumbs { font-size: 14px; }
+  .crumb, .crumbs .back { min-height: 44px; padding: 0 10px; font-size: 14px; }
+  .move-target { min-height: 44px; padding: 0 8px; font-size: 14px; }
+}
+
+/* ── document ─────────────────────────────────────────────────── */
+.doc { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* The file's name (with its save state and who else is here) and its actions: one row when it fits, the actions on a
+   row of their own when it does not — never a button broken over lines. */
+.doc-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: none; padding: 8px 12px;
+  border-bottom: 1px solid var(--em-border); min-height: 42px;
+}
+.doc-name { flex: 1 1 160px; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.doc-title { margin: 0; font-size: 13px; font-weight: 600; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+/* Back to the list: a chevron and where it goes, like the host's own ‹ — not a bordered button that reads as a
+   tag (设计同事 10-04: 「文件」 was not taken for the way back). */
+.back {
+  display: none; flex: none; align-items: center; gap: 2px; white-space: nowrap;
+  border: none; background: none; cursor: pointer; padding: 3px 8px 3px 2px; border-radius: 6px;
+  font-size: 12px; color: var(--em-foreground-muted);
+}
+.back:hover { background: color-mix(in srgb, var(--em-foreground) 8%, transparent); color: var(--em-foreground); }
+.back-chevron { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+body.show-doc:not(.no-list):not(.host-opened) .back { display: inline-flex; }
+.peers { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.peer {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  border: 1.5px solid var(--peer); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--em-foreground-muted); white-space: nowrap; }
+/* Download and Open with another App: in the row when it is wide, behind ⋯ when narrow (below). */
+.more-toggle { display: none; }
+/* The page's one menu, a row's ⋯ and the open file's: app.js places it under the ⋯ that opened it. */
+.menu {
+  position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 180px; padding: 4px;
+  border: 1px solid var(--em-border); border-radius: 8px; background: var(--em-background);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--em-foreground) 16%, transparent);
+}
+.menu[hidden] { display: none; }
+.menu .btn { border: none; text-align: left; padding: 6px 10px; }
+.menu .danger { color: var(--em-foreground-destructive); }
+.modes { display: flex; border: 1px solid var(--em-border); border-radius: 7px; overflow: hidden; }
+.mode { border: none; background: none; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+.mode[aria-pressed="true"] { background: color-mix(in srgb, var(--em-accent-11) 16%, transparent); }
+.json-actions { display: none; gap: 6px; }
+/* Copy · Cite, beside a selection (app.js places it): on every screen — a phone's sandboxed page has no native
+   copy menu, and Cite is ours everywhere. */
+.sel-bar {
+  position: fixed; z-index: 10; display: flex; overflow: hidden;
+  border: 1px solid var(--em-border); border-radius: 8px;
+  background: var(--em-background); box-shadow: 0 4px 14px rgb(0 0 0 / 18%);
+}
+.sel-bar[hidden], body:not(.has-selection) .sel-bar, body:not([data-state="doc"]) .sel-bar { display: none; }
+.sel-bar button { border: none; background: none; cursor: pointer; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.sel-bar button + button { border-left: 1px solid var(--em-border); }
+.sel-bar button:hover { background: color-mix(in srgb, var(--em-foreground) 6%, transparent); }
+@media (pointer: coarse) { .sel-bar button { padding: 8px 14px; font-size: 14px; } }
+/* A JSON file's cite is a quote (app.js cite): no places to keep. */
+body[data-kind="json"] #hold-sel { display: none; }
+/* ＋ Keep's places, cited together: docked at the bottom middle while there are some. */
+.held-bar {
+  position: fixed; z-index: 10; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
+  padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--em-foreground); color: var(--em-background);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 22%); font-size: 12px;
+}
+.held-bar[hidden], body:not([data-state="doc"]) .held-bar { display: none; }
+.held-count { font-weight: 600; font-variant-numeric: tabular-nums; padding-right: 4px; }
+.held-cite { border: none; border-radius: 999px; padding: 4px 12px; cursor: pointer; background: var(--em-background); color: var(--em-foreground); font-size: 12px; }
+.held-clear { border: none; background: none; color: inherit; cursor: pointer; padding: 4px 8px; }
+@media (pointer: coarse) { .held-bar { bottom: 22px; font-size: 14px; } .held-cite { padding: 8px 16px; font-size: 14px; } }
+/* Lines marked: a kept place (a light ground), the place a pill pointed at (framed) — in the source and the preview. */
+.cm-held { background: color-mix(in srgb, var(--em-accent-11) 10%, transparent); }
+.cm-found { background: color-mix(in srgb, var(--em-accent-11) 16%, transparent); box-shadow: inset 2px 0 var(--em-accent-11); }
+.preview .md-held { background: color-mix(in srgb, var(--em-accent-11) 10%, transparent); }
+.preview .md-found { outline: 2px solid var(--em-accent-11); outline-offset: 3px; border-radius: 4px; }
+.btn {
+  border: 1px solid var(--em-border); background: var(--em-background); cursor: pointer;
+  padding: 3px 10px; border-radius: 6px; font-size: 12px;
+}
+.btn.primary { border-color: var(--em-accent-11); color: var(--em-accent-11); }
+.btn:hover { background: color-mix(in srgb, var(--em-foreground) 6%, transparent); }
+.banner { flex: none; padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--em-border); }
+.banner[data-tone="error"] { color: var(--em-foreground-destructive); }
+.banner[data-tone="info"] { color: var(--em-foreground-muted); }
+.doc-info {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 4px 12px;
+  font-size: 11px; color: var(--em-foreground-muted); border-bottom: 1px solid var(--em-border);
+}
+.doc-info[hidden] { display: none; }
+.sources { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.source { color: var(--em-accent-11); }
+
+.panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.editor { min-width: 0; min-height: 0; overflow: hidden; }
+body[data-mode="split"] .editor { border-right: 1px solid var(--em-border); }
+.editor .cm-editor { height: 100%; }
+.preview { min-width: 0; overflow: auto; padding: 14px 22px; }
+body[data-mode="edit"] .panes { grid-template-columns: 1fr; }
+body[data-mode="edit"] .preview { display: none; }
+body[data-mode="preview"] .panes { grid-template-columns: 1fr; }
+body[data-mode="preview"] .editor { display: none; }
+body[data-kind="json"] .modes, body[data-kind="json"] .preview { display: none; }
+body[data-kind="json"] .panes { grid-template-columns: 1fr; }
+body[data-kind="json"] .editor { display: block; }
+body.json-dirty[data-kind="json"] .json-actions { display: flex; }
+body[data-state="message"] .panes, body[data-state="message"] .modes, body[data-state="message"] .status { display: none; }
+body[data-state="doc"] .doc-message { display: none; }
+body.gone .modes { display: none; }
+
+/* ── narrow (a group's side panel, a topic's split): the name on its own line, one row of actions ── */
+@media (max-width: 640px) {
+  .doc-name { flex-basis: 100%; }
+  .doc-actions { flex: 1 1 100%; }
+  /* Side by side needs room: here it is the preview alone, so the choice is Source or Preview (app.js never
+     sets data-mode="split" while this matches). */
+  #mode-split { display: none; }
+  .fold { display: none; }
+  .more-toggle:not([hidden]) { display: inline-block; margin-left: auto; }
+}

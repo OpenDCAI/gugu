@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>space.nextmind.gugu.mac-helper</string>
+  <key>CFBundleName</key>
+  <string>咕咕</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>你的助理要查看、新建你在「日历」里的日程(只在你于 咕咕 → 设置 → 设备 里连上「日历」之后)。</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>你的助理要查看、新建你在「日历」里的日程(只在你于 咕咕 → 设置 → 设备 里连上「日历」之后)。</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>你的助理要查看、新建你在「提醒事项」里的提醒(只在你于 咕咕 → 设置 → 设备 里连上「提醒事项」之后)。</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>你的助理要查看、新建你在「提醒事项」里的提醒(只在你于 咕咕 → 设置 → 设备 里连上「提醒事项」之后)。</string>
+  <key>NSContactsUsageDescription</key>
+  <string>你的助理要查找、管理你的联系人(只在你于 咕咕 → 设置 → 设备 里连上「通讯录」之后)。</string>
+  <key>NSLocationUsageDescription</key>
+  <string>你的助理要用这台电脑的位置回答「附近」「我在哪」这类问题(只在你于 咕咕 → 设置 → 设备 里连上「位置」之后)。</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>你的助理要用这台电脑的位置回答「附近」「我在哪」这类问题(只在你于 咕咕 → 设置 → 设备 里连上「位置」之后)。</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>你的助理要操作「邮件」「备忘录」「信息」等 App(只在你于 咕咕 → 设置 → 设备 里连上对应的那一项之后)。</string>
+</dict>
+</plist>

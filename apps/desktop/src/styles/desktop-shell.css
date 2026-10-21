@@ -1,0 +1,99 @@
+/* #7333: one reading-surface recipe for the desktop shell's two renderer trees.
+ * List widths, retained pages and resize handles remain owned by their existing layouts.
+ * ContactsPanel's desktop row owns nav first, detail second (including search/request routes).
+ * Scope that row here; never apply a window frame to nested detail panes or settings dialogs.
+ */
+:root {
+  --desktop-surface-inset: 5px;
+}
+
+[data-desktop-shell] [data-shell-chat-detail],
+[data-desktop-shell] [data-shell-contacts] > div > :nth-child(2),
+.gugu-skin [data-workspace-content-surface] {
+  --workspace-chrome-inset: var(--desktop-surface-inset);
+  margin: var(--workspace-chrome-inset) var(--workspace-chrome-inset) var(--workspace-chrome-inset) 0;
+  min-height: 0;
+  height: auto;
+  max-height: calc(100% - var(--workspace-chrome-inset) * 2);
+  border-radius: var(--radius-surface);
+  background: var(--bg);
+  box-shadow: 0 0 0 0.5px var(--border-color);
+  overflow: hidden;
+}
+
+/* The curved content surface owns this boundary. Full-height list borders otherwise
+ * continue above and below it, producing the spurs visible at both rounded corners.
+ * The invisible resize target is kept, including keyboard resizing.
+ */
+[data-desktop-shell] .gg-pane[data-role='nav'],
+.gugu-skin [data-workspace-left-panel] [data-region='left-sidebar'],
+:root [data-desktop-shell] > .gg-sidebar-rail {
+  border-inline-end: 0;
+}
+
+/* A blank contacts header remains a window-drag lane, without a decorative rule. */
+[data-shell-contacts] > div > .gg-pane[data-role='detail'] > .gg-pane-header:not(:has(.gg-pane-title)) {
+  border-bottom: 0;
+}
+
+/* Embedded full-width pages (assistant, library, Apps) use the same inset surface as
+ * projects. Their frame/skin must expose the shell underneath even with no list open;
+ * an opaque backing here paints white corners around the surface's rounded edge.
+ */
+[data-desktop-shell] .gg-session-frame,
+[data-desktop-shell] .gg-session-frame-host > .gugu-skin {
+  background: var(--shell-bg);
+}
+
+/* #7610:浅色 C 档是一整块工作区,从 rail 右边开始包住列表、页签条与内容。
+ * MainLayout 这层已有 margin:0 的内联布局;这里只覆盖该值,不搬 DOM 或重建会话。
+ * fixed 的会话页 overlay 仍按 viewport 定位,clip-path 只负责把它裁在共同圆角里。
+ */
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell] > .gg-sidebar-rail + div {
+  --shell-bg: var(--desktop-workspace-bg);
+  --radius-page: var(--radius-surface);
+  margin: var(--desktop-surface-inset) var(--desktop-surface-inset) var(--desktop-surface-inset) 0 !important;
+  clip-path: inset(0 round var(--radius-surface));
+  outline: 0.5px solid var(--border-color);
+  outline-offset: -0.5px;
+}
+
+/* 正文不再单独画第二层外框。它与侧栏之间的分隔、用户保存的栏宽仍归原布局。 */
+:root[data-window-material='native'][data-theme='light'] :is(
+  [data-desktop-shell] [data-shell-chat-detail],
+  [data-desktop-shell] [data-shell-contacts] > div > :nth-child(2),
+  [data-desktop-shell] .gugu-skin [data-workspace-content-surface]
+) {
+  --workspace-chrome-inset: 0px;
+  margin: var(--desktop-surface-inset) var(--desktop-surface-inset) var(--desktop-surface-inset) 0;
+  max-height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--desktop-workspace-bg);
+}
+
+/* 材质只透出最左图标栏;列表与外框之间不重复叠半透明色。 */
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell][data-gugu-shell-phase] .gg-pane[data-role='nav'],
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell] .gugu-skin [data-workspace-left-panel] > :not([data-peek]) {
+  background-color: transparent;
+}
+
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell] .gugu-skin {
+  --tab-strip: var(--desktop-workspace-bg);
+}
+
+/* 顶栏按角色取工作区底色,不能按背景工具类染整棵右栏:
+ * 审阅正文、侧边聊天与其加载层也用 bg-background-secondary-1,
+ * 它们必须继续跟阅读面/聊天渐隐的白底一致。
+ */
+:root[data-window-material='native'][data-theme='light'] [data-desktop-shell] :is(
+  [data-app-shell-focus-area='right-panel'],
+  [data-testid='new-session-right-panel'],
+  #file-tab-tree > div,
+  #draft-workspace-tree > div,
+  [data-testid='editor-file-tree']:not(.bg-background-1),
+  [data-testid='editor-file-tree'] > .gg-panel-header,
+  [data-app-shell-focus-area='right-panel'] .gg-panel-header
+) {
+  background-color: var(--desktop-workspace-bg);
+}

@@ -1,0 +1,609 @@
+/*
+ * Extensions panel — drawn like the two pages beside it.
+ *
+ * The bar is the repo's UI specification (docs/ui-visual-spec.md)
+ * and the two sibling settings pages: 智能体 is a single column of rows (icon ·
+ * name · one status on the right), 集成 is a two-column grid of bordered cards
+ * (icon · name · one sentence). This panel uses exactly those two shapes and
+ * invents nothing of its own: hierarchy is space → colour → weight, sizes stay on
+ * 11/13/15, one action per card or row, no chips, no eyebrows, no mono. Every
+ * colour is a gugu token; every radius is `--radius-control`（8px 那一档，卡片与行都走它）。
+ * ⚠️ 2026-09-22（Refs #6104）：原来写的是数字别名 `--radius-lg` / `--radius-md` —— 那两个名字
+ * 只为 Tailwind 兼容存在，而 `--radius-md` 的取值这一轮从 6 变成了 8，本文件的 `, 6px` 兜底
+ * 于是成了一句过期的话。改用语义名，兜底也跟着对上。Refs #5265, #5410.
+ */
+.xp {
+  --xp-fast: 120ms ease-out;
+  --xp-hover: var(--color-row-hover);
+  --xp-press: var(--color-row-press);
+  --xp-hairline: var(--border);
+  --xp-radius: var(--radius-control, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  color: var(--foreground);
+}
+
+/* ── toolbar: underline tabs · search · one quiet button ─────────────────── */
+.xp-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--xp-hairline);
+}
+.xp-segment {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  margin-bottom: -1px;
+}
+.xp-segment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--foreground-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--xp-fast), border-color var(--xp-fast);
+}
+.xp-segment-btn:hover {
+  color: var(--foreground);
+}
+/* Active by a single 1px marker, not by weight as well (calm-ui: one or the other). */
+.xp-segment-btn.active {
+  color: var(--foreground);
+  border-bottom-color: var(--foreground);
+}
+.xp-segment-btn:focus-visible {
+  outline: 1px solid var(--border-primary);
+  outline-offset: -1px;
+  border-radius: var(--radius-control, 8px);
+}
+.xp-segment-count {
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.xp-toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  justify-content: flex-end;
+  padding-bottom: 6px;
+}
+.xp-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 240px;
+}
+.xp-search-wrap > svg {
+  position: absolute;
+  left: 9px;
+  color: var(--foreground-passive);
+  pointer-events: none;
+}
+.xp-search {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--xp-hairline);
+  border-radius: var(--xp-radius);
+  background: transparent;
+  color: var(--foreground);
+  padding: 0 10px 0 28px;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--xp-fast);
+}
+.xp-search::placeholder {
+  color: var(--foreground-passive);
+}
+.xp-search:hover {
+  border-color: var(--border-1);
+}
+.xp-search:focus-visible {
+  border-color: var(--border-primary);
+}
+
+/* ── panels and groups: space does the grouping, not rules ───────────────── */
+.xp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.xp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* A group title is a sentence in the muted colour with its count — the same
+   weight as body, told apart by colour and the space above it. */
+.xp-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--foreground-muted);
+  font-size: var(--font-size-sm);
+}
+.xp-group-count {
+  color: var(--foreground-passive);
+  font-variant-numeric: tabular-nums;
+}
+.xp-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+
+/* ── the glyph: an icon tile like 智能体's, or the App's icon. The detail dialog is portaled outside .xp: no --xp-* here. */
+.xp-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--muted);
+  color: var(--foreground-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  user-select: none;
+}
+.xp-glyph.is-small {
+  width: 28px;
+  height: 28px;
+  font-size: var(--font-size-xs);
+}
+.xp-glyph.is-large {
+  width: 44px;
+  height: 44px;
+  font-size: var(--font-size-md);
+}
+.xp-glyph.is-broken {
+  color: var(--foreground-destructive);
+}
+.xp-glyph-img {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+}
+.xp-glyph-img.is-small {
+  width: 28px;
+  height: 28px;
+}
+.xp-glyph-img.is-large {
+  width: 44px;
+  height: 44px;
+}
+
+/* ── market: two-column bordered cards, like 集成 ────────────────────────── */
+.xp-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.xp-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--xp-hairline);
+  border-radius: var(--xp-radius);
+  background: var(--card);
+  transition: background var(--xp-fast);
+}
+.xp-card:hover {
+  background-image: linear-gradient(var(--xp-hover), var(--xp-hover));
+}
+.xp-card:has(.xp-card-hit:active) {
+  background-image: linear-gradient(var(--xp-press), var(--xp-press));
+}
+/* The hit area is the icon and the words; the action beside it is its own button. */
+.xp-card-hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  margin: -12px -12px -12px -16px;
+  padding: 12px 12px 12px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: inherit;
+}
+.xp-card-hit:focus-visible {
+  outline: 1px solid var(--border-primary);
+  outline-offset: -1px;
+}
+.xp-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.xp-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+.xp-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xp-name.is-deprecated > span:first-child {
+  color: var(--foreground-muted);
+  text-decoration: line-through;
+}
+.xp-version {
+  flex: 0 0 auto;
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+}
+.xp-desc {
+  color: var(--foreground-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xp-desc.is-empty {
+  color: var(--foreground-passive);
+}
+/* One line the cloud has to say about this row — muted, with one link word;
+   only a withdrawn version gets the warning colour. */
+.xp-note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--foreground-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+.xp-note.is-warn {
+  color: var(--foreground-destructive);
+}
+.xp-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.xp-link:hover {
+  text-decoration: underline;
+}
+.xp-link:disabled {
+  color: var(--foreground-passive);
+  cursor: default;
+  text-decoration: none;
+}
+/* The one word on the right that is not a button: 已安装 / 需要更新咕咕. */
+.xp-state {
+  flex: 0 0 auto;
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+  text-align: right;
+  white-space: nowrap;
+}
+/* The one long word on the right (需要更新咕咕 ≥ x.y.z) may take two lines, not ten. */
+.xp-state.is-long {
+  max-width: 9em;
+  white-space: normal;
+  line-height: 1.4;
+}
+.xp-card-action {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.xp-card.is-incompatible {
+  opacity: 0.55;
+}
+.xp-card.is-incompatible:hover {
+  background-image: none;
+}
+
+/* 翻页那一行:已显示多少 + 一个安静的按钮;取下一页时换成两张骨架卡。 */
+.xp-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+.xp-more > .xp-card-grid {
+  width: 100%;
+}
+.xp-more-count {
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── installed rows: like 智能体's, rhythm and a hover fill ──────────────── */
+/* The icon and the controls stay on the first line: opening the permissions grows the row downward, nothing moves. */
+.xp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--xp-radius);
+  transition: background var(--xp-fast);
+}
+.xp-row:hover {
+  background: var(--xp-hover);
+}
+.xp-row-error {
+  margin: 0;
+  color: var(--foreground-destructive);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.xp-row-details {
+  margin-top: 2px;
+}
+.xp-row-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground-passive);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--xp-fast);
+}
+.xp-row-details-toggle > svg {
+  flex: 0 0 auto;
+  transition: transform var(--xp-fast);
+}
+.xp-row-details-toggle[data-panel-open] > svg {
+  transform: rotate(90deg);
+}
+.xp-row-details-toggle:hover {
+  color: var(--foreground);
+}
+.xp-row-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--xp-radius);
+  background: var(--muted);
+}
+.xp-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.xp-row-actions > button {
+  color: var(--foreground-passive);
+}
+.xp-row:hover .xp-row-actions > button,
+.xp-row:focus-within .xp-row-actions > button {
+  color: var(--foreground-muted);
+}
+.xp-row.is-off > .xp-glyph,
+.xp-row.is-off > .xp-glyph-img,
+.xp-row.is-off > .xp-copy {
+  opacity: 0.5;
+}
+.xp-row.is-busy,
+.xp-card.is-busy {
+  opacity: 0.6;
+}
+.xp-row.is-busy .xp-row-actions {
+  opacity: 1;
+}
+
+/* ── sentences: empty state, alerts, notes ───────────────────────────────── */
+.xp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 28px 0 8px;
+}
+.xp-empty-title {
+  margin: 0;
+  color: var(--foreground-muted);
+  font-size: var(--font-size-sm);
+}
+.xp-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.xp-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground-destructive);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+.xp-alert > button {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.xp-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--foreground-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+.xp-note-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+}
+
+/* ── detail sheet: version history rows ──────────────────────────────────── */
+.xp-history {
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.xp-history-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--xp-radius);
+  font-size: var(--font-size-sm);
+  transition: background var(--xp-fast);
+}
+.xp-history-row:hover {
+  background: var(--xp-hover);
+}
+.xp-history-version {
+  flex: 0 0 auto;
+  min-width: 48px;
+  color: var(--foreground);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.xp-history-version.is-yanked {
+  color: var(--foreground-passive);
+  text-decoration: line-through;
+}
+.xp-history-date {
+  flex: 0 0 auto;
+  color: var(--foreground-passive);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.xp-history-note {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--foreground-muted);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.xp-history-note.is-open {
+  white-space: normal;
+}
+.xp-history-note.is-warn {
+  color: var(--foreground-destructive);
+}
+.xp-history-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.xp-history-body {
+  padding: 0 8px 8px 66px;
+}
+
+/* ── skeletons: the shape of the content until it arrives ────────────────── */
+.xp-skel {
+  display: block;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  animation: xp-skel-breathe 1.4s ease-in-out infinite;
+}
+.xp-skel-glyph {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--xp-radius);
+}
+.xp-skel-line {
+  height: 10px;
+  margin: 3px 0;
+}
+.xp-skel-line.is-dim {
+  opacity: 0.55;
+}
+.xp-skel-line.is-w1 {
+  width: 32%;
+}
+.xp-skel-line.is-w2 {
+  width: 44%;
+}
+.xp-skel-line.is-w3 {
+  width: 56%;
+}
+.xp-skel-line.is-w4 {
+  width: 72%;
+}
+.xp-row.is-skeleton,
+.xp-card.is-skeleton {
+  pointer-events: none;
+}
+.xp-row.is-skeleton:hover,
+.xp-card.is-skeleton:hover {
+  background: transparent;
+  background-image: none;
+}
+@keyframes xp-skel-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xp-skel {
+    animation: none;
+  }
+}

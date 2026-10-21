@@ -1,0 +1,33 @@
+{
+  "id": "workspace",
+  "name": "文件夹",
+  "description": "workspace__list(chat_id)、create(chat_id,title,content)、read/delete(item_id)、edit(item_id,old,new)。人和 agent 改的是同一份,各自的改动都在。",
+  "localized": {
+    "zh": {
+      "description": "这个对话(群、话题、私聊)文件夹里的文件:列表、markdown 源码编辑与预览、JSON 的查看与修改。几个人和 agent 同时改同一个文件,各自的改动都在。"
+    },
+    "en": {
+      "description": "The files in this chat's folder (a group, topic or private chat): the list, markdown source editing and preview, viewing and changing JSON. When several people and agents change the same file at once, everyone's changes stay."
+    }
+  },
+  "author": "咕咕",
+  "version": "0.2.52",
+  "apiVersion": 3,
+  "entry": "index.html",
+  "icon": "icon.png",
+  "permissions": {
+    "capabilities": ["files:read", "files:write", "agents:tools"]
+  },
+  "contributes": {
+    "tabs": [
+      {
+        "name": "main",
+        "title": "文件夹",
+        "icon": "icon.png",
+        "opensFiles": { "chat": [".md", ".json"] },
+        "fileIcons": { ".md": "md.png", ".json": "json.png" }
+      }
+    ],
+    "mcpServers": [{ "tools": "tools.js" }]
+  }
+}

@@ -1,0 +1,150 @@
+import { describe, expect, it } from 'vitest'
+import {
+  ASSISTANT_DENIED_TOOLS,
+  ASSISTANT_FIRST_TASK,
+  ASSISTANT_GUIDE_BEGIN,
+  ASSISTANT_GUIDE_END,
+  LEGACY_ASSISTANT_GUIDE_BEGIN,
+  LEGACY_ASSISTANT_GUIDE_END,
+  OWNER_PROFILE_INDEX_LINE,
+  assistantGuide,
+  assistantHomePaths,
+  claudeProjectDirName,
+  ownerProfileMarkdown,
+  ownerProfileMemoryFile,
+  upsertAssistantGuide,
+  withDeniedTools,
+  withOwnerProfileIndex,
+} from '../../../../packages/core/src/shared/assistantPolicy'
+import { splitInstructions } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-files'
+
+// #7199 住云上(管家写)与住人自己的电脑上(客户端写)共用同一份说明、同一份初始化任务。
+describe('assistantGuide', () => {
+  it('两种家都带头尾标记,界面那一侧(splitInstructions)认得出宿主维护的那一段', () => {
+    for (const kind of ['cloud', 'computer'] as const) {
+      const guide = assistantGuide(kind)
+      expect(guide.startsWith(ASSISTANT_GUIDE_BEGIN)).toBe(true)
+      expect(guide.trimEnd().endsWith(ASSISTANT_GUIDE_END)).toBe(true)
+      const parts = splitInstructions(`我喜欢简短的回答。\n\n${guide}`)
+      expect(parts.managed?.trim()).toBe(guide.trim())
+      expect(parts.user).toBe('我喜欢简短的回答。')
+    }
+  })
+
+  it('住云上说「一直在」,住电脑说「电脑开着才在」且不提云电脑 / 海外代理那几句', () => {
+    const cloud = assistantGuide('cloud')
+    const computer = assistantGuide('computer')
+    expect(cloud).toContain('主人关了自己的电脑，你也一直在')
+    expect(computer).toContain('电脑开着你就在')
+    expect(computer).not.toContain('主人关了自己的电脑，你也一直在')
+    expect(computer).not.toContain('海外网站')
+    // 住电脑的定时:电脑睡了不是「也会准时叫醒你」。
+    expect(computer).not.toContain('机器睡着时也会准时叫醒你')
+  })
+
+  it('早晚简报那一节两边一字不差(今天页读的格式只此一份)', () => {
+    const section = (g: string) => g.slice(g.indexOf('# 早晚简报'))
+    expect(section(assistantGuide('computer'))).toBe(section(assistantGuide('cloud')))
+  })
+})
+
+describe('upsertAssistantGuide', () => {
+  const guide = assistantGuide('computer')
+  it('没有文件 = 就是这份说明', () => {
+    expect(upsertAssistantGuide('', guide)).toBe(guide)
+  })
+  it('文件里有人写的、没有标记 = 接在末尾,人写的原样留着', () => {
+    const next = upsertAssistantGuide('我的备忘\n', guide)
+    expect(next.startsWith('我的备忘\n\n')).toBe(true)
+    expect(next.endsWith(guide)).toBe(true)
+  })
+  it('有标记 = 只换标记那一段,前后人写的都留着;再来一遍结果不变', () => {
+    const old = `前面\n\n${ASSISTANT_GUIDE_BEGIN}\n旧说明\n${ASSISTANT_GUIDE_END}\n\n后面\n`
+    const once = upsertAssistantGuide(old, guide)
+    expect(once).toContain('前面')
+    expect(once).toContain('后面')
+    expect(once).not.toContain('旧说明')
+    expect(upsertAssistantGuide(once, guide)).toBe(once)
+  })
+  it('旧标记(带「云电脑」的)就地换成新的', () => {
+    const old = `${LEGACY_ASSISTANT_GUIDE_BEGIN}\n旧\n${LEGACY_ASSISTANT_GUIDE_END}\n我的\n`
+    const next = upsertAssistantGuide(old, guide)
+    expect(next).not.toContain('旧\n')
+    expect(next).toContain('我的')
+    expect(next).toContain(ASSISTANT_GUIDE_BEGIN)
+  })
+})
+
+describe('assistantHomePaths', () => {
+  it('云上:说明 / 技能 / 设置在 ~/.claude,记忆在 Claude Code 按工作目录记的那一夹,资料夹在主目录', () => {
+    const p = assistantHomePaths('/home/wuying', '/home/wuying/助理', 'cloud')
+    expect(p.instructions).toBe('/home/wuying/.claude/CLAUDE.md')
+    expect(p.memoryDir).toBe(`/home/wuying/.claude/projects/${claudeProjectDirName('/home/wuying/助理')}/memory`)
+    expect(p.claudeMemoryDir).toBe(p.memoryDir)
+    expect(p.skillsDir).toBe('/home/wuying/.claude/skills')
+    expect(p.resourcesDir).toBe('/home/wuying/给助理的资料')
+  })
+
+  it('住电脑:一个字都不落在人自己的 ~/.claude 里(除了那一夹链接),其余都在它的工作目录里', () => {
+    const work = '/Users/me/.gugu/assistant'
+    const p = assistantHomePaths('/Users/me', work, 'computer')
+    for (const path of [p.instructions, p.memoryDir, p.memoryIndex, p.skillsDir, p.settings, p.resourcesDir]) {
+      expect(path.startsWith(`${work}/`)).toBe(true)
+    }
+    expect(p.claudeMemoryDir).toBe(`/Users/me/.claude/projects/${claudeProjectDirName(work)}/memory`)
+  })
+})
+
+describe('withDeniedTools', () => {
+  it('没有设置文件 = 只禁 CronCreate', () => {
+    expect(JSON.parse(withDeniedTools(null))).toEqual({ permissions: { deny: [...ASSISTANT_DENIED_TOOLS] } })
+  })
+  it('已有的设置与禁用项照留,重复来不重复加', () => {
+    const raw = JSON.stringify({ model: 'x', permissions: { allow: ['Bash(ls)'], deny: ['WebFetch'] } })
+    const once = withDeniedTools(raw)
+    expect(JSON.parse(once)).toEqual({ model: 'x', permissions: { allow: ['Bash(ls)'], deny: ['WebFetch', 'CronCreate'] } })
+    expect(withDeniedTools(once)).toBe(once)
+  })
+  it('原文读不懂 = 抛(❌ 盖掉人写的设置)', () => {
+    expect(() => withDeniedTools('{not json')).toThrow()
+    expect(() => withDeniedTools('[1]')).toThrow()
+  })
+})
+
+describe('主人的称呼和基本信息', () => {
+  it('称呼必有,介绍可空', () => {
+    expect(ownerProfileMarkdown({ preferredName: ' 小明 ', about: '' })).toBe('- 称呼：小明')
+    expect(ownerProfileMarkdown({ preferredName: '小明', about: '做设计' })).toBe('- 称呼：小明\n\n做设计')
+  })
+  it('记忆文件是 Claude Code 的记忆格式:name 是主人看得懂的短标题', () => {
+    const file = ownerProfileMemoryFile('- 称呼：小明')
+    expect(file.startsWith('---\nname: 关于主人\n')).toBe(true)
+    expect(file).toContain('type: user')
+    expect(file.trimEnd().endsWith('- 称呼：小明')).toBe(true)
+  })
+  it('索引补一行,已有就不重复,没有索引就新建', () => {
+    expect(withOwnerProfileIndex(null)).toBe(`${OWNER_PROFILE_INDEX_LINE}\n`)
+    const existing = '- [暗号](code.md) — 暗号是香蕉\n'
+    const once = withOwnerProfileIndex(existing)
+    expect(once).toBe(`${existing}${OWNER_PROFILE_INDEX_LINE}\n`)
+    expect(withOwnerProfileIndex(once)).toBe(once)
+  })
+})
+
+describe('ASSISTANT_FIRST_TASK', () => {
+  it('幂等(已有 today.json 就什么都不做)、先读「关于主人」再开口', () => {
+    expect(ASSISTANT_FIRST_TASK).toContain('已经有 today.json 就是初始化过了')
+    expect(ASSISTANT_FIRST_TASK).toContain('关于主人')
+    expect(ASSISTANT_FIRST_TASK.indexOf('关于主人')).toBeGreaterThan(ASSISTANT_FIRST_TASK.indexOf('schedule_create'))
+  })
+})
+
+describe('ASSISTANT_FIRST_TASK opening (#7349, dots-style)', () => {
+  it('keeps the confirmed name, points to settings and offers one concrete thing', () => {
+    expect(ASSISTANT_FIRST_TASK).not.toContain('想给我起个名字吗')
+    expect(ASSISTANT_FIRST_TASK).toContain('名字已经在开通时确认')
+    expect(ASSISTANT_FIRST_TASK).toContain('在设置里修改名字和样子')
+    expect(ASSISTANT_FIRST_TASK).toContain('挑一件你现在就能帮上的具体的事')
+    expect(ASSISTANT_FIRST_TASK.indexOf('名字已经在开通时确认')).toBeLessThan(ASSISTANT_FIRST_TASK.indexOf('挑一件'))
+  })
+})

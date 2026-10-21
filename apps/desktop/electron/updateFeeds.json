@@ -1,0 +1,8 @@
+{
+  "stable": "https://download.gugu.nextmind.space/releases/desktop/latest/",
+  "beta": "https://download.gugu.nextmind.space/releases/desktop/beta/",
+  "androidStable": "https://download.gugu.nextmind.space/releases/latest.json",
+  "androidBeta": "https://download.gugu.nextmind.space/releases/android/beta/latest.json",
+  "site": "https://gugu.nextmind.space/",
+  "market": "https://download.gugu.nextmind.space/market/"
+}

@@ -1,0 +1,223 @@
+import { useHotkey } from '@tanstack/react-hotkeys';
+import { ChevronDown, SquareArrowRight } from '@/lib/icons'
+import React, { useCallback, useContext, useMemo } from 'react';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
+import { useScreenBlock } from '@renderer/app/screen-block-context';
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { useToast } from '@renderer/lib/hooks/use-toast';
+import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import {
+  getEffectiveHotkey,
+  getHotkeyRegistration,
+} from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
+import { rpc } from '@renderer/lib/ipc';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/lib/ui/select';
+import { BoundShortcut } from '@renderer/lib/ui/shortcut';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
+import { cn } from '@renderer/utils/utils';
+import { isValidOpenInAppId, type OpenInAppId } from '@shared/openInApps';
+
+interface OpenInMenuProps {
+  path: string;
+  className?: string;
+  borderless?: boolean;
+}
+
+export const OpenInMenu: React.FC<OpenInMenuProps> = ({
+  path,
+  className,
+  borderless = false,
+}) => {
+  const { toast } = useToast();
+  const { translate } = useSessionMessages();
+  const { icons, labels, installedApps, availability, loading } = useOpenInApps();
+  const { value: openIn, update } = useAppSettingsKey('openIn');
+  const { value: keyboard } = useAppSettingsKey('keyboard');
+  const openInHotkey = getEffectiveHotkey('openInEditor', keyboard);
+
+  const defaultApp: OpenInAppId | null =
+    openIn?.default && isValidOpenInAppId(openIn.default) ? openIn.default : null;
+
+  const persistPreferredApp = useCallback(
+    (appId: OpenInAppId) => {
+      update({ default: appId });
+    },
+    [update]
+  );
+
+  const triggerOpenIn = useCallback(
+    async (appId: OpenInAppId) => {
+      const label = labels[appId] || appId;
+      try {
+        const res = await rpc.app.openIn({
+          app: appId,
+          path,
+        });
+        if (!res?.success) {
+          toast({
+            title: translate('titlebar.openInFailed', { app: label }),
+            description: res?.error || 'Application not available.',
+            variant: 'destructive',
+          });
+        }
+      } catch (e: unknown) {
+        toast({
+          title: translate('titlebar.openInFailed', { app: label }),
+          description: e instanceof Error ? e.message : String(e),
+          variant: 'destructive',
+        });
+      }
+    },
+    [labels, path, toast, translate]
+  );
+
+  const selectAndOpenApp = useCallback(
+    (appId: OpenInAppId) => {
+      persistPreferredApp(appId);
+      void triggerOpenIn(appId);
+    },
+    [persistPreferredApp, triggerOpenIn]
+  );
+
+  const sortedApps = useMemo(() => {
+    if (!defaultApp) return installedApps;
+    return [...installedApps].sort((a, b) => {
+      if (a.id === defaultApp) return -1;
+      if (b.id === defaultApp) return 1;
+      return 0;
+    });
+  }, [defaultApp, installedApps]);
+
+  const menuApps = useMemo(
+    () => sortedApps.filter((app) => !app.hideIfUnavailable || availability[app.id]),
+    [availability, sortedApps]
+  );
+
+  // Listens on the document: only the page on screen answers (@@@retained-session-pages), and of the
+  // blocks on the screen only the one looked at (#7052).
+  const pageShown = useContext(PageShownContext);
+  const { focused: blockFocused } = useScreenBlock();
+  const shown = pageShown && blockFocused;
+  const buttonAppId = useMemo(() => {
+    if (defaultApp && menuApps.some((app) => app.id === defaultApp)) {
+      return defaultApp;
+    }
+    return menuApps[0]?.id;
+  }, [defaultApp, menuApps]);
+
+  const buttonAppLabel = buttonAppId ? (labels[buttonAppId] ?? buttonAppId) : null;
+
+  useHotkey(
+    getHotkeyRegistration('openInEditor', keyboard),
+    () => {
+      if (!buttonAppId) return;
+      void triggerOpenIn(buttonAppId);
+    },
+    { enabled: shown && !!buttonAppId && !loading && openInHotkey !== null }
+  );
+
+  const renderOpenButton = (nativeDisabled: boolean) => (
+    <button
+      type="button"
+      className={cn(
+        'group flex min-w-0 flex-1 items-center w-full border-r border-border rounded-r-none px-2 text-xs transition-colors hover:bg-row-hover active:bg-row-press hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
+        borderless && 'border-none  pr-1'
+      )}
+      onClick={() => {
+        if (loading || !buttonAppId) return;
+        void triggerOpenIn(buttonAppId);
+      }}
+      disabled={nativeDisabled || undefined}
+      aria-disabled={buttonAppId ? undefined : true}
+      aria-label={
+        buttonAppLabel ? translate('titlebar.openIn', { app: buttonAppLabel }) : translate('titlebar.open')
+      }
+    >
+      {/* @@@open-in-trigger-glyph — 常驻位是**单色线图**,不是目标 app 的原生彩色图标。
+          behavior session-page「视觉」写死了「素雅零装饰:细边框、系统字、线性图标」,而这一横排
+          另外四枚都是单色线图 —— 一枚彩色 PNG 混在里面,眼睛先看到它,读不成一排(owner
+          2026-09-07 拍)。
+          「会用哪个 app 打开」这个事实没有丢,只是换了地方:下面 SelectContent 里每一条仍然带
+          着该 app 的彩色图标,tooltip 与 aria-label 也都点名到 app。彩色退进菜单,常驻位留线图。 */}
+      <SquareArrowRight className="size-4" />
+    </button>
+  );
+
+  return (
+    <div
+      className={cn(
+        'border border-border rounded-md h-7 flex items-center text-foreground-muted overflow-hidden',
+        borderless && 'border-none',
+        className
+      )}
+    >
+      <TooltipProvider delay={0}>
+        <Tooltip>
+          {buttonAppId ? (
+            <TooltipTrigger render={<span className="inline-flex min-w-0 flex-1 self-stretch" />}>
+              {renderOpenButton(loading)}
+            </TooltipTrigger>
+          ) : (
+            <TooltipTrigger render={renderOpenButton(false)} />
+          )}
+          <TooltipContent side="bottom">
+            <div className="flex flex-col gap-1">
+              <span>
+                {translate('titlebar.openIn', {
+                  app: buttonAppLabel || translate('titlebar.openInFallback'),
+                })}
+              </span>
+              <BoundShortcut settingsKey="openInEditor" variant="keycaps" />
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <Select
+        value={defaultApp ?? undefined}
+        onValueChange={(value) => {
+          if (isValidOpenInAppId(value)) {
+            selectAndOpenApp(value as OpenInAppId);
+          }
+        }}
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <SelectTrigger
+                showChevron={false}
+                className="group flex size-7 shrink-0 items-center justify-center border-none bg-transparent transition-colors hover:bg-row-hover hover:text-foreground"
+                aria-label={translate('titlebar.openWithOptions')}
+              >
+                {/* 16px 与容器规则(index.css @@@titlebar-action-icons)同值。这里仍要显式写:
+                    OpenInMenu 还挂在文件工具条与草稿面板上,那两处够不到容器规则,
+                    留空会掉回图标组件 size=24 的默认值。 */}
+                <ChevronDown className="size-4" />
+              </SelectTrigger>
+            }
+          ></TooltipTrigger>
+          <TooltipContent side="bottom">{translate('titlebar.chooseHowToOpen')}</TooltipContent>
+        </Tooltip>
+        <SelectContent align="end" alignItemWithTrigger={false} sideOffset={6} className="w-max">
+          {menuApps.map((app) => {
+            const isAvailable = loading
+              ? availability[app.id] === true
+              : availability[app.id] !== false;
+            return (
+              <SelectItem key={app.id} value={app.id} disabled={!isAvailable}>
+                {icons[app.id] && (
+                  <img
+                    src={icons[app.id]}
+                    alt={labels[app.id] || app.label}
+                    className={`h-4 w-4 rounded-sm ${app.invertInDark ? 'emdark:invert' : ''}`}
+                  />
+                )}
+                {labels[app.id] || app.label}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};

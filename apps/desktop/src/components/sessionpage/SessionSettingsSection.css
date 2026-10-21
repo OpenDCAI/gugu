@@ -1,0 +1,9 @@
+/* 设置弹窗里会话页那几格的浮层落点:在弹窗里面、固定定位、零尺寸(见 SessionSettingsSection.tsx)。 */
+div.gg-session-settings-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 1;
+}

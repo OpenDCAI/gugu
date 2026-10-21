@@ -1,0 +1,19 @@
+/* Keep inline previews scannable while bounding both axes; the 280px square cap prevents
+   portrait screenshots from turning one message into a full-height scroll. The full-size
+   preview is separate and keeps its own 92vw/92vh bounds. */
+.chat-inline-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(280px, 100cqw);
+  max-height: 280px;
+  object-fit: contain;
+}
+
+/* 字节还在路上:签好了就按宽高留位置(内联 style),还没签好先给一块默认大小,不让消息列表在图片到了以后跳。 */
+.chat-inline-image--pending {
+  width: 200px;
+  height: 150px;
+  border-radius: var(--radius-document);
+  background: var(--muted);
+}

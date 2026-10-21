@@ -1,0 +1,34 @@
+{
+ "id": "claude-presence-esc-mid-turn",
+ "issues": [
+  "#presence-interrupt"
+ ],
+ "harness": "claude 2.1.301",
+ "source": "gugu-base notes/2026-10-16-osc-7501 (esc-latency/ mac1 hooks; rendezvous-presence/ ThinkPad presence + hooks in one run)",
+ "sessionId": "7e5c0000-0000-4000-8000-000000000002",
+ "expectAnomalies": 0,
+ "summary": "Esc mid-turn: no hook comes; the presence file goes busy → idle 0.19 s after the key",
+ "steps": [
+  {
+   "raw": "hook UserPromptSubmit",
+   "event": {
+    "kind": "Started",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000002"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "presence busy → idle (Esc)",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "7e5c0000-0000-4000-8000-000000000002",
+    "outcome": "cancelled"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  }
+ ]
+}

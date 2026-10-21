@@ -1,0 +1,907 @@
+/* 手机看管 agent —— 项目(机器是属性)/ 选机器 / 时间线几张页的样式表。
+ *
+ * ⚠️ 每条选择器都显式挂在 .gg-aw 之下,不是命名规范而是**必须**:tokens.css:604 有一条
+ * 未分层的全局重置 `*:not(.gugu-skin, …) { margin:0; padding:0 }`,特异性 (0,1,0) 且排在本表
+ * 之后 —— 任何单类选择器写的 margin/padding 都会被它平掉。限定在页面根下 (0,2,0) 才赢得干净,
+ * ❌ 不靠 !important 把问题按下去(与 ExplorePage.css 同一条理由)。
+ *
+ * 几何一律取 tokens.css 的刻度,本表不拍新数:
+ *   字号 --font-caption/body/title/heading = 11/13(移动端 14)/15/17
+ *   圆角 --radius-control / --radius-xl / --radius-capsule / --radius-circle
+ *                                          = 8 / 12 / 9999 / 50%
+ *   间距 --spacing-xs…2xl                  = 4/8/12/16/20/24
+ *   触控 --control-h-touch                 = 44(手机上所有可点目标的下限)
+ *
+ * ⚠️ 2026-09-22 按 design.md 统一,圆角改用 8 档语义表里的名字。旧短名 --r / --r-lg /
+ * --r-xl / --r-pill 当时还作为别名活着,现在**已从 tokens.css 删除** —— 本表里不许再出现它们
+ * (删掉的名字被 var() 引用是 computed-value-time 无效,border-radius 静默落回 0,只会直角化不会报错)。
+ * 本表从前还用着两个**表外**的档位:--r-xl(机器卡)与一个裸 13px(机器图标格),现在都落回 --radius-xl。
+ */
+
+.gg-aw {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* 只有这一层滚动;页头固定在上面,composer 固定在下面。 */
+.gg-aw .gg-aw-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--spacing-md) max(var(--spacing-xl), env(safe-area-inset-bottom));
+}
+
+/* 时间线页:body 不滚,滚动交给线程视口(两层同时滚会让输入框钉不住底部)。 */
+.gg-aw .gg-aw-body[data-fill='true'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: max(var(--spacing-sm), env(safe-area-inset-bottom));
+}
+
+/* The assistant-ui viewport is the only scrolling surface on this page. A
+   tool group expands inside it; never let a transient horizontal overflow
+   create a scrollbar or change the line width while the 200ms animation runs. */
+.gg-aw [data-slot='aui_thread-viewport'] {
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+.gg-aw [data-slot='aui_thread-viewport'] > div {
+  min-width: 0;
+}
+
+/* 说明块:离线 / 暂不支持 / 打不开的原因。产品要求「说明原因」,所以它是正文不是灰字提示。 */
+.gg-aw .gg-aw-note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-md) 0;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  color: var(--fg);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+.gg-aw .gg-aw-note[data-tone='danger'] {
+  border-color: var(--danger);
+  background: var(--danger-tint);
+}
+.gg-aw .gg-aw-note-title {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+}
+.gg-aw .gg-aw-note-detail {
+  color: var(--muted-fg);
+  /* 原始报错可能很长且不带空格(路径 / 栈),不许把页面撑出横向滚动。 */
+  overflow-wrap: anywhere;
+}
+
+/* 空状态与加载态坐在同一条基线上,不各自拍一个居中容器。 */
+/* 零高度浮标:列表在刷新时提示一句,但不改变任何一行的位置。 */
+.gg-aw .gg-aw-refreshing {
+  position: relative;
+  height: 0;
+  overflow: visible;
+  display: flex;
+  justify-content: center;
+  z-index: 1;
+}
+.gg-aw .gg-aw-refreshing > span {
+  position: absolute;
+  top: 2px;
+  padding: 2px 10px;
+  border-radius: var(--radius-capsule);
+  background: var(--muted);
+  color: var(--muted-fg);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  pointer-events: none;
+}
+.gg-aw .gg-aw-placeholder {
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-2xl) var(--spacing-md);
+  color: var(--muted-fg);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+
+/* ── 列表(机器 / 会话)──────────────────────────────────────────────── */
+
+.gg-aw .gg-aw-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-xs) 0;
+}
+/* 分组标签可点折叠:触控高度 ≥44,折起时右侧给条数。 */
+.gg-aw .gg-aw-list > [data-slot='section-label'][data-interactive] { min-height: 44px; cursor: pointer; }
+.gg-aw .gg-aw-group-count { color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+/* 项目分区页头里的机器名:项目名的次要属性,比项目名轻一档(常规字重、更淡),不抢它的位置。 */
+.gg-aw .gg-aw-group-machine { font-weight: var(--font-weight-regular); letter-spacing: 0; color: var(--faint-fg); }
+
+/*
+ * ❌ 这里原来有 .gg-aw-row[aria-disabled] 与 .gg-aw-dot / [data-online]。2026-09-22 删(Refs #6104):
+ * 全仓(含 e2e / tests)没有任何元素带这两个类 —— 行现在是 .gg-aw-item / .gg-aw-machine,
+ * 「不可进」那一档由 :476 的 `.gg-aw-item[aria-disabled='true']` 出(而且两条的 opacity 还不一样:
+ * 0.62 vs 0.55,读的人无从知道哪个是现状);状态点换成了 StatusGlyph 的 .gg-aw-glyph。
+ */
+
+/* ── 时间线 ────────────────────────────────────────────────────────── */
+/*
+ * ❌ 这里原来有 .gg-aw-timeline / -turn / -msg / -msg-row / -thinking / -tool* / -outcome
+ * 一整套规则(手机端的气泡、工具卡、思考行、轮结局)。2026-09-22 连同它们唯一的渲染者
+ * `TimelineView.tsx` 的 `TimelineView` 导出一起删掉 —— 那个导出全仓无人 import,
+ * 手机端的转录早就换成了 assistant-ui 的 `Thread`(见 AgentThread.tsx)。
+ *
+ * 为什么不是「留着也不碍事」:本轮的 UI 地图就把这套规则当成了「手机端气泡/工具卡的现状」
+ * 参与对齐(它记下的 .gg-aw-msg 12px 圆角是四个 user bubble 取值之一)。
+ * 走不到的视觉规则不是零成本的,它会被下一个人读成事实。
+ *
+ * 往前翻的入口(.gg-aw-older)一并删:现在那颗按钮住在页头的 headerActions 里,不带这个类。
+ */
+
+/*
+ * ❌ 这里原来是「会话选项面板」整套(.gg-aw-options / -head / -title / -group / -label / -choices)。
+ * 2026-09-22 删(Refs #6104):零消费者 —— 选项现在住在输入框那一行的胶囊里
+ * (SessionOptionsPill / CreateOptionsPill,用的是 .gg-aw-pill 与 .gg-aw-sheet / .gg-aw-choice 那两套)。
+ */
+
+/* ── 审批 / 提问卡 ─────────────────────────────────────────────────── */
+
+.gg-aw .gg-aw-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-xl);
+  background: var(--warn-tint);
+}
+.gg-aw .gg-aw-card[data-state='resolved'],
+.gg-aw .gg-aw-card[data-state='cancelled'] {
+  border-color: var(--border);
+  background: var(--muted);
+}
+.gg-aw .gg-aw-card-title {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.gg-aw .gg-aw-card-detail {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--muted-fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.gg-aw .gg-aw-card-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+/* 选项按钮：一行 label + 一行说明。按钮本身是 ≥44px 触控目标,说明只是把它撑高。 */
+.gg-aw .gg-aw-card-options .gg-aw-option-name {
+  display: block;
+}
+.gg-aw .gg-aw-card-options .gg-aw-option-desc {
+  display: block;
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  opacity: 0.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.gg-aw .gg-aw-card-answered {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--muted-fg);
+}
+
+/* 手机端「任务」tab 的槽:占满主内容区。
+   ❌ 不写成 MainLayout 里的内联 style —— 那会抬 inlineStyleBlocks 棘轮(闸按源文本计数)。 */
+.gg-aw-tab-slot {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+
+
+/* 动作失败条:贴着输入框上方,不是页顶那个整页级红框。
+   ❌ 原来这条上面还有 .gg-aw-composer-stack(旧 composer 的外壳),零消费者,2026-09-22 删。 */
+.gg-aw .gg-aw-action-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--danger-tint);
+  color: var(--fg);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  overflow-wrap: anywhere;
+}
+/* 新建页「为什么还不能发」:说明不是错误,单色次级字,与失败横幅同一位置(输入框正上方)。 */
+.gg-aw .gg-aw-create-blocker {
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  overflow-wrap: anywhere;
+}
+.gg-aw .gg-aw-create-birth-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+.gg-aw .gg-aw-action-error-title {
+  font-weight: 600;
+}
+.gg-aw .gg-aw-action-error-detail {
+  color: var(--muted-fg);
+  flex: 1;
+  min-width: 0;
+}
+/* ❌ .gg-aw-action-error-dismiss 已删(2026-09-22,零消费者):这条失败条没有关闭钮,
+   它随下一次动作自己消失。 */
+
+/* ── assistant-ui 线程 ─────────────────────────────────────────────────
+   骨架是 assistant-ui 的原语(无样式),视觉全部落在这里的 token 上。
+   ❌ 不引它的预置样式表:那套是 shadcn 词汇,与本仓的 token 体系不是一套。 */
+
+/* 官方 Thread 自己是 h-full 的 flex 列,这一层只负责把高度交给它。 */
+/* 移动端刻度:官方那套是按桌面调的,text-base=16px 在 390px 屏上偏胖。
+   这里只在这棵子树里把 Tailwind 的字号 token 收一档 —— 不改官方源码里的类名,
+   也不影响 app 其它地方(token 是继承来的,覆盖只在本子树生效)。 */
+.gg-aw .gg-aw-thread-host {
+  --text-base: 0.9375rem;   /* 15px，与咕咕正文同一档 */
+  --text-sm: 0.8125rem;     /* 13px */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+/* 输入框恒贴底。官方模板在「还没有消息」时把整列居中(欢迎语 + 输入框一起浮在中间),有消息后
+   才把页脚 sticky 到底 —— 手机上一次新建会经过「新建页(空)→ 会话页首帧(空)→ 有消息」三态,
+   输入框就在居中与贴底之间来回跳(owner 2026-09-15 真机:「统一一个位置,建议靠下」)。
+   只在本子树覆盖,❌ 不动官方模板的类名。选择器三层类,压过 Tailwind 的单类工具。 */
+.gg-aw .gg-aw-thread-host [data-slot="aui_thread-viewport"] > .justify-center {
+  justify-content: flex-start;
+}
+.gg-aw .gg-aw-thread-host .aui-thread-viewport-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+}
+/* 过程折叠的内容(一轮的消息根)入场同线程的行:挂上时就摊开的(在跑的那一轮默认摊开)是读进来的历史,❌ 再从透明淡入、
+   上滑一遍 —— 进运行中的任务页时那一轮整块闪出来(owner 10-12「进去就颤两下」);之后才来的一轮(消息根自己带入场,
+   见 thread.aui useEntersAnimated)和人点开的那一下照播。
+   只管时间头**自己**那层内容(子代选择器一路写死):跑着的一轮里工具调用照样收成一组(owner 10-16),
+   人点开那一组时它的内容照常入场,❌ 被这条一起静音。 */
+.gg-aw .gg-aw-thread-host [data-slot="turn-process"]:not([data-opened]) > [data-slot="tool-group-root"] > [data-slot="tool-group-content"] > div > :not(.animate-in) {
+  animation: none;
+}
+
+/* 过程折叠(turn-process-message)里没有复制 / 更多 —— 同桌面,那一栏属于回复。 */
+.gg-aw .gg-aw-thread-host [data-slot="turn-process"] [data-slot="aui_assistant-message-footer"] {
+  display: none;
+}
+/* 工具交回来的图(AgentThread 的 ToolWithStatus):app 那套图格收在缩略图那么宽 —— 四张是 2×2、每格约 118px,
+   一张是 4:3;❌ 让一次调用的图把一屏时间线占满。图格自己是 width:100%,宽度只能由外面这一层给。 */
+.gg-aw .gg-aw-tool-images {
+  max-width: 240px;
+  margin: var(--spacing-xs) 0 var(--spacing-sm);
+}
+/* 图还没到手(去机器上取的那一会儿是一块底色;取不到 / 太大写一句话),MediaGrid 的 `pending` 那一格。 */
+.gg-aw .gg-media-grid-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 var(--spacing-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  line-height: 1.3;
+  white-space: normal;
+  text-align: center;
+}
+.gg-aw .gg-aw-thread-extras {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-bottom: var(--spacing-sm);
+}
+
+/* 「回到底部」浮钮。官方模板写的是 shadcn 的 `outline`(那一档自带 bg-background),翻译层
+   (assistant-ui/ui/button.tsx)把它映到咕咕的 secondary —— **透明底**的描边钮;官方又只在暗色下补了
+   `dark:bg-background` ⇒ 浅色主题下它就是一圈描边浮在正文上,底下的字透过来
+   (owner 2026-09-27 真机:「像脏东西一样」)。
+   浮在内容上的东西是浮层:实底 + 唯一那一档投影,不再叠描边(design.md「一条边只画一层抬起」,
+   与菜单弹层同一条)。只在本子树覆盖,❌ 不改官方源码与翻译层 —— 翻译层的 outline 还喂着卡片里的
+   「拒绝 / 返回」钮,那几处本来就该是透明底。
+   ⚠️ 底色铺在 background-image 上,❌ 不写 background-color:Button 的按下态是 @layer 里带 `!important`
+   的 background-color(半透明的 --press),未分层的规则压不过它 —— 铺成 background-color 的话一按又透了。
+   悬停/按下的叠色同 .gg-pressable 的画法:在实底上再叠一层。按下写在悬停之后,两者同时成立时按下赢。 */
+.gg-aw .aui-thread-scroll-to-bottom {
+  /* 官方给这颗钮的是 `p-4`:手机上钮是 44px 触控尺寸,扣掉两边 16px 内边距只剩 12px,
+     箭头(24px 的 svg)被横向挤成 10px 宽 —— 一个几乎看不见的小箭头(实测 svg 10×24)。
+     钮是固定尺寸的圆,箭头居中即可,内边距归零、箭头给正常的图标档。 */
+  padding: 0;
+  border-color: transparent;
+  background-image: linear-gradient(var(--popover), var(--popover));
+  box-shadow: var(--shadow-lift);
+}
+.gg-aw .aui-thread-scroll-to-bottom svg {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
+@media (hover: hover) {
+  .gg-aw .aui-thread-scroll-to-bottom:hover {
+    background-image: linear-gradient(var(--hover), var(--hover)), linear-gradient(var(--popover), var(--popover));
+  }
+}
+.gg-aw .aui-thread-scroll-to-bottom:active {
+  background-image: linear-gradient(var(--press), var(--press)), linear-gradient(var(--popover), var(--popover));
+}
+
+/*
+ * ❌ 这里原来是**自己画的那套线程骨架 + 输入框**:.gg-aw-thread / -viewport / -spacer / -footer
+ * 与 .gg-aw-composer / -input / -send(含 :focus-within 与 :disabled)。
+ * 2026-09-22 删(Refs #6104):零消费者 —— 转录与输入框整份换成了 assistant-ui 官方的 `Thread`
+ * (AgentThread.tsx),滚动、粘底、发送键都由它出,这里只剩 .gg-aw-thread-host / -extras 两层壳。
+ * 留着的成本不是字节:上一轮的 UI 地图就把这套规则当成了「手机端输入框的现状」参与对齐。
+ */
+
+
+/* ── 会话 / 机器列表：形制照 orca 手机端 ────────────────────────────────
+   要点是「颜色只用来表状态」：一个 8px 的点承担全部状态语义，行里不再出现
+   彩色块、也不再出现一个毫无信息量的空气泡图标。 */
+
+.gg-aw .gg-aw-glyph {
+  /* 12×12 外壳 + 8×8 内胆:状态换字形时行高与基线不跳(orca 同一条理由)。 */
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+.gg-aw .gg-aw-glyph-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  background: var(--muted-fg);
+  opacity: 0.4;
+}
+/* #6448 agent 状态的颜色与会话页、聊天同一张表(owner 2026-09-25):只引 tokens.css 的 `--agent-tone-*`。
+   需要你 = 黄(从前手机上的「在等你」是红,与桌面各说各的,已改)· 出错 = 红 · 在跑 / 后台在跑 = 橙。 */
+.gg-aw .gg-aw-glyph[data-tone='needs_user'] .gg-aw-glyph-inner {
+  background: var(--agent-tone-needs-user);
+  opacity: 1;
+}
+.gg-aw .gg-aw-glyph[data-tone='error'] .gg-aw-glyph-inner {
+  background: var(--agent-tone-error);
+  opacity: 1;
+}
+/* 「做完了」不上色(表里:未读加粗、不另上色):它退回墨色,不占色相。 */
+.gg-aw .gg-aw-glyph[data-tone='done'] .gg-aw-glyph-inner {
+  background: var(--text-muted);
+  opacity: 1;
+}
+/* 在跑 = 缺口环在转;后台在跑 = 同一个环、静止(回合已经关了,还有东西在后台跑)。 */
+.gg-aw .gg-aw-glyph[data-tone='running'] .gg-aw-glyph-inner,
+.gg-aw .gg-aw-glyph[data-tone='parked'] .gg-aw-glyph-inner {
+  background: transparent;
+  opacity: 1;
+  border: 2px solid var(--agent-tone-running);
+  border-top-color: transparent;
+}
+.gg-aw .gg-aw-glyph[data-animate='true'] .gg-aw-glyph-inner {
+  animation: gg-aw-spin 1s linear infinite;
+}
+/* @@@live-accent (Refs #6109) —— 「连上了」是 design.md 里 live 那一格(「streaming, running, **connected**,
+   or currently selected」),用唯一的那个蓝。它是机器那根轴,❌ 不是 agent 状态:agent 在跑是上面的橙。
+   页头「正在开会话 / 正在读选项」的转圈也是 live。 */
+.gg-aw .gg-aw-glyph[data-live='online'] .gg-aw-glyph-inner {
+  background: var(--live);
+  opacity: 1;
+}
+.gg-aw .gg-aw-glyph[data-live='asleep'] .gg-aw-glyph-inner {
+  background: transparent;
+  opacity: 1;
+  border: 1.5px solid var(--live);
+}
+.gg-aw .gg-aw-glyph[data-live='busy'] .gg-aw-glyph-inner {
+  background: transparent;
+  opacity: 1;
+  border: 2px solid var(--live);
+  border-top-color: transparent;
+  animation: gg-aw-spin 1s linear infinite;
+}
+/* 未读做完加粗(表里的「做完了」):字与点说同一件事。 */
+.gg-aw [data-emphasis='true'] {
+  font-weight: 600;
+  color: var(--fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .gg-aw .gg-aw-glyph[data-animate='true'] .gg-aw-glyph-inner,
+  .gg-aw .gg-aw-glyph[data-live='busy'] .gg-aw-glyph-inner { animation: none; }
+}
+@keyframes gg-aw-spin { to { transform: rotate(360deg); } }
+
+/* 一行会话。左侧指示列定宽,标题与元信息各占一行。 */
+.gg-aw .gg-aw-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: 10px var(--spacing-md);
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  cursor: pointer;
+  /* @@@1787 触控下限。 */
+  min-height: 44px;
+}
+.gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
+.gg-aw .gg-aw-item:not([aria-disabled='true']):active { background: var(--press); }
+.gg-aw .gg-aw-item[aria-disabled='true'] { cursor: default; opacity: 0.55; }
+.gg-aw .gg-aw-item-ind { padding-top: 5px; }
+/* 指示列画的是咕咕小鸟(SessionAvatar):状态靠它的身体说,所以比从前那个 8px 点大得多,与标题 + 元信息两行垂直居中。 */
+.gg-aw .gg-aw-item-ind[data-avatar] { padding-top: 0; align-self: center; display: flex; }
+/* 行 = 打开按钮 + 行尾「…」管理入口。两个都是按钮,❌ 嵌套(按钮里不能再放按钮),并排放。 */
+.gg-aw .gg-aw-item-wrap { display: flex; align-items: center; }
+.gg-aw .gg-aw-item-wrap > .gg-aw-item { flex: 1; min-width: 0; }
+.gg-aw .gg-aw-item-menu { flex: none; color: var(--text-muted); }
+/* 「展开显示」:分区里收起的闲置家族(与桌面侧栏同一条折法)。 */
+.gg-aw .gg-aw-more { width: 100%; padding-inline: var(--spacing-md); color: var(--text-muted); }
+.gg-aw .gg-aw-actions { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); }
+.gg-aw .gg-aw-actions-title {
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: var(--spacing-xs);
+}
+.gg-aw .gg-aw-actions-note { color: var(--text-muted); font-size: var(--font-size-sm); }
+.gg-aw .gg-aw-actions-error { color: var(--danger, var(--badge-red)); font-size: var(--font-size-sm); }
+.gg-aw .gg-aw-actions-item { width: 100%; justify-content: center; }
+.gg-aw .gg-aw-actions-field { width: 100%; }
+.gg-aw .gg-aw-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gg-aw .gg-aw-item-title {
+  font-size: var(--font-body);
+  line-height: 1.35;
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 放不下就换行,❌ 每段一起缩成「Ma… · Do…」:状态词、机器名、agent 名一个都不能截掉。只有单独一段比整行还长时才截它。 */
+.gg-aw .gg-aw-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+  min-width: 0;
+}
+.gg-aw .gg-aw-item-meta > span {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-aw .gg-aw-item-sep { opacity: 0.5; flex: none; margin: 0 0.35em; }
+/* 任务行的分隔符跟着下一段走:换行时「·」落在新行行首那段前面,❌ 挂在上一行末尾。 */
+.gg-aw .gg-aw-item-part + .gg-aw-item-part::before { content: '·'; opacity: 0.5; margin: 0 0.35em 0 0; font-weight: normal; }
+/* 这个任务给自己排了定时(schedule-meta.tsx):时钟 + 下一个几点回来;没送到的换 ⚠ 与警示色。 */
+.gg-aw .gg-aw-item-meta > .gg-aw-item-schedule { display: inline-flex; align-items: center; gap: 0.25em; color: var(--fg); }
+.gg-aw .gg-aw-item-schedule svg { width: 0.9em; height: 0.9em; flex: none; color: var(--muted-fg); }
+.gg-aw .gg-aw-item-schedule[data-attention] { color: var(--warn); }
+.gg-aw .gg-aw-item-schedule[data-attention] svg { color: var(--warn); }
+
+
+/* 机器卡：orca 的 MobileHostCard 形制。
+   ⚠️ 类名不能叫 gg-aw-card —— 那个已经被上面的审批/提问卡占了(它是 flex-direction:column),
+   撞名的后果是这张卡塌成竖排居中,而边框圆角照常生效,看起来像「布局写错了」而不是「撞名」。 —— 圆角卡 + 左侧图标块 + 两三行信息。 */
+/* ⚠️ 2026-09-22 按 design.md 统一:去掉描边卡,跟上同一张表里的会话行(.gg-aw-item)。
+   「**Rows breathe on rhythm and a hover fill, not on dividers**」
+   「**Prefer a change of density over a box.**」—— 一列机器 = 一列行,不是一叠卡片;
+   同一张表里两种列表行原来是两套形制、两档圆角(卡 --r-xl 16 vs 行 --r-lg 12),
+   而 --r-xl 连这张表自己的自述刻度都没列。现在两者同一档 --radius-xl。 */
+.gg-aw .gg-aw-machine {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px var(--spacing-md);
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  cursor: pointer;
+}
+.gg-aw .gg-aw-machine:not(:disabled):hover { background: var(--hover); }
+.gg-aw .gg-aw-machine:not(:disabled):active { background: var(--press); }
+.gg-aw .gg-aw-machine-icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  color: var(--muted-fg);
+}
+.gg-aw .gg-aw-machine-icon[data-online='true'] { color: var(--fg); }
+/* 选机器模式下的离线机器:照画,点不动。压暗而不是藏掉 —— 人得看见「它在,只是不在线」。 */
+.gg-aw .gg-aw-machine:disabled { opacity: 0.45; cursor: default; }
+.gg-aw .gg-aw-machine-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.gg-aw .gg-aw-machine-sub { margin-left: 18px; }
+.gg-aw .gg-aw-machine-trailing { flex: none; color: var(--faint-fg); display: inline-flex; }
+
+
+/* 审批/提问卡里的选项按钮**本体**已经是 ui/Button(size="option"),所以这里只剩它内部两行字。
+   ❌ 原来这上面还有 .gg-aw-option / [data-selected] / :disabled / -text / -check 一整套自己画的按钮,
+   零消费者,2026-09-22 删(Refs #6104)—— 两套按钮并排放着,读的人分不出哪套在屏幕上。 */
+.gg-aw .gg-aw-option-name {
+  font-size: var(--font-body);
+  line-height: 1.35;
+  font-weight: var(--font-weight-medium);
+}
+.gg-aw .gg-aw-option-desc {
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+}
+
+
+/* 选项抽屉的内容。Sheet 本体负责从底部升起,这里只管里面的排版。
+   ⚠️ 选择器是 `.gg-aw.gg-aw-sheet`(同一个元素上的两个类,不是后代):抽屉内容挂的是
+   `<div className="gg-aw gg-aw-sheet">`,`.gg-aw .gg-aw-sheet` 匹配不到它自己。
+   而单类 (0,1,0) 会被 tokens.css 那条排在本表之后的全局重置 `*:not(.gugu-skin,…){padding:0}`
+   平掉 —— 实测后果是整张抽屉四边贴边、里面的选项组顶着屏幕边缘。 */
+.gg-aw.gg-aw-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-lg);
+  /* 整张由 Sheet 滚(@@@sheet-scroll),这一列按内容全高排、❌ 被弹层压矮:压矮了内容照样溢出去滚,
+     但吸顶头的包含块只剩一屏高,滚过一屏头就跟着走了(360×400 实测头被带出 341 px)。 */
+  flex-shrink: 0;
+}
+
+
+/* 页头标题块：标题一行、状态一行(orca 的 sessionTitleBlock 同款)。
+   状态挤在标题旁会跟标题抢宽度,而会话标题本来就长、已经在省略号收尾。 */
+.gg-aw .gg-aw-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gg-aw .gg-aw-head-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gg-aw .gg-aw-head-meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  font-weight: var(--font-weight-regular);
+  color: var(--muted-fg);
+}
+
+/* 时间线页顶的头像块:小鸟(40)叠在「agent 名 · 状态」一行上,居中、不随线程滚;线程视口顶边没有渐隐
+   (头栏下沿就是裁切线,理由同 tokens.css 的 @@@agent-chat-hero)。矮屏(横屏 / 键盘顶起)只留文字行。 */
+.gg-aw .gg-aw-hero { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--spacing-xs) 0 var(--spacing-xs); }
+.gg-aw .gg-aw-hero-line { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 100%; min-width: 0; font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gg-aw .gg-aw-hero-name { font-weight: var(--font-weight-medium); color: var(--fg); }
+@media (max-height: 520px) {
+  .gg-aw .gg-aw-hero canvas { display: none; }
+}
+
+/* ── 「机器离线」一行提示 + 渐进披露 ────────────────────────────────────────
+   形制照 orca 的 HostRouteNoticeBanner:单行次级文字、单色、贴一条下边框。
+   ❌ 不借用报错的红 —— 机器关机是常态,不是故障(orca 那个文件的首行注释就写着这句)。
+   解释文字收在 Collapse 里,想知道「为什么打不开」才点开。 */
+.gg-aw .gg-aw-offline {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.gg-aw .gg-aw-offline-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: 44px;              /* @@@1787 触控下限 */
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gg-aw .gg-aw-offline-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.gg-aw .gg-aw-offline-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+.gg-aw .gg-aw-offline-caret svg { width: 14px; height: 14px; }
+.gg-aw .gg-aw-offline-caret[data-open] { transform: rotate(180deg); }
+.gg-aw .gg-aw-offline-body {
+  padding: 0 var(--spacing-md) var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+/* ── 选项抽屉:下钻结构 ─────────────────────────────────────────────────────
+   尺寸逐条照 orca(mobile/src/session/MobileNativeChatSessionOptionRows.tsx 的 styles):
+   胶囊 maxWidth 180 / minHeight 28 / gap 4 / 字重 600;圆钮 36×36;radio 18×18;
+   摘要行 minHeight 48、值最宽 160。 */
+
+/* 会话选项胶囊 —— 摆在输入框那一行(orca 的 MobileNativeChatComposer 同款位置)。
+   只写当前值(模型 · 权限档),类别名在抽屉标题里;宽度吃紧时省略号收尾,❌ 不换行撑高那一行。
+   ⚠️ 2026-09-22:这一条原来也是**两份**(一份无 `.gg-aw` 前缀写着 max-width 62vw /
+   padding 3px 6px 3px 9px / 无底色,另一份带前缀把它们逐条盖掉)。已合并成一条;
+   无前缀那份的 padding 本来就被全局重置平掉,从来没生效过。 */
+.gg-aw .gg-aw-pill {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 180px;
+  min-height: 28px;
+  gap: 4px;
+  padding: 4px var(--spacing-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-capsule);
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  font-weight: 600;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.gg-aw .gg-aw-pill:disabled { opacity: 0.45; cursor: default; }
+.gg-aw .gg-aw-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 抽屉头:左钮 / 居中标题 / 右侧 pending 位,三格等宽好让标题真的居中。
+   整张抽屉一起滚(Sheet 的 @@@sheet-scroll),头吸在顶上:返回 / 关闭钮滚到哪儿都在。
+   负外边距吃掉抽屉内容的上、左右内距,再由自己补回来 —— 吸住时底色盖满整行,滚上去的行不会从两侧和上沿露出来,
+   没滚时的位置与原来一样。 */
+.gg-aw .gg-aw-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: calc(-1 * var(--spacing-md)) calc(-1 * var(--spacing-md)) 0;
+  padding: var(--spacing-md);
+  background: var(--modal-bg);
+}
+.gg-aw .gg-aw-sheet-nav,
+.gg-aw .gg-aw-sheet-side {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gg-aw .gg-aw-sheet-nav {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-circle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.gg-aw .gg-aw-sheet-nav svg { width: 18px; height: 18px; }
+/* ⚠️ 2026-09-22:这一条原来在本表里有**两份**定义 —— 上面还有一份无 `.gg-aw` 前缀的
+   (font-weight medium、不居中、不给 color)。抽屉内容本身挂着 `.gg-aw`,所以带前缀这一份
+   一直赢,那一份是死代码;留着它的后果是下一个人读到两个互相矛盾的字重。合并到这里,
+   `line-height` 是从那份带过来的。 */
+.gg-aw .gg-aw-sheet-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: 700;
+  color: var(--fg);
+}
+/* pending 转圈:改选项是发给远端的一条指令,发出去到回读之间要有个在动的东西。 */
+.gg-aw .gg-aw-sheet-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-secondary);
+  border-radius: var(--radius-circle);
+  animation: gg-aw-spin 0.7s linear infinite;
+}
+@keyframes gg-aw-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .gg-aw .gg-aw-sheet-spinner { animation: none; }
+}
+.gg-aw .gg-aw-sheet-caption {
+  padding: 0 var(--spacing-md) var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+}
+/* 状态要读得出是状态:改选项失败那一条原来与旁边的普通说明**完全同色**。
+   只换字色,❌ 不加底色块(与 .gg-aw-create-blocker 同一个克制口径)。 */
+.gg-aw .gg-aw-sheet-caption[data-tone='error'] {
+  color: var(--danger);
+}
+
+/* 选项组 / 摘要组:组内靠分隔线分行(orca 的 choiceGroup / optionGroup)。
+   ⚠️ 2026-09-22 按 design.md 统一:去掉外层那圈描边。「一行一发丝线」在选项列表里是有
+   合法先例的(Definition List),但外面再套一个描边盒就成了**盒里画格** ——
+   「A card around every section, a box drawn to repair weak hierarchy」。
+   分组由 --bg-elevated 这一阶底色表达,行分隔线保留。
+   放不下时整张抽屉一起滚(Sheet 的 @@@sheet-scroll),❌ 组内各自滚:组一旦是滚动容器,抽屉的 flex 列
+   就能把它压扁 —— 实测 12 个项目在 360×640 上被压成两行半、在半截处切开,在下面的设置行上划不动,
+   360×400 时压成 0 行(owner 10-07「超出竖直长度又没有滚动条」)。圆角用 clip 裁:它不是滚动容器,不会被压。 */
+.gg-aw .gg-aw-choice-group,
+.gg-aw .gg-aw-summary-group {
+  overflow: clip;
+  border-radius: var(--radius-xl);
+  background: var(--bg-elevated);
+}
+.gg-aw .gg-aw-summary-group { margin-top: var(--spacing-md); }
+
+.gg-aw .gg-aw-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--spacing-sm);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+}
+.gg-aw .gg-aw-choice:last-child { border-bottom: 0; }
+.gg-aw .gg-aw-choice:disabled { opacity: 0.5; cursor: default; }
+/* 选中态 = 填满的圆点打勾,❌ 不是行尾挂一个勾(orca ChoiceRow 的 radio)。 */
+.gg-aw .gg-aw-choice-radio {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--text-muted);
+  border-radius: var(--radius-circle);
+  color: var(--primary-fg);
+}
+/* @@@live-accent 「当前选中」是 design.md 里 live 的第四种(currently selected)。
+   ⚠️ 原来是绿(--ok) —— 而同一个 app 里「我发出的 / 主操作」用的是黑白 --primary,
+   同一件事两套颜色语言。 */
+.gg-aw .gg-aw-choice-radio[data-on] {
+  border-color: var(--live);
+  background: var(--live);
+}
+.gg-aw .gg-aw-choice-radio svg { width: 12px; height: 12px; }
+.gg-aw .gg-aw-choice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gg-aw .gg-aw-choice-label {
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.gg-aw .gg-aw-choice-desc {
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
+}
+/* 模型页的两组(harness 自家 / 咕咕平台):组名一行 + 组内行;组空时一行说明,与行同一内距。 */
+.gg-aw .gg-aw-choice-section { border-top: 1px solid var(--border); }
+.gg-aw .gg-aw-choice-section-title {
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.gg-aw .gg-aw-choice-note { padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm); }
+/* 模型清单底下那一段(#7056):管理模型 / 升级解锁更多模型,两端各一枚;免费档下面再一行写开会员能用哪几个。 */
+.gg-aw .gg-aw-model-footer-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-xs) 0;
+}
+
+.gg-aw .gg-aw-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gg-aw .gg-aw-summary:last-child { border-bottom: 0; }
+.gg-aw .gg-aw-summary:disabled { opacity: 0.5; cursor: default; }
+.gg-aw .gg-aw-summary-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.gg-aw .gg-aw-summary-value {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+}
+.gg-aw .gg-aw-summary svg { flex: none; width: 16px; height: 16px; color: var(--text-muted); }
+
+/* @@@aw-footer 回复下面「复制 / ⋯」那一格(官方 min-h-7.5 的 footer)只留给最后一条(turn-process-message 的 data-last)。
+   官方对不是最后一条的动作栏 autohide,但那一格 30px 照样占着,每条回复下面白一截(实测「READY」到下一张卡 54px,桌面约 20px)。
+   不是最后一条:那一格整个不画。官方会在 hover 时把它亮出来 —— 手机上「hover」就是点一下,亮出来要么把下面整列推下去,
+   要么盖住正文(加载中那一下这条也短暂是最后一条,实测压在正文上);旧消息要复制就长按选字。 */
+.gg-aw [data-slot="assistant-turn"] { position: relative; }
+.gg-aw [data-slot="assistant-turn"]:not([data-last]) [data-slot="aui_assistant-message-footer"] { display: none; }
+/* 还在跑的那一轮的最后一条(data-live,见 LiveTail):动作栏那一格换成一颗「正在回」的点,同官方 indicator(thread.aui @@@live-accent)。
+   那一格在这一层的最底下 30px(根用 -mb-7.5 pb-7.5 把自己的留白还掉了)。 */
+.gg-aw [data-slot="assistant-turn"][data-live] .aui-assistant-action-bar-root { visibility: hidden; }
+.gg-aw .gg-aw-live-tail-dot {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0;
+  height: 1.875rem;
+  padding-top: 0.375rem;
+  display: flex;
+  align-items: center;
+  color: var(--live);
+  animation: gg-aw-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes gg-aw-live-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .gg-aw .gg-aw-live-tail-dot { animation: none; } }
+
+/* 用户那句的气泡在手机上留够宽:官方模板左边给 minmax(72px,1fr) 的空列,桌面宽屏无感,
+   手机 366px 宽的线程里气泡只剩 246px(实测),长一点的话就被挤成又窄又高的一条。左边只留 2rem 的「这是我说的」缩进。 */
+.gg-aw [data-slot="aui_user-message-root"] { grid-template-columns: minmax(2rem, 1fr) auto; }

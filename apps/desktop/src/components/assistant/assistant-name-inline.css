@@ -1,0 +1,12 @@
+.assistant-name-inline { display: inline-flex; flex-direction: column; min-width: 0; max-width: 100%; vertical-align: middle; }
+.assistant-name-display, .assistant-name-input { font: inherit; color: inherit; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; min-width: 0; }
+.assistant-name-display { height: auto; min-height: var(--control-h-sm); justify-content: flex-start; text-align: inherit; white-space: normal; overflow-wrap: anywhere; }
+.assistant-name-input { width: 100%; outline: none; border-bottom: 1px solid var(--border); }
+.assistant-name-input:focus { border-bottom-color: var(--fg); }
+.assistant-name-error { color: var(--danger); font-size: var(--font-body); font-weight: normal; }
+
+.assistant-name-title, .assistant-name-editor { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; max-width: 100%; }
+.assistant-name-text { min-width: 0; overflow-wrap: anywhere; cursor: text; user-select: none; }
+.assistant-name-editor .assistant-name-input { width: 180px; max-width: 100%; min-width: 0; flex: 1; }
+.assistant-name-title > .gg-icon-btn { color: var(--muted-fg); flex-shrink: 0; }
+.assistant-name-editor > .gg-icon-btn { flex-shrink: 0; }

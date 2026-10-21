@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:allowBackup="true"
+        android:usesCleartextTraffic="${guguUsesCleartextTraffic}"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- product spec —— 别的 App 的「分享」选咕咕(SEND / SEND_MULTIPLE),
+                 与微信对文件的「用其他应用打开」(VIEW content://)。收下之后做什么由页面决定,
+                 见 GuguSharePlugin。VIEW 那一条在系统的「打开方式」里叫「发送到咕咕」:它不是查看器,
+                 选它 = 把文件发进某条会话,名字要把这件事说清。
+                 VIEW 只认真文件的五个大类,❌ */*:*/* 连文件夹、存储根(vnd.android.document/*)都会匹配,
+                 在「文件」里点开一个文件夹也会弹「用发送到咕咕打开」(模拟器实测)。代价:类型写成 */* 的
+                 intent 不再列出咕咕(同一台模拟器实测);微信、QQ 的「用其他应用打开」按扩展名给具体类型,
+                 常见文件(文档/压缩包/图片/音视频/文本)都落在这五类里。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/share_target_open_with">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+
+            <!-- @@@server-login-app-link —— `gugu-server login` 打出的确认链接直接进咕咕:页面里以 App 自己的登录批准那台机器
+                 (apps/desktop/src/lib/inAppLinks.ts → mobile/server-login),不再走网页的邮箱验证码。主机 = 这个包连的库
+                 (build.gradle 的 guguDbHost)。autoVerify:系统装包时去读那个域名的 /.well-known/assetlinks.json,包名 + 签名对上
+                 才把链接交给咕咕(文件在 nmhjklnm/gugu-supabase deploy/app-links);对不上 = 链接照旧在浏览器里打开确认页。 -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="${guguDbHost}" />
+                <data android:path="/functions/v1/server-login" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- product spec —— 「后台守着」的那条常驻通知就是这个服务挂出来的。
+             为什么非要一个前台服务:实测(安卓 16 模拟器)按 HOME 之后 5 秒起,页面里每一次网络请求
+             都在 5～24 毫秒内被系统当场拒掉(不是超时),再过约 55 秒连页面里的定时器都不跳了 ——
+             于是 agent 干完那一刻的推送根本到不了这台手机。前台服务是系统给的唯一交换条件:
+             挂一条用户看得见的常驻通知,换一条不会被掐的连接。
+             插件自带的用途说明写的是它作者的场景(SIP 服务器),这句话系统与应用商店都会读,
+             所以换成咕咕自己的;同时去掉插件声明里的 microphone —— 咕咕在后台不录音。 -->
+        <service
+            android:name="ar.com.anura.plugins.backgroundmode.BackgroundModeService"
+            android:foregroundServiceType="specialUse"
+            tools:replace="android:foregroundServiceType">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the realtime link to the user&apos;s own machines alive while the app is in the background, so an agent finishing or asking a question reaches the phone."
+                tools:replace="android:value" />
+        </service>
+
+        <!-- #7199 手机当设备 ——「读通知」。用户在系统「通知使用权」里给了咕咕之后,系统把新通知交给它;
+             只在云电脑上的助理调「读通知」时交出去,只留在内存里,❌ 落盘、❌ 上传。见 GuguNotificationListener。 -->
+        <service
+            android:name=".GuguNotificationListener"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- #7199 健康 —— Health Connect 要求:授权页上「隐私权政策」点进来要有一页说清怎么用这些数据,
+             安卓 14 起经 VIEW_PERMISSION_USAGE + HEALTH_PERMISSIONS 这条 alias 找到它;没有它系统不给授权。 -->
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:label="@string/health_rationale_title"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".HealthRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- @@@scan (#537-A) - native QR scan to add friend / join group -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- product spec - system notifications (agent finished / waiting, chat messages).
+         Runtime permission on Android 13+; asked only after a user action, never at launch. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- product spec - 「后台守着」。前三项由前台服务用(specialUse 类型不受安卓 15
+         给 dataSync 的「每天 6 小时」上限);第四项是让用户把咕咕移出电池优化名单的申请入口,
+         它在「权限」页里是单独一行 —— 少了它,部分厂商的系统仍会在息屏后掐掉这条连接。
+         这四项插件自己的清单也声明了,这里写出来是为了让「咕咕要了哪些权限」在一个文件里数得清。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- product spec —— 应用内更新(GuguAppUpdatePlugin)。第一项让咕咕能把下好的新版交给
+         系统安装器:装之前系统仍会问用户一次,第一次还要用户在系统里允许咕咕「安装未知应用」——
+         不经应用商店的包,安卓只给这一条路,也只该有这一条路(装不装由用户按)。
+         第二项只用来问「现在走的是不是流量」:走流量时不替用户做主去下几十 MB 的包。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- #7199 手机当设备 —— 云电脑上的助理调这台手机的单个动作。每一项都只在用户在「手机当设备」页
+         打开对应那一组、并点「去授权」时才向系统要,❌ 启动时要:
+         日历(查 / 建 / 改 / 删日程)、通讯录(只读)、定位(取当前位置;「始终允许」只用于咕咕在后台时也能取)、
+         勿扰权限(开关勿扰)、设闹钟(交给系统时钟 App,不需要运行时授权)。读通知走上面那个服务,不是这里的权限。 -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- #7504 用户按类别主动授权后的只读数据；不发送短信、不监听来信、不启动录音。 -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- #7199 健康 —— 读 Health Connect(安卓 14 起系统自带),只读这十二类(与 HealthTypes.PERMISSIONS 一一对应);同样只在用户打开「健康」那一组并点「连接」时才要。
+         最后一条是咕咕不在前台时也能读(安卓 15 起;助理多半在人没开咕咕时问)。 -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_BODY_FAT" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+    <!-- #7199 语音笔记 —— 手机上录会议 / 语音(「+ → 录制语音笔记」)。WebView 的 getUserMedia 经 Capacitor 的
+         BridgeWebChromeClient 要这两项:RECORD_AUDIO 是运行时权限(第一次点录音时系统弹框,不是启动时要),
+         MODIFY_AUDIO_SETTINGS 是普通权限 —— BridgeWebChromeClient 对「音频采集」一并请求这两项,清单里少一项,
+         另一项给了整次请求也算被拒。只在咕咕在前台时录:「后台守着」的前台服务不带 microphone 类型(见上面那段说明)。
+         没有麦克风的设备也能装(录音那一项自己报没有麦克风)。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+    <!-- 安卓 11 起看不见别的 App:不写这两条,「有没有时钟 App 能设闹钟」永远答「没有」。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+    </queries>
+
+    <!-- @capacitor/local-notifications declares exact-alarm scheduling. Gugu only posts right away
+         (isExactNotification: false), so drop a permission nothing uses. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
+    <!-- 同理:那个插件还声明了开机广播,用来在重启后重排「定时」通知 —— 咕咕一条都不排。
+         而 product spec 明写不做开机自启,留着它会让「咕咕要了哪些权限」这份清单
+         与那句话当面矛盾:审的人看到的是权限,不是我们没用它。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
+</manifest>

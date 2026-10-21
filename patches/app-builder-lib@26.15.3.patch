@@ -1,0 +1,73 @@
+# gugu: the NSIS installer/uninstaller must not close processes of a sibling install.
+# Stock 26.15.3 matches running processes with $_.Path.StartsWith('$INSTDIR') and no separator, so the
+# production installer (C:\Program Files\gugu) also closes Beta (C:\Program Files\gugu-beta\...) and
+# acceptance builds (gugu-acceptance-*) — on install, on update (the old version's uninstaller runs the
+# same check), and on uninstall.
+#
+# Source: electron-builder PR #10024, merge commit 8e95ad0e00c866c8389ae295ac802ebd9954d2ca. Only its
+# prefix half is taken, line for line: trim trailing backslashes from $INSTDIR, then match '<dir>\'.
+# Not taken: the registry InstallLocation matching (#10022) and the single-quote escaping — other bugs,
+# not hit here.
+#
+# DELETE this patch (and its line in package.json pnpm.patchedDependencies) when electron-builder is
+# upgraded to a release that contains #10024 (27.x, or a 26.x that backports it). Bumping app-builder-lib
+# away from 26.15.3 makes pnpm install fail on this unused patch, so it cannot be left behind silently.
+diff --git a/templates/nsis/include/allowOnlyOneInstallerInstance.nsh b/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
+index a5cb3fe536a9fe95a95ac796f92a27f62d9762cc..306563453aad5b1d2b5ed48a918e85d65f788aaf 100644
+--- a/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
++++ b/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
+@@ -29,11 +29,36 @@
+   launch:
+ !macroend
+ 
++# strips trailing backslashes from the path in register _VAR (_TEMP is scratch), so that the
++# single separator the caller appends cannot become a double backslash that never matches
++!macro TRIM_TRAILING_BACKSLASHES _VAR _TEMP
++  ${Do}
++    StrCpy ${_TEMP} ${_VAR} 1 -1
++    ${if} ${_TEMP} != "\"
++      ${Break}
++    ${endIf}
++    StrCpy ${_VAR} ${_VAR} -1
++  ${Loop}
++!macroend
++
+ !macro CHECK_APP_RUNNING
+   Var /GLOBAL CmdPath
+   Var /GLOBAL PowerShellPath
++  Var /GLOBAL processPathFilter
+   StrCpy $CmdPath "$SYSDIR\cmd.exe"
+   StrCpy $PowerShellPath "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
++  Push $R8
++  Push $R9
++  # PowerShell filter matching processes running from the installation directory
++  # (trailing backslash so that a sibling directory with the same prefix is not matched).
++  # $R8 = $INSTDIR with any trailing backslashes stripped ($INSTDIR can carry one, e.g. from
++  # /D=C:\path\ or a registry-restored install location, and the appended separator below
++  # would then become a never-matching double backslash)
++  StrCpy $R8 $INSTDIR
++  !insertmacro TRIM_TRAILING_BACKSLASHES $R8 $R9
++  StrCpy $processPathFilter "$$_.Path.StartsWith('$R8\', 'CurrentCultureIgnoreCase')"
++  Pop $R9
++  Pop $R8
+   !ifmacrodef customCheckAppRunning
+     !insertmacro customCheckAppRunning
+   !else
+@@ -63,7 +88,7 @@
+ 
+ !macro FIND_PROCESS _FILE _RETURN
+   ${if} $IsPowerShellAvailable == 0
+-    nsExec::Exec `"$PowerShellPath" -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')}).Count -gt 0) { exit 0 } else { exit 1 }"`
++    nsExec::Exec `"$PowerShellPath" -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)}).Count -gt 0) { exit 0 } else { exit 1 }"`
+     Pop ${_RETURN}
+   ${else}
+     !ifdef INSTALL_MODE_PER_ALL_USERS
+@@ -91,7 +116,7 @@
+   ${endIf}
+ 
+   ${if} $IsPowerShellAvailable == 0
+-    nsExec::Exec `"$PowerShellPath" -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId $0 }"`
++    nsExec::Exec `"$PowerShellPath" -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)} | % { Stop-Process -Id $$_.ProcessId $0 }"`
+   ${else}
+     !ifdef INSTALL_MODE_PER_ALL_USERS
+       nsExec::Exec `taskkill /IM "${_FILE}" /FI "PID ne $pid"`

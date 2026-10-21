@@ -1,0 +1,906 @@
+/*
+ * #7199 「助理」App 的样子:
+ * 左边一整列就是和它的聊天(头像 + 名字胶囊、搜索 / 齿轮、圆角输入条),右边一块半透明的大圆角面板
+ * (胶囊分段标签、往下钻有返回箭头、右上收起)。数值按 1280 宽定、都写成 CSS 变量,
+ * 深色(咕咕默认)在下面,浅色接 [data-theme='light']。
+ * 这一份也给壳 portal 进来的组件换衣服:聊天面(.ta-chat)、设置原语(.gg-settings-*,在 .ta-skin 里)——
+ * 那些组件的逻辑与数据照用,样子在这里管(设置里的兼容入口不受影响:选择器都挂在 .ta-app 下面)。
+ * 手机壳里的助理 App(mobile/assistant)根节点是 .ta-phone:同一组变量、同一套卡片,页面骨架在 assistant-phone.css。
+ */
+
+.ta-app,
+.ta-dialog,
+.ta-phone,
+[data-ta-menu],
+[data-ta-scope] {
+  /* 渐变底与玻璃卡片;品牌色仍由助理的主题色提供。 */
+  --ta-tint-h: var(--tint, 268);
+  --ta-tint: oklch(0.74 0.1 var(--ta-tint-h));
+  --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 13%, transparent);
+  --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 20%, transparent);
+  --ta-tint-ink: color-mix(in oklab, var(--ta-tint) 78%, var(--fg));
+  --ta-app-bg: linear-gradient(180deg, #14171c 0%, #17181b 60%, #1b1916 100%);
+  --ta-panel-bg: linear-gradient(180deg, #1f2c3d 0%, #23283a 45%, #2a2531 70%, #33271f 100%);
+  --ta-panel-border: rgba(255, 255, 255, 0.08);
+  --ta-glass: rgba(255, 255, 255, 0.1);
+  --ta-glass-strong: rgba(255, 255, 255, 0.16);
+  --ta-glass-hover: rgba(255, 255, 255, 0.14);
+  /* 玻璃(bg 白 60% / 暗 10% + 背景模糊 20px + 顶沿一道高光 + 1px 白描边):
+     卡片、列表、分段、对话框、浮层一律吃这一组(--ta-glass-fx 是描边 + 高光两层 inset 阴影),❌ 逐页自己写一份。 */
+  --ta-glass-blur: 20px;
+  --ta-glass-edge: rgba(255, 255, 255, 0.2);
+  --ta-glass-top: rgba(255, 255, 255, 0.08);
+  --ta-glass-fx: inset 0 0 0 1px var(--ta-glass-edge), inset 0 1px 1px var(--ta-glass-top);
+  /* 尺寸(owner 10-16「整体偏大了,和咕咕现有的不统一」):
+     字阶与触控尺寸沿用咕咕,卡片、面板和胶囊形状是助理 App 自己的。
+     页里一律读下面这组变量。 */
+  --ta-fs-page: var(--font-title);          /* 页标题 = 咕咕 pane 标题 15/22 600 */
+  --ta-lh-page: var(--lh-title);
+  --ta-fs-title: var(--font-title);         /* 卡片标题 / 弹窗标题 15/22 */
+  --ta-lh-title: var(--lh-title);
+  --ta-fs-section: var(--font-caption);     /* 分区标题 = 咕咕 SectionLabel 11/16 600 */
+  --ta-lh-section: var(--lh-caption);
+  --ta-fs-row: var(--font-body);            /* 行标题 13/20 500(手机壳 --font-body 是 14) */
+  --ta-lh-row: var(--lh-body);
+  --ta-fs-sub: var(--font-body);            /* 行说明 / 说明段 / 按钮同一档 */
+  --ta-lh-sub: var(--lh-body);
+  --ta-fs-note: var(--font-body);
+  --ta-lh-note: var(--lh-body);
+  --ta-fs-btn: var(--font-body);
+  --ta-lh-btn: var(--lh-body);
+  --ta-h-control: var(--control-h-sm);      /* 按钮 / 胶囊 / 分段按钮高度 28 */
+  --ta-h-circle: var(--control-h-md);       /* 圆形图标钮 32 */
+  --ta-h-top: 52px;                         /* 面板顶栏 = 咕咕 PaneHeader 高 */
+  --ta-pad-card: var(--spacing-lg);         /* 卡片内边距 16 */
+  --ta-pad-row-y: var(--spacing-md);        /* 行内边距 12 / 16 */
+  --ta-pad-row-x: var(--spacing-lg);
+  --ta-seg-bg: rgba(255, 255, 255, 0.08);
+  --ta-seg-active: rgba(255, 255, 255, 0.14);
+  --ta-circle-bg: rgba(255, 255, 255, 0.1);
+  --ta-circle-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --ta-divider: rgba(255, 255, 255, 0.08);
+  --ta-composer-bg: rgba(255, 255, 255, 0.08);
+  --ta-composer-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --ta-bubble-mine: rgba(255, 255, 255, 0.1);
+  --ta-bubble-other: rgba(255, 255, 255, 0.06);
+  --ta-chip-bg: var(--ta-tint-soft);
+  --ta-chip-fg: var(--ta-tint-ink);
+  --ta-fg: var(--fg);
+  --ta-muted: var(--muted-fg);
+  --ta-faint: var(--faint-fg);
+  --ta-radius-panel: 20px;
+  --ta-radius-card: 24px;
+  --ta-radius-control: 999px;
+  --ta-radius-thread: 999px;
+}
+
+/* 手机壳:与咕咕手机壳同档 —— 页标题 20/28 600、行标题 15/22、触控 44(AGENTS.md「触控 ≥44px」)。 */
+.ta-phone {
+  --ta-fs-page: var(--font-size-xl);
+  --ta-lh-page: var(--lh-page);
+  --ta-fs-row: var(--font-title);
+  --ta-lh-row: var(--lh-title);
+  --ta-h-control: var(--control-h-touch);
+  --ta-h-circle: var(--control-h-touch);
+}
+
+.ta-app {
+  position: relative;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 8px;
+  background: var(--ta-app-bg);
+  color: var(--ta-fg);
+}
+
+[data-theme='light'] .ta-app,
+[data-theme='light'] .ta-dialog,
+[data-theme='light'] .ta-phone,
+[data-theme='light'] [data-ta-menu],
+[data-theme='light'] [data-ta-scope] {
+  /* 浅色:蓝到桃色的面板、半透明白色卡片。 */
+  --ta-app-bg: linear-gradient(180deg, #dfe6ec 0%, #e5e8ec 55%, #ecebe8 100%);
+  --ta-tint: oklch(0.62 0.12 var(--ta-tint-h));
+  --ta-tint-wash: color-mix(in oklab, var(--ta-tint) 11%, transparent);
+  --ta-tint-soft: color-mix(in oklab, var(--ta-tint) 14%, transparent);
+  --ta-tint-ink: color-mix(in oklab, var(--ta-tint) 85%, var(--fg));
+  --ta-panel-bg: linear-gradient(180deg, #a9c9ea 0%, #c5d8ef 30%, #e2e5f3 60%, #f4e6dc 80%, #fcd9b5 100%);
+  --ta-panel-border: rgba(255, 255, 255, 0.6);
+  --ta-glass: rgba(255, 255, 255, 0.6);
+  --ta-glass-strong: rgba(255, 255, 255, 0.78);
+  --ta-glass-hover: rgba(255, 255, 255, 0.72);
+  --ta-glass-edge: rgba(255, 255, 255, 0.55);
+  --ta-glass-top: rgba(255, 255, 255, 0.55);
+  --ta-glass-fx: inset 0 0 0 1px var(--ta-glass-edge), inset 0 1px 1px var(--ta-glass-top), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ta-seg-bg: rgba(255, 255, 255, 0.55);
+  --ta-seg-active: rgba(0, 0, 0, 0.07);
+  --ta-circle-bg: #fff;
+  --ta-circle-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --ta-divider: rgba(0, 0, 0, 0.07);
+  --ta-composer-bg: rgba(255, 255, 255, 0.92);
+  --ta-composer-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --ta-bubble-mine: rgba(0, 0, 0, 0.08);
+  --ta-bubble-other: #fff;
+}
+
+/* ── 左边:聊天这一列 ─────────────────────────────────────────────── */
+
+.ta-chat-col {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* 顶上那一排:中间头像 + 名字胶囊,右边圆钮。聊天面在它下面(.ta-chat 顶上留出这一排的高度)。 */
+.ta-chat-top {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+  pointer-events: none;
+}
+.ta-chat-top > * { pointer-events: auto; }
+.ta-chat-actions {
+  position: absolute;
+  top: 10px;
+  right: 6px;
+  display: flex;
+  gap: 8px;
+}
+
+.ta-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.ta-identity-name {
+  margin-top: -8px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-circle-bg);
+  box-shadow: var(--ta-circle-shadow);
+  padding: 4px 12px;
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  font-weight: 500;
+  color: var(--ta-fg);
+}
+
+.ta-circle {
+  display: inline-flex;
+  height: var(--ta-h-circle);
+  width: var(--ta-h-circle);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-circle-bg);
+  box-shadow: var(--ta-circle-shadow);
+  color: var(--ta-fg);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ta-circle:hover { background: var(--ta-glass-hover); }
+.ta-circle:active { transform: scale(0.96); }
+.ta-circle svg { width: 16px; height: 16px; }
+
+/* 收起面板之后:聊天居中,输入条限宽。 */
+.ta-app[data-panel='closed'] .ta-chat [data-chat-composer-row] { width: 100%; max-width: 800px; margin-inline: auto; }
+
+/* ── 壳画进来的聊天面:去掉自己的底色与头栏外的装饰,换助理 App 的气泡与输入条 ─────────── */
+
+.ta-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding-top: 68px;
+  --bubble-mine: var(--ta-bubble-mine);
+  --bubble-other: var(--ta-bubble-other);
+  --bubble-own: var(--ta-bubble-mine);
+  --bubble-agent: var(--ta-bubble-other);
+}
+.ta-chat > * { background: transparent !important; }
+.ta-chat [data-chat-area-header] { background: transparent !important; }
+/* 输入区那一块不要底色:输入条浮在渐变上;消息从头像那一排底下淡出来。 */
+.ta-chat [data-chat-composer] { background: transparent !important; padding: 8px 16px 16px !important; }
+/* 输入条上方那句说明(云电脑休眠中…):做成一行居中的小字胶囊,不抢输入条。 */
+.ta-chat [data-composer-notice] {
+  justify-content: center;
+  margin: 0 auto 8px !important;
+  width: fit-content;
+  border: 0 !important;
+  border-radius: var(--ta-radius-control) !important;
+  background: var(--ta-glass) !important;
+  padding: 4px 12px !important;
+  font-size: var(--font-caption) !important;
+}
+.ta-chat [data-testid='chat-message-list'] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+}
+
+/* 输入区复用聊天页的三段式组件与尺寸，多行输入不另套圆角容器。 */
+
+/* ── 右边:面板 ─────────────────────────────────────────────────── */
+
+.ta-panel {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ta-panel-border);
+  border-radius: var(--ta-radius-panel);
+  background: var(--ta-panel-bg);
+}
+.ta-panel-top {
+  position: relative;
+  display: flex;
+  height: var(--ta-h-top);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 12px;
+}
+.ta-panel-top > .ta-panel-back { position: absolute; left: 12px; }
+.ta-panel-top > .ta-panel-collapse { position: absolute; right: 12px; }
+.ta-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-2xl);
+}
+
+.ta-seg {
+  display: inline-flex;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--ta-seg-bg);
+  padding: 3px;
+  backdrop-filter: blur(var(--ta-glass-blur));
+  box-shadow: var(--ta-glass-fx);
+}
+.ta-seg button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 4px 14px;
+  min-height: var(--ta-h-control);
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  font-weight: 500;
+  color: var(--ta-muted);
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ta-seg button[aria-selected='true'] {
+  background: var(--ta-seg-active);
+  color: var(--ta-fg);
+}
+
+/* 页里的分段(任务 | 定时任务):一整条,选中那半是白底。 */
+.ta-seg-wide {
+  display: flex;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-seg-bg);
+  padding: 3px;
+  backdrop-filter: blur(var(--ta-glass-blur));
+  box-shadow: var(--ta-glass-fx);
+}
+.ta-seg-wide button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 4px 10px;
+  min-height: var(--ta-h-control);
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  font-weight: 500;
+  color: var(--ta-muted);
+  cursor: pointer;
+}
+.ta-seg-wide button[aria-selected='true'] {
+  background: var(--ta-glass-strong);
+  color: var(--ta-fg);
+}
+.ta-seg-wide svg { width: 14px; height: 14px; }
+
+/* ── 页面元件 ─────────────────────────────────────────────────── */
+
+.ta-page { display: flex; flex-direction: column; gap: var(--spacing-xl); min-width: 0; }
+.ta-page-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 4px; }
+.ta-page-title { margin: 0; font-size: var(--ta-fs-page); line-height: var(--ta-lh-page); font-weight: 600; color: var(--ta-fg); }
+.ta-page-sub { margin: 2px 0 0; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--ta-muted); }
+.ta-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ta-section-title { margin: 0; padding-inline: 4px; font-size: var(--ta-fs-section); line-height: var(--ta-lh-section); font-weight: 600; color: var(--ta-muted); }
+
+.ta-card {
+  min-width: 0;
+  border-radius: var(--ta-radius-card);
+  background: var(--ta-glass);
+  padding: var(--ta-pad-card);
+}
+.ta-card-list {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--ta-radius-card);
+  background: var(--ta-glass);
+  padding: 0;
+}
+/* 玻璃:卡片、列表、方块、壳画进来的设置卡同一份。 */
+.ta-card,
+.ta-card-list,
+.ta-tile,
+.ta-skin .gg-settings-card {
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+  box-shadow: var(--ta-glass-fx);
+}
+
+.ta-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  padding: var(--ta-pad-row-y) var(--ta-pad-row-x);
+  min-height: var(--control-h-touch);
+  text-align: left;
+  color: var(--ta-fg);
+  min-width: 0;
+}
+button.ta-row, a.ta-row { cursor: pointer; }
+button.ta-row:hover, a.ta-row:hover { background: var(--ta-glass-hover); }
+/* 分隔线只给纯文字行,左右缩进到文字那一列(设置页);带图标的行之间不画线(连接应用 / 任务)。 */
+.ta-row + .ta-row[data-divided]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--ta-pad-row-x);
+  right: var(--ta-pad-row-x);
+  border-top: 1px solid var(--ta-divider);
+}
+.ta-row-body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.ta-row-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-row-sub { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-row-meta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-faint); }
+.ta-row-chevron { flex-shrink: 0; color: var(--ta-faint); }
+.ta-row-chevron svg { width: 16px; height: 16px; }
+
+.ta-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 4px 12px;
+  min-height: var(--ta-h-control);
+  font-size: var(--ta-fs-btn);
+  line-height: var(--ta-lh-btn);
+  font-weight: 500;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.ta-pill-btn:hover { background: var(--ta-glass-hover); }
+.ta-pill-btn svg { width: 14px; height: 14px; }
+.ta-pill-btn[data-tone='danger'] { color: var(--danger); }
+
+.ta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-chip-bg);
+  padding: 4px 12px;
+  min-height: var(--ta-h-control);
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  color: var(--ta-chip-fg);
+  cursor: pointer;
+}
+.ta-chip svg { width: 14px; height: 14px; }
+
+.ta-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  font-size: var(--ta-fs-sub);
+  line-height: var(--ta-lh-sub);
+  color: var(--ta-muted);
+}
+.ta-empty-title { font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); font-weight: 600; color: var(--ta-fg); }
+
+/* 卡片网格(记忆「全部」、日记):两列。 */
+.ta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ta-tile {
+  display: flex;
+  min-height: 104px;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--ta-radius-card);
+  background: var(--ta-glass);
+  padding: var(--spacing-md) var(--ta-pad-card);
+  text-align: left;
+  color: var(--ta-fg);
+  cursor: pointer;
+  min-width: 0;
+}
+.ta-tile:hover { background: var(--ta-glass-hover); }
+.ta-tile-title { font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-tile-sub { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--ta-muted); }
+.ta-tile-preview {
+  border-top: 1px solid var(--ta-divider);
+  padding-top: 8px;
+  font-size: var(--ta-fs-sub);
+  line-height: var(--ta-lh-sub);
+  color: var(--ta-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ta-tile-icon { display: inline-flex; height: var(--ta-h-circle); width: var(--ta-h-circle); align-items: center; justify-content: center; border-radius: var(--ta-radius-control); background: var(--ta-glass-strong); color: var(--ta-muted); }
+.ta-tile-icon svg { width: 18px; height: 18px; }
+
+/* 资料页顶上那一截(头像、名字、陪伴、性格胶囊)。 */
+.ta-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; text-align: center; }
+.ta-hero-avatar { position: relative; margin-bottom: 8px; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.ta-hero-edit {
+  position: absolute;
+  right: -2px;
+  bottom: 2px;
+  display: inline-flex;
+  height: 24px;
+  width: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--ta-circle-bg);
+  box-shadow: var(--ta-circle-shadow);
+  color: var(--ta-fg);
+}
+.ta-hero-edit svg { width: 12px; height: 12px; }
+.ta-hero-name { margin: 0; font-size: var(--font-size-xl); line-height: var(--lh-page); font-weight: 600; color: var(--ta-fg); }
+.ta-hero-since { margin: 0; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); }
+
+/* 日记卡(资料页、日记页):左边一张小日历。 */
+.ta-diary { display: flex; gap: 16px; text-align: left; }
+.ta-diary-cal { display: flex; height: 48px; width: 42px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-radius: var(--ta-radius-control); background: var(--ta-glass-strong); text-align: center; }
+.ta-diary-cal span:first-child { padding: 3px 0; font-size: 11px; color: var(--ta-muted); border-bottom: 1px solid var(--ta-divider); }
+.ta-diary-cal span:last-child { padding-top: 3px; font-size: var(--font-title); color: var(--ta-fg); }
+
+/* 状态点(云电脑):运行中实心、休眠空心、唤醒中闪。 */
+.ta-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--ta-fs-sub); color: var(--ta-muted); }
+
+/* 往下钻那几页里的 markdown 正文。 */
+.ta-prose { font-size: var(--ta-fs-row); line-height: 1.6; color: var(--ta-fg); overflow-wrap: anywhere; }
+.ta-prose h1, .ta-prose h2, .ta-prose h3 { margin: 0.8em 0 0.4em; font-size: var(--ta-fs-title); font-weight: 600; }
+.ta-prose p { margin: 0.4em 0; }
+.ta-prose ul, .ta-prose ol { margin: 0.4em 0; padding-left: 1.3em; }
+
+/* ── 壳画进来的设置风格组件(聊天工具、设备、能做的事):在面板里换助理 App 的卡与行 ─────────── */
+
+.ta-skin .gg-settings-page { gap: var(--spacing-xl); }
+.ta-profile-connectors .ta-connector-location-note { display: none; }
+.ta-app .ta-skin [data-session-settings-section],
+.ta-phone .ta-skin [data-session-settings-section] { background: transparent; }
+.ta-skin .ta-connector-tabs > [role='tablist'] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 0; border-radius: calc(var(--ta-radius-panel) / 2); background: var(--ta-seg-bg); }
+.ta-skin .ta-connector-tabs [role='tab'] { justify-content: center; min-width: 0; min-height: var(--ta-h-control); margin: 0; padding: 4px 8px; border: 0; border-radius: calc(var(--ta-radius-panel) / 2); }
+.ta-skin .ta-connector-tabs [aria-selected='true'] { background: var(--ta-glass-strong); color: var(--ta-fg); }
+.ta-skin .gg-settings-group { gap: 8px; }
+.ta-skin .gg-section-label,
+.ta-skin .gg-settings-group > h3,
+.ta-skin .gg-settings-group > header { padding-inline: 4px; font-size: var(--ta-fs-section); line-height: var(--ta-lh-section); font-weight: 600; color: var(--ta-muted); }
+.ta-skin .gg-settings-card {
+  border: 0;
+  border-radius: var(--ta-radius-card);
+  background: var(--ta-glass);
+  padding: 0;
+}
+.ta-skin div.gg-settings-row { position: relative; padding: var(--ta-pad-row-y) var(--ta-pad-row-x); min-height: var(--control-h-touch); }
+/* 与 .ta-row 同一条规矩:纯文字行之间一条缩进的线,带图标的行之间不画。 */
+.ta-skin .gg-settings-row + .gg-settings-row { border-top: 0; }
+.ta-skin .gg-settings-row + .gg-settings-row:not(:has(> .gg-settings-row-leading))::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--ta-pad-row-x);
+  right: var(--ta-pad-row-x);
+  border-top: 1px solid var(--ta-divider);
+}
+/* 行尾的按钮:咕咕按钮的圆角(control),不是胶囊。 */
+.ta-skin .gg-settings-row-control button { border-radius: var(--ta-radius-control); padding-inline: 12px; }
+/* 主按钮(连接 / 现在叫醒 / 看用量…)是一颗浅色胶囊(❌ 咕咕的黑底主钮);危险操作留它自己的红色。 */
+.ta-skin .gg-settings-row-control button:not([data-variant='danger']) {
+  border: 0;
+  background: var(--ta-glass-strong);
+  color: var(--ta-fg);
+  font-weight: 500;
+}
+.ta-skin .gg-settings-row.gg-row:hover { background: var(--ta-glass-hover); }
+.ta-skin .gg-settings-row-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; }
+.ta-skin .gg-settings-row-description { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); }
+.ta-skin .gg-settings-row-value { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); }
+.ta-skin .gg-settings-note { padding-inline: 4px; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); }
+/* 行尾的按钮与小标记(「即将推出」)也落在同一档字阶上。 */
+.ta-skin .gg-settings-row-control button { font-size: var(--ta-fs-btn); line-height: var(--ta-lh-btn); min-height: var(--ta-h-control); }
+.ta-skin .gg-settings-row-control [data-chip],
+.ta-skin .gg-settings-row-control .gg-chip { font-size: 11px; line-height: 16px; }
+.ta-pad { padding-inline: 4px; }
+.ta-chip-off { background: var(--ta-seg-active); color: var(--ta-muted); }
+.ta-card-text { margin: 0; padding: var(--spacing-md) var(--ta-pad-card); white-space: pre-wrap; }
+.ta-unseen { display: inline-block; height: 7px; width: 7px; border-radius: 999px; background: #1f8cff; }
+.ta-radio { display: inline-block; height: 20px; width: 20px; border-radius: 999px; border: 1.5px solid var(--ta-faint); }
+.ta-radio[data-on] { border-color: var(--ta-muted); }
+.ta-crown { width: 22px; height: 22px; color: #f09a3e; }
+.ta-card-title { margin: 8px 0 2px; font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); font-weight: 600; color: var(--ta-fg); }
+.ta-card-divider { margin: 12px 0; height: 1px; background: var(--ta-divider); }
+.ta-about-list { margin: 0; padding-left: 1.1em; }
+.ta-about-list button { border: 0; background: transparent; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.ta-banner { display: flex; align-items: center; gap: 12px; padding: var(--spacing-md) var(--ta-pad-card); font-size: var(--ta-fs-sub); }
+.ta-banner-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--ta-muted); }
+.ta-file-icon { width: 20px; height: 20px; color: var(--ta-muted); }
+
+/* 「自定义」对话框:大圆角、右上圆形关闭、底部一整条黑色「保存」。 */
+.ta-dialog {
+  border-radius: var(--radius-xl) !important;
+  background: var(--ta-glass-strong) !important;
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
+  box-shadow: var(--ta-glass-fx), 0 24px 64px rgba(0, 0, 0, 0.24) !important;
+  color: var(--ta-fg);
+}
+[data-theme='light'] .ta-dialog { background: rgba(248, 249, 251, 0.8) !important; }
+/* 浮出来的菜单(portal 到 body,不在 .ta-app 里):带 data-ta-menu 的那一份也是玻璃。 */
+[data-ta-menu] {
+  background: var(--ta-glass-strong) !important;
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+  box-shadow: var(--ta-glass-fx), 0 12px 32px rgba(0, 0, 0, 0.18) !important;
+  border: 0 !important;
+}
+[data-theme='light'] [data-ta-menu] { background: rgba(250, 250, 252, 0.82) !important; }
+.ta-dialog-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); font-weight: 600; }
+.ta-field-label { font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--ta-muted); padding-inline: 4px; }
+.ta-input {
+  width: 100%;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 8px 12px;
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-row);
+  color: var(--ta-fg);
+  outline: none;
+}
+.ta-input:focus { box-shadow: 0 0 0 2px var(--ta-divider); }
+textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
+.ta-wide-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 0 var(--spacing-lg);
+  min-height: var(--control-h-lg);
+  font-size: var(--ta-fs-row);
+  font-weight: 500;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.ta-wide-btn[data-tone='primary'] { background: var(--ta-fg); color: var(--bg, #fff); font-weight: 500; }
+.ta-wide-btn:disabled { opacity: 0.5; cursor: default; }
+.ta-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ta-chips button {
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 4px 12px;
+  min-height: var(--ta-h-control);
+  font-size: var(--ta-fs-row);
+  color: var(--ta-muted);
+  cursor: pointer;
+}
+.ta-chips button[aria-pressed='true'] { background: var(--ta-chip-bg); color: var(--ta-chip-fg); }
+
+/* 没开云电脑 / 正在开:整页居中一块,上面一团柔光(欢迎页那团球)。 */
+.ta-centered { align-items: center; justify-content: center; }
+.ta-intro { display: flex; width: min(460px, 100%); flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.ta-intro-glow {
+  height: 96px;
+  width: 96px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, var(--ta-glass-strong) 0%, var(--ta-tint-soft) 60%, var(--ta-tint-wash) 100%);
+  box-shadow: 0 10px 40px var(--ta-tint-wash);
+}
+.ta-intro-title { margin: 4px 0 0; font-size: var(--font-size-xl); line-height: var(--lh-page); font-weight: 600; color: var(--ta-fg); }
+.ta-intro-body { margin: 0; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); }
+.ta-connector-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: var(--spacing-2xl) var(--ta-pad-card); text-align: center; }
+.ta-solid-btn {
+  margin-top: 8px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-fg);
+  padding: 0 var(--spacing-lg);
+  min-height: var(--control-h-md);
+  font-size: var(--ta-fs-row);
+  line-height: var(--ta-lh-btn);
+  font-weight: 500;
+  color: var(--bg, #fff);
+  cursor: pointer;
+}
+.ta-solid-btn:disabled { opacity: 0.5; cursor: default; }
+.ta-ok { color: #22a35a; }
+.ta-today-hello { display: flex; flex-direction: column; gap: 6px; padding: var(--spacing-2xl) var(--spacing-lg); }
+.ta-today-brief { display: flex; width: 100%; align-items: center; gap: 14px; border: 0; color: var(--ta-fg); cursor: pointer; text-align: left; }
+.ta-today-brief:hover { background: var(--ta-glass-hover); }
+/* today.json 画出来的:小组件一张、简报里一张卡(标题 + 一段 markdown + 问问它)。 */
+.ta-today-cards { display: flex; flex-direction: column; gap: 8px; }
+.ta-today-widget,
+.ta-today-card { display: flex; flex-direction: column; gap: 8px; }
+.ta-today-widget .ta-tile-title,
+.ta-today-card .ta-tile-title { white-space: normal; }
+
+/* 健康页(assistant-health.tsx):关键指标小卡(值、基线状态、7 天小柱)、昨晚的分期条、读不到时那张卡。 */
+.ta-app {
+  --ta-health-good: #4cc38a;
+  --ta-health-ok: var(--ta-muted);
+  --ta-health-warn: #f2b06a;
+  --ta-health-bad: #f0716b;
+  --ta-health-bar: rgba(255, 255, 255, 0.16);
+  --ta-health-bar-latest: #7cb7ff;
+  --ta-stage-deep: #5b6cf0;
+  --ta-stage-light: #7cb7ff;
+  --ta-stage-rem: #b48cf2;
+  --ta-stage-awake: #f2b06a;
+  --ta-stage-asleep: #6fa8dc;
+}
+[data-theme='light'] .ta-app {
+  --ta-health-good: #1f9d63;
+  --ta-health-warn: #c96a0c;
+  --ta-health-bad: #d4453e;
+  --ta-health-bar: rgba(0, 0, 0, 0.1);
+  --ta-health-bar-latest: #2f7de1;
+}
+.ta-health-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ta-health-line { font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); }
+.ta-health-metric { min-height: 136px; cursor: default; }
+.ta-health-metric:hover { background: var(--ta-glass); }
+.ta-health-metric-icon { display: inline-flex; color: var(--ta-muted); }
+.ta-health-metric-icon svg { width: 16px; height: 16px; }
+.ta-health-value { font-size: var(--font-heading); line-height: var(--lh-heading); font-weight: 600; }
+.ta-health-status { font-weight: 500; }
+.ta-health-status[data-tone='good'] { color: var(--ta-health-good); }
+.ta-health-status[data-tone='ok'] { color: var(--ta-health-ok); }
+.ta-health-status[data-tone='warn'] { color: var(--ta-health-warn); }
+.ta-health-status[data-tone='bad'] { color: var(--ta-health-bad); }
+.ta-health-bars { display: flex; height: 36px; align-items: flex-end; gap: 4px; margin-top: auto; }
+.ta-health-bar { flex: 1 1 0; min-width: 0; border-radius: 3px; background: var(--ta-health-bar); }
+.ta-health-bar[data-latest] { background: var(--ta-health-bar-latest); }
+.ta-health-bar[data-empty] { opacity: 0.4; }
+.ta-health-stages { display: flex; height: 10px; overflow: hidden; border-radius: 5px; gap: 2px; }
+.ta-health-stages > span { flex-basis: 0; min-width: 2px; }
+.ta-health-stages > [data-stage='deep'], .ta-health-dot[data-stage='deep'] { background: var(--ta-stage-deep); }
+.ta-health-stages > [data-stage='light'], .ta-health-dot[data-stage='light'] { background: var(--ta-stage-light); }
+.ta-health-stages > [data-stage='rem'], .ta-health-dot[data-stage='rem'] { background: var(--ta-stage-rem); }
+.ta-health-stages > [data-stage='awake'], .ta-health-dot[data-stage='awake'] { background: var(--ta-stage-awake); }
+.ta-health-stages > [data-stage='asleep_unstaged'], .ta-health-dot[data-stage='asleep_unstaged'] { background: var(--ta-stage-asleep); }
+.ta-health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; }
+
+/* ── 日记页:小卡左上一个小日历(上一条星期、下面几号),下面日期、三行预览。 ── */
+.ta-diary-tile { min-height: 136px; gap: 8px; }
+.ta-diary-day {
+  display: inline-flex;
+  width: 48px;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+}
+.ta-diary-weekday { width: 100%; background: var(--ta-seg-active); padding: 2px 0; text-align: center; font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--ta-muted); }
+.ta-diary-date { padding: 3px 0 5px; font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; color: var(--ta-fg); }
+.ta-diary-preview {
+  font-size: var(--ta-fs-sub);
+  line-height: var(--ta-lh-sub);
+  color: var(--ta-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 日程进展:头一行日历图标 + 小号大写标题、右边「来源」;一行 = 竖色条 + 标题 + 钟点 · 状态。 ── */
+.ta-day { display: flex; flex-direction: column; gap: 8px; padding: var(--spacing-md); }
+.ta-day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 2px; }
+.ta-day-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-caption); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ta-muted); }
+.ta-day-label svg { width: 15px; height: 15px; }
+.ta-day-source-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 2px 8px;
+  font-size: var(--font-caption);
+  color: var(--ta-muted);
+  cursor: pointer;
+}
+.ta-day-source-btn:hover { background: var(--ta-glass-hover); color: var(--ta-fg); }
+.ta-day-source-btn svg { width: 13px; height: 13px; }
+.ta-day-note { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 2px; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); color: var(--ta-muted); }
+.ta-day-note-title { font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); font-weight: 600; color: var(--ta-fg); }
+.ta-day-list { display: flex; flex-direction: column; gap: 2px; }
+.ta-day-row { border-radius: var(--ta-radius-control); }
+.ta-day-row[data-open] { background: var(--ta-glass); }
+.ta-day-row-line { display: flex; align-items: center; gap: 8px; }
+.ta-day-row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: stretch;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--ta-radius-control);
+  background: transparent;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.ta-day-row-main:hover { background: var(--ta-glass-hover); }
+.ta-day-bar { width: 4px; flex-shrink: 0; border-radius: 999px; background: var(--ta-tint); }
+.ta-day-ring { margin-top: 5px; height: 10px; width: 10px; flex-shrink: 0; border: 3px solid var(--ta-tint); border-radius: 999px; }
+.ta-day-body { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.ta-day-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-day-row[data-open] .ta-day-title { font-size: var(--ta-fs-title); line-height: var(--ta-lh-title); white-space: normal; }
+.ta-day-time { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--ta-muted); }
+.ta-day-row[data-status='soon'] .ta-day-status { color: #22a35a; }
+.ta-day-row[data-status='ending'] .ta-day-status { color: #e07b14; }
+.ta-day-row[data-status='now'] .ta-day-status { color: var(--ta-fg); }
+.ta-day-row[data-status='past'] .ta-day-title { color: var(--ta-muted); }
+.ta-day-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px 20px; }
+.ta-day-desc { margin: 0; font-size: var(--ta-fs-sub); line-height: var(--ta-lh-sub); white-space: pre-wrap; color: var(--ta-fg); }
+.ta-day-source { font-size: var(--font-caption); color: var(--ta-faint); }
+.ta-day-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ta-day-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--ta-divider);
+  border-radius: var(--ta-radius-control);
+  background: var(--ta-glass-strong);
+  padding: 2px 10px;
+  font-size: var(--font-caption);
+  line-height: 16px;
+  color: var(--ta-muted);
+  cursor: pointer;
+}
+.ta-day-btn svg { width: 13px; height: 13px; }
+.ta-day-btn[data-tone='primary'] { border-color: transparent; background: var(--ta-fg); color: var(--bg, #fff); font-weight: 500; }
+.ta-day-divider { display: flex; align-items: center; gap: 8px; padding: 6px 8px 2px; font-size: var(--font-caption); color: var(--ta-faint); }
+.ta-day-divider::after { content: ''; flex: 1; border-top: 1px solid var(--ta-divider); }
+.ta-day-more { display: inline-flex; align-self: center; align-items: center; gap: 4px; border: 0; background: transparent; padding: 6px 10px; font-size: var(--font-caption); color: var(--ta-muted); cursor: pointer; }
+.ta-day-more svg { width: 14px; height: 14px; }
+.ta-day-pop { display: flex; width: min(380px, calc(100vw - 32px)); flex-direction: column; gap: 12px; padding: var(--spacing-lg); box-shadow: var(--shadow-lift); }
+.ta-day-kinds { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ta-day-kinds li { display: flex; flex-direction: column; gap: 2px; border-radius: var(--ta-radius-control); background: var(--ta-glass); padding: var(--spacing-md) var(--ta-pad-card); }
+.ta-day-kinds .ta-tile-title { font-size: var(--ta-fs-title); }
+.ta-day-kind-from { font-size: var(--font-caption); color: var(--ta-faint); }
+
+/* ── 小组件:右上「…」(立即更新 / 修改 / 删除);正在写 / 没写成那一张淡一点。 ── */
+.ta-widget-more { display: inline-flex; height: 24px; width: 24px; flex-shrink: 0; align-items: center; justify-content: center; border: 0; border-radius: var(--ta-radius-control); background: transparent; color: var(--ta-muted); cursor: pointer; }
+.ta-widget-more:hover { background: var(--ta-glass-hover); color: var(--ta-fg); }
+.ta-widget-more svg { width: 16px; height: 16px; }
+.ta-today-widget[data-state='creating'],
+.ta-today-widget[data-state='failed'] { background: var(--ta-seg-bg); }
+
+/* ── 发现组件:推荐的起点三组 × 三张,底下一框「描述你想持续关注的内容…」和「添加组件」。 ── */
+.ta-discover { display: flex; min-height: 0; flex-direction: column; gap: var(--spacing-lg); }
+.ta-discover[data-layout='dialog'] { flex: 1; padding: var(--spacing-xl); }
+/* 对话框里只有推荐那几组滚,标题与底下的框、「添加组件」一直在眼前。 */
+.ta-discover[data-layout='dialog'] .ta-discover-groups { min-height: 0; flex: 1; overflow-y: auto; margin-inline: -6px; padding-inline: 6px; }
+.ta-discover-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-inline: 6px; }
+.ta-discover-groups { display: flex; flex-direction: column; gap: 16px; }
+.ta-discover-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ta-discover[data-layout='page'] .ta-discover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ta-discover-tile { align-items: flex-start; gap: 6px; border: 0; text-align: left; cursor: pointer; }
+.ta-discover-tile .ta-tile-title { font-size: var(--ta-fs-title); white-space: normal; }
+.ta-discover-tile[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--ta-chip-fg); }
+.ta-discover-compose { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── 灵感:输入框右上一颗白底渐变胶囊;面板里分组的卡,一张 = emoji + 两行标题 + 两行说明。 ── */
+.ta-chat-col[data-ideas-entry] [data-testid='chat-message-list'],
+.ta-phone-chat[data-ideas-entry] [data-testid='chat-message-list'] { padding-bottom: 56px; }
+.ta-phone-chat { position: relative; }
+.ta-ideas-pill {
+  position: absolute;
+  right: 21px;
+  z-index: 5;
+  display: inline-flex;
+  height: var(--control-h-md);
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ta-panel-border);
+  border-radius: var(--ta-radius-control);
+  background: linear-gradient(120deg, var(--ta-tint-wash), transparent), var(--ta-composer-bg);
+  box-shadow: var(--ta-composer-shadow);
+  padding: 0 12px;
+  font-size: var(--ta-fs-row);
+  font-weight: 500;
+  color: var(--ta-fg);
+  cursor: pointer;
+}
+.ta-ideas-pill:hover { background: linear-gradient(120deg, var(--ta-tint-soft), var(--ta-tint-wash)), var(--ta-composer-bg); }
+.ta-ideas-pill svg { width: 16px; height: 16px; }
+.ta-ideas { display: flex; min-height: 0; flex-direction: column; gap: 16px; }
+.ta-ideas[data-layout='dialog'] { flex: 1; overflow-y: auto; padding: 20px 24px 24px; }
+.ta-ideas[data-layout='page'] { padding: 12px 16px 24px; }
+.ta-ideas-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.ta-ideas-head > :first-child { justify-self: start; }
+.ta-ideas-head > :last-child { justify-self: end; }
+.ta-ideas-confirm { display: flex; flex-direction: column; gap: 8px; }
+.ta-ideas-groups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
+.ta-ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.ta-ideas[data-layout='page'] .ta-ideas-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ta-idea { min-height: 96px; gap: 6px; }
+.ta-idea-emoji { display: inline-flex; height: 28px; align-items: center; font-size: 24px; line-height: 28px; color: var(--ta-muted); }
+.ta-idea-emoji svg { width: 22px; height: 22px; }
+.ta-idea-title,
+.ta-idea-body { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ta-idea-title { font-size: var(--ta-fs-row); line-height: var(--ta-lh-row); font-weight: 500; }
+.ta-idea-body { font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--ta-muted); }
+.ta-phone-layer { position: absolute; inset: 0; z-index: 20; overflow-y: auto; background: var(--ta-panel-bg); padding-top: env(safe-area-inset-top); }
+
+/* 应用行保留查看详情,连接按钮直接执行原有授权流程。 */
+.ta-connector-row { display: flex; align-items: center; gap: 8px; padding-right: var(--ta-pad-row-x); }
+.ta-connector-row > .ta-row,
+.ta-connector-row > .gg-settings-row { flex: 1; min-width: 0; }
+.ta-connector-row > button { flex-shrink: 0; }
+.ta-phone-connectors-inline { display: flex; flex-direction: column; gap: var(--spacing-lg); }
+.ta-connector-hero { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-md); padding: var(--spacing-2xl, 32px) var(--spacing-lg); text-align: center; }
+.ta-connector-hero h2 { margin: 0; font-size: var(--ta-fs-title, var(--font-title)); line-height: var(--ta-lh-title, var(--lh-title)); font-weight: 600; }
+.ta-connector-hero p { margin: 0; font-size: var(--ta-fs-sub, var(--font-body)); color: var(--ta-muted, var(--muted-fg)); }
+.ta-connector-hero > button { border-radius: 999px; }

@@ -1,0 +1,118 @@
+/**
+ * MentionPill
+ *
+ * React NodeView for the TipTap `mention` atom node. Human/issue targets render
+ * as plain name text; agent targets keep their harness icon; file targets render
+ * as a real pill with a file glyph (slash-command pill treatment) — the dropped-
+ * folder path reference must read as an object, and its hover ✕ lives over the
+ * icon slot only, never stretched across the text:
+ *
+ *   [icon] [name]
+ *
+ * On hover, a small ✕ button appears over the icon so the user can remove the
+ * mention without keyboard navigation. The pill is `contentEditable=false`, so
+ * Backspace / Delete at the node boundary deletes the entire atom at once.
+ */
+
+import { cx } from '@session-ui/styles/utilities/cx';
+import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
+import { File, X } from '../../../icons'
+import type { MentionKind, RenderMentionIcon } from './types';
+import * as styles from './mention-pill.css';
+
+function firstInitial(value: string): string {
+  const initial = Array.from(value.trim()).find((character) => /\p{L}|\p{N}/u.test(character));
+  return initial ? initial.toLocaleUpperCase() : '?';
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function MentionPill({
+  node,
+  deleteNode,
+  renderMentionIcon,
+}: NodeViewProps & { renderMentionIcon?: RenderMentionIcon }) {
+  const id = (node.attrs.id as string | null) ?? '';
+  const label = (node.attrs.label as string | null) ?? (node.attrs.id as string | null) ?? '';
+  const rawName = (node.attrs.name as string | null) ?? null;
+  const name = rawName ?? label;
+  const kind = ((node.attrs.kind as string | null) ?? 'custom') as MentionKind;
+  const role = (node.attrs.role as string | null) ?? null;
+  const engine = (node.attrs.engine as string | null)?.trim() || null;
+  const isAgent = role === 'agent';
+  // file 引用 = 斜杠命令 pill 同款:真 pill + 文件图标。旧的 bare-文本处理里 ✕ 覆盖层
+  // (surfaceHover 色块)被拉满整枚 pill,悬浮时文字整段被吞(#5736 试玩反馈);✕ 只许盖图标位。
+  const isFile = !isAgent && kind === 'file';
+  const agentTitle = isAgent
+    ? ((node.attrs.title as string | null)?.trim() || name)
+    : null;
+  const icon = isAgent
+    ? renderMentionIcon?.({ id, label, kind, engine }) ?? null
+    : null;
+  const pending = node.attrs.pending === true;
+
+  // Hover-x: overlaid over the icon area on pill-hover
+  const removeBtn = (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteNode();
+      }}
+      aria-label={`Remove @${name}`}
+      className={styles.pillRemoveBtn}
+    >
+      <X style={{ width: '0.625rem', height: '0.625rem' }} />
+    </button>
+  );
+
+  return (
+    <NodeViewWrapper as="span" className={cx('mention-pill-wrapper', styles.pillWrapper)}>
+      <span
+        contentEditable={false}
+        className={cx(
+          styles.pill,
+          isFile ? undefined : styles.pillPlain,
+          pending && styles.pillPending,
+        )}
+        data-mention-id={node.attrs.id as string}
+        data-mention-kind={kind}
+        data-mention-role={role ?? undefined}
+        data-mention-engine={engine ?? undefined}
+        data-mention-title={agentTitle ?? undefined}
+        data-mention-pending={pending || undefined}
+        title={agentTitle ?? undefined}
+      >
+        {/* Icon area — relative so the ✕ overlay is positioned inside it */}
+        {isFile || isAgent ? (
+          <span className={isAgent ? styles.pillAgentIconArea : styles.pillIconArea}>
+            {isAgent ? (
+              icon ? (
+                <span aria-hidden className={styles.pillAgentIcon}>
+                  {icon}
+                </span>
+              ) : (
+                <span aria-hidden className={styles.pillAgentFallback}>
+                  {firstInitial(name)}
+                </span>
+              )
+            ) : (
+              <span aria-hidden className={styles.pillAgentIcon}>
+                <File style={{ width: '0.75rem', height: '0.75rem' }} />
+              </span>
+            )}
+            {removeBtn}
+          </span>
+        ) : (
+          <span className={cx(styles.pillIconArea, styles.pillPlainIconArea)}>
+            {/* Hover-x: for plain mentions, overlaid across the whole text */}
+            {removeBtn}
+          </span>
+        )}
+        {/* Display name */}
+        <span className={styles.pillName}>{name}</span>
+      </span>
+    </NodeViewWrapper>
+  );
+}

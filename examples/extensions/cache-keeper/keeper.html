@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>cache 保温器</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    font: 13px/1.5 ui-sans-serif, -apple-system, "PingFang SC", system-ui, sans-serif;
+    background: var(--em-background); color: var(--em-foreground);
+  }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .muted { color: var(--em-foreground-muted); }
+  .bad { color: var(--em-foreground-destructive); }
+  .line { font-size: 12px; min-height: 18px; }
+  button, select {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid var(--em-border);
+    background: var(--em-background-3); color: inherit; font: inherit; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .totals { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; }
+  .totals b { font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--em-border); vertical-align: top; }
+  th { font-weight: 500; font-size: 11.5px; color: var(--em-foreground-muted); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .title { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { padding: 1px 7px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
+    background: color-mix(in srgb, var(--em-foreground) 10%, transparent); }
+  .chip.warm { background: color-mix(in srgb, var(--em-accent-11) 25%, transparent); }
+  .chip.bad { background: color-mix(in srgb, var(--em-foreground-destructive) 18%, transparent); }
+  .note { font-size: 12px; color: var(--em-foreground-muted); }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <label><input type="checkbox" id="enabled" /> 保温开着</label>
+    <label>缓存 TTL
+      <select id="ttl">
+        <option value="60">1 小时(订阅账号)</option>
+        <option value="5">5 分钟(API key)</option>
+      </select>
+    </label>
+    <button id="resume" type="button">依次续上报错的会话</button>
+    <button id="unpause" type="button" hidden>现在就恢复</button>
+  </div>
+  <div id="status" class="line muted">等后台页…</div>
+  <div class="totals" id="totals"></div>
+  <table>
+    <thead><tr><th>保温</th><th>会话</th><th>状态</th><th>缓存</th><th>上下文</th><th>ping</th><th>省下(估)</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="note" id="more"></div>
+  <p class="note">
+    一次保温 ping ≈ 上下文 × 0.11;凉了再用 ≈ 上下文 × 1.9(订阅账号实测,缓存 1 小时)。省下 = 真用上那一刻少付的冷启动
+    − 这段里的 ping,单位是「基础输入 token 等价」。平台模型会话走咕咕网关,缓存只有 5 分钟,保温不划算:别给它们开。
+  </p>
+<script src="keeper.js"></script>
+</body>
+</html>

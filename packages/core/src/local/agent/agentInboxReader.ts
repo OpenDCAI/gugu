@@ -1,0 +1,1002 @@
+/**
+ * delivery-routing S2b —— 聊天消息的读者(pull/收件箱模型)。
+ *
+ * agent 的会话是一个读者:云端聊天是唯一耐久层(消息本体 + last_read_seq 水位 + 逐条精确读行),
+ * 本机聊天不保存任何耐久投递状态。session_spawn 的本机 outbox 是兼容投影,取走即删。
+ * 四个触发(nudge / 回合结束 / 会话唤醒完成 / 开机扫)
+ * 都收敛到 pullAgentInbox:按 (chat, seq) 顺序拉出该交给这个 agent 的未读 —— 「这条消息唤醒谁」由云端
+ * 唯一的谓词 chat.message_wakes_agent 回答(投递触发器与 pull_agent_inbox 共用),reader 不做资格判断 ——,逐条 admission
+ * (每条消息保留自己完整的 <gugu_delivery> 段),按 transport 的交付边界进入注入口:idle-only 行逐条进入收件会话队列,
+ * 由队列 drain 调用唯一 mergeDeliveryEnvelopes producer;next-tool-call 行没有 gugu 侧队列,在 steer admission
+ * 处用同一 producer 合成当次可见批次。云端行受理后按 seq 序推进游标(mark_read_on_deliver);
+ * 本机行受理后删除 outbox 行。两者都先注入后确认,注入失败不会静默丢失。
+ *
+ * 去重 = 游标单调:floor 是水位,已消费排除靠精确读行(水位的 gap gate 只看「中间存在他人消息」,
+ * whisper 也计入,可以永久停滞 —— 生产现状 #1529B,所以精确读行才是逐条消费事实;两者都在
+ * pull_agent_inbox RPC 里收口)。并发触发由 per-agent coalescing single-flight 合并
+ * (内存,不持有任何跨进程/跨崩溃真值:进程死,守卫与工作同死,游标未推进,重启重拉)。
+ */
+import { join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
+import { resolveListenModeDefault } from '../../cloud/listenMode'
+import type { ChatKind } from '../../shared/types/chat'
+import { parseAttachmentContent, type AttachmentSource } from '../../shared/ui/attachmentModels'
+import { createAttachmentResolver } from '../../shared/attachmentUrls'
+import { configuredEndpoint, fetchAttachmentUrls } from '../../cloud/attachmentsApi'
+import { resolveGuguHome } from '../state/paths'
+import {
+  buildAgentDeliveryEnvelope,
+  buildAgentMentionContext,
+  formatDeliveryTimestamp,
+  identityShown,
+  mergeDeliveryEnvelopes,
+  type AgentDeliveryToolNames,
+  type GuguIdentity,
+} from './deliveryEnvelope'
+import { markAgentDeliveredMessageRead, type AgentDeliveredMessageRead } from './deliveredReadMarkers'
+import { buildThreadBootstrapBody, type ThreadMessageRow } from './threadBootstrap'
+import {
+  decideGroupRulesDelivery,
+  effectiveGroupRules,
+  fetchChatFactsViaRpc,
+  groupRulesLedgerFor,
+  type ChatFactsRow,
+  type DeliveredGroupRules,
+  type GroupRulesLedger,
+} from './groupRulesDelivery'
+import { encodeTypedId } from '../../shared/typedId.mjs'
+import { ackForumViaRpc, recordForumFailureViaRpc, type ForumDeliveryFailure } from './forumInbox'
+import { coreLogger } from '../../log'
+import { agentQuotaReason, agentModelUnavailable } from '../../shared/agentQuotaReason'
+
+const log = coreLogger('agent-inbox-reader')
+
+/** 一行 = pull_agent_inbox RPC 的一行(字段名 camelCase 化)。 */
+export interface AgentInboxUnreadRow {
+  chatId: string
+  chatKind: ChatKind | null
+  chatPublicId: number | null
+  chatName: string | null
+  chatCreatorUserId: string | null
+  listenMode: string | null
+  notificationLevel: string | null
+  lastReadSeq: number
+  id: string
+  seq: number
+  senderUserId: string | null
+  senderType: string | null
+  senderDisplayName: string | null
+  senderGuguNumber: number | null
+  content: string
+  contentType: string | null
+  toUserIds: string[] | null
+  isWhisper: boolean
+  /** App 以人的名义送来的那一行(`gugu.send`,#6835):App 的 extension id。 */
+  viaApp?: string | null
+  /**
+   * #7290 附件消息指向群文件夹的条目与版本(新式附件);条目删了 ⇒ itemId 为 null。从 pull_agent_inbox_v2 来的行一定带着
+   * (fileRefOf 要求库回这两列);本机会话直投的行不是附件,没有。
+   */
+  fileItemId?: string | null
+  fileVersion?: number | null
+  /** 悄悄话的附件:消息直接指字节(不进群文件夹)。 */
+  fileBlobId?: string | null
+  replyToMessageId: string | null
+  replyToSenderUserId: string | null
+  replyToContent: string | null
+  threadRootId: string | null
+  isThreadRoot: boolean
+  createdAt: string
+  /**
+   * Server-side monotonic fence bounding this finite scan (`chat.messages.ingest_seq`); never a read receipt.
+   * #6327: this used to be a wall-clock timestamp, and a DB clock stepping back made an already-pushed message
+   * "future" to the pull that its own nudge triggered — push and pull disagreed. A sequence has no clock to step.
+   */
+  scanFence?: number
+  /** Local session-direct rows are fed into this same reader without inventing a cloud chat. */
+  localSessionDirect?: { sessionId: string; envelope: string }
+  /** 论坛来源的一行(forumInbox.ts):帖子上该交给它的一件事,信封已做好;受理后按帖子确认 seq。 */
+  forum?: { postId: string; seq: number; envelope: string }
+}
+
+/** 注入尝试的三态判决(通道给出;投递层不检查忙闲、不因忙扣消息)。 */
+export type AgentInboxInjectionVerdict = 'accepted' | 'not-live' | 'not-now'
+
+/** Provider admission plus an optional out-of-band turn settlement. */
+export type AgentInboxInjectionResult = AgentInboxInjectionVerdict | {
+  verdict: AgentInboxInjectionVerdict
+  completion?: Promise<void>
+}
+
+export interface AgentInboxInjectionInput {
+  agentUserId: string
+  /** 稳定注入 id = 批首条消息的 msg id(幂等重放/审计锚;单条时即该条)。 */
+  messageId?: string
+  text: string
+  /** Image bytes travel as content blocks, never as a URL for the agent to fetch. */
+  attachments?: Array<{ data: string; mimeType: string; fileName: string; localPath?: string }>
+}
+
+export type AgentInboxDeliveryTiming = 'next-tool-call' | 'idle-only'
+
+export interface AgentInboxFetchInput {
+  agentUserId: string
+  chatId?: string
+  afterSeq?: number
+  limit?: number
+  /** Exclusive key in the RPC's (chat_id, seq) order, local to one scan. */
+  scanAfter?: { chatId: string; seq: number }
+  /** Reuse the first page's server fence so a busy chat cannot extend this scan forever. */
+  scanFence?: number
+}
+
+export interface AgentInboxReaderDeps {
+  accessToken: string
+  ownerUserId?: string
+  env?: NodeJS.ProcessEnv
+  /** conversation 键控注入口(host 提供)。抛异常 = 真失败(批保持未读并披露);三态见类型。 */
+  inject: (input: AgentInboxInjectionInput) => Promise<AgentInboxInjectionResult>
+  /** 冷会话唤醒踢一脚——不 await(收信方开机代价不进任何调用方的 round-trip)。 */
+  wake?: (agentUserId: string) => void
+  deliveryToolNames?: (agentUserId: string) => AgentDeliveryToolNames | null
+  /** Per-harness admission tier; next-tool-call rows merge at the immediate steer boundary. */
+  deliveryTiming?: (agentUserId: string) => AgentInboxDeliveryTiming | null | Promise<AgentInboxDeliveryTiming | null>
+  /** injectable:云端拉取(默认走 pull_agent_inbox RPC)。 */
+  fetchUnread?: (input: AgentInboxFetchInput) => Promise<AgentInboxUnreadRow[]>
+  /** Pending local session-direct rows, projected into the same reader/merge path. */
+  fetchLocalUnread?: (agentUserId: string) => Promise<AgentInboxUnreadRow[]>
+  /** Delete a local session-direct outbox row only after provider acceptance. */
+  markLocalRead?: (input: { agentUserId: string; sessionId: string; messageId: string }) => Promise<void>
+  /** injectable:游标推进(默认 mark_read_on_deliver)。 */
+  markRead?: (input: AgentDeliveredMessageRead) => Promise<void>
+  /**
+   * 论坛来源(forumInbox.ts):有它才拉论坛(宿主的装配 agentInboxDepsFromBridge 接上 forum_pull_agent_inbox);确认与失败记录
+   * 默认 forum_ack / forum_record_delivery_failure。
+   */
+  fetchForumUnread?: (agentUserId: string) => Promise<AgentInboxUnreadRow[]>
+  ackForum?: (input: { agentUserId: string; postId: string; seq: number }) => Promise<void>
+  recordForumFailure?: (input: { agentUserId: string; postId: string; state: ForumDeliveryFailure; error: string }) => Promise<void>
+  fetchThreadMessages?: (chatId: string, threadRootId: string) => Promise<ThreadMessageRow[]>
+  resolveGuguIds?: (
+    userIds: Array<string | undefined>,
+    accessToken: string | undefined,
+  ) => Promise<Map<string, GuguIdentity>>
+  /** injectable:批失败披露(默认稳定 id 直插 system 行;无 lease)。 */
+  postDisclosure?: (input: {
+    agentUserId: string
+    chatId: string
+    threadRootId: string | null
+    key: string
+    text: string
+  }) => Promise<void>
+  // @@@5856 checkAgentReplied / must-reply 违约判定已随**老 active 档**一起退役。
+  // 两档之后留下的 active 是「叫得醒它,回不回它自己判断」——对这样的档位判「该回没回」,
+  // 判出来的全是假违约,而它喂的是 recordDeliverOutcome 那盏异常计数灯。
+  /**
+   * #3641 这个 agent 此刻所在的那一段 provider 上下文的标识(换了新上下文 ⇒ 值变 ⇒ 群规重达)。
+   * 缺席或回 null = 宿主报不出,按同一段处理。
+   */
+  deliveryContextKey?: (agentUserId: string) => string | null | Promise<string | null>
+  /** injectable:按 agent 身份读一条线的基本事实(默认 chat.chat_facts)。群规由此现取。 */
+  fetchChatFacts?: (chatId: string, asUserId: string) => Promise<ChatFactsRow | null>
+  /** injectable:群规已送达记录(默认落盘在 GUGU_HOME)。 */
+  groupRulesLedger?: GroupRulesLedger
+  /** #2175 异常计数灯:喂灯点从命令结果迁到读者注入结果。 */
+  onOutcome?: (outcome: { agentUserId: string; ok: boolean }) => void
+  /** Product-level audit: one callback per injectBatch, recording the rows seen together. */
+  onBatch?: (batch: { agentUserId: string; rows: number; units: number }) => void
+  /** injectable:附件下载到本机(默认:老消息走 chat-media 公开链接,新消息经 attachments/urls 签;单测注入避免网络)。 */
+  downloadAttachment?: (
+    source: AttachmentSource,
+    fileName: string,
+  ) => Promise<SavedAttachment>
+  nowIso?: () => string
+}
+
+export interface AgentInboxPullResult {
+  /** 本轮实际取到的未读行数(RPC 去重后;每一行都是该交给这个 agent 的)。 */
+  pulled: number
+  /** 注入成功且云端游标已推进或本机行已删除的行数。 */
+  injected: number
+  verdict: 'idle' | 'accepted' | 'not-live' | 'not-now'
+  /** Resolves when all provider turns admitted by this pull have settled. */
+  completion?: Promise<void>
+}
+
+// ── 进程内状态(全部无跨崩溃真值;进程死即死,重启由云端游标重建) ────────────────
+type SingleFlight = { promise: Promise<AgentInboxPullResult>; rerun: boolean }
+const inFlightByAgent = new Map<string, SingleFlight>()
+/** @@@1379 thread bootstrap 首进标记(与旧 deliver 同语义:注入成功才落,重启即清)。 */
+const threadBootstrapped = new Set<string>()
+const batchAudit: Array<{ agentUserId: string; rows: number; units: number }> = []
+
+export function resetAgentInboxReaderStateForTests(): void {
+  inFlightByAgent.clear()
+  threadBootstrapped.clear()
+  batchAudit.length = 0
+}
+
+/** Test-only product readout for the real Electron inbox path. */
+export function readAgentInboxBatchAuditForTest(): Array<{ agentUserId: string; rows: number; units: number }> {
+  if (process.env.GUGU_SESSION_TEST_HOOKS !== '1') {
+    throw new Error('agent inbox batch audit is disabled')
+  }
+  return batchAudit.map((entry) => ({ ...entry }))
+}
+
+const PULL_LIMIT = 80
+const DISCLOSURE_TEXT_CAP = 400
+
+// ── 缺省云端实现 ────────────────────────────────────────────────────────────────
+async function fetchUnreadViaRpc(
+  input: AgentInboxFetchInput,
+  accessToken: string,
+): Promise<AgentInboxUnreadRow[]> {
+  const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/rpc/pull_agent_inbox_v2`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: getSupabaseAnonKey(),
+      Authorization: `Bearer ${accessToken}`,
+      'Accept-Profile': 'identity',
+      'Content-Profile': 'identity',
+    },
+    body: JSON.stringify({
+      p_agent_user_id: input.agentUserId,
+      p_chat_id: input.chatId ?? null,
+      p_after_seq: input.afterSeq ?? null,
+      p_limit: input.limit ?? PULL_LIMIT,
+      p_scan_after: input.scanAfter ? { chat_id: input.scanAfter.chatId, seq: input.scanAfter.seq } : null,
+      p_scan_max_ingest_seq: input.scanFence ?? null,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(`pull_agent_inbox_v2 failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+  }
+  const rows = (await response.json()) as Array<Record<string, unknown>>
+  return rows.map(unreadRowFromRpc)
+}
+
+/** pull_agent_inbox_v2 必须回这三列(gugu-supabase #129 的 delta):没回就是库和客户端不配套,❌ 当成「文件已删」悄悄交下去。 */
+function fileRefOf(raw: Record<string, unknown>): { fileItemId: string | null; fileVersion: number | null; fileBlobId: string | null } {
+  if (!('file_item_id' in raw) || !('file_version' in raw) || !('file_blob_id' in raw)) {
+    throw new Error('pull_agent_inbox_v2 row has no file_item_id / file_version / file_blob_id: the database is older than this client')
+  }
+  return {
+    fileBlobId: typeof raw.file_blob_id === 'string' ? raw.file_blob_id : null,
+    fileItemId: typeof raw.file_item_id === 'string' ? raw.file_item_id : null,
+    fileVersion: typeof raw.file_version === 'number' ? raw.file_version : null,
+  }
+}
+
+export function unreadRowFromRpc(raw: Record<string, unknown>): AgentInboxUnreadRow {
+  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+  const num = (value: unknown): number | null => (typeof value === 'number' ? value : null)
+  return {
+    chatId: String(raw.chat_id),
+    chatKind: (text(raw.chat_kind) as ChatKind | null) ?? null,
+    chatPublicId: num(raw.chat_public_id),
+    chatName: text(raw.chat_name),
+    chatCreatorUserId: text(raw.chat_creator_user_id),
+    listenMode: text(raw.listen_mode),
+    notificationLevel: text(raw.notification_level),
+    lastReadSeq: Number(raw.last_read_seq ?? 0),
+    id: String(raw.id),
+    seq: Number(raw.seq),
+    senderUserId: text(raw.sender_user_id),
+    senderType: text(raw.sender_type),
+    senderDisplayName: text(raw.sender_display_name),
+    senderGuguNumber: num(raw.sender_gugu_number),
+    content: String(raw.content ?? ''),
+    contentType: text(raw.content_type),
+    toUserIds: Array.isArray(raw.to_user_ids)
+      ? raw.to_user_ids.filter((value): value is string => typeof value === 'string')
+      : null,
+    isWhisper: raw.is_whisper === true,
+    viaApp: text(raw.via_app) || null,
+    ...fileRefOf(raw),
+    replyToMessageId: text(raw.reply_to_message_id),
+    replyToSenderUserId: text(raw.reply_to_sender_user_id),
+    replyToContent: text(raw.reply_to_content),
+    threadRootId: text(raw.thread_root_id),
+    isThreadRoot: raw.is_thread_root === true,
+    createdAt: typeof raw.created_at === 'string' ? raw.created_at : new Date().toISOString(),
+    scanFence: raw.scan_max_ingest_seq === null || raw.scan_max_ingest_seq === undefined
+      ? undefined
+      : Number(raw.scan_max_ingest_seq),
+  }
+}
+
+type InlineImage = { data: string; mimeType: string; fileName: string; localPath: string }
+type SavedAttachment = { bytes: Uint8Array; localPath: string }
+
+/** 一次下载最多等这么久:签名、CDN 卡住时这一行照样交下去(文件那一支说没存下),不卡住整批。 */
+const ATTACHMENT_FETCH_TIMEOUT_MS = 60_000
+
+async function downloadAttachment(
+  source: AttachmentSource,
+  fileName: string,
+  who: { accessToken: string | undefined; agentUserId: string; env: NodeJS.ProcessEnv },
+): Promise<SavedAttachment> {
+  const timed = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: AbortSignal.timeout(ATTACHMENT_FETCH_TIMEOUT_MS) })
+  let response: Response
+  if (source.kind === 'url') {
+    const parsed = new URL(source.url)
+    const expected = new URL(getSupabaseUrl())
+    if (parsed.origin !== expected.origin || parsed.pathname.split('/').slice(0, 6).join('/') !== `/storage/v1/object/public/chat-media`) {
+      throw new Error('chat attachment URL is outside the configured chat-media bucket')
+    }
+    response = await timed(source.url, {
+      headers: {
+        apikey: getSupabaseAnonKey(),
+        ...(who.accessToken ? { Authorization: `Bearer ${who.accessToken}` } : {}),
+      },
+    })
+  } else {
+    // 新式附件:以这个 agent 的身份签(attachments/urls 按 agent 是不是成员判),再按签好的 CDN 链接下。
+    if (!who.accessToken) throw new Error('chat attachment needs a signed link, and this agent has no access token')
+    const endpoint = { ...configuredEndpoint(who.accessToken), fetch: timed as typeof fetch }
+    const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(endpoint, refs, who.agentUserId)).resolve(source)
+    if (link.status === 'gone') throw new Error('chat attachment is gone (deleted, or not visible to this agent)')
+    response = await timed(link.url)
+  }
+  if (!response.ok) throw new Error(`chat attachment download failed (${response.status})`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  // 本地文件按内容起名:同一份字节在几个群里也只存一份。先写临时文件再改名:两个 agent 同时收同一份字节时,谁也读不到写了一半的。
+  const safeName = fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
+  const digest = createHash('sha256').update(bytes).digest('hex').slice(0, 24)
+  const dir = join(resolveGuguHome(who.env), 'chat-media')
+  const localPath = join(dir, `${digest}-${safeName}`)
+  await mkdir(dir, { recursive: true })
+  const partial = `${localPath}.${randomUUID()}.partial`
+  await writeFile(partial, bytes, { mode: 0o600 })
+  await rename(partial, localPath)
+  return { bytes, localPath }
+}
+
+/**
+ * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。
+ * 也是 [[device-command-runtime]] 对「无人持有的 agent」终态显形(#5041)用的同一条写口——聊天里对用户可见的失败只有这一种形状。
+ */
+export async function postDeliveryDisclosureRow(
+  input: { agentUserId: string; chatId: string; threadRootId: string | null; key: string; text: string },
+  accessToken: string,
+): Promise<void> {
+  const trimmed = input.text.length > DISCLOSURE_TEXT_CAP ? `${input.text.slice(0, DISCLOSURE_TEXT_CAP)}…` : input.text
+  const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: getSupabaseAnonKey(),
+      Authorization: `Bearer ${accessToken}`,
+      'Accept-Profile': 'chat',
+      'Content-Profile': 'chat',
+    },
+    body: JSON.stringify({
+      id: input.key,
+      chat_id: input.chatId,
+      sender_user_id: input.agentUserId,
+      content: trimmed,
+      content_type: 'system',
+      client_message_id: input.key,
+      thread_root_id: input.threadRootId,
+      is_thread_root: false,
+    }),
+  })
+  if (response.ok || response.status === 409) return
+  throw new Error(`turn-failure disclosure insert failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
+}
+
+// ── 读者主体 ────────────────────────────────────────────────────────────────────
+/**
+ * 拉一批并注入。并发触发合并进下一次运行(coalescing single-flight):任一时刻每个 agent 至多
+ * 一个在飞读者;pull 进行中再被触发 → 记 rerun,本轮结束后立刻再跑一轮(不丢触发)。
+ */
+export function pullAgentInbox(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
+  const existing = inFlightByAgent.get(agentUserId)
+  if (existing) {
+    existing.rerun = true
+    return existing.promise
+  }
+  const flight: SingleFlight = { rerun: false, promise: Promise.resolve({ pulled: 0, injected: 0, verdict: 'idle' }) }
+  flight.promise = (async () => {
+    try {
+      let result = await pullOnce(agentUserId, deps)
+      const completions = result.completion ? [result.completion] : []
+      while (flight.rerun) {
+        flight.rerun = false
+        result = combineCoalescedPulls(result, await pullOnce(agentUserId, deps))
+        if (result.completion) completions.push(result.completion)
+      }
+      const summary: AgentInboxPullResult = { pulled: result.pulled, injected: result.injected, verdict: result.verdict }
+      return completions.length > 0
+        ? { ...summary, completion: Promise.all(completions).then(() => undefined) }
+        : summary
+    } finally {
+      if (inFlightByAgent.get(agentUserId) === flight) inFlightByAgent.delete(agentUserId)
+    }
+  })()
+  inFlightByAgent.set(agentUserId, flight)
+  return flight.promise
+}
+
+/**
+ * 一次 single-flight 里前后几轮 pull 的合账:行数与注入数累加;判决取最后一轮(它才是此刻的事实),
+ * 最后一轮空手(idle)时保留前一轮的判决 —— 空拉不改变「刚才投进去了 / 会话不 live」这件事。
+ * 以前只报最后一轮 —— 首轮注入 1 条、rerun 读到已推进的游标拉回 0 条,日志就写成「pulled 0 injected 0」,
+ * 与「什么都没投」长得一模一样(#6264 取证时正是这行把一次真实投递藏住了)。
+ * `completion` 只取后一轮自己的,聚合由调用方收口。
+ */
+export function combineCoalescedPulls(
+  earlier: AgentInboxPullResult,
+  later: AgentInboxPullResult,
+): AgentInboxPullResult {
+  return {
+    pulled: earlier.pulled + later.pulled,
+    injected: earlier.injected + later.injected,
+    verdict: later.verdict === 'idle' ? earlier.verdict : later.verdict,
+    ...(later.completion ? { completion: later.completion } : {}),
+  }
+}
+
+/** 触发入口(fire-and-forget):失败只 loud log——触发丢失由下一个触发/游标滞后兜底,不是静默吞。 */
+export function kickAgentInboxPull(agentUserId: string, deps: AgentInboxReaderDeps, trigger: string): void {
+  log.info({ agentUserId, trigger }, 'agent inbox pull kicked')
+  void pullAgentInbox(agentUserId, deps).then(
+    (result) => {
+      // 「踢了一脚」和「这一脚拿回了什么」是两件事。以前只记前者：一次 pulled=0 的空拉
+      // 在日志里与「拉到并注入了」长得一模一样，而空拉恰恰是会话僵在启动态的那个状态
+      // （codex 全新会话要等首轮投递才起终端，空拉 = 静默等满 90 秒）。
+      log.info(
+        { agentUserId, trigger, pulled: result.pulled, injected: result.injected, verdict: result.verdict },
+        'agent inbox pull done',
+      )
+      // 受理之后 provider 那一轮的结算由宿主出带收口并 loud log(spec delivery-routing「受理与回合结算分离」)。
+      // 这条踢出来的 pull 没有 device command 替它接 completion:不接,serve 腿的完成预算耗尽
+      // (「turn did not settle within 900000ms」)就成了主进程的未处理 Promise 拒绝(#5049 复现时 mac1 实测)。
+      void result.completion?.catch((error: unknown) => {
+        log.error(
+          { agentUserId, trigger, err: error instanceof Error ? error.message : String(error) },
+          'provider turn admitted by this pull failed to settle; no redelivery (the cursor already advanced)',
+        )
+      })
+    },
+    (error: unknown) => {
+      log.error(
+        { agentUserId, trigger, err: error instanceof Error ? error.message : String(error) },
+        'agent inbox pull failed; unread stays in the cloud cursor and the next trigger re-pulls',
+      )
+    },
+  )
+}
+
+/**
+ * 变异对照专用(P-E7 ①):绕过 coalescing single-flight 的裸 pull。生产代码永不调用 —— 它存在的
+ * 唯一理由是让「摘掉 single-flight ⇒ 并发双注入」这条必失败对照可以被构造并保持红。
+ */
+export function __pullOnceUnguardedForTests(
+  agentUserId: string,
+  deps: AgentInboxReaderDeps,
+): Promise<AgentInboxPullResult> {
+  return pullOnce(agentUserId, deps)
+}
+
+async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
+  const fetchUnread = deps.fetchUnread ?? ((input: AgentInboxFetchInput) =>
+    fetchUnreadViaRpc(input, deps.accessToken))
+  const localRows = deps.fetchLocalUnread ? await deps.fetchLocalUnread(agentUserId) : []
+
+  let pulled = 0
+  let injectedTotal = 0
+  let verdict: AgentInboxPullResult['verdict'] = 'idle'
+  const completions: Promise<void>[] = []
+  let scanAfter: AgentInboxFetchInput['scanAfter']
+  let scanFence: number | undefined
+  for (;;) {
+    const fetchedRows = await fetchUnread({ agentUserId, limit: PULL_LIMIT, scanAfter, scanFence })
+    // Pagination follows cloud rows, not local outbox positions. Every cloud row is already one the
+    // RPC decided to hand this agent (chat.message_wakes_agent); the reader adds no eligibility of its own.
+    // This cursor is discarded on every exit (including failure); the next trigger starts
+    // from authoritative unread rows, including new messages behind this scan's cursor.
+    const rows = scanAfter ? fetchedRows : [...fetchedRows, ...localRows]
+    pulled += rows.length
+    if (rows.length === 0) break
+    const batchResult = await injectBatch(agentUserId, rows, deps)
+    injectedTotal += batchResult.injected
+    verdict = batchResult.verdict
+    if (batchResult.completion) completions.push(batchResult.completion)
+    // not-live / not-now:游标不动,本轮结束,等下一个触发(唤醒完成/回合末)。
+    if (batchResult.verdict !== 'accepted') break
+    if (fetchedRows.length < PULL_LIMIT) break
+    const tail = fetchedRows[fetchedRows.length - 1]!
+    if (scanAfter && (tail.chatId < scanAfter.chatId || (tail.chatId === scanAfter.chatId && tail.seq <= scanAfter.seq))) {
+      throw new Error('pull_agent_inbox_v2 scan cursor did not advance')
+    }
+    scanFence ??= tail.scanFence
+    if (scanFence === undefined || !Number.isFinite(scanFence)) {
+      throw new Error('pull_agent_inbox_v2 page has no server scan fence')
+    }
+    scanAfter = { chatId: tail.chatId, seq: tail.seq }
+  }
+  // 论坛来源:聊天这一轮受理完(或本来就没有)才拉 —— 会话不 live / 此刻不收时它也不收,等下一个触发。
+  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted')) {
+    const forumRows = await deps.fetchForumUnread(agentUserId)
+    pulled += forumRows.length
+    if (forumRows.length > 0) {
+      const batchResult = await injectBatch(agentUserId, forumRows, deps)
+      injectedTotal += batchResult.injected
+      verdict = batchResult.verdict
+      if (batchResult.completion) completions.push(batchResult.completion)
+    }
+  }
+  return {
+    pulled,
+    injected: injectedTotal,
+    verdict,
+    ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
+  }
+}
+
+type PreparedMessage = {
+  row: AgentInboxUnreadRow
+  envelope: string
+  attachments?: InlineImage[]
+  bootstrapKey?: string
+  /** 这条投递附上了群规原文(或撤销通知):受理后记为已送达。 */
+  rulesDelivered?: { chatId: string; entry: DeliveredGroupRules }
+}
+
+type GroupRulesPlan = Map<string, { version: string; text: string | null; contextKey: string | null }>
+
+const ROOM_KINDS = new Set<ChatKind | null>(['group', 'topic'])
+
+/**
+ * #3641 这一批里每条群/话题线的群规:现读 → 与已送达记录比对 → 决定要不要附原文。
+ * 读失败照常抛(fail loud):批不注入、游标不动,下一个触发重来 —— ❌ 不在没见过群规的情况下照投。
+ */
+async function planGroupRules(
+  agentUserId: string,
+  rows: AgentInboxUnreadRow[],
+  deps: AgentInboxReaderDeps,
+  env: NodeJS.ProcessEnv,
+): Promise<GroupRulesPlan> {
+  const plan: GroupRulesPlan = new Map()
+  const chatIds = [...new Set(rows.filter((row) => !row.localSessionDirect && ROOM_KINDS.has(row.chatKind)).map((row) => row.chatId))]
+  if (chatIds.length === 0) return plan
+  const readFacts = deps.fetchChatFacts
+    ?? ((chatId: string, asUserId: string) => fetchChatFactsViaRpc(chatId, asUserId, deps.accessToken))
+  const ledger = deps.groupRulesLedger ?? groupRulesLedgerFor(env)
+  const contextKey = (await deps.deliveryContextKey?.(agentUserId)) ?? null
+  for (const chatId of chatIds) {
+    const rules = await effectiveGroupRules(chatId, (id) => readFacts(id, agentUserId))
+    const decision = decideGroupRulesDelivery({ rules, delivered: await ledger.read(agentUserId, chatId), contextKey })
+    plan.set(chatId, { ...decision, contextKey })
+  }
+  return plan
+}
+
+type PreparedUnit = {
+  text: string
+  attachments?: InlineImage[]
+  members: PreparedMessage[]
+}
+
+async function injectBatch(
+  agentUserId: string,
+  rows: AgentInboxUnreadRow[],
+  deps: AgentInboxReaderDeps,
+): Promise<{ injected: number; verdict: AgentInboxInjectionVerdict; completion?: Promise<void> }> {
+  const env = deps.env ?? process.env
+  const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
+  const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
+  const prepared: PreparedMessage[] = []
+  for (const row of rows) {
+    const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
+    // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
+    const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
+      ? { version: planned.version, text: planned.text }
+      : null
+    if (planned) planned.text = null
+    const message = await prepareMessage(agentUserId, row, deps, toolNames, env, groupRules)
+    if (groupRules && groupRules.text !== null) {
+      message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
+    }
+    prepared.push(message)
+  }
+  // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
+  // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
+  // so merge the rows there with the same core producer. Attachments remain one admission each.
+  const timing = await deps.deliveryTiming?.(agentUserId)
+  const framed = prepared.filter((entry) => !entry.attachments)
+  const mergedText = timing === 'next-tool-call' && framed.length > 0
+    ? mergeDeliveryEnvelopes(framed.map((entry) => entry.envelope))
+    : null
+  let merged = false
+  const units: PreparedUnit[] = prepared.flatMap((entry): PreparedUnit[] => {
+    if (entry.attachments) {
+      return [{ text: entry.envelope, attachments: entry.attachments, members: [entry] }]
+    }
+    if (mergedText !== null) {
+      if (merged) return []
+      merged = true
+      return [{ text: mergedText, members: framed }]
+    }
+    return [{ text: entry.envelope, members: [entry] }]
+  })
+  deps.onBatch?.({ agentUserId, rows: rows.length, units: units.length })
+  if (env.GUGU_SESSION_TEST_HOOKS === '1') {
+    batchAudit.push({ agentUserId, rows: rows.length, units: units.length })
+    if (batchAudit.length > 200) batchAudit.shift()
+  }
+
+  let injected = 0
+  const completions: Promise<void>[] = []
+  for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
+    const unit = units[unitIndex]!
+    let unitVerdict: AgentInboxInjectionVerdict
+    let completion: Promise<void> | undefined
+    try {
+      const result = await deps.inject({
+        agentUserId,
+        messageId: unit.members[0]!.row.id,
+        text: unit.text,
+        ...(unit.attachments ? { attachments: unit.attachments } : {}),
+      })
+      if (typeof result === 'string') {
+        unitVerdict = result
+      } else {
+        unitVerdict = result.verdict
+        completion = result.completion?.catch(async (error: unknown) => {
+          if (isSaidInChat(error)) throw error
+          deps.onOutcome?.({ agentUserId, ok: false })
+          // Admission already advanced the cursor. Report provider failure here, where the exact
+          // source rows are still known, including pulls started without a device command.
+          throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
+        })
+      }
+    } catch (error) {
+      deps.onOutcome?.({ agentUserId, ok: false })
+      // The pull is still the failure disclosure boundary: include this failed unit and every
+      // later row that was not admitted, but do not re-report rows already accepted above it.
+      const unadmitted = units.slice(unitIndex).flatMap((remaining) => remaining.members)
+      throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
+    }
+    if (unitVerdict !== 'accepted') {
+      if (unitVerdict === 'not-live') deps.wake?.(agentUserId)
+      return {
+        injected,
+        verdict: unitVerdict,
+        ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
+      }
+    }
+    injected += unit.members.length
+    if (completion) completions.push(completion)
+    await advanceCursor(agentUserId, unit.members, deps)
+    deps.onOutcome?.({ agentUserId, ok: true })
+    for (const member of unit.members) {
+      if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
+      if (member.rulesDelivered) {
+        await (deps.groupRulesLedger ?? groupRulesLedgerFor(env))
+          .write(agentUserId, member.rulesDelivered.chatId, member.rulesDelivered.entry)
+      }
+    }
+  }
+  return {
+    injected,
+    verdict: 'accepted',
+    ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
+  }
+}
+
+async function prepareMessage(
+  agentUserId: string,
+  row: AgentInboxUnreadRow,
+  deps: AgentInboxReaderDeps,
+  toolNames: AgentDeliveryToolNames | undefined,
+  env: NodeJS.ProcessEnv,
+  groupRules: { version: string; text: string | null } | null = null,
+): Promise<PreparedMessage> {
+  if (row.localSessionDirect) {
+    return { row, envelope: row.localSessionDirect.envelope }
+  }
+  if (row.forum) return { row, envelope: row.forum.envelope }
+  const identities = new Map<string, GuguIdentity>()
+  if (row.senderUserId) {
+    identities.set(row.senderUserId, {
+      guguNumber: row.senderGuguNumber,
+      displayName: row.senderDisplayName,
+      isAgent: row.senderType === 'agent',
+    })
+  }
+  const mentionRecipientIds = [...new Set(
+    (row.toUserIds ?? []).filter((id) => id && id !== row.senderUserId && id !== '*'),
+  )]
+  if (mentionRecipientIds.length && deps.resolveGuguIds) {
+    const mentionIdentities = await deps.resolveGuguIds(mentionRecipientIds, deps.accessToken)
+    for (const [id, identity] of mentionIdentities) identities.set(id, identity)
+  }
+  // #1531:thread root 消息让 agent 的回复进它自身的 thread。
+  const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)
+  let threadContext: string | null = null
+  let bootstrapKey: string | undefined
+  if (effectiveThreadRoot && deps.fetchThreadMessages) {
+    const key = `${agentUserId}:${row.chatId}:${effectiveThreadRoot}`
+    if (!threadBootstrapped.has(key)) {
+      try {
+        const threadRows = await deps.fetchThreadMessages(row.chatId, effectiveThreadRoot)
+        const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
+        const labels = deps.resolveGuguIds
+          ? await deps.resolveGuguIds(senders, deps.accessToken).catch((error: unknown) => {
+              log.warn({ err: error instanceof Error ? error.message : String(error) }, 'thread-bootstrap identity resolve failed')
+              return new Map<string, GuguIdentity>()
+            })
+          : new Map<string, GuguIdentity>()
+        threadContext = buildThreadBootstrapBody(threadRows, {
+          selfAgentUserId: agentUserId,
+          labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
+        })
+        bootstrapKey = key
+      } catch (error) {
+        // fail-loud-warn:拉取失败不阻塞投递,不落标记,下次重注 seed。
+        log.warn(
+          { chatId: row.chatId, threadRootId: effectiveThreadRoot, err: error instanceof Error ? error.message : String(error) },
+          'thread-bootstrap fetch failed; delivering without seed',
+        )
+      }
+    }
+  }
+  const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })
+  const download = deps.downloadAttachment
+    ?? ((source: AttachmentSource, fileName: string) =>
+      downloadAttachment(source, fileName, { accessToken: deps.accessToken, agentUserId, env }))
+  // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
+  let attachments: InlineImage[] | undefined
+  if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {
+    const image = await download(attachment.source, attachment.fileName)
+    attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+  }
+  // 新式附件的文件(不是图):正文里没有链接(老附件靠正文里的 [URL] 去取),字节和图片一样下到本机,交本地路径。
+  // 下不下来(签不到、CDN 回错、超时)就照实说没存下和原因 —— 这一行和同一批的别的行照样交,不卡住收件。
+  let fileLine = ''
+  if (!attachments && attachment && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
+    try {
+      fileLine = `\n[File saved at local path: ${(await download(attachment.source, attachment.fileName)).localPath}]`
+    } catch (error) {
+      fileLine = `\n[File not saved: ${error instanceof Error ? error.message : String(error)}]`
+    }
+  }
+  const content = attachments && attachment
+    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
+    : `${row.content}${fileLine}`
+  const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
+  const envelope = buildAgentDeliveryEnvelope(
+    {
+      guguUserId: agentUserId,
+      chatId: row.chatId,
+      messageId: row.id,
+      senderUserId: row.senderUserId,
+      contentType: row.contentType,
+      content,
+      replyTo: row.replyToMessageId && row.replyToSenderUserId
+        ? { messageId: row.replyToMessageId, senderUserId: row.replyToSenderUserId, content: row.replyToContent ?? '' }
+        : null,
+      threadRootId: effectiveThreadRoot,
+      whisperTo: row.isWhisper ? row.toUserIds : null,
+      viaApp: row.viaApp ?? null,
+    },
+    identities,
+    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    formatDeliveryTimestamp(row.createdAt),
+    null,
+    toolNames,
+    { listenMode: resolveListenModeDefault(row.listenMode), messageContext, groupRules },
+  )
+  return {
+    row,
+    envelope: threadContext
+      ? rebuildEnvelopeWithThreadContext(agentUserId, row, content, identities, toolNames, threadContext, messageContext, groupRules)
+      : envelope,
+    ...(attachments ? { attachments } : {}),
+    ...(bootstrapKey ? { bootstrapKey } : {}),
+  }
+}
+
+function rebuildEnvelopeWithThreadContext(
+  agentUserId: string,
+  row: AgentInboxUnreadRow,
+  content: string,
+  identities: Map<string, GuguIdentity>,
+  toolNames: AgentDeliveryToolNames | undefined,
+  threadContext: string,
+  messageContext: string | undefined,
+  groupRules: { version: string; text: string | null } | null,
+): string {
+  return buildAgentDeliveryEnvelope(
+    {
+      guguUserId: agentUserId,
+      chatId: row.chatId,
+      messageId: row.id,
+      senderUserId: row.senderUserId,
+      contentType: row.contentType,
+      content,
+      replyTo: row.replyToMessageId && row.replyToSenderUserId
+        ? { messageId: row.replyToMessageId, senderUserId: row.replyToSenderUserId, content: row.replyToContent ?? '' }
+        : null,
+      threadRootId: row.threadRootId ?? (row.isThreadRoot ? row.id : null),
+      whisperTo: row.isWhisper ? row.toUserIds : null,
+      viaApp: row.viaApp ?? null,
+    },
+    identities,
+    { publicId: row.chatPublicId, name: row.chatName, kind: row.chatKind },
+    formatDeliveryTimestamp(row.createdAt),
+    null,
+    toolNames,
+    { listenMode: resolveListenModeDefault(row.listenMode), threadContext, messageContext, groupRules },
+  )
+}
+
+/**
+ * 游标推进(at-least-once 的「after」支):只推进**这次注入受理过**的行,按每 chat 的 seq 升序;
+ * 某一条推进失败就停止该 chat 的后续推进(保序),披露并向触发方抛错;游标保持原位,后续触发会重拉,重复以稳定 id 显形。
+ */
+async function advanceCursor(
+  agentUserId: string,
+  members: PreparedMessage[],
+  deps: AgentInboxReaderDeps,
+): Promise<void> {
+  const markRead = deps.markRead
+    ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
+  const byChat = new Map<string, PreparedMessage[]>()
+  for (const member of members) {
+    const list = byChat.get(member.row.chatId) ?? []
+    list.push(member)
+    byChat.set(member.row.chatId, list)
+  }
+  for (const [chatId, chatMembers] of byChat) {
+    const ordered = [...chatMembers].sort((a, b) => a.row.seq - b.row.seq)
+    for (const member of ordered) {
+      try {
+        if (member.row.forum) {
+          const ack = deps.ackForum ?? ((input: { agentUserId: string; postId: string; seq: number }) => ackForumViaRpc(input, deps.accessToken))
+          await ack({ agentUserId, postId: member.row.forum.postId, seq: member.row.forum.seq })
+        } else if (member.row.localSessionDirect) {
+          if (!deps.markLocalRead) throw new Error('local session-direct row has no markLocalRead handler')
+          await deps.markLocalRead({
+            agentUserId,
+            sessionId: member.row.localSessionDirect.sessionId,
+            messageId: member.row.id,
+          })
+        } else {
+          await markRead({ chatId, messageId: member.row.id, agentUserId })
+        }
+      } catch (error) {
+        log.error(
+          { agentUserId, chatId, messageId: member.row.id, err: error instanceof Error ? error.message : String(error) },
+          'cursor advance failed after accepted injection; the tail of this chat will be re-pulled (duplicates stay visible by stable id)',
+        )
+        // An accepted delivery whose read receipt failed is a user-visible delivery failure, not a
+        // recoverable skip. Disclose the affected tail and rethrow so the kick caller observes failure;
+        // leaving the cursor untouched is deliberate and keeps the cloud row eligible for a later pull.
+        deps.onOutcome?.({ agentUserId, ok: false })
+        throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
+      }
+    }
+  }
+}
+
+/**
+ * 批失败披露:按来源 chat 分别落一条 system 行,文案按批如实说(❌ 不伪装成单条失败)。
+ * 这一行是写进对话、给对话里所有人(别的成员、别的设备)看的持久记录 ⇒ ❌ 内部编号(owner 10-11 定,#7103):
+ * 稳定 id 只进去重键与日志。原因说「咕咕这边出错了」—— 走到这里时手上没有原因码(注入口抛的是
+ * 「has no local session-page runtime」这类宿主自己的错),❌ 为它另开一条递原因的通道。
+ */
+async function discloseBatchFailure(
+  agentUserId: string,
+  members: PreparedMessage[],
+  deps: AgentInboxReaderDeps,
+  completionError?: unknown,
+): Promise<boolean> {
+  const post = deps.postDisclosure
+    ?? ((input: { agentUserId: string; chatId: string; threadRootId: string | null; key: string; text: string }) =>
+      postDeliveryDisclosureRow(input, deps.accessToken))
+  const byChat = new Map<string, PreparedMessage[]>()
+  const byPost = new Map<string, PreparedMessage[]>()
+  for (const member of members) {
+    if (member.row.forum) {
+      const list = byPost.get(member.row.forum.postId) ?? []
+      list.push(member)
+      byPost.set(member.row.forum.postId, list)
+      continue
+    }
+    if (member.row.localSessionDirect) {
+      // 本机投影行没有云端 chat 行可披露(chatId 是 `local-session:<conversationId>` 占位,POST 会被 uuid 列拒);
+      // 它的可见面是本机 outbox 的 failed 收据(由 drain 落),这里只把失败记进日志,❌ 不发一个必 400 的请求。
+      log.error(
+        { agentUserId, sessionId: member.row.localSessionDirect.sessionId, messageId: member.row.id },
+        'local session-direct row failed to inject; no cloud chat to disclose into, outbox receipt carries the failure',
+      )
+      continue
+    }
+    const list = byChat.get(member.row.chatId) ?? []
+    list.push(member)
+    byChat.set(member.row.chatId, list)
+  }
+  // Said only when every chat (and every post) got its row: a batch of local rows alone, or a post that failed, leaves it unsaid.
+  let said = byChat.size + byPost.size > 0
+  // 论坛来源:失败记在那条指派上(主人在帖子里看到),❌ 写成一条回复。没受理(游标没动、会重投)与受理了但那一轮失败分开记。
+  const recordForum = deps.recordForumFailure
+    ?? ((input: { agentUserId: string; postId: string; state: ForumDeliveryFailure; error: string }) => recordForumFailureViaRpc(input, deps.accessToken))
+  for (const [postId, postMembers] of byPost) {
+    const state: ForumDeliveryFailure = completionError === undefined ? 'undelivered' : 'turn_failed'
+    try {
+      await recordForum({ agentUserId, postId, state, error: failureText(postMembers.length, completionError) })
+    } catch (error) {
+      said = false
+      log.error(
+        { agentUserId, postId, state, err: error instanceof Error ? error.message : String(error) },
+        'forum delivery failure could not be recorded on the assignment; this failure remains undisclosed',
+      )
+    }
+  }
+  for (const [chatId, chatMembers] of byChat) {
+    const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
+    const key = `turn-failure:batch:${createHash('sha256').update(ids.join(',')).digest('hex').slice(0, 32)}`
+    const text = failureText(chatMembers.length, completionError)
+    log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
+    try {
+      await post({
+        agentUserId,
+        chatId,
+        threadRootId: chatMembers[0]!.row.threadRootId,
+        key,
+        text,
+      })
+    } catch (error) {
+      said = false
+      log.error(
+        { agentUserId, chatId, err: error instanceof Error ? error.message : String(error) },
+        'turn-failure disclosure post failed; this failure remains undisclosed',
+      )
+    }
+  }
+  return said
+}
+
+/** 失败的人话(聊天里的披露行与论坛指派上的投递状态同一句):没受理是咕咕这边的错;受理后那一轮失败按原因说。 */
+function failureText(count: number, completionError: unknown): string {
+  const reason = completionError instanceof Error ? completionError.message : String(completionError ?? '')
+  const quota = agentQuotaReason(reason)
+  return completionError === undefined
+    ? `Agent 回合执行失败:这批 ${count} 条消息未处理成功。咕咕这边出错了，请稍后重试。`
+    : quota === 'weekly' ? '周限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。'
+      : quota === 'monthly' ? '月限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。'
+        : quota === 'exhausted' ? '当前模型账号的额度已用完。请切换模型，或补充额度后再试。'
+          : quota === 'rate-limited' ? '当前模型请求过于频繁，请稍后再试。'
+            : agentModelUnavailable(reason) ? '当前模型暂时不可用，请切换模型后重试。'
+              : '本次回复未能完成，请稍后再试。'
+}
+
+/**
+ * 编号 17 (10-12 片场试演): a batch's failure once its row is in the chat (`discloseBatchFailure`) — the host puts up no second
+ * notice for it (#7125 同一次失败只说一次): the unread stays on the cloud cursor and the next trigger pulls it again, so a Retry
+ * adds nothing, and nothing took that notice down once the agent was back. One per failure, wrapping what was thrown (its
+ * message kept): the same error object thrown for two batches is not the same failure (148 评审).
+ */
+export class SaidInChatError extends Error {
+  readonly disclosedInChat = true
+  constructor(failure: unknown) {
+    super(failure instanceof Error ? failure.message : String(failure), { cause: failure })
+    this.name = 'SaidInChatError'
+  }
+}
+
+function saidIfDisclosed(error: unknown, said: boolean): unknown {
+  return said ? new SaidInChatError(error) : error
+}
+
+/** This turn failure was said in the chat it came from: the host shows nothing more for it. */
+export function isSaidInChat(failure: unknown): boolean {
+  return failure instanceof SaidInChatError
+}

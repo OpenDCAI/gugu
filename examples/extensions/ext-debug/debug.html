@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>扩展调试台</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--em-background);
+        color: var(--em-foreground);
+        font: 12px/1.5 -apple-system, system-ui, "PingFang SC", sans-serif;
+      }
+
+      /* 工具条：面板窄到 230px 也要能用 → 允许折行 */
+      .bar {
+        flex: 0 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--em-border);
+      }
+      button {
+        font: inherit;
+        padding: 2px 8px;
+        border-radius: 5px;
+        border: 1px solid var(--em-border);
+        background: var(--em-background);
+        color: inherit;
+        cursor: pointer;
+      }
+      button:hover { background: var(--em-background-muted); }
+      button[aria-pressed="true"] { background: var(--em-background-muted); font-weight: 600; }
+      input[type="search"] {
+        flex: 1 1 90px;
+        min-width: 80px;
+        font: inherit;
+        padding: 2px 6px;
+        border-radius: 5px;
+        border: 1px solid var(--em-border);
+        background: var(--em-background);
+        color: inherit;
+      }
+
+      .verdict {
+        flex: 0 0 auto;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--em-border);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .verdict .note { display: block; margin-top: 2px; font-weight: 400; font-size: 11px; }
+      .good { color: #1e8e4e; }
+      .bad { color: #c0392b; }
+      .warn { color: #b7791f; }
+      .muted { color: var(--em-foreground-muted); }
+
+      .tree {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 4px 0 8px;
+        font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .node {
+        display: flex;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 1px 8px 1px 0;
+        word-break: break-word;
+      }
+      .node:hover { background: var(--em-background-muted); }
+      .node.sel { background: var(--em-background-muted); outline: 1px solid var(--em-border); }
+      .twisty {
+        flex: 0 0 auto;
+        width: 12px;
+        text-align: center;
+        color: var(--em-foreground-muted);
+        cursor: pointer;
+        user-select: none;
+      }
+      .twisty.leaf { visibility: hidden; }
+      .k { flex: 0 0 auto; }
+      .sep { flex: 0 0 auto; color: var(--em-foreground-muted); }
+      .v { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; }
+      .v.str { color: #1e8e4e; }
+      .v.num { color: #2563eb; }
+      .v.bool { color: #7c3aed; }
+      .v.null, .v.meta { color: var(--em-foreground-muted); }
+      .v.err { color: #c0392b; }
+
+      /* 会动东西的动作：默认收起，免得误点 */
+      details.actions {
+        flex: 0 0 auto;
+        border-top: 1px solid var(--em-border);
+        padding: 6px 8px 8px;
+      }
+      details.actions summary { cursor: pointer; font-size: 11px; color: var(--em-foreground-muted); }
+      .acts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+      .out { margin-top: 6px; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
+
+      .foot {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 5px 8px;
+        border-top: 1px solid var(--em-border);
+        font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--em-foreground-muted);
+      }
+      .foot .path { flex: 1 1 auto; min-width: 0; word-break: break-all; }
+      .hint { padding: 10px 12px; color: var(--em-foreground-muted); }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <button id="refresh" title="重新取一遍所有数据">刷新</button>
+      <button id="expand" title="展开已经取到的全部节点">展开</button>
+      <button id="collapse" title="全部折叠">折叠</button>
+      <button id="auto" aria-pressed="false" title="每 3 秒重取一次，用来盯 agent 状态变化">自动</button>
+      <button id="copy" title="把整棵树复制成 JSON">复制 JSON</button>
+      <input id="filter" type="search" placeholder="过滤 key / 值" />
+    </div>
+
+    <div class="verdict" id="verdict">取数据…</div>
+
+    <div id="tree" class="tree"><div class="hint">取数据…</div></div>
+
+    <details class="actions">
+      <summary>会动东西的动作（点了才跑）</summary>
+      <div class="acts">
+        <button id="do-write">写探针文件</button>
+        <button id="do-compose">放一句进输入框</button>
+        <button id="do-open">开浏览器 tab</button>
+        <button id="do-error">报一个错</button>
+        <button id="do-title">改标题/角标</button>
+        <button id="do-net">请求 example.com</button>
+        <button id="do-spawn">起一个 agent</button>
+        <button id="do-send">给它派活</button>
+        <button id="do-stop">停掉它</button>
+      </div>
+      <div class="out muted" id="action-out">还没点</div>
+    </details>
+
+    <div class="foot">
+      <span class="path" id="selpath">未选中</span>
+      <button id="copysel" title="只复制选中的这一支">复制这一支</button>
+    </div>
+    <script src="debug.js"></script>
+  </body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "version": "3.7c",
+  "assets": {
+    "linux-x64": {
+      "asset": "tmux-3.7c-linux-x86_64.tar.gz",
+      "sha256": "cc56bd1cc873eb6089c615f0496b072385bda8a6d944069f38564a5d49c128aa"
+    },
+    "linux-arm64": {
+      "asset": "tmux-3.7c-linux-arm64.tar.gz",
+      "sha256": "29dcb978da2a4b0cf6790f9e004865dac239a3ba03bbf776dddacce23d03831b"
+    },
+    "darwin-x64": {
+      "asset": "tmux-3.7c-macos-x86_64.tar.gz",
+      "sha256": "1c21f9ade964e4a539be05ffe3a4e95854ab76a0a9c4c05d0ffbe7fc6c4d783f"
+    },
+    "darwin-arm64": {
+      "asset": "tmux-3.7c-macos-arm64.tar.gz",
+      "sha256": "0a763dd0380aa980d239509654da1bc7455843706a3c050f6709c8cd2e13d12d"
+    }
+  }
+}

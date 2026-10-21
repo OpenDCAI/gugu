@@ -1,0 +1,55 @@
+/*
+ * #7199 手机「记忆」「任务」两格里手机才有的几样:健康页的颜色变量、语音笔记的卡与提问条、资料夹里看一个文本文件、删除确认卡。
+ * 卡片 / 行 / 空态都照用 assistant-today.css 与 voice-notes.css;颜色只取 token(--ta-* 与咕咕语义色),❌ 写死色值。
+ */
+
+/* 健康页(照桌面 assistant-health 的那组变量,桌面只挂在 .ta-app 上):状态用语义色,柱子 / 分期用前景的几档浓度。 */
+.ta-phone-health {
+  --ta-health-good: var(--ok);
+  --ta-health-ok: var(--ta-muted);
+  --ta-health-warn: var(--warn);
+  --ta-health-bad: var(--danger);
+  --ta-health-bar: color-mix(in oklab, var(--ta-fg) 16%, transparent);
+  --ta-health-bar-latest: var(--ta-fg);
+  --ta-stage-deep: color-mix(in oklab, var(--ta-fg) 85%, transparent);
+  --ta-stage-light: color-mix(in oklab, var(--ta-fg) 40%, transparent);
+  --ta-stage-rem: color-mix(in oklab, var(--ta-fg) 62%, transparent);
+  --ta-stage-awake: var(--warn);
+  --ta-stage-asleep: color-mix(in oklab, var(--ta-fg) 25%, transparent);
+}
+
+/* 这几样是 ui/Button(主 app 不手写钮):它默认居中、不换行、一行高,按卡片的样子覆盖回来。 */
+.ta-phone .vn-note {
+  height: auto;
+  align-items: stretch;
+  justify-content: flex-start;
+  white-space: normal;
+  font-weight: inherit;
+}
+.ta-phone .vn-ask {
+  height: auto;
+  min-height: 48px;
+  justify-content: flex-start;
+  font-weight: inherit;
+}
+.ta-phone .vn-note-title { font-size: var(--font-title); }
+
+/* 资料夹里看一个文本文件:原样(保留换行、长行折回),等宽。 */
+.ta-phone-file-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--ta-fs-row);
+  line-height: 1.6;
+  color: var(--ta-fg);
+}
+
+/* 一排动作(在对话中修改 / 删除…):能折行,手机上一指宽。 */
+.ta-phone-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 删除确认卡里没删成的那一句。 */
+.ta-phone-confirm-failed { margin: 0; font-size: var(--font-body); line-height: 20px; color: var(--danger); }
+
+/* 定时任务详情里「改时间」:行尾一个胶囊样的字。 */
+.ta-phone-row-link { color: var(--ta-fg); font-weight: 500; }

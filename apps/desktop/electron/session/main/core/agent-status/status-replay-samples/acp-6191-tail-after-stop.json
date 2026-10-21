@@ -1,0 +1,114 @@
+{
+ "id": "acp-6191-tail-after-stop",
+ "issues": [
+  "#6191",
+  "#6180"
+ ],
+ "harness": "copilot task-acp",
+ "sessionId": "S",
+ "expectAnomalies": 2,
+ "source": "#6191 run1 readings",
+ "summary": "Stop during an approval ⇒ the cancelled turn ends (idle within the Stop, #6180); the trailing \"Info: Operation cancelled by user\" and a late resolution belong to the stopped turn t1 ⇒ they change nothing (reported as anomalies); follow-ups K4/K5 run normally (A: a never-ending agent turn, Stop lit, follow-ups queued)",
+ "steps": [
+  {
+   "raw": "session/prompt: sleep 120 (K3)",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "request_permission",
+   "event": {
+    "kind": "WaitStarted",
+    "sessionId": "S",
+    "id": "p1",
+    "waitKind": "approval"
+   },
+   "drop": null,
+   "expect": "needs_user",
+   "finished": false
+  },
+  {
+   "raw": "user clicks Stop ⇒ prompt_result cancelled",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "trailing agent text of t1 \"Info: Operation cancelled by user\"",
+   "event": null,
+   "drop": "text is not an event; only TurnStarted opens a turn",
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "late turn end for t1 from the cancelled prompt",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "late approval resolution for p1",
+   "event": {
+    "kind": "WaitEnded",
+    "sessionId": "S",
+    "id": "p1"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": false
+  },
+  {
+   "raw": "session/prompt K4",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "prompt_result end_turn",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  },
+  {
+   "raw": "session/prompt K5",
+   "event": {
+    "kind": "Started",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "working",
+   "finished": false
+  },
+  {
+   "raw": "prompt_result end_turn",
+   "event": {
+    "kind": "Stopped",
+    "sessionId": "S"
+   },
+   "drop": null,
+   "expect": "idle",
+   "finished": true
+  }
+ ]
+}

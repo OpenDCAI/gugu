@@ -1,0 +1,67 @@
+{
+  "name": "@gugu/session-ui",
+  "version": "1.0.0",
+  "description": "Shared UI components and theme system for 咕咕",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "Gugu",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css",
+    "**/*.css.ts"
+  ],
+  "exports": {
+    "./react/chat-ui/chat-theme.css": "./src/react/chat-ui/chat-theme.css",
+    "./styles/overflow-fade.css": "./src/styles/effects/overflow-fade.css",
+    "./styles/utilities/layout": "./src/styles/utilities/layout.css.ts",
+    "./styles/recipes/control": "./src/styles/recipes/control.ts",
+    "./styles/global-base.css": "./src/styles/base.css",
+    "./styles/typography.css": "./src/styles/typography.css",
+    "./styles/recipes/input": "./src/styles/recipes/input.ts",
+    "./styles/recipes/card": "./src/styles/recipes/card.css.ts",
+    "./theme/semantic.css": "./src/theme/__generated__/semantic.css",
+    "./styles/effects.css": "./src/styles/effects/effects.css",
+    "./styles/tokens.css": "./src/styles/tokens.css",
+    "./icons": "./src/icons.tsx",
+    "./icon-bodies": "./src/icon-bodies.ts",
+    "./react/primitives": "./src/react/primitives/index.ts",
+    "./react/components": "./src/react/components/index.ts",
+    "./styles/sprinkles": "./src/styles/utilities/sprinkles.css.ts",
+    "./theme/theme.css": "./src/theme/__generated__/theme.css",
+    "./styles/base.css": "./src/styles/theme.base.css",
+    "./theme/manifest": "./src/theme/themes/registry.ts",
+    "./react/chat-ui": "./src/react/chat-ui/index.ts",
+    "./styles/global": "./src/styles/global.css.ts",
+    "./package.json": "./package.json",
+    "./react/loading-indicator": "./src/react/components/loading-indicator/LoadingIndicator.tsx"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "storybook": "storybook dev -p 6006 -c .storybook",
+    "build:storybook": "storybook build -c .storybook"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.3.0",
+    "@gugu/session-chat-ui": "workspace:*",
+    "@gugu/session-shared": "workspace:*",
+    "@fontsource-variable/jetbrains-mono": "5.2.8",
+    "@tanstack/react-store": "^0.11.0",
+    "@tiptap/core": "^3.26.1",
+    "@tiptap/extension-mention": "^3.26.1",
+    "@tiptap/extension-placeholder": "^3.26.1",
+    "@tiptap/pm": "^3.26.1",
+    "@tiptap/react": "^3.26.1",
+    "@tiptap/starter-kit": "^3.26.1",
+    "@tiptap/suggestion": "^3.26.1",
+    "lucide-react": "^0.564.0",
+    "lottie-web": "5.13.0"
+  },
+  "peerDependencies": {
+    "@tanstack/react-form": "^1.28.4",
+    "@tanstack/react-virtual": "^3.14.2",
+    "mobx": "^6.15.0",
+    "mobx-react-lite": "^4.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "packageManager": "pnpm@10.28.2"
+}

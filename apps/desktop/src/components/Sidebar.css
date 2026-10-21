@@ -1,0 +1,481 @@
+/* ⚠️ 选择器**必须**带 `:root`:见 tokens.css 的 @@@rail-inset —— 只写 `.gg-sidebar-rail`
+   会被同特指度的全局重置清零,而那个缺陷只在没有平台覆盖的平台上露出来。 */
+:root .gg-sidebar-rail {
+  width: var(--sidebar-rail-width);
+  min-width: var(--sidebar-rail-width);
+  height: 100%;
+  padding: var(--sidebar-rail-pad-top) 0 var(--sidebar-rail-pad-bottom);
+  background: var(--nav-rail);
+  border-inline-end: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  position: relative;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.gg-sidebar-primary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.gg-sidebar-profile-slot {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.gg-sidebar-profile-button {
+  width: 44px;
+  height: 44px;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.gg-sidebar-profile-button:hover {
+  background: var(--hover);
+}
+
+.gg-sidebar-profile-button:active {
+  background: var(--press);
+}
+
+.gg-sidebar-profile-button[data-open] {
+  background: var(--selected);
+}
+
+.gg-sidebar-profile-button[data-open]:active {
+  background: var(--press);
+}
+
+/* 栏顶那一格 = 咕咕(owner 10-16)。是栏上一个普通的格(gg-sidebar-item:选中 / 悬浮 / 按下同一套底色),只是盒子
+   大一号:44 盒 / 40 头像,与原来顶格的本人头像钮同一份数。 */
+.gg-sidebar-item.gg-sidebar-item-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-xl);
+}
+.gg-sidebar-assistant-face {
+  display: grid;
+  place-items: center;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+/* 还没有 / 还在读:淡一点,看得出「这里该有一个咕咕」但不抢眼。 */
+.gg-sidebar-assistant-face[data-dim] {
+  opacity: 0.5;
+}
+/* 右下角的小标记:「+」= 去领取 / 创建;「!」= 读不到它。16px 圆点,外围不垫底圈。 */
+.gg-sidebar-assistant-mark {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: var(--radius-capsule);
+  background: var(--primary);
+  background-clip: padding-box;
+  color: var(--primary-fg);
+  font-size: var(--font-caption);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.gg-sidebar-assistant-mark[data-tone='warn'] {
+  background-color: var(--warn, var(--badge-red));
+}
+/* 更新入口(有更新时)在设置齿轮上方。 */
+.gg-sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.gg-sidebar-profile-button img,
+.gg-sidebar-profile-button [data-avatar-matte] {
+  border-radius: 10px !important;
+}
+
+.gg-sidebar-profile-avatar-pending {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-sizing: border-box;
+}
+
+.gg-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.gg-sidebar-item {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  /* #7333 视觉规范:导航格是 40 见方的圆角块,12(≈ 34 格配 10 的比例),不是 8 的小控件档。 */
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--faint-fg);
+  display: grid;
+  place-items: center;
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.gg-sidebar-item:hover {
+  background: var(--hover);
+  color: var(--muted-fg);
+}
+
+.gg-sidebar-item:active {
+  background: var(--press);
+}
+
+.gg-sidebar-item[data-on] {
+  background: var(--selected);
+  color: var(--fg);
+}
+
+/* @@@state-ladder-mix 当前导航项:悬浮/按下都叠在 --selected 之上。
+   改前 [data-on] 没有 hover 规则(指针经过毫无反应),而 [data-on]:active 直接把底色换成
+   --press —— 按下去比选中还**浅**,阶梯是反的。 */
+.gg-sidebar-item[data-on]:hover {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
+.gg-sidebar-item[data-on]:active {
+  background-image: linear-gradient(var(--press), var(--press));
+}
+
+/* @@@ui-ruler 选中态只留底色 tint 一种标识(原来还叠一根 2px 左竖条:两个标识说同一件事,
+   macOS 原生侧栏与 calm-ui 都只用一种)。 */
+
+/* 右键菜单开着:这一格照指针停在上面那样亮着,菜单读得出是它的(#7050)。 */
+.gg-sidebar-item[data-menu-open] {
+  background: var(--hover);
+  color: var(--muted-fg);
+}
+.gg-sidebar-item[data-on][data-menu-open] {
+  background: var(--selected);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--fg);
+}
+
+.gg-sidebar-item:disabled {
+  background: transparent;
+  color: var(--faint-fg);
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gg-sidebar-badge {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-capsule);
+  background: var(--badge-red);
+  background-clip: padding-box;
+  position: absolute;
+  inset-block-start: 7px;
+  inset-inline-end: 7px;
+  pointer-events: none;
+}
+
+/* 钉着的 App 开着:4px 状态点收进按钮左侧,与居中的 22px 图标保持 4px 间距。 */
+.gg-sidebar-running {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-capsule);
+  background: var(--faint-fg);
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 1px;
+  margin-block-start: -2px;
+  pointer-events: none;
+}
+
+/* 左栏每个图标指上去有它自己的一下(#7050)。动法与取值照 lucide-animated(MIT,github.com/pqoqubbw/icons)
+   里对应那一枚;它的弹簧用回弹曲线 cubic-bezier(.34, 1.56, .64, 1) 近似(过冲一次再收住)。
+   位移在图标自己的 24 格坐标里。系统「减少动态效果」打开时一下都不动。 */
+@media (prefers-reduced-motion: no-preference) {
+  .gg-sidebar-item[data-rail] svg * {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /* 任务:三个勾依次重画一遍(各 .4s,相隔 .1s,从半大长到原大)。图标是生成的 Solar Checklist,
+     前三笔是勾、第四笔是横线 —— 换字形要回来改这里。5 = 一个勾的笔画长(√2 + √12.5 ≈ 4.95)。 */
+  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(-n + 3) {
+    animation: gg-rail-draw 0.4s ease-out both;
+  }
+  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(3) {
+    animation-delay: 0.2s;
+  }
+
+  /* 消息:气泡左右晃 −7° → 7°,同时弹到 1.05。 */
+  .gg-sidebar-item[data-rail='chats'] svg {
+    transition: scale var(--dur-slow) cubic-bezier(0.34, 1.8, 0.64, 1);
+  }
+  .gg-sidebar-item[data-rail='chats']:hover svg {
+    scale: 1.05;
+    animation: gg-rail-wag 0.5s ease-in-out;
+  }
+
+  /* 通讯录:后面那个人从前面那人身后滑出来(晚 .1s)。 */
+  .gg-sidebar-item[data-rail='contacts']:hover .gg-rail-back {
+    animation: gg-rail-peek 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+  }
+
+  /* 资源库:上面两层掀起来,移开落回。图标是生成的 Solar Library,第一笔是那两层。 */
+  .gg-sidebar-item[data-rail='library'] svg g > path:first-child {
+    transition: translate var(--dur-slow) cubic-bezier(0.3, 1.3, 0.5, 1);
+  }
+  .gg-sidebar-item[data-rail='library']:hover svg g > path:first-child {
+    translate: 0 -1.5px;
+  }
+
+  /* App:拎出来的那一块往缺口里插一下再回去(装上一个 App)。 */
+  .gg-sidebar-item[data-rail='apps']:hover .gg-rail-piece {
+    animation: gg-rail-slot 0.6s ease-in-out;
+  }
+
+  /* 设置:齿轮转半圈,移开转回来(lucide-animated `settings`)。 */
+  .gg-sidebar-item[data-rail='settings'] svg {
+    transition: rotate var(--dur-slow) cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .gg-sidebar-item[data-rail='settings']:hover svg {
+    rotate: 180deg;
+  }
+
+  /* 钉着的 App:轻轻晃一下,像拿起来掂一掂;拖着排序时不晃。 */
+  .gg-sidebar-dock .gg-sidebar-item:hover .gg-sidebar-app-icon {
+    animation: gg-rail-jiggle 0.5s ease-in-out;
+  }
+  .gg-sidebar-dock [data-dragging] .gg-sidebar-item:hover .gg-sidebar-app-icon {
+    animation: none;
+  }
+}
+
+@keyframes gg-rail-draw {
+  0% {
+    stroke-dasharray: 5;
+    stroke-dashoffset: 5;
+    opacity: 0;
+    scale: 0.5;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dasharray: 5;
+    stroke-dashoffset: 0;
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes gg-rail-wag {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  33% {
+    rotate: -7deg;
+  }
+  66% {
+    rotate: 7deg;
+  }
+}
+
+@keyframes gg-rail-peek {
+  from {
+    translate: -6px 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+
+@keyframes gg-rail-slot {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  45% {
+    translate: -2.5px 2.5px;
+  }
+  70% {
+    translate: -2px 2px;
+  }
+}
+
+@keyframes gg-rail-jiggle {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  25% {
+    rotate: -8deg;
+  }
+  60% {
+    rotate: 6deg;
+  }
+  85% {
+    rotate: -2deg;
+  }
+}
+
+.gg-sidebar-spacer {
+  flex: 1;
+  min-height: 16px;
+}
+
+/* 「App」与钉上去的 App 之间一道细线:上面是咕咕自带的,下面是你钉的(#7046)。没钉就不画。 */
+.gg-sidebar-rail-sep {
+  display: block;
+  width: 24px;
+  height: 1px;
+  margin: 4px auto;
+  background: var(--border);
+}
+
+/* The Apps pinned to the rail (its dock): scrolls on its own when it outgrows half the rail. */
+.gg-sidebar-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* 左右各让出一截:这个盒子自己会滚,超出它的都被裁掉,而开着的小点就画在格子左边(.gg-sidebar-running)。 */
+  padding-inline: 12px;
+  margin-inline: -12px;
+}
+
+/* An App's own icon at the rail's icon size, or its first letter on a tinted square. */
+.gg-sidebar-app-icon {
+  width: var(--icon-rail);
+  height: var(--icon-rail);
+  border-radius: var(--radius-control);
+}
+
+.gg-sidebar-app-letter {
+  display: grid;
+  place-items: center;
+  background: var(--hover);
+  font-size: var(--font-caption);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 右键「App」那一列:图标落在菜单的 20px 图标位上;开着的那几个行尾一个小点(同左栏那个)。 */
+.gg-sidebar-launch-icon {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
+
+.gg-sidebar-launch-item .gg-menu-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gg-sidebar-launch-running {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-inline-start: auto;
+  border-radius: var(--radius-capsule);
+  background: var(--menu-icon);
+}
+
+/* #5111 账号菜单。弹层宽度写死 —— 名称/邮箱都可能任意长,不钉死的话弹层会被撑到
+   collisionPadding 的上限,然后被 overflow:hidden 齐口切掉(owner 截图里就是这样)。
+   钉死宽度 + 两行各自省略号,长短账号一个样。 */
+.gg-sidebar-profile-menu {
+  width: 248px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 身份头:左对齐一行(头像 + 名称/邮箱两行),与下面的菜单行同一种读法。 */
+.gg-sidebar-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 和栏上那枚同一个形状:圆角方块(40px 配 10px ⇒ 32px 配 8px),❌ 栏上方、菜单里圆,同一张脸两种轮廓(原型同此)。 */
+.gg-sidebar-profile-head img,
+.gg-sidebar-profile-head [data-avatar-matte] {
+  border-radius: var(--radius-control) !important;
+}
+
+/* 头像不参与收缩,可收的只有身份列 —— 否则长邮箱会把 32px 的头像也压扁。 */
+.gg-sidebar-profile-head > :not(.gg-sidebar-profile-identity) {
+  flex: 0 0 auto;
+}
+
+.gg-sidebar-profile-identity {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.gg-sidebar-profile-name,
+.gg-sidebar-profile-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gg-sidebar-profile-name {
+  color: var(--menu-fg);
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.gg-sidebar-profile-email {
+  color: var(--menu-icon);
+  font-size: var(--font-caption);
+}
+
+/* 分隔线要与弹层等宽 ⇒ 弹层内距归零、行的 4px 内距下放到这一块;两处内距同样只能写 inline(见上)。 */
+.gg-sidebar-profile-actions {
+  border-block-start: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-sidebar-profile-button,
+  .gg-sidebar-item {
+    transition-duration: 0ms;
+  }
+}

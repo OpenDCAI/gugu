@@ -1,0 +1,29 @@
+{
+  "version": "2026.9.12",
+  "assets": {
+    "win32-x64": {
+      "asset": "mise-v2026.9.12-windows-x64.zip",
+      "sha256": "375ee1a86ece7a7b7270c82b5a1810a591efa1e378188b5f4d928ef47bde91ac"
+    },
+    "win32-arm64": {
+      "asset": "mise-v2026.9.12-windows-arm64.zip",
+      "sha256": "355e2fe5f615f3c636128b827f9a8fd3ce14e846e849a59c641e7123d39652a4"
+    },
+    "darwin-x64": {
+      "asset": "mise-v2026.9.12-macos-x64.tar.gz",
+      "sha256": "22be38ec60632913143bf6a96b0aacfd895fdfe4ce4e8958e942f7bdb5a9185b"
+    },
+    "darwin-arm64": {
+      "asset": "mise-v2026.9.12-macos-arm64.tar.gz",
+      "sha256": "0f1c7f3e74d8c9ae82976e6990058f2bc68821acc6b4c37a68c206c836692419"
+    },
+    "linux-x64": {
+      "asset": "mise-v2026.9.12-linux-x64-musl.tar.gz",
+      "sha256": "1b2051d8d3efab4d9c85ceb59849a3eb052db24ad406a3901fd6b45374c56ebe"
+    },
+    "linux-arm64": {
+      "asset": "mise-v2026.9.12-linux-arm64-musl.tar.gz",
+      "sha256": "22e7ecd3c6c84ef36e4d0c78c4eef49a79e3fb83aa88e091e2993fd9c9a3f8a1"
+    }
+  }
+}

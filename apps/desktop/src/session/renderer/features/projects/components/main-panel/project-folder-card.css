@@ -1,0 +1,402 @@
+/*
+ * 项目首页的文件夹卡(product spec「项目首页」,#7341)。
+ * 颜色只取语义变量(--fg/--bg/--card/--border/--live…):视觉母版(#7333)换掉这些值时卡片跟着走,❌ 写死色值。
+ * 字号 / 圆角 / 动效都取 token(--font-size-* / --radius-* / --dur-* / --ease-*),❌ 写死数值。
+ */
+.gg-folder-card {
+  --fc-edge: color-mix(in oklab, var(--fg) 14%, transparent);
+  --fc-hi: color-mix(in oklab, var(--bg) 90%, transparent);
+  --fc-cover-alpha: 1;
+  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 12%, transparent), 0 4px 12px -2px rgb(30 40 60 / 0.1);
+  /* 时长、缓动一律取动效 token(scripts/ui-state-debt-check.mjs 的 css-magic-transition):换视觉母版时跟着走。 */
+  --fc-ease: var(--ease-spring);
+  --rx: 0deg;
+  --ry: 0deg;
+  --px: 0;
+  --py: 0;
+  position: relative;
+  flex: none;
+  outline: none;
+  cursor: pointer;
+}
+:root[data-theme='dark'] .gg-folder-card {
+  --fc-cover-alpha: 0.62;
+  --fc-paper-shadow: 0 0 0 0.5px color-mix(in oklab, var(--fg) 16%, transparent), 0 6px 18px -4px rgb(0 0 0 / 0.5);
+}
+.gg-folder-card__toggle {
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  justify-content: flex-start;
+}
+.gg-folder-card__toggle:hover,
+.gg-folder-card__toggle:active {
+  background: transparent;
+  color: inherit;
+}
+.gg-folder-card__toggle:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.gg-folder-card__stage {
+  position: relative;
+  transform: perspective(1000px) rotateX(var(--rx)) rotateY(var(--ry));
+  transform-origin: 50% 75%;
+  isolation: isolate;
+  will-change: transform;
+  transition: transform var(--dur-slow) var(--fc-ease);
+}
+.gg-folder-card.is-tracking .gg-folder-card__stage {
+  transition: transform var(--dur-fast) linear;
+}
+.gg-folder-card__shadow {
+  position: absolute;
+  inset: auto 10% -12px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(30 40 60 / 0.2), transparent);
+  transition: transform var(--dur-slow) var(--fc-ease);
+}
+:root[data-theme='dark'] .gg-folder-card__shadow {
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.55), transparent);
+}
+.gg-folder-card:hover .gg-folder-card__shadow {
+  transform: translateY(3px) scaleX(1.03);
+}
+.gg-folder-card__back,
+.gg-folder-card__front-edge {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+.gg-folder-card__back {
+  will-change: transform;
+}
+.gg-folder-card__cover {
+  opacity: var(--fc-cover-alpha);
+}
+.gg-folder-card__papers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 纸之间按 z-index 叠,整叠仍在玻璃前片下面:自成一个层叠上下文,纸的 z-index 不越过前片。 */
+  isolation: isolate;
+}
+
+/* 一页纸 = 一个文件夹。外层管位置与动画,里面的按钮管点击 / 焦点 / 选中(见 project-folder-card.tsx)。 */
+.gg-folder-paper-slot {
+  position: absolute;
+  pointer-events: auto;
+  transition:
+    transform var(--dur-slow) var(--fc-ease),
+    opacity var(--dur-med),
+    translate var(--dur-med) var(--fc-ease);
+}
+.gg-folder-paper-slot[data-peek='shown'] {
+  will-change: transform;
+}
+.gg-folder-paper-slot[data-peek='hidden'] {
+  pointer-events: none;
+}
+.gg-folder-card.is-open .gg-folder-paper-slot:hover {
+  translate: 0 -8px;
+}
+.gg-folder-paper-slot.is-dropping {
+  animation: gg-folder-drop calc(var(--dur-slow) * 2.4) var(--fc-ease) both;
+}
+.gg-folder-paper {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: inherit;
+  height: auto;
+  white-space: normal;
+  border: 0;
+  text-align: left;
+  background: var(--card);
+  color: var(--fg);
+  border-radius: var(--radius-xl, 12px);
+  box-shadow: var(--fc-paper-shadow);
+  padding: 10px 12px;
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+}
+.gg-folder-card.is-open .gg-folder-paper[aria-pressed='true'] {
+  box-shadow: 0 0 0 1.5px var(--live), var(--fc-paper-shadow);
+}
+.gg-folder-paper__top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  min-width: 0;
+}
+.gg-folder-paper__path {
+  margin-top: 4px;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  color: var(--muted-fg);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gg-folder-paper__meta {
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  color: var(--muted-fg);
+}
+.gg-folder-paper__meta.is-running {
+  color: var(--live);
+}
+.gg-folder-paper__check,
+.gg-folder-paper__fresh {
+  margin-left: auto;
+  flex: none;
+  color: var(--live);
+}
+.gg-folder-paper__fresh {
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  font-weight: 600;
+}
+.gg-folder-paper__check {
+  display: inline-flex;
+  visibility: hidden;
+}
+.gg-folder-card.is-open .gg-folder-paper[aria-pressed='true'] .gg-folder-paper__check {
+  visibility: visible;
+}
+@keyframes gg-folder-drop {
+  0% { opacity: 0; transform: translate(var(--tx), -150px) rotate(-10deg); }
+  45% { opacity: 1; }
+  100% { opacity: 1; transform: translate3d(var(--tx), var(--ty), 0) rotate(var(--rot)); }
+}
+
+/* 机器标签(纸上、卡面上同一个) */
+.gg-folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 4.5%, transparent);
+  box-shadow: 0 0 0 0.5px var(--border);
+}
+.gg-folder-chip svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-fg);
+}
+.gg-folder-chip__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--live);
+}
+.gg-folder-chip__dot.is-offline {
+  background: var(--faint-fg);
+  opacity: 0.6;
+}
+
+/* 前片:半透明材质,形状用 mask 裁(不用 clip-path —— 见 project-folder-card.tsx 的 maskStyle) */
+.gg-folder-card__front {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.gg-folder-card__cover-frost,
+.gg-folder-card__paper-frost {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.3;
+}
+.gg-folder-card__paper-frost {
+  will-change: opacity;
+  transition: opacity var(--dur-slow) var(--fc-ease);
+}
+.gg-folder-card.is-open .gg-folder-card__paper-frost {
+  opacity: 0;
+}
+.gg-folder-card__front::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(90% 70% at calc(50% + var(--px) * 70%) calc(var(--py) * 50%), rgb(255 255 255 / 0.2), transparent 60%);
+}
+:root[data-theme='dark'] .gg-folder-card__front::after {
+  background: radial-gradient(90% 70% at calc(50% + var(--px) * 70%) calc(var(--py) * 50%), rgb(255 255 255 / 0.06), transparent 60%);
+}
+.gg-folder-card__body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 14px;
+}
+.gg-folder-card__title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.gg-folder-card__name {
+  font-size: var(--font-size-xl);
+  line-height: 28px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gg-folder-card__meta {
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+.gg-folder-card__meta .is-running {
+  color: var(--live);
+}
+.gg-folder-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.gg-folder-card__machines {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.gg-folder-card__agents {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.gg-folder-card__agents img {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  min-width: 20px;
+  object-fit: contain;
+  border-radius: 50%;
+  margin-left: -6px;
+  box-shadow: 0 0 0 1.5px var(--fc-hi);
+  background: var(--card);
+}
+.gg-folder-card__more {
+  margin-left: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--muted-fg);
+}
+.gg-folder-card__add {
+  border: 0;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--bg);
+  transition: opacity var(--dur-fast), transform var(--dur-fast) var(--fc-ease);
+}
+.gg-folder-card__add:hover {
+  opacity: 0.85;
+}
+.gg-folder-card__add:active {
+  transform: scale(0.94);
+}
+.gg-folder-card__add svg {
+  width: 15px;
+  height: 15px;
+}
+.gg-folder-card__error {
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  color: var(--muted-fg);
+}
+.gg-folder-card__error button {
+  height: auto;
+  padding: 0;
+  margin-left: 6px;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.gg-folder-card__drop-hint {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  transform: translate(-50%, -100%);
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  color: var(--live);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--dur-med);
+  pointer-events: none;
+}
+.gg-folder-card.is-dragover .gg-folder-card__drop-hint {
+  opacity: 1;
+}
+.gg-folder-card.is-dragover .gg-folder-card__stage {
+  transform: perspective(1000px) translateY(-5px) scale(1.015);
+}
+.gg-folder-card.is-dragover .gg-folder-card__front-edge path:first-child {
+  stroke: var(--live);
+  stroke-width: 1.5;
+}
+.gg-folder-card.is-landing .gg-folder-card__front,
+.gg-folder-card.is-landing .gg-folder-card__front-edge {
+  animation: gg-folder-bump var(--dur-slow) var(--fc-ease);
+}
+@keyframes gg-folder-bump {
+  40% { transform: translateY(4px); }
+}
+.gg-folder-card__hint {
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  color: var(--muted-fg);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-folder-card *,
+  .gg-folder-card {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.gg-folder-paper__branch {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  color: var(--muted-fg);
+}

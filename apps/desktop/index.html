@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- @@@no-page-zoom (#569) - this is an app, not a document: native pinch-zoom would scale the whole
+         page (incl. the chat message area), which users can't recover from. Disable it so pinch never
+         shrinks the message list. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="icon" href="/assets/app/gugu-icon-512.png" />
+    <title>咕咕</title>
+    <!-- @@@5293 首帧之前把偏好解析成真值,避免闪一下再改。规则必须与
+         `src/session/renderer/lib/theme/host-theme.ts` 里那份逐字一致:
+         存的是**偏好**(light / dark / system),落到属性上的是**真值**(light / dark)。
+         认不出来的值退回浅色(@@@1424 的默认),❌ 不猜、也❌ 不在这里跟随系统——
+         「跟随系统」只有在用户显式选了 system 时才成立。 -->
+    <script>
+      (function() {
+        var pref = localStorage.getItem('app-theme');
+        if (pref !== 'light' && pref !== 'dark' && pref !== 'system') pref = 'light';
+        var resolved = pref === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : pref;
+        document.documentElement.setAttribute('data-theme', resolved);
+      })();
+    </script>
+    <!-- @@@sidebar-tint 同理:侧栏渐进底色开着时,首帧之前就要落上属性,否则会先闪一下
+         未染色的侧栏。规则必须与 `src/lib/sidebarTint.ts` 逐字一致:只有存下来的字面量是
+         'true' 才算开,其余(缺失/旧值/被改过)一律算关。 -->
+    <script>
+      (function() {
+        if (localStorage.getItem('gugu.sidebar-tint') === 'true') {
+          document.documentElement.setAttribute('data-sidebar-tint', 'on');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
