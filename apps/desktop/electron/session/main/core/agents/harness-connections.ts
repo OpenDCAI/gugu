@@ -317,6 +317,12 @@ export async function alignCodexDefaultAccount(nativeEnv?: Record<string, string
   await activateCodexAccount(paths, ids, id);
 }
 
+/** 开机时、任何会话起来之前调一次(embedded-boot)。 */
+export async function alignHarnessConnectionsAtStartup(): Promise<void> {
+  const { resolveLocalAgentSpawnEnv } = await import('./agent-run-context');
+  await alignCodexDefaultAccount(await resolveLocalAgentSpawnEnv('codex'));
+}
+
 /** An event must be attributed to the account the session actually ran on, never a guess. */
 export async function sessionHarnessConnectionId(sessionId: string | undefined): Promise<string | undefined> {
   if (!sessionId) return undefined;
