@@ -488,6 +488,9 @@
   --transition-fast: var(--dur-fast) var(--ease);
   --transition-normal: var(--dur-med) var(--ease);
   --transition-slow: var(--dur-slow) var(--ease);
+  --mobile-motion-duration: var(--dur-med);
+  --mobile-motion-ease: var(--ease);
+  --mobile-motion-distance: var(--spacing-xl);
 
   /* @@@1899 z-index 语义阶梯 — 全部层叠顺序的 SSOT，❌ 新增 zIndex 魔数（挑下面的语义层；
      不够用则在此扩阶梯）。同语义同 token；同 token 内叠序由 DOM 序裁决（后挂载者在上）。
@@ -1574,7 +1577,7 @@ body.barcode-scanner-active #root {
 .gg-pane[data-role='detail'] { flex: 1 1 auto; background: var(--bg); overflow: hidden; }
 .gg-pane[data-mobile] { width: 100%; min-width: 0; flex: 1 1 auto; border-inline-end: none; }
 
-/* 面板头:固定高、标题 + 右侧动作车道;可拖窗。标题永远同一档(title 16/24 semibold),移动壳升页级 24/32。 */
+/* 手机根页 24/32;带返回入口的二级页复用 16/24 semibold。几何仍共用。 */
 .gg-pane-header {
   display: flex;
   align-items: center;
@@ -1599,10 +1602,39 @@ body.barcode-scanner-active #root {
   white-space: nowrap;
   -webkit-app-region: no-drag;
 }
-.gg-pane-header[data-mobile] .gg-pane-title {
+.gg-pane-header[data-mobile]:not([data-inline]) .gg-pane-title {
   font-size: var(--font-size-xl);
   line-height: var(--lh-page);
   letter-spacing: -0.02em;
+}
+
+/* Existing page snapshots keep the tab bar and live document interactive. */
+:root[data-mobile-direction] { view-transition-name: none; }
+:root[data-mobile-direction] [data-mobile-tab-page]:not([inert]) { view-transition-name: mobile-page; }
+:root[data-mobile-direction]::view-transition { pointer-events: none; }
+::view-transition-group(mobile-page), ::view-transition-old(mobile-page), ::view-transition-new(mobile-page),
+.gg-mobile-motion, .gg-sheet-content[data-sheet-mobile='true'], .gg-sheet-backdrop[data-sheet-mobile='true'] {
+  animation-duration: var(--mobile-motion-duration);
+  animation-timing-function: var(--mobile-motion-ease);
+}
+::view-transition-old(mobile-page) { animation-name: gg-mobile-leave; }
+::view-transition-new(mobile-page) { animation-name: gg-mobile-enter; }
+:root[data-mobile-direction='pop'] { --mobile-motion-distance: calc(-1 * var(--spacing-xl)); }
+:root[data-mobile-direction='replace'] { --mobile-motion-distance: 0px; }
+@keyframes gg-mobile-enter { from { opacity: 0; transform: translateX(var(--mobile-motion-distance)); } }
+@keyframes gg-mobile-leave { to { opacity: 0; transform: translateX(calc(-1 * var(--mobile-motion-distance))); } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(mobile-page), ::view-transition-old(mobile-page), ::view-transition-new(mobile-page) { animation: none; }
+}
+.gg-mobile-motion, .gg-sheet-content[data-sheet-mobile='true'], .gg-sheet-backdrop[data-sheet-mobile='true'] {
+  transition-duration: var(--mobile-motion-duration);
+  transition-timing-function: var(--mobile-motion-ease);
+}
+@media (max-width: 719px) {
+  [data-slot='popover-popup'], .gg-menu {
+    transition-duration: var(--mobile-motion-duration);
+    transition-timing-function: var(--mobile-motion-ease);
+  }
 }
 /* 细进度条(手机附件卡从那台电脑取文件):原生 <progress>,读屏自带进度;颜色同更新下载那条。 */
 .gg-progress {

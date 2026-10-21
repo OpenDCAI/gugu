@@ -3,20 +3,14 @@ import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 const setOpen = vi.fn();
-let snapshotHandler: ((snap: ResourceSnapshot) => void) | null = null;
-const offSnapshot = vi.fn(() => {
-  snapshotHandler = null;
-});
+const getSnapshot = vi.fn();
+let snapshotHandler: ((snap: ResourceSnapshot | null) => void) | null = null;
+const offSnapshot = vi.fn(() => { snapshotHandler = null; });
 
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: {
-    resourceMonitor: {
-      setOpen,
-      getSnapshot: vi.fn(),
-    },
-  },
+  rpc: { resourceMonitor: { setOpen, getSnapshot } },
   events: {
-    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot) => void) => {
+    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot | null) => void) => {
       if (channel === resourceSnapshotChannel) snapshotHandler = cb;
       return offSnapshot;
     }),
@@ -25,12 +19,8 @@ vi.mock('@renderer/lib/ipc', () => ({
 
 function snapshot(timestamp: number): ResourceSnapshot {
   return {
-    timestamp,
-    cpuCount: 1,
-    totalMemoryBytes: 0,
-    app: { memoryBytes: 0, cpuPercent: 0 },
-    appProcesses: [],
-    entries: [],
+    timestamp, cpuCount: 1, totalMemoryBytes: 0,
+    app: { memoryBytes: 0, cpuPercent: 0 }, appProcesses: [], entries: [],
   };
 }
 
@@ -41,158 +31,129 @@ async function flushPromises(): Promise<void> {
 
 describe('ResourceMonitorStore', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     snapshotHandler = null;
+    setOpen.mockResolvedValue({ success: true });
+    getSnapshot.mockResolvedValue({ success: true, data: null });
+    offSnapshot.mockImplementation(() => { snapshotHandler = null; });
   });
 
-  it('opens once and disposes idempotently with the same subscription', async () => {
+  it('subscribes before opening, fetches no duplicate first sample, and disposes idempotently', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({ success: true, data: null });
-
+    setOpen.mockImplementation(async (_client, _subscription, open) => {
+      if (open) snapshotHandler?.(snapshot(1));
+      return { success: true };
+    });
     const store = new ResourceMonitorStore();
     store.start();
     store.start();
+    expect(store.snapshot?.timestamp).toBe(1);
+    expect(store.isLoadingInitialSnapshot).toBe(false);
+    expect(getSnapshot).not.toHaveBeenCalled();
     store.dispose();
     store.dispose();
-
     expect(setOpen).toHaveBeenCalledTimes(2);
-    const clientId = setOpen.mock.calls[0]?.[0];
-    const subscriptionId = setOpen.mock.calls[0]?.[1];
+    const [clientId, subscriptionId] = setOpen.mock.calls[0];
     expect(setOpen).toHaveBeenNthCalledWith(1, clientId, subscriptionId, true, 1);
     expect(setOpen).toHaveBeenNthCalledWith(2, clientId, subscriptionId, false, 2);
+    expect(offSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it('tracks initial loading until the first fetch resolves', async () => {
+  it('waits for the first pushed sample rather than the subscription acknowledgement', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({ success: true, data: null });
-
     const store = new ResourceMonitorStore();
     store.start();
-
+    await flushPromises();
     expect(store.isLoadingInitialSnapshot).toBe(true);
-    await flushPromises();
+    snapshotHandler?.(snapshot(2));
+    expect(store.snapshot?.timestamp).toBe(2);
+    expect(store.isLoadingInitialSnapshot).toBe(false);
+  });
 
+  it('ends loading on a failed sample without clearing the last valid snapshot or baseline', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore();
+    store.start();
+    snapshotHandler?.(null);
+    expect(store.isLoadingInitialSnapshot).toBe(false);
     expect(store.snapshot).toBeNull();
-    expect(store.isLoadingInitialSnapshot).toBe(false);
-  });
-
-  it('stops initial loading when an event snapshot arrives first', async () => {
-    const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({
-      success: true,
-      data: snapshot(1),
-    });
-
-    const store = new ResourceMonitorStore();
-    store.start();
+    snapshotHandler?.(snapshot(1));
     snapshotHandler?.(snapshot(2));
-    await flushPromises();
-
+    snapshotHandler?.(null);
     expect(store.snapshot?.timestamp).toBe(2);
-    expect(store.isLoadingInitialSnapshot).toBe(false);
+    expect(store.previousSnapshot?.timestamp).toBe(1);
   });
 
-  it('does not let a null fetched snapshot clear a newer event snapshot', async () => {
+  it('ends loading if opening the subscription fails', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({ success: true, data: null });
-
+    setOpen.mockRejectedValueOnce(new Error('IPC unavailable'));
     const store = new ResourceMonitorStore();
     store.start();
-    snapshotHandler?.(snapshot(2));
     await flushPromises();
-
-    expect(store.snapshot?.timestamp).toBe(2);
     expect(store.isLoadingInitialSnapshot).toBe(false);
+    expect(store.snapshot).toBeNull();
   });
 
-  it('ignores stale initial fetches from a previous open', async () => {
+  it('ignores old sample callbacks and subscription failures after reopen', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    let resolveFirst!: (value: { success: true; data: ResourceSnapshot | null }) => void;
-    let resolveSecond!: (value: { success: true; data: ResourceSnapshot | null }) => void;
-    vi.mocked(rpc.resourceMonitor.getSnapshot)
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveFirst = resolve;
-        })
-      )
-      .mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveSecond = resolve;
-        })
-      );
-
+    let rejectOpen!: (error: Error) => void;
+    setOpen.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOpen = reject; }));
     const store = new ResourceMonitorStore();
     store.start();
+    const oldHandler = snapshotHandler;
     store.dispose();
     store.start();
-
-    resolveFirst({ success: true, data: snapshot(1) });
+    oldHandler?.(snapshot(1));
+    rejectOpen(new Error('old subscription failed'));
     await flushPromises();
-
     expect(store.snapshot).toBeNull();
     expect(store.isLoadingInitialSnapshot).toBe(true);
-
-    resolveSecond({ success: true, data: null });
-    await flushPromises();
-
-    expect(store.snapshot).toBeNull();
+    snapshotHandler?.(snapshot(2));
+    expect(store.snapshot?.timestamp).toBe(2);
     expect(store.isLoadingInitialSnapshot).toBe(false);
   });
 
-  it('does not let an older fetched snapshot overwrite a newer event snapshot', async () => {
+  it('keeps manual refresh but does not let it overwrite a newer pushed snapshot', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({
-      success: true,
-      data: snapshot(1),
-    });
-
+    let finish!: (value: { success: true; data: ResourceSnapshot }) => void;
+    getSnapshot.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
     const store = new ResourceMonitorStore();
     store.start();
-    snapshotHandler?.(snapshot(2));
-    await flushPromises();
-
-    expect(store.snapshot?.timestamp).toBe(2);
-  });
-
-  it('does not let refresh overwrite a newer snapshot', async () => {
-    const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    let resolveSnapshot!: (value: { success: true; data: ResourceSnapshot }) => void;
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockReturnValue(
-      new Promise((resolve) => {
-        resolveSnapshot = resolve;
-      })
-    );
-
-    const store = new ResourceMonitorStore();
     const refreshing = store.refresh();
-    store.snapshot = snapshot(2);
-    resolveSnapshot({ success: true, data: snapshot(1) });
+    snapshotHandler?.(snapshot(2));
+    finish({ success: true, data: snapshot(1) });
     await refreshing;
-
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
     expect(store.snapshot?.timestamp).toBe(2);
   });
 
-  it('keeps the snapshot before the current one for differencing, and drops it on reopen', async () => {
+  it.each([false, true])('discards a late manual refresh after close (reopen=%s)', async (reopen) => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
-    const { rpc } = await import('@renderer/lib/ipc');
-    vi.mocked(rpc.resourceMonitor.getSnapshot).mockResolvedValue({ success: true, data: null });
+    let finish!: (value: { success: true; data: ResourceSnapshot }) => void;
+    getSnapshot.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const store = new ResourceMonitorStore();
+    store.start();
+    const refreshing = store.refresh();
+    store.dispose();
+    if (reopen) store.start();
+    finish({ success: true, data: snapshot(1) });
+    await refreshing;
+    expect(store.snapshot).toBeNull();
+    expect(store.isLoadingInitialSnapshot).toBe(reopen);
+  });
 
+  it('keeps the preceding snapshot for differencing, rejects older events, and resets on reopen', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
     const store = new ResourceMonitorStore();
     store.start();
     snapshotHandler?.(snapshot(1));
     snapshotHandler?.(snapshot(2));
+    snapshotHandler?.(snapshot(1));
     expect(store.previousSnapshot?.timestamp).toBe(1);
     expect(store.snapshot?.timestamp).toBe(2);
-
     store.dispose();
     store.start();
+    expect(store.snapshot).toBeNull();
     expect(store.previousSnapshot).toBeNull();
   });
 });

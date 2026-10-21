@@ -17,7 +17,7 @@ import { isDuplicateAssistantChat } from '../lib/assistantChatList'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
 import { formatCalendarDay } from '../lib/calendarTime'
-import { CreateGroupChatModal } from './CreateGroupChatModal'
+import { CreateGroupChatForm } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -385,15 +385,9 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
 // @@@add-friend-unify 弹窗只是一层壳：搜索加人的实现复用 AddFriendSearch，与通讯录「添加联系人」
 // 路由同一条链路（同一搜索框 / 结果行 / 附言发送流）。此前这里自写了一套搜索 UI + 结果行，与
 // NewFriendsPanel 的搜索态重复；unify 后统一走 AddFriendSearch，并因此获得附言 dialog（原弹窗是即发）。
-function AddFriendModal({ onClose }: { onClose: () => void }) {
+function AddFriendContent({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('messaging')
   return (
-    <Sheet
-      onClose={onClose}
-      desktopWidth="360px"
-      desktopMaxHeight="480px"
-      ariaLabel={t('chatList.addContact')}
-    >
       <div style={ADD_FRIEND_BODY_STYLE}>
         {/* Header */}
         <div style={ADD_FRIEND_HEADER_STYLE}>
@@ -405,7 +399,6 @@ function AddFriendModal({ onClose }: { onClose: () => void }) {
 
         <AddFriendSearch autoFocus onBack={onClose} />
       </div>
-    </Sheet>
   )
 }
 
@@ -523,7 +516,7 @@ export function ChatListPanel({
   ]
   const agentStatuses = useAgentDisplayStatuses(agentIdsForStatus)
   const shownAgent = useShownAgentStatus() // #7199 宿主闲时收回着的自己的 agent:不画睡团 / 「不在线」
-  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [showGroupModal, setShowGroupModal] = useState<boolean | string>(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -915,20 +908,17 @@ export function ChatListPanel({
 
       </div>
 
-      {showAddFriendModal && (
-        <AddFriendModal onClose={() => setShowAddFriendModal(false)} />
-      )}
+      <Sheet open={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} desktopWidth="360px" desktopMaxHeight="480px" ariaLabel={t('chatList.addContact')}>
+        {showAddFriendModal ? <AddFriendContent onClose={() => setShowAddFriendModal(false)} /> : null}
+      </Sheet>
 
-      {showGroupModal && (
-        <CreateGroupChatModal
+      <Sheet open={showGroupModal === true} onClose={() => setShowGroupModal(false)} onClosed={() => { if (typeof showGroupModal === 'string') { setActiveChatId(showGroupModal); onChatSelected?.(); setShowGroupModal(false) } }} desktopWidth="min(440px, 100%)" desktopMaxHeight="min(88vh, calc(100dvh - 32px))" testId="create-group-modal" ariaLabel={t('createGroup.title', { ns: 'contacts' })}>
+        {showGroupModal === true ? <CreateGroupChatForm
           onClose={() => setShowGroupModal(false)}
-          onCreated={(chatId) => {
-            setShowGroupModal(false)
-            setActiveChatId(chatId)
-            onChatSelected?.()
-          }}
+          onCreated={setShowGroupModal}
         />
-      )}
+        : null}
+      </Sheet>
     </Pane>
   )
 }

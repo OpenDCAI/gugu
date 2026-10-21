@@ -302,8 +302,8 @@ export function PhoneVoiceBar({
           {content}
         </div>
       ) : null}
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('bar.discardTitle')}
           body={t('bar.discardBody')}
           confirmLabel={t('bar.discardConfirm')}
@@ -313,10 +313,9 @@ export function PhoneVoiceBar({
           onConfirm={async () => {
             if (recording) phoneVoiceJobs.discard(recording.id)
             else phoneVoiceRecorder.stop()
-            setConfirming(false)
           }}
         />
-      ) : null}
+
     </>
   )
 }

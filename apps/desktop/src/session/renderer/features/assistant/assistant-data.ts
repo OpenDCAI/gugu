@@ -163,7 +163,7 @@ export function useTodayFile(chatId: string | null) {
   return useQuery<TodayRead>({
     queryKey: ['assistant', 'today', chatId],
     queryFn: async () => {
-      const result = await rpc.extensions.readChatFolderText({ chatId: chatId!, filename: TODAY_FILE_NAME });
+      const result = await rpc.extensions.readChatFolderText({ chat: chatId!, name: TODAY_FILE_NAME });
       if (!result.success) throw new TodayReadError(result.kind, result.error);
       return todayReadOf(result.data);
     },

@@ -6,7 +6,6 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { isCloudAgentMarked } from '@gugu/core/shared/enums/agentTypeModels'
 import { Avatar } from './Avatar'
 import { useToast } from './toastContext'
-import { Sheet } from './ui/Sheet'
 import { useTranslation } from 'react-i18next'
 import { SearchField } from './ui/SearchField'
 import { rendererLogger } from '../lib/log'
@@ -26,7 +25,7 @@ interface CreateGroupChatModalProps {
 // `.ng-*` 类 + .na-modal):标题「新建群聊」/ 搜索 / 选中成员芯片条(.ng-selbar) / 分区联系人列表
 // (个人 / Agent,.ng-sec + .ng-row + .ng-check;人在前,owner 10-05:agent 多时要翻过整段才找得到人) / 「创建群聊 · N 人」按钮。删除原臆造的 群名称输入框 /
 // 筛选 tab / 内联报错 / 已选计数文案 / 取消按钮(设计稿仅右上 ✕ + 创建按钮)。
-export function CreateGroupChatModal({ onClose, onCreated, initialName, initialSelectedIds = [] }: CreateGroupChatModalProps) {
+export function CreateGroupChatForm({ onClose, onCreated, initialName, initialSelectedIds = [] }: CreateGroupChatModalProps) {
   const { t } = useTranslation('contacts')
   const { contacts, contactsStatus, loadingContacts, refreshContacts } = useContactsStore()
   const { createGroupChat } = useChatStore('createGroupChat')
@@ -148,7 +147,6 @@ export function CreateGroupChatModal({ onClose, onCreated, initialName, initialS
   }
 
   return (
-    <Sheet onClose={onClose} desktopWidth="min(440px, 100%)" desktopMaxHeight="min(88vh, calc(100dvh - 32px))" testId="create-group-modal" ariaLabel={t('createGroup.title')}>
       <div style={{ position: 'relative', padding: '22px 22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, overflow: 'hidden' }}>
         {/* 右上 ✕ 关闭(设计稿 .m-close) */}
         <button
@@ -241,6 +239,5 @@ export function CreateGroupChatModal({ onClose, onCreated, initialName, initialS
           </button>
         </div>
       </div>
-    </Sheet>
   )
 }

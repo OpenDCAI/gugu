@@ -338,14 +338,12 @@ export function ProjectsPage({
         )
       })}
 
-      {menuFor ? (
-        <SessionActionsSheet
-          session={menuFor.session}
-          deviceId={menuFor.deviceId}
+      <SessionActionsSheet
+          open={menuFor !== null}
+          session={menuFor?.session ?? null}
+          deviceId={menuFor?.deviceId ?? ''}
           onClose={() => setMenuFor(null)}
-          onUpdated={() => setMenuFor(null)}
         />
-      ) : null}
     </AgentWatchScreen>
   )
 }

@@ -4,7 +4,7 @@ import {
   buildAgentDeliveryEnvelope,
   type GuguIdentity,
 } from '../../../../packages/core/src/local/agent/deliveryEnvelope'
-import { describeReactions, REACTIONS, reactionLabel } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { describeReactions, REACTIONS, QUICK_REACTIONS, reactionLabel } from '../../../../packages/core/src/shared/ui/reactionCatalog'
 
 // #6562 人给 agent 的消息点 reaction ⇒ 库写一条无发送者的系统 whisper,正文只有表情;
 // 信封把它标成通知(不是请求),名字从 picker 用的同一份目录补进 message_context。
@@ -64,6 +64,11 @@ describe('#6562 reaction catalog', () => {
   it('describes every catalog emoji present, in catalog order, and nothing else', () => {
     expect(describeReactions('点了 🙏 和 👍,还有 🦄')).toBe('👍 = 赞 (Like)\n🙏 = 感谢 (Thanks)')
     expect(describeReactions('没有表情')).toBeUndefined()
+  })
+
+  it('derives the mixed six quick reactions without changing the status glossary', () => {
+    expect(QUICK_REACTIONS.map(({ emoji }) => emoji)).toEqual(['👍', '❤️', '😂', '👀', '✅', '🙏'])
+    expect(describeReactions('👌 👀 ⏳ ✅ ❓ ❌ 🦄')).toBe('👌 = 收到 (Got it)\n👀 = 在看 (On it)\n⏳ = 稍等 (One moment)\n✅ = 完成 (Done)\n❓ = 疑问 (Question)\n❌ = 不对 (No)')
   })
 
   it('labels by interface language and has no label for emoji outside the catalog', () => {

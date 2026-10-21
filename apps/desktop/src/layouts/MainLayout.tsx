@@ -13,6 +13,7 @@ import { AgentWatchPage, AgentWatchRoot, type AgentWatchRoute } from '@/mobile/a
 import { PhoneDeviceRoot } from '@/mobile/phone-device/PhoneDeviceRoot'
 import { useAppShowSession } from '@/mobile/agent-watch/useAppShowSession'
 import { MobileTabPager } from '@/mobile/MobileTabPager'
+import { navigateMobile } from '@/mobile/navigateMobile'
 import { TAB_AVATAR_STYLE, tabItemStyle } from '@/mobile/settledTab'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useChatSelection } from '@/store/chatLine'
@@ -634,8 +635,7 @@ function InnerLayout({
   const openSettingsSection = useCallback((section: ActiveSection) => {
     setSettingsSection(section)
     if (mobile) {
-      setSettingsPane('detail')
-      setActiveTab('settings')
+      navigateMobile(() => { setSettingsPane('detail'); setActiveTab('settings') }, 'push')
       return
     }
     setSettingsModalOpen(true)
@@ -786,7 +786,7 @@ function InnerLayout({
     const onFile = (event: Event) => {
       const detail = (event as CustomEvent<GroupFileOpenDetail>).detail
       if (!detail || typeof detail.itemId !== 'string') return
-      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at))) event.preventDefault()
+      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message))) event.preventDefault()
     }
     // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
@@ -849,7 +849,7 @@ function InnerLayout({
   useEffect(() => {
     const previous = shellFollowedChatIdRef.current
     shellFollowedChatIdRef.current = activeChatId
-    if (!activeChatId || previous === activeChatId) return
+    if (!activeChatId || previous === activeChatId || document.documentElement.dataset.mobileDirection) return
     setAgentCreateDraftOpen(false)
     setMobilePane('chat')
   }, [activeChatId])
@@ -1173,7 +1173,7 @@ function InnerLayout({
 
   // 手机壳里盖在页面上的层与 Sheet 同一个返回栈(ui/sheetStack.ts);任务 tab 那一层在 AgentWatchPage 里。
   useBackLayer(() => setSettingsModalOpen(false), mobile && settingsModalOpen)
-  useBackLayer(() => setSettingsPane('nav'), mobile && activeTab === 'settings' && settingsPane === 'detail')
+  useBackLayer(() => navigateMobile(() => setSettingsPane('nav'), 'pop'), mobile && activeTab === 'settings' && settingsPane === 'detail')
   useBackLayer(() => setSessionCreateOpen(false), mobile && showSessionCreate)
 
   // 页面那一层:栈里没有层时,聊天详情退回列表。
@@ -1184,7 +1184,7 @@ function InnerLayout({
       if (isSheetOpen()) return
       if (activeTab !== 'chats' || mobilePane !== 'chat') return
       (window as Window & { __guguNativeBackHandled?: boolean }).__guguNativeBackHandled = true
-      setMobilePane('list')
+      navigateMobile(() => setMobilePane('list'), 'pop')
     }
     window.addEventListener(NATIVE_BACK_EVENT, handleNativeBack)
     return () => window.removeEventListener(NATIVE_BACK_EVENT, handleNativeBack)
@@ -1307,12 +1307,12 @@ function InnerLayout({
                       activeTab={activeTab}
                       mobile={mobile}
                       hidden={chatListHidden}
-                      onChatSelected={(focusTarget = 'composer') => {
+                      onChatSelected={(focusTarget = 'composer') => navigateMobile(() => {
                         setAgentCreateDraftOpen(false)
                         setSessionCreateOpen(false)
                         setMobilePane('chat')
                         if (focusTarget === 'composer') focusComposerForUserEntry('chat-entry')
-                      }}
+                      }, 'push')}
                       onScan={handleScan}
                       onOpenAgentCreateDraft={openAgentCreateDraft}
                       onOpenSessionCreate={mobile && sessionHostAvailable ? openSessionCreate : undefined}
@@ -1334,7 +1334,7 @@ function InnerLayout({
                         hidden={showCreateSurface || onScreenChatId !== activeChatId}
                         mobile={mobile}
                         openNonce={chatOpenNonce}
-                        onBack={mobile ? () => setMobilePane('list') : undefined}
+                        onBack={mobile ? () => navigateMobile(() => setMobilePane('list'), 'pop') : undefined}
                         onOpenUserChat={handleOpenProfileChat}
                         onOpenSessionpageAgent={!mobile && sessionHostAvailable ? handleOpenSessionpageAgent : undefined}
                         onOpenSessionpageAgentFile={!mobile && sessionHostAvailable ? handleOpenSessionpageAgentFile : undefined}
@@ -1374,7 +1374,7 @@ function InnerLayout({
                     inline
                     initialSection={settingsSection}
                     pane={settingsPane}
-                    onPaneChange={setSettingsPane}
+                    onPaneChange={(next) => navigateMobile(() => setSettingsPane(next), next === 'nav' ? 'pop' : 'push')}
                   />
                 </div>
               </div>

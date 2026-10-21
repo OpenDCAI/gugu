@@ -174,14 +174,13 @@ export function SessionTimelinePage({
       actions={headerActions}
       bodyFill={phase !== 'error'}
     >
-      {/* 这条会话背后的小鸟 + agent 名 · 一句状态,居中放在时间线顶上(没有实线、没有渐隐遮罩)。
-          状态由身体自己说;离线时不替机器说「在跑」:presentation 为 null ⇒ 画「状态不可用」那一格。矮屏只留文字行。 */}
+      {/* 小鸟、名称与宿主状态同行,不等时间线载入。 */}
       <div className="gg-aw-hero" data-testid="agent-watch-hero">
         <SessionAvatar
           agentId={agent?.agentUserId ?? session.agent?.userId}
           sessionId={session.conversationId}
           presentation={presentation}
-          size={40}
+          size={24}
         />
         <span className="gg-aw-hero-line">
           {agent ? <span className="gg-aw-hero-name" data-testid="agent-watch-agent-name">{agent.displayName}</span> : null}
@@ -259,14 +258,13 @@ export function SessionTimelinePage({
         />
       ) : null}
 
-      {menuOpen ? (
-        <SessionActionsSheet
+      <SessionActionsSheet
+          open={menuOpen}
           session={session}
           deviceId={device.device_id}
           onClose={() => setMenuOpen(false)}
-          onUpdated={(_, next) => (next.archived ? onBack() : setMenuOpen(false))}
+          onArchived={onBack}
         />
-      ) : null}
     </AgentWatchScreen>
   )
 }

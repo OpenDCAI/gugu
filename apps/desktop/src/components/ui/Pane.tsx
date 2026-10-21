@@ -53,6 +53,7 @@ export function PaneHeader({ title, leading, actions, mobile, divider, className
       data-slot="pane-header"
       data-mobile={mobile || undefined}
       data-divider={divider || undefined}
+      data-inline={mobile && Boolean(leading) || undefined}
       className={cn('gg-pane-header window-drag-region', className)}
     >
       {leading}

@@ -450,7 +450,7 @@ describe('@@@6112 TUI 建的会话日后重拉 TUI 也钉住模型(PR #6294 revi
   it('TUI 还没建出会话 → isAwaitingTuiThread(重拉 TUI 复用这台 app-server 的判据)', () => {
     const session = new CodexAppServerSession('agent-wait', '/unused/codex')
     Object.assign(session as unknown as Record<string, unknown>, {
-      client: { rpc: async () => ({}) }, awaitingTuiThread: true, proc: { exitCode: null },
+      client: { rpc: async () => ({}) }, awaitingTuiThread: true, liveAwaitsAttach: true, proc: { exitCode: null },
     })
     expect(session.isAwaitingTuiThread()).toBe(true)
     Object.assign(session as unknown as Record<string, unknown>, { proc: { exitCode: 1 } })

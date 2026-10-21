@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { navigateMobile } from '../navigateMobile'
 import { useTranslation } from 'react-i18next'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '@/components/ui/Button'
@@ -75,6 +76,11 @@ function backOf(route: PhoneRoute): PhoneRoute | null {
   return parent ? { tab: route.tab, sub: parent.sub } : null
 }
 
+function routeDepth(route: PhoneRoute): number {
+  const parent = phoneParentRoute(route)
+  return parent ? 1 + routeDepth(parent) : 0
+}
+
 /** 「分析健康报告」收的文件(与健康页同一份:报告多是 PDF 或拍照 / 截图)。 */
 const HEALTH_REPORT_ACCEPT = 'application/pdf,image/*'
 
@@ -115,7 +121,11 @@ function MobileAssistantAppContent({
     window.addEventListener(UI_EVENTS.openAssistantConnectors, open)
     return () => window.removeEventListener(UI_EVENTS.openAssistantConnectors, open)
   }, [])
-  const open = useCallback((next: PhoneRoute) => setRoute((current) => phoneNextRoute(current, next)), [])
+  const open = useCallback((target: PhoneRoute) => {
+    const next = phoneNextRoute(route, target)
+    const change = routeDepth(next) - routeDepth(route)
+    navigateMobile(() => setRoute(next), change < 0 ? 'pop' : change > 0 ? 'push' : 'replace')
+  }, [route])
   const tab = route.tab
   const opened = useOpenedAssistantTaskChat()
   useEffect(() => {
@@ -146,9 +156,9 @@ function MobileAssistantAppContent({
 
   // 「问问它」这类:回到聊天并唤起键盘(人要接着打字);点分段里的「聊天」只切过去,不弹键盘(手机壳惯例)。
   const openChat = useCallback(() => {
-    setRoute({ tab: 'chat' })
+    open({ tab: 'chat' })
     scheduleComposerFocus('composer-open', { mobileShell: true })
-  }, [])
+  }, [open])
   const askInChat = useCallback(
     (draft: string, files?: File[]) => {
       if (draft) setDraft(chatId, (previous) => appendDraft(previous, draft))

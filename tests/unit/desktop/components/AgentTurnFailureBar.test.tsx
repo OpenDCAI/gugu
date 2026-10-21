@@ -125,14 +125,14 @@ describe('model account quota', () => {
 
 
 describe('durable provider failure notice', () => {
-  it('opens the actual sender model settings from a persisted quota notification', async () => {
-    await harness.render(createNode(SystemMessageNotice, { message: { id: 'turn-failure:batch:fixture', content: '周限额度不足，当前模型账号暂时无法回复。', sender_user_id: 'agent-1' } }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toContain('周限额度不足')
+  it('names the actual sender and opens its model settings from a persisted quota notification', async () => {
+    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: { id: 'turn-failure:batch:fixture', content: '周限额度不足，当前模型账号暂时无法回复。', sender_user_id: 'agent-1' } }))
+    expect(harness.container.querySelector('[role="status"]')?.textContent).toContain('Codex 1: 周限额度不足')
     await clickElement(harness.container.querySelector<HTMLButtonElement>('button')!)
     expect(harness.container.querySelector('[data-model-settings="agent-1"]')?.getAttribute('data-model-tab')).toBe('aimodel')
   })
   it('keeps ordinary system messages in their existing presentation without model controls', async () => {
-    await harness.render(createNode(SystemMessageNotice, { message: { id: 'ordinary-system', content: '群成员已加入', sender_user_id: null } }))
+    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: { id: 'ordinary-system', content: '群成员已加入', sender_user_id: null } }))
     expect(harness.container.textContent).toBe('群成员已加入')
     expect(harness.container.querySelector('button')).toBeNull()
     expect(harness.container.querySelector('[role="status"]')).toBeNull()

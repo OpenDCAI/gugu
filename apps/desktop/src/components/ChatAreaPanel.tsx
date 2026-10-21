@@ -230,7 +230,11 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     setShowAnnounce(false)
     filePreviewCloseRef.current()
   }, [])
-  const filePreview = useMessageFilePreview({ mobile, visible: surfaceVisible, closeRightSurfaces, toast, downloadFailed: t('chatArea.downloadFailed') })
+  // @@@message-forward (#899) - open the forward picker; the dialog calls handleForwardTo to fan out.
+  const handleForward = useCallback((msg: MessageItem) => setForwardMessages([msg]), [])
+
+  const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast, downloadFailed: t('chatArea.downloadFailed') })
+  const openFilePreview = filePreview.open
   filePreviewCloseRef.current = filePreview.close
   // @@@2234 中栏 min-width 自适应(有右栏展开时按内容区实宽让位,右栏永不被 overflow:hidden 裁切)—— 逻辑见 hook。
   const rightPanelOpen = historyPanelOpen || topicSplitOpen || memberListOpen || showDrawer || showAnnounce || filePreview.isOpen; const { messageColumnMinWidth, attachPanelsRow } = useMessageColumnMinWidth(rightPanelOpen, mobile)
@@ -412,7 +416,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
 
   // 「在本群打开」(app-redesign §5): an App opened from this chat opens in its panel here — a private chat's too (主人 10-05).
   const appToOpen = useOpenApp(activeChat?.id ?? null, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupFolderSlot chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
 
   // @@@history (#957) — 历史面板：开启时加载消息附件；「线程」复用 store 的 threadSummaries。
   const loadHistoryFiles = useCallback(async (chatId: string) => {
@@ -598,11 +602,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
       content: msg.content_type === 'attachment' ? t('chatArea.attachment') : (msg.content ?? ''),
     })
   }, [identitiesById, t])
-
-  // @@@message-forward (#899) - open the forward picker; the dialog calls handleForwardTo to fan out.
-  const handleForward = useCallback((msg: MessageItem) => {
-    setForwardMessages([msg])
-  }, [])
 
   // @@@multi-select (#988) - 退出多选模式（清空选中）。批量动作完成后或点「取消」时调用。
   const exitSelectMode = useCallback(() => { setSelectMode(false); setSelectedIds(new Set()) }, [])
@@ -993,7 +992,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     onOpenTopicAnchor: openTopicFromAnchor,
     agentFloodNoticeMessageId: agentFlood.noticeMessageId,
     onAgentFloodUndone: agentFlood.reload,
-    onOpenFile: filePreview.open, onOpenLocalFileLink: sessionpageAgent.openFileLink, onMentionMember: isFiltering ? undefined : setMentionToInsert,
+    onOpenFile: openFilePreview, onOpenLocalFileLink: sessionpageAgent.openFileLink, onMentionMember: isFiltering ? undefined : setMentionToInsert,
     selectMode,
     selectedIds,
     onToggleSelect: toggleSelect,
@@ -1018,7 +1017,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     openMessageMemberProfile,
     activeChat?.kind, topicSurface.openTopicFromMessage, topicSurface.anchorsByMessageId, openTopicFromAnchor,
     agentFlood.noticeMessageId, agentFlood.reload,
-    filePreview.open, sessionpageAgent.openFileLink,
+    openFilePreview, sessionpageAgent.openFileLink,
     selectMode,
     selectedIds,
     toggleSelect,
@@ -1515,7 +1514,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
                   } : undefined}
                   onOpenFile={(f) => {
                     if (f.kind === 'image') void openAttachmentImage(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else filePreview.open(f)
+                    else openFilePreview(f)
                   }}
                   onDownloadFile={(f) => {
                     void downloadAttachment(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
@@ -1550,7 +1549,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
                   loading={historyFilesLoading}
                   onOpenFile={(file) => {
                     if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else filePreview.open(file)
+                    else openFilePreview(file)
                   }}
                   onDownloadFile={(file) => {
                     void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
@@ -1640,7 +1639,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             memberReadSeqs={topicSurface.splitMemberReadSeqs}
             onOpenFile={(file) => {
               if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-              else { const split = topicSurface.splitTopic; filePreview.open(file, split ? () => topicSurface.openSplit(split) : undefined) }
+              else { const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined) }
             }}
             onDownloadFile={(file) => {
               void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
@@ -1654,7 +1653,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
               ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
               : undefined}
-            onOpenAttachment={(file) => { const split = topicSurface.splitTopic; filePreview.open(file, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
+            onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
             onClose={topicSurface.closeSplit}
             currentUserId={user?.id ?? null}
             mobile={mobile}
@@ -1664,7 +1663,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             onReaction={(id, emoji) => { if (!user) return
               void chatService.toggleReaction(id, user.id, emoji).then(() => topicSurface.refreshSplit())
                 .catch(() => toast(t('chatArea.operationFailed'), 'error')) }}
-            onForward={handleForward}
+            onForward={handleForward} visible={surfaceVisible}
             onDelete={(id) => void deleteMessage(id)
               .then(() => topicSurface.refreshSplit())
               .catch(() => toast(t('chatArea.operationFailed'), 'error'))}

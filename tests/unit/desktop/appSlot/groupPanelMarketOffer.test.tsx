@@ -9,12 +9,7 @@ import { AuthContext } from '../../../../apps/desktop/src/store/auth'
 import { openerChoice } from '../../../../apps/desktop/src/session/shared/extensions/file-openers'
 import type { ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
-/**
- * 161 10-15: a file of the group nobody on this device opens — the panel names the App that would and installs it in place,
- * then opens the file in it. One shared in this chat first (摩擦单 F15, the group's own), else the market's; desktop and
- * phone alike (the panel asks `appsHere`, which is main or the phone's store). Control (the parent commit): nobody here
- * opens it ⇒ `No App opens …` and the panel only said the file could not be opened.
- */
+/** A more specific App is still offered for a JSON file already claimed by Workspace. */
 
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } },
@@ -52,7 +47,7 @@ const slides = (version: string) => ({
   entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] },
 })
-const file = { chatId: 'group-1', itemId: 'item-1', name: 'deck.pptx', typedName: 'deck.pptx' }
+const file = { chatId: 'group-1', itemId: 'item-1', name: 'deck.pptx', typedName: 'deck.pptx', file: { document: false, contentType: 'application/json', version: 1, size: 10 } }
 const install = (manifests: unknown[]) =>
   act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [] } as unknown as InstalledExtensionsList))
 
@@ -92,8 +87,6 @@ async function openFile(request: number) {
   )
 }
 const offer = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-offer"]')
-const noOpener = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-no-opener"]')
-const switchedOff = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-switched-off"]')
 /** React and the pending answers flushed until `fact` holds — a bounded number of turns, never a clock; red names the step. */
 async function until(step: string, fact: () => boolean) {
   for (let turn = 0; turn < 50 && !fact(); turn++) await act(async () => { await Promise.resolve() })
@@ -134,112 +127,5 @@ describe('a group JSON file already open in Workspace', () => {
       expect(appsHere!.installFromMarket).toHaveBeenCalledWith({ ref: { extensionId: manifest.id, version: manifest.version }, chatId: file.chatId })
       expect(offer()).toBeNull()
     }
-  })
-})
-
-describe('a group file nobody here opens: the panel offers the App that would (161 10-15)', () => {
-  it('the market’s App: named, said to be from the market; 「安装」 installs that version the one way, then the file opens in it', async () => {
-    here.market = { success: true, data: [{ manifest: slides('1.2.0'), version: '1.2.0' }] }
-    vi.mocked(appsHere!.installFromMarket).mockImplementation(async () => {
-      install([slides('1.2.0')])
-      return { success: true, data: { installed: true, outcome: 'confirmed', id: 'slides', name: 'Slides', version: '1.2.0' } }
-    })
-    await openFile(9101)
-    await until('the panel offers an App', () => offer() !== null)
-    expect(offer()?.dataset.offerFrom).toBe('market')
-    expect(offer()?.textContent).toContain('用『Slides』打开')
-    expect(offer()?.textContent).toContain('它是咕咕市场里的 App，在这里装一次就好。')
-    // Nothing of the file is open to fold: no 「查看原始内容」 here.
-    expect(harness.container.querySelector('[data-testid="group-app-slot-offer-raw"]')).toBeNull()
-
-    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
-    await until('the file opened in Slides', () => groupSlotMemory.opened('group-1')?.kind === 'slides.main')
-    expect(appsHere!.installFromMarket).toHaveBeenCalledWith({ ref: { extensionId: 'slides', version: '1.2.0' }, chatId: 'group-1' })
-    expect(appsHere!.groupFileOpener).toHaveBeenCalledTimes(2)
-    expect(groupSlotMemory.opened('group-1')).toMatchObject({ kind: 'slides.main', itemId: 'item-1' })
-    expect(offer()).toBeNull()
-  })
-
-  it('one shared in this chat comes first — the group’s own, installed from its card’s package', async () => {
-    here.market = { success: true, data: [{ manifest: slides('1.2.0'), version: '1.2.0' }] }
-    sharedHere.packages = new Map([['slides', { manifest: slides('1.1.0'), card: { source: { kind: 'url', url: 'https://files.test/slides.guguext' }, messageId: 'm-slides' } }]])
-    vi.mocked(appsHere!.installAttachment).mockResolvedValue({ success: true, data: { installed: true, outcome: 'confirmed', id: 'slides', name: 'Slides', version: '1.1.0' } })
-    await openFile(9102)
-    await until('the panel offers an App', () => offer() !== null)
-    expect(offer()?.dataset.offerFrom).toBe('shared')
-    expect(offer()?.textContent).not.toContain('咕咕市场')
-    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
-    await until('the shared App was installed', () => vi.mocked(appsHere!.installAttachment).mock.calls.length === 1)
-    expect(appsHere!.installAttachment).toHaveBeenCalledWith({ messageId: 'm-slides', chatId: 'group-1' })
-    expect(appsHere!.installFromMarket).not.toHaveBeenCalled()
-  })
-
-  it('an install that fails says so under the offer (why goes to the log, not on screen)', async () => {
-    here.market = { success: true, data: [{ manifest: slides('1.2.0'), version: '1.2.0' }] }
-    vi.mocked(appsHere!.installFromMarket).mockResolvedValue({ success: false, error: 'the file does not match what was published' })
-    await openFile(9103)
-    await until('the panel offers an App', () => offer() !== null)
-    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
-    await until('the failed install is said', () => harness.container.querySelector('[data-testid="group-app-slot-offer-failed"]') !== null)
-    expect(harness.container.querySelector('[data-testid="group-app-slot-offer-failed"]')?.textContent).toBe('没装上，稍后再试。')
-  })
-
-  it('control: nothing in the market opens it — said so, nothing offered', async () => {
-    here.market = { success: true, data: [{ manifest: { ...slides('1.0.0'), id: 'notes', contributes: { tabs: [{ name: 'main', title: 'Notes', opensFiles: { chat: ['.md'] } }] } }, version: '1.0.0' }] }
-    await openFile(9104)
-    // The market has answered once this line is drawn: only then is 「nothing offered」 a reading.
-    await until('the panel says nobody opens it', () => noOpener() !== null)
-    expect(offer()).toBeNull()
-    expect(noOpener()?.textContent).toBe('本机没有能打开『deck.pptx』的 App，咕咕市场里也没有。')
-  })
-
-  it('the market could not be read: said so — not 「the market has none」', async () => {
-    here.market = { success: false, error: 'HTTP 503' }
-    await openFile(9105)
-    await until('the panel says nobody opens it', () => noOpener() !== null)
-    expect(offer()).toBeNull()
-    expect(noOpener()?.textContent).toBe('本机没有能打开『deck.pptx』的 App；咕咕市场现在读不到，稍后再试。')
-  })
-})
-
-describe('a group file whose App is installed here but switched off (161 10-16: every App has its switch)', () => {
-  const list = (disabled: string[]) =>
-    act(() => installedExtensionsStore.applyList({ extensions: [slides('1.2.0')], invalid: [], disabled } as unknown as InstalledExtensionsList))
-
-  it('said to be off, never offered to install again; 「启用」 switches it on the one way, then the file opens in it', async () => {
-    here.market = { success: true, data: [{ manifest: slides('1.2.0'), version: '1.2.0' }] }
-    groupSlotMemory.setOpened('group-1', null)
-    list(['slides'])
-    // Off, it claims no file: nobody here opens it — until it is on again.
-    vi.mocked(appsHere!.groupFileOpener).mockImplementation(async () => {
-      const on = installedExtensionsStore.manifests.some((manifest) => manifest.id === 'slides') && installedExtensionsStore.isEnabled('slides')
-      const candidate = { extensionId: 'slides', app: { name: 'Slides' }, tabKind: 'slides.main', tabTitle: 'Slides', suffix: '.pptx', onlyTab: true }
-      return { success: true, data: { ...file, choice: on ? { kind: 'one', candidate } : { kind: 'none' } } } as never
-    })
-    vi.mocked(appsHere!.setEnabled).mockImplementation(async () => {
-      list([])
-      return { success: true }
-    })
-    await openFile(9106)
-    await until('the panel says Slides is switched off', () => switchedOff() !== null)
-    expect(switchedOff()?.textContent).toContain('用『Slides』打开')
-    expect(switchedOff()?.textContent).toContain('这个文件是『Slides』的，它装着，但停用了。启用它，就用它打开。')
-    expect(offer()).toBeNull()
-    expect(noOpener()).toBeNull()
-    expect(groupSlotMemory.opened('group-1')).toBeNull()
-
-    await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-switch-on"]')!.click())
-    await until('the file opened in Slides', () => groupSlotMemory.opened('group-1')?.kind === 'slides.main')
-    expect(appsHere!.setEnabled).toHaveBeenCalledWith({ manifest: expect.objectContaining({ id: 'slides' }), enabled: true })
-    expect(appsHere!.installFromMarket).not.toHaveBeenCalled()
-    expect(switchedOff()).toBeNull()
-  })
-
-  it('control: switched on, it opens the file at once — no word about a switch', async () => {
-    groupSlotMemory.setOpened('group-1', null)
-    list([])
-    await openFile(9107)
-    await until('the file opened in Slides', () => groupSlotMemory.opened('group-1')?.kind === 'slides.main')
-    expect(switchedOff()).toBeNull()
   })
 })

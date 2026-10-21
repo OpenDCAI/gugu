@@ -14,7 +14,7 @@ export function usePhoneToday(chatId: string): TodayFeedView {
   useEffect(() => {
     let cancelled = false
     const read = () =>
-      readChatFolderText(chatId, TODAY_FILE_NAME).then(
+      readChatFolderText({ chat: chatId, name: TODAY_FILE_NAME }).then(
         (file) => !cancelled && setView({ state: 'read', read: todayReadOf(file) }),
         (error: unknown) => {
           if (cancelled) return

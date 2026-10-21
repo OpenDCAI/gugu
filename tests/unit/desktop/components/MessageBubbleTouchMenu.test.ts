@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { act } from 'react'
+import { FrequentlyUsed } from 'emoji-mart'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
@@ -8,26 +9,28 @@ import type { ToastType } from '../../../../apps/desktop/src/components/toastCon
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { NATIVE_BACK_EVENT } from '../../../../apps/desktop/src/components/ui/sheetStack'
-import { REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { QUICK_REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
 import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
+const frequent = FrequentlyUsed as typeof FrequentlyUsed & { get: (options: unknown) => string[] }
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.spyOn(frequent, 'get').mockReturnValue([])
+  vi.spyOn(frequent, 'add')
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
 })
 afterEach(() => {
   harness.cleanup()
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
   it('opens the existing message actions menu on touch long press', async () => {
     await renderMessage()
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     expect(document.body.textContent).toContain('复制')
     expect(document.body.textContent).toContain('转发')
     expect(document.body.textContent).toContain('删除')
@@ -46,11 +49,7 @@ describe('MessageBubble touch menu', () => {
   })
   it('still closes from the shared close event after a touch long press', async () => {
     await renderMessage()
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     expect(document.body.textContent).toContain('复制')
     await act(async () => {
       document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
@@ -132,11 +131,11 @@ describe('MessageBubble touch menu', () => {
     const toolbar = document.body.querySelector('[role="toolbar"][aria-label="快速回应"]') as HTMLElement | null
     const buttons = Array.from(toolbar?.querySelectorAll('button') ?? []) as HTMLButtonElement[]
     expect(toolbar).not.toBeNull()
-    // #6562 浮层就是目录:每个按钮读屏报「回应 表情 名字」,顺序与目录一致。
+    // 常用为空时按目录里的混合快捷顺序补齐,最后一项展开完整选择器。
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(
-      REACTIONS.map(({ emoji, zh }) => `回应 ${emoji} ${zh}`),
+      [...QUICK_REACTIONS.map(({ emoji, zh }) => `回应 ${emoji} ${zh}`), '更多表情'],
     )
-    expect(buttons.map((button) => button.getAttribute('title'))).toEqual(REACTIONS.map(({ zh }) => zh))
+    expect(buttons.map((button) => button.getAttribute('title'))).toEqual([...QUICK_REACTIONS.map(({ zh }) => zh), null])
     buttons[0].focus()
     await act(async () => {
       buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
@@ -161,10 +160,36 @@ describe('MessageBubble touch menu', () => {
 
     await longPress()
     const toolbar = document.body.querySelector('[data-testid="message-action-sheet"] [role="toolbar"]') as HTMLElement
-    expect([...toolbar.querySelectorAll('button')].map((b) => b.textContent)).toEqual(REACTIONS.map(({ emoji }) => emoji))
+    expect([...toolbar.querySelectorAll('button')].map((b) => b.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
     await clickElement(toolbar.querySelectorAll('button')[1] as HTMLElement)
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
     expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+  })
+  it('uses emoji-mart frequency order and fills the quick row from the catalog', async () => {
+    vi.mocked(frequent.get).mockReturnValue(['rocket', 'eyes'])
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    const buttons = document.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="快速回应"] button')
+    expect([...buttons].map((b) => b.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
+    await clickElement(buttons[0])
+    expect(frequent.add).toHaveBeenCalledWith({ id: 'rocket' })
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
+  })
+  it('expands inside the same mobile sheet and keeps all named work statuses reachable', async () => {
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    await clickElement(document.querySelector('button[aria-label="更多表情"]') as HTMLElement)
+    const sheet = document.querySelector('[data-testid="message-action-sheet"]')!
+    expect(document.querySelectorAll('[data-testid="message-action-sheet"]')).toHaveLength(1)
+    expect(sheet.querySelector('[role="toolbar"]')).toBeNull()
+    expect(sheet.querySelector('[data-testid="message-action-reply"]')).toBeNull()
+    const statuses = sheet.querySelectorAll<HTMLButtonElement>('section[aria-label="工作状态"] button')
+    expect([...statuses].map((b) => b.textContent)).toEqual(['👌收到', '👀在看', '⏳稍等', '✅完成', '❓疑问', '❌不对'])
+    await clickElement(statuses[3])
+    expect(frequent.add).toHaveBeenCalledWith({ id: 'white_check_mark' })
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '✅')
   })
   it('the Android back key closes the long-press sheet before the page underneath can go back', async () => {
     await renderMessage()
@@ -198,11 +223,7 @@ describe('MessageBubble touch menu', () => {
   })
   // @@@copy-fail-loud (#1123) — clipboard 复制必须 await + 反馈，失败不静默。
   async function openMenuAndCopy() {
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     const copyItem = [...document.body.querySelectorAll('*')]
       .find((el) => el.textContent?.trim() === '复制文本') as HTMLElement | undefined
     expect(copyItem, 'copy-text menu item should be present').toBeTruthy()
@@ -296,6 +317,7 @@ async function longPress() {
     messageBubble().dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
     vi.advanceTimersByTime(550)
   })
+  await act(async () => { await vi.dynamicImportSettled() })
 }
 function agentProfile(overrides: Partial<MemberProfileCardModel> = {}): MemberProfileCardModel {
   return {

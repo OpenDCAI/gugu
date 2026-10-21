@@ -209,7 +209,7 @@ describe('#5999 话题手动邀请', () => {
     expect(confirm.disabled).toBe(true)
     await act(async () => {
       confirm.click()
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(send).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[data-testid="topic-member-picker"]')).not.toBeNull()

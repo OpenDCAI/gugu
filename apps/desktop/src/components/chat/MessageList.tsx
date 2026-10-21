@@ -103,7 +103,7 @@ export interface MessageListRowProps {
   /** 这条线上「agent 超过 5 个已自动转 passive」的那条系统消息(每条线至多一条)。 */
   agentFloodNoticeMessageId?: string | null
   onAgentFloodUndone?: () => void
-  onOpenFile?: (meta: ParsedAttachment) => void; onOpenLocalFileLink?: (path: string) => void
+  onOpenFile?: (meta: ParsedAttachment, message?: MessageItem) => void; onOpenLocalFileLink?: (path: string) => void
   onMentionMember?: (target: MentionTarget) => void // @@@6386 入群灰字里点名字 → 输入框插 @
   // @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；onEnterSelectMode 透传给气泡「多选」菜单项。
   selectMode: boolean

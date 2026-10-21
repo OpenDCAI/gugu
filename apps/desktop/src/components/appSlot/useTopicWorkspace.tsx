@@ -1,3 +1,4 @@
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { LayoutGrid } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
@@ -19,6 +20,7 @@ export function useTopicWorkspace(
   mobile: boolean,
   /** Opening it closes the pane's other views (attachments, members). */
   closeOthers: () => void,
+  { visible = true, onForward }: { visible?: boolean; onForward?: (message: MessageItem) => void } = {},
 ): { open: boolean; show: () => void; close: () => void; folderName: string; toggle: ReactNode; view: ReactNode } {
   const folderName = useChatFolderName(chatId)
   const [openFor, setOpenFor] = useState<string | null>(null)
@@ -66,7 +68,7 @@ export function useTopicWorkspace(
   )
   const view = open ? (
     <div style={VIEW_STYLE} data-testid="topic-split-workspace">
-      <GroupFolderSlot chatId={chatId} onClose={close} appToOpen={appToOpen} fileToOpen={fileToOpen} />
+      <GroupFolderSlot visible={visible} onForward={onForward} chatId={chatId} onClose={close} appToOpen={appToOpen} fileToOpen={fileToOpen} />
     </div>
   ) : null
   // `show`: the phone's ⋯ opens it instead of the toggle (TopicMoreMenu), under the same name.

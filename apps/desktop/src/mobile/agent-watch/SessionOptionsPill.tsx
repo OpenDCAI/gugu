@@ -255,14 +255,14 @@ export function SessionOptionsPill({
         <ChevronDown />
       </Button>
 
-      {current ? (
-        <Sheet
+      <Sheet
+          open={Boolean(current)}
           onClose={close}
           mobileFitContent
           testId="agent-watch-options"
-          ariaLabel={t(`agentWatch.options.${current[0]}`)}
+          ariaLabel={t(`agentWatch.options.${current?.[0] ?? root[0]}`)}
         >
-          <div className="gg-aw gg-aw-sheet">
+          {current ? <div className="gg-aw gg-aw-sheet">
             {/* 头部三分栏:左 ✕/← 圆钮、中间标题、右侧留给 pending 转圈(orca 同款)。 */}
             <div className="gg-aw-sheet-head">
               <IconButton
@@ -275,7 +275,7 @@ export function SessionOptionsPill({
                 {atRoot ? <X /> : <ChevronLeft />}
               </IconButton>
               <div className="gg-aw-sheet-title">
-                {t('agentWatch.options.pick', { name: t(`agentWatch.options.${current[0]}`) })}
+                {t('agentWatch.options.pick', { name: t(`agentWatch.options.${current?.[0] ?? root[0]}`) })}
               </div>
               <div className="gg-aw-sheet-side">
                 {pending !== null ? (
@@ -376,9 +376,8 @@ export function SessionOptionsPill({
                 ))}
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </Sheet>
-      ) : null}
     </>
   )
 }

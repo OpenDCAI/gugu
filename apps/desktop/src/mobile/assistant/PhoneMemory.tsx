@@ -179,22 +179,21 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
           {t('common.delete')}
         </Button>
       </div>
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('memory.deleteTitle')}
           body={t('memory.deleteBody', { name: note.title })}
           confirmLabel={t('common.delete')}
           failedText={t('memory.deleteFailed')}
           testId="assistant-memory-delete-dialog"
           onClose={() => setConfirming(false)}
+          onConfirmed={() => { notes.reload(); go(null) }}
           onConfirm={async () => {
             await deleteMemoryNote(machine, note)
             toast(t('memory.deleted'), 'success')
-            notes.reload()
-            go(null)
           }}
         />
-      ) : null}
+
     </div>
   )
 }

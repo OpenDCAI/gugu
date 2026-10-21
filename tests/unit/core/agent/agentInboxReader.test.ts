@@ -1068,6 +1068,25 @@ describe('三态判决与失败面', () => {
     expect(outcomes).toEqual([{ ok: false }])
   })
 
+  it('同一群消息的失败按 agent 去重;同一 agent 重拉仍用同一个 key', async () => {
+    const cloud = new FakeCloud()
+    cloud.addChat('chat-a', 'group')
+    cloud.join('chat-a', AGENT)
+    cloud.join('chat-a', OTHER_AGENT)
+    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
+    const keys: string[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async () => { throw new Error('provider failed') },
+      postDisclosure: async ({ key }) => { keys.push(key) },
+    })
+    for (const agent of [AGENT, AGENT, OTHER_AGENT]) {
+      await expect(pullAgentInbox(agent, deps)).rejects.toThrow('provider failed')
+    }
+    expect(keys).toHaveLength(3)
+    expect(keys[0]).toBe(keys[1])
+    expect(keys[0]).not.toBe(keys[2])
+  })
+
   // 编号 17 (10-12): the row in the chat is this failure's one notice — the error says so, and the host adds no failure bar.
   // Only when the row is there: a post that failed leaves the failure unsaid, and the bar still comes up. Each failure is its
   // own (148 评审): the same error object thrown for a second batch whose row did not land is not taken as said.
@@ -1107,16 +1126,19 @@ describe('三态判决与失败面', () => {
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
-  it('discloses an unavailable model without leaking its upstream route or request trace', async () => {
+  it.each([
+    'API Error: 400 Model private/deepseek is not available (request id: private-trace)',
+    'Selected model is at capacity. Please try a different model.',
+  ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
     const cloud = seed()
     const notices: Array<{ text: string }> = []
     const { deps } = makeDeps(cloud, {
-      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error('API Error: 400 Model private/deepseek is not available (request id: private-trace)')) }),
+      inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ text: '当前模型暂时不可用，请切换模型后重试。' })])
+    expect(notices).toEqual([expect.objectContaining({ text: '当前模型暂时不可用或已满载，请稍后重发，或切换模型后重发。' })])
   })
 
   it('keeps a completion failure unsaid if its durable notice could not be written', async () => {

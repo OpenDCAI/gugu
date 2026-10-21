@@ -364,6 +364,9 @@ export default {
     "whisperPlaceholder": "Whisper to {{name}}…"
   },
   "emoji": {
+    "moreReactions": "More reactions",
+    "workStatus": "Work status",
+    "frequent": "Frequently used",
     "quickReactions": "Quick reactions",
     "reactWith": "React with {{emoji}}"
   },

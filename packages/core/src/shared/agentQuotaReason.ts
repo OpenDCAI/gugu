@@ -1,7 +1,7 @@
 export type AgentQuotaReason = 'weekly' | 'monthly' | 'exhausted' | 'rate-limited'
 
 export function agentModelUnavailable(raw: string | null | undefined): boolean {
-  return /model access HTTP 503|model[^\n]*(?:service.unavailable|is not available|not found|does not exist)|当前模型暂时不可用/i.test(raw ?? '')
+  return /model access HTTP 503|model[^\n]*(?:service.unavailable|is not available|is at capacity|not found|does not exist)|当前模型暂时不可用/i.test(raw ?? '')
 }
 
 /** Provider diagnostics are classified here; user-facing surfaces never display the raw error. */

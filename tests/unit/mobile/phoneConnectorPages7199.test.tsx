@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { I18nextProvider } from 'react-i18next'
+import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildIntegrationListPayload } from '../../../apps/desktop/electron/session/main/core/integrations/integration-payload-builder'
 import { i18n, setLocalePreference } from '../../../apps/desktop/src/i18n'
@@ -107,6 +108,7 @@ afterEach(() => {
   // 目录里缺键时界面会把键名原样画出来:任何一页都不该出现。
   expect(document.body.textContent).not.toMatch(/connectors\.[A-Za-z]+/)
   harness.cleanup()
+  delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations
 })
 
 const render = (node: Parameters<typeof createNode>[0], props: Record<string, unknown>) => harness.render(createNode(I18nextProvider, { i18n }, createNode(node, props)))
@@ -150,14 +152,19 @@ describe('详情页', () => {
   })
 
   it('已连的单账号:「断开连接」先弹确认,确认才发 disconnect(整家,不带 accountId),成功后重读状态', async () => {
+    const exit = holdDialogExit()
     const page = pageProps('dida', { configured: { dida: true } })
     await render(PhoneConnectorDetail, page.props)
     await clickElement(q('assistant-connector-disconnect')!)
+    await frame()
+    const popup = q('assistant-connector-disconnect-dialog')!
     expect(rpc.integrations.disconnect).not.toHaveBeenCalled()
     expect(q('assistant-connector-disconnect-dialog')).not.toBeNull()
     await clickElement(q('assistant-connector-disconnect-dialog-confirm')!)
     await waitForCondition(() => rpc.integrations.disconnect.mock.calls.length === 1, 'disconnect called')
     expect(rpc.integrations.disconnect).toHaveBeenCalledWith('dida', undefined)
+    expect(page.retry).not.toHaveBeenCalled()
+    await expectExit(popup, exit)
     await waitForCondition(() => page.retry.mock.calls.length === 1, 'status re-read')
     await waitForCondition(() => q('assistant-connector-disconnect-dialog') === null, 'dialog closed')
   })

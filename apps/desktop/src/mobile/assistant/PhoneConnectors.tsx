@@ -196,9 +196,6 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
     if (!view || !rpc || !confirm) return
     if (view.item.id === 'github' && confirm.accountId) await removeGithubAccount((accountId) => rpc.github.removeAccount(accountId), confirm.accountId)
     else await disconnectIntegration((integrationId, accountId) => rpc.integrations.disconnect(integrationId, accountId), view.item.id, confirm.accountId ?? undefined)
-    // 断开之后重读:连接状态(最后一个账号没了 = 回到「未连接」)与账号清单。
-    integrations.retry()
-    setChanges((n) => n + 1)
   }
   const credentialLike = !!view && !!formMethodOf(view.item)
 
@@ -264,24 +261,22 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
               <AssistantSection title={t('connectors.usableOn')}>
                 <AssistantRow leading={<Cloud className="ta-file-icon" />} title={t('connectors.cloudWhere')} detail={t('connectors.cloudWhereNote', { name })} />
               </AssistantSection>
-              {confirm ? (
-                <PhoneConfirmDialog
-                  title={confirm.accountId ? t('connectors.disconnectAccountTitle', { account: confirm.label }) : t('connectors.disconnectTitle', { name: view.item.name })}
+              <PhoneConfirmDialog
+                  open={confirm !== null}
+                  title={confirm?.accountId ? t('connectors.disconnectAccountTitle', { account: confirm?.label ?? '' }) : t('connectors.disconnectTitle', { name: view.item.name })}
                   body={
-                    confirm.accountId
-                      ? t('connectors.disconnectAccountBody', { account: confirm.label })
+                    confirm?.accountId
+                      ? t('connectors.disconnectAccountBody', { account: confirm?.label ?? '' })
                       : `${t('connectors.disconnectBody', { name: view.item.name, assistant: name })}${credentialLike ? t('connectors.disconnectCredentials', { name: view.item.name }) : ''}`
                   }
                   confirmLabel={t('connectors.disconnect')}
                   failedText={t('connectors.disconnectFailed')}
-                  onConfirm={async () => {
-                    await disconnect()
-                    setConfirm(null)
-                  }}
+                  onConfirm={disconnect}
+                  onConfirmed={() => { integrations.retry(); setChanges((n) => n + 1) }}
                   onClose={() => setConfirm(null)}
                   testId="assistant-connector-disconnect-dialog"
                 />
-              ) : null}
+
             </>
           ) : (
             <AssistantEmpty title={t('connectors.goneTitle')}>{t('connectors.gone')}</AssistantEmpty>

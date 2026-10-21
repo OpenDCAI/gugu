@@ -4,6 +4,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
+import { navigateMobile } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
 import { agentOfSession, rowOpens, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
@@ -70,9 +71,11 @@ export function AgentWatchPage({
   const [route, setRouteState] = useState<AgentWatchRoute>({ name: 'projects' })
   // ❌ 不在渲染里回调:那是渲染期副作用。所有跳转都走这一个口子。
   const setRoute = useCallback((next: AgentWatchRoute) => {
-    setRouteState(next)
-    onRouteChange?.(next.name)
-  }, [onRouteChange])
+    const depth = (page: AgentWatchRoute) => page.name === 'projects' ? 0 : page.name === 'create' ? 2 : 1
+    const update = () => { setRouteState(next); onRouteChange?.(next.name) }
+    if (active) navigateMobile(update, depth(next) < depth(route) ? 'pop' : 'push')
+    else update()
+  }, [active, route, onRouteChange])
   // 项目页的滚动位置:进时间线再回来页面是重新挂的,滚回离开时的地方。
   const projectsScroll = useRef(0)
 

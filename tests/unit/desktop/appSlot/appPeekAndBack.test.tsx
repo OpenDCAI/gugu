@@ -85,7 +85,7 @@ describe('G1: something opened over a page keeps the page', () => {
     const box = harness.container.querySelector('[data-testid="app-peek-slot"] > div')!
     expect(slotEvents).toEqual([{ type: 'claim', slotId: 'slot-x' }])
     await act(async () => {
-      peekStore.open(null, 'slot-x', { kind: 'chat', detail: { chatId: 'c-1', itemId: 'f-2', name: 'b.pdf', typedName: 'b.pdf', choice: { kind: 'one', candidate: pdf } }, file: { contentType: 'application/pdf', version: 1, size: 1 } })
+      peekStore.open(null, 'slot-x', { kind: 'chat', detail: { chatId: 'c-1', itemId: 'f-2', name: 'b.pdf', typedName: 'b.pdf', choice: { kind: 'one', candidate: pdf }, file: { document: false, contentType: 'application/pdf', version: 1, size: 1 } } })
     })
     // Narrow (520): it opens over the page, which is hidden — and keeps its claim; the peek claims a page of its own.
     expect(harness.container.querySelector('[data-testid="app-peek-slot"]')?.getAttribute('data-peek')).toBe('over')

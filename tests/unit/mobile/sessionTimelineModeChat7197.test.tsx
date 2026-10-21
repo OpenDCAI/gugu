@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
+import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
@@ -10,6 +12,10 @@ import { clickElement, createNode, createReactHarness, waitForCondition } from '
 // #7197 会话页的模式按钮:「对话」那行有没有咕咕身份看会话自己带不带 agent id —— 通讯录里还没有它的名字
 // (agentOfSession 给 undefined)时 ❌ 说「还没有咕咕身份」。
 
+const actions = vi.hoisted(() => ({ update: vi.fn() }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async (original) => ({
+  ...await original<typeof import('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc')>(), updateSession: actions.update, fetchSessionOptions: vi.fn(async () => ({})),
+}))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () => ({
   useAgentWatchSession: () => ({
     timeline: emptyAgentWatchTimeline(), phase: 'ready', error: null, actionError: null, dismissActionError: vi.fn(),
@@ -29,7 +35,7 @@ const chatRow = () => document.querySelector<HTMLElement>('[data-testid="agent-w
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
 
 async function openMenu(): Promise<void> {
   await clickElement(document.querySelector<HTMLElement>('[data-testid="agent-watch-mode-open"]')!)
@@ -53,4 +59,22 @@ describe('SessionTimelinePage mode button → 对话', () => {
     expect(chatRow()?.getAttribute('aria-disabled')).toBe('true')
     expect(chatRow()?.textContent).toContain(translateSessionMessage('task.modeChatNeedsIdentity'))
   })
+})
+
+it('timeline archive: the parent page unmounts only after its actions sheet exits', async () => {
+  const exit = holdDialogExit()
+  const back = vi.fn()
+  actions.update.mockResolvedValue({ title: 'Task one', isPinned: false, archived: true })
+  function Parent() {
+    const [shown, setShown] = useState(true)
+    return shown ? createNode(SessionTimelinePage, { device, session: session(), onBack: () => { back(); setShown(false) } }) : null
+  }
+  await harness.render(createNode(Parent))
+  await clickElement(document.querySelector('[data-testid="agent-watch-session-page-menu"]')!); await frame()
+  const popup = document.querySelector<HTMLElement>('[data-testid="agent-watch-session-actions"]')!
+  await clickElement(document.querySelector('[data-testid="agent-watch-session-archive"]')!)
+  expect(back).not.toHaveBeenCalled()
+  await expectExit(popup, exit)
+  expect(back).toHaveBeenCalledOnce()
+  expect(harness.container.textContent).toBe('')
 })

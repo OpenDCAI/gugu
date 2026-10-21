@@ -300,7 +300,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     const card = harness.container.querySelector('[data-testid="topic-split-pane"] button[aria-label="报告.pdf"]') as HTMLElement
     expect(card, '分栏里没画出文件卡').toBeTruthy()
     await clickElement(card)
-    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'url', url: 'https://example.test/chat-media/a.pdf' }, fileName: '报告.pdf' }))
+    expect(onOpenAttachment).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'url', url: 'https://example.test/chat-media/a.pdf' }, fileName: '报告.pdf' }), attachmentProps.messages[0])
   })
 
   it('点击话题已读环显示该消息的已读/未读名单，排除只在来源群里的成员', async () => {

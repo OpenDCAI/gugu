@@ -1491,7 +1491,7 @@ function createWindow(loadContents = true): void {
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false))
   // 上面关了 backgroundThrottling,最小化、收进托盘时页面照样「看得见」、rAF 照跑:由这里告诉界面,小鸟据此停画。
-  // macOS 上 show / hide 跟着窗口真的露没露出来走(整个被盖住、锁屏、切到别的桌面也算 hide);别的系统只在显示 / 隐藏时有。
+  // macOS 实测遮挡不触发 windowSeen，最小化才触发；不能拿 show / hide 当遮挡检测。
   mainWindow.on('minimize', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
   mainWindow.on('hide', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
   mainWindow.on('restore', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, true))

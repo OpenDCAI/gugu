@@ -512,10 +512,9 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
-- \`gugu.files.openWith(entry)\` (a click or key) opens it where it lives with the App they use for
-  it (most specific claim, or "always use"). \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. \`not-found\`: none opens it. \`{ peek: true }\`: beside
-  your page, as it is (none opens it: gugu's preview); a project's file always.
+- \`gugu.files.openWith(entry)\` (a click or key) uses its most specific App claim or "always use". \`{ ask: true }\`: they pick among all;
+  \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
+  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: the file is gone or unreadable.
 - \`gugu.files.upload(place)\` (\`files:write\`) opens the file picker (a click or key) → the new entries (\`[]\`);
   given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` asks where to save (a click or
   key) → \`true\` saved.

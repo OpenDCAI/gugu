@@ -32,6 +32,10 @@ describe('安卓返回键关的是最上层的 Sheet', () => {
     expect(inner).toHaveBeenCalledTimes(1)
     expect(outer).not.toHaveBeenCalled()
     expect(state.__guguNativeBackHandled).toBe(true)
+    const popup = [...document.querySelectorAll<HTMLElement>('[data-slot="dialog-popup"]')].at(-1)!
+    await act(async () => { popup.focus(); popup.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(inner).toHaveBeenCalledTimes(2)
+    expect(outer).not.toHaveBeenCalled()
 
     harness.cleanup()
     harness = null

@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useToast } from '../toastContext'
+import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'
 import { Avatar } from '../Avatar'
 import { useAuth } from '../../store/auth'; import { useLongPress } from '../../hooks/useLongPress'
@@ -21,9 +21,9 @@ import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
 import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
-import { EmojiQuickPicker } from './EmojiQuickPicker'
+const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
-import { MessageActionSheet } from './MessageActionSheet'; import { messageActionItems, type MessageActionTarget } from './messageActionItems'
+const MessageActionSheet = lazy(() => import('./MessageActionSheet').then((module) => ({ default: module.MessageActionSheet }))); import { messageActionItems, type MessageActionTarget } from './messageActionItems'
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { AgentAnswerActions } from './AgentAnswerActions'
@@ -201,10 +201,8 @@ interface BubbleProps {
   isGroup?: boolean
   // @@@5856 提供则「开话题」菜单项可用 → 从本消息开一条话题(product spec:必须有来源)。
   // 话题里的消息不传(单层不嵌套守卫)。
-  // #1163 perf — 接 messageId 参数（内部用 msg.id 调用），让父层可直接透传稳定 handler、
-  // 不必每行包一层内联闭包（那会破 MessageBubble 的 memo）。
   onOpenTopic?: (messageId: string) => void
-  onOpenFile?: (meta: import('@gugu/core/shared/ui/attachmentModels').ParsedAttachment) => void; onOpenLocalFileLink?: (path: string) => void
+  onOpenFile?: (meta: import('@gugu/core/shared/ui/attachmentModels').ParsedAttachment, message?: MessageItem) => void; onOpenLocalFileLink?: (path: string) => void
   // @@@whisper (#820) — memberProfiles map 用于 whisper 标签显示收件人名字。
   memberProfiles?: Record<string, MemberProfileCardModel>
   // @@@multi-select (#988) — 提供则 More 菜单「多选」项可用 → 进入多选模式并预选本消息。
@@ -294,6 +292,7 @@ export const MessageBubble = memo(function MessageBubble({
     isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
     onCopy: () => { void handleCopyText(); close() },
     onForward: () => { onForward(msg); close() },
+    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
@@ -342,7 +341,7 @@ export const MessageBubble = memo(function MessageBubble({
   const avatar = <Avatar name={avatarName} avatarUrl={avatarUrl} seed={msg.is_mine ? user?.id : (msg.sender_user_id ?? undefined)} size="sm" isAgent={avatarIsAgent} agentStatus={avatarIsAgent ? memberProfile?.agentStatus : undefined} still />
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
-  if (msg.content_type === 'system') return <SystemMessageNotice message={msg} />
+  if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} />
 
   return (
     <div
@@ -556,7 +555,7 @@ export const MessageBubble = memo(function MessageBubble({
                       isMine={msg.is_mine}
                     />
                   ) : mediaAttachment ? (
-                    <MediaAttachmentBubble meta={mediaAttachment} messageId={msg.id} isMine={msg.is_mine} onOpenFile={onOpenFile} senderName={avatarName} chatId={msg.chat_id} />
+                    <MediaAttachmentBubble meta={mediaAttachment} messageId={msg.id} isMine={msg.is_mine} onOpenFile={onOpenFile ? (file) => onOpenFile(file, msg) : undefined} senderName={avatarName} chatId={msg.chat_id} />
                   ) : (
                     <span style={{ color: 'var(--text-link)' }}>{t('message.attachment')}</span>
                   )
@@ -620,22 +619,22 @@ export const MessageBubble = memo(function MessageBubble({
       {showMoreMenu && <MsgMoreMenu anchor={moreButtonRef} {...messageActions(() => setShowMoreMenu(false))} />}
 
       {/* ── 右键:指针处的同一份菜单。手机长按:底部面板(Sheet 进返回键栈、带遮罩,关闭路径由它保证) ── */}
-      {showMenu && (compactMobile ? (
+      {showMenu && <Suspense fallback={null}>{compactMobile ? (
         <MessageActionSheet
           {...messageActions(() => setShowMenu(false))}
           onReply={() => { onQuote(msg); setShowMenu(false) }}
           onReact={(emoji) => { onReaction(msg.id, emoji); setShowMenu(false) }}
         />
-      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
+      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />}</Suspense>}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
-      {showEmojiPicker && (
+      {showEmojiPicker && <Suspense fallback={null}>
         <EmojiQuickPicker
           anchor={reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
         />
-      )}
+      </Suspense>}
     </div>
   )
 })
@@ -813,12 +812,12 @@ function HoverActionBar({
    引用在悬停条的「回复」上;撤回不在设计稿里。 */
 type MsgMoreMenuProps = MenuAnchorProps & MessageActionTarget & { onClose: () => void }
 
-function MsgMoreMenu({ isMine, isRetracted, content, onCopy, onForward, onDelete, onSelect, onOpenTopic, onClose, ...anchor }: MsgMoreMenuProps) {
+function MsgMoreMenu({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic, onClose, ...anchor }: MsgMoreMenuProps) {
   const { t } = useTranslation('messaging')
   // 翻转/平移全交给 Base UI(它量真实弹层);❌ 按条数估高再手算上翻。
   return (
     <Menu {...anchor} minWidth={180} onClose={onClose}>
-      {messageActionItems({ isMine, isRetracted, content, onCopy, onForward, onDelete, onSelect, onOpenTopic }, t).map((item) => (
+      {messageActionItems({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic }, t).map((item) => (
         <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger} title={item.title}
           onClick={item.onSelect ? () => { item.onSelect?.(); onClose() } : undefined}>
           {item.label}

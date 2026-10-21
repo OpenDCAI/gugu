@@ -249,6 +249,30 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     fake.intersect!([{ target: fake.canvas!, isIntersecting: true }])
     expect(frames).toHaveLength(1)
   })
+
+  it('保留布局的面板切到 inert 后不计算或绘制头像,切回不靠 IO 通知也能恢复', async () => {
+    fakeClock()
+    await boot()
+    const canvas = fake.canvas!
+    const panel = document.createElement('div')
+    panel.append(canvas)
+    const { GuguEngine } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/engine')
+    const updates = vi.spyOn(GuguEngine.prototype, 'update')
+    step()
+    expect(updates).toHaveBeenCalledTimes(1)
+    expect(fake.draws).toHaveLength(1)
+    panel.setAttribute('inert', '')
+    fake.look = [5]
+    updates.mockClear()
+    step()
+    await vi.advanceTimersByTimeAsync(330)
+    expect(updates, 'IO 仍相交,但隐藏面板里的引擎不再计算').not.toHaveBeenCalled()
+    expect(fake.draws, '上一次内容保留,不重画').toHaveLength(1)
+    panel.removeAttribute('inert')
+    await vi.advanceTimersByTimeAsync(33)
+    expect(updates).toHaveBeenCalledTimes(1)
+    expect(fake.draws, '没有 IO 事件也能恢复').toHaveLength(2)
+  })
 })
 
 describe('小鸟的绘图层出岔子时不整只空白', () => {

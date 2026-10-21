@@ -31,7 +31,7 @@ const AGENT = 'agent-6531'
 const SESSION = 'conv-6531'
 
 /** 与 codex-pty-provisioning 在 `tuiLoads: 'create'` 之后交给 registry 的那条会话同形:app-server 活着、TUI 还没建 thread。 */
-function awaitingTuiSession() {
+function awaitingTuiSession(mode: 'create' | 'resume' = 'create') {
   let queued = 0
   const rpc = async (method: string) => {
     if (method === 'thread/resume' || method === 'thread/read') {
@@ -43,14 +43,21 @@ function awaitingTuiSession() {
   const session = new CodexAppServerSession(AGENT, '/unused/codex', undefined, { sessionId: SESSION })
   Object.assign(session as unknown as Record<string, unknown>, {
     client: { rpc },
-    awaitingTuiThread: true,
+    awaitingTuiThread: mode === 'create',
+    ...(mode === 'resume' ? { threadId: 'tid-6531', adoptedFromTui: true, awaitingTuiLoad: true } : {}),
     liveAwaitsAttach: true,
     cwd: '/w',
     endpoint: { kind: 'unix', address: 'unix:///tmp/6531.sock', socketPath: '/tmp/6531.sock' },
     proc: { exitCode: null, signalCode: null },
   })
-  const tuiCreatesThread = () => (session as unknown as { adoptTuiThread(m: unknown): boolean })
-    .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-6531' } } })
+  const tuiCreatesThread = () => {
+    if (mode === 'create') return (session as unknown as { adoptTuiThread(m: unknown): boolean })
+      .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-6531' } } })
+    ;(session as unknown as { observeTuiLoadedThread(m: unknown): void }).observeTuiLoadedThread({
+      method: 'thread/status/changed', params: { threadId: 'tid-6531', status: { type: 'idle' } },
+    })
+    return true
+  }
   return { session, tuiCreatesThread }
 }
 
@@ -64,17 +71,18 @@ describe('codex TUI 新会话:登记即认领,TUI 建出 thread 之前没有无�
     vi.restoreAllMocks()
   })
 
-  it('promotion 之后、TUI 建出 thread 之前:属主是这条 app-server 会话,首句答 not-live(❌ THROW 进失败披露)', async () => {
+  it.each(['create', 'resume'] as const)('%s: TUI 接入前仍有属主,首句答 not-live、重入复用后台', async (mode) => {
     const registry = new CodexAppServerRegistry()
     const router = new SessionpageLocalDeliveryRouter([localSessionDeliveryTarget, registry])
-    const { session } = awaitingTuiSession()
+    const { session } = awaitingTuiSession(mode)
     promoteSessionpageDeliveryOwner(AGENT, () => registry.register(AGENT, session, 'codex'))
 
     expect(localSessionDeliveryTarget.liveSessionIdByAgent(AGENT)).toBeNull()
     expect(router.deliveryTargetFor(AGENT)).toBe(registry)
     expect(router.sessionIdForAgent(AGENT)).toBe(SESSION)
     // 可不可投是另一把钥匙:thread 还不存在,conversation 键控的注入权威查不到会话。
-    expect(registry.deliveryKeyForSession(SESSION)).toBeNull()
+    expect(registry.deliveryKeyForSession(SESSION)).toBe(mode === 'create' ? null : 'tid-6531')
+    expect(session.isAwaitingTuiThread()).toBe(true)
     await expect(router.injectForAgent(AGENT, { id: 'msg-first', text: 'hello' })).resolves.toBe('not-live')
   })
 
@@ -92,14 +100,16 @@ describe('codex TUI 新会话:登记即认领,TUI 建出 thread 之前没有无�
     }
   })
 
-  it('TUI 建出 thread、咕咕接入完成 → session-live 叫醒读者,同一条消息被接受(阳性对照)', async () => {
+  it.each(['create', 'resume'] as const)('%s: 接入完成才发 session-live,原消息被接受', async (mode) => {
     const registry = new CodexAppServerRegistry()
     const router = new SessionpageLocalDeliveryRouter([localSessionDeliveryTarget, registry])
     const live: unknown[] = []
     registry.setLiveHooks({ onLive: (registration) => live.push(registration) })
-    const { session, tuiCreatesThread } = awaitingTuiSession()
+    const { session, tuiCreatesThread } = awaitingTuiSession(mode)
     promoteSessionpageDeliveryOwner(AGENT, () => registry.register(AGENT, session, 'codex'))
 
+    expect(live).toEqual([])
+    await expect(router.injectForAgent(AGENT, { id: 'msg-first', text: 'hello' })).resolves.toBe('not-live')
     expect(tuiCreatesThread()).toBe(true)
     await session.waitForTuiThread()
     expect(live).toEqual([{ guguAgentUserId: AGENT, sessionId: SESSION }])

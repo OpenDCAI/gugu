@@ -942,9 +942,8 @@ async function discloseBatchFailure(
   }
   for (const [chatId, chatMembers] of byChat) {
     const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
-    const key = `turn-failure:batch:${createHash('sha256').update(ids.join(',')).digest('hex').slice(0, 32)}`
+    const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     const text = failureText(chatMembers.length, completionError)
-    log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
     try {
       await post({
         agentUserId,
@@ -953,6 +952,7 @@ async function discloseBatchFailure(
         key,
         text,
       })
+      log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
     } catch (error) {
       said = false
       log.error(
@@ -974,7 +974,7 @@ function failureText(count: number, completionError: unknown): string {
       : quota === 'monthly' ? '月限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。'
         : quota === 'exhausted' ? '当前模型账号的额度已用完。请切换模型，或补充额度后再试。'
           : quota === 'rate-limited' ? '当前模型请求过于频繁，请稍后再试。'
-            : agentModelUnavailable(reason) ? '当前模型暂时不可用，请切换模型后重试。'
+            : agentModelUnavailable(reason) ? '当前模型暂时不可用或已满载，请稍后重发，或切换模型后重发。'
               : '本次回复未能完成，请稍后再试。'
 }
 

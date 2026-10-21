@@ -105,21 +105,21 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
                     {t('routines.delete')}
                   </Button>
                 </div>
-                {confirming ? (
-                  <PhoneConfirmDialog
+                <PhoneConfirmDialog
+                    open={confirming}
                     title={t('routines.deleteTitle')}
                     body={t('routines.deleteBody', { name: automation.name })}
                     confirmLabel={t('routines.delete')}
                     failedText={t('routines.deleteFailed')}
                     testId="assistant-routine-delete-dialog"
                     onClose={() => setConfirming(false)}
+                    onConfirmed={() => go(null)}
                     onConfirm={async () => {
                       await machineRpc(homeDeviceId!).automations.deleteAutomation(automation.id)
                       toast(t('routines.deleted'), 'success')
-                      go(null)
                     }}
                   />
-                ) : null}
+
               </>
             )
           }

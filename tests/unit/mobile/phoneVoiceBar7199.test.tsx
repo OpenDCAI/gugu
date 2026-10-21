@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PhoneVoiceBar } from '../../../apps/desktop/src/mobile/assistant/PhoneVoiceBar'
 import type { VoiceJobView } from '../../../apps/desktop/src/mobile/assistant/phoneVoiceJobs'
@@ -32,11 +33,6 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/phoneVoiceRuntime', () => ({
   phoneVoiceJobs: { discard: mocks.discard, retry: mocks.retry, dismiss: mocks.dismiss },
 }))
 vi.mock('../../../apps/desktop/src/lib/cloudComputerStore', () => ({ wakeCloudComputer: mocks.wake }))
-// 确认框本身是 Dialog + portal,这里只要「点确认 = onConfirm」。
-vi.mock('../../../apps/desktop/src/mobile/assistant/PhoneConfirmDialog', () => ({
-  PhoneConfirmDialog: ({ onConfirm, testId }: { onConfirm: () => Promise<void>; testId?: string }) =>
-    createNode('button', { type: 'button', 'data-testid': `${testId}-confirm`, onClick: () => void onConfirm() }, 'confirm'),
-}))
 
 const job = (extra: Partial<VoiceJobView> = {}): VoiceJobView => ({ id: 'note-1', phase: 'recording', failure: null, dismissed: false, createdAt: '2026-10-16T09:00:00.000Z', held: null, ...extra })
 const voice = (extra: Partial<{ micDenied: boolean }> = {}) => ({ start: vi.fn(), disabled: false, micDenied: false, clearMicDenied: vi.fn(), ...extra })
@@ -49,12 +45,13 @@ beforeEach(() => {
   mocks.jobs = []
   for (const fn of [mocks.stop, mocks.pause, mocks.resume, mocks.cancel, mocks.clearError, mocks.discard, mocks.retry, mocks.dismiss, mocks.openSettings, mocks.wake]) fn.mockClear()
 })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
 
 const render = (v = voice()) => harness.render(createNode(PhoneVoiceBar, { voice: v, name: '小咕', column: null, onChat: true, open: vi.fn() }))
 
 describe('录着', () => {
   it('计时、暂停、结束;放弃先问一句,确认了才丢(丢的是正在录的那一条)', async () => {
+    const exit = holdDialogExit()
     mocks.recorder = { phase: 'recording', elapsedMs: 65_000, level: 0.4, silentMs: 0, error: null } as unknown as RecorderSnapshot
     mocks.jobs = [job()]
     await render()
@@ -67,9 +64,12 @@ describe('录着', () => {
     expect(mocks.stop).toHaveBeenCalledTimes(1)
 
     await clickElement(q('phone-voice-bar-discard')!)
+    await frame()
+    const popup = q('phone-voice-discard')!
     expect(mocks.discard).not.toHaveBeenCalled()
     await clickElement(q('phone-voice-discard-confirm')!)
     expect(mocks.discard).toHaveBeenCalledWith('note-1')
+    await expectExit(popup, exit)
   })
 
   it('连着 8 秒以上没声音:波形换成「未检测到声音」', async () => {
