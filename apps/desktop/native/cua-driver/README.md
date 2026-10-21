@@ -7,7 +7,7 @@
 
 打包时由 `scripts/build-mac-native.mjs` / `scripts/build-win-native.mjs` 下载、校验 sha256、取出 `cua-driver`(Mac 按架构抽一片)/ `cua-driver.exe`,导出工具清单 `cua-tools.json`,并把这两份许可证以 `CUA-DRIVER-LICENSE.md`、`CUA-DRIVER-THIRD-PARTY-NOTICES.md` 放在二进制旁边。
 
-Mac 维护归档保存在本仓 `assets` prerelease,脚本按钉住的资产 id 用 curl 经 GitHub API(`/releases/assets/<id>`)鉴权取得,token 读环境变量 `GH_TOKEN`:开发者用 `GH_TOKEN=$(gh auth token)`,CI 构建步骤传 `GH_TOKEN: github.token`。构建机不需要装 gh。读取缓存仍只需指纹校验,不联网。发布客户端不需要这些构建凭据。
+Mac 维护归档保存在本仓 `assets` prerelease(公开下载,不需要令牌),脚本按文件名下载并用钉住的 sha256 校验。构建机不需要装 gh。读取缓存仍只需指纹校验,不联网。发布客户端不需要这些构建凭据。
 
 ## 升级
 
@@ -21,6 +21,6 @@ Mac 维护归档保存在本仓 `assets` prerelease,脚本按钉住的资产 id 
 
 1. 检出 `patched-macos.json` 的 `upstreamRepository` 和精确 `upstreamCommit`,准备它记录的 Rust 编译器、Xcode 及对应 Rust target。
 2. 执行 `node scripts/build-cua-driver-patched-macos.mjs --source <cua-checkout> --out <output>/cua-driver-arm64 --arch arm64`,再以 `--arch x64` 构建另一片。脚本校验上游提交、完整源码差异、11个修改文件和编译器,使用锁文件构建;意外改动响亮拒绝。
-3. 用 `lipo -create` 合成 universal 的 `cua-driver`,归档它及源码来源说明,上传新的不可覆盖资产,回填归档 sha256 与资产 id(`MAC_ASSET_ID`,`gh api repos/nmhjklnm/gugu/releases/tags/assets --jq '.assets[] | select(.name=="<文件名>") | .id'`)。对导出的每片重新核架构、版本、工具清单与源码身份。`--version` 仍为上游0.36.0,维护修订由此目录与归档来源区分。
+3. 用 `lipo -create` 合成 universal 的 `cua-driver`,归档它及源码来源说明,上传到本仓 `assets` 预发布（`gh release upload assets <文件> -R OpenDCAI/gugu`，新修订用新文件名，❌ 覆盖已发布的文件），回填归档 sha256。对导出的每片重新核架构、版本、工具清单与源码身份。`--version` 仍为上游0.36.0,维护修订由此目录与归档来源区分。
 
 arm64 维护修订已通过三会话原批次12/12、取消/换代和四预览的实机验收;模式菜单仍有 macOS 的应用 active 前提。跨架构构建与单测不能替代另一台机器的 GUI 验收。
