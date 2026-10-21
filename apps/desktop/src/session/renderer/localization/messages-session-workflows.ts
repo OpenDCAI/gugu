@@ -1278,7 +1278,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'taskError.sessionStartFailed': '这个会话没能启动。',
   'taskError.sessionStartRetry': '重试',
   'taskError.sessionStartRetrying': '正在重试…',
-  'taskError.runtimeUpgradeRequired': '这个会话需要 {harnessName} {supportedFloor} 或更新的版本，正在用的这份是 {installedVersion}。',
+  'taskError.runtimeUpgradeRequired': '请将 {harnessName} 升级到 {supportedFloor} 或更新的版本，当前使用的是 {installedVersion}。',
   'taskError.runtimeUpgradeExecutable': '正在用的这份：{executable}',
   'taskError.runtimeUpgradeOpenInstaller': '安装或更新 {harnessName}',
   'taskError.runtimeUpgradeSelfHint': '关掉那个面板后会自动重试。也可以自己升级你那份后点重试。咕咕不改动不是它装的副本。',

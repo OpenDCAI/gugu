@@ -302,6 +302,17 @@ export async function resolveSessionRuntimeCompatible(input: {
 }): Promise<SessionRuntimeResolution> {
   assertSessionSurfaceDeclared(input);
   const requirement = input.descriptor.runtimeCompatibility?.[input.surface];
+  if (Array.isArray(requirement)) {
+    let result: SessionRuntimeResolution = { executable: input.executable, harnessVersion: null };
+    for (const entry of requirement) {
+      const resolved = await resolveSessionRuntimeCompatible({
+        ...input,
+        descriptor: { ...input.descriptor, runtimeCompatibility: { ...input.descriptor.runtimeCompatibility, [input.surface]: entry } },
+      });
+      result = { ...(entry.runtime === 'node' ? resolved : result), harnessVersion: resolved.harnessVersion ?? result.harnessVersion };
+    }
+    return result;
+  }
   const measuredRequirement = requiredExactRuntimeCompatibility(input.descriptor, input.surface);
   if (!requirement) {
     if (measuredRequirement) {

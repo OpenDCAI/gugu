@@ -526,6 +526,7 @@ const enUSCoreMessages = {
     'The previous conversation history is no longer available, and this task cannot be started again. Archive it to continue.',
   'chat.loading': 'Loading chat...',
   'chat.startingSession': 'Starting task...',
+  'chat.systemPermissionHint': 'If a system permission dialog has appeared, allow Gugu to access the project folder.',
   'chat.startingSessionChecking': 'Checking the {engine} executable · since {since}',
   'chat.opencodePreparing': 'Preparing OpenCode (the first run may take longer)...',
   'chat.antigravityPreparing': 'Preparing Antigravity (the first run may take longer)...',
@@ -1358,7 +1359,8 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'chat.providerSessionMissingLegacyDescription':
     '之前的对话记录已丢失，这个会话也无法重新开始。请先把它归档。',
   'chat.loading': '正在加载对话...',
-  'chat.startingSession': '正在启动会话...',
+  'chat.startingSession': '正在启动任务...',
+  'chat.systemPermissionHint': '如果弹出了系统授权框，请先允许咕咕访问项目文件夹。',
   'chat.startingSessionChecking': '正在检查 {engine} 可执行文件 · 从 {since} 开始',
   'chat.opencodePreparing': '正在准备 OpenCode（首次较慢）...',
   'chat.antigravityPreparing': '正在准备 Antigravity（首次较慢）...',

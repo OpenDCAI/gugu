@@ -21,7 +21,7 @@ import {
 } from '../../lib/assistantShellBridge'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
 import { assistantIdentityState, useMyAssistantContact } from '../../lib/myAssistant'
-import { assistantHomePlace } from '../../lib/assistantHome'
+import { assistantHomePlace, canSetUpCloudAssistant } from '../../lib/assistantHome'
 import { readSetupStep, subscribeSetupStep, writeSetupStep } from '../../lib/assistantSetupState'
 import { pendingLocalAssistant, resumeLocalAssistant, setupStillStarting } from '../../lib/assistantSetup'
 import { keepFinishingLocalAssistant } from '../../lib/assistantSetupFinish'
@@ -69,7 +69,7 @@ export function OnboardingSlot({ snapshot: given, device: givenDevice }: { snaps
       ownerName={user.nickname ?? null}
       snapshot={snapshot}
       device={device}
-      cloudAvailable={!!cloudComputer?.available}
+      cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)}
       localDeviceId={localDeviceId}
     />
   )
