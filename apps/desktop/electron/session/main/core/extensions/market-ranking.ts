@@ -2,7 +2,7 @@ import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 
 /**
- * 首页精选按近期安装量排(owner 10-19「按建议」,方案 gugu-base notes/2026-10-19-app-market-home/精选按近期安装量-方案.html)。
+ * 首页精选按近期安装量排(owner 10-19「按建议」)。
  * 库里只有一张 `chat.app_installs`(一个账号第一次从市场装一个 App 记一行)和两个函数;客户端只经这两个函数读写,碰不到行。
  */
 async function chatClient() {

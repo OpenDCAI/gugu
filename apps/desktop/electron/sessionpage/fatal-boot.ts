@@ -7,8 +7,8 @@
 //   不进 fatal —— 新文档会自己再取一遍;资源真坏了,新文档照样再报,那时才弹。
 // - **错误框不能是同步模态。** `dialog.showErrorBox`,以及 mac 上没有父窗口的 `showMessageBox`(Electron 44
 //   message_box_mac.mm:没有 parent 就 `[alert runModal]`),都把主线程停在模态循环里:没人点就永远卡着,IPC、导航、
-//   日志全停,`process.on('SIGTERM')` 的 JS handler 也轮不到(2026-10-12 mac1 实测,gugu-base
-//   evidence/2026-10-12-mac1-boot-hang-modal)。所以挂成可见主窗口上的 sheet,点了再退出;没有窗口(server、窗口还没建)
+//   日志全停,`process.on('SIGTERM')` 的 JS handler 也轮不到(2026-10-12 macOS 实测)。
+//   所以挂成可见主窗口上的 sheet,点了再退出;没有窗口(server、窗口还没建)
 //   就只靠已经打出的 FAILED 日志,直接退出。
 import type { BaseWindow, Dialog, Event, WebContents, WebContentsDidStartNavigationEventParams, WebFrameMain } from 'electron'
 

@@ -134,8 +134,7 @@ export const plugin = definePlugin(
             proxyTool: 'tool_call',
             evidence:
               'NousResearch/hermes-agent@6f7a7991bb `tools/tool_search.py`:MCP 工具只以名字出现在 tool_search 清单里,'
-              + '经 tool_call 调用;裸 ACP 实测 0.21.0–0.21.5 与 main 均收到 tools/call(gugu-base@3d6fd80d '
-              + 'evidence/2026-09-28-hermes-adapter)',
+              + '经 tool_call 调用;裸 ACP 实测 0.21.0–0.21.5 与 main 均收到 tools/call(2026-09-28)',
           },
         },
       },

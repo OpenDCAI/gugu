@@ -1162,9 +1162,9 @@ export const GUGU_APPS_SEARCH_LINE = [
  * `<gugu_apps>`: what the Apps installed in 咕咕 give this session, as facts.
  * - The Apps whose tools are in the catalog (上下文工程第二批 P3): their name and what they do — the first sentence of the
  *   manifest's description — so an agent knows, before any catalog_list, that a capability is in there. Before this, web
- *   search and library docs went 0/12 through the catalog (gugu-base evidence/2026-10-07-context-engineering).
+ *   search and library docs went 0/12 through the catalog (measured 2026-10-07).
  *   The heading says once, for every App, that they run with catalog_call, so a line can spend its 120 characters on
- *   the tools themselves (群文件夹: names and parameters, gugu-base notes/2026-10-11-workspace-tools-to-app, 10-12).
+ *   the tools themselves (群文件夹: names and parameters, 10-12).
  * - #6387 App skills, for a harness with no plugin folder to mount them in: the same two facts a native skill list shows
  *   (name, when to use it) plus where SKILL.md is, read in place.
  * Rides the platform block, so it follows the same lifecycle (not repeated on resume).

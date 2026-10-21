@@ -246,7 +246,7 @@ export const composerSlotInnerClass = style({
  * 实色,❌ 毛玻璃(rgba + backdrop-filter)。玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md「玻璃拟态已退役」,tokens.css @@@no-glass),
  * 这一处是当时漏改的。它不只是样式:mac 上一块 backdrop-filter 就让 CoreAnimation overlay 失败,
  * Chromium 改为每帧自己用 Skia 画 render pass;只要帧还在来(光标一闪就是一帧),GPU 进程那份驱动内存就清不掉
- * —— mac1 实测这一块约 390MB(读数见 gugu-base evidence/2026-10-05-graphite-root-cause)。
+ * —— macOS 实测这一块约 390MB(2026-10-05)。
  */
 export const composerSlotInnerBottomClass = style({
   background: vars.bg,

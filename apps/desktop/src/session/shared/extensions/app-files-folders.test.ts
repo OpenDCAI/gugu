@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * 子文件夹 (gugu-supabase 20261016012659; gugu-base notes/2026-10-15-attachments-into-folder/设计.md §2): a chat's folder has
+ * 子文件夹 (gugu-supabase 20261016012659): a chat's folder has
  * folders — rows of kind 'folder' that other rows point at with `parent_id`. What the host answers a page or a program:
  *   · every entry says where it is (`parentId`, `path` from the top, `systemRole`); a folder is `type: 'folder'`, no App claims it;
  *   · `files.list({ chat, folder })` is what is directly in that folder (path, case not counted, or id; '' the top), and a

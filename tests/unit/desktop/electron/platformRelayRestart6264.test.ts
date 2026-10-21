@@ -210,7 +210,7 @@ describe('#6264 平台转发口活过宿主进程重启', () => {
     expect(heldPlatformModelForSession(CONV)).toMatchObject({ accessSessionId: 'sess-1', settingsDocumentPath: files[0] })
   })
 
-  // PR-7 开机读数(gugu-base evidence/2026-10-09-pr7-boot/known/2):tmux 里的 agent 敲早绑的 MCP 端口,唤醒比认回早,
+  // PR-7 开机读数(2026-10-09):tmux 里的 agent 敲早绑的 MCP 端口,唤醒比认回早,
   // 手里那份还没认回 ⇒ 另签一张;三张同秒签,网关池拒掉一张,那条会话落 error。
   it('开机认回只读本机(盘、tmux、账本文件):owner 一直没确立(没登录)也落定,手里那份照样在、不签票;等它的人(哪怕比认回开跑还早)等到认回之后', async () => {
     await startClaude()

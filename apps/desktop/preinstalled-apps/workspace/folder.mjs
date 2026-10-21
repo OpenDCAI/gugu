@@ -1,5 +1,5 @@
 /* global gugu */ // An App program's gugu: the page's, for the page's own verbs (guide apps-programs).
-// The 群文件夹 App's tools for an agent's chat folder (gugu-base notes/2026-10-11-workspace-tools-to-app §2): list, read,
+// The 群文件夹 App's tools for an agent's chat folder (moved into the App 2026-10-11): list, read,
 // create, edit, delete — the agent works on a chat's files the way it works on local ones: read, edit(old, new), create.
 // Every one acts as the agent that calls it: a chat it hands (`gugu-chat`) or a file it hands (`gugu-file`) is checked as
 // that agent at the gateway, and what the tool reads and writes there is the agent's, by its own membership.

@@ -4,7 +4,7 @@
   "#presence-interrupt"
  ],
  "harness": "claude 2.1.301",
- "source": "gugu-base notes/2026-10-16-osc-7501 (esc-latency/ mac1 hooks; rendezvous-presence/ ThinkPad presence + hooks in one run)",
+ "source": "#7501 recorded Claude hooks and presence file (Esc latency: hooks on macOS; presence + hooks recorded in one run)",
  "sessionId": "7e5c0000-0000-4000-8000-000000000004",
  "expectAnomalies": 0,
  "summary": "run_in_background: parked after the turn; the background shell finishing is shell → busy (Claude's own task-notification turn) → idle, ending as done, never as interrupted",

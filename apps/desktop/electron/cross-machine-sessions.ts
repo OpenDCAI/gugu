@@ -1,5 +1,5 @@
 /**
- * agent 的 session_* 跨机器(owner 2026-09-30 拍板;设计稿 gugu-base notes/2026-09-30-cross-machine-sessions)。
+ * agent 的 session_* 跨机器(owner 2026-09-30 拍板)。
  *
  * 发起方:机器清单是这个账号的 `gugu_devices`;`device` 参数把动作交给那台机器;本机没有的 `session:` 去问在线的
  * 机器,身份地址查云端身份的 `device_id`。请求一律是那台机器会话页路由表上的一问一答(`taskhost.call`):动作走

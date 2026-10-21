@@ -3,7 +3,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { FileOpenerCandidate } from './file-openers';
 /**
  * The App runtime's wire: what the platform script, the preload and main agree on
- * (gugu-base notes/2026-09-29-app-platform/workspace-app/L3-runtime-interface.md).
+ * (the App platform's L3 runtime interface).
  *
  * Three facts live here and nowhere else:
  * - where the runtime is served from (a reserved path on every App origin) and the one

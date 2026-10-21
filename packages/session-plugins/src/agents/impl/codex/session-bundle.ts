@@ -244,7 +244,7 @@ export const codexSessionBundleDescriptor = {
     evidence:
       'openai/codex@cd85a26cae00 codex-rs/tui/src/bottom_pane/request_user_input/mod.rs:645(Esc = interrupt_key)、:1214(备注框开着先关备注);'
       + ' 选择器底栏「esc to interrupt」(同目录 snapshots);Esc 后再发消息 agent 照答:'
-      + ' shuxueshuxue/gugu-base@2fd64b59d evidence/2026-10-09-ask-question-phone-answer(0.153.4,7/7);取证 2026-10-09',
+      + ' 实测 Codex 0.153.4,7/7;取证 2026-10-09',
   },
   runtimeCompatibility: {
     'acp': {
@@ -268,7 +268,9 @@ export const codexSessionBundleDescriptor = {
       injection: {
         timing: 'next-tool-call',
         evidence:
-          'shuxueshuxue/gugu-base@8816f04 (product ACP R9; Spex data evidence e11cab894fdcfa229b695b2bace2054d2cf533f7a182deab1f2d4418f439f24e)',
+          'openai/codex@78ad6e6bfd1d codex-rs/app-server/README.md:976 (rust-v0.144.3): `turn/steer` appends user input to the '
+          + 'active regular turn, the call the app-server ACP bridge makes; product ACP R9 reading '
+          + '(Spex data evidence e11cab894fdcfa229b695b2bace2054d2cf533f7a182deab1f2d4418f439f24e)',
       },
     },
     // app-server 腿(detachedInference):turn/steer 端到端 6/6 同轮、0/6 回退(2026-08-29,
@@ -278,7 +280,8 @@ export const codexSessionBundleDescriptor = {
       messageTransport: 'router',
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@715f7d3 evidence/2026-08-31-f1-claude-codex-cells:codex/TUI F1R5 【产品】读数——聊天页建 agent(surface=tui)→app-server WS-over-unix turn/steer,暗号 A=11:48:10.945Z 于 wait yield 边界(function_call_output 11:48:25.724 后 9ms)进模型,逐字 ACK b8ef1c7a 首轮内、rollout task_started/complete=2/2 零新轮,B=task_complete 11:49:33.434,维度4 running→idle 双周期在案,PRE/POST 阳控双过。装置面另有 @051c452 evidence/2026-08-29-codex-steer-midturn turn/steer 6/6 同轮、0/6 回退(Codex 0.144.3)。',
+        evidence: 'openai/codex@78ad6e6bfd1d codex-rs/app-server/README.md:976(rust-v0.144.3:turn/steer 把输入并进进行中的那一轮);'
+          + 'codex/TUI F1R5 【产品】读数(2026-08-31)——聊天页建 agent(surface=tui)→app-server WS-over-unix turn/steer,暗号 A=11:48:10.945Z 于 wait yield 边界(function_call_output 11:48:25.724 后 9ms)进模型,逐字 ACK b8ef1c7a 首轮内、rollout task_started/complete=2/2 零新轮,B=task_complete 11:49:33.434,维度4 running→idle 双周期在案,PRE/POST 阳控双过。装置面另有 turn/steer 6/6 同轮、0/6 回退(Codex 0.144.3,2026-08-29)。',
       },
       // 可见 TUI(`codex --remote … resume <tid>`)读到同一次 read 里的「正文 + 回车」时,拿回车结算
       // 的是还没收下正文的 composer:**整条提交消失,屏幕上不留任何痕迹,也不报错**(#4525)。

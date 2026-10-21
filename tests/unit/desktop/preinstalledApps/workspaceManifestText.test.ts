@@ -1,4 +1,4 @@
-// 群文件夹 App 的 description 有两个读者(PR-2 评审,gugu-base b93ee3dab2 notes/reviews/2026-10-13-workspace-tools-to-app-pr2-rebuild-97ad5af.md):
+// 群文件夹 App 的 description 有两个读者(PR-2 评审,2026-10-13):
 // - 人:App 产品页、设置里的已装列表经 localizedManifestText 显示简介 —— 给人看的那句放在 localized 的 zh / en;
 // - agent:<gugu_apps> 那一行只读原始 description 的第一句(embedded-boot 的 emdashExtensionAgentContributions 原样带它),
 //   原始 description 留给 agent 的工具签名。

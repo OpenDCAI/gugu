@@ -1,7 +1,7 @@
 /**
  * outfitCatalog.ts —— 每件装扮的数据:几片素材 + 挂法 + 落位 + 各形态怎么办 + 配色 + 跨位置冲突。怎么画见 outfits.ts。
  * 坐标单位见 outfits.ts 的 Fit:head 以「长眼睛那个部件」的头圆(圆心、半径 r)为单位;本体头圆 = (507, 335.5, r 310)。
- * 素材是出图后抠的(设计与出图记录在 gugu-base notes/2026-10-16-bird-outfits/),配色不另出图:同一张素材过一道 canvas filter。
+ * 素材是出图后抠的(2026-10-16 设计与出图),配色不另出图:同一张素材过一道 canvas filter。
  * id 写进形象地址(look.ts 的 wear),❌ 改名;要换就加新 id。
  */
 import type { FormId } from './forms'

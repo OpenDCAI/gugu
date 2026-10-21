@@ -91,7 +91,8 @@ export const copilotSessionBundleDescriptor = {
       injection: {
         timing: 'next-tool-call',
         evidence:
-          'shuxueshuxue/gugu-base@27acb72ad4b4ab0e59aa4646acde2d534e9b75d0 evidence/2026-09-01-nextcall-batch1-acp-injection（copilot ACP busy 3/3 next-tool-call + idle 1/1；harness-native，与 #4500 产品 idle-only 的成因是咕咕排队非 harness 上限）',
+          'https://www.npmjs.com/package/@github/copilot/v/1.0.82 实测（2026-09-01，本地假端点）：copilot ACP busy 3/3 next-tool-call + idle 1/1；'
+          + 'harness-native，与 #4500 产品 idle-only 的成因是咕咕排队非 harness 上限',
         // steer **打断**在飞工具(tool → `interrupted`)再折入,不是 droid 那种不打断的 fold ——
         // 忙时给 copilot 发消息会中止它正在跑的那个工具。读声明的人光看 `next-tool-call` 分不出这一点,
         // 故记进机器可见的 deviations(comments 过不了 zod parse)。

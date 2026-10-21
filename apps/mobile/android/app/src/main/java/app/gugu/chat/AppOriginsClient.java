@@ -17,7 +17,7 @@ import java.util.Map;
  * App's frame from leaving its origin.
  *
  * Every other way out of an App frame is closed by its CSP (fetch, beacon, WebSocket, images, workers — L9 probe,
- * gugu-base evidence/2026-09-30-l9-mobile-apps). Navigating the frame itself is not a CSP matter, so it is refused
+ * 2026-09-30). Navigating the frame itself is not a CSP matter, so it is refused
  * here, as the desktop refuses it in `will-navigate` (isAllowedExtensionNavigation): a frame's document request whose
  * Referer is an App's origin — or that sent none — may only go to that same origin. Frames the gugu page opens itself
  * (an App's first load, a chat widget) carry the page's Referer and are left alone; a widget's own navigation carries

@@ -5,7 +5,7 @@ export const harnessPlatform = {
   kind: 'supported',
   // CodeBuddy Code 2.169.0:只给 `CODEBUDDY_BASE_URL` + `CODEBUDDY_API_KEY` 时跳过登录闸,
   // 打 `POST {base}/chat/completions`(Bearer),主对话与标题/摘要这些后台请求都用 `CODEBUDDY_MODEL`
-  // (gugu-base notes/2026-10-19-codebuddy-harness 实测 B)。
+  // (2026-10-19 实测 B)。
   wireProtocol: 'openai-chat-completions',
   dialect: 'codebuddy-settings-env',
   injection: {

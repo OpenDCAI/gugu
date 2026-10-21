@@ -156,10 +156,9 @@ export const piSessionBundleDescriptor = {
       injection: {
         timing: 'next-tool-call',
         evidence:
-          'shuxueshuxue/gugu-base@7df493d evidence/2026-09-11-r5-pi-permission-rung-4568/readings/'
-          + 'pi-acp-steering-capability-aa062b02.txt (capability prerequisite) and '
-          + 'shuxueshuxue/gugu-base@04ce63e evidence/2026-09-12-aa062b02-pi-steering-product.txt '
-          + '(DM and group delivery A/B pass; runtime-state and owner-chat projection are independent defects)',
+          'shuxueshuxue/gugu-acp@de4a74b1b5da bridges/pi-acp/patches/0001-_session-steering-extension-method-mid-turn-mes.patch '
+          + '(the `_session/steering` capability this leg relies on; upstream svkozak/pi-acp#115). Product reading 2026-09-12: '
+          + 'DM and group delivery A/B pass; runtime-state and owner-chat projection are independent defects',
       },
     },
     'tui': { identity: 'addressable', messageTransport: 'local-session' },

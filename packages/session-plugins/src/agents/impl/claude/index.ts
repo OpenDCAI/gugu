@@ -276,7 +276,7 @@ export const plugin = definePlugin(
       // 自己的那几台,`/mcp` 关掉的走 `disallowedTools`(session-bundle.ts)⇒ 咕咕不必也不该复述用户的 server。
       // 复述过来也没人读:插件那份清单跳过 `owner === 'user'`,`session/new.mcpServers` 恒为空,
       // 它们的 env / 地址 / Authorization 只会留在 claude 和它起的子进程环境里(复核 93 ②;
-      // 实测见 gugu-base evidence/2026-10-07-library-audit 2b:不开 strict 时三层都在、各答各的)。
+      // 10-07 资源库体检实测:不开 strict 时三层都在、各答各的)。
       sessionUserServers: 'inherit',
     },
     // agent memory —— claude 的专名文件 CLAUDE.md。

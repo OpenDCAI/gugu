@@ -88,7 +88,7 @@ export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null 
   // #6387 App 送来的不是「别人发给你的消息」:这台电脑上的一个 App 替这个人说的(人点的、后台页的钟、它的工具),
   // App 没有收件箱,所以回程就是当面打印。这句要对任何会话形态为真。
   // 集体记忆对账第 12 条:原先还有「附带」一档(mode 'context'),两个产出方(extension-agents / extension-send)早就只传
-  // 一种语义,F16 定了没有 mode:'context'(gugu-base notes/2026-09-29-app-platform/workspace-app/README.md:398、:406)⇒ 那一档和它的类型、投递卡上那一支一起删了。
+  // 一种语义,F16 定了没有 mode:'context' ⇒ 那一档和它的类型、投递卡上那一支一起删了。
   if (route === 'extension') return "Sent through 咕咕 by an App on this computer, on the person's behalf; the person reads what you print here."
   // 论坛:回程在目录里 —— 这一句把怎么调写全,不必先查。
   if (route === 'forum') {

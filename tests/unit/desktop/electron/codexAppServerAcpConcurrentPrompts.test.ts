@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
 
-// 编辑重发时恰好收到一条消息,任务一直显示在工作(10-18 mac1 实撞,gugu-base evidence/2026-10-18-revert-end-kick)。
+// 编辑重发时恰好收到一条消息,任务一直显示在工作(10-18 在 macOS 上实撞)。
 //
 // 两条 session/prompt 几乎同时进桥:两条都还没看见在跑的轮,都发了 turn/start。codex 的 turn/start 遇到在跑的轮
 // 不另开,而是插进去、回那一轮的 id(openai/codex app-server turn_processor.rs `start_or_steer_turn`)。

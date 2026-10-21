@@ -648,7 +648,7 @@ describe('SessionCell prompts', () => {
     expect(cell.sessionState.queuedPrompts).toHaveLength(0);
     expect(cell.sessionState.lifecycle).toBe('working');
 
-    // 合入同一 turn 生命周期(gugu-base@3336de9 的读数形状:两个响应在轮末先后到齐)。
+    // 合入同一 turn 生命周期(opencode 实测读数的形状:两个响应在轮末先后到齐)。
     // steer 响应先回也不许结算 —— 结算权属于主 RPC。
     resolveSteer({ stopReason: 'end_turn' });
     await expect(steer).resolves.toEqual({ success: true, data: { queued: false } });

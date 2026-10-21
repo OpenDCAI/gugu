@@ -32,9 +32,8 @@
 // `corsErrorStatus` separates them), and the budget is not a URL-length budget.
 //
 // ⚠️ NOT COVERED: `proxy_buffer_size` is nginx's default here, but the gateway config lives on the
-// database machine — not in this repo, not in gugu-base (`deploy/db-host/README.md` says so) — so the
+// database machine — not in this repo (`deploy/db-host/README.md` says so) — so the
 // **production** link's value is UNVERIFIED and was not probed. The margin below absorbs that.
-// Readings and probes: gugu-base `evidence/2026-09-11-5394-cause-transport-budget/`.
 
 /** nginx `proxy_buffer_size` — the upstream **response header** block must fit in it. Default 4 KiB. */
 export const PROXY_RESPONSE_HEADER_BUDGET_BYTES = 4096
