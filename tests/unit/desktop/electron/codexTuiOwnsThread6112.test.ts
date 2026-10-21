@@ -532,7 +532,11 @@ describe('@@@6112 session-live 的产地:threadId 到位的那一刻(registry �
 
   it('waitUntilReady 等待现成的 live 事件，而不是在 attach 前同步判死', async () => {
     const registry = new CodexAppServerRegistry()
-    const session = makeSession({ awaitingTuiThread: true })
+    const session = makeSession({
+      awaitingTuiThread: true,
+      proc: { exitCode: null, signalCode: null },
+      endpoint: { kind: 'unix', address: 'unix:///tmp/live-wait.sock', socketPath: '/tmp/live-wait.sock' },
+    })
     registry.register('agent-live', session, 'codex')
     const ready = registry.waitUntilReady('conv-live')
 
