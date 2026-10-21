@@ -1,23 +1,26 @@
-# 参与咕咕开发
+# Contributing to Gugu
 
-咕咕是为研究者和科学家打造的科研 agent 协作工具。社区开发使用本仓文档与脚本，不要求读取私有开发插件。
+English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 快速开始
+Gugu is an agent collaboration tool built for researchers and scientists. Community development uses only the documentation and scripts in this repository; no private tooling is required.
 
-1. 读取根目录 AGENTS.md，按 .node-version 和 package.json 的 packageManager 准备工具链。
-2. 在独立 checkout 执行 pnpm install --frozen-lockfile，配置见 .envs/example.env。
-3. 使用自己的开发后端；官方服务的可选配置见 docs/optional-cloud-services.md。
-4. 通过 scripts/dev-app.sh 启动隔离实例；检查命令见 docs/development-tools.md。
+## Getting started
 
-数据库初始化与授权以对应后端文档为准。内部共享环境只供获授权维护者使用，不能作为社区开发的必经入口。
+1. Read `AGENTS.md` at the repository root and set up the toolchain from `.node-version` and the `packageManager` field in `package.json`.
+2. In a separate checkout, run `pnpm install --frozen-lockfile`; configuration is described in `.envs/example.env`.
+3. Use your own development backend; optional official-service settings are in `docs/optional-cloud-services.md`.
+4. Start an isolated instance with `scripts/dev-app.sh`; check commands are in `docs/development-tools.md`.
 
-## 协作规则
+Database setup and authorization follow the backend repository's documentation.
 
-- Issue first：动手前先提或认领 issue；关闭时附实现说明。
-- 从最新 origin/dev 切个人分支，普通 PR 明确使用 dev 作为 base。main 是发布通道，由维护者安排 promotion。
-- 合并需要检查通过和内容审核，不自合；具体必需检查以仓库当前配置为准。
-- 使用专用测试账号和隔离数据，不操作生产、其他人的实例或共享工具安装。
-- 密钥、账号登录态和私人运维资料不得进入 Git、issue 或聊天。
-- 产品规格由维护者私下维护；改变用户可见行为的改动，请在 issue / PR 里写清预期行为。
+## Rules
 
-公共 App 开发与接入说明见 docs/writing-a-tab-extension.md。
+- Issue first: open or claim an issue before you start; describe the implementation when closing it.
+- Branch from the latest `origin/dev` and target `dev` in pull requests. `main` is the release channel; maintainers handle promotion.
+- Merging needs passing checks and review; do not merge your own PR. The required checks are whatever the repository currently enforces.
+- Use dedicated test accounts and isolated data. Never touch production, other people's instances or shared tool installations.
+- Keep secrets, login sessions and private operational details out of Git, issues and chat.
+- Product specifications are maintained privately by the maintainers; when a change alters user-facing behavior, describe the intended behavior in the issue or PR.
+- Most code comments are in Chinese. Comments and discussions in English are welcome.
+
+Building and integrating public Apps: see `docs/writing-a-tab-extension.md`.

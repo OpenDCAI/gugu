@@ -1,26 +1,26 @@
 name: UI Polish
-description: UI/UX 细节打磨（小问题、不影响功能）
+description: Small UI/UX refinements that do not affect functionality
 title: "[UI Polish] "
 labels: [ui-polish]
 body:
   - type: textarea
     id: where
     attributes:
-      label: 哪里 / 哪个界面
-      description: 页面、组件、入口
+      label: Where
+      description: Page, component or entry point
     validations:
       required: true
   - type: textarea
     id: issue
     attributes:
-      label: 不舒服的点
-      description: 文案 / 间距 / 对比度 / 动效 / 交互…
+      label: What feels off
+      description: Copy, spacing, contrast, motion, interaction…
     validations:
       required: true
   - type: textarea
     id: screenshot
     attributes:
-      label: 截图（可选）
-      description: 拖到这里上传
+      label: Screenshot (optional)
+      description: Drag and drop to upload
     validations:
       required: false

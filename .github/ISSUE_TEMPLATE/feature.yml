@@ -1,19 +1,19 @@
 name: Feature
-description: 新能力 / 新需求
+description: A new capability or request
 title: "[Feature] "
 labels: [feature]
 body:
   - type: textarea
     id: motivation
     attributes:
-      label: 想解决什么问题
-      description: 为什么需要它，谁会用
+      label: What problem does it solve
+      description: Why is it needed, and who will use it
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: 设想方案
-      description: UI / API / 交互草图皆可
+      label: Proposed solution
+      description: UI, API or interaction sketches are all welcome
     validations:
       required: false

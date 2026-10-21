@@ -1,22 +1,22 @@
 name: Bug
-description: 功能坏了 / 不符合预期
+description: Something is broken or does not behave as expected
 title: "[Bug] "
 labels: [bug]
 body:
   - type: textarea
     id: what-happened
     attributes:
-      label: 发生了什么
-      description: 期望行为 vs 实际行为
+      label: What happened
+      description: Expected behavior vs. actual behavior
       placeholder: |
-        期望：…
-        实际：…
+        Expected: …
+        Actual: …
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: 复现步骤
+      label: Steps to reproduce
       placeholder: |
         1.
         2.
@@ -26,7 +26,7 @@ body:
   - type: input
     id: env
     attributes:
-      label: 环境
-      description: OS / 版本 / 构建 (e.g. macOS 14 / 0.x.x / dev)
+      label: Environment
+      description: OS / version / build (e.g. macOS 14 / 0.x.x / dev)
     validations:
       required: false

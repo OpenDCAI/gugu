@@ -1,26 +1,26 @@
 name: Refactor
-description: 架构重构 / API 精简 / 技术债
+description: Architecture refactoring, API simplification, technical debt
 title: "[Refactor] "
 labels: [refactor]
 body:
   - type: textarea
     id: current
     attributes:
-      label: 现状的问题
-      description: 当前结构/API 有什么不舒服
+      label: Current problem
+      description: What is uncomfortable about the current structure or API
     validations:
       required: true
   - type: textarea
     id: target
     attributes:
-      label: 目标形态
-      description: 重构后应该长什么样
+      label: Target shape
+      description: What it should look like after the refactor
     validations:
       required: true
   - type: textarea
     id: scope
     attributes:
-      label: 影响范围
-      description: 涉及哪些模块/调用方
+      label: Scope
+      description: Which modules and callers are affected
     validations:
       required: false
