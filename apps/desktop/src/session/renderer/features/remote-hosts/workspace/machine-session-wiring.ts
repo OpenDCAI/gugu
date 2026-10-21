@@ -4,6 +4,7 @@
 //  · 会话输出里冒出 `localhost:5173` ⇒ 核实不是咕咕自己的端口后记进那台机器的端口表(machine-port-scanner.ts);
 //  · 那台机器上新发现的服务弹一声「可以打开了」(照 VS Code 自动转发后的那条通知),没在看就先记着。
 // 只装一次(启动时)。触发:进出会话页、换任务、那台机器连上 / 断开 —— 都是事件,❌ 定时查。
+import { closeSessionPaneTab, sessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
 import { comparer, reaction } from 'mobx';
 import { openGroupFileLink } from '@/components/markdown/fileLinks';
 import type { SessionpagePaneOpenRequest } from '@gugu/session-core/session-record/contract';
@@ -61,6 +62,15 @@ function hasBrowserTab(projectId: string, sessionId: string): boolean {
 /** 那台机器上的 agent / 程序要开的东西,开进这条会话的工作区(与本机 open_in_tab 同一个动作)。 */
 function openRequested(session: ViewedMachineSession, request: SessionpagePaneOpenRequest): PaneOpenResult | Promise<PaneOpenResult> {
   const browser = hasBrowser(session.deviceId);
+  if (request.target.kind === 'tabs' || request.target.kind === 'close-tab') {
+    const view = sessionView(session.projectId, session.sessionId);
+    if (!view) return { ok: false, failure: 'open_failed' };
+    if (request.target.kind === 'tabs') return { ok: true, tabs: sessionPaneTabs(view.paneLayout) };
+    return closeSessionPaneTab(view.paneLayout, request.target.tabId).then(
+      (result) => ({ ok: true, ...result }),
+      (error: unknown) => ({ ok: false, failure: 'open_failed', error: error instanceof Error ? error.message : String(error) }),
+    );
+  }
   if (request.target.kind === 'external') {
     return openExternalFromMachine(
       {
@@ -86,7 +96,7 @@ function openRequested(session: ViewedMachineSession, request: SessionpagePaneOp
   view.recordOutput(
     request.target.kind === 'file' ? { kind: 'file', path: request.target.path } : { kind: 'page', url: request.target.url }
   );
-  return { ok: true };
+  return { ok: true, tabs: sessionPaneTabs(view.paneLayout) };
 }
 
 function paneLink(deviceId: string): PaneLink {
