@@ -113,7 +113,9 @@ describe('createWatchService', () => {
     }
   });
 
-  it('surfaces watcher subscription failures through ready()', async () => {
+  // Linux trees are directory-backed (@@@tree-by-directories in native-backend.ts): a recursive
+  // subscription opens no native watch of its own, so there is no subscription failure to surface.
+  it.skipIf(process.platform === 'linux')('surfaces watcher subscription failures through ready()', async () => {
     // @@@unique-missing-root(#6259) — 「不存在的根」必须只属于这一次运行。从前用
     // `tmpdir()/…-${Date.now()}`,并发的另一次运行同一毫秒拿到同名、先把它 mkdir 出来,这边的
     // ready() 就 resolve 了(mac1 16 路共用 TMPDIR 时 4/160 红);建出来的目录也从不删,TMPDIR 里攒了 777 个。
