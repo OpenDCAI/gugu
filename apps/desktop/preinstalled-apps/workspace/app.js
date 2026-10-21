@@ -284,7 +284,6 @@ function renderChrome() {
   $('open-with').textContent = t.openWith
   $('more').setAttribute('aria-label', t.more)
   $('more').title = t.more
-  $('back-label').textContent = t.back
   for (const mode of ['edit', 'split', 'preview']) $(`mode-${mode}`).textContent = t[mode]
   $('json-apply').textContent = t.apply
   $('json-discard').textContent = t.discard
@@ -678,8 +677,7 @@ async function openInHost(entry, ask = false) {
   try {
     await (ask ? gugu.files.openWith(entry, { ask: true }) : gugu.files.openWith(entry))
   } catch (error) {
-    if (error.code === 'not-found') showUnopenable(entry)
-    else showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
   }
 }
 
@@ -884,7 +882,10 @@ async function openHanded() {
     // handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
     if (file.type === 'binary') {
       file.close()
-      showUnopenable(file.entry, state.t.downloadOnly)
+      showDocMessage(state.t.downloadOnly)
+      document.body.classList.add('binary', 'show-doc')
+      $('doc-title').textContent = file.entry.name
+      showEntry(file.entry)
       return
     }
     const current = { entry: file.entry, file, view: null, unbind: null, offs: [] }
@@ -1309,19 +1310,6 @@ function renderDocInfo(entry) {
   $('doc-info').hidden = parts.length === 0
 }
 
-// No App opens this file in a chat (the host said not-found): its details, to download. Not an error.
-// A file this page only shows to download: its details and its download. Why it shows nothing more is said once: for a file
-// no App here opens, by the host, in the panel above (161 10-15: the host's offer and a sentence here side by side read
-// twice); for a file handed to this App that it cannot show (`message`), here — the panel has nothing to say about it.
-function showUnopenable(entry, message = '') {
-  closeCurrent()
-  showDocMessage(message)
-  $('doc-message').hidden = !message
-  document.body.classList.add('binary', 'show-doc')
-  $('doc-title').textContent = entry.name
-  showEntry(entry)
-}
-
 // Said on the page the person is on (F32: one page at a time) — the file's line on the file, the list's own line on the
 // list: the list page does not draw the file's pane, its line included.
 function showBanner(message, tone, sticky = false) {
@@ -1432,11 +1420,6 @@ function start() {
   document.addEventListener('scroll', () => closeMenu(), true)
   window.addEventListener('resize', () => closeMenu())
   narrowPane?.addEventListener?.('change', applyMode)
-  // Back to the list from a file shown here (no App opens it): nothing is on screen any more, nothing to download.
-  $('back').onclick = () => {
-    document.body.classList.remove('show-doc', 'binary')
-    showEntry(null)
-  }
   for (const mode of ['edit', 'split', 'preview']) $(`mode-${mode}`).onclick = () => setMode(mode)
   $('json-apply').onclick = () => state.current?.jsonApply?.()
   $('json-discard').onclick = () => state.current?.jsonDiscard?.()

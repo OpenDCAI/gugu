@@ -40,5 +40,5 @@ export function ServerLoginApproveHost({ active }: { active: boolean }) {
     }
   }, [on, t, toast])
   const done = useCallback(() => setCode(null), [])
-  return code !== null ? <ServerLoginApproveSheet key={code} code={code} onDone={done} /> : null
+  return <ServerLoginApproveSheet code={code} onDone={done} />
 }

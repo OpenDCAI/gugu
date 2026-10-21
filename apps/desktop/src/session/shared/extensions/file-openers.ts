@@ -218,14 +218,6 @@ export function openerChoice(
 }
 
 /**
- * What an App asking to open a chat file nobody here opens is told (`gugu.files.openWith`): `No App opens …`, code
- * `not-found` — while the group's panel offers the App that would (`openerChoice` `none`).
- */
-export function noOpenerError(typedName: string): Error & { code: 'not-found' } {
-  return Object.assign(new Error(`No App opens ${typedName} in a chat`), { code: 'not-found' as const });
-}
-
-/**
  * The App a file is shown as belonging to (摩擦单 F39): the one a tap opens — or, when the person would pick, the first
  * in line. Null when no App here opens it.
  */

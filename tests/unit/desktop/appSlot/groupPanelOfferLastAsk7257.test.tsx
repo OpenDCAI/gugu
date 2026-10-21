@@ -9,7 +9,7 @@ import { installedExtensionsStore, type InstalledExtensionsList } from '../../..
 import { AuthContext } from '../../../../apps/desktop/src/store/auth'
 
 /**
- * #7257 (review 5): the panel offers the App for a file nobody here opens (F, deck.pptx); 「安装」 is pressed, and while it
+ * #7257 (review 5): the panel offers the App for a JSON file open in Workspace (F, deck.deck.json); 「安装」 is pressed, and while it
  * installs the person clicks another pill (G). Pressing 「安装」 is the ask for F, so G — asked after — is the one the panel
  * ends on, whichever answer comes back first. Control: nothing asked meanwhile, F opens once its App is in. The harness
  * is groupPanelMarketOffer.test.tsx's; the install's answer and G's are held and let go in either order.
@@ -36,8 +36,9 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
 
 function slides(version: string) {
-  return { id: 'slides', name: 'Slides', version, apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] } }
+  return { id: 'slides', name: 'Slides', version, apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.deck.json'] } }] } }
 }
+const workspace = { id: 'workspace', name: 'Workspace', version: '1.0.0', apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } }
 const install = (manifests: unknown[]) =>
   act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [] } as unknown as InstalledExtensionsList))
 
@@ -48,7 +49,7 @@ let gates: Map<string, () => void>
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
-  install([])
+  install([workspace])
   gates = new Map()
   vi.mocked(appsHere!.groupFileOpener).mockReset()
   vi.mocked(appsHere!.installFromMarket).mockReset()
@@ -59,14 +60,15 @@ beforeEach(() => {
       return new Promise((resolve) => gates.set('G', () => resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-g', name: 'g.md', typedName: 'g.md', choice: { kind: 'one', candidate } } } as never)))
     }
     const installed = installedExtensionsStore.manifests.some((manifest) => manifest.id === 'slides')
-    const candidate = { extensionId: 'slides', app: { name: 'Slides' }, tabKind: 'slides.main', tabTitle: 'Slides', suffix: '.pptx', onlyTab: true }
-    return Promise.resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-f', name: 'deck.pptx', typedName: 'deck.pptx', choice: installed ? { kind: 'one', candidate } : { kind: 'none' } } } as never)
+    const candidate = { extensionId: 'slides', app: { name: 'Slides' }, tabKind: 'slides.main', tabTitle: 'Slides', suffix: '.deck.json', onlyTab: true }
+    const opener = installed ? candidate : { ...candidate, extensionId: 'workspace', app: { name: 'Workspace' }, tabKind: 'workspace.main', tabTitle: 'Workspace', suffix: '.json' }
+    return Promise.resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-f', name: 'deck.deck.json', typedName: 'deck.deck.json', file: { document: false, contentType: 'application/json', version: 1, size: 10 }, choice: { kind: 'one', candidate: opener } } } as never)
   })
   vi.mocked(appsHere!.installFromMarket).mockImplementation(
     () =>
       new Promise((resolve) =>
         gates.set('install', () => {
-          install([slides('1.2.0')])
+          install([workspace, slides('1.2.0')])
           resolve({ success: true, data: { installed: true, outcome: 'confirmed', id: 'slides', name: 'Slides', version: '1.2.0' } } as never)
         }),
       ),
@@ -119,7 +121,7 @@ describe('an App installed for a file, and another pill clicked while it install
     await clickG('offer-2', 7_257_112)
     await letGo('install')
     await settled()
-    expect(on('offer-2'), 'F is not opened: G was asked after 「安装」').toBe(null)
+    expect(groupSlotMemory.opened('offer-2'), 'F stays in Workspace until G answers; installing does not take over the later ask').toMatchObject({ itemId: 'item-f', kind: 'workspace.main' })
     await letGo('G')
     expect(on('offer-2'), '对照:524a00eb92 装完才取序号，停在 F,G 被丢').toBe('item-g')
   }, 60_000)

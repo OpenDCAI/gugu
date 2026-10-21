@@ -87,6 +87,7 @@ describe('overlay anchors (2a)', () => {
     let rect = new DOMRect(500, 300, 32, 32)
     button.getBoundingClientRect = () => rect
     await act(async () => { button.click() })
+    await act(async () => { await vi.dynamicImportSettled() })
     await settle()
     const node = () => document.querySelector(selector) as HTMLElement
     expect(node().style.transform).toBe('translate(500px, 338px)')

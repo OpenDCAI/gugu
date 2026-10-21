@@ -13,7 +13,9 @@ import { PaneEmptyState } from './ui/PaneEmptyState'
 // @@@ui-ruler 通讯录只消费原语:列/列头 → Pane/PaneHeader、行 → ListRow、图标钮 → IconButton、
 // 分区标签 → SectionLabel、小标签/计数 → Chip。几何一律来自 tokens.css 的那把尺子。
 // ⚠️ 本文件已有一个来自 contactsDetailControls 的 IconButton(详情面板 28px 钮),故原语按 UiIconButton 引入。
+import { Sheet } from './ui/Sheet'
 import { Pane, PaneHeader } from './ui/Pane'
+import { navigateMobile } from '@/mobile/navigateMobile'
 import { ListRow } from './ui/ListRow'
 import { IconButton as UiIconButton } from './ui/IconButton'
 import { useBackLayer } from './ui/sheetStack'
@@ -49,7 +51,7 @@ import { ContactsHeaderActions } from './contacts/AddContactMenu'
 import { ActionButton, AgentContactStatusChip, FieldList, FieldRow, IconButton } from './contactsDetailControls'
 import { Avatar } from './Avatar'; import { AgentContactStatusMark } from './AgentContactStatusMark'
 import { CopyValue } from './CopyValue'
-import { CreateGroupChatModal } from './CreateGroupChatModal'
+import { CreateGroupChatForm } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
@@ -782,7 +784,6 @@ function ContactsNav({
 
   return (
     <Pane paneRole="nav" mobile={mobile}>
-      {/* @@@1787 mobile 页级标题——与「咕咕」/「设置」移动页头同层级;20/700 现在由 PaneHeader mobile 给。 */}
       <ContactSearch mobile={mobile} onScreen={active} query={query} onQuery={onQuery} people={people} agents={agents} groups={groupChats} onOpenContact={onOpenContact}
         head={(searchButton) => <PaneHeader mobile={mobile} title={ct('common.contacts')} actions={searchButton} />}
         onOpenGroup={(group) => onOpenGroupChat?.(group)} onLookupNumber={(number) => onSelect('add_friend', number)}>
@@ -1949,7 +1950,7 @@ export function ContactsPanel({
         ? ct('common.groups')
         : (selectedGroup?.name ?? ct('panel.allContacts'))
 
-  const selectNav = (next: LeftSel, seed?: string) => {
+  const selectNav = (next: LeftSel, seed?: string) => navigateMobile(() => {
     setSelectedNav(next)
     setSelectedContactId(null)
     setContactSelectionMode(false)
@@ -1958,13 +1959,13 @@ export function ContactsPanel({
     // @@@add-friend-unify 从 nav 点进 add_friend = 空态搜索；清掉扫码残留 seed（同 onSelectAddFriend）。
     if (next === 'add_friend') setAddFriendSeed(seed ? { query: seed, token: Date.now() } : null)
     if (mobile) setMobilePane('index')
-  }
+  }, 'push')
 
-  const selectContact = (contact: ContactUser) => {
+  const selectContact = (contact: ContactUser) => navigateMobile(() => {
     setSelectedContactId(contact.id)
     setEditingTagId(null)
     if (mobile) setMobilePane('detail')
-  }
+  }, 'push')
 
   const toggleContactSelection = (contact: ContactUser) => {
     if (contact.type === 'agent' && isCloudAgentMarked(contact)) return
@@ -2008,15 +2009,14 @@ export function ContactsPanel({
     }
   }
 
-  const editTagMembers = (group: ContactGroup) => {
+  const editTagMembers = (group: ContactGroup) => navigateMobile(() => {
     setEditingTagId(group.id)
     if (mobile) setMobilePane('detail')
-  }
+  }, 'push')
 
-  // #2118 — 建群弹窗(桌面/移动两套 return 复用同一实例)。onCreated 主动刷新群列表(realtime 也会补)。
-  const groupModal = showGroupModal
-    ? <CreateGroupChatModal initialSelectedIds={[...selectedContactIds]} onClose={() => setShowGroupModal(false)} onCreated={() => { setShowGroupModal(false); finishContactSelectionMode(); void refreshChats() }} />
-    : null
+  const groupModal = <Sheet open={showGroupModal} onClose={() => setShowGroupModal(false)} desktopWidth="min(440px, 100%)" desktopMaxHeight="min(88vh, calc(100dvh - 32px))" testId="create-group-modal" ariaLabel={ct('createGroup.title')}>
+    {showGroupModal ? <CreateGroupChatForm initialSelectedIds={[...selectedContactIds]} onClose={() => setShowGroupModal(false)} onCreated={() => { setShowGroupModal(false); finishContactSelectionMode(); void refreshChats() }} /> : null}
+  </Sheet>
   const groupInviteJoinModal = groupInviteJoin ? (
     <GroupInviteJoinModal key={groupInviteJoin.token} publicId={groupInviteJoin.publicId}
       joinToken={groupInviteJoin.joinToken} onClose={() => setGroupInviteJoin(null)} />
@@ -2232,7 +2232,7 @@ export function ContactsPanel({
           <GroupChatsDetail
             groups={groupChats}
             mobile={mobile}
-            onBack={() => setMobilePane('nav')}
+            onBack={() => navigateMobile(() => setMobilePane('nav'), 'pop')}
             onOpenGroupChat={onOpenGroupChat}
             onCreateGroup={() => setShowGroupModal(true)}
             onGroupPin={handleGroupPin}
@@ -2250,7 +2250,7 @@ export function ContactsPanel({
             autoFocus
             showHeader
             mode={addFriendMode}
-            onBack={() => setMobilePane('nav')}
+            onBack={() => navigateMobile(() => setMobilePane('nav'), 'pop')}
           />
         ) : null
       ) : selectedNav === 'new_friends' ? (
@@ -2259,7 +2259,7 @@ export function ContactsPanel({
         showIndex ? (
           <NewFriendsPanel
             onOpenGroupChat={onOpenGroupChat}
-            onBack={() => setMobilePane('nav')}
+            onBack={() => navigateMobile(() => setMobilePane('nav'), 'pop')}
           />
         ) : null
       ) : (
@@ -2279,7 +2279,7 @@ export function ContactsPanel({
               onFinishSelectionMode={finishContactSelectionMode}
               onToggleContact={toggleContactSelection}
               onCreateGroupFromSelection={() => setShowGroupModal(true)}
-              onBack={() => setMobilePane('nav')}
+              onBack={() => navigateMobile(() => setMobilePane('nav'), 'pop')}
               onAddContact={selectedGroup ? undefined : () => selectNav('add_friend')}
               onCreateAgent={onOpenAgentCreateDraft}
               onSelect={selectContact}
@@ -2323,7 +2323,7 @@ export function ContactsPanel({
                 requestingAgentId={requestingAgentId}
                 groupChats={groupChats}
                 mobile={mobile}
-                onBack={() => setMobilePane('index')}
+                onBack={() => navigateMobile(() => setMobilePane('index'), 'pop')}
                 onSwitchToChat={onSwitchToChat}
                 onOpenGroupChat={onOpenGroupChat}
                 onRequestAgent={requestAgent}
@@ -2335,7 +2335,7 @@ export function ContactsPanel({
               <TagEmptyDetail
                 tag={selectedGroup}
                 mobile={mobile}
-                onBack={() => setMobilePane('index')}
+                onBack={() => navigateMobile(() => setMobilePane('index'), 'pop')}
                 onEditMembers={() => editTagMembers(selectedGroup)}
               />
             )
@@ -2347,7 +2347,7 @@ export function ContactsPanel({
               requestingAgentId={requestingAgentId}
               groupChats={groupChats}
               mobile={mobile}
-              onBack={() => setMobilePane(query.trim() ? 'nav' : 'index')}
+              onBack={() => navigateMobile(() => setMobilePane(query.trim() ? 'nav' : 'index'), 'pop')}
               onSwitchToChat={onSwitchToChat}
               onOpenGroupChat={onOpenGroupChat}
               onRequestAgent={requestAgent}

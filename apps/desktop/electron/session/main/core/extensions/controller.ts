@@ -1,3 +1,4 @@
+import type { ChatFileRef } from '@shared/extensions/app-files-core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { app } from 'electron';
@@ -325,10 +326,10 @@ export const extensionsController = createRPCController({
    * #7199 A chat folder's file as it is now, as text (chat-folder-text.ts): the 助理 App's 「今天」 page reads the
    * today.json its assistant keeps in their DM's folder. No such file is `data: null`; a failed read says which step (`kind`).
    */
-  readChatFolderText: async (args: { chatId: string; filename: string }) => {
+  readChatFolderText: async (args: ChatFileRef) => {
     try {
       const { readChatFolderText } = await import('@main/core/extensions/chat-folder-text');
-      return { success: true as const, data: await readChatFolderText(String(args?.chatId ?? ''), String(args?.filename ?? '')) };
+      return { success: true as const, data: await readChatFolderText(args) };
     } catch (error) {
       log.warn('Failed to read a chat folder file:', error);
       const kind = (error as { kind?: unknown } | null)?.kind;

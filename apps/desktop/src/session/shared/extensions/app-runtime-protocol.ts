@@ -1,3 +1,4 @@
+import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { FileOpenerCandidate } from './file-openers';
 /**
@@ -454,7 +455,7 @@ export type HostToFrame =
 /**
  * `gugu.files.openWith` (「用 X 打开」, 真源 §2.4): main has resolved who claims the file in the group
  * and tells the window that shows the group's side panel — which opens that App on the file, or
- * asks the person when several claim it (a choice of `chooseOpener`, never `none`).
+ * asks the person when several claim it; nobody claims it: the host previews it.
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
@@ -463,15 +464,18 @@ export interface AppOpenWithDetail {
   name: string;
   /** What kind of file it is (`typedFileName`): who opens it is matched by this, never by guessing from `name`. */
   typedName: string;
+  file: ChatPeekFile;
   choice:
     | { kind: 'one'; candidate: FileOpenerCandidate }
     | { kind: 'choose'; suffix: string; candidates: FileOpenerCandidate[] }
-    /** Nobody here opens it: the group's panel offers the App that would (a shared package, the market — 161 10-15). */
+    /** No App claims it: the host's existing file preview, including details and download for unsupported formats. */
     | { kind: 'none' };
 }
 
 /** A chat file as the host's preview reads it (its bytes are its version's). */
 export interface ChatPeekFile {
+  /** A live document uses the existing file service, not an attachment URL. */
+  document: boolean;
   contentType: string;
   version: number;
   size: number;
@@ -485,7 +489,7 @@ export interface ChatPeekFile {
  * (`deviceId`), whose timeline the phone draws.
  */
 export type PeekTarget =
-  | { kind: 'chat'; detail: AppOpenWithDetail; file: ChatPeekFile }
+  | { kind: 'chat'; detail: AppOpenWithDetail }
   | { kind: 'local'; place: LocalPlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
   | { kind: 'session'; sessionId: string; projectId: string; deviceId?: string };
 
@@ -498,6 +502,7 @@ export type PeekTarget =
  */
 export const GROUP_FILE_OPEN_EVENT = 'gugu:open-group-file';
 export interface GroupFileOpenDetail {
+  message?: MessageItem;
   /** The chat the file is in, as the file says (F112); null when the person is not in it — they see no such file. */
   chatId: string | null;
   itemId: string;

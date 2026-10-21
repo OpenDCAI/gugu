@@ -610,14 +610,11 @@
   color: var(--muted-fg);
 }
 
-/* 时间线页顶的头像块:小鸟(40)叠在「agent 名 · 状态」一行上,居中、不随线程滚;线程视口顶边没有渐隐
-   (头栏下沿就是裁切线,理由同 tokens.css 的 @@@agent-chat-hero)。矮屏(横屏 / 键盘顶起)只留文字行。 */
-.gg-aw .gg-aw-hero { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--spacing-xs) 0 var(--spacing-xs); }
+/* 时间线页顶:头像、名称、状态同行;整行固定,不随线程滚动。 */
+.gg-aw .gg-aw-hero { flex: none; display: flex; justify-content: center; align-items: center; gap: var(--spacing-xs); min-width: 0; padding: var(--spacing-xs) 0; }
 .gg-aw .gg-aw-hero-line { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 100%; min-width: 0; font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gg-aw .gg-aw-hero-name { font-weight: var(--font-weight-medium); color: var(--fg); }
-@media (max-height: 520px) {
-  .gg-aw .gg-aw-hero canvas { display: none; }
-}
+.gg-aw .gg-aw-hero-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--font-weight-medium); color: var(--fg); }
+.gg-aw .gg-aw-hero-line > :not(.gg-aw-hero-name) { flex-shrink: 0; }
 
 /* ── 「机器离线」一行提示 + 渐进披露 ────────────────────────────────────────
    形制照 orca 的 HostRouteNoticeBanner:单行次级文字、单色、贴一条下边框。

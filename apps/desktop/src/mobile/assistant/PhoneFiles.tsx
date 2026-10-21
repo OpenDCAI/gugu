@@ -227,21 +227,21 @@ function FileView({
           {t('common.delete')}
         </Button>
       </div>
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('files.deleteFileTitle')}
           body={t('files.deleteFileBody', { name: entry.name })}
           confirmLabel={t('common.delete')}
           failedText={t('files.deleteFailed')}
           testId="assistant-file-delete-dialog"
           onClose={() => setConfirming(false)}
+          onConfirmed={() => go(filesSub(parent))}
           onConfirm={async () => {
             await removePath(machine, entry.path)
             toast(t('files.fileDeleted'), 'success')
-            go(filesSub(parent))
           }}
         />
-      ) : null}
+
     </div>
   )
 }

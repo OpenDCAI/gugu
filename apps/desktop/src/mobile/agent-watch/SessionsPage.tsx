@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { Button } from '@/components/ui/Button'
@@ -24,34 +24,41 @@ import { rowOpens } from '@/session/shared/remote-sessions/session-directory'
  * 恢复得回来,所以 ❌ 再摆删除。做不成就把机器端的原话摆出来,❌ 悄悄关抽屉。
  */
 export function SessionActionsSheet({
+  open,
   session,
   deviceId,
   onClose,
-  onUpdated
+  onArchived
 }: {
-  session: SessionpageSessionSummary
+  open: boolean
+  session: SessionpageSessionSummary | null
   deviceId: string
   onClose: () => void
-  onUpdated: (sessionId: string, next: { title: string; isPinned: boolean; archived: boolean }) => void
+  onArchived?: () => void
 }) {
   const { t } = useTranslation('main')
   const [step, setStep] = useState<'menu' | 'rename'>('menu')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState(session.title)
+  const [draftTitle, setDraftTitle] = useState('')
+  const archived = useRef(false)
+  useLayoutEffect(() => {
+    if (open) { setStep('menu'); setError(null); setDraftTitle(session?.title ?? ''); archived.current = false }
+  }, [open, session?.conversationId, session?.title])
   const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
   const update = (patch: { title?: string; pinned?: boolean; archived?: true }): void => {
+    if (!session) return
     setBusy(true)
     setError(null)
     updateSession(deviceId, { conversationId: session.conversationId, ...patch })
-      .then((next) => onUpdated(session.conversationId, next))
+      .then((next) => { archived.current = next.archived; onClose() })
       .catch(fail)
       .finally(() => setBusy(false))
   }
-  const pinned = session.isPinned === true
+  const pinned = session?.isPinned === true
   return (
-    <Sheet onClose={busy ? () => undefined : onClose} mobileFitContent testId="agent-watch-session-actions" ariaLabel={session.title}>
-      <div className="gg-aw gg-aw-sheet gg-aw-actions">
+    <Sheet open={open} onClosed={() => { if (archived.current) onArchived?.() }} onClose={busy ? () => undefined : onClose} mobileFitContent testId="agent-watch-session-actions" ariaLabel={session?.title}>
+      {session ? <div className="gg-aw gg-aw-sheet gg-aw-actions">
         <div className="gg-aw-actions-title">{session.title}</div>
         {error ? <div className="gg-aw-actions-error" data-testid="agent-watch-session-action-error">{error}</div> : null}
         {step === 'menu' ? (
@@ -86,7 +93,7 @@ export function SessionActionsSheet({
         <Button variant="secondary" size="lg" className="gg-aw-actions-item" disabled={busy} onClick={onClose}>
           {t('agentWatch.sessions.cancel')}
         </Button>
-      </div>
+      </div> : null}
     </Sheet>
   )
 }

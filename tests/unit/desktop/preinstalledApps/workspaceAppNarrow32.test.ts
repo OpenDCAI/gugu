@@ -32,7 +32,7 @@ const gugu = {
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
     create: vi.fn(),
     remove: vi.fn(),
-    openWith: vi.fn(async () => { throw Object.assign(new Error('No App opens photo.png'), { code: 'not-found' }) }),
+    openWith: vi.fn(async () => {}),
     download: vi.fn(async () => true),
   },
 }
@@ -40,7 +40,7 @@ const gugu = {
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-pressed') === 'true')
 // What is on screen, read from the DOM (审计 C4).
-const shown = () => ($('download').hidden ? null : $('doc-title').textContent)
+const shown = () => document.body.classList.contains('show-doc') && !$('download').hidden ? $('doc-title').textContent : null
 
 beforeAll(async () => {
   const html = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8')
@@ -80,8 +80,11 @@ describe('workspace App in a narrow pane (F32)', () => {
 
   test('Download and Open with another App fold behind ⋯, which is there only when one of them is', async () => {
     expect($('more').hidden, 'nothing on screen: nothing to fold').toBe(true)
-    ;(document.querySelector('[data-id="photo"] .file-open') as HTMLButtonElement).click()
-    await vi.waitFor(() => expect(shown()).toBe('photo.png'))
+    const entry = { ...entries[0], id: 'big', name: 'large.json', displayName: 'large.json' }
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
+    changed({ ...context, file: { chat: 'chat-1', id: 'big' } })
+    await vi.waitFor(() => expect(shown()).toBe('large.json'))
     expect($('more').hidden).toBe(false)
     expect($('more').getAttribute('aria-label')).toBe('More')
     expect($('menu').hidden).toBe(true)
@@ -93,7 +96,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     ;($('menu').firstElementChild as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
-    await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'photo' })))
+    await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'big' })))
 
     $('more').click()
     expect(document.activeElement, 'the keyboard is in the menu').toBe($('menu').firstElementChild)
@@ -110,9 +113,9 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden, 'its ⋯ again closes it').toBe(true)
 
-    $('back').click()
-    expect(shown()).toBe(null)
-    expect($('more').hidden).toBe(true)
+    changed({ ...context })
+    await vi.waitFor(() => expect(shown()).toBe(null))
+    expect(document.body.classList.contains('show-doc')).toBe(false)
   })
 
   test('the slot\'s title is the App\'s name in the person\'s language, said once', () => {

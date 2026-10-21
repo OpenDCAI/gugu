@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MachineLimitRefusal } from '@gugu/core/cloud/machineLimit'
 import { Button } from '../../components/ui/Button'
@@ -20,11 +20,13 @@ type View =
  * 批准一台跑了 `gugu-server login` 的机器(手机上点了那条链接)。机器信息摆在「允许」正上方,写明只有自己刚在那台机器上
  * 执行了登录才点 —— 与网页确认页同一条防钓鱼规矩。点完等云端答了才换结局,❌ 先报「已允许」。
  */
-export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone: () => void }) {
+export function ServerLoginApproveSheet({ code, onDone }: { code: string | null; onDone: () => void }) {
   const { t } = useTranslation('settings')
   const [view, setView] = useState<View>({ kind: 'loading' })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (code === null) return
+    setView({ kind: 'loading' })
     let alive = true
     readServerLoginRequest(code).then(
       (request) => {
@@ -58,7 +60,7 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone
 
   const busy = view.kind === 'request' && view.busy
   return (
-    <Sheet onClose={() => { if (!busy) onDone() }} mobileFitContent desktopWidth="380px" testId="server-login-approve" ariaLabel={t('devices.approveServer.title')}>
+    <Sheet open={code !== null} onClose={() => { if (!busy) onDone() }} mobileFitContent desktopWidth="380px" testId="server-login-approve" ariaLabel={t('devices.approveServer.title')}>
       <div className="flex flex-col gap-3 px-5 pb-5 pt-6" data-approve-state={view.kind === 'final' ? view.state : view.kind}>
         {view.kind === 'loading' && <p className="text-[length:var(--font-body)] text-[var(--text-secondary)]">{t('devices.approveServer.loading')}</p>}
         {view.kind === 'failed' && (

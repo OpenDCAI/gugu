@@ -255,21 +255,21 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
     <div className="ta-page" data-testid="assistant-voice-note">
       <PageHead title={title} sub={sub || undefined} />
       {body}
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('deleteTitle', { name: title })}
           body={t('deleteBody')}
           confirmLabel={t('delete')}
           failedText={t('deleteFailed')}
           testId="assistant-voice-delete-dialog"
           onClose={() => setConfirming(false)}
+          onConfirmed={() => go('voice')}
           onConfirm={async () => {
             await deleteVoiceNote(machine, id)
             toast(t('deleted'), 'success')
-            go('voice')
           }}
         />
-      ) : null}
+
     </div>
   )
 }

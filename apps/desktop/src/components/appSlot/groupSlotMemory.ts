@@ -1,5 +1,6 @@
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { PanelForm, SidePanelWidths } from '../../session/renderer/lib/layout/side-panel-split'
-import type { AppOpenWithDetail } from '../../session/shared/extensions/app-runtime-protocol'
+import type { AppOpenWithDetail, ChatPeekFile } from '../../session/shared/extensions/app-runtime-protocol'
 
 /** The group's panel beside the messages: 520 wide at first, never under 360 (the slot's INLINE_COMMANDS), as wide as last dragged. */
 export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPanel.width', min: 360, initial: 520 }
@@ -9,7 +10,10 @@ export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPane
  * that file — or, with no file, an App's own page opened in this group (「在本群打开」).
  */
 export interface OpenedWith {
-  kind: string
+  message?: MessageItem
+  /** No App claims it: the host's file preview. */
+  kind: string | null
+  file?: ChatPeekFile
   /** The file it was handed; none for an App's own page. */
   itemId?: string
   title: string
@@ -24,6 +28,7 @@ export interface OpenedWith {
  * `files.openWith`, whose host already said who opens it (or among which the person picks).
  */
 export interface AskedFile {
+  message?: MessageItem
   itemId: string
   at?: Record<string, string>
   opener?: AppOpenWithDetail
@@ -49,8 +54,8 @@ export const groupSlotMemory = {
     remembered.set(chatId, { opened: remembered.get(chatId)?.opened ?? null, form })
   },
   /** A file of this group asked to be opened (a link, 摩擦单 F10): its panel opens it when it next shows the group. */
-  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail) {
-    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}) })
+  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem) {
+    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}) })
     const form = groupSlotMemory.form(chatId)
     remembered.set(chatId, { opened: remembered.get(chatId)?.opened ?? null, form: form === 'closed' ? 'side' : form })
   },

@@ -20,7 +20,7 @@ const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '
  * Each read of the named files — the door's reads started together (one `workspace_get_as` per id, in one go) are one read:
  * its ids; the chat's lists; a way to hold a read open until the test lets it answer; reads to fail.
  */
-const db = vi.hoisted(() => ({ reads: [] as string[][], lists: 0, hold: null as Promise<void> | null, fail: 0 }))
+const db = vi.hoisted(() => ({ reads: [] as string[][], lists: 0, hold: null as Promise<void> | null, fail: 0, openingName: 'a.md' }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
 vi.mock('@gugu/core/cloud/supabase', () => {
   let open: { ids: string[]; fail: boolean } | null = null
@@ -33,7 +33,7 @@ vi.mock('@gugu/core/cloud/supabase', () => {
     }
     return open
   }
-  const row = (id: string, filename: string) => ({ id, chat_id: id === C ? OTHER_CHAT : CHAT, filename, version: 5, parent_id: null, system_role: null, path: filename })
+  const row = (id: string, filename: string) => ({ id, chat_id: id === C ? OTHER_CHAT : CHAT, filename, version: 5, content_type: filename.endsWith('.mp4') ? 'video/mp4' : 'text/plain', size_bytes: 3276, parent_id: null, system_role: null, path: filename })
   return {
     createGuguSupabaseClient: () => ({
       from: () => {
@@ -55,12 +55,15 @@ vi.mock('@gugu/core/cloud/supabase', () => {
         if (db.hold) await db.hold
         if (batch.fail) return { data: null, error: { message: 'offline' } }
         if (id === B) return { data: null, error: { message: `workspace item not found: ${id}`, hint: 'workspace_item_not_found' } }
-        return { data: [row(id, `${id.slice(-1)}.md`)], error: null }
+        return { data: [row(id, db.openingName === 'a.md' ? `${id.slice(-1)}.md` : db.openingName)], error: null }
       },
     }),
   }
 })
 
+const activation = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+const opened = vi.fn()
+const peeked = vi.fn()
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
@@ -69,6 +72,9 @@ beforeEach(() => {
   db.lists = 0
   db.hold = null
   db.fail = 0
+  db.openingName = 'a.md'
+  opened.mockClear()
+  peeked.mockClear()
   frame = document.createElement('iframe')
   frame.src = `${ORIGIN}/index.html`
   document.body.appendChild(frame)
@@ -77,13 +83,15 @@ beforeEach(() => {
   host = hostAppFrame(
     frame,
     { extensionId: 'board', tabId: 'tab-1', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' },
-    { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn() },
+    { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: opened, peek: peeked, chrome: vi.fn() },
   )
 })
 afterEach(() => {
   host?.dispose()
   host = undefined
   frame.remove()
+  if (activation) Object.defineProperty(navigator, 'userActivation', activation)
+  else Reflect.deleteProperty(navigator, 'userActivation')
 })
 
 let nextId = 1
@@ -154,4 +162,22 @@ describe('a watched chat\'s files changed: the page hears those files (#7257)', 
     await host!.filesChanged([{ chatId: CHAT, itemIds: [B] }])
     expect(db.reads).toEqual([[A], [A], [B]])
   }, 60_000)
+})
+
+
+describe('the phone openWith bridge hands unclaimed files to the host preview (#7663)', () => {
+  it.each([false, true])('ordinary and peek openings carry the same file metadata (peek=%s)', async (peek) => {
+    db.openingName = 'clip.mp4'
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: true } })
+    const result = await call('filesOpenWith', { ref: { id: A }, ...(peek ? { peek: true } : {}) })
+    expect(result).toMatchObject({ ok: true })
+    const detail = { chatId: CHAT, itemId: A, name: 'clip.mp4', choice: { kind: 'none' }, file: { document: false, contentType: 'video/mp4', version: 5, size: 3276 } }
+    if (peek) {
+      expect(peeked).toHaveBeenCalledWith(expect.objectContaining({ kind: 'chat', detail: expect.objectContaining(detail) }))
+      expect(opened).not.toHaveBeenCalled()
+    } else {
+      expect(opened).toHaveBeenCalledWith(expect.objectContaining(detail))
+      expect(peeked).not.toHaveBeenCalled()
+    }
+  })
 })

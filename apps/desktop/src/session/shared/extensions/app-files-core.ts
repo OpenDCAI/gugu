@@ -1,3 +1,4 @@
+import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
 import { AttachmentsError, configuredEndpoint, fetchAttachmentUrls, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
@@ -743,11 +744,11 @@ export function createAppFiles(platform: FilesPlatform) {
     groupChange,
 
     /** One of them, as `openTarget` answers for a page: what to open, and what kind of file it is. */
-    async groupFile(chatId: string, itemId: string): Promise<{ chatId: string; itemId: string; name: string; typedName: string }> {
+    async groupFile(chatId: string, itemId: string) {
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
       if (!row || row.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }) };
+      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 } };
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */
@@ -985,15 +986,11 @@ export function createAppFiles(platform: FilesPlatform) {
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
       if (row.kind === 'file') return { name: row.filename, kind: 'file', url: await signedUrlOf(token, row, { as: surface.asAgent }) };
-      const res = await fetch(`${platform.filesUrl()}/${encodeURIComponent(row.id)}`, {
-        headers: { Authorization: `Bearer ${token}`, ...(surface.asAgent ? { 'X-Gugu-As-Agent': surface.asAgent } : {}) },
-      }).catch((error: unknown) => {
-        throw new AppFileError('failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
-      });
-      if (!res.ok) {
-        throw new AppFileError(res.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service (HTTP ${res.status})`);
+      try {
+        return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
+      } catch (error) {
+        throw new AppFileError(error instanceof ChatFolderReadError && error.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
       }
-      return { name: row.filename, kind: 'text', text: ((await res.json()) as { text: string }).text };
     },
 
     /**
@@ -1041,7 +1038,7 @@ export function createAppFiles(platform: FilesPlatform) {
     async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile }> {
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'opening');
-      const file = { contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 };
+      const file = { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 };
       return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file };
     },
 

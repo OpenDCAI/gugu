@@ -313,23 +313,26 @@ export function codexRecentActionFromEvent(
 export type CodexTurnCompletionStatus = 'completed' | 'failed' | 'unknown'
 
 /** Read only the exact persisted turn from a thread/read response. */
+function codexTurnFromThread(value: unknown, threadId: string, turnId: string) {
+  const envelope = value as { thread?: unknown } | null
+  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
+    ? envelope.thread
+    : value
+  if (!thread || typeof thread !== 'object') return undefined
+  const record = thread as { id?: unknown; turns?: unknown }
+  if (record.id !== threadId || !Array.isArray(record.turns)) return undefined
+  return record.turns.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false
+    return (candidate as { id?: unknown }).id === turnId
+  }) as { status?: unknown; error?: { message?: unknown } } | undefined
+}
+
 export function codexTurnCompletionStatus(
   value: unknown,
   threadId: string,
   turnId: string,
 ): CodexTurnCompletionStatus {
-  const envelope = value as { thread?: unknown } | null
-  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
-    ? envelope.thread
-    : value
-  if (!thread || typeof thread !== 'object') return 'unknown'
-  const record = thread as { id?: unknown; turns?: unknown }
-  if (record.id !== threadId) return 'unknown'
-  if (!Array.isArray(record.turns)) return 'unknown'
-  const turn = record.turns.find((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return false
-    return (candidate as { id?: unknown }).id === turnId
-  }) as { status?: unknown } | undefined
+  const turn = codexTurnFromThread(value, threadId, turnId)
   if (!turn) return 'unknown'
   const status = typeof turn.status === 'string' ? turn.status.toLowerCase() : ''
   if (status === 'failed' || status === 'error') return 'failed'
@@ -337,18 +340,8 @@ export function codexTurnCompletionStatus(
   return 'unknown'
 }
 
-function codexTurnFailureMessage(value: unknown, threadId: string, turnId: string): string | null {
-  const envelope = value as { thread?: unknown } | null
-  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
-    ? envelope.thread
-    : value
-  if (!thread || typeof thread !== 'object') return null
-  const record = thread as { id?: unknown; turns?: unknown }
-  if (record.id !== threadId || !Array.isArray(record.turns)) return null
-  const turn = record.turns.find((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return false
-    return (candidate as { id?: unknown }).id === turnId
-  }) as { error?: { message?: unknown } } | undefined
+function codexTurnFailureMessage(value: unknown): string | null {
+  const turn = value as { error?: { message?: unknown } } | undefined
   return typeof turn?.error?.message === 'string' ? turn.error.message : null
 }
 
@@ -1385,8 +1378,6 @@ export class CodexAppServerSession {
     this.adoptedThreadAttached = this.beginAttach(threadId, { materialize: true })
     this.adoptedThreadAttached.then(
       () => {
-        this.liveAwaitsAttach = false
-        this.notifyThreadLive()
         for (const waiter of waiters) waiter.resolve(threadId)
       },
       (error: unknown) => { for (const waiter of waiters) waiter.reject(error) },
@@ -1504,7 +1495,11 @@ export class CodexAppServerSession {
   private beginAttach(threadId: string, opts: { materialize: boolean }): Promise<void> {
     this.attachState = { kind: 'pending' }
     return this.attachToAdoptedThread(threadId, opts).then(
-      () => { this.attachState = { kind: 'done' } },
+      () => {
+        this.attachState = { kind: 'done' }
+        this.liveAwaitsAttach = false
+        this.notifyThreadLive()
+      },
       (error: unknown) => {
         this.attachState = { kind: 'failed', error }
         throw error
@@ -1542,14 +1537,8 @@ export class CodexAppServerSession {
   }
 
   /**
-   * @@@6112 tuiLoads='resume':TUI 的 `resume <tid>` 把 thread 载进这台 app-server 时,服务端向**所有**
-   * 连接广播 `thread/status/changed`(该 thread 首次有状态)。这是「已由 TUI 载入」的官方信号 ——
-   * 咕咕此时才订阅。在此之前咕咕的投递只进 codex 队列(`thread/queue/add`),由服务端在载入后起轮。
-   */
-  /**
-   * @@@6112 threadId 到位时回调(已到位则立即回调)。「可投递」由 registry 以 threadId 定义,所以就绪
-   * 信号也从这一刻发 —— ❌ 不由启动流程在别处推断时机(新会话的 threadId 要等 TUI 建出来,比启动流程
-   * 返回晚;在那之前发的就绪信号会落空且不再重来,实测 session_spawn 的首句因此一直躺在收件箱里)。
+   * TUI 载入 thread、投递连接接入后回调(已接入则立即回调)。新建与重开都由这个事实发 session-live，
+   * 接入前的消息留在来源收件箱；启动流程返回描述符不代表 TUI 已就绪。
    */
   onThreadLive(listener: () => void): void {
     if (this.threadId && !this.liveAwaitsAttach) {
@@ -1877,6 +1866,7 @@ export class CodexAppServerSession {
         this.threadId = resumeThreadId
         this.adoptedFromTui = true
         this.awaitingTuiLoad = true
+        this.liveAwaitsAttach = true
         this.threadMaterialization = 'materialized'
         // TUI 要等本函数返回才 spawn,所以这份读数一定在 TUI 载入之前拿到(见 codexTuiThreadSettingsArgs)。
         const read = (await client.rpc('thread/read', { threadId: resumeThreadId, includeTurns: false })) as {
@@ -1976,8 +1966,6 @@ export class CodexAppServerSession {
         this.subscribeEvents(client)
         this.adoptedThreadAttached = this.beginAttach(threadId, { materialize: false })
         await this.adoptedThreadAttached
-        this.liveAwaitsAttach = false
-        this.notifyThreadLive()
       } else {
         this.tuiPermissionArgs = codexTuiPermissionArgs(opts.threadStart)
         this.tuiModelSelectionArgs = codexTuiModelSelectionArgs(opts.extraArgs)
@@ -2056,7 +2044,8 @@ export class CodexAppServerSession {
         this.turnCompletions.complete(
           turnId,
           lifecycle.type === 'error'
-            ? new Error(`codex app-server turn ${turnId} completed with an error status`)
+            ? new Error(codexTurnFailureMessage(message.params?.turn)
+              ?? `codex app-server turn ${turnId} completed with an error status`)
             : undefined,
         )
       }
@@ -2110,16 +2099,17 @@ export class CodexAppServerSession {
   }
 
   /**
-   * @@@6112 tuiLoads='create' 且 TUI 还没建出会话(例如停在「信任此目录?」),而 app-server 仍活着。
+   * @@@6112 TUI 的新建 / 重开 thread 尚未接入(例如停在「信任此目录?」),而 app-server 仍活着。
    * 这时重拉 TUI 必须复用**这台** app-server(见 codex-pty-provisioning 的复用分支),❌ 不许再起一台。
    */
   isAwaitingTuiThread(): boolean {
-    return Boolean(this.awaitingTuiThread && !this.threadId && this.client && this.engineRunning())
+    return Boolean(!this.terminalError && this.liveAwaitsAttach && this.attachState.kind !== 'failed' && this.client && this.engineRunning())
   }
 
   isLive(): boolean {
     return Boolean(
       !this.terminalError
+      && !this.liveAwaitsAttach
       && this.client
       && this.endpoint
       && this.threadId
@@ -2247,7 +2237,7 @@ export class CodexAppServerSession {
       }
       if (status === 'completed') return
       if (status === 'failed') {
-        const detail = codexTurnFailureMessage(persistedTurn, threadId, turnId)
+        const detail = codexTurnFailureMessage(codexTurnFromThread(persistedTurn, threadId, turnId))
         throw new Error(
           `codex app-server turn ${turnId} reached a failed terminal state${detail ? `: ${detail}` : ''}`,
         )
@@ -2425,7 +2415,7 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     }
     const entry = { session, providerId }
     this.byAgent.set(guguAgentUserId, entry)
-    // 转 live = 这条认领的 threadId 到位(liveSessionIdByAgent 的定义)。由会话在那一刻回调,
+    // 转 live = TUI 载入 thread 且投递连接已接入。由会话在那一刻回调,
     // 与 claude 腿的 setLiveHooks 同一形状:就绪信号只有一个产地。
     session.onThreadLive(() => {
       if (this.byAgent.get(guguAgentUserId) !== entry) return
@@ -2435,7 +2425,7 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     })
   }
 
-  /** spec delivery-routing「session-live 的产地」:这条腿的 live 转换 = threadId 到位。 */
+  /** spec delivery-routing「session-live 的产地」:TUI thread 与投递连接均已接入。 */
   setLiveHooks(hooks: { onLive: (registration: { guguAgentUserId: string; sessionId: string }) => void } | null): void {
     this.liveHooks = hooks
   }

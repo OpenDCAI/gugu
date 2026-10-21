@@ -48,10 +48,8 @@ const gugu = {
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
     create: vi.fn(),
     remove: vi.fn(),
-    // The host: no App opens a .png in a group (not-found); for the rest it picks one (the slot changes).
-    openWith: vi.fn(async (entry: { type?: string }, _options?: { ask?: boolean }) => {
-      if (entry.type === 'binary') throw Object.assign(new Error('No App opens photo.png in a chat'), { code: 'not-found' })
-    }),
+    // The host previews unclaimed files; the folder does not repeat a details screen.
+    openWith: vi.fn(async (_entry: unknown, _options?: { ask?: boolean }) => {}),
     upload: vi.fn(async (): Promise<typeof entries> => []),
     download: vi.fn(async (_entry: unknown) => true),
   },
@@ -61,10 +59,10 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement
 // What the page shows, read from its DOM (审计 C4: no test-only view hangs on the product's window).
 const app = () => ({
   entries: [...$('file-list').querySelectorAll('.file')],
-  shown: $('download').hidden ? null : $('doc-title').textContent,
+  shown: document.body.classList.contains('show-doc') && !$('download').hidden ? $('doc-title').textContent : null,
   info: $('doc-info').hidden ? '' : $('doc-info').textContent ?? '',
 })
-const banner = () => ($('banner').hidden ? '' : $('banner').textContent)
+const banner = () => ['banner', 'list-banner'].map((id) => $(id)).filter((node) => !node.hidden).map((node) => node.textContent).join('')
 const clickFile = (id: string) => (document.querySelector(`[data-id="${id}"] .file-open`) as HTMLButtonElement).click()
 // A row's ⋯, and the page's one menu it opens: what it says, an item by what it says.
 const rowMore = (id: string) => document.querySelector(`[data-id="${id}"] .row-more`) as HTMLButtonElement
@@ -102,12 +100,12 @@ describe('workspace App: what the old workspace panel did', () => {
   })
 
   test('a file on screen shows its creator and source messages; a click asks the host to show one', async () => {
-    clickFile('photo') // the host: no App opens it -> its details, to download
-    await vi.waitFor(() => expect(app().shown).toBe('photo.png'))
-    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'photo' }))
-    // Why it does not open (and which App would) is the host's one sentence, in the panel above (161 10-15): not said here too.
-    expect($('doc-message').hidden).toBe(true)
-    expect($('doc-message').textContent).toBe('')
+    // A claimed JSON stored as binary still has a download-only page in this App.
+    const entry = { ...entries[1], id: 'big', name: 'large.json', displayName: 'large.json' }
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    contextChanged({ ...context, file: { chat: 'chat-1', id: 'big' } })
+    await vi.waitFor(() => expect(app().shown).toBe('large.json'))
+    expect($('doc-message').hidden).toBe(false)
     expect($('download').hidden).toBe(false)
     expect(app().info).toContain('写手 (Agent) 创建于')
     const sources = Array.from(document.querySelectorAll<HTMLButtonElement>('#doc-info .source'))
@@ -129,19 +127,22 @@ describe('workspace App: what the old workspace panel did', () => {
     gugu.files.download.mockResolvedValueOnce(false)
     $('download').click()
     await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledTimes(1))
-    expect(gugu.files.download.mock.calls[0][0]).toMatchObject({ id: 'photo' })
+    expect(gugu.files.download.mock.calls[0][0]).toMatchObject({ id: 'big' })
     await Promise.resolve()
     expect(banner()).toBe('')
 
     gugu.files.download.mockRejectedValueOnce(new Error('disk full'))
     $('download').click()
     await vi.waitFor(() => expect(banner()).toContain('disk full'))
+    contextChanged({ ...context })
+    await vi.waitFor(() => expect(app().shown).toBe(null))
   })
 
   test('upload: the host picker; cancel refreshes quietly, too-large and partial failures are said and the list refreshed', async () => {
     expect($('upload').hidden).toBe(false)
     $('banner').hidden = true
     const lists = gugu.files.list.mock.calls.length
+    const opens = gugu.files.open.mock.calls.length
     $('upload').click()
     await vi.waitFor(() => expect(gugu.files.list.mock.calls.length).toBe(lists + 1))
     expect(gugu.files.upload).toHaveBeenLastCalledWith({ chat: 'chat-1' }) // every call names its chat (真源原则 13)
@@ -156,7 +157,7 @@ describe('workspace App: what the old workspace panel did', () => {
     gugu.files.upload.mockResolvedValueOnce([entries[1]])
     $('upload').click()
     await vi.waitFor(() => expect(gugu.files.list.mock.calls.length).toBe(lists + 3))
-    expect(gugu.files.open).not.toHaveBeenCalled()
+    expect(gugu.files.open).toHaveBeenCalledTimes(opens)
   })
 
   // The preinstalled App ships with its host: every verb is there (审计 C1) — what a person may do is the capability.
@@ -179,13 +180,21 @@ describe('workspace App: what the old workspace panel did', () => {
     rowMore('old').click()
     expect(offered()).toEqual(['用别的 App 打开', '改名', '移动到…'])
     pressEscape()
-    $('back').click() // a context push keeps what is on screen (F32: a resize is one); the person goes back
   })
 })
 
 // 摩擦单 F2(L5,09-29;真源 §2.6 617e20ea):工作区 App 是文件管理器 —— 点文件交给宿主挑 App(Finder 双击),
 // 「用别的 App 打开」是右键那一下;挑中的恰好是这个 App 时,宿主把文件经 context.file 递回来,这里才打开。
 describe('workspace App as a file manager: the host picks the App', () => {
+  test('an unclaimed binary click is handed to the host, without a duplicate details page', async () => {
+    gugu.files.openWith.mockClear()
+    clickFile('photo')
+    await vi.waitFor(() => expect(gugu.files.openWith).toHaveBeenCalledTimes(1))
+    expect(gugu.files.openWith).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'photo' }))
+    expect(app().shown).toBe(null)
+    expect(document.body.classList.contains('show-doc')).toBe(false)
+  })
+
   test('a click hands the file to the host and opens nothing here', async () => {
     gugu.files.openWith.mockClear()
     gugu.files.open.mockClear()

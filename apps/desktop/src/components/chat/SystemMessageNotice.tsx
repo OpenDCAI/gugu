@@ -8,12 +8,12 @@ import { AgentSettingsModal } from '../agentsettings/AgentSettingsModal'
 import { Button } from '../ui/Button'
 import './system-message-notice.css'
 
-export function SystemMessageNotice({ message }: { message: Pick<MessageItem, 'id' | 'content' | 'sender_user_id'> }) {
-  if (message.id.startsWith('turn-failure:batch:')) return <AgentReplyFailureNotice message={message} />
+export function SystemMessageNotice({ message, senderName }: { message: Pick<MessageItem, 'id' | 'content' | 'sender_user_id'>; senderName?: string }) {
+  if (message.id.startsWith('turn-failure:batch:')) return <AgentReplyFailureNotice message={message} senderName={senderName} />
   return <div className="system-message-notice"><span>{message.content}</span></div>
 }
 
-function AgentReplyFailureNotice({ message }: { message: Pick<MessageItem, 'content' | 'sender_user_id'> }) {
+function AgentReplyFailureNotice({ message, senderName }: { message: Pick<MessageItem, 'content' | 'sender_user_id'>; senderName?: string }) {
   const { t } = useTranslation('messaging')
   const { contacts } = useContactsStore()
   const [modelOpen, setModelOpen] = useState(false)
@@ -23,7 +23,7 @@ function AgentReplyFailureNotice({ message }: { message: Pick<MessageItem, 'cont
     <>
       <div className="agent-reply-system-notice" role="status" aria-live="polite">
         <AlertTriangle size={16} className="shrink-0 text-[var(--warn)]" aria-hidden />
-        <span>{message.content}</span>
+        <span>{senderName ? `${senderName}: ` : ''}{message.content}</span>
         {agent && canChangeModel ? (
           <Button variant="ghost" size="sm" onClick={() => setModelOpen(true)}>{t('agent.turnFailure.changeModel')}</Button>
         ) : null}

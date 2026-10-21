@@ -21,7 +21,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const CHAT = '0b000000-0000-4000-8000-0000000000a1';
-const file = { contentType: 'application/pdf', version: 3, size: 1024 };
+const file = { document: false, contentType: 'application/pdf', version: 3, size: 1024 };
 const local = { kind: 'local', place: { project: 'p-1' }, projectId: 'p-1', workspaceId: 'w-1', path: 'docs/plan.html', absolutePath: '/repo/docs/plan.html', name: 'plan.html', ask: false };
 const pdfApp = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app: { name: 'PDF' }, onlyTab: true, suffix: '.pdf' };
 const chooser = vi.hoisted(() => ({ kind: 'none' as string }));
@@ -53,7 +53,7 @@ describe('files.openWith(file, { peek: true }): beside the page that asked (G1)'
     expect(await openWith({ ref: { id: 'item-1' }, peek: true })).toEqual({ ok: true, value: undefined });
     expect(deliver.mock.calls[0]![0]).toMatchObject({ sessionId: null, tabId: 'dock' });
     expect(actions()).toEqual([
-      { kind: 'peek', target: { kind: 'chat', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'none' } }, file } },
+      { kind: 'peek', target: { kind: 'chat', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' } } } },
     ]);
   });
 
@@ -68,8 +68,8 @@ describe('files.openWith(file, { peek: true }): beside the page that asked (G1)'
     expect(actions()).toEqual([{ kind: 'peek', target: local }]);
   });
 
-  it('control — without peek, as before: the chat shows it, and nobody opening it is refused', async () => {
-    expect(await openWith({ ref: { id: 'item-1' } })).toMatchObject({ ok: false, code: 'not-found' });
-    expect(actions()).toEqual([{ kind: 'openWith', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'none' } } }]);
+  it('without peek: the chat previews the same unclaimed file, without refusing the caller', async () => {
+    expect(await openWith({ ref: { id: 'item-1' } })).toMatchObject({ ok: true });
+    expect(actions()).toEqual([{ kind: 'openWith', detail: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file, choice: { kind: 'none' } } }]);
   });
 });

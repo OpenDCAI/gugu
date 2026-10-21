@@ -8,8 +8,9 @@ export interface ReactionEntry {
   emoji: string
   zh: string
   en: string
-  /** mood = 表态;status = 带工作含义的回应(收到 / 在看 / 稍等 / 完成 / 疑问 / 不对),picker 分两行画。 */
+  /** mood = 表态;status = 带工作含义的回应,完整选择器单列「工作状态」。 */
   kind: 'mood' | 'status'
+  quickOrder?: number
 }
 
 // status 一组参照飞书(#6562 调研):
@@ -17,19 +18,21 @@ export interface ReactionEntry {
 // OnIt / OneSecond / DONE / No / CrossMark;帮助中心《使用表情回复消息》说「稍等」「在做了」这类表情用来表达工作状态。
 // 飞书用自绘贴纸,这里用最接近的 Unicode 表情 + 名字;❓ 飞书没有,是给 agent 的「我没看懂 / 有疑问」信号。
 export const REACTIONS: readonly ReactionEntry[] = [
-  { emoji: '👍', zh: '赞', en: 'Like', kind: 'mood' },
-  { emoji: '❤️', zh: '爱心', en: 'Love', kind: 'mood' },
-  { emoji: '😂', zh: '笑哭', en: 'Haha', kind: 'mood' },
+  { emoji: '👍', zh: '赞', en: 'Like', kind: 'mood', quickOrder: 0 },
+  { emoji: '❤️', zh: '爱心', en: 'Love', kind: 'mood', quickOrder: 1 },
+  { emoji: '😂', zh: '笑哭', en: 'Haha', kind: 'mood', quickOrder: 2 },
   { emoji: '😮', zh: '惊讶', en: 'Wow', kind: 'mood' },
   { emoji: '😢', zh: '难过', en: 'Sad', kind: 'mood' },
-  { emoji: '🙏', zh: '感谢', en: 'Thanks', kind: 'mood' },
+  { emoji: '🙏', zh: '感谢', en: 'Thanks', kind: 'mood', quickOrder: 5 },
   { emoji: '👌', zh: '收到', en: 'Got it', kind: 'status' },
-  { emoji: '👀', zh: '在看', en: 'On it', kind: 'status' },
+  { emoji: '👀', zh: '在看', en: 'On it', kind: 'status', quickOrder: 3 },
   { emoji: '⏳', zh: '稍等', en: 'One moment', kind: 'status' },
-  { emoji: '✅', zh: '完成', en: 'Done', kind: 'status' },
+  { emoji: '✅', zh: '完成', en: 'Done', kind: 'status', quickOrder: 4 },
   { emoji: '❓', zh: '疑问', en: 'Question', kind: 'status' },
   { emoji: '❌', zh: '不对', en: 'No', kind: 'status' },
 ]
+
+export const QUICK_REACTIONS = REACTIONS.filter((entry) => entry.quickOrder !== undefined).sort((a, b) => a.quickOrder! - b.quickOrder!)
 
 /** 人在界面上看到的名字:中文界面给中文,其余给英文;目录外的表情没有名字。 */
 export function reactionLabel(emoji: string, language: string): string | null {

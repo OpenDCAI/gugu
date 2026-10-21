@@ -1,3 +1,6 @@
+import { platform } from '../platform'
+import { rpc } from '../session/renderer/lib/ipc'
+import type { ChatFileRef } from '../session/shared/extensions/app-files-core';
 // #7199 手机 / 网页:窗口里读聊天文件夹里一个文件此刻的文本(读法在 session/shared/extensions/chat-folder-text.ts;
 // 桌面在主进程读)。文件服务要答跨域预检(gugu-supabase #119)。
 import { getSupabaseUrl } from '@gugu/core/cloud/config'
@@ -11,24 +14,25 @@ export function rendererFileServiceUrl(): string {
   return (configured || `${getSupabaseUrl().replace(/\/+$/, '')}/files`).replace(/\/+$/, '')
 }
 
-export function readChatFolderText(chatId: string, filename: string): Promise<ChatFolderText | null> {
+export function readChatFolderText(ref: ChatFileRef): Promise<ChatFolderText | null> {
+  if (platform.kind === 'electron') return rpc.extensions.readChatFolderText(ref).then((answer) => {
+    if (!answer.success) throw new Error(answer.error)
+    return answer.data
+  })
   return readChatFolderTextWith(
     {
       token: async () => getRendererAccessToken(),
-      async latest(_token, chat, name) {
-        const { data, error } = await chatDb
+      async find(_token, file) {
+        const query = chatDb
           .from('workspace_items')
           .select(CHAT_FOLDER_ITEM_COLUMNS)
-          .eq('chat_id', chat)
-          .eq('filename', name)
-          .order('updated_at', { ascending: false })
-          .limit(1)
+        const found = 'id' in file ? query.eq('id', file.id) : query.eq('chat_id', file.chat).eq('filename', file.name).order('updated_at', { ascending: false })
+        const { data, error } = await found.limit(1)
         return { data: data as { id: string; kind: string; updated_at: string }[] | null, error }
       },
       filesUrl: rendererFileServiceUrl,
       fetch: (...args) => fetch(...args),
     },
-    chatId,
-    filename,
+    ref,
   )
 }

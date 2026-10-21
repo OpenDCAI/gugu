@@ -44,7 +44,7 @@ import {
 import { filesOpenedBy } from '../../session/shared/extensions/app-files-core'
 import { coalescedReads } from '../../session/shared/extensions/coalesced-reads'
 import { localizedManifestText } from '../../session/shared/extensions/catalog'
-import { claimantOf, noOpenerError, openerChoice, placeFor, placeLink, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
+import { claimantOf, openerChoice, placeFor, placeLink, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
 import { opensInChats, withCoveredCapabilities, type ExtensionCapability, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import { readDisplayIdentities } from '../../lib/identityReadAdapter'
 import { memberFaces } from '../../lib/memberFaces'
@@ -538,16 +538,14 @@ export function hostAppFrame(
         return Promise.resolve(undefined)
       }
       case 'filesOpenWith':
-        return files.openTarget(surface(), { ref: chatRef(args.ref) }).then(({ file, ...target }) => {
+        return files.openTarget(surface(), { ref: chatRef(args.ref) }).then((target) => {
           const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
           // A pill in the page: its place, for the page about to open the file — as a file link in the chat (`groupFileOpener`).
           const place = placeFor(choice, args.at)
           if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
           // Beside the page: a file nobody here opens shows in the host's preview there.
-          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice }, file })
+          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice } })
           hooks.openWith({ ...target, choice })
-          // Nobody here opens it: the panel offers the App that would (`none`), and the App is told as before.
-          if (choice.kind === 'none') throw noOpenerError(target.typedName)
         })
       case 'filesOpen':
         return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}) })

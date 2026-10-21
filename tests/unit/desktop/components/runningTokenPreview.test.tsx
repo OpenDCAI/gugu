@@ -21,6 +21,14 @@ const wait = (ms: number) => act(async () => { await new Promise((resolve) => se
 const card = () => document.body.querySelector('[data-testid="preview-card"]')
 const trigger = () => document.body.querySelector<HTMLElement>('[data-message-preview-trigger="agent-1"]')!
 
+const hover = (from: HTMLElement, to: HTMLElement) => act(async () => {
+  from.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: to }))
+  from.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: to }))
+  to.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: from }))
+  to.dispatchEvent(new MouseEvent('mouseenter', { relatedTarget: from }))
+  to.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
+})
+
 const renderBar = (onTokenClick?: (id: string) => void) => harness.render(
   <RunningTokenBar
     cap={3}
@@ -75,12 +83,12 @@ describe('桌面:悬停开的卡,鼠标挪开就收起', () => {
   it('悬停 → 卡片打开、焦点不动;挪开 → 收起,之后不再自己弹回来', async () => {
     await renderBar()
     const token = trigger()
-    await act(async () => { token.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })) })
+    await hover(document.body, token)
     await wait(450)
     expect(card()).not.toBeNull()
     expect(document.activeElement).toBe(document.body)
 
-    await act(async () => { token.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })) })
+    await hover(token, document.body)
     await wait(1200)
     expect(card()).toBeNull()
     expect(document.activeElement).not.toBe(token)
@@ -126,5 +134,53 @@ describe('手机:短按 @ 它,长按看详情', () => {
     await act(async () => { touch(trigger(), 'pointerdown', 20, 20); touch(trigger(), 'pointermove', 20, 50) })
     await wait(700)
     expect(card()).toBeNull()
+  })
+})
+
+describe('桌面: +n 只展开 agent,整条运行条共用一张预览', () => {
+  const trigger = (id: string) => document.body.querySelector<HTMLElement>(`[data-message-preview-trigger="${id}"]`)!
+  const count = () => document.body.querySelectorAll('[data-testid="preview-card"]').length
+  const renderOverflow = () => harness.render(
+    <RunningTokenBar cap={1} previewChatId="chat-1" tokens={[1, 2, 3].map((n) => ({
+      id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+      stateKey: 'running', toolCount: 2, lastActiveAt: null,
+    }))} />,
+  )
+  const expand = async () => {
+    await renderOverflow()
+    const more = document.body.querySelector<HTMLElement>('.rtb-more')!
+    await hover(document.body, more)
+    await wait(450)
+    expect(document.body.querySelector('.rtb-ov')).not.toBeNull()
+    return more
+  }
+  it('悬浮 +n: 展开列表,不聚焦首个 agent,没有 preview', async () => {
+    await expand()
+    expect(document.activeElement).not.toBe(trigger('agent-2'))
+    expect(count()).toBe(0)
+  })
+  it('从 +n 移到第二个溢出 agent: 只显示它的 preview', async () => {
+    const more = await expand()
+    await hover(more, trigger('agent-3'))
+    await wait(450)
+    expect(count()).toBe(1)
+    expect(trigger('agent-3').getAttribute('aria-expanded')).toBe('true')
+    expect(trigger('agent-2').getAttribute('aria-expanded')).toBe('false')
+  })
+  it('两个 agent 之间往返: 焦点留在旧 agent 也最多一张 preview', async () => {
+    await expand()
+    // 同时覆盖键盘焦点和鼠标落在不同 agent 的情况。
+    await act(async () => { trigger('agent-2').focus() })
+    await wait(450)
+    expect(count()).toBe(1)
+    let previous = document.body
+    for (const id of ['agent-3', 'agent-2', 'agent-3']) {
+      await hover(previous, trigger(id))
+      expect(count()).toBeLessThanOrEqual(1)
+      await wait(450)
+      expect(count()).toBe(1)
+      expect(trigger(id).getAttribute('aria-expanded')).toBe('true')
+      previous = trigger(id)
+    }
   })
 })

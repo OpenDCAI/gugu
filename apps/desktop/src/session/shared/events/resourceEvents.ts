@@ -1,4 +1,5 @@
 import { defineEvent } from '@shared/lib/ipc/events';
 import type { ResourceSnapshot } from '@shared/resource-monitor';
 
-export const resourceSnapshotChannel = defineEvent<ResourceSnapshot>('resource-monitor:snapshot');
+/** Null ends an unsuccessful sample without replacing the last valid snapshot. */
+export const resourceSnapshotChannel = defineEvent<ResourceSnapshot | null>('resource-monitor:snapshot');

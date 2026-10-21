@@ -364,6 +364,9 @@ export default {
     "whisperPlaceholder": "悄悄话给 {{name}}…"
   },
   "emoji": {
+    "moreReactions": "更多表情",
+    "workStatus": "工作状态",
+    "frequent": "常用",
     "quickReactions": "快速回应",
     "reactWith": "回应 {{emoji}}"
   },

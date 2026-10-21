@@ -1,6 +1,6 @@
 /**
  * runtime.ts —— 一个全局 rAF 循环驱动页面上所有头像。
- * 只更新/绘制屏幕内可见的（IntersectionObserver），共用一个 WebGL 画布与一份纹理。
+ * 只更新/绘制视口内、不在 inert 常驻面板里的头像；共用一个 WebGL 画布与一份纹理。
  * 只画会变的帧,按变了多少决定什么时候画(CPU 跟重画次数成正比,mac1 实测一次约 2.4ms):
  * 和上一张差不到半个 CSS 像素就不画;慢慢在变的(呼吸、左右摆、视线游走)攒到共用的 SLOW_TICK_MS 时钟上,所有鸟同一帧一起画;
  * 一下变得多的(眨眼、跳视、蹦、表情轮换、变形、拍一拍)、以及眼睛正跟着光标的,下一帧就画,并接着排 rAF 全帧率跟着。
@@ -325,7 +325,7 @@ class Runtime {
     const w0 = performance.now()
     const batch: Pending[] = []
     for (const h of this.handles) {
-      if (!h.visible) continue
+      if (!h.visible || h.canvas.closest('[inert]')) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
       if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import os from 'node:os';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import pidusage from 'pidusage';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { appSettingsService } from '@main/core/settings/settings-service';
@@ -17,6 +17,7 @@ import type {
 } from '@shared/resource-monitor';
 
 const SAMPLE_INTERVAL_MS = 1500;
+const BACKGROUND_SAMPLE_INTERVAL_MS = 10_000;
 const CPU_COUNT = os.cpus().length;
 const TOTAL_MEMORY_BYTES = os.totalmem();
 const STALE_LOCAL_PTY_MEMORY_BYTES = 2 * 1024 * 1024;
@@ -212,27 +213,45 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
 }
 
 let timer: NodeJS.Timeout | null = null;
+let sampling = false;
 const openSubscriptions = new Set<string>();
 const latestSequenceByClient = new Map<string, number>();
 
 export function startResourceSampler(): void {
   if (timer) return;
-  const tick = async () => {
-    try {
-      const snap = await sampleOnce();
-      events.emit(resourceSnapshotChannel, snap);
-    } catch (err) {
-      log.warn('resource-sampler: sample failed', err);
-    }
-  };
-  timer = setInterval(() => void tick(), SAMPLE_INTERVAL_MS);
-  void tick();
+  app.on('browser-window-focus', sampleSoon);
+  sampleSoon();
+}
+
+function sampleSoon(): void {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void tick(), 0);
+}
+
+async function tick(): Promise<void> {
+  if (sampling) return; // A reopened panel waits for the previous collection to finish.
+  sampling = true;
+  const current = timer;
+  let snap: ResourceSnapshot | null = null;
+  try {
+    snap = await sampleOnce();
+  } catch (err) {
+    log.warn('resource-sampler: sample failed', err);
+  }
+  sampling = false;
+  if (!timer) return;
+  if (timer !== current) return sampleSoon();
+  events.emit(resourceSnapshotChannel, snap);
+  // The monitor covers the whole app: a foreground auxiliary window also counts.
+  const delay = BrowserWindow.getFocusedWindow() ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
+  timer = setTimeout(() => void tick(), delay);
 }
 
 export function stopResourceSampler(): void {
   if (timer) {
-    clearInterval(timer);
+    clearTimeout(timer);
     timer = null;
+    app.off('browser-window-focus', sampleSoon);
     cpuBaseline = null;
     try {
       pidusage.clear();
@@ -267,5 +286,7 @@ export async function reconcileResourceSampler(): Promise<void> {
     else stopResourceSampler();
   } catch (err) {
     log.warn('resource-sampler: failed to read settings', err);
+  } finally {
+    if (!timer && openSubscriptions.size > 0) events.emit(resourceSnapshotChannel, null);
   }
 }

@@ -1,3 +1,4 @@
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { reaction } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -31,7 +32,7 @@ import { useMobileShell } from '../../hooks/useMobileShell'
 import { platform } from '../../platform'
 import { AppErrorDetails, AppErrorMark } from './AppErrorMark'
 import { appsHere } from './appsHere'
-import { firstRunArrivals, retryFirstRun } from './firstRunApps'
+import { MessageFilePreview } from '../chat/MessageFilePreview'
 import { groupSlotMemory, type FileToOpen, type OpenedWith } from './groupSlotMemory'
 import { AppPeekSlot } from './AppPeekSlot'
 import { ClaimedPage } from './ClaimedPage'
@@ -59,6 +60,8 @@ function noteOpened(itemId: string): void {
 export const WORKSPACE_APP_KIND = `${WORKSPACE_APP_ID}.main`
 
 export interface GroupAppSlotProps {
+  onForward?: (message: MessageItem) => void
+  visible?: boolean
   chatId: string
   kind: string
   title: string
@@ -95,8 +98,7 @@ interface MarketOffer {
 /**
  * The App not installed here (or only older) that would open this file ahead of every installed one — ranked as a tap
  * ranks (`openerAhead`), over this chat's shared packages and then the market's Apps (one shared in the chat is the
- * group's own: the market's copy of the same App is not offered beside it). One installed but switched off is here: it is
- * not offered to install again (`switchedOffFor` says to switch it on).
+ * group's own: the market's copy of the same App is not offered beside it). An installed App is only offered if newer.
  */
 function offerFor(typedName: string, shared: ReadonlyMap<string, SharedPackage>, market: readonly MarketOffer[], installed: ExtensionManifest[], all: readonly ExtensionManifest[] = installed): Offer | null {
   const notHere = (manifest: ExtensionManifest) => {
@@ -120,29 +122,6 @@ const appNameOf = (candidate: Pick<FileOpenerCandidate, 'app'>) => localizedMani
 
 /** The Apps on this device that may open something: main's list on the desktop, the phone's App store on the phone. */
 const enabledApps = () => installedExtensionsStore.manifests.filter((manifest) => installedExtensionsStore.isEnabled(manifest.id))
-
-/**
- * A file nobody here opens, that an App installed here but switched off would (161 10-16: every App has its switch; off,
- * it claims no file): that App — the panel says it is off and switches it on, never offers to install it again.
- */
-function switchedOffFor(typedName: string): { manifest: ExtensionManifest; appName: string } | null {
-  const off = installedExtensionsStore.manifests.filter((manifest) => !installedExtensionsStore.isEnabled(manifest.id))
-  const best = off.length > 0 ? openerAhead(typedName, enabledApps(), off, 'chat') : null
-  const manifest = best ? off.find((candidate) => candidate.id === best.extensionId) : undefined
-  return best && manifest ? { manifest, appName: appNameOf(best) } : null
-}
-
-/**
- * A file nobody here opens that an App of the first-run set still on its way would (161 10-16: a new person opens a deck
- * while 咕咕办公 is still coming down): that App — the panel says it is being set up and opens the file in it once it is in,
- * never 「no App opens it」 nor an offer to install it.
- */
-function arrivingFor(typedName: string): { extensionId: string; appName: string } | null {
-  const here = new Set(installedExtensionsStore.manifests.map((manifest) => manifest.id))
-  const coming = firstRunArrivals.apps.map((one) => one.manifest).filter((manifest) => !here.has(manifest.id))
-  const best = coming.length > 0 ? openerAhead(typedName, enabledApps(), coming, 'chat') : null
-  return best ? { extensionId: best.extensionId, appName: appNameOf(best) } : null
-}
 
 /** How many toolbar entries fit beside the title in a slot at its narrowest (360); the rest fold into the menu. */
 const INLINE_COMMANDS = 2
@@ -190,6 +169,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
    * not past it to the folder. Kept for this chat while the panel is up; the chat's memory keeps only what is open.
    */
   const trail = useRef<OpenedWith[]>([])
+  const asking = useRef(0)
   const shownNow = useRef(opened)
   shownNow.current = opened
   const showOpened = useCallback(
@@ -224,23 +204,6 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   /** The offered App did not install: said under the offer (why goes to the log), never a button that does nothing. */
   /** Why the offered App did not install, said under the offer: E-05's `refusedLine`, or that it failed. */
   const [offerFailed, setOfferFailed] = useState<string | null>(null)
-  /** The App installed here that would open a file nobody here opens, switched off (`switchedOffFor`), and its switch's state. */
-  const [switchedOff, setSwitchedOff] = useState<{ manifest: ExtensionManifest; appName: string } | null>(null)
-  const [switchingOn, setSwitchingOn] = useState(false)
-  const [switchFailed, setSwitchFailed] = useState(false)
-  /**
-   * The App of the first-run set arriving for a file nobody here opens (`arrivingFor`): kept once seen, until it is in and the
-   * file opened, or another file is asked — main can say it left the way before this window has it among the installed.
-   */
-  const [arrival, setArrival] = useState<{ ask: number; itemId: string; typedName: string; extensionId: string; appName: string } | null>(null)
-  const [retrying, setRetrying] = useState(false)
-  const retriedFor = useRef<number | null>(null)
-  /**
-   * A file of this group nobody here opens (`none`, 161 10-15): the offer is for it, and it opens once its App is in. `ask`:
-   * the ask it answered (`asking`) — it opens by itself only while nothing was asked after it.
-   */
-  const [unopenable, setUnopenable] = useState<{ chatId: string; itemId: string; name: string; typedName: string; ask: number } | null>(null)
-  const unopenableHere = unopenable && unopenable.chatId === props.chatId ? unopenable : null
   /** The market's Apps for this device, from its cached index (`unreadable`: the market could not be read). */
   const [market, setMarket] = useState<readonly MarketOffer[] | 'unreadable' | null>(null)
   /** Under an offer the file's raw content is folded away until asked for: the App to install first, not a screen of JSON. */
@@ -273,8 +236,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   )
 
   // Read the index in hand (161 10-15), never refresh it for a file: main's cache on the desktop, the phone's own.
-  const unopenableName = unopenableHere?.typedName ?? null
-  const typedName = unopenableName ?? opened?.typedName
+  const typedName = opened?.kind ? opened.typedName : null
   useEffect(() => {
     setMarket(null)
     if (!appsHere || !typedName) return undefined
@@ -302,41 +264,23 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       { fireImmediately: true },
     )
   }, [typedName, market, props.chatId, shared])
-  // A file nobody here opens that a switched-off App here would: said before any offer (it is installed — switch it on).
-  useEffect(() => {
-    setSwitchFailed(false)
-    if (!appsHere || !unopenableName) {
-      setSwitchedOff(null)
-      return undefined
-    }
-    return reaction(() => switchedOffFor(unopenableName), setSwitchedOff, { fireImmediately: true, equals: (a, b) => a?.manifest.id === b?.manifest.id })
-  }, [unopenableName])
-  // A file nobody here opens whose App is arriving (the first-run set): said so, before any offer — kept until it is in.
-  useEffect(() => {
-    setArrival(null)
-    if (!appsHere || !unopenableHere) return undefined
-    const { ask, itemId, typedName } = unopenableHere
-    return reaction(
-      () => arrivingFor(typedName),
-      (coming) => coming && setArrival((kept) => (kept?.ask === ask ? kept : { ask, itemId, typedName, ...coming })),
-      { fireImmediately: true, equals: (a, b) => a?.extensionId === b?.extensionId },
-    )
-  }, [unopenableHere])
   useEffect(() => setRawShown(false), [opened?.itemId, props.chatId])
   /** A file opened before this chat's packages were read: held back for that moment, so an offer is not preceded by its raw JSON. */
-  const offerUnknown = appsHere !== null && !!opened?.itemId && (!shared || shared.chatId !== props.chatId)
+  const offerUnknown = appsHere !== null && !!opened?.kind && !!opened.itemId && (!shared || shared.chatId !== props.chatId)
   /** The open file's raw page folds under an offer for it (not under one for a file nobody here opens). */
-  const offerFolds = offer !== null && !unopenableHere && !rawShown
+  const offerFolds = offer !== null && !rawShown
 
   // An App installed while a file of its kind is open here takes that file over, in place — from the offer
   // above or from a card in the chat alike (摩擦单 F15, L5 S1).
   useEffect(() => {
     const typedName = opened?.typedName
     if (!appsHere || !opened || !typedName) return undefined
+    const asked = asking.current
     return reaction(enabledApps, (manifests) => {
+      if (asked !== asking.current) return
       const choice = openerChoice(typedName, manifests, 'chat', rememberedOpener)
       if (choice.kind === 'one' && choice.candidate.tabKind !== opened.kind) {
-        setOpened({ ...opened, kind: choice.candidate.tabKind, title: choice.candidate.tabTitle })
+        setOpened({ kind: choice.candidate.tabKind, itemId: opened.itemId, typedName: opened.typedName, title: choice.candidate.tabTitle, opening: ++openings })
       }
     })
   }, [opened, setOpened])
@@ -346,7 +290,6 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     trail.current = []
     setOpenedState(groupSlotMemory.opened(props.chatId))
     setPrompt(null)
-    setUnopenable(null)
   }, [props.chatId])
 
   // Back from a file: that page is gone, and so is what it said — to what it was opened from (G2), else the folder.
@@ -363,17 +306,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
   // answer is back — whichever answer comes last, the panel ends on the later ask (#7257: it ended on the first when that
   // answer was slower). Each ask takes the next number; an answer to one that is not the latest is dropped.
-  const asking = useRef(0)
   const openWith = useCallback(
-    (detail: AppOpenWithDetail) => {
+    (detail: AppOpenWithDetail, message?: MessageItem) => {
       if (detail.chatId !== props.chatId) return
-      // Nobody here opens it: the panel offers the App that would, and opens the file in it once installed (161 10-15).
-      setUnopenable(
-        detail.choice.kind === 'none'
-          ? { chatId: detail.chatId, itemId: detail.itemId, name: detail.name, typedName: detail.typedName, ask: asking.current }
-          : null,
-      )
-      if (detail.choice.kind === 'none') return
+      if (detail.choice.kind === 'none') {
+        setOpened({ kind: null, file: detail.file, message, itemId: detail.itemId, title: detail.name, typedName: detail.typedName, opening: ++openings })
+        return
+      }
       if (detail.choice.kind === 'one') {
         const { candidate } = detail.choice
         setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings })
@@ -391,13 +330,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
    * every `files.openWith` the desktop's main resolves does.
    */
   const openAsked = useCallback(
-    (detail: AppOpenWithDetail) => {
+    (detail: AppOpenWithDetail, message?: MessageItem) => {
       if (detail.chatId !== props.chatId) {
         window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail }))
         return
       }
       asking.current += 1
-      openWith(detail)
+      openWith(detail, message)
     },
     [openWith, props.chatId],
   )
@@ -409,7 +348,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const [unopened, setUnopened] = useState<string | null>(null)
   useEffect(() => setUnopened(null), [props.chatId])
   const openGroupFile = useCallback(
-    async (itemId: string, at?: Record<string, string>) => {
+    async (itemId: string, at?: Record<string, string>, message?: MessageItem) => {
       if (!appsHere) return
       const asked = ++asking.current
       // `at`: the App that opens it gets the place as a `link` event, from the host that resolves who opens it.
@@ -422,51 +361,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       }
       setUnopened(null)
       setAppFiles(null)
-      openWith(result.data)
+      openWith(result.data, message)
     },
     [openWith, props.chatId],
   )
 
-  // It is in: the file opens in it — unless something else was asked meanwhile. The word stays until the file is open (its
-  // answer ends this file's ask): gone at once, the panel said 「no App opens it」 for the moment that answer took (A/B 10-16).
-  useEffect(() => {
-    if (!appsHere || !arrival) return undefined
-    return reaction(
-      () => openerChoice(arrival.typedName, enabledApps(), 'chat', rememberedOpener).kind !== 'none',
-      (opens) => {
-        if (opens && arrival.ask === asking.current) void openGroupFile(arrival.itemId)
-      },
-      { fireImmediately: true },
-    )
-  }, [arrival, openGroupFile])
-  /** Whether it is being fetched or put in now — gone from the way and not yet among the installed here counts as on its way. */
-  const arrivingNow = arrival !== null && (retrying || (firstRunArrivals.apps.find((one) => one.manifest.id === arrival.extensionId)?.installing ?? true))
-  const tryArrivalAgain = useCallback(() => {
-    setRetrying(true)
-    void retryFirstRun().finally(() => setRetrying(false))
-  }, [])
-  // It did not go in this time (offline, a broken download): the file asked for it is the reason to try once more, now.
-  useEffect(() => {
-    if (!arrival || arrivingNow || retriedFor.current === arrival.ask) return
-    retriedFor.current = arrival.ask
-    tryArrivalAgain()
-  }, [arrival, arrivingNow, tryArrivalAgain])
-  // The set is still to be done here, and nothing is known on its way (the market not read yet: offline at the start): a file
-  // nobody here opens is the reason to try now — what that go reads says whether its App is one of them.
-  const firstRunPending = firstRunArrivals.pending
-  const firstRunKnown = firstRunArrivals.apps.length > 0
-  useEffect(() => {
-    if (!unopenableHere || arrival || !firstRunPending || firstRunKnown || retriedFor.current === unopenableHere.ask) return
-    retriedFor.current = unopenableHere.ask
-    tryArrivalAgain()
-  }, [unopenableHere, arrival, firstRunPending, firstRunKnown, tryArrivalAgain])
-  /** That go has not read the market yet: no offer meanwhile — the file's App may be one it puts in. */
-  const holdOffer = retrying && !arrival && firstRunPending && !firstRunKnown
-
   const installOffer = async () => {
     if (!offer || !appsHere) return
-    // Pressing 「安装」 is the ask for the file (#7257): something asked while it installs is later, and wins.
-    const asked = ++asking.current
     setInstallingOffer(true)
     setOfferFailed(null)
     try {
@@ -487,31 +388,8 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       }
       if (!result.data?.installed) return
       setOffer(null)
-      // The file nobody here opened opens in it now — unless something else was asked meanwhile.
-      if (unopenableHere && asked === asking.current) void openGroupFile(unopenableHere.itemId)
     } finally {
       setInstallingOffer(false)
-    }
-  }
-
-  const switchOn = async () => {
-    if (!switchedOff || !appsHere) return
-    // Pressing 「启用」 is the ask for the file, as 「安装」 is (#7257): something asked while it switches on is later, and wins.
-    const asked = ++asking.current
-    setSwitchingOn(true)
-    setSwitchFailed(false)
-    try {
-      const result = await appsHere.setEnabled({ manifest: switchedOff.manifest, enabled: true })
-      if (!result.success) {
-        log.warn({ appName: switchedOff.appName, error: result.error }, 'the switched-off App for a file did not switch on')
-        setSwitchFailed(true)
-        return
-      }
-      setSwitchedOff(null)
-      // The file nobody here opened opens in it now — unless something else was asked meanwhile.
-      if (unopenableHere && asked === asking.current) void openGroupFile(unopenableHere.itemId)
-    } finally {
-      setSwitchingOn(false)
     }
   }
 
@@ -520,8 +398,8 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     if (!appsHere || !ask || ask.chatId !== props.chatId || answeredOpens.has(ask.request)) return
     answeredOpens.add(ask.request)
     // 「用 X 打开」 its host resolved already (who opens it, or among which to ask): opened as it said.
-    if (ask.opener) openAsked(ask.opener)
-    else void openGroupFile(ask.itemId, ask.at)
+    if (ask.opener) openAsked(ask.opener, ask.message)
+    else void openGroupFile(ask.itemId, ask.at, ask.message)
   }, [openAsked, openGroupFile, props.fileToOpen, props.chatId])
   useEffect(() => {
     const ask = props.appToOpen
@@ -574,13 +452,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings })
   }
 
-  const kind = opened?.kind ?? props.kind
+  const kind = opened ? opened.kind : props.kind
 
   // 摩擦单 F66 (S17): the App on screen is older here than a package of it shared in this group. From its publisher and
   // asking nothing new, it updates itself (`updateUnasked`) and the page reloads in place; otherwise — it asks for more,
   // or someone else sent it — a bar under the header says so, never in the way, and one click asks the person.
   // «This group's newest» is the one answer of F15 / F21 (`sharedPackagesOf`, `groupUpdateFor`).
-  const shownApp = parseExtensionTabKind(kind)?.extensionId ?? null
+  const shownApp = kind ? parseExtensionTabKind(kind)?.extensionId ?? null : null
   // #7050 左栏「退出」了这里开着的 App:它的这一格跟着收掉 —— 开着的文件回到列表,整格开着它的就关上。
   const closeQuit = useRef(() => {})
   closeQuit.current = opened ? back : props.onClose
@@ -639,9 +517,9 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       frameCommand.current?.(commandId)
     }
   }
-  const toolbar = declaredToolbarCommands(kind)
+  const toolbar = kind ? declaredToolbarCommands(kind) : []
   const inline = toolbar.slice(0, INLINE_COMMANDS)
-  const folded = [...toolbar.slice(INLINE_COMMANDS), ...declaredMenuCommands(kind)]
+  const folded = [...toolbar.slice(INLINE_COMMANDS), ...(kind ? declaredMenuCommands(kind) : [])]
   const shown = extensionSurfaceStore.said(null, pageSlot(slotId, opened))
   // A session opened beside the page needs the room: the panel goes full while it is up, and back after (170 10-19 ③).
   const peekingSession = peekStore.of(null, pageSlot(slotId, opened))?.kind === 'session'
@@ -661,7 +539,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const appError = shown.error
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
-      <PaneHeader
+      {opened?.file ? null : <PaneHeader
         title={shown.title ?? opened?.title ?? props.title}
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
@@ -713,7 +591,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           <Chip data-testid="group-app-slot-badge">{badge}</Chip>
         ) : null}
         {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
-      </PaneHeader>
+      </PaneHeader>}
       {appError && errorShown ? <AppErrorDetails error={appError} testId="group-app-slot-error-details" /> : null}
       {update && held === updateKey ? (
         <div
@@ -748,47 +626,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           ))}
         </div>
       ) : null}
-      {switchedOff && unopenableHere ? (
-        <div className="flex flex-col items-start gap-2 border-b border-[var(--border)] !p-4" data-testid="group-app-slot-switched-off" data-extension-id={switchedOff.manifest.id}>
-          <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.offer', { name: switchedOff.appName })}</div>
-          <div className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('chatArea.openWith.switchedOffWhy', { name: switchedOff.appName })}</div>
-          {switchFailed ? (
-            <div className="text-[length:var(--font-caption)] text-[var(--text-error)]" data-testid="group-app-slot-switch-failed">
-              {t('chatArea.openWith.switchFailed')}
-            </div>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="primary" data-testid="group-app-slot-switch-on" disabled={switchingOn} onClick={() => void switchOn()}>
-              {t('chatArea.openWith.switchOn')}
-            </Button>
-            <Button size="sm" variant="ghost" data-testid="group-app-slot-switched-off-dismiss" onClick={() => setUnopenable(null)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </div>
-      ) : arrival && unopenableHere ? (
-        <div
-          className="flex flex-col items-start gap-2 border-b border-[var(--border)] !p-4"
-          data-testid="group-app-slot-arriving"
-          data-extension-id={arrival.extensionId}
-          data-installing={arrivingNow ? 'true' : 'false'}
-        >
-          <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.offer', { name: arrival.appName })}</div>
-          <div className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
-            {t(arrivingNow ? 'chatArea.openWith.arriving' : 'chatArea.openWith.arrivingWaits', { name: arrival.appName })}
-          </div>
-          <div className="flex items-center gap-2">
-            {arrivingNow ? null : (
-              <Button size="sm" variant="primary" data-testid="group-app-slot-arriving-retry" onClick={tryArrivalAgain}>
-                {t('chatArea.openWith.arrivingRetry')}
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" data-testid="group-app-slot-arriving-dismiss" onClick={() => setUnopenable(null)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </div>
-      ) : holdOffer && unopenableHere ? null : offer ? (
+      {offer ? (
         <div className="flex flex-col items-start gap-2 border-b border-[var(--border)] !p-4" data-testid="group-app-slot-offer" data-offer-from={offer.from.kind}>
           <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.offer', { name: offer.appName })}</div>
           <div className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
@@ -804,32 +642,20 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
             <Button size="sm" variant="primary" data-testid="group-app-slot-offer-install" disabled={installingOffer} onClick={() => void installOffer()}>
               {t('chatArea.openWith.install')}
             </Button>
-            {unopenableHere ? (
-              <Button size="sm" variant="ghost" data-testid="group-app-slot-offer-dismiss" onClick={() => setUnopenable(null)}>
-                {t('common.cancel')}
-              </Button>
-            ) : (
-              <Button size="sm" variant="ghost" data-testid="group-app-slot-offer-raw" onClick={() => setRawShown((shown) => !shown)}>
-                {rawShown ? t('chatArea.openWith.hideRaw') : t('chatArea.openWith.showRaw')}
-              </Button>
-            )}
+            <Button size="sm" variant="ghost" data-testid="group-app-slot-offer-raw" onClick={() => setRawShown((shown) => !shown)}>
+              {rawShown ? t('chatArea.openWith.hideRaw') : t('chatArea.openWith.showRaw')}
+            </Button>
           </div>
-        </div>
-      ) : unopenableHere && market !== null ? (
-        <div className="flex items-start gap-2 border-b border-[var(--border)] !px-3 !py-2 text-[length:var(--font-caption)] text-[var(--text-secondary)]" data-testid="group-app-slot-no-opener">
-          <span className="min-w-0 flex-1">{t(market === 'unreadable' ? 'chatArea.openWith.marketUnreadable' : 'chatArea.openWith.noOpener', { name: unopenableHere.name })}</span>
-          <IconButton size="sm" data-testid="group-app-slot-no-opener-dismiss" onClick={() => setUnopenable(null)} aria-label={t('common.cancel')}>
-            <X size={14} />
-          </IconButton>
         </div>
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={pageSlot(slotId, opened)} narrow={mobile}>
-        {desktop ? (
+        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={back} onClose={props.onClose} /> : null}
+        {desktop ? opened?.file ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />
           ) : (
-            <ClaimedPage slotId={pageSlot(slotId, opened)} chatId={props.chatId} kind={kind} itemId={opened?.itemId} opening={opened?.opening} />
+            <ClaimedPage slotId={pageSlot(slotId, opened)} chatId={props.chatId} kind={kind!} itemId={opened?.itemId} opening={opened?.opening} />
           )
         ) : (
           <>
@@ -847,11 +673,11 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
             {/* Under an offer the file's raw page waits, as on the desktop: the App to install first (摩擦单 F15). */}
             {opened && (offerUnknown || offerFolds) ? <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" /> : null}
             {/* What it was opened from stays as it was, hidden, for 「返回」 (G2) — a frame, unlike a desktop page, is not kept elsewhere. */}
-            {(opened ? [...trail.current, ...(offerUnknown || offerFolds ? [] : [opened])] : []).map((entry) => (
+            {(opened ? [...trail.current, ...(offerUnknown || offerFolds ? [] : [opened])] : []).filter((entry) => entry.kind !== null).map((entry) => (
               <PhoneAppFrame
                 key={`${entry.kind}:${entry.itemId}:${entry.opening}`}
                 chatId={props.chatId}
-                kind={entry.kind}
+                kind={entry.kind!}
                 itemId={entry.itemId}
                 hidden={entry !== opened}
                 onOpenWith={openAsked}

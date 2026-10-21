@@ -206,10 +206,10 @@ export default {
       "byMobile": "手机端"
     },
     "create": {
-      "title": "新会话",
+      "title": "新建任务",
       "pickMachine": "在哪台机器上",
-      "welcome": "在 {{machine}} 上开一个新会话",
-      "welcomeHint": "选好项目和 harness，第一句话发出去就开始。",
+      "welcome": "在 {{machine}} 上开始新任务",
+      "welcomeHint": "选好项目和引擎，第一句话发出去就开始。",
       "placeholder": "第一句话…",
       "project": "项目",
       "harness": "Harness",

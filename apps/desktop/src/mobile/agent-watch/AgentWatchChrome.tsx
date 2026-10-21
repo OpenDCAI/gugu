@@ -58,7 +58,7 @@ export function AgentWatchScreen({
         divider={Boolean(onBack)}
         title={
           subtitle ? (
-            <span className="gg-aw-head">
+            <span className="gg-pane-title gg-aw-head">
               <span className="gg-aw-head-title">{title}</span>
               <span className="gg-aw-head-meta">{subtitle}</span>
             </span>

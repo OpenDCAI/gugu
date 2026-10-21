@@ -47,7 +47,7 @@ import type {
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
 import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
-import { noOpenerError, placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
+import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
@@ -1767,11 +1767,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const { file, ...detail } = target.target;
-        if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail: { ...detail, choice }, file } }));
-        await deliver(shown, { kind: 'openWith', detail: { ...detail, choice } });
-        // Nobody here opens it: the window offers the App that would (`none`), and the App is told as before.
-        if (choice.kind === 'none') throw noOpenerError(target.target.typedName);
+        const detail = { ...target.target, choice };
+        if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
+        await deliver(shown, { kind: 'openWith', detail });
         return undefined;
       }
       await deliver(shown, { kind: 'showMessage', detail: await files.messageToShow(args as never) });

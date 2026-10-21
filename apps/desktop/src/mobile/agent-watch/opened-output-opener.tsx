@@ -10,6 +10,7 @@ import { useToast } from '@/components/toastContext'
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
 import { Sheet } from '@/components/ui/Sheet'
 import { downloadBlob } from '@/lib/download'
+import { messageActionItems } from '@/components/chat/messageActionItems'
 import { openImageViewer } from '@/lib/imageViewer'
 import { rendererLogger } from '@/lib/log'
 import type { OpenedOutputHandlers } from './opened-output-handlers'
@@ -40,26 +41,26 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
   panel: ReactNode
 } {
   const { t } = useTranslation('main')
+  const { t: messageT } = useTranslation('messaging')
   const { toast } = useToast()
   const [preview, setPreview] = useState<Preview | null>(null)
   // 卡上「预览 ▾ / 浏览器 ▾」点开的那张打开方式菜单:锚在那枚按钮下面(❌ 底部抽屉)。
   const [menu, setMenu] = useState<{ output: OpenedOutput; anchor: HTMLElement } | null>(null)
   const requestRef = useRef<AbortController | null>(null)
-  const blobUrlRef = useRef<string | null>(null)
+  const blobUrlRef = useRef<{ url: string; image?: string } | null>(null)
 
   const releaseBlobUrl = useCallback(() => {
-    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current.url)
     blobUrlRef.current = null
   }, [])
 
   const close = useCallback(() => {
     requestRef.current?.abort()
     requestRef.current = null
-    releaseBlobUrl()
     setPreview(null)
-  }, [releaseBlobUrl])
+  }, [])
 
-  useEffect(() => close, [close])
+  useEffect(() => () => { requestRef.current?.abort(); releaseBlobUrl() }, [releaseBlobUrl])
 
   const describeFailure = useCallback(
     (error: unknown): string => {
@@ -113,11 +114,10 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
               return
             }
             const url = URL.createObjectURL(blob)
-            blobUrlRef.current = url
+            blobUrlRef.current = { url, ...(plan.view === 'image' ? { image: plan.name } : {}) }
             if (plan.view === 'image') {
               // 图走全 app 唯一的看图器;这一页只是读的时候的等待,读到就让位。
               setPreview(null)
-              openImageViewer([{ url, alt: plan.name }])
               return
             }
             const content =
@@ -190,9 +190,14 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
       </Menu>
     ) : null
 
-  const sheet = preview ? (
-    <Sheet fullScreenMobile onClose={close} ariaLabel={preview.file.fileName} testId="opened-output-preview-sheet">
-      <MessageFilePreviewPanel
+  const closed = () => {
+    const blob = blobUrlRef.current
+    if (blob?.image !== undefined) openImageViewer([{ url: blob.url, alt: blob.image }])
+    else releaseBlobUrl()
+  }
+  const sheet = (
+    <Sheet open={preview !== null} onClosed={closed} fullScreenMobile onClose={close} ariaLabel={preview?.file.fileName} testId="opened-output-preview-sheet">
+      {preview ? <MessageFilePreviewPanel
         mobile
         file={preview.file}
         videoUrl={preview.file.url || undefined}
@@ -207,13 +212,13 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         {...(preview.progress && preview.progress.size > 0 ? { loadingFraction: preview.progress.read / preview.progress.size } : {})}
         {...(preview.error ? { error: preview.error } : {})}
         onClose={close}
-        {...(preview.blob ? { onDownload: () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
+        actions={messageActionItems({ isMine: false, isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
           log.warn({ error, name: preview.file.fileName }, 'opened file save failed')
           toast(t('agentWatch.output.saveFailed'), 'error')
-        }) } : {})}
-      />
+        }) : undefined }, messageT)}
+      /> : null}
     </Sheet>
-  ) : null
+  )
 
   return {
     handlers,

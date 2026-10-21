@@ -139,7 +139,6 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 }
 .back:hover { background: color-mix(in srgb, var(--em-foreground) 8%, transparent); color: var(--em-foreground); }
 .back-chevron { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-body.show-doc:not(.no-list):not(.host-opened) .back { display: inline-flex; }
 .peers { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
 .peer {
   font-size: 11px; padding: 1px 7px; border-radius: 999px;

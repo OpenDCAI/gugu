@@ -54,6 +54,7 @@ import { ReadReceiptPopover } from '../ReadReceiptPopover'
  * 「收起分栏」并在 title 里补一句「话题不会关闭」。
  */
 export type TopicSplitPaneProps = {
+  visible?: boolean
   topic: { chatId: string; name: string }
   messages: MessageItem[]
   loading: boolean
@@ -125,7 +126,7 @@ export type TopicSplitPaneProps = {
    */
   onOpenMemberProfile?: (member: MemberProfileCardModel, anchor: HTMLElement, preferredSide: MemberProfileSide) => void
   /** 气泡里的文件卡点开 —— 与主线同一个处理器。不接 = 分栏里的文件卡点了什么都不发生(#6375)。 */
-  onOpenAttachment?: (meta: ParsedAttachment) => void
+  onOpenAttachment?: (meta: ParsedAttachment, message?: MessageItem) => void
   onReaction?: (messageId: string, emoji: string) => void
   onForward?: (msg: MessageItem) => void
   onDelete?: (messageId: string) => void
@@ -217,7 +218,7 @@ export function TopicSplitPane({
   onOpenMemberProfile,
   onOpenAttachment,
   onReaction,
-  onForward,
+  onForward, visible,
   onDelete,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
@@ -276,7 +277,7 @@ export function TopicSplitPane({
   // 名册开着时换的是**这一栏的内容**,不是右边再开一栏 —— 分栏最宽 720,再挤一栏进去谁都读不了。
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
-  const workspace = useTopicWorkspace(topic.chatId, mobile, () => { setFilesForChatId(null); setMembersForChatId(null) }) // 摩擦单 F23
+  const workspace = useTopicWorkspace(topic.chatId, mobile, () => { setFilesForChatId(null); setMembersForChatId(null) }, { visible, onForward }) // 摩擦单 F23
   const closeWorkspace = workspace.close
   const membersOpen = membersForChatId === topic.chatId
   const setMembersOpen = useCallback(

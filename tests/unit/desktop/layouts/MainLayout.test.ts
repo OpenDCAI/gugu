@@ -251,6 +251,14 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+    configurable: true,
+    value(this: HTMLElement, { left }: ScrollToOptions) {
+      this.scrollLeft = left ?? this.scrollLeft
+      this.dispatchEvent(new Event('scroll'))
+    },
+  })
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
   agentWatchProbe.rootMounts = 0
@@ -289,6 +297,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 async function renderMainLayoutWithToast(toast = vi.fn()) {
@@ -846,6 +855,16 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('g-open')
     expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', opener: detail })
+  })
+
+  it('a message file request keeps its originating message for the native preview actions', async () => {
+    chatStoreMock.chats = [{ id: 'g-open', kind: 'group', name: 'G' } as never]
+    const message = { id: 'message-origin', content: 'attachment', retracted_at: null }
+    await renderMainLayoutWithToast()
+    const event = new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'g-open', itemId: 'F1', message } })
+    await act(async () => { window.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+    expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message })
   })
 
   it('a chat the person is not in: said, and nothing asked of any panel', async () => {
