@@ -8,7 +8,8 @@ export type HarnessCatalogMessageKey =
   | 'harnessCatalog.authRequired'
   | 'harnessCatalog.authRequiredWith'
   | 'harnessCatalog.authExpired'
-  | 'harnessCatalog.unavailable';
+  | 'harnessCatalog.unavailable'
+  | 'harnessCatalog.probeFailedDetail';
 
 /**
  * harness 目录 → composer 下拉的选项表。
@@ -54,7 +55,8 @@ export function harnessCatalogToOptions(
  */
 export function harnessCatalogNotice(
   state: HarnessCatalogState,
-  agentName: string
+  agentName: string,
+  translate: (key: HarnessCatalogMessageKey, values: Record<string, string>) => string
 ): {
   tone: 'info' | 'warn';
   /** 词表 key —— ❌ 不返回成品中文串：这一排的邻居全走 `translate()`，硬编码会让 en-US 用户看到中文。 */
@@ -109,9 +111,9 @@ export function harnessCatalogNotice(
         tone: 'warn',
         key: 'harnessCatalog.unavailable',
         values: { name: agentName },
-        // reason 是主进程给的原始原因，原样转达 —— 它不进词表（服务返回内容不入表，见表头约定），
-        // 也不进内联文案（长度不可控，见 detail 的说明）。
-        detail: state.reason,
+        detail: state.reasonCode === 'probe-failed'
+          ? translate('harnessCatalog.probeFailedDetail', { name: agentName })
+          : state.reason,
         action: 'retry',
       };
     case 'ready':

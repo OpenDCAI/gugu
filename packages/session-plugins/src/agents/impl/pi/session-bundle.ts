@@ -320,7 +320,6 @@ function renderPromptBlocks(blocks: SessionPromptBlocks): string {
 }
 
 function childEnv(
-  surface: SessionpageSessionSurface,
   bundle: SessionCapabilityBundle,
   promptValue: string
 ): Record<string, string> {
@@ -379,22 +378,12 @@ function childEnv(
     env[GUGU_PI_MCP_SERVERS_ENV] = JSON.stringify(mcpServers);
   }
   if (promptValue) env[GUGU_PI_SYSTEM_PROMPT_ENV] = promptValue;
-  const model = bundle.model;
-  if (model) {
-    if (model.dialect !== 'pi-models-json' || !model.platformProvider || !model.model) {
-      throw new Error('Pi platform model requires pi-models-json, a selected model and relay credentials');
-    }
-    const guguHome = env.GUGU_HOME?.trim();
-    if (!guguHome) throw new Error('Pi platform model requires GUGU_HOME');
-    env[PI_AGENT_DIR_ENV] = piAgentDir(surface, guguHome);
-    env.GUGU_PI_API_KEY = model.platformProvider.apiKey;
-  }
   return env;
 }
 
 function modelArtifact(
   surface: SessionpageSessionSurface,
-  bundle: SessionCapabilityBundle
+  bundle: Pick<SessionCapabilityBundle, 'env' | 'model'>
 ): SessionMaterialization['artifacts'][number] | null {
   const model = bundle.model;
   if (!model) return null;
@@ -497,7 +486,7 @@ function report(
 }
 
 /** 咕咕在 ACP 腿上自有的那份 pi 配置根(`PI_CODING_AGENT_DIR` 指过去)。 */
-function acpAgentDir(bundle: SessionCapabilityBundle): string {
+function acpAgentDir(bundle: Pick<SessionCapabilityBundle, 'env'>): string {
   const guguHome = bundle.env.GUGU_HOME?.trim();
   if (!guguHome) throw new Error('Pi session-ACP session requires bundle.env.GUGU_HOME');
   return piAgentDir('acp', guguHome);
@@ -511,7 +500,7 @@ function acpAgentDir(bundle: SessionCapabilityBundle): string {
  *    咕咕自己的事件模块走**全局** extensions 目录,本来就不需要 project trust。
  */
 function acpSettingsArtifact(
-  bundle: SessionCapabilityBundle,
+  bundle: Pick<SessionCapabilityBundle, 'model'>,
   agentDir: string
 ): SessionMaterialization['artifacts'][number] {
   const model = bundle.model;
@@ -562,6 +551,34 @@ function acpSettingsArtifact(
   };
 }
 
+/** Shared model files and environment for sessions and isolated catalog probes. */
+export function materializePiModelConfig(
+  surface: SessionpageSessionSurface,
+  bundle: Pick<SessionCapabilityBundle, 'env' | 'model'>
+): Pick<SessionMaterialization, 'env' | 'artifacts'> {
+  const env: Record<string, string> = {};
+  const model = bundle.model;
+  if (model) {
+    if (model.dialect !== 'pi-models-json' || !model.platformProvider || !model.model) {
+      throw new Error('Pi platform model requires pi-models-json, a selected model and relay credentials');
+    }
+    const guguHome = bundle.env.GUGU_HOME?.trim();
+    if (!guguHome) throw new Error('Pi platform model requires GUGU_HOME');
+    env[PI_AGENT_DIR_ENV] = piAgentDir(surface, guguHome);
+    env.GUGU_PI_API_KEY = model.platformProvider.apiKey;
+  }
+  const agentDir = surface === 'acp' ? acpAgentDir(bundle) : null;
+  if (agentDir) env[PI_AGENT_DIR_ENV] = agentDir;
+  const models = modelArtifact(surface, bundle);
+  return {
+    env,
+    artifacts: [
+      ...(agentDir ? [acpSettingsArtifact(bundle, agentDir)] : []),
+      ...(models ? [models] : []),
+    ],
+  };
+}
+
 function materializeSessionAcp(
   ctx: SessionMaterializationContext,
   bundle: SessionCapabilityBundle
@@ -569,13 +586,10 @@ function materializeSessionAcp(
   const capabilityPackage = packageEntry(bundle);
   const promptValue = renderPromptBlocks(bundle.promptBlocks);
   const agentDir = acpAgentDir(bundle);
-  const env = childEnv(ctx.surface as SessionpageSessionSurface, bundle, promptValue);
-  // 这条腿的配置根一定要指过去:事件模块、MCP 适配器与模型声明都住在里面。
-  // (终端腿只有选了平台模型才需要,故那边仍由 childEnv 按需设置。)
-  env[PI_AGENT_DIR_ENV] = agentDir;
+  const modelConfig = materializePiModelConfig('acp', bundle);
+  const env = { ...childEnv(bundle, promptValue), ...modelConfig.env };
   const autonomy = bundle.autonomy;
   if (autonomy) env[GUGU_PI_AUTONOMY_ENV] = autonomy.mode;
-  const model = modelArtifact('acp', bundle);
   const base = report(ctx, promptValue, bundle);
   return {
     // ❌ 这条腿不发 argv:`buildAcpSpawn` 只从 `behavior.acp.buildSpawn` 造 args,
@@ -590,8 +604,7 @@ function materializeSessionAcp(
         path: join(agentDir, PI_ACP_EVENT_MODULE_RELATIVE),
         target: 'gugu-home' as const,
       })),
-      acpSettingsArtifact(bundle, agentDir),
-      ...(model ? [model] : []),
+      ...modelConfig.artifacts,
     ],
     report: acpReport(base, autonomy),
   };
@@ -623,10 +636,10 @@ export function materializePiSessionBundle(
   if (ctx.surface === 'acp') return materializeSessionAcp(ctx, bundle);
   const capabilityPackage = packageEntry(bundle);
   const promptValue = renderPromptBlocks(bundle.promptBlocks);
-  const model = modelArtifact('tui', bundle);
+  const modelConfig = materializePiModelConfig('tui', bundle);
   return {
     argsAppend: ['--extension', PI_MCP_EXTENSION_SOURCE, ...modelArgs(bundle)],
-    env: childEnv('tui', bundle, promptValue),
+    env: { ...childEnv(bundle, promptValue), ...modelConfig.env },
     configMerges: [],
     artifacts: [
       ...capabilityPackage.artifacts.map((artifact) => ({
@@ -634,7 +647,7 @@ export function materializePiSessionBundle(
       path: join(ctx.cwd, artifact.path),
       target: 'workspace' as const,
       })),
-      ...(model ? [model] : []),
+      ...modelConfig.artifacts,
     ],
     report: report(ctx, promptValue, bundle),
   };
