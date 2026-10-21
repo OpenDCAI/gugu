@@ -175,15 +175,8 @@ const earlyTurnCompletions = new Map()
 const toolOutcomesByTurn = new Map()
 const steeredAcpIdsByTurn = new Map()
 const pendingSteersByTurn = new Map()
-/**
- * @@@6353 turnId → (itemId → codex 的 processId):这一轮里还没结束的命令。
- * codex 的 `turn/interrupt` **故意**不杀在跑的命令 —— 它把命令转成 thread 的后台终端留着
- * (codex 自己在下一轮告诉模型「Any running unified exec processes may still be running in the
- * background」)。ACP 的 `session/cancel` 是「停掉这一轮」:这一轮起的命令归这一轮,所以取消时
- * 由这里按 processId 逐个 `thread/backgroundTerminals/terminate`。更早的轮次有意留在后台的
- * 进程(模型自己放出去的 dev server 之类)不在这张表里,不碰;它们在会话结束时随进程树一起收。
- */
-const runningCommandsByTurn = new Map()
+// itemId → native command. A null turnId means the turn ended and the host owns a background task.
+const runningCommands = new Map()
 
 const acpTestAuditPath = process.env.GUGU_SESSION_TEST_HOOKS === '1'
   ? process.env.GUGU_CODEX_ACP_TEST_AUDIT_PATH?.trim()
@@ -1497,45 +1490,45 @@ function onAppNotification(message) {
     return
   }
   if (method === 'turn/completed') {
-    // 正常结束的轮次里还挂着的命令是模型有意放到后台的,不归取消管 ⇒ 这一轮的账随轮次一起清掉。
-    runningCommandsByTurn.delete(String(params.turn?.id ?? ''))
+    for (const [toolCallId, command] of runningCommands) {
+      if (command.turnId !== params.turn?.id) continue
+      command.turnId = null
+      sessionUpdate({
+        sessionUpdate: 'async_task_spawned', asyncTaskId: command.processId, toolCallId,
+        name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
+      })
+    }
     settlePrompt(params.turn)
   }
 }
 
-/** @@@6353 记账:这一轮起了哪些还没结束的命令(见 `runningCommandsByTurn`)。 */
 function trackRunningCommand(params, edge) {
   const item = params.item ?? {}
   const turnId = String(params.turnId ?? '')
   if (item.type !== 'commandExecution' || !turnId || !item.id) return
-  const running = runningCommandsByTurn.get(turnId) ?? new Map()
-  if (edge === 'started' && item.processId) running.set(String(item.id), String(item.processId))
-  else running.delete(String(item.id))
-  if (running.size) runningCommandsByTurn.set(turnId, running)
-  else runningCommandsByTurn.delete(turnId)
+  const toolCallId = String(item.id)
+  if (edge === 'started' && item.processId) {
+    runningCommands.set(toolCallId, { turnId, processId: String(item.processId), name: item.command || 'Command' })
+  } else if (edge === 'completed') {
+    const command = runningCommands.get(toolCallId)
+    runningCommands.delete(toolCallId)
+    if (command?.turnId === null) sessionUpdate({
+      sessionUpdate: 'async_task_state_update', asyncTaskId: command.processId, toolCallId,
+      state: acpToolStatus(item.status, 'completed'),
+    })
+  }
 }
 
-/**
- * @@@6353 取消这一轮 = interrupt 之后把这一轮还在跑的命令逐个 terminate。
- * 顺序是 interrupt 在前:先 terminate 的话工具调用会带着「被杀」的输出回到模型,轮次接着往下跑。
- * 这一轮的命令在发 interrupt **之前**就取走 —— `turn/completed(interrupted)` 会清掉这一轮的账。
- */
+async function terminateCommand(processId) {
+  const result = await appRequest('thread/backgroundTerminals/terminate', { threadId: sessionId, processId })
+  return { stopped: result?.terminated === true }
+}
+
+// Snapshot this turn before interrupt publishes its end; older background tasks stay owned by the host.
 async function cancelTurn(turnId) {
-  const commands = [...(runningCommandsByTurn.get(turnId)?.values() ?? [])]
+  const commands = [...runningCommands.values()].filter((command) => command.turnId === turnId)
   await appRequest('turn/interrupt', { threadId: sessionId, turnId })
-  // 每一个都要试到:前一个失败不能让后面的命令被静默留下。
-  const failures = []
-  for (const processId of commands) {
-    try {
-      const result = await appRequest('thread/backgroundTerminals/terminate', { threadId: sessionId, processId })
-      process.stderr.write(
-        `[codex-app-server-acp] cancel: terminated turn ${turnId} command processId=${processId} terminated=${result?.terminated}\n`,
-      )
-    } catch (error) {
-      failures.push(`processId=${processId}: ${error?.message ?? error}`)
-    }
-  }
-  if (failures.length) throw new Error(`could not terminate turn ${turnId} commands: ${failures.join('; ')}`)
+  await Promise.all(commands.map((command) => terminateCommand(command.processId)))
 }
 
 /**
@@ -2239,7 +2232,7 @@ async function handleAcpRequest(message) {
       throw new Error('Invalid conversation revert target')
     }
     if (!historyCanRevert) throw new Error('Conversation revert requires persisted paginated Codex history')
-    if (revertingHistory || activePrompt || runningCommandsByTurn.size) {
+    if (revertingHistory || activePrompt || runningCommands.size) {
       throw new Error('Wait for current work to finish before reverting')
     }
     revertingHistory = true
@@ -2313,6 +2306,12 @@ async function handleAcpRequest(message) {
     // fork 是侧聊那条路 —— 它同样是一条用户会在里面打 `/` 的会话。漏了它,侧聊的面板就是空的
     // (与「只在 new 里推、重开会话就空」是同一个形状,别只堵一半)。
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
+    return
+  }
+  if (method === '_session/async_task/stop') {
+    const command = params.sessionId === sessionId && [...runningCommands.values()]
+      .find((entry) => entry.turnId === null && entry.processId === params.asyncTaskId)
+    respond(id, command ? await terminateCommand(command.processId) : { stopped: false })
     return
   }
   if (method === 'session/close') {
