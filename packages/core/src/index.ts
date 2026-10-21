@@ -280,6 +280,7 @@ export {
   type DeviceRuntimeIdentityClient,
   type RuntimeStopHost,
   type SubscribeDeviceCommandWake,
+  type DeviceRpcSubscription,
   type SubscribeDeviceRpc
 } from './cloud/deviceRuntimeHost'
 export { listDevices, isPhoneDevice, normalizeDeviceRow, normalizeDeviceStatus, isDeviceRemovedError, DEVICE_REMOVED_PREFIX, recentMachineLimitRefusal, type DeviceTableClient, type MachineLimitRefusalRpcClient } from './cloud/devices'

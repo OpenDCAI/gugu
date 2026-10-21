@@ -90,7 +90,7 @@ describe('共用 topic', () => {
     const stop = await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(channels.get(SHARED)!.sent).toEqual([{ type: 'taskhost.alive' }])
-    stop()
+    stop.unsubscribe()
     await vi.advanceTimersByTimeAsync(120_000)
     expect(channels.get(SHARED)!.sent).toHaveLength(1)
   })

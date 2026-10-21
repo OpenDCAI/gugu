@@ -166,7 +166,9 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
   try {
     await entry.client.realtime.setAuth(entry.accessToken)
   } catch (error) {
-    setRegistryStatus(id, 'auth_error', errorMessage(error))
+    const message = errorMessage(error)
+    setRegistryStatus(id, 'auth_error', message)
+    entry.onStatus('CHANNEL_ERROR', error instanceof Error ? error : new Error(message))
     scheduleReconnect(id)
     return
   }

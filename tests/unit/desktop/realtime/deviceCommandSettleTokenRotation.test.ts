@@ -72,7 +72,7 @@ describe('落终态时向 provider 现要令牌', () => {
         onSubscribed?.()
         return () => undefined
       },
-      subscribeDeviceRpc: async () => () => undefined,
+      subscribeDeviceRpc: async () => ({ ready: Promise.resolve(true), unsubscribe: () => undefined }),
     })
     host.start()
     try {

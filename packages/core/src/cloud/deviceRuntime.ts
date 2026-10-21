@@ -168,6 +168,8 @@ export const DEVICE_SESSION_DIGEST_LIMIT = 50
 export interface DeviceHeartbeatOptions {
   userId: string
   deviceId?: string
+  /** A first registration can be visible before the RPC channel is ready; keep it offline until then. */
+  status?: 'online' | 'offline'
   nowIso?: () => string
   capabilities?: DeviceCapabilitiesSource
   capabilityTimeoutMs?: number
@@ -817,7 +819,7 @@ export async function syncDeviceHeartbeat(
     machine_id: identity.machineId,
     platform: (options.platform ?? platform)(),
     tier,
-    status: 'online',
+    status: options.status ?? 'online',
     last_seen_at: now,
     updated_at: now,
     capabilities,

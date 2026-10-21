@@ -1,4 +1,4 @@
-import type { SubscribeDeviceRpc } from '@gugu/core'
+import type { DeviceRpcSubscription, SubscribeDeviceRpc } from '@gugu/core'
 import {
   createDeviceRpcReplyEnvelope,
   DEVICE_RPC_ALIVE,
@@ -70,6 +70,12 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
 }): SubscribeDeviceRpc {
   return async ({ deviceId, accessToken }) => {
     let active = true
+    let subscribedOnce = false
+    let readySettled = false
+    let resolveReady!: (ready: boolean) => void
+    const ready = new Promise<boolean>((resolve) => {
+      resolveReady = resolve
+    })
     let liveChannel: RpcChannel | null = null
     const realtimeClient = {
       realtime: supabase.realtime,
@@ -139,36 +145,57 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     // 这一份宿主处理器头一回订上频道时说一声「宿主起来了」:订着这条频道的别的桌面 / 手机据此作废对着没起来的这台发出去的开线、
     // 立刻重开。只说一次 —— 频道断了又订上时窗口还在(处理器没换),再说就会让别人白白拆掉好好的窗口。
     let announced = false
-    const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, rpcChannel, {
-      accessToken,
-      label: `device-rpc:${deviceId}`,
-      createChannel: createRpcChannel,
-      onStatus: (status, err) => {
-        const name = subscribeStatusName(status)
-        if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
-          if (hostHandlers && !announced) {
-            announced = true
-            void Promise.resolve(publishEvent({ type: SESSION_HOST_READY_EVENT })).catch((error: unknown) => {
-              warn(`[device-rpc] host ready announce failed: ${(error as Error)?.message ?? String(error)}`)
-            })
+    let unsubscribe: () => Promise<void>
+    try {
+      unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, rpcChannel, {
+        accessToken,
+        label: `device-rpc:${deviceId}`,
+        createChannel: createRpcChannel,
+        onStatus: (status, err) => {
+          const name = subscribeStatusName(status)
+          if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
+            subscribedOnce = true
+            if (!readySettled) {
+              readySettled = true
+              resolveReady(true)
+            }
+            if (hostHandlers && !announced) {
+              announced = true
+              void Promise.resolve(publishEvent({ type: SESSION_HOST_READY_EVENT })).catch((error: unknown) => {
+                warn(`[device-rpc] host ready announce failed: ${(error as Error)?.message ?? String(error)}`)
+              })
+            }
+            return
           }
-          return
-        }
-        if (!isSubscribeFailure(status) || !active) return
-        warn(`[device-rpc] subscribe failed: ${name}${err ? ` ${(err as Error).message}` : ''}`)
-      },
-      reconnectOnStatus: (status) => isSubscribeFailure(status)
-    })
-
-    return () => {
-      active = false
-      clearInterval(aliveTimer)
-      clearInterval(sweepTimer)
-      askers.dispose()
-      liveChannel = null
-      hostHandlers?.dispose()
-      unsubscribe()
+          if (!isSubscribeFailure(status) || !active) return
+          if (!subscribedOnce && !readySettled) {
+            readySettled = true
+            resolveReady(false)
+          }
+          warn(`[device-rpc] subscribe failed: ${name}${err ? ` ${(err as Error).message}` : ''}`)
+        },
+        reconnectOnStatus: (status) => isSubscribeFailure(status)
+      })
+    } catch (error) {
+      if (!readySettled) {
+        readySettled = true
+        resolveReady(false)
+      }
+      throw error
     }
+
+    return {
+      ready,
+      unsubscribe: () => {
+        active = false
+        clearInterval(aliveTimer)
+        clearInterval(sweepTimer)
+        askers.dispose()
+        liveChannel = null
+        hostHandlers?.dispose()
+        return unsubscribe()
+      },
+    } satisfies DeviceRpcSubscription
   }
 }
 

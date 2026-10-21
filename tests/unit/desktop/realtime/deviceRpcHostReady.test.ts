@@ -6,7 +6,7 @@ let onStatus: ((status: string) => void) | null = null;
 vi.mock('../../../../apps/desktop/electron/realtime-channel', () => ({
   subscribeAuthenticatedElectronRealtimeChannel: async (_client: unknown, _channel: unknown, options: { onStatus: (status: string) => void }) => {
     onStatus = options.onStatus;
-    return () => undefined;
+    return () => Promise.resolve();
   },
 }));
 

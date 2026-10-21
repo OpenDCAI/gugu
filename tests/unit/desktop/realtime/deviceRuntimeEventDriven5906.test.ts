@@ -198,7 +198,7 @@ describe('#5906 device runtime is event-driven: no shared metronome', () => {
           }
           return () => undefined
         },
-        subscribeDeviceRpc: async () => () => undefined,
+        subscribeDeviceRpc: async () => ({ ready: Promise.resolve(true), unsubscribe: () => undefined }),
       })
       host.start()
       try {
@@ -225,8 +225,7 @@ describe('#5906 device runtime is event-driven: no shared metronome', () => {
     },
   )
 
-  test('设备 RPC 先订、心跳后写:设备行里出现这台(带版本)时,它已经接得了 RPC', async () => {
-    // 看到机器上线 / 换完版就去开线的那一方(会话页的机器线)发的是 broadcast:频道还没订上,请求直接丢,只能等超时
+  test('先登记 offline 再订 RPC:订上后设备行才变 online', async () => {
     const env = await isolatedGuguEnv('gugu-rpc-before-heartbeat-')
     const client = newClient()
     let heartbeatsBeforeRpc: number | null = null
@@ -234,13 +233,38 @@ describe('#5906 device runtime is event-driven: no shared metronome', () => {
       superviseIntervalMs: 60_000,
       subscribeDeviceRpc: async () => {
         heartbeatsBeforeRpc ??= client.upserts.length
-        return () => undefined
+        return { ready: Promise.resolve(true), unsubscribe: () => undefined }
       },
     })
     host.start()
     try {
       await waitFor(() => heartbeatsBeforeRpc !== null && client.upserts.length >= 1, '首轮订了设备 RPC,也写了心跳(阳控)')
-      expect(heartbeatsBeforeRpc).toBe(0)
+      expect(heartbeatsBeforeRpc).toBe(1)
+      expect(client.upserts[0]?.row.status).toBe('offline')
+      expect(client.upserts[1]?.row.status).toBe('online')
+    } finally {
+      await host.stop()
+    }
+  })
+
+  test('首次 RPC 授权失败时只登记 offline,不把设备伪装成 online', async () => {
+    const env = await isolatedGuguEnv('gugu-rpc-registration-failure-')
+    const client = newClient()
+    let subscriptions = 0
+    const { host } = startedHost(env, client, {
+      superviseIntervalMs: 60_000,
+      subscribeDeviceRpc: async () => {
+        subscriptions += 1
+        return { ready: Promise.resolve(false), unsubscribe: () => undefined }
+      },
+    })
+    host.start()
+    try {
+      await waitFor(() => client.upserts.length >= 1 && !host.getDebugSnapshot().ticking, '离线登记、订阅失败')
+      expect(subscriptions).toBe(1)
+      expect(client.upserts[0]?.row.status).toBe('offline')
+      await sleep(100)
+      expect(subscriptions).toBe(1)
     } finally {
       await host.stop()
     }
