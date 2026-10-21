@@ -556,7 +556,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(harness().deps)
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_create', 'group_list', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
+      'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_announcement_delete', 'group_announcement_post', 'group_announcement_update', 'group_avatar_set', 'group_create', 'group_flood_undo', 'group_info', 'group_join_decide', 'group_join_requests', 'group_leave', 'group_list', 'group_remove_member', 'group_set_role', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
       'message_rules', 'message_search', 'message_send', 'message_send_as_owner', 'message_send_file', 'message_send_file_as_owner',
       'owner_friends_list', 'profile_lookup', 'profile_update', 'profile_whoami', 'session_peers',
       'topic_invite', 'topic_list', 'topic_members', 'topic_open',
@@ -1050,13 +1050,13 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const target = '11111111-1111-4111-8111-111111111111'
     const h = harness(['agent-1'])
     const baseRpc = h.deps.restRpc
-    const rpc = vi.fn(async (name: string, body: Record<string, unknown>, profile?: string) => name === 'request_agent_group_invitation'
+    const rpc = vi.fn(async (name: string, body: Record<string, unknown>, profile?: string) => name === 'request_group_invitation_as'
       ? { status: 'pending', chat_id: 'c1', invitation_id: 'invite-1', invitee_user_id: target }
       : baseRpc(name, body, profile))
     h.deps.restRpc = rpc
     const result = JSON.parse(await callTool('message_invite', { chat_id: 'c1', to_user_ids: [`user:${target}`], text: '请协助评审' }, h.deps))
-    expect(rpc).toHaveBeenCalledWith('request_agent_group_invitation', {
-      p_chat_id: 'c1', p_agent_user_id: 'agent-1', p_invitee_user_id: target, p_message: '请协助评审',
+    expect(rpc).toHaveBeenCalledWith('request_group_invitation_as', {
+      p_chat_id: 'c1', p_as_user_id: 'agent-1', p_invitee_user_id: target, p_message: '请协助评审',
     })
     expect(result).toMatchObject({ status: 'pending', invitee_user_id: `user:${target}` })
     expect(h.calls.inserts).toHaveLength(0)
@@ -1066,7 +1066,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     await expect(callTool('message_invite', { chat_id: 'c1', to_user_ids: [], text: '请加入' }, h.deps)).rejects.toThrow(/exactly one/)
     const rpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => {
-      if (name === 'request_agent_group_invitation') throw new Error('Group does not allow this member to invite')
+      if (name === 'request_group_invitation_as') throw new Error('Group does not allow this member to invite')
       return rpc(name, body, profile)
     }
     await expect(callTool('message_invite', { chat_id: 'c1', to_user_ids: ['user:someone'], text: '请加入' }, h.deps)).rejects.toThrow(/does not allow/)
@@ -1077,7 +1077,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const rpc = vi.fn(async () => [{ id: 'inv-1', status: 'rejected' }])
     h.deps.restRpc = rpc
     const result = JSON.parse(await callTool('message_invitations', {}, h.deps))
-    expect(rpc).toHaveBeenCalledWith('list_agent_group_invitations', { p_agent_user_id: 'agent-1' })
+    expect(rpc).toHaveBeenCalledWith('list_group_invitations_as', { p_as_user_id: 'agent-1', p_sent: true, p_include_decided: true })
     expect(result).toEqual({ total: 1, rows: '1-1', next: null, items: [{ id: 'inv-1', status: 'rejected' }] })
   })
   test('message_send validator follows renderer markdown/math boundaries', () => {
@@ -2307,7 +2307,10 @@ describe('MCP 工具对外声明的入参 schema', () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
     const { tools } = await client.listTools()
     const violations = tools.flatMap((tool) =>
-      findAgentOwnedMessageIdFields(tool.inputSchema).map((field) => `${tool.name}.${field}`),
+      findAgentOwnedMessageIdFields(tool.inputSchema)
+        // This is an existing admission record to decide, rather than a caller-created message ID.
+        .filter((field) => !(tool.name === 'group_join_decide' && field === 'request_id'))
+        .map((field) => `${tool.name}.${field}`),
     )
     expect(violations).toEqual([])
     const reply = tools.find((tool) => tool.name === 'message_send')
@@ -2655,7 +2658,7 @@ describe('write tools refuse unknown keys (#6840)', () => {
     const r = await client.callTool({ name: 'message_invite', arguments: { chat_id: 'c1', to_user_ids: ['user:alice'], text: 'join us', force: true } })
     expect(r.isError).toBe(true)
     expect(text(r)).toMatch(/不认识的参数 force;合法参数:chat_id、to_user_ids、text/)
-    expect(h.calls.rpcs.map(([name]) => name)).not.toContain('request_agent_group_invitation')
+    expect(h.calls.rpcs.map(([name]) => name)).not.toContain('request_group_invitation_as')
   })
 
   test('a read tool still ignores a key it does not know', async () => {
@@ -2671,7 +2674,7 @@ describe('write tools refuse unknown keys (#6840)', () => {
     const { tools } = await client.listTools()
     const writers = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>).filter((def) => def.writer).map((def) => def.name)
     // Includes both delegated text and attachment writers; workspace writers live in the folder App.
-    expect(writers).toHaveLength(12)
+    expect(writers).toHaveLength(21)
     for (const name of writers) {
       expect(tools.find((tool) => tool.name === name)?.inputSchema, name).toMatchObject({ additionalProperties: false })
     }

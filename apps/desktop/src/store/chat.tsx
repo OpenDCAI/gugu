@@ -3,7 +3,8 @@ import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useToast, type ToastType } from '../components/toastContext'
-import { createOptimisticGroupChat, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { useGroupCreation } from './useGroupCreation'
 import { mergeMessagesById, optimisticReplyFields, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { useNotificationSettings } from '../lib/notificationSettings'
 import {
@@ -898,16 +899,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [applyFreshMessageSnapshot, getMessageSnapshotEpoch, user],
   )
 
-  const createGroupChat = useCallback(
-    async (name: string, memberIds: string[], groupPrompt?: string | null): Promise<string> => {
-      if (!user) throw new Error('Not authenticated')
-      const chatId = await chatService.createGroupChat(name, user.id, memberIds, groupPrompt)
-      await loadChats()
-      setChats((prev) => upsertChatRow(prev, createOptimisticGroupChat(chatId, name)))
-      return chatId
-    },
-    [user, loadChats],
-  )
+  const createGroupChat = useGroupCreation({ userId, loadChats, setChats, toast })
 
   const clearMessages = useCallback(async () => {
     const chatId = activeChatIdRef.current
@@ -998,10 +990,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (activeChatIdRef.current === chatId) setActiveChatId(null)
   }, [setActiveChatId, dropDraftAttachments, dropTextDraft])
 
-  // #901 退出群聊（成员）：删自己的 chat_members 行（RLS members_delete_self），再本地清理。
+  // #901 退出群聊：共同 RPC 确认移除本人席位后，再本地清理。
   const leaveGroup = useCallback(async (chatId: string) => {
     if (!user) throw new Error('Not authenticated')
-    await chatService.leaveGroup(chatId, user.id)
+    await chatService.removeGroupMember(chatId, user.id)
     projectionRef.current.forgetChat(chatId) // 同 deleteChat:退出是权威动作 (#4314)
     setChats((prev) => prev.filter((c) => c.id !== chatId))
     dropTextDraft(chatId)

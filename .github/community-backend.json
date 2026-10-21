@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "79f4a59dc1e9bf3b61351854f0c00e4a5b58c99a",
-  "status": "unpublished local source candidate; repository publication pending review"
+  "ref": "4f36af12e88e6493a2fbd804100eee0c797d6031",
+  "status": "Paired group-administration release under review; pin the merged backend commit before client merge."
 }

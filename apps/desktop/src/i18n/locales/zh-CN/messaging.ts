@@ -458,8 +458,11 @@ export default {
     "nameLoading": "加载中...",
     "namePlaceholder": "群名称",
     "picker": {
+      "invitationHint": "自己的 Agent 直接加入；其他成员接受邀请后加入。",
+      "sendInvitation": "发送邀请",
       "agentRequestPending": "已提交审批，等群主或管理员批准",
       "agentRequestRejected": "上次的申请被拒绝了，可以再提交一次",
+      "invitationSent": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
       "pendingApproval": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_one": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_other": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",

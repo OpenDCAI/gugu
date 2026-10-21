@@ -157,7 +157,7 @@ describe('#6418 群成员面板 —— 资料卡与管理', () => {
     const readsBefore = getGroupCollab.mock.calls.length
     await click(removeItem)
     await waitForCondition(() => removeMember.mock.calls.length === 1, 'remove called')
-    expect(removeMember).toHaveBeenCalledWith('chat-1', 'codex', true)
+    expect(removeMember).toHaveBeenCalledWith('chat-1', 'codex')
     await waitForCondition(() => getGroupCollab.mock.calls.length > readsBefore, 'roster reloaded')
   })
 
@@ -239,7 +239,7 @@ describe('主动 / 被动归 agent 的主人', () => {
     await click(q('[data-member-row="codex"] button[aria-label^="管理"]'))
     expect(menuItems()).toEqual(['改为主动', '让它退出群聊'])
     await click([...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === '让它退出群聊') as HTMLElement)
-    expect(removeMember.mock.calls).toEqual([['chat-1', 'codex', true]])
+    expect(removeMember.mock.calls).toEqual([['chat-1', 'codex']])
   })
 
   it('普通成员点开自己 agent 的资料卡:没有角色选择,有「让它退出群聊」', async () => {
