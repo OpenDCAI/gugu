@@ -233,6 +233,10 @@ jobs:
         with:
           save-cache: 'true'
       - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
+      # The unit shards run on Linux. These files hold the unit cases whose result depends on macOS
+      # (darwin-only cases, JXA/osacompile, keychain, FSEvents subscription semantics); they were
+      # found by diffing per-file run/skip/fail counts of the Linux shards against the macOS shards.
+      - run: pnpm exec vitest run --project gugu --project session-main --project session-packages tests/unit/desktop/electron/deviceActions tests/unit/desktop/electron/loginShellProbe apps/desktop/electron/session/main/core/browser/browser-cookie-import packages/session-plugins/src/agents/impl/copilot/subscription packages/session-core/src/services/fs-watch/
       # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
       # off by a line on Linux), so this browser project stays here.
       - uses: ./.github/actions/setup-playwright
