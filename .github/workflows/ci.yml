@@ -17,13 +17,84 @@ env:
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
   VITE_SUPABASE_ANON_KEY: community-build-placeholder
 jobs:
+  # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
+  # every event (scripts/ci-spec-coverage.mjs rejects conditions on any job that runs a test runner).
+  # Push to dev/main and manual runs always build everything.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.classify.outputs.build }}
+      desktop-mac: ${{ steps.classify.outputs.desktop-mac }}
+      android: ${{ steps.classify.outputs.android }}
+    steps:
+      # A pull_request run checks out the merge commit; its first parent is the base branch tip,
+      # so HEAD^1..HEAD is exactly what the PR changes.
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          sparse-checkout: .github
+      - id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          build=true
+          desktop_mac=true
+          android=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            build=false
+            desktop_mac=false
+            android=false
+            changed=$(git diff --name-only HEAD^1 HEAD)
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              # Markdown and docs/ feed no build or package.
+              case "$file" in
+                *.md|docs/*) continue ;;
+              esac
+              build=true
+              # Toolchain, dependencies and CI itself can break any platform build.
+              case "$file" in
+                .github/workflows/ci.yml|.github/actions/*|.node-version|.npmrc|package.json|*/package.json|pnpm-lock.yaml|pnpm-workspace.yaml|patches/*)
+                  desktop_mac=true
+                  android=true
+                  ;;
+              esac
+              # The macOS build differs from the Linux one (which runs on every PR) only in the
+              # vendoring, native-rebuild and build scripts and their inputs.
+              case "$file" in
+                scripts/*|vite.config.mts|electron-builder.cjs|build-resources/*|apps/desktop/native/*|apps/desktop/session-tooling/node-deps/*)
+                  desktop_mac=true
+                  ;;
+              esac
+              # The web bundle the Android shell wraps is built by renderer-build on every PR.
+              case "$file" in
+                apps/mobile/*|capacitor.config.ts|scripts/android-gradle-build.sh|scripts/phone-web-dir.mjs)
+                  android=true
+                  ;;
+              esac
+            done <<< "$changed"
+          fi
+          {
+            echo "build=$build"
+            echo "desktop-mac=$desktop_mac"
+            echo "android=$android"
+          } >> "$GITHUB_OUTPUT"
+          # scripts/check-verdict.mjs reads this annotation (JOB_OUTPUTS_MARKER) to tell a build
+          # skipped by design from an unexpected skip; keep it in step with the outputs above.
+          echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac android=$android"
   policy:
     name: Source checks
-    runs-on: macos-14
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # The one Linux job that saves the dependency cache when the lockfile changed.
       - uses: ./.github/actions/setup-community
+        with:
+          save-cache: 'true'
       - name: Check frozen source file growth
         if: github.event_name == 'pull_request'
         env:
@@ -59,20 +130,22 @@ jobs:
           fi
           node scripts/ci-spec-coverage.mjs "${args[@]}"
   unit:
-    name: Unit tests (${{ matrix.shard }}/2)
-    runs-on: macos-14
+    name: Unit tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
-      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/2
+      - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
   renderer-build:
     name: Renderer build (web target)
-    runs-on: macos-14
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       GUGU_CLOUD_COMPUTER_ENABLED: 'false'
@@ -85,9 +158,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
       - run: pnpm build:renderer:ci
-  desktop-build:
-    name: Desktop app build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  desktop-build-linux:
+    name: Desktop app build (ubuntu-24.04)
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       GUGU_CLOUD_COMPUTER_ENABLED: 'false'
@@ -96,21 +171,38 @@ jobs:
       VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
       # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
       NODE_OPTIONS: --max-old-space-size=6144
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14, ubuntu-24.04]
     steps:
       - uses: actions/checkout@v4
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y tmux libnss3 libgtk-3-0t64 libgbm1 libasound2t64
-      - if: runner.os == 'macOS'
-        run: command -v tmux || brew install tmux
+      - run: sudo apt-get update && sudo apt-get install -y tmux libnss3 libgtk-3-0t64 libgbm1 libasound2t64
+      - uses: ./.github/actions/setup-community
+      - run: pnpm build:app:ci
+      - run: pnpm rebuild:native
+  # The slowest job (~10 min on the 3-core / 7 GB macOS runner). On a pull request it runs only
+  # when something the macOS build depends on beyond the Linux build changed (see `changes`);
+  # pushes to dev and main always run it.
+  desktop-build-mac:
+    name: Desktop app build (macos-14)
+    needs: changes
+    if: needs.changes.outputs.desktop-mac == 'true'
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      VITE_GUGU_CLOUD_COMPUTER_ENABLED: 'false'
+      GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
+      # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+      - run: command -v tmux || brew install tmux
       - uses: ./.github/actions/setup-community
       - run: pnpm build:app:ci
       - run: pnpm rebuild:native
   android-build:
     name: Android debug build
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -126,6 +218,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/**/gradle-wrapper.properties
+            apps/mobile/android/gradle.properties
       - uses: ./.github/actions/setup-community
       - run: pnpm android:build
   session-db:
@@ -134,11 +231,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # The one macOS job that runs on every event, so it saves the macOS caches.
       - uses: ./.github/actions/setup-community
+        with:
+          save-cache: 'true'
       - run: pnpm exec vitest run --project session-main-db --project session-migrations --project tooling
+      # The unit shards run on Linux. These files hold the unit cases whose result depends on macOS
+      # (darwin-only cases, JXA/osacompile, keychain, FSEvents subscription semantics); they were
+      # found by diffing per-file run/skip/fail counts of the Linux shards against the macOS shards.
+      - run: pnpm exec vitest run --project gugu --project session-main --project session-packages tests/unit/desktop/electron/deviceActions tests/unit/desktop/electron/loginShellProbe apps/desktop/electron/session/main/core/browser/browser-cookie-import packages/session-plugins/src/agents/impl/copilot/subscription packages/session-core/src/services/fs-watch/
       # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
       # off by a line on Linux), so this browser project stays here.
-      - run: pnpm exec playwright install chromium
+      - uses: ./.github/actions/setup-playwright
+        with:
+          save-cache: 'true'
       - run: pnpm exec vitest run --project session-chat-ui-browser
   session-browser:
     name: Session browser project
@@ -150,7 +256,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
-      - run: pnpm exec playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
+        with:
+          with-deps: 'true'
+          save-cache: 'true'
       - run: pnpm exec vitest run --project session-browser
   web-smoke:
     name: Web E2E (${{ matrix.id }})
@@ -176,7 +285,9 @@ jobs:
       - uses: ./.github/actions/setup-community
       - name: Bind run-owned web resources
         run: echo "GUGU_E2E_RUN_ID=community-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
-      - run: pnpm exec playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
+        with:
+          with-deps: 'true'
       - name: Run automatically discovered CI web specs
         run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
       - name: Verify local Playwright artifacts exist
@@ -240,19 +351,43 @@ jobs:
   gate:
     name: Typecheck, lint, and test
     if: ${{ always() }}
-    needs: [policy, unit, renderer-build, desktop-build, android-build, session-db, session-browser, web-smoke, supabase-contract]
+    needs: [changes, policy, unit, renderer-build, desktop-build-linux, desktop-build-mac, android-build, session-db, session-browser, web-smoke, supabase-contract]
     runs-on: ubuntu-24.04
     steps:
       - name: Require all upstream jobs to have passed
         run: |
-          if [ "${{ needs.policy.result }}" != "success" ] ||
+          if [ "${{ needs.changes.result }}" != "success" ] ||
+             [ "${{ needs.policy.result }}" != "success" ] ||
              [ "${{ needs.unit.result }}" != "success" ] ||
-             [ "${{ needs.renderer-build.result }}" != "success" ] ||
-             [ "${{ needs.desktop-build.result }}" != "success" ] ||
-             [ "${{ needs.android-build.result }}" != "success" ] ||
              [ "${{ needs.session-db.result }}" != "success" ] ||
              [ "${{ needs.session-browser.result }}" != "success" ] ||
              [ "${{ needs.web-smoke.result }}" != "success" ] || \
              [ "${{ needs.supabase-contract.result }}" != "success" ]; then
             exit 1
           fi
+      # A path-filtered build may be skipped only when `changes` (which passed above) said it was
+      # not due; when it was due, only success counts.
+      - name: Require every due packaging build to have passed
+        env:
+          BUILD_DUE: ${{ needs.changes.outputs.build }}
+          DESKTOP_MAC_DUE: ${{ needs.changes.outputs.desktop-mac }}
+          ANDROID_DUE: ${{ needs.changes.outputs.android }}
+          RENDERER_BUILD: ${{ needs.renderer-build.result }}
+          DESKTOP_BUILD_LINUX: ${{ needs.desktop-build-linux.result }}
+          DESKTOP_BUILD_MAC: ${{ needs.desktop-build-mac.result }}
+          ANDROID_BUILD: ${{ needs.android-build.result }}
+        run: |
+          failed=0
+          require() {
+            if [ "$2" = success ] || { [ "$3" != true ] && [ "$2" = skipped ]; }; then
+              echo "$1: $2 (due: $3)"
+            else
+              echo "::error::$1 finished as $2 (due: $3)"
+              failed=1
+            fi
+          }
+          require renderer-build "$RENDERER_BUILD" "$BUILD_DUE"
+          require desktop-build-linux "$DESKTOP_BUILD_LINUX" "$BUILD_DUE"
+          require desktop-build-mac "$DESKTOP_BUILD_MAC" "$DESKTOP_MAC_DUE"
+          require android-build "$ANDROID_BUILD" "$ANDROID_DUE"
+          exit "$failed"

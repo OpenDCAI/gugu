@@ -16,6 +16,7 @@ import YAML from 'yaml'
 
 import {
   associateCheckRunEvents,
+  attachDeciderOutputs,
   attachPullRequestMergeState,
   classifyCheckSnapshot,
   completePullRequestFiles,
@@ -24,7 +25,9 @@ import {
   eventHasSubscribingWorkflow,
   shouldReadPullRequestMergeState,
   GITHUB_PR_FILES_API_CAP,
+  JOB_OUTPUTS_MARKER,
   loadWorkflowInventory,
+  parseJobOutputsAnnotations,
   pullRequestEvents,
   workflowRunsForEvent
 } from '../../../scripts/check-verdict.mjs'
@@ -746,9 +749,10 @@ if (args[0] === 'pr') {
     // #5354: 分片 2 -> 4(池是 16 个并行槽,两片各 ~195s 时 unit 排在关键路径第二)。这份清单是
     // check-verdict 判绿的依据,分片数改了不同步,PR 会一直等两个永远不会出现的检查。
     // #6270: 4 -> 2(worker 按余量分)。清单是判绿依据,分片数不同步会让 PR 一直等不存在的检查。
-    expect(names).toContain('Unit tests (1/2)')
-    expect(names).toContain('Unit tests (2/2)')
-    expect(names).not.toContain('Unit tests (3/4)')
+    // Community CI: 2 macOS shards -> 4 ubuntu shards (unit was the longest test job at ~7 min a shard).
+    expect(names).toContain('Unit tests (1/4)')
+    expect(names).toContain('Unit tests (4/4)')
+    expect(names).not.toContain('Unit tests (1/2)')
     expect(names).toContain('Web E2E (local)')
     // #5354: electron 目标从 renderer-build 拆出来后自带的新必过检查名。
     expect(names).toContain('Renderer build (web target)')
@@ -783,6 +787,130 @@ if (args[0] === 'pr') {
         { cwd: '/candidate', encoding: 'utf8' }
       ]
     ])
+  })
+
+  describe('builds that the changes job skipped by design (@@@path-filtered-jobs)', () => {
+    const DECIDER = 'Detect changed areas'
+    const MAC = 'Desktop app build (macos-14)'
+    const ANDROID = 'Android debug build'
+
+    function realCiProfiles() {
+      return deriveCheckProfiles([
+        event({
+          id: 'pull_request:#fixture',
+          type: 'pull_request',
+          action: 'synchronize',
+          baseRef: 'dev',
+          changedPaths: ['apps/desktop/src/App.tsx'],
+          inventoryRef: 'HEAD',
+          workflows: [
+            { path: '.github/workflows/ci.yml', source: readFileSync('.github/workflows/ci.yml', 'utf8') }
+          ]
+        })
+      ])
+    }
+
+    /** Every real ci.yml check succeeds, except where overridden. */
+    function snapshot(
+      profiles: ReturnType<typeof deriveCheckProfiles>,
+      overrides: Record<string, Partial<CheckRun> & { outputs?: Record<string, string> }>
+    ) {
+      return profiles
+        .flatMap((profile) => profile.checks)
+        .map((name, index) => ({ ...completed(index + 1, 'pull_request', name), ...overrides[name] }))
+    }
+
+    const skipped = { conclusion: 'skipped' }
+    const typicalSourcePr = { build: 'true', 'desktop-mac': 'false', android: 'false' }
+
+    it('ties exactly the real path-filtered builds to the changes job output that gates them', () => {
+      const [profile] = realCiProfiles()
+
+      expect(profile.pathFiltered).toEqual({
+        'Renderer build (web target)': { decider: DECIDER, output: 'build' },
+        'Desktop app build (ubuntu-24.04)': { decider: DECIDER, output: 'build' },
+        [MAC]: { decider: DECIDER, output: 'desktop-mac' },
+        [ANDROID]: { decider: DECIDER, output: 'android' }
+      })
+    })
+
+    it('is GREEN when the skipped builds are exactly the ones the changes job said were not due', () => {
+      const profiles = realCiProfiles()
+      const runs = snapshot(profiles, {
+        [DECIDER]: { outputs: typicalSourcePr },
+        [MAC]: skipped,
+        [ANDROID]: skipped
+      })
+
+      expect(evaluateCheckSnapshots(profiles, [runs, runs])).toMatchObject({
+        verdict: 'GREEN',
+        failed: [],
+        skippedNotDue: [`pull_request/${ANDROID}`, `pull_request/${MAC}`]
+      })
+    })
+
+    it('stays RED on a skip the changes job did not decide', () => {
+      const profiles = realCiProfiles()
+      const verdict = (overrides: Parameters<typeof snapshot>[1]) => {
+        const runs = snapshot(profiles, overrides)
+        return evaluateCheckSnapshots(profiles, [runs, runs])
+      }
+
+      // Due, yet skipped.
+      expect(
+        verdict({ [DECIDER]: { outputs: { ...typicalSourcePr, 'desktop-mac': 'true' } }, [MAC]: skipped })
+      ).toMatchObject({
+        verdict: 'RED',
+        failed: [`pull_request/${MAC} (skipped although ${DECIDER} reported desktop-mac=true)`]
+      })
+      // The decider published no decision.
+      expect(verdict({ [MAC]: skipped })).toMatchObject({
+        verdict: 'RED',
+        failed: [`pull_request/${MAC} (skipped; ${DECIDER} published no ci-job-outputs desktop-mac)`]
+      })
+      // The decider failed, so every build it gates was skipped.
+      expect(
+        verdict({ [DECIDER]: { conclusion: 'failure', outputs: typicalSourcePr }, [ANDROID]: skipped })
+      ).toMatchObject({
+        verdict: 'RED',
+        failed: [`pull_request/${ANDROID} (skipped; ${DECIDER} failure)`, `pull_request/${DECIDER} (failure)`]
+      })
+      // A job with no path filter must never be skipped.
+      expect(
+        verdict({ [DECIDER]: { outputs: typicalSourcePr }, 'Unit tests (1/4)': skipped })
+      ).toMatchObject({ verdict: 'RED', failed: ['pull_request/Unit tests (1/4) (skipped)'] })
+      // Decider still running: not decided yet.
+      expect(
+        verdict({ [DECIDER]: { status: 'in_progress', conclusion: null }, [MAC]: skipped })
+      ).toMatchObject({ verdict: 'WAIT', pending: [`pull_request/${MAC}`, `pull_request/${DECIDER}`] })
+    })
+
+    it('reads the decision from the decider check run annotation, and only from a successful decider', () => {
+      const profiles = realCiProfiles()
+      const runs = [
+        { id: 7, event: 'pull_request', name: DECIDER, status: 'completed', conclusion: 'success' },
+        { id: 8, event: 'pull_request', name: MAC, status: 'completed', conclusion: 'skipped' },
+        { id: 9, event: 'push', name: DECIDER, status: 'completed', conclusion: 'failure' }
+      ] as Array<CheckRun & { outputs?: Record<string, string> }>
+      const fetchAnnotations = vi.fn(() => [
+        { title: 'something else', message: 'build=false' },
+        { title: JOB_OUTPUTS_MARKER, message: 'build=true desktop-mac=false android=false' }
+      ])
+
+      attachDeciderOutputs(runs, profiles, fetchAnnotations)
+
+      expect(fetchAnnotations.mock.calls).toEqual([[7]])
+      expect(runs[0].outputs).toEqual(typicalSourcePr)
+      expect(runs[2].outputs).toBeUndefined()
+      expect(parseJobOutputsAnnotations([])).toBeUndefined()
+      expect(
+        parseJobOutputsAnnotations([
+          { title: JOB_OUTPUTS_MARKER, message: 'build=true' },
+          { title: JOB_OUTPUTS_MARKER, message: 'build=false' }
+        ])
+      ).toBeUndefined()
+      expect(parseJobOutputsAnnotations([{ title: JOB_OUTPUTS_MARKER, message: 'build true' }])).toBeUndefined()
+    })
   })
 
   it('fails loudly on ambiguous or dynamically named workflow inventory', () => {

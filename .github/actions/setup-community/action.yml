@@ -1,5 +1,13 @@
 name: Set up community toolchain
 description: Install the pinned public toolchain without internal runners or credentials
+inputs:
+  save-cache:
+    description: >-
+      Save the pnpm store and Electron download caches at the end of the job when the exact key
+      missed. Exactly one job per runner OS sets this; every other job only restores, so parallel
+      jobs do not each compress the ~900 MB store and then race for the same cache key.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -7,6 +15,32 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version-file: .node-version
-        cache: pnpm
+    - id: cache-paths
+      shell: bash
+      run: |
+        echo "pnpm-store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        if [ "$RUNNER_OS" = macOS ]; then
+          echo "electron=$HOME/Library/Caches/electron" >> "$GITHUB_OUTPUT"
+        else
+          echo "electron=$HOME/.cache/electron" >> "$GITHUB_OUTPUT"
+        fi
+    # Keyed on the lockfile; on a lockfile change the newest older store is restored and pnpm only
+    # downloads the difference.
+    - if: inputs.save-cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.cache-paths.outputs.pnpm-store }}
+          ${{ steps.cache-paths.outputs.electron }}
+        key: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-
+    - if: inputs.save-cache != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ${{ steps.cache-paths.outputs.pnpm-store }}
+          ${{ steps.cache-paths.outputs.electron }}
+        key: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: community-deps-v1-${{ runner.os }}-${{ runner.arch }}-
     - shell: bash
       run: pnpm install --frozen-lockfile

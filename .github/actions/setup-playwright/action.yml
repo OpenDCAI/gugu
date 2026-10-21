@@ -1,0 +1,43 @@
+name: Set up Playwright Chromium
+description: Restore the Playwright browser cache for the installed Playwright version, then install Chromium
+inputs:
+  with-deps:
+    description: Also install the browser's system packages (Linux runners).
+    required: false
+    default: 'false'
+  save-cache:
+    description: Save the browser cache at the end of the job when the exact key missed (one job per runner OS).
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - id: playwright
+      shell: bash
+      run: |
+        echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        if [ "$RUNNER_OS" = macOS ]; then
+          echo "browsers=$HOME/Library/Caches/ms-playwright" >> "$GITHUB_OUTPUT"
+        else
+          echo "browsers=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
+        fi
+    - if: inputs.save-cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.playwright.outputs.browsers }}
+        key: playwright-chromium-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+    - if: inputs.save-cache != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.playwright.outputs.browsers }}
+        key: playwright-chromium-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+    # With the browsers restored this only verifies them (and, with deps, installs the apt packages).
+    - shell: bash
+      env:
+        WITH_DEPS: ${{ inputs.with-deps }}
+      run: |
+        if [ "$WITH_DEPS" = true ]; then
+          pnpm exec playwright install --with-deps chromium
+        else
+          pnpm exec playwright install chromium
+        fi
