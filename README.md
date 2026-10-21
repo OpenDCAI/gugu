@@ -11,11 +11,11 @@ Licensed under a modified Apache License 2.0 — see [LICENSE](LICENSE). Persona
 You need Git, the Node version in `.node-version`, the pnpm version in `package.json`, and a dedicated Supabase project under your own account. Models use your own Claude account or API key; the official models and official cloud hosting are optional.
 
 1. Get the community backend [gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) and initialize a new dedicated Supabase project as its README describes.
-2. In the backend, run `pnpm setup --client-dir /path/to/gugu` to write the public connection settings into this repository's `.envs/local.env`. Access tokens stay in your local environment.
-3. In this repository, run `pnpm install --frozen-lockfile`, then `GUGU_DB_TARGET=local bash scripts/dev-app.sh`.
+2. In the backend, run `pnpm run setup --client-dir /path/to/gugu` (plain `pnpm setup` is pnpm's own command) to write the public connection settings into this repository's `.envs/local.env`. Access tokens stay in your local environment.
+3. In this repository, run `pnpm install --frozen-lockfile` and `pnpm rebuild:native`, then `GUGU_DB_TARGET=local bash scripts/dev-app.sh`.
 4. Sign in with your email, add your own Claude account or API key under Settings → Subscriptions, then create a local assistant.
 
-SMTP and Supabase project administration are up to the installer. Attachments use your own Supabase Storage; collaborative file editing additionally needs the Node service in the backend's `services/files`. See [optional official services](docs/optional-cloud-services.md) and [CONTRIBUTING](CONTRIBUTING.md).
+Sign-in uses an emailed code, so configure your own SMTP; the [self-hosting guide](https://github.com/OpenDCAI/gugu-supabase/blob/dev/docs/self-hosting.md) covers SMTP, the free Supabase plan and troubleshooting. Attachments use your own Supabase Storage; collaborative file editing additionally needs the Node service in the backend's `services/files`. See [optional official services](docs/optional-cloud-services.md) and [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Repositories
 

@@ -16,6 +16,7 @@ pnpm build:renderer
 启动桌面开发版：
 
 ```bash
+pnpm rebuild:native   # 每次 install 后一次：为 Electron 编译原生模块，否则 verify-dev-native 报 pty.node 不存在
 GUGU_DB_TARGET=local bash scripts/dev-app.sh
 ```
 
