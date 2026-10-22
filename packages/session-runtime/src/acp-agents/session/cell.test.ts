@@ -1171,6 +1171,35 @@ describe('SessionCell prompts', () => {
     expect(cell.sessionState.backgroundAgentCount, 'the background agent keeps running').toBe(1);
   });
 
+  // ACP v2:父回合在自己的结果处结束,有自己会话的子智能体照跑,它的结局由它自己报。
+  it('keeps a subagent with its own session running past the end of the turn that launched it', async () => {
+    const { cell, agent } = makeCell();
+    let resolvePrompt!: (value: { stopReason: 'end_turn' }) => void;
+    agent.prompt = vi.fn(
+      () => new Promise<{ stopReason: 'end_turn' }>((resolve) => { resolvePrompt = resolve; })
+    );
+    const sent = cell.prompt({ text: 'launch a child', origin: 'typed' });
+    cell.push({
+      kind: 'subagent',
+      toolCallId: 'child-1',
+      subagentSessionId: 'child-1',
+      title: 'general-purpose',
+      status: 'in_progress',
+      parentToolCallId: null,
+      canCancel: true,
+    });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    resolvePrompt({ stopReason: 'end_turn' });
+    await sent;
+
+    expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.transcript.agents.find((a) => a.agentId === 'child-1')?.status).toBe('running');
+    expect(cell.sessionState.backgroundAgentCount).toBe(1);
+
+    cell.push({ kind: 'subagent_done', toolCallId: 'child-1', agentId: 'child-1', subagentSessionId: 'child-1', status: 'completed' });
+    expect(cell.transcript.agents.find((a) => a.agentId === 'child-1')?.status).toBe('completed');
+  });
+
   // #6448 Claude 的 `run_in_background` Bash 不挂住回合:轮当场收口、命令还在跑。状态要数到它(park),
   // 但它不让会话变忙、也不开取消 —— 命令在自己的卡上停。事件序列照真机:spawned 不带归属,progress 才带(#5117)。
   it('counts a background command that outlives its turn, without making the session busy', async () => {
