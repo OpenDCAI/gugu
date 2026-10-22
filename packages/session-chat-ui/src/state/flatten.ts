@@ -321,13 +321,14 @@ export function flattenTier(
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
           // 跑着的那一段例外:agent 先说了一句、正去干活,过程还空着 —— 头占着位置等过程,❌ 撤掉再冒出来
-          // (`placeholderTurnHeader`)。那句话就在它下面,头不带微光(见 `withBody`)。
-          if (header?.live) {
+          // (`placeholderTurnHeader`)。那句话就在它下面,头不带微光(见 `withBody`)。这一段还什么都没有
+          // (在等人答提问、刚插了话)就不占:那时 agent 没在想(#124 review)。
+          if (header?.live && segment.tail.length > 0) {
             processItem({
               kind: 'turn-process',
               ...placeholderTurnHeader(header.id),
               turnId: turn.id,
-              ...(segment.tail.length > 0 ? { withBody: true } : {}),
+              withBody: true,
             });
           }
           emitOps(ops, turn.id);
@@ -338,7 +339,8 @@ export function flattenTier(
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
-            withBody: true,
+            // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
+            ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
             ...(header.endedAt !== undefined ? { endedAt: header.endedAt } : {}),
           });

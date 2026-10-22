@@ -327,11 +327,12 @@ export function toThreadMessages(
         for (const segment of view.segments) {
           if (segment.header) {
             // 这一段过程单独成一条消息,折叠头挂在它上面;画不出东西就没有这条,也就没有头 ——
-            // 跑着的那一段除外:过程还空着(先开口说了一句、正去干活)时头占着位置(同桌面)。
+            // 跑着的那一段除外:过程还空着(先开口说了一句、正去干活)时头占着位置(同桌面);
+            // 这一段还什么都没有(在等人答提问、刚插了话)就不占。
             flushAssistant()
             emit(segment.process as readonly TranscriptItem[])
-            if (assistantParts.length === 0 && segment.header.live) pushHeaderOnly(placeholderTurnHeader(segment.header.id))
-            else flushAssistant({ turnProcess: segment.header })
+            if (assistantParts.length > 0) flushAssistant({ turnProcess: segment.header })
+            else if (segment.header.live && segment.tail.length > 0) pushHeaderOnly(placeholderTurnHeader(segment.header.id))
           } else {
             emit(segment.process as readonly TranscriptItem[])
           }

@@ -51,7 +51,7 @@ describe('session start with a first message', () => {
         (host.textContent?.includes(FIRST) ?? false) && header(host)?.getAttribute('data-live') === 'true'
       )
       expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
-      // 在跑,但不报秒数、不报启动步骤:还没有可折的过程,头只占位(行尾那个 › 是折叠箭头)。
+      // 在跑,但不报秒数、不报启动步骤:还没有可折的过程,头只占位。
       expect(header(host)?.textContent).toContain('Thinking…')
       expect(header(host)?.textContent).not.toMatch(/\d|Worked for/)
       expect(host.querySelector('[data-slot="session-condition"]')).toBeNull()

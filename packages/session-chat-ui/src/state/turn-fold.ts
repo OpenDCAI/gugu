@@ -169,6 +169,15 @@ export function turnProcessId(turnId: string, segment = 0): string {
  */
 export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   if (turn.outcome && turn.outcome.kind !== 'done') return null;
+  const plan = segmentTurn(turn);
+  return plan.segments.every((segment) => segment.process.length === 0) ? null : plan;
+}
+
+/**
+ * 一轮切成的段(钩子、边界线,判据见 `planTurnFold`),不管有没有可折的过程。`planTurnFold` 在它之上判折不折;
+ * 还没有可折的过程时,占位头(`pendingTurnHeader`)读它找自己将来那颗头的位置与 id。
+ */
+function segmentTurn(turn: TranscriptTurn): TurnFoldPlan {
   const items = turn.items as readonly ChatItem[];
   const clocked = turn.startedAt !== undefined;
   let leadEnd = 0;
@@ -242,7 +251,6 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   // Keep context boundaries, later user inputs and questions to the user outside
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
   const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
-  if (visible.every((segment) => segment.process.length === 0)) return null;
   const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
     (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
   );
@@ -414,7 +422,7 @@ export function joinsFoldRunAt(turns: readonly TranscriptTurn[], index: number, 
 }
 
 /** 一段过程的时间头:和桌面 `turn-process` 行同一组事实。 */
-export type TurnProcessHeader = { id: string; live: boolean; startedAt?: number; endedAt?: number };
+export type TurnProcessHeader = { id: string; live: boolean; placeholder?: boolean; startedAt?: number; endedAt?: number };
 
 /** Real results for the completion action bar when this run has no reply text. */
 export function completedTurnResult(turn: TranscriptTurn, run: TurnFoldRun | undefined, active: boolean): string | null {
@@ -491,23 +499,26 @@ export function turnFoldView(
 }
 
 /**
- * 跑着、这一段还没有可折的过程时,头先占着它的位置:写「正在思考…」、不数秒(`turnProcessLabel` 无起点)。
- * 过程一出现(第二句话把第一句推进过程,或第一个工具 / 思考到了),同一个 id 的头接着写「已处理 Ns」。
+ * 跑着、这一段还没有可折的过程时,头先占着它的位置:写「正在思考…」、不数秒、没有箭头(下面没有可展开的东西,
+ * ❌ 一个点了没反应的箭头)。过程一出现(第二句话把第一句推进过程,或第一个工具 / 思考到了),
+ * 同一个 id 的头接着写「已处理 Ns」。
  * owner 2026-10-23:「这个头不应该闪现,可以有个占位是正在思考。助理说话,然后第二句话的时候出现已处理多少秒」——
  * 从前 agent 先开口说一句、再去跑命令时,过程是空的,头被撤掉,第二句话到了又冒出来(真机:消失 13.7 s)。
  * 推翻 10-07「发出就在数「已处理 Ns」」:秒数只跟着可折的过程出现。
  */
 export function placeholderTurnHeader(id: string): TurnProcessHeader {
-  return { id, live: true };
+  return { id, live: true, placeholder: true };
 }
 
 /**
  * 跑着、还没有可折的过程(`planTurnFold` 为 null)时这一轮的头 —— 占位(`placeholderTurnHeader`),
- * 插在人说的那几句之后(`at` = 它前面有几条)。两种时候:
+ * 插在 `at`(它前面有几条)。两种时候:
  * ① 这一轮里只有人说的话:上游首字节常常要几十秒(10-07 devdb 网关实测 5–61 s),那段时间里没有任何一层有
- *    thinking 可画 —— 不画这一头,消息下面就是空的,像是没发出去(owner 10-07);
+ *    thinking 可画 —— 不画这一头,消息下面就是空的,像是没发出去(owner 10-07)。占在人那句话之后,第一段的 id;
  * ② 人问的这一轮,agent 先开口说了一句、正去干活:那句话是收尾的候选,过程还是空的(owner 10-23)。
- * id 就是过程折叠第一段的头:过程一到,它们落在同一个头下面,头不换、不跳。
+ *    占在**最后一段**那句话之前、用那一段的 id —— 前面有边界线(启动提示、提问、压缩)时,过程到了接手的是
+ *    线后面那一段的头;占在别处、用别的 id,接手时头就换位置再冒出来一次(#124 review)。
+ *    最后一段还什么都没有(在等人答提问、刚插了话、刚压缩完)就不占:那时 agent 没在想,❌ 一行「正在思考」在扫。
  * `folding` = 这一视图折不折过程。不折的视图(单栏)只有 ①:那里没有折叠头来接手,第一行内容一到占位就让位。
  * 桌面 `flattenTier` 与手机会话页共用这一条判断。
  */
@@ -518,11 +529,14 @@ export function pendingTurnHeader(
 ): { header: TurnProcessHeader; at: number } | null {
   if (!active) return null;
   const items = turn.items as readonly ChatItem[];
-  let at = 0;
-  while (at < items.length && itemIsUser(items[at] as ChatItem)) at++;
-  const userRun = at > 0 || turn.initiator === 'user';
-  if (at < items.length && !(folding && userRun)) return null;
-  return { header: placeholderTurnHeader(turnProcessId(turn.id)), at };
+  let lead = 0;
+  while (lead < items.length && itemIsUser(items[lead] as ChatItem)) lead++;
+  if (lead === items.length) return { header: placeholderTurnHeader(turnProcessId(turn.id)), at: lead };
+  if (!folding || !(lead > 0 || turn.initiator === 'user')) return null;
+  const { segments } = segmentTurn(turn);
+  const last = segments[segments.length - 1];
+  if (!last || last.tail.length === 0) return null;
+  return { header: placeholderTurnHeader(turnProcessId(turn.id, segments.length - 1)), at: items.indexOf(last.tail[0] as ChatItem) };
 }
 
 /**
@@ -531,12 +545,14 @@ export function pendingTurnHeader(
  * 一个会少报的计时器比没有计时器更糟。
  */
 export function turnProcessLabel(
-  process: { live?: boolean; startedAt?: number; endedAt?: number },
+  process: { live?: boolean; placeholder?: boolean; startedAt?: number; endedAt?: number },
   now: number,
   translate: (key: string, vars?: Record<string, string>) => string
 ): string {
   const { live, startedAt, endedAt } = process;
   if (live) {
+    // 占位(还没有可折的过程)与「在跑、但这一段不知道从哪开始」是两件事,两句话(#124 review)。
+    if (process.placeholder) return translate('transcript.turnPlaceholder');
     if (startedAt === undefined) return translate('transcript.working');
     return translate('transcript.turnElapsed', { elapsed: formatElapsed(Math.max(0, now - startedAt)) });
   }

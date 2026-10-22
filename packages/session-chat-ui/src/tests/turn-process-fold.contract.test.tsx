@@ -393,12 +393,16 @@ describe('#4981 #12 活动层的过程也折', () => {
       await until('live header collapses on click', () => header()?.dataset.expanded, (v) => v === 'false');
       await settled(host);
       expect(canvas().textContent ?? '').not.toContain('Checking the latest numbers first.');
+      // 收起来时下面什么都看不见,头是这一轮唯一的动静 ⇒ 微光回到头上(#124 review)
+      const shimmering = () => header()?.querySelector('[data-slot="collapse-header"] > span [data-shimmer-text]') != null;
+      expect(shimmering()).toBe(true);
       // 箭头有 150ms 的转动过渡:等它转到「向右」(收起时不带 rotate)。
       await until('chevron turns right', () => getComputedStyle(chevron()).transform, (t) => t === 'none');
       (header()!.querySelector('[data-collapse-id]') as HTMLElement).click();
       await until('live header re-expands on click', () => header()?.dataset.expanded, (v) => v === 'true');
       await settled(host);
       expect(canvas().textContent ?? '').toContain('Checking the latest numbers first.');
+      expect(shimmering()).toBe(false);
       // 高度契约与静息态同源：同一个 def、同一个 measure()。
       const caches = createChatCaches();
       const mctx: MeasureCtx = {
@@ -484,10 +488,12 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
       expect(h.dataset.turnId).toBe(ONLY_PROMPT.id);
       expect(h.textContent).toContain('Thinking…');
       expect(h.textContent).not.toMatch(/\d/);
+      // 占位下面没有可展开的东西:❌ 一个点了没反应的箭头
+      expect(h.querySelector('[data-collapse-id]')).toBeNull();
       const label = h.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
       expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       const mctx: MeasureCtx = { theme: ctx.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches: createChatCaches(), expandedId: null };
-      const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true };
+      const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true, placeholder: true };
       expect(h.offsetHeight).toBe(turnProcessUnitDef.measure(item, mctx, turnProcessUnitDef.vars!));
 
       state.transcript.activeTurn.set({ ...ONLY_PROMPT, items: [...ONLY_PROMPT.items, thinking] } as TranscriptTurn);
@@ -497,6 +503,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
         // 同一个头还在,思考落在它下面,头从这一轮的起点数秒
         expect(header()?.dataset.live).toBe('true');
         expect(header()?.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
+        expect(header()?.querySelector('[data-collapse-id]')).not.toBeNull();
         expect((thinkingRow() as HTMLElement).getBoundingClientRect().top).toBeGreaterThan(header()!.getBoundingClientRect().top);
       } else {
         // 单栏不折叠:第一行内容就是动静,头让位
