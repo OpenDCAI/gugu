@@ -357,6 +357,9 @@ describe('MainLayout', () => {
     expect(mainShell?.style.background).toBe('var(--shell-bg)')
   })
   it('opens user settings as a modal without replacing the current page', async () => {
+    // 有聊天页的形态(网页:没有会话页宿主)。桌面上没有单独的聊天页(gugu-dev#181)。
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
@@ -437,9 +440,8 @@ describe('MainLayout', () => {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    const chatEntry = harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement | null
-    expect(chatEntry, 'positive control: Electron offers the same entry').toBeTruthy()
-    await clickElement(chatEntry!)
+    // gugu-dev#181 有会话页的桌面上没有单独的聊天页:建 agent 只走会话页那一个新建会话,聊天页的创建入口与 ACP 装配都不在。
+    expect(harness.container.querySelector('[data-testid="mock-chat-create-agent"]')).toBeNull()
     expect(
       harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]'),
       'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
@@ -459,17 +461,14 @@ describe('MainLayout', () => {
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
-    // #6158 聊天面常驻:「没导航」= 那一格仍是隐藏的,而不是不在树里。
-    expect(chatSurfaceOf(harness.container)?.style.visibility).toBe('hidden')
+    // gugu-dev#181 桌面上没有单独的聊天页可切过去。
+    expect(chatSurfaceOf(harness.container)).toBeNull()
     await act(async () => {
       window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
       await Promise.resolve()
     })
-    expect(
-      chatSurfaceOf(harness.container)?.style.visibility,
-      'agent started while on Tasks — the page must not switch to Messages',
-    ).toBe('hidden')
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat, 'agent started — nothing is opened for it').not.toHaveBeenCalled()
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     await act(async () => {
       window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
@@ -557,36 +556,39 @@ describe('MainLayout', () => {
     expect(harness.container.querySelectorAll(navSelector)).toHaveLength(1)
   })
   it('keeps the chats surface mounted and merely hidden while another tab is active (#6158)', async () => {
+    // 有聊天页的形态(网页:没有会话页宿主);落地就在聊天页。
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     chatStoreMock.chats = [{ id: 'chat-1' }]
     chatStoreMock.activeChatId = 'chat-1'
     await renderMainLayoutWithToast()
-    // 冷启动落在会话页(有 sessionHost):聊天面此刻就已挂着,只是藏在会话页后面。
     const surface = chatSurfaceOf(harness.container)
-    expect(surface, 'the chats surface mounts at boot, hidden behind the tasks tab').not.toBeNull()
+    expect(surface, 'the chats surface mounts at boot').not.toBeNull()
+    expect(surface!.style.visibility).toBe('')
+    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
+    expect(chatArea.getAttribute('data-bumps')).toBe('2')
+    await clickElement(harness.container.querySelector('[data-testid="mock-open-contacts"]') as HTMLElement)
+    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'switching to contacts must not unmount the chat area').toBe(chatArea)
+    expect(chatArea.getAttribute('data-active-tab')).toBe('contacts')
     expect(surface!.style.visibility).toBe('hidden')
     expect(surface!.style.position).toBe('absolute')
     expect(surface!.style.pointerEvents).toBe('none')
     expect(surface!.hasAttribute('inert')).toBe(true)
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    expect(chatSurfaceOf(harness.container)).toBe(surface)
-    expect(surface!.style.visibility).toBe('')
-    expect(surface!.style.position).toBe('')
-    expect(surface!.hasAttribute('inert')).toBe(false)
-    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    expect(chatArea.getAttribute('data-bumps')).toBe('2')
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-tasks"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'switching to tasks must not unmount the chat area').toBe(chatArea)
-    expect(chatArea.getAttribute('data-active-tab')).toBe('tasks')
-    expect(surface!.style.visibility).toBe('hidden')
-    expect(surface!.style.position).toBe('absolute')
-    expect(surface!.hasAttribute('inert')).toBe(true)
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)
-    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the tasks round trip').toBe('2')
+    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the contacts round trip').toBe('2')
     expect(surface!.style.visibility).toBe('')
-    expect(chatAreaProbe.mounts, 'exactly one mount across boot → chats → tasks → chats').toBe(1)
+    expect(surface!.hasAttribute('inert')).toBe(false)
+    expect(chatAreaProbe.mounts, 'exactly one mount across boot → contacts → chats').toBe(1)
+  })
+
+  it('has no separate chat page on the desktop with a session page (gugu-dev#181)', async () => {
+    await renderMainLayoutWithToast()
+    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
+    expect(chatSurfaceOf(harness.container)).toBeNull()
+    expect(harness.container.textContent).not.toContain('chat-list-panel')
   })
   // 创建面(新建 agent)盖在聊天区上时,聊天区只隐藏不卸载:从前条件卸载,关掉创建面回来整个面板重挂
   // (消息列表、滚动位置、分栏、群协作状态全部重来 = 那一下白闪)。
@@ -832,6 +834,8 @@ describe('MainLayout', () => {
   })
   // 桌面壳不分页:两层包裹都是 display:contents,聊天面照旧直接参与主区 flex 布局。
   it('keeps the desktop layout flat around the pager wrappers', async () => {
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     await renderMainLayoutWithToast()
     expect(harness.container.querySelector('[data-mobile-tab-pager]')).toBeNull()
     const page = chatSurfaceOf(harness.container)?.parentElement as HTMLElement
