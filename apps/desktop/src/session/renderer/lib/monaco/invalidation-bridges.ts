@@ -1,5 +1,4 @@
 import type { FileChange } from '@gugu/session-core/files';
-import { events } from '@renderer/lib/ipc';
 import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git/events';
 import { HEAD_REF, STAGED_REF } from '@shared/core/git/types';
@@ -54,7 +53,7 @@ export function wireModelRegistryInvalidation(registry: MonacoModelRegistry): ()
     }
   });
 
-  const unsubRefs = events.on(gitRepoUpdateChannel, ({ projectId, update }) => {
+  const unsubRefs = workspaceEvents.on(gitRepoUpdateChannel, ({ projectId, update }) => {
     if (update.kind !== 'refs') return;
     const refKind = 'branch';
     for (const uri of registry.findGitUris({ projectId, refKind })) {

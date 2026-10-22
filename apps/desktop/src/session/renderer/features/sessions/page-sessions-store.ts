@@ -2,7 +2,8 @@ import type { IDisposable } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction } from 'mobx';
 // TODO(conversations-extraction): Inject file-link handlers instead of importing task editor plumbing.
 import { makeFileLinkHandlers } from '@renderer/features/sessions/stores/open-file-in-file-editor';
-import { events, rpc } from '@renderer/lib/ipc';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { PtySession } from '@renderer/lib/pty/pty-session';
 import { Resource } from '@renderer/lib/stores/resource';
 import { soundPlayer } from '@renderer/utils/soundPlayer';
@@ -130,8 +131,13 @@ export class PageSessionsStore implements IDisposable {
     }
   }
 
+  /** 这条会话的事件在它所在的那台机器上订(本机 = null)。 */
+  private onEvent<T>(event: { name: string; _data?: T }, cb: (data: T) => void): () => void {
+    return onMachineEvent(machineRegistry.machineOf(this.projectId), event, cb);
+  }
+
   private listenToAgentStatusChanged(): () => void {
-    return events.on(sessionAgentStatusChangedChannel, (payload) => {
+    return this.onEvent(sessionAgentStatusChangedChannel, (payload) => {
       if (payload.sessionId !== this.id) return;
       const sessionStore = this.sessions.get(payload.sessionId);
       if (!sessionStore) return;
@@ -146,7 +152,7 @@ export class PageSessionsStore implements IDisposable {
 
 
   private listenToSessionCreated(): () => void {
-    return events.on(sessionCreatedChannel, ({ session }) => {
+    return this.onEvent(sessionCreatedChannel, ({ session }) => {
       if (session.id !== this.id || session.projectId !== this.projectId) return;
       runInAction(() => {
         this.addSession(session);
@@ -155,7 +161,7 @@ export class PageSessionsStore implements IDisposable {
   }
 
   private listenToSessionDeleted(): () => void {
-    return events.on(sessionDeletedChannel, ({ sessionId, projectId }) => {
+    return this.onEvent(sessionDeletedChannel, ({ sessionId, projectId }) => {
       if (sessionId !== this.id || projectId !== this.projectId) return;
       runInAction(() => {
         this.sessions.delete(sessionId);
@@ -166,7 +172,7 @@ export class PageSessionsStore implements IDisposable {
   }
 
   private listenToSessionChanges(): () => void {
-    return events.on(sessionChangedChannel, (event) => {
+    return this.onEvent(sessionChangedChannel, (event) => {
       if (event.sessionId !== this.id) return;
       const store = this.sessions.get(event.sessionId);
       if (!store) return;

@@ -75,7 +75,7 @@ export function workspaceRpc(projectId: string): WorkspaceRpc {
 const rendererListeners = new Map<string, Set<(data: unknown) => void>>();
 
 export const workspaceEvents = {
-  /** 听一种工作区事件(两处来源合流)。返回退订。 */
+  /** 听一种工作区事件(本机主进程的,与打开着的别的机器上由它的后端发出的)。返回退订。 */
   on<T>(event: EventDefinition<T>, cb: (data: T) => void): () => void {
     const offIpc = events.on(event, cb);
     let set = rendererListeners.get(event.name);

@@ -22,7 +22,6 @@ vi.mock('@renderer/lib/ipc', () => {
     rpc,
     rpcOn: () => rpc,
     invokeOnMachine: async () => undefined,
-    eventSourceMachine: () => null,
     events: { on: () => () => {} },
     onMachineEvent: () => () => {},
   };
