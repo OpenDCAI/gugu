@@ -230,6 +230,18 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     action: 'open_in_tab',
   },
   {
+    name: 'session_list_tabs',
+    description: 'List the live tabs in your own task, including their ids and titles. Conversation tabs cannot be closed.',
+    schema: z.object({}).strict(),
+    action: 'list_tabs',
+  },
+  {
+    name: 'session_close_tab',
+    description: 'Close one supplementary tab in your own task. Unsaved files keep their usual confirmation; closed:false means the tab stayed open.',
+    schema: z.object({ tab_id: z.string().min(1).describe('From session_list_tabs or session_open_in_tab.') }).strict(),
+    action: 'close_tab',
+  },
+  {
     name: 'session_get',
     description: 'Read this session (omit session_id) or another of yours: project_id, transport, status, model, preview. Pass model.spawn_model_id, not model.id, to session_spawn.',
     schema: z.object({ session_id: sessionIdSchema.describe(SESSION_ID_DESCRIPTION).optional() }).strict(),

@@ -36,6 +36,8 @@ export type SessionHostPaneSubscribe = {
   browser: boolean;
   pages: boolean;
   external: boolean;
+  /** Live tab enumeration and user-style close acknowledgements. */
+  tabs?: boolean;
 };
 
 /** 一条推送 / 一次请求里的一片。 */
