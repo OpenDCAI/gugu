@@ -52,33 +52,6 @@ function platformInjection() {
 }
 
 describe('AcpRuntime session manager', () => {
-  it('publishes the ended group with the ending in the session summary, without adding its content', async () => {
-    const { rt, sessionId } = await startHarness('conv-activity-anchor');
-    expect(isOk(await rt.sendPrompt(sessionId, { text: 'ACTIVITY PRIVATE INPUT' }))).toBe(true);
-    const history = rt.getHistory(sessionId);
-    expect(isOk(history)).toBe(true);
-    if (!isOk(history)) return;
-    const last = history.data.turns.at(-1);
-    expect(last?.id).toBeTruthy();
-    const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
-    expect(summary).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: last!.id });
-    expect(JSON.stringify(summary)).not.toContain('ACTIVITY PRIVATE INPUT');
-  });
-  it('leaves an empty autonomous work cycle unanchored instead of pointing at an older group', async () => {
-    const { h, rt, sessionId, client, providerSessionId } = await startHarness('conv-activity-no-body', { reportsState: true });
-    const report = (state: 'running' | 'idle') =>
-      client.sessionUpdate({ sessionId: providerSessionId, update: { sessionUpdate: 'state_update', state } as unknown as SessionUpdate });
-    // The agent reports its own work: running while the prompt is in flight, idle after it answered.
-    h.agent.prompt.mockImplementationOnce(async () => { await report('running'); return { stopReason: 'end_turn' }; });
-    expect(isOk(await rt.sendPrompt(sessionId, { text: 'previous input' }))).toBe(true);
-    await report('idle');
-    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
-    expect(previous).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: expect.any(String) });
-
-    for (const state of ['running', 'idle'] as const) await report(state);
-    const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
-    expect(summary).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: null });
-  });
   /**
    * 插件清单漏了 liveSettings 声明是**本仓自己的 bug**,日志要响亮(error 档)——
    * 但响亮 ❌ 不等于杀掉用户的会话。owner 2026-09-19:「任何 bug 都不应该让会话打不开」。

@@ -978,7 +978,6 @@ export async function recordHistoryPage(input: {
   conversationId: string;
   limit: number;
   beforeSeq?: number;
-  atTurnId?: string;
 }): Promise<SessionTimelineResult<RecordHistoryPage | 'no-record' | 'no-such-turn'>> {
   const acquired = await acquire(input.conversationId);
   if (!acquired.ok) return acquired;
@@ -987,12 +986,6 @@ export async function recordHistoryPage(input: {
     const timeline = acquired.value.timeline;
     // Read the moment a turn ended (radar's 「做完了」): the record as written by now, not as far as the tail got.
     await timeline.catchUp();
-    if (input.atTurnId !== undefined) {
-      const turns = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
-      const turn = turns.find(item => item.id === input.atTurnId);
-      if (!turn) return { ok: true, value: 'no-such-turn' };
-      return { ok: true, value: { turns: [turn], hasOlder: turns.some(item => item.seq < turn.seq) } };
-    }
     if (input.beforeSeq === undefined) {
       const { turns, hasOlder } = timeline.getSnapshot({ limit: input.limit });
       return { ok: true, value: { turns, hasOlder } };

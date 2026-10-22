@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ journal: { list: vi.fn(), get: vi.fn() }, recordHistoryPage: vi.fn() }));
+const mocks = vi.hoisted(() => ({ journal: { list: vi.fn(), get: vi.fn(), turnRevertedAfter: vi.fn() }, recordHistoryPage: vi.fn(),
+  store: { readStoredTurn: vi.fn(), readStoredTurns: vi.fn() } }));
 vi.mock('./collector', () => ({ activityJournal: () => mocks.journal }));
 vi.mock('@main/core/session-timeline/service', () => ({ recordHistoryPage: mocks.recordHistoryPage }));
+vi.mock('@main/core/sessions/session-turn-store', () => mocks.store);
 import { runActivityAction } from './actions';
 beforeEach(() => vi.clearAllMocks());
 
@@ -22,7 +24,7 @@ describe('activity metadata and on-demand context have separate read paths', () 
     ] }] } });
     const result = await runActivityAction({ action: 'activity_context', event_id: 'e1' });
     expect(mocks.recordHistoryPage).toHaveBeenCalledWith({ conversationId: 's1', limit: 4 });
-    expect(result).toMatchObject({ context_available: true, event_anchored: false, has_older: true, next_before_seq: 1,
+    expect(result).toMatchObject({ context_available: true, source: 'provider_record', event_anchored: false, has_older: true, next_before_seq: 1,
       context: [{ inputs: [{ text: 'Please check the task' }], latest_reply: { text: 'I sent a reminder' } }] });
     expect(JSON.stringify(result)).not.toMatch(/internal thought|private process output/);
   });
@@ -31,14 +33,14 @@ describe('activity metadata and on-demand context have separate read paths', () 
     mocks.recordHistoryPage.mockResolvedValue({ ok: false, error: { code: 'session_not_found' } });
     expect(await runActivityAction({ action: 'activity_context', event_id: 'e2' })).toMatchObject({ context_available: false, reason: { code: 'session_not_found' } });
   });
-  it('uses the source turn ID instead of returning a later unrelated task, and supports older pages', async () => {
-    mocks.journal.get.mockReturnValue({ event_id: 'e3', session_id: 's1', turn_id: 'original-turn' });
-    mocks.recordHistoryPage.mockResolvedValue({ ok: true, value: { turns: [], hasOlder: false } });
-    expect(await runActivityAction({ action: 'activity_context', event_id: 'e3' })).toMatchObject({ scope: 'event_turn', event_anchored: true });
-    expect(mocks.recordHistoryPage).toHaveBeenLastCalledWith({ conversationId: 's1', limit: 4, atTurnId: 'original-turn' });
-    await runActivityAction({ action: 'activity_context', event_id: 'e3', before_seq: 10 });
-    expect(mocks.recordHistoryPage).toHaveBeenLastCalledWith({ conversationId: 's1', limit: 4, beforeSeq: 10 });
-    mocks.recordHistoryPage.mockResolvedValue({ ok: true, value: 'no-such-turn' });
-    expect(await runActivityAction({ action: 'activity_context', event_id: 'e3' })).toMatchObject({ context_available: false, reason: 'no-such-turn' });
+  it('reads a turn event only from the stored history that numbered it, never from the provider record', async () => {
+    mocks.journal.get.mockReturnValue({ event_id: 'e3', kind: 'session.turn_recorded', session_id: 's1', turn_seq: 7 });
+    mocks.journal.turnRevertedAfter.mockReturnValue(false);
+    mocks.store.readStoredTurn.mockResolvedValue({ id: 's1:turn:s7', seq: 7, items: [] });
+    mocks.store.readStoredTurns.mockResolvedValue({ turns: [], originTurnIds: [], nextCursor: null });
+    expect(await runActivityAction({ action: 'activity_context', event_id: 'e3' }))
+      .toMatchObject({ scope: 'event_turn', event_anchored: true, source: 'stored_history', context: [{ id: 's1:turn:s7' }] });
+    expect(mocks.store.readStoredTurn).toHaveBeenCalledWith('s1', 7);
+    expect(mocks.recordHistoryPage).not.toHaveBeenCalled();
   });
 });

@@ -1256,8 +1256,6 @@ export class SessionCell {
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
-    // The group this ending settles; the machine records it with the outcome (null: an empty cycle had no group).
-    const turnId = this.transcript.activeTurn?.id ?? null;
     this.transcript.settleTurn(outcome);
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
@@ -1265,7 +1263,6 @@ export class SessionCell {
       this.applyEvent({
         type: 'WorkEnded',
         outcome: machineOutcome(outcome),
-        turnId,
         ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}),
       });
     }

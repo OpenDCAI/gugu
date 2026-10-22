@@ -67,6 +67,17 @@ export class ActivityJournal {
     }
     return null;
   }
+  /**
+   * Whether a later revert in the same session removed the stored turn this event names. Stored sequences are taken
+   * again after a revert, so the event's turn_seq names its turn only until then; both facts come from the stored
+   * history writer and are ordered by this journal.
+   */
+  turnRevertedAfter(eventId: string): boolean {
+    return this.sql.prepare(`SELECT 1 FROM activity_events turn JOIN activity_events revert
+      ON revert.session_id = turn.session_id AND revert.seq > turn.seq AND revert.kind = 'session.history_reverted'
+      WHERE turn.event_id = ? AND json_extract(revert.data, '$.turn_seq') <= json_extract(turn.data, '$.turn_seq')
+      LIMIT 1`).get(eventId) !== undefined;
+  }
   get(eventId: string): ActivityEvent {
     const row = this.sql.prepare('SELECT data FROM activity_events WHERE event_id = ?').get(eventId) as { data: string } | undefined;
     if (!row) throw new Error('Activity event does not exist on this machine');

@@ -70,12 +70,6 @@ export interface SessionMachineState {
   readonly pendingPermissions: readonly AcpPermissionRequest[];
   readonly lastStopReason: StopReason | null;
   readonly lastTurnOutcome: LastTurnOutcome;
-  /**
-   * The transcript group whose ending `lastTurnOutcome` records, written by the same transition (WorkEnded carries
-   * it from the cell that settled the group). Null before any ending, after WorkStarted, and when the ending had no
-   * group (an empty autonomous cycle, a failed replay). A metadata locator only, never the group's content.
-   */
-  readonly lastTurnId: string | null;
   readonly queuedPrompts: readonly QueuedPrompt[];
   readonly backgroundAgentCount: number;
   /**
@@ -93,7 +87,6 @@ export function initialMachineState(sessionId: string): SessionMachineState {
     pendingPermissions: [],
     lastStopReason: null,
     lastTurnOutcome: 'none',
-    lastTurnId: null,
     queuedPrompts: [],
     backgroundAgentCount: 0,
     backgroundCommandTaskIds: [],
@@ -131,7 +124,7 @@ export type DomainEvent =
   /** agent 开始干活(ready → working)。 */
   | { type: 'WorkStarted' }
   /** agent 停下了(working/cancelling → ready):记下怎么停的,抽干队列。 */
-  | { type: 'WorkEnded'; outcome: TurnOutcome; turnId: string | null; dequeueQueuedPrompt?: boolean }
+  | { type: 'WorkEnded'; outcome: TurnOutcome; dequeueQueuedPrompt?: boolean }
   | { type: 'AgentsChanged'; runningCount: number }
   | { type: 'BackgroundCommandsChanged'; taskIds: readonly string[] }
   | { type: 'CancellationRequested' }
@@ -271,7 +264,7 @@ export function evolve(
           ...s,
           phase: { kind: 'ready' },
           queuedPrompts,
-          ...(ev.status === 'error' ? { lastTurnOutcome: 'errored' as const, lastTurnId: null } : {}),
+          ...(ev.status === 'error' ? { lastTurnOutcome: 'errored' as const } : {}),
         },
         effects: [
           { type: 'state' },
@@ -320,7 +313,6 @@ export function evolve(
           // 开工 ⇒ 上一次停下的结局不再是「当前」。不清它,连续两次异常停下只会在下游产生一次边沿,
           // 而且之后任何一次 busy→idle 都会被读成「又异常终结了一次」(#4618)。
           lastTurnOutcome: 'none',
-          lastTurnId: null,
         },
         effects: [{ type: 'state' }, { type: 'agentEvent', phase: 'start' }],
       };
@@ -407,7 +399,6 @@ export function evolve(
           // 异常终结在 lastStopReason 里没有档(它是 ACP 协议枚举),所以那条投影成 null。
           // 这一格是**并列**记录「怎么停下的」,让下游能把它与「尚未开始」分开(#4618)。
           lastTurnOutcome: ev.outcome.kind === 'errored' ? 'errored' : 'stopped',
-          lastTurnId: ev.turnId,
           queuedPrompts,
         },
         effects: [
@@ -623,7 +614,6 @@ export function projectSessionState(
     pendingPermissions: structuredClone([...s.pendingPermissions]),
     lastStopReason: s.lastStopReason,
     lastTurnOutcome: s.lastTurnOutcome,
-    lastTurnId: s.lastTurnId,
     queuedPrompts: structuredClone([...s.queuedPrompts]),
     backgroundAgentCount: s.backgroundAgentCount,
     backgroundCommandCount: s.backgroundCommandTaskIds.length,

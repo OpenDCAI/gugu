@@ -5,7 +5,6 @@
  * 判据:运行时稍后起来时桥接上它,在跑的那条会话报出开工、做完报出停下;阴控:开机正常时只接一次。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '@shared/core/agents/agentEvents';
 
 type FakeReplica = { value: unknown; onChange?: (value: unknown) => void; disposed: boolean };
 const replicas: FakeReplica[] = [];
@@ -28,9 +27,9 @@ vi.mock('@gugu/session-wire', async (importOriginal) => ({
   },
 }));
 
-const emitted: AgentEvent[] = [];
+const emitted: Array<{ type: string; sessionId: string }> = [];
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
-  agentHookService: { emitAgentEvent: (event: AgentEvent) => emitted.push(event) },
+  agentHookService: { emitAgentEvent: (event: { type: string; sessionId: string }) => emitted.push(event) },
 }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { interrupt: async () => {} },
@@ -89,7 +88,7 @@ function summary(lifecycle: 'working' | 'ready', outcome: { lastTurnOutcome: str
   };
 }
 const working = () => summary('working', { lastTurnOutcome: null, lastStopReason: null });
-const done = () => ({ ...summary('ready', { lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' }), lastTurnId: 'original-turn' });
+const done = () => summary('ready', { lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' });
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -126,7 +125,6 @@ describe('ACP 状态桥:运行时晚起来也接得上', () => {
     live.value = { [SESSION]: done() };
     live.onChange?.(live.value);
     expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.type)).toEqual(['start', 'stop']);
-    expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.payload.turnId)).toEqual([undefined, 'original-turn']);
     bridge.dispose();
   });
 

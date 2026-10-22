@@ -34,8 +34,6 @@ export interface AgentEvent {
   sessionId: string;
   timestamp: number;
   payload: {
-    /** Original ACP turn identifier, when the status source supplies one. Metadata only. */
-    turnId?: string;
     notificationType?: NotificationType;
     message?: string;
     lastAssistantMessage?: string;
@@ -57,3 +55,4 @@ export interface AgentEvent {
 }
 
 export type SoundEvent = 'needs_attention' | 'task_complete';
+

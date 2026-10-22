@@ -8,7 +8,10 @@ export const activityEventSchema = z.object({
   event_id: id,
   kind: z.enum(['session.created', 'session.renamed', 'session.archived', 'session.deleted',
     'session.input_submitted', 'agent.status', 'session.message_delivered',
-    'question.pending', 'question.resolved', 'question.cancelled', 'automation.run']),
+    'question.pending', 'question.resolved', 'question.cancelled', 'automation.run',
+    // The session's stored history gained a turn / dropped its turns from turn_seq on (a revert). Only these name a
+    // turn, by the stored history's own sequence: the one turn identity on this machine that survives restarts.
+    'session.turn_recorded', 'session.history_reverted']),
   occurred_at: z.number().int().nonnegative().nullable(),
   observed_at: z.number().int().nonnegative(),
   session_id: id.optional(),
@@ -17,7 +20,8 @@ export const activityEventSchema = z.object({
   parent_session_id: id.optional(),
   spawned_by_session_id: id.optional(),
   object_id: id.optional(),
-  turn_id: id.optional(),
+  /** Position in the session's stored history (session_turns.seq): the turn a turn event is about. */
+  turn_seq: z.number().int().nonnegative().optional(),
   source_ref: z.string().max(2048).refine(value => parseConversationLink(value) !== null, 'source_ref must be a conversation locator').optional(),
   status: z.enum([...AGENT_STATUSES, 'scheduled', 'queued',
     'creating_session', 'launching_session', 'starting_agent', 'done', 'failed', 'skipped']).optional(),

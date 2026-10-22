@@ -106,11 +106,6 @@ export const sessionStateSchema = z.object({
   lastStopReason: stopReasonSchema.nullable(),
   /** How the last turn ended. Parallel to `lastStopReason`; see `lastTurnOutcomeSchema`. */
   lastTurnOutcome: lastTurnOutcomeSchema,
-  /**
-   * The transcript group whose ending `lastTurnOutcome` records (null: no ending yet, or it had no group). Written in
-   * the same machine transition as the outcome. Absent on older runtimes.
-   */
-  lastTurnId: z.string().nullable().optional(),
   /** Prompts accepted while busy; attachments are references, never inline bytes. */
   queuedPrompts: z.array(queuedPromptSchema),
   /** Count of running background subagents, used for affordances and busy state. */
@@ -183,8 +178,6 @@ export const sessionSummarySchema = z.object({
   lastStopReason: stopReasonSchema.nullable(),
   /** How the last turn ended. Parallel to `lastStopReason`; see `lastTurnOutcomeSchema`. */
   lastTurnOutcome: lastTurnOutcomeSchema,
-  /** The group whose ending `lastTurnOutcome` records; see `sessionStateSchema.lastTurnId`. Absent on older runtimes. */
-  lastTurnId: z.string().nullable().optional(),
   pendingPermissionCount: z.number().int(),
   /** The same pending requests as `pendingPermissionCount`, in arrival order, each with what it waits on. */
   pendingPermissionWaits: z.array(pendingPermissionWaitSchema),

@@ -31,8 +31,7 @@ export function installActivityCollector(): () => void {
       if (change.activityAt === undefined) return; // Read/unread changes are not work activity.
       observe({ event_id: randomUUID(), kind: 'agent.status', session_id: change.sessionId,
         occurred_at: change.activityAt, status: change.reading.status,
-        detail: change.reading.detail,
-        ...(change.turnId ? { turn_id: change.turnId } : {}) });
+        detail: change.reading.detail });
     }),
     sessionEvents.on('session:created', session => observe({ event_id: `session.created:${session.id}`,
       kind: 'session.created', session_id: session.id, occurred_at: sqliteTextToMs(session.createdAt),
