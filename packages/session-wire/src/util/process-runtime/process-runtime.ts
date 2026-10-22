@@ -37,7 +37,7 @@ export type SpawnRuntimeOptions<Defs extends ContractDefinitions> = {
   host: ProcessHost;
   contract: Contract<Defs>;
   spec: ProcessSpec;
-  scope?: Scope;
+  scope: Scope;
   readyTimeoutMs?: number;
   shutdownGraceMs?: number;
   instrumentation?: WireInstrumentation;
@@ -101,7 +101,7 @@ export async function spawnRuntime<Defs extends ContractDefinitions>(
   } catch (error) {
     // 没就绪才是原因:收尾再失败(如 graceful shutdown 超时,进程照样被 kill)只记一行,❌ 拿它顶掉原始错误。
     await managed.dispose().catch((disposeError: unknown) => {
-      options.scope?.log.warn('runtime cleanup after a failed start failed', { error: disposeError });
+      options.scope.log.warn('runtime cleanup after a failed start failed', { error: disposeError });
     });
     throw error;
   }
@@ -151,7 +151,7 @@ export async function spawnRuntime<Defs extends ContractDefinitions>(
     },
   };
 
-  options.scope?.use(handle);
+  options.scope.use(handle);
   return handle;
 }
 
