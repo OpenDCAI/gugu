@@ -7,6 +7,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import { PaneHeader } from '@/components/ui/Pane'
 import { Avatar } from '@/components/Avatar'
 import { ChatAreaPanel } from '@/components/ChatAreaPanel'
+import { FilePreviewHost } from '@/components/chat/filePreviewHost'
 import { AssistantCustomizeCard } from '@/components/assistant/AssistantCustomizeCard'
 import { useCustomizeCardOffered } from '@/lib/assistantSetupState'
 import { useAuth } from '@/store/auth'
@@ -249,14 +250,14 @@ function MobileAssistantAppContent({
         ))}
       </div>
       <div className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
-        <ChatAreaPanel
+        <FilePreviewHost.Provider value={{}}><ChatAreaPanel
           chatId={chatId}
           activeTab="chats"
           mobile
           hidden={!chatShown}
           chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter }}
           {...chatHandlers}
-        />
+        /></FilePreviewHost.Provider>
         {tab === 'chat' ? <IdeasEntry assistantId={assistant.id} column={chatColumn} busy={false} onOpen={() => setIdeasOpen(true)} /> : null}
       </div>
       {/* 录音条:在 App 根上而不是聊天那一段里 —— 切到别的格也看得到「还在录」。 */}

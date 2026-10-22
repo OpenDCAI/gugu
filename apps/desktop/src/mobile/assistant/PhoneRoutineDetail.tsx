@@ -16,6 +16,7 @@ import { PhoneMachineGate } from './PhoneMachineGate'
 import { ReadView } from './PhoneMachineView'
 import { usePhoneRoutines } from './usePhoneRoutines'
 import { errorText, usePhoneRead } from './usePhoneRead'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 const log = rendererLogger('mobile/assistant')
 
@@ -50,6 +51,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
     setPending(on)
     try {
       await machineRpc(homeDeviceId).automations.setAutomationEnabled(automation.id, on)
+      await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId) }, assistant.id, { resource: 'schedules', operation: 'edited',
+        id: automation.id, deviceId: homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: on } })
       await read.refresh()
       toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
     } catch (error) {
@@ -116,6 +119,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
                     onConfirmed={() => go(null)}
                     onConfirm={async () => {
                       await machineRpc(homeDeviceId!).automations.deleteAutomation(automation.id)
+                      await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId!) }, assistant.id, { resource: 'schedules', operation: 'removed',
+                        id: automation.id, deviceId: homeDeviceId!, before: { name: automation.name, active: automation.enabled } })
                       toast(t('routines.deleted'), 'success')
                     }}
                   />

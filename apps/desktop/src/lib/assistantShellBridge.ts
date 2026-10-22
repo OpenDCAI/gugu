@@ -54,7 +54,7 @@ export type AssistantShellSnapshot = {
 }
 
 /** 壳往会话页里画的那几格。新增一格 = 这里加一个名字 + AssistantShellHost 里配一个组件。 */
-export type AssistantShellSlot = 'onboarding' | 'chat' | 'task-chat' | 'devices' | 'connectors' | 'connectors-device' | 'connectors-other' | 'settings'
+export type AssistantShellSlot = 'onboarding' | 'chat' | 'file-preview' | 'task-chat' | 'devices' | 'connectors' | 'connectors-device' | 'connectors-other' | 'settings'
 // 连接应用复用全局设置的同一个组件,在助理资料页直接展开;聊天工具与状态仍走设置。
 // ⚠ 'connectors-device' / 'connectors-other' 只为「助理安家」的 assistant-capabilities.tsx(安好家之后的「连应用」一步,设置重做把它删了)暂时编得过,
 // 总分支把两边对齐时一起去掉(那一步该用设置里的连接应用)。
@@ -85,6 +85,8 @@ export type AssistantVoiceNoteHandler = {
 export interface AssistantShellBridge {
   getSnapshot(): AssistantShellSnapshot | null
   subscribe(listener: () => void): () => void
+  filePreviewOpen(): boolean
+  setFilePreviewOpen(open: boolean): void
   /** 会话页:这一格的 DOM 节点挂上 / 摘掉(null)。 */
   setSlot(slot: AssistantShellSlot, element: HTMLElement | null): void
   getSlots(): ReadonlyMap<AssistantShellSlot, HTMLElement>
@@ -111,6 +113,7 @@ export const ASSISTANT_SHELL_BRIDGE_KEY = '__GUGU_ASSISTANT_SHELL__' as const
 type BridgeWindow = Window & { [ASSISTANT_SHELL_BRIDGE_KEY]?: AssistantShellBridge }
 
 let current: AssistantShellSnapshot | null = null
+let filePreviewOpen = false
 const listeners = new Set<() => void>()
 let slots = new Map<AssistantShellSlot, HTMLElement>()
 const slotListeners = new Set<() => void>()
@@ -121,6 +124,12 @@ let voiceNoteHandler: AssistantVoiceNoteHandler | null = null
 const voiceNoteListeners = new Set<() => void>()
 
 const bridge: AssistantShellBridge = {
+  filePreviewOpen: () => filePreviewOpen,
+  setFilePreviewOpen: (open) => {
+    if (filePreviewOpen === open) return
+    filePreviewOpen = open
+    for (const listener of listeners) listener()
+  },
   getSnapshot: () => current,
   subscribe: (listener) => {
     listeners.add(listener)

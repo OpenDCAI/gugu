@@ -14,6 +14,8 @@ import { GUGU_MCP_SERVER_NAME } from './mcp/gugu-mcp-name.mjs'
 import { registerGuguScheduleTools } from './mcp/gugu-schedule-tool'
 import { registerGuguProjectTools } from './mcp/gugu-project-tool'
 import { registerGuguLibraryTools } from './mcp/gugu-library-tool'
+import { registerAssistantResource } from './mcp/gugu-assistant-resource'
+import type { AssistantLocalSource } from './sessionpage/assistant-local-index'
 import { registerGuguSessionTools, type SessionDispatcher } from './mcp/gugu-session-tool'
 import { registerGuguExtensionTools } from './mcp/gugu-extension-tool'
 import { runAppAction } from './mcp/app-tool-host'
@@ -140,6 +142,7 @@ interface GuguMcpContextBase {
   expectedOwnerUserId: string
   subjectId: string
   runSessionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
+  readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 `gugu_session` 的 app_* 动作:写一个会话页 tab 扩展并装上。不需要 owner 令牌。 */
   runExtensionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   /** #6615 这张卡的 key(`taskpage:<会话>`):扩展目录按它认会话。 */
@@ -214,6 +217,20 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         registerGuguSessionTools(server, sessionDispatcher, trackRequest)
         registerGuguProjectTools(server, sessionDispatcher, trackRequest)
         registerGuguLibraryTools(server, sessionDispatcher, trackRequest)
+        if (sessionDispatcher) registerAssistantResource(server, {
+          accountId: async () => {
+            const context = getContext()
+            if (context.kind !== 'social' || context.forkOf !== undefined) return null
+            await context.getAccessToken(grantSignal)
+            return context.expectedOwnerUserId
+          },
+          run: (action, signal) => sessionDispatcher(action, AbortSignal.any([grantSignal, signal])),
+          ...(initial.readAssistantResources ? { localSources: () => {
+            const read = getContext().readAssistantResources
+            if (!read) throw new Error('Personal assistant context is unavailable')
+            return read()
+          } } : {}),
+        })
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)
         registerGuguExtensionTools(
@@ -278,6 +295,7 @@ export interface BuildSocialBridgeDeps {
   grantKey: string
   runHostAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   runSessionAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
+  readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 无需 owner 令牌:写文件与装扩展都不代表用户去调任何云端接口。 */
   runExtensionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   /** 运行时分叉:来源 agent 的显示名。见 GuguMcpContext.forkOf。 */
@@ -319,6 +337,12 @@ export async function buildSocialBridge(
       grantKey: deps.grantKey,
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
+      ...(deps.readAssistantResources ? { readAssistantResources: async () => {
+        await getBoundAuth()
+        const resources = await deps.readAssistantResources!()
+        await getBoundAuth()
+        return resources
+      } } : {}),
       ...(deps.runHostAction
         ? { runHostAction: async (action: unknown, signal?: AbortSignal) => {
             const result = await deps.runHostAction!(action, await getBoundAuth(signal), signal!)

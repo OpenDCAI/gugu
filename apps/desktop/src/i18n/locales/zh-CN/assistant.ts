@@ -8,6 +8,8 @@ export default {
     "entryGroup": "分组",
     "entryName": "名称",
     "add": "添加条目",
+    "edit": "编辑条目",
+    "savedNotificationFailed": "已保存，暂未确认助理收到变更",
     "memory": "记忆", "workspace": "项目", "capabilities": "能力", "devices": "设备",
     "loading": "正在读取…", "failed": "暂时读不到资源，请重试", "items": "{{count}} 条记录",
     "notConfigured": "还没有配置", "setup": "一起设置", "organize": "在对话中整理", "backToIndex": "返回目录",

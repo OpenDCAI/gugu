@@ -15,6 +15,7 @@ import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
 import { customizePlan } from './phoneProfileModel'
 import type { PhonePersona } from './usePhoneProfileData'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 const log = rendererLogger('mobile/assistant')
 
@@ -49,12 +50,16 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
     setError(null)
     try {
       // 改名与桌面同一条路(通讯录 updateAgentProfile:云端身份 + 本机花名册)。
-      if (plan.rename) await updateAgentProfile(assistant.id, { name: plan.rename })
+      if (plan.rename) {
+        await updateAgentProfile(assistant.id, { name: plan.rename })
+      }
       if (plan.writePersona && machine.state === 'ready') {
         const home = machine.machine
         // 写之前现读一遍:宿主维护那段取此刻的原文(进来之后它可能刚被升级过),❌ 用进来时读到的那份。
         const current = (await readText(home, home.paths.instructions)) ?? ''
         await writeText(home, home.paths.instructions, composeInstructions(current, joinPersona(preset, rest)))
+        await reportAssistantAppChange(home, assistant.id, { resource: 'personality', operation: 'edited',
+          id: home.paths.instructions, deviceId: home.deviceId, after: { path: home.paths.instructions } })
         persona.reload()
       }
       toast(t('customize.saved'), 'success')

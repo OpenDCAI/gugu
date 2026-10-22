@@ -22,6 +22,7 @@ import {
   installDeferredMessageDelivery,
   deferredMessagesSettled,
   storeDeferredMessage,
+  withDeferredMessagesBeforeAdmission,
 } from './session-deferred-messages';
 import { setSessionMessageRouter } from './session-message-router';
 
@@ -56,7 +57,7 @@ describe('deferred messages: kept on the session, sent when it starts working', 
     answer = 'accepted';
     setSessionMessageRouter(async (sessionId, message) => {
       routed.push({ sessionId, id: message.id, text: message.text });
-      if (answer === 'throw') throw new Error('adapter went away');
+      if (answer === 'throw') throw Object.assign(new Error('adapter refused before admission'), { deliveryRejectedBeforeAdmission: true });
       if (answer === 'not-ready') return { status: 'not-ready', reason: 'target session not live' };
       return { status: 'accepted', messageId: message.id, nativeReceiptId: `turn-${message.id}` };
     });
@@ -71,6 +72,110 @@ describe('deferred messages: kept on the session, sent when it starts working', 
   const states = () => fixture.sqlite
     .prepare("SELECT id, json_extract(metadata, '$.state') AS state FROM messages ORDER BY rowid")
     .all() as Array<{ id: string; state: string }>;
+
+  it('attaches both committed App messages before the next model request and acknowledges only its admission', async () => {
+    const writer = fakeWriter(); const stop = installDeferredMessageDelivery(writer);
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: '<app>A→B</app>' });
+    storeDeferredMessage({ sessionId: 's1', id: 'B', text: '<app>B→A</app>' });
+    const admitted = await withDeferredMessagesBeforeAdmission('s1', '<user>What changed?</user>', async text => {
+      expect(text).toBe('<app>A→B</app>\n\n<app>B→A</app>\n\n<user>What changed?</user>');
+      expect(states()).toEqual([{ id: 'A', state: 'dispatching' }, { id: 'B', state: 'dispatching' }]);
+      writer.emit('s1', 'working');
+      await deferredMessagesSettled('s1');
+      expect(routed).toEqual([]);
+      return { requestId: 'native-user-turn', declined: false };
+    });
+    expect(admitted.requestId).toBe('native-user-turn');
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }, { id: 'B', state: 'accepted' }]);
+    expect(fixture.sqlite.prepare("SELECT DISTINCT json_extract(metadata, '$.nativeReceiptId') AS receipt FROM messages").all())
+      .toEqual([{ receipt: 'native-user-turn' }]);
+    stop();
+  });
+
+  it('keeps a declined or explicitly unadmitted request for the next attempt', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    await withDeferredMessagesBeforeAdmission('s1', 'USER', async () => ({ declined: true, requestId: 'declined' }));
+    expect(states()).toEqual([{ id: 'A', state: 'deferred' }]);
+    await expect(withDeferredMessagesBeforeAdmission('s1', 'USER', async () => {
+      throw Object.assign(new Error('No bytes admitted'), { deliveryRejectedBeforeAdmission: true });
+    })).rejects.toThrow('No bytes admitted');
+    expect(states()).toEqual([{ id: 'A', state: 'deferred' }]);
+    await withDeferredMessagesBeforeAdmission('s1', 'RETRY', async text => {
+      expect(text).toBe('APP-A\n\nRETRY'); return { declined: false, requestId: 'retry' };
+    });
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+  });
+
+  it('does not replay App context after an admission with unknown outcome', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    await expect(withDeferredMessagesBeforeAdmission('s1', 'USER', async () => { throw new Error('Lost RPC reply'); })).rejects.toThrow('Lost RPC reply');
+    expect(states()).toEqual([{ id: 'A', state: 'outcome-unknown' }]);
+    await withDeferredMessagesBeforeAdmission('s1', 'NEXT', async text => {
+      expect(text).toBe('NEXT'); return { declined: false, requestId: 'next' };
+    });
+  });
+
+  it('does not acknowledge context without a native admission receipt', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    await expect(withDeferredMessagesBeforeAdmission('s1', 'USER', async () => ({ declined: false, requestId: '' })))
+      .rejects.toThrow('no receipt');
+    expect(states()).toEqual([{ id: 'A', state: 'outcome-unknown' }]);
+  });
+
+  it('does not attach durable App facts to a replaceable queued prompt', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    await withDeferredMessagesBeforeAdmission('s1', 'REPLACEABLE', async text => {
+      expect(text).toBe('REPLACEABLE'); return { declined: false, requestId: 'replaceable' };
+    }, true);
+    expect(states()).toEqual([{ id: 'A', state: 'deferred' }]);
+  });
+
+  it('does not automatically replay an uncertain working-edge dispatch either', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    const send = vi.fn(async () => { throw new Error('Lost reply after dispatch'); });
+    setSessionMessageRouter(send);
+    await flushDeferredMessages('s1');
+    expect(states()).toEqual([{ id: 'A', state: 'outcome-unknown' }]);
+    await flushDeferredMessages('s1');
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('serializes competing requests and consumes newly committed messages only once', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    const gate = Promise.withResolvers<{ requestId: string; declined: boolean }>();
+    const firstSend = vi.fn(() => gate.promise);
+    const first = withDeferredMessagesBeforeAdmission('s1', 'FIRST', firstSend);
+    await vi.waitFor(() => expect(firstSend).toHaveBeenCalledWith('APP-A\n\nFIRST'));
+    storeDeferredMessage({ sessionId: 's1', id: 'B', text: 'APP-B' });
+    const secondSend = vi.fn(async () => ({ requestId: 'second', declined: false }));
+    const second = withDeferredMessagesBeforeAdmission('s1', 'SECOND', secondSend);
+    await Promise.resolve(); expect(secondSend).not.toHaveBeenCalled();
+    gate.resolve({ requestId: 'first', declined: false });
+    await first; await second;
+    expect(secondSend).toHaveBeenCalledOnce();
+    expect(secondSend).toHaveBeenCalledWith('APP-B\n\nSECOND');
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }, { id: 'B', state: 'accepted' }]);
+  });
+
+  it('fences an older working-edge flush without recursively waiting on itself', async () => {
+    storeDeferredMessage({ sessionId: 's1', id: 'A', text: 'APP-A' });
+    const gate = Promise.withResolvers<{ requestId: string; declined: boolean }>();
+    const routedSend = vi.fn(() => gate.promise);
+    setSessionMessageRouter(async (sessionId, message) => {
+      expect(message.deferredDispatch).toBe(true);
+      const receipt = await withDeferredMessagesBeforeAdmission(sessionId, message.text, routedSend, message.deferredDispatch);
+      return { status: 'accepted', messageId: message.id, nativeReceiptId: receipt.requestId };
+    });
+    const flushing = flushDeferredMessages('s1');
+    await vi.waitFor(() => expect(routedSend).toHaveBeenCalledOnce());
+    const send = vi.fn(async () => ({ requestId: 'user', declined: false }));
+    const user = withDeferredMessagesBeforeAdmission('s1', 'USER', send);
+    await Promise.resolve(); expect(send).not.toHaveBeenCalled();
+    gate.resolve({ requestId: 'old-flush', declined: false });
+    await flushing; await user;
+    expect(send).toHaveBeenCalledWith('USER');
+    expect(states()).toEqual([{ id: 'A', state: 'accepted' }]);
+  });
 
   it('keeps a deferred message without sending it, and replaces a waiting one of the same key', () => {
     storeDeferredMessage({ sessionId: 's1', id: 'a1', text: 'KEY1', key: 'session:caller:paper' });

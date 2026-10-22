@@ -2,6 +2,7 @@ import type { IntegrationCredentials } from '@gugu/session-plugins/integrations'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 import { Check, Copy, ExternalLink, Eye, EyeOff } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { platform } from '@/platform'
@@ -84,6 +85,8 @@ export function PhoneConnectorSetupPage({
     void openAuthorizationLink(url).catch(() => setBrowserFailed(true))
   }, [])
   const connected = (displayName?: string) => {
+    if (rpc) void reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'saved', id,
+      deviceId: homeDeviceId ?? undefined, after: { name: view?.item.name ?? id } })
     // 连上了:重读一遍连接状态,回详情页时已是「已连接 + 账号」。
     integrations.retry()
     setDone({ ...(displayName ? { displayName } : {}) })

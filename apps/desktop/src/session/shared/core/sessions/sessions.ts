@@ -128,6 +128,8 @@ export type SessionMessage = {
   text: string;
   kind?: 'ordinary' | 'session-direct';
   state?: 'pending' | 'dispatching';
+  /** Host-only: this exact message is already claimed by the deferred queue. */
+  deferredDispatch?: true;
 };
 
 /**

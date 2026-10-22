@@ -15,6 +15,9 @@ import { useSshLinkProblems, useSshMachineIds } from '../hooks/useSshLinkProblem
 import { desktopIpc } from '../platform/desktopIpc'
 import { platform } from '../platform'
 import { SERVER_SSH_MACHINES_CHANNELS } from '../lib/serverSshMachines'
+import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
+import { useMyAssistant } from '../lib/myAssistant'
+import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 import {
   cloudComputerPollMs,
   cloudComputerWatchMs,
@@ -33,6 +36,8 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   const { user: authenticatedUser, loading: authLoading } = useAuth()
   const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
   const user = active ? authenticatedUser : null
+  const assistant = useMyAssistant(user?.id, null)
+  const appMachine = useMemo(() => assistant.provisionDeviceId ? { rpc: machineRpc(assistant.provisionDeviceId) } : null, [assistant.provisionDeviceId])
   // 第一帧就用上次那份铺开,❌ 不是空列表 + 转圈;下面的 refresh 一返回就换成此刻的事实。
   const [devices, setDevices] = useState<Device[]>(() => sortDevices(readCachedDevices()))
   const [loading, setLoading] = useState(false)
@@ -117,14 +122,22 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   }, [userId])
 
   const rename = useCallback(async (deviceId: string, label: string) => {
+    const ownerId = user?.id ?? cachedDevicesAccount()
     await chatService.renameDevice(deviceId, label)
+    if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
+      resource: 'devices', operation: 'edited', id: deviceId, deviceId, after: { name: label },
+    }, ownerId)
     await refresh()
-  }, [refresh])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
 
   const remove = useCallback(async (deviceId: string, options: { cascade?: boolean } = {}) => {
+    const ownerId = user?.id ?? cachedDevicesAccount()
     await chatService.removeDevice(deviceId, options)
+    if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
+      resource: 'devices', operation: 'removed', id: deviceId, deviceId,
+    }, ownerId)
     await refresh()
-  }, [refresh])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
 
   // #6264 这台电脑用远程 SSH 添加的机器(清单随装上 / 移除一台跟着变):在不在线只看 SSH 设备连接(❌ 看咕咕云心跳),
   // 侧栏、选择器、设置 → 设备同一个说法。别的机器照常读心跳。

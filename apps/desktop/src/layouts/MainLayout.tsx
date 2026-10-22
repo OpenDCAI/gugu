@@ -18,6 +18,7 @@ import { TAB_AVATAR_STYLE, tabItemStyle } from '@/mobile/settledTab'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useChatSelection } from '@/store/chatLine'
 import { useConversationLinkNavigation } from '../hooks/useConversationLinkNavigation'
+import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { ChatListPanel } from '../components/ChatListPanel'
 import { ChatAreaPanel } from '../components/ChatAreaPanel'
 import type { MemberProfileChatTarget } from '../components/MemberProfileCard'
@@ -403,6 +404,16 @@ function InnerLayout({
   const showCreateSurface = showAgentCreateDraft || showSessionCreate
   // #7199 手机上打开的是和个人助理那条私聊:整块换成助理 App(聊天 + 动态 / 任务 / 记忆 / 它的名字),「在看」由 App 按它摆着的那一格报。
   const phoneAssistant = usePhoneAssistant(mobile)
+  const [assistantChatRequest, setAssistantChatRequest] = useState(0)
+  const openAssistantChat = useCallback((chatId: string): boolean => {
+    const assistantChatId = mobile ? phoneAssistant.chatId : readAssistantShellBridge()?.getSnapshot()?.chatId
+    if (chatId !== assistantChatId) return false
+    setAgentCreateDraftOpen(false)
+    setActiveTab(mobile ? 'assistant' : 'tasks')
+    if (mobile) setAssistantChatRequest((n) => n + 1)
+    else appState.navigation.navigate('assistant')
+    return true
+  }, [mobile, phoneAssistant.chatId])
   const assistantOnPhone = mobile && !!phoneAssistant.chatId && activeChatId === phoneAssistant.chatId
   // 首次引导里点了「开通我的咕咕」(product spec,#7348):主界面挂上就打开咕咕那一格(开通流程自己从「住在哪」开始)。
   // 桌面 = 会话页的「助理」视图(同最左栏顶格那一下);手机 = 底栏咕咕那一格。这一格开不了时不跳,由人自己去看。
@@ -683,7 +694,6 @@ function InnerLayout({
 
   // #7199 手机上和个人助理的那条私聊就是底栏「助理」那一格(owner 10-16「点进去成两个 app 了」):对话列表、通知、联系人「发消息」
   // 打开它都切到那一格的聊天,❌ 在对话页里另开一屏。在画出来之前换过去,对话页 ❌ 先闪一帧那条私聊。
-  const [assistantChatRequest, setAssistantChatRequest] = useState(0)
   useEffect(() => {
     if (!mobile || !phoneAssistant.available) return
     const open = () => setActiveTab('assistant')
@@ -727,6 +737,7 @@ function InnerLayout({
     const handler = (event: Event) => {
       const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
       if (typeof chatId !== 'string' || chatId.length === 0) return
+      if (openAssistantChat(chatId)) return
       setActiveChatId(chatId)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -735,7 +746,7 @@ function InnerLayout({
     }
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
     return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
-  }, [focusComposerForUserEntry, setActiveChatId])
+  }, [focusComposerForUserEntry, openAssistantChat, setActiveChatId])
 
   // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
   // line with the topic as the split), and what was asked of it is left with the view that shows it (`UI_EVENTS.chatAsked`):
@@ -774,13 +785,15 @@ function InnerLayout({
       }
       ask(chat.id)
       setAgentCreateDraftOpen(false)
-      setActiveTab('chats')
-      setMobilePane('chat')
-      if (chat.kind === 'topic' && chat.source_chat_id) {
-        setActiveChatId(chat.source_chat_id)
-        requestTopicSplit({ chatId: chat.id, name: chat.name ?? '', sourceChatId: chat.source_chat_id })
-      } else {
-        setActiveChatId(chat.id)
+      if (!openAssistantChat(chat.id)) {
+        setActiveTab('chats')
+        setMobilePane('chat')
+        if (chat.kind === 'topic' && chat.source_chat_id) {
+          setActiveChatId(chat.source_chat_id)
+          requestTopicSplit({ chatId: chat.id, name: chat.name ?? '', sourceChatId: chat.source_chat_id })
+        } else {
+          setActiveChatId(chat.id)
+        }
       }
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
@@ -842,7 +855,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
+  }, [focusComposerForUserEntry, openAssistantChat, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
   // 从前靠 agent 运行态广播代劳;各入口内联的同名调用保留,免掉一帧闪烁。
@@ -963,6 +976,7 @@ function InnerLayout({
     ))
     if (existing) {
       if (draft) setDraft(existing.id, () => draft)
+      if (openAssistantChat(existing.id)) return
       setActiveChatId(existing.id)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')

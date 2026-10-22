@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { FilePreviewHost } from '../chat/filePreviewHost'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import { ChatAreaPanel } from '../ChatAreaPanel'
@@ -109,6 +110,12 @@ function useIdeasAction(): ComposerAttachAction {
  * 摆在眼前时把那条活的线借过来(store/chatLine.ts),离开就还给对话页原来选中的那条。
  */
 function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...handlers }: { dm: AssistantDm; assistantId: string; assistantName: string; visible: boolean } & AssistantChatHandlers) {
+  const bridge = readAssistantShellBridge()
+  const target = useSyncExternalStore(
+    (listener) => bridge?.subscribeSlots(listener) ?? (() => undefined),
+    () => bridge?.getSlots().get('file-preview') ?? null,
+  )
+  const previewHost = useMemo(() => ({ target, onOpenChange: bridge?.setFilePreviewOpen }), [bridge, target])
   const { t } = useTranslation('assistant')
   const { chatId, failed, retry } = dm
   const ideas = useIdeasAction()
@@ -142,13 +149,13 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   // 助理 App 的聊天面:没有会话头(名字胶囊和搜索、齿轮在 App 顶上),输入框「和 X 聊天」、左边一个「+」。
   return (
     <>
-      <ChatAreaPanel
+      <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel
         chatId={chatId}
         activeTab="chats"
         hidden={!visible}
         chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}
         {...handlers}
-      />
+      /></FilePreviewHost.Provider>
       {healthReport.input}
     </>
   )

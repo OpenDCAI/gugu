@@ -10,7 +10,9 @@ import { clickElement, createNode, createReactHarness } from '../../../support/t
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
-import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
+import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
 const activationProbe = vi.hoisted(() => ({
@@ -227,7 +229,8 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
   chatServiceMock: { getOrCreateDM: vi.fn() },
   draftValues: new Map<string, string>(),
 }))
-vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
+vi.mock('../../../../apps/desktop/src/store/chatContext', async (importOriginal) => ({
+  appendToDraft: (await importOriginal<typeof import('../../../../apps/desktop/src/store/chatContext')>()).appendToDraft,
   useChatStore: () => ({
     ...chatStoreMock,
   })
@@ -874,5 +877,50 @@ describe('MainLayout: files.openWith', () => {
     expect(toast).toHaveBeenCalledTimes(1)
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     expect(groupSlotMemory.takeFile('g-open')).toBeNull()
+  })
+})
+
+describe('MainLayout: personal assistant destinations', () => {
+  const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
+    assistant: { id: 'personal-agent', display_name: '咕咕', avatar: null, created_at: null },
+    assistantState: 'found' as const, ownerName: 'User', chatId: 'personal-dm', home: null,
+    setup: null, member: false, preparing: false }
+
+  beforeEach(() => { installAssistantShellBridge(); publishAssistantShell(shell) })
+  afterEach(() => { publishAssistantShell({ ...shell, assistant: null, assistantState: 'none', chatId: null }) })
+
+  it.each([
+    [GROUP_FILE_OPEN_EVENT, { chatId: 'personal-dm', itemId: 'personal-file' }],
+    [APP_OPEN_WITH_EVENT, { chatId: 'personal-dm', itemId: 'personal-file', name: 'budget.md', typedName: 'budget.md', choice: { kind: 'none' } }],
+    [APP_COMPOSE_EVENT, { chatId: 'personal-dm', text: 'follow-up' }],
+    [UI_EVENTS.notificationClicked, { chatId: 'personal-dm' }],
+  ])('opens %s in the desktop Gugu page and preserves the requested action', async (name, detail) => {
+    chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm', peer_user_id: 'personal-agent' } as never]
+    const navigate = vi.spyOn(appState.navigation, 'navigate').mockImplementation(() => undefined)
+    try {
+      await renderMainLayoutWithToast()
+      await act(async () => {
+        publishAssistantShell(shell)
+        window.dispatchEvent(new CustomEvent(name, { detail }))
+      })
+      expect(navigate).toHaveBeenCalledWith('assistant')
+      expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+      if ('itemId' in detail) expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('personal-file')
+      if ('text' in detail) expect(chatStoreMock.setDraft).toHaveBeenCalledWith('personal-dm', expect.any(Function))
+    } finally { navigate.mockRestore() }
+  })
+
+  it('opens the same file in the phone Gugu cell with its tab bar present', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    phoneAssistantMock.state.available = true
+    phoneAssistantMock.state.assistant = shell.assistant
+    phoneAssistantMock.state.chatId = 'personal-dm'
+    chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm' } as never]
+    await renderMainLayoutWithToast()
+    await act(async () => { window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail: { chatId: 'personal-dm', itemId: 'phone-file' } })) })
+    expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
+    expect(harness.container.querySelector('nav')).not.toBeNull()
+    expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('phone-file')
   })
 })

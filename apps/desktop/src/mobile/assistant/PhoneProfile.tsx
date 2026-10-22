@@ -35,7 +35,7 @@ export function PhoneProfile(props: PhonePageProps) {
   const persona = usePhonePersona(machine)
   const connectors = !sub || sub === 'connectors' || !!sub.startsWith('connector:')
   const integrations = usePhoneIntegrations(homeDeviceId, readiness, connectors)
-  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} machine={machine.state === 'ready' ? machine.machine : null} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={askInChat} />
+  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={askInChat} />
 
   if (sub === 'settings') return <div className="ta-page ta-phone-profile"><PageHead title={t('nav.settings')} /><div className="ta-skin">
     <AssistantSettingsPage onOpenPage={(tab) => props.open({ tab })} onOpenSection={(section) => go(section)} />
@@ -126,8 +126,8 @@ function ProfileHome({
         <PhoneConnectorsPage {...props} assistant={assistant} ownerName={ownerName} askInChat={askInChat} go={go} integrations={integrations} embedded />
       </AssistantSection>
       <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
-        <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
-        <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
         <AssistantRow title={t('channels.title')} detail={t('channels.note', { name })} onClick={() => go('channels')} testId="assistant-open-channels" />
       </AssistantSection>
     </div>

@@ -16,7 +16,10 @@ import {
 } from './phoneActionCatalog'
 import { HEALTH_TYPES, nativePhoneActions, type PhoneRuntimePermission, type PhoneSettingsTarget } from './nativePhoneActions'
 import { nativePhoneData, phoneDataAllowed } from './phoneDataActions'
-import { setPhoneActionGroup, setPhoneDeviceEnabled, usePhoneDeviceSettings } from './phoneDeviceSettings'
+import { setPhoneActionGroup, setPhoneDeviceEnabled, thisPhoneDeviceId, usePhoneDeviceSettings } from './phoneDeviceSettings'
+import { reportAssistantAppChange } from '../../components/assistant/assistant-app-client'
+import { useMyAssistant } from '../../lib/myAssistant'
+import { machineRpc } from '../agent-watch/sessionpage-rpc'
 import { disconnectPhoneDevice, refreshPhoneDevice, usePhoneDevice, type PhoneActionCall, type PhoneDeviceLink } from './phoneDeviceRuntime'
 
 const log = rendererLogger('mobile/phone-device')
@@ -51,6 +54,7 @@ export function PhoneDeviceActionsPage() {
   const { t } = useTranslation('settings')
   const { user } = useAuth()
   const userId = user?.id ?? null
+  const assistant = useMyAssistant(userId, null)
   const settings = usePhoneDeviceSettings(userId)
   const device = usePhoneDevice()
   const os = device.os
@@ -68,6 +72,14 @@ export function PhoneDeviceActionsPage() {
   }, [])
 
   if (!userId) return null
+
+  const tellPermission = (action: string, enabled: boolean, group?: string) => {
+    if (!assistant.agentId && !assistant.loading && !assistant.error) return
+    const deviceId = thisPhoneDeviceId(userId) ?? undefined
+    void reportAssistantAppChange(assistant.provisionDeviceId ? { rpc: machineRpc(assistant.provisionDeviceId) } : null,
+      assistant.agentId ?? undefined, { resource: 'devices', operation: 'edited', section: 'permissions',
+        id: deviceId ?? 'phone-permission-settings', deviceId, after: { action, enabled, ...(group ? { group } : {}) } }, userId)
+  }
 
   const openSettings = async (target: PhoneSettingsTarget, name: string) => {
     setUnreachable(null)
@@ -131,6 +143,7 @@ export function PhoneDeviceActionsPage() {
   const toggleMaster = async (on: boolean) => {
     setDisconnectFailed(false)
     setPhoneDeviceEnabled(userId, on)
+    tellPermission('phone-device-enabled', on)
     if (on) return
     const { removed } = await disconnectPhoneDevice(userId)
     if (!removed) setDisconnectFailed(true)
@@ -142,6 +155,7 @@ export function PhoneDeviceActionsPage() {
     setBusy(group)
     try {
       setPhoneActionGroup(userId, group, true)
+      tellPermission('group-enabled', true, group)
       const missing = missingRequirements(group, os)
       for (const requirement of missing.filter(isRuntime)) await requestRuntime(requirement, os?.runtime[requirement])
       const special = missing.find((requirement) => !isRuntime(requirement))
@@ -228,7 +242,7 @@ export function PhoneDeviceActionsPage() {
         )}
         control={connected
           ? (
-              <Button variant="secondary" size="sm" onClick={() => setPhoneActionGroup(userId, group, false)} data-testid={`phone-device-disconnect-${group}`}>
+              <Button variant="secondary" size="sm" onClick={() => { setPhoneActionGroup(userId, group, false); tellPermission('group-enabled', false, group) }} data-testid={`phone-device-disconnect-${group}`}>
                 {t('devices.deviceActions.disconnect')}
               </Button>
             )

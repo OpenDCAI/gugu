@@ -6,8 +6,9 @@ import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
 import { ArrowUpToLine, File, Folder, Sparkles, Trash2 } from '@/lib/icons'
-import { RESOURCES_DIR_NAME } from '@/session/renderer/features/assistant/assistant-files'
+import { RESOURCES_DIR_NAME, joinPath } from '@/session/renderer/features/assistant/assistant-files'
 import { removePath } from '@/session/renderer/features/assistant/assistant-machine-core'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
@@ -74,6 +75,9 @@ function FolderView({
       for (const rejected of outcome.rejected) toast(`${rejected.name}: ${rejected.reason === 'too_large' ? t('files.tooLarge') : t('files.unsupported')}`, 'error')
       for (const failed of outcome.failed) toast(t('files.uploadFailed', { name: failed.name, message: failed.message }), 'error')
       if (outcome.done.length) {
+        for (const name of outcome.done) await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'saved',
+          id: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')), deviceId: machine.deviceId,
+          after: { name, path: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')) } })
         setUploaded(outcome.done)
         toast(t('files.uploaded', { n: outcome.done.length }), 'success')
         reload()
@@ -238,6 +242,8 @@ function FileView({
           onConfirmed={() => go(filesSub(parent))}
           onConfirm={async () => {
             await removePath(machine, entry.path)
+            await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'removed',
+              id: entry.path, deviceId: machine.deviceId, before: { name: entry.name, path: entry.path } })
             toast(t('files.fileDeleted'), 'success')
           }}
         />

@@ -17,6 +17,7 @@ import { PhoneVoiceNotes } from './PhoneVoiceNotes'
 import { deleteMemoryNote, filesTrail, readMemoryCounts } from './phoneMemoryData'
 import { machineKey, usePhoneRead, type PhoneRead } from './usePhoneRead'
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 type NotesRead = PhoneRead<{ notes: MemoryEntry[]; index: string | null }> & { reload: () => void }
@@ -45,7 +46,7 @@ export function PhoneMemory(props: PhonePageProps) {
   const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
   const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
-  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} machine={ready} kind={'workspace'} askInChat={props.askInChat} />
+  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} assistantId={props.assistant.id} machine={ready} kind={'workspace'} askInChat={props.askInChat} />
   if (sub === 'health') return <PhoneHealth {...props} healthNotes={notes.state === 'ok' ? notes.data.notes : null} />
   if (sub === 'voice' || sub?.startsWith('voice:')) return <PhoneVoiceNotes {...props} />
   if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
@@ -67,7 +68,7 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
         )}
       </PhoneMachineView>
       <AssistantSection title={t('library.workspace')}>
-        <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
       </AssistantSection>
       <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
         {notes.state === 'ok' && machine.state === 'ready' && readiness === 'ready' ? <MachineTiles {...props} machine={machine.machine} notes={notes.data.notes} /> : null}
@@ -189,7 +190,8 @@ function MemoryNoteBody({ assistant, askInChat, go, notes, machine, note }: Open
           onClose={() => setConfirming(false)}
           onConfirmed={() => { notes.reload(); go(null) }}
           onConfirm={async () => {
-            await deleteMemoryNote(machine, note)
+            await deleteMemoryNote(machine, note, () => reportAssistantAppChange(machine, assistant.id, { resource: 'memory', operation: 'removed',
+              id: note.path, deviceId: machine.deviceId, before: { name: note.title, path: note.path } }))
             toast(t('memory.deleted'), 'success')
           }}
         />

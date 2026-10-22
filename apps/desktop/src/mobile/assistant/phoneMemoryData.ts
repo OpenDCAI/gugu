@@ -16,8 +16,9 @@ import {
 } from '@/session/renderer/features/assistant/assistant-machine-core'
 
 /** 删一条记忆:文件 + MEMORY.md 里指向它的那一行(与桌面 MemoryNoteDetail 同一套;索引是它每次开工读的目录)。 */
-export async function deleteMemoryNote(machine: AssistantMachine, entry: Pick<MemoryEntry, 'path' | 'file'>): Promise<void> {
+export async function deleteMemoryNote(machine: AssistantMachine, entry: Pick<MemoryEntry, 'path' | 'file'>, onRemoved?: () => Promise<void>): Promise<void> {
   await removePath(machine, entry.path)
+  await onRemoved?.()
   const index = await readText(machine, machine.paths.memoryIndex)
   if (index === null) return
   const next = removeIndexEntry(index, entry.file)

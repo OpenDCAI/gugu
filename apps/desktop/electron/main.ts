@@ -348,7 +348,7 @@ import { connectedSessionIntegrations } from './session/main/core/integrations/s
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
-import { personalAssistantContext, refreshAssistantContext } from './sessionpage/assistant-context'
+import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -5085,6 +5085,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
+        const assistantResourceOwner = info.providerId === 'claude' ? (await getSessionpageAuth())?.userId : null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5106,6 +5107,13 @@ app.whenReady().then(async () => {
             : Promise.resolve(false)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
+        const readAssistantResources = assistantRole ? async () => {
+          if (!assistantResourceOwner || (await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          const { assistantLocalIndex } = await import('./sessionpage/assistant-local-index')
+          const resources = await assistantLocalIndex(info.cwd, SERVER_MODE ? 'cloud' : 'computer')
+          if ((await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          return resources
+        } : undefined
         const projectContextBlock = buildSessionpageProjectContextBlock(provisioned.projectContext)
         const bundle = await buildSessionBundle({
           runtime: { authProvider, env: process.env },
@@ -5152,6 +5160,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
+            ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
             // @@@2374 不带 auth:写文件与装扩展都不代表用户去调任何云端接口。桥没
@@ -5167,8 +5176,21 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        if (assistantRole) await refreshAssistantContext(info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer')
-        const capabilities = assistantRole ? personalAssistantContext(loaded, SERVER_MODE ? 'cloud' : 'computer') : loaded
+        const capabilities = assistantRole ? await preparePersonalAssistantContext(
+          loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
+            accountId: async () => {
+              const owner = (await getSessionpageAuth())?.userId
+              return owner && owner === assistantResourceOwner ? owner : null
+            },
+            localSources: readAssistantResources,
+            run: async (action, signal) => {
+              const auth = await getSessionpageAuth()
+              if (!auth) throw new Error('Assistant startup index: owner not authenticated')
+              return runAction(action, auth, signal)
+            },
+          },
+        ) : info.providerId === 'claude' && !SERVER_MODE
+          ? assistantHomeTaskContext(loaded, info.cwd, resolveGuguHome(process.env)) : loaded
         injectMark('capabilities-loaded')
         await applySessionMaterialization({
           cwd: info.cwd,

@@ -29,6 +29,7 @@ import { connectorDetail, connectorGroups, thisDeviceView } from './phoneProfile
 import { usePhoneConnectorAccounts, type ConnectorAccountRow } from './usePhoneConnectorAccounts'
 import type { PhoneIntegrations, usePhoneIntegrations } from './usePhoneProfileData'
 import './phone-connector.css'
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
 
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 type Where = 'cloud' | 'device' | 'other'
@@ -196,6 +197,8 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
     if (!view || !rpc || !confirm) return
     if (view.item.id === 'github' && confirm.accountId) await removeGithubAccount((accountId) => rpc.github.removeAccount(accountId), confirm.accountId)
     else await disconnectIntegration((integrationId, accountId) => rpc.integrations.disconnect(integrationId, accountId), view.item.id, confirm.accountId ?? undefined)
+    await reportAssistantAppChange({ rpc }, assistant.id, { resource: 'integrations', operation: 'removed', section: 'accounts',
+      id: confirm.accountId ? `${view.item.id}:${confirm.accountId}` : view.item.id, deviceId: homeDeviceId ?? undefined })
   }
   const credentialLike = !!view && !!formMethodOf(view.item)
 

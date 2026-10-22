@@ -38,6 +38,21 @@ describe('Gugu built-in structured library', () => {
     expect((await readUserLibraryEntry('capabilities', created.id, home)).name).toBe('first');
     await expect(writeUserLibraryEntry({ ...note, id: created.id }, home)).rejects.toThrow(/changed/);
   });
+  it('atomically retains saved operations including edits that return to the original value, without copying bodies', async () => {
+    const created = await writeUserLibraryEntry(note, home, 'ui');
+    const changed = await writeUserLibraryEntry({ ...note, id: created.id, name: 'Temporary', expectedModifiedAt: created.modifiedAt }, home, 'ui');
+    const restored = await writeUserLibraryEntry({ ...note, id: created.id, expectedModifiedAt: changed.modifiedAt }, home, 'ui');
+    const stored = JSON.parse(await readFile(created.index, 'utf8'));
+    expect(stored.name).toBe('Calendar');
+    expect(stored.activity.map((event: { after: { name: string } }) => event.after.name)).toEqual(['Calendar', 'Temporary', 'Calendar']);
+    expect(stored.activity.map((event: { operation: string }) => event.operation)).toEqual(['created', 'edited', 'edited']);
+    expect(new Set(stored.activity.map((event: { operationId: string }) => event.operationId)).size).toBe(3);
+    expect(stored.activity.every((event: { source: string }) => event.source === 'ui')).toBe(true);
+    expect(JSON.stringify(stored.activity)).not.toContain(note.content);
+    expect((await readUserLibraryVolume('capabilities', home)).items[0]?.activity).toEqual(restored.activity);
+    await expect(writeUserLibraryEntry({ ...note, id: created.id, expectedModifiedAt: changed.modifiedAt }, home, 'ui')).rejects.toThrow(/changed/);
+    expect(JSON.parse(await readFile(created.index, 'utf8')).activity).toHaveLength(3);
+  });
   it('does not turn corrupt or unreadable storage into an empty catalogue', async () => {
     const created = await writeUserLibraryEntry(note, home);
     await writeFile(created.index, 'invalid json');

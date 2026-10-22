@@ -13,6 +13,7 @@ import { useInstructions, useInvalidateAssistant } from './assistant-data';
 import { useReadFailure } from './assistant-read-failure';
 import { useWakeHomeForRead } from './assistant-ui';
 import type { AssistantContext } from './assistant-context';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 
 /**
  * 性格(character + 「描述你希望助理如何说话和表现。留空可清除。」):
@@ -63,6 +64,8 @@ export function CustomizeDialog({ context, onClose }: { context: AssistantContex
         // 写之前现读一遍:管家那段取此刻的原文(打开对话框之后它可能刚被升级过)。
         const current = (await readText(machine, machine.paths.instructions)) ?? '';
         await writeText(machine, machine.paths.instructions, composeInstructions(current, joinPersona(preset, rest)));
+        await reportAssistantAppChange(machine, context.assistant.id, { resource: 'personality', operation: 'edited',
+          id: machine.paths.instructions, deviceId: context.homeDeviceId, after: { path: machine.paths.instructions } });
         await invalidate('instructions');
       }
       toast({ title: t('customize.saved') });
