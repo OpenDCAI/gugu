@@ -110,3 +110,18 @@ export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
     void link.invoke(SESSION_HOST_PANE.unsubscribe, subscriptionId).catch(() => undefined);
   };
 }
+
+/**
+ * 让在跑的「看着」正好是想要的这些(键 → 开始):新出现的开始,不再要的停,还要的原样留着 ——
+ * ❌ 屏上每变一下就全部退订重订(那台机器在两拍之间会以为没人看着,攒着的请求也白绕一圈)。
+ */
+export function syncRemotePaneViewers(running: Map<string, () => void>, wanted: ReadonlyMap<string, () => () => void>): void {
+  for (const [key, stop] of running) {
+    if (wanted.has(key)) continue;
+    stop();
+    running.delete(key);
+  }
+  for (const [key, start] of wanted) {
+    if (!running.has(key)) running.set(key, start());
+  }
+}

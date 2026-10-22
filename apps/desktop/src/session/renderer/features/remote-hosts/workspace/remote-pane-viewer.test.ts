@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionpagePaneOpenRequest } from '@gugu/session-core/session-record/contract';
 import { SESSION_HOST_PANE } from '@shared/lib/ipc/session-host-device-frames';
-import { startRemotePaneViewer, type RemotePaneViewerDeps } from './remote-pane-viewer';
+import { startRemotePaneViewer, syncRemotePaneViewers, type RemotePaneViewerDeps } from './remote-pane-viewer';
 
 const request = (requestId: string, sessionId = 'conv-1', target: SessionpagePaneOpenRequest['target'] = { kind: 'file', path: '/srv/app/a.ts' }): SessionpagePaneOpenRequest => ({
   requestId,
@@ -155,5 +155,23 @@ describe('看着别的机器上的一条会话:那台机器上的 open_in_tab �
     fake.push('pane-1', request('late'));
     expect(open).not.toHaveBeenCalled();
     expect(fake.calls).toContainEqual([SESSION_HOST_PANE.unsubscribe, 'pane-1']);
+  });
+});
+
+describe('syncRemotePaneViewers: the viewers running are exactly the sessions on screen', () => {
+  it('starts the new ones, stops the ones gone, and leaves the rest running', () => {
+    const running = new Map<string, () => void>();
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const want = (...keys: string[]) =>
+      new Map(keys.map((key) => [key, () => (started.push(key), () => void stopped.push(key))] as const));
+    syncRemotePaneViewers(running, want('a', 'b'));
+    syncRemotePaneViewers(running, want('b', 'c'));
+    // b stayed on screen: never stopped or restarted, so the machine sees it watched the whole time.
+    expect(started).toEqual(['a', 'b', 'c']);
+    expect(stopped).toEqual(['a']);
+    syncRemotePaneViewers(running, want());
+    expect(stopped).toEqual(['a', 'b', 'c']);
+    expect(running.size).toBe(0);
   });
 });
