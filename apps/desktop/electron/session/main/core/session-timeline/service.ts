@@ -266,13 +266,36 @@ function managedConfigRootFor(providerId: string | null): {
   }
 }
 
+/**
+ * 会话所绑订阅连接的配置根解析器(宿主注入,与 `setSessionTimelineFactory` 同一个理由:
+ * 真实现拖 electron `app` 与 db,服务层要保持能在任何 node 环境下测)。没注入 ⇒ 只在默认根里找。
+ */
+export type ConnectionConfigRootResolver = (providerId: string, connectionId: string) => string | null;
+
+let connectionConfigRootOf: ConnectionConfigRootResolver | null = null;
+
+export function setConnectionConfigRootResolver(next: ConnectionConfigRootResolver | null): void {
+  connectionConfigRootOf = next;
+}
+
+/**
+ * 非原生连接跑在自己的配置根上(`CLAUDE_CONFIG_DIR`),会话记录写在那里;
+ * ❌ 只在默认根里找 —— 那样这条会话明明在跑,时间线却是空的(`record_not_found`)。
+ */
+function connectionRootFor(row: SessionRow): string | null {
+  const connectionId = row.config?.subscriptionConnectionId;
+  if (!row.provider || !connectionId) return null;
+  return connectionConfigRootOf?.(row.provider, connectionId) ?? null;
+}
+
 function locateRow(row: SessionRow): SessionRecordLocation {
   const managed = managedConfigRootFor(row.provider);
   if (managed.problem) return { supported: false, reason: managed.problem };
   return locateSessionRecord({
     provider: row.provider,
     providerSessionId: row.providerSessionId,
-    managedConfigRoot: managed.root,
+    // 连接的根比整家的托管根更具体(这一条会话实际跑在哪),排前面。
+    managedConfigRoot: connectionRootFor(row) ?? managed.root,
   });
 }
 

@@ -19,6 +19,7 @@ vi.mock('@main/core/provider-accounts/provider-account-registry-instance', () =>
 vi.mock('electron', () => ({ app: { getPath: () => state.home } }));
 const {
   alignCodexDefaultAccount,
+  connectionConfigRoot,
   createHarnessConnection,
   listHarnessConnections,
   resolveHarnessConnection,
@@ -217,6 +218,14 @@ it('keeps persistent and runtime-only Claude forks on their source connection af
   expect((await resolveHarnessConnection('claude', { sessionId: 'runtime-view', sourceSessionId: 'source' })).connectionId).toBe(connection.id);
   await selectHarnessConnection('claude', connection.id);
   expect(await sessionHarnessConnectionId('fork')).toBe(connection.id);
+});
+
+it('a Claude connection config root is the one its sessions launch on; native and Codex have none', async () => {
+  const connection = await createHarnessConnection({ providerId: 'claude', kind: 'account' });
+  const launched = await resolveHarnessConnection('claude', { connectionId: connection.id });
+  expect(connectionConfigRoot('claude', connection.id)).toBe(launched.configRootEnv?.CLAUDE_CONFIG_DIR);
+  expect(connectionConfigRoot('claude', 'native')).toBeNull();
+  expect(connectionConfigRoot('codex', connection.id)).toBeNull();
 });
 
 it('Claude account/API changes preserve both PTY and ACP session bindings', async () => {
