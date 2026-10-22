@@ -24,27 +24,6 @@
   line-height: var(--lh-page);
 }
 
-[data-phone-shell] .gg-phone-conversations,
-[data-phone-shell] .gg-phone-conversation-surface {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-[data-phone-shell] button.gg-phone-assistant-entry {
-  display: grid;
-  place-items: center;
-  min-width: var(--control-h-touch);
-  min-height: var(--control-h-touch);
-  border: 0;
-  border-radius: var(--radius-capsule);
-  background: transparent;
-  touch-action: manipulation;
-}
-
 [data-phone-shell] .gg-list-row {
   min-height: 56px;
   border-radius: var(--radius-surface);
@@ -113,34 +92,4 @@
 [data-phone-shell] .ta-phone-identity .ta-phone-identity-name {
   font-size: var(--font-title);
   line-height: var(--lh-title);
-}
-
-div.gg-phone-feature-menu {
-  display: flex;
-  flex-direction: column;
-  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xl);
-  gap: var(--spacing-xs);
-}
-
-.gg-phone-feature-menu h2 {
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-title);
-  line-height: var(--lh-title);
-  font-weight: var(--font-weight-semibold);
-}
-
-.gg-phone-feature-menu button.gg-phone-feature-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 56px;
-  padding-inline: var(--spacing-lg);
-  font-size: var(--font-prose);
-  line-height: var(--lh-prose);
-}
-
-.gg-phone-feature-menu .gg-phone-feature-link svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-  color: var(--muted-fg);
 }

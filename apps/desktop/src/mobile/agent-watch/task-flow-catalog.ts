@@ -2,15 +2,8 @@ import { registerLocaleNamespace } from '@/i18n/runtime'
 
 registerLocaleNamespace('mobileTaskFlow', {
   'zh-CN': {
-    conversation: '对话',
     phoneAgent: '手机 Agent',
     phoneModelDefaultHint: '使用手机 Agent 的默认模型。',
-    greeting: '有什么想让我做的？',
-    conversationStartHint: '直接输入，开始一段新对话。',
-    conversationHint: '连接手机后，就可以直接说出你的任务。',
-    history: '历史对话',
-    changeHost: '选择运行设备',
-    selectHost: '选择设备',
     setupPhone: '设置这台手机',
     noHost: '开启这台手机的任务宿主，或在电脑上登录同一账号。',
     createTask: '新建任务',
@@ -20,15 +13,8 @@ registerLocaleNamespace('mobileTaskFlow', {
     originalTask: '查看原任务',
   },
   'en-US': {
-    conversation: 'Chat',
     phoneAgent: 'Phone Agent',
     phoneModelDefaultHint: 'Use the phone agent’s default model.',
-    greeting: 'What can I help you with?',
-    conversationStartHint: 'Type a message to start a new conversation.',
-    conversationHint: 'Connect this phone, then tell me what you need.',
-    history: 'Chat history',
-    changeHost: 'Choose a device',
-    selectHost: 'Choose device',
     setupPhone: 'Set up this phone',
     noHost: 'Enable this phone’s task host, or sign in to Gugu on a computer.',
     createTask: 'New task',

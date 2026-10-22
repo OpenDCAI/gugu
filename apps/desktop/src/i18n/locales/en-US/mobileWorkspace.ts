@@ -1,15 +1,5 @@
 export default {
-  conversations: 'Chat',
-  myAssistant: 'My Gugu',
-  assistantMenu: 'More features',
-  title: 'Workspace',
-  projects: 'Projects',
-  groups: 'Groups',
   thisPhone: 'This phone',
-  phoneProject: 'Phone tasks',
-  groupsEmpty: 'No group chats yet',
-  groupsEmptyHint: 'Use + to create a group, or join one from Contacts',
   groupJoinFailed: 'Agent created, but cannot join the group right now. Continue in Projects',
-  groupJoinFailedReason: 'Could not join the group',
   groupJoinPending: 'Agent created. Waiting for an administrator to approve the group request',
 }

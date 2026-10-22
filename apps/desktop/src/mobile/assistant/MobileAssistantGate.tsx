@@ -1,9 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding'
 import { Button } from '@/components/ui/Button'
-import { IconButton } from '@/components/ui/IconButton'
 import { PaneHeader } from '@/components/ui/Pane'
-import { ChevronLeft } from '@/lib/icons'
 import { Avatar } from '@/components/Avatar'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
 import { canSetUpCloudAssistant } from '@/lib/assistantHome'
@@ -21,12 +19,11 @@ import './assistant-phone.css'
  * 它还不存在 = 给它安家的引导(与桌面同一个 AssistantOnboarding;手机上装不了它,会员一键领取、非会员引导开会员)、私聊在开 / 开不了。
  * 能打开聊天了,这一格就换成助理 App 本身。格名固定「咕咕」,还没有它时页头就写「咕咕」。
  */
-export function MobileAssistantGate({ stage, name, ownerName, onBack }: { stage: Exclude<PhoneAssistantStage, { stage: 'ready' }>; name: string | null; ownerName: string | null; onBack?: () => void }) {
+export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude<PhoneAssistantStage, { stage: 'ready' }>; name: string | null; ownerName: string | null }) {
   const { t } = useTranslation('assistant')
   const { user } = useAuth()
   const { cloudComputer, devices } = useDevicesStore()
   const who = name ?? t('rail')
-  const leading = onBack ? <IconButton size="lg" aria-label={t('panel.back')} onClick={onBack} data-testid="phone-assistant-gate-back"><ChevronLeft /></IconButton> : undefined
 
   const body = (() => {
     switch (stage.stage) {
@@ -75,7 +72,7 @@ export function MobileAssistantGate({ stage, name, ownerName, onBack }: { stage:
     const device = snapshot?.deviceId ? devices.find((d) => d.device_id === snapshot.deviceId) ?? null : null
     return (
       <div className="ta-phone" data-testid="mobile-assistant-gate-onboarding">
-        <PaneHeader mobile title={who} titleLevel={onBack ? 'panel' : 'page'} leading={leading} />
+        <PaneHeader mobile title={who} titleLevel="page" />
         <main className="ta-phone-gate ta-phone-onboarding">
           <AssistantOnboarding ownerUserId={user.id} ownerName={ownerName} snapshot={snapshot} device={device} cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)} localDeviceId={null} />
         </main>
@@ -85,7 +82,7 @@ export function MobileAssistantGate({ stage, name, ownerName, onBack }: { stage:
 
   return (
     <div className="ta-phone" data-testid={`mobile-assistant-gate-${stage.stage}`}>
-      <PaneHeader mobile title={who} titleLevel={onBack ? 'panel' : 'page'} leading={leading} />
+      <PaneHeader mobile title={who} titleLevel="page" />
       <main className="ta-phone-gate">
         <div className="ta-intro">{body}</div>
       </main>

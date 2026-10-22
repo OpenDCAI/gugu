@@ -7,8 +7,7 @@ import { AgentWatchPage, AgentWatchRoot } from '../../../apps/desktop/src/mobile
 import { useAgentWatchAlerts, useAgentWatchFocus } from '../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts'
 import { useLiveDeviceSessions, type DeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { useDevicesStore } from '../../../apps/desktop/src/store/devicesContext'
-import { createNode, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
-import * as phoneSettings from '../../../apps/desktop/src/mobile/phone-device/phoneDeviceSettings'
+import { createNode, createReactHarness } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/mobile/local-agent/usePhoneAgentDirectory', () => ({ usePhoneAgentDirectory: vi.fn() }))
 
@@ -350,53 +349,7 @@ describe('AgentWatchPage native back routing', () => {
   })
 })
 
-
 describe('phone creation reuses the existing route', () => {
-  it('opens an unsent phone conversation at the chat root and creates only on the first send', async () => {
-    vi.spyOn(phoneSettings, 'thisPhoneDeviceId').mockReturnValue('device-1')
-    deviceStore.devices = [{ ...deviceStore.devices[0]!, capabilities: { terminals: [], runtimes: ['pi'], host_kind: 'phone', host_runtime_capability: 1 } as Device['capabilities'] }]
-    const onRouteChange = vi.fn()
-    await renderWithAppProviders(harness, createNode(AgentWatchPage, { active: true, onExit: vi.fn(), mode: 'conversation', onRouteChange }))
-    expect(harness.container.querySelector('[data-testid="create"]')?.getAttribute('data-device-id')).toBe('device-1')
-    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeNull()
-    expect(onRouteChange).not.toHaveBeenCalled()
-    await act(async () => { (harness.container.querySelector('[data-testid="create-done"]') as HTMLButtonElement).click() })
-    expect(onRouteChange).toHaveBeenLastCalledWith('timeline')
-    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
-  })
-
-  it('keeps history reachable without a running local host and returns to the chat root', async () => {
-    const onRouteChange = vi.fn()
-    await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), mode: 'conversation', onRouteChange }))
-    expect(harness.container.querySelector('[data-testid="phone-conversation-unavailable"]')).toBeTruthy()
-    expect(harness.container.querySelector('textarea')).toBeNull()
-    await act(async () => { (harness.container.querySelector('[data-testid="phone-conversation-history"]') as HTMLButtonElement).click() })
-    expect(onRouteChange).toHaveBeenLastCalledWith('history')
-    expect(harness.container.querySelector('[data-testid="projects"]')).toBeTruthy()
-    await act(async () => { expect(nativeBack()).toBe(true) })
-    expect(harness.container.querySelector('[data-testid="phone-conversation-unavailable"]')).toBeTruthy()
-    expect(onRouteChange).toHaveBeenLastCalledWith('projects')
-  })
-
-  it('selects a real alternative host in the chat tab without first creating a task', async () => {
-    const onRouteChange = vi.fn()
-    await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), mode: 'conversation', onRouteChange }))
-    await act(async () => { (harness.container.querySelector('[data-testid="phone-conversation-host"]') as HTMLButtonElement).click() })
-    expect(onRouteChange).toHaveBeenLastCalledWith('pick-machine')
-    await act(async () => { (harness.container.querySelector('[data-testid="open-device"]') as HTMLButtonElement).click() })
-    expect(onRouteChange).toHaveBeenLastCalledWith('projects')
-    expect(harness.container.querySelector('[data-testid="create"]')?.getAttribute('data-device-id')).toBe('device-1')
-    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeNull()
-  })
-
-  it('locates an unreadable requested task in chat history instead of hiding it behind the new conversation', async () => {
-    const props = { active: true, onExit: vi.fn(), mode: 'conversation' as const }
-    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
-    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { deviceId: 'device-1', session: { ...session, supported: false } } }))
-    expect(harness.container.querySelector('[data-testid="projects"]')?.getAttribute('data-reveal')).toBe('device-1|conversation-1')
-    expect(harness.container.querySelector('[data-testid="phone-conversation-unavailable"]')).toBeNull()
-  })
-
   it('uses the same create screen and opens the phone task timeline without a DM binding', async () => {
     deviceStore.devices = [{ ...deviceStore.devices[0]!, capabilities: { terminals: [], runtimes: ['pi'], host_kind: 'phone', host_runtime_capability: 1 } as Device['capabilities'] }]
     const props = { active: true, onExit: vi.fn() }

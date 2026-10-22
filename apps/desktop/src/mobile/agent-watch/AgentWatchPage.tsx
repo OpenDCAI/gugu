@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { useToast } from '@/components/toastContext'
 import { useAuth } from '@/store/auth'
 import { rendererLogger } from '@/lib/log'
@@ -16,10 +16,6 @@ import { MachinesPage } from './MachinesPage'
 import { ProjectsPage } from './ProjectsPage'
 import { SessionTimelinePage } from './SessionTimelinePage'
 import { CreateSessionPage } from './CreateSessionPage'
-import { ConversationLanding } from './ConversationLanding'
-import { thisPhoneDeviceId } from '../phone-device/phoneDeviceSettings'
-import { visibleMachines } from './machine-list'
-import { useMachineLabel } from './useMachineLabel'
 import './agent-watch.css'
 import './phone-conversation.css'
 import { usePhoneAgentDirectory } from '../local-agent/usePhoneAgentDirectory'
@@ -42,7 +38,6 @@ export type AgentWatchRoute =
    * `reveal` = 点名定位:一条打不开的行被 App 点名(gugu.showSession),落在它所在的分区、滚到它。
    */
   | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } }
-  | { name: 'history'; reveal?: { deviceId: string; sessionId: string } }
   /** `deviceId` = 会话所在的机器(跨机器的子会话在它自己那台上打开)。 */
   | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string }
   /**
@@ -70,9 +65,6 @@ export function AgentWatchPage({
   openRequest,
   onOpenAgentChat,
   onOpenGroupChat,
-  workspaceNavigation,
-  mode = 'projects',
-  conversationActions,
 }: {
   /** 「项目」tab 是不是当前 tab。手机壳里这张页常驻在横滑分页器里,切走时也挂着。 */
   active: boolean
@@ -89,17 +81,11 @@ export function AgentWatchPage({
   onOpenAgentChat?: (agentUserId: string) => void
   /** 从群里建的 agent 建好了:回到那个群。 */
   onOpenGroupChat?: (chatId: string) => void
-  workspaceNavigation?: ReactNode
-  /** The chat tab starts at a real unsent conversation; workspace keeps its project directory. */
-  mode?: 'projects' | 'conversation'
-  conversationActions?: ReactNode
 }) {
   const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const ownerId = useAuth().user?.id ?? null
   const { devices: hosts, phones } = useDevicesStore()
   const devices = useMemo(() => [...new Map([...hosts, ...(phones ?? [])].map((one) => [one.device_id, one])).values()], [hosts, phones])
-  const { isHome } = useMachineLabel()
-  const [conversationDeviceId, setConversationDeviceId] = useState<string | null>(null)
   const { toast } = useToast()
   const [route, setRouteState] = useState<AgentWatchRoute>({ name: 'projects' })
   // ❌ 不在渲染里回调:那是渲染期副作用。所有跳转都走这一个口子。
@@ -128,10 +114,10 @@ export function AgentWatchPage({
 
   // 「项目」tab 是手机壳返回栈里的一层(ui/sheetStack.ts):先在这张页的层级里往回退,退到根才离开这个 tab。
   useBackLayer(() => {
-    if (route.name === 'timeline' || route.name === 'pick-machine' || route.name === 'history') setRoute({ name: 'projects' })
+    if (route.name === 'timeline' || route.name === 'pick-machine') setRoute({ name: 'projects' })
     else if (route.name === 'create') setRoute({ name: 'pick-machine' })
     else onExit()
-  }, active && (mode !== 'conversation' || route.name !== 'projects'))
+  }, active)
 
   // 切走「项目」tab ⇒ 回到根页:相邻 tab 横滑过来看到的是这个 tab 的根(#6730),
   // 会话列表同步、时间线订阅与「正盯着」也不在屏外接着跑。
@@ -162,8 +148,8 @@ export function AgentWatchPage({
     const { deviceId, session } = openRequest
     setRoute(rowOpens(session)
       ? { name: 'timeline', deviceId, session }
-      : { name: mode === 'conversation' ? 'history' : 'projects', reveal: { deviceId, sessionId: session.conversationId } })
-  }, [openRequest, setRoute, mode])
+      : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } })
+  }, [openRequest, setRoute])
 
   // 机器在名下消失了(被删 / 换账号)⇒ 退回列表。派生而不是在渲染里 setState:
   // 后者会先画出一帧指向不存在机器的页。
@@ -216,38 +202,15 @@ export function AgentWatchPage({
     return (
       <MachinesPage
         onBack={() => setRoute({ name: 'projects' })}
-        onOpenDevice={(picked) => {
-          if (mode === 'conversation') {
-            setConversationDeviceId(picked.device_id)
-            setRoute({ name: 'projects' })
-          } else setRoute({ name: 'create', deviceId: picked.device_id })
-        }}
+        onOpenDevice={(picked) => setRoute({ name: 'create', deviceId: picked.device_id })}
       />
     )
   }
 
-  if (mode === 'conversation' && route.name === 'projects') {
-    const localId = ownerId ? thisPhoneDeviceId(ownerId) : null
-    const candidates = visibleMachines(devices, isHome)
-    const target = candidates.find((one) => one.device_id === conversationDeviceId)
-      ?? candidates.find((one) => one.device_id === localId && one.is_online && isAgentHostDevice(one))
-    return <ConversationLanding
-      device={target}
-      actions={conversationActions}
-      onPickDevice={() => setRoute({ name: 'pick-machine' })}
-      onHistory={() => setRoute({ name: 'history' })}
-      onCreated={(session, firstPrompt) => {
-        if (target) setRoute({ name: 'timeline', deviceId: target.device_id, session, firstPrompt })
-      }}
-    />
-  }
-
   return (
     <ProjectsPage
-      onBack={mode === 'conversation' ? () => setRoute({ name: 'projects' }) : undefined}
-      workspaceNavigation={workspaceNavigation}
       scrollMemo={projectsScroll}
-      reveal={route.name === 'projects' || route.name === 'history' ? route.reveal : undefined}
+      reveal={route.name === 'projects' ? route.reveal : undefined}
       onCreate={() => { setBirthGroup(null); setRoute({ name: 'pick-machine' }) }}
       onOpenSession={(deviceId, session) => {
         // 权限在**用户动作之后**要:点开一条会话 = 他确实要看管它。一进 App 就弹权限框

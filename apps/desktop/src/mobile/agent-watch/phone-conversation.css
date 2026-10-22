@@ -4,17 +4,6 @@
   border-bottom: 0;
 }
 
-.gg-aw [data-slot='button'].gg-aw-conversation-host {
-  justify-content: flex-start;
-  max-width: 100%;
-  min-height: var(--control-h-touch);
-  margin-inline-start: calc(-1 * var(--spacing-sm));
-  padding-inline: var(--spacing-sm);
-  color: var(--muted-fg);
-  font-size: var(--font-body);
-}
-.gg-aw-conversation-host > span { overflow: hidden; text-overflow: ellipsis; }
-
 .gg-aw .gg-aw-body[data-fill='true'] {
   padding-inline: 0;
   padding-bottom: 0;
@@ -174,32 +163,6 @@
 .gg-aw .gg-aw-create-intro {
   margin-block: auto;
   padding: var(--spacing-2xl) var(--spacing-sm);
-}
-
-.gg-aw .gg-aw-conversation-greeting {
-  margin: 0 0 var(--spacing-sm);
-  color: var(--fg);
-  font-size: var(--font-heading);
-  line-height: var(--lh-heading);
-  font-weight: var(--font-weight-semibold);
-}
-
-.gg-aw .gg-aw-conversation-empty {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 60dvh;
-  padding: var(--spacing-2xl) var(--spacing-sm);
-  color: var(--muted-fg);
-  font-size: var(--font-prose);
-  line-height: var(--lh-prose);
-}
-
-.gg-aw .gg-aw-conversation-connect {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-lg);
 }
 
 /* A directory is a set of conversations, not a table of devices. */

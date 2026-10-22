@@ -27,7 +27,6 @@ export function AgentWatchScreen({
   headerTestId,
   bodyFill,
   bodyRef,
-  headerAfter,
 }: {
   title: ReactNode
   onBack?: () => void
@@ -49,8 +48,6 @@ export function AgentWatchScreen({
   bodyFill?: boolean
   /** 滚动体的节点:列表页要读 / 还原滚动位置、滚到某一行。 */
   bodyRef?: Ref<HTMLDivElement>
-  /** Root navigation shared with the workspace group list. */
-  headerAfter?: ReactNode
 }) {
   const { t } = useTranslation('main')
   return (
@@ -74,7 +71,6 @@ export function AgentWatchScreen({
           </IconButton>
         ) : undefined}
       />
-      {headerAfter}
       <div ref={bodyRef} className="gg-aw-body" data-fill={bodyFill ? 'true' : undefined}>{children}</div>
       {footer}
     </div>

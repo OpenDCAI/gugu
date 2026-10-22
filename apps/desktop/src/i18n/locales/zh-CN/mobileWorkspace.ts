@@ -1,15 +1,5 @@
 export default {
-  conversations: '对话',
-  myAssistant: '我的咕咕',
-  assistantMenu: '更多功能',
-  title: '工作区',
-  projects: '项目',
-  groups: '群聊',
   thisPhone: '这台手机',
-  phoneProject: '手机任务',
-  groupsEmpty: '还没有群聊',
-  groupsEmptyHint: '点右上角 + 创建群聊，或在联系人里加入群聊',
   groupJoinFailed: 'Agent 已创建，暂时无法加入群聊。可在项目中继续',
-  groupJoinFailedReason: '未能加入群聊',
   groupJoinPending: 'Agent 已创建，入群申请等待管理员审核',
 }

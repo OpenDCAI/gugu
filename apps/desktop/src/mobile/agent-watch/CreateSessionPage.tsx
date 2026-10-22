@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '@/lib/log'
 import {
@@ -18,7 +18,6 @@ import type {
 import { Thread } from '@/components/assistant-ui/thread.aui'
 import { ComposerExtrasProvider } from '@/components/assistant-ui/composer-extras'
 import { Button } from '@/components/ui/Button'
-import { ChevronDown } from '@/lib/icons'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import { useAuth } from '@/store/auth'
 import { forgetPhoneSessionCreate, readPhoneSessionCreate, rememberPhoneSessionCreate } from '../local-agent/phoneSessionCreate'
@@ -81,19 +80,12 @@ export function CreateSessionPage({
   onClearBirthGroup,
   onBack,
   onCreated,
-  landing = false,
-  headerActions,
-  onPickHost,
 }: {
   device: Device
   /** 群成员里点的「新建 Agent」:建出来的 agent 一出生就进这个群(请求的 chatId)。null = 不进群。 */
   birthGroup?: { chatId: string; name: string } | null
   onClearBirthGroup?: () => void
   onBack?: () => void
-  /** The conversation tab starts here; no Agent is created until the first send. */
-  landing?: boolean
-  headerActions?: ReactNode
-  onPickHost?: () => void
   /** 建成了:带着攒好的摘要与那句话跳进时间线(那句由时间线页接着画)。 */
   onCreated: (session: SessionpageSessionSummary, firstPrompt: string, result?: SessionpageSessionCreateResult) => void
 }) {
@@ -279,12 +271,11 @@ export function CreateSessionPage({
       function CreateWelcome() {
         return (
           <div className="aui-thread-welcome-root gg-aw-create-intro">
-            {landing ? <h1 className="gg-aw-conversation-greeting">{tFlow('greeting')}</h1> : null}
-            <p className="aui-thread-welcome-hint">{landing ? tFlow('conversationStartHint') : t('agentWatch.create.welcomeHint')}</p>
+            <p className="aui-thread-welcome-hint">{t('agentWatch.create.welcomeHint')}</p>
           </div>
         )
       },
-    [landing, t, tFlow],
+    [t],
   )
 
   const errorNotice = createError ? (
@@ -377,9 +368,8 @@ export function CreateSessionPage({
 
   return (
     <AgentWatchScreen
-      title={landing ? tFlow('conversation') : t('agentWatch.create.title')}
-      actions={headerActions}
-      subtitle={onPickHost ? <Button variant="ghost" size="sm" className="gg-aw-conversation-host" aria-label={`${tFlow('changeHost')}，${machineLabel(device)}`} onClick={onPickHost} data-testid="phone-conversation-host">{subtitle}<ChevronDown className="size-4" aria-hidden="true" /></Button> : subtitle}
+      title={t('agentWatch.create.title')}
+      subtitle={subtitle}
       onBack={onBack}
       testId="agent-watch-create-page"
       bodyFill

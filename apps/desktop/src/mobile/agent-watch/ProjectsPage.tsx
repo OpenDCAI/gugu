@@ -18,7 +18,6 @@ import { SessionActionsSheet, SessionRow } from './SessionsPage'
 import { assistantGroupIds, locateSession, sessionSections, type SessionNode, type SessionSection } from './session-sections'
 import { useMachineLabel } from './useMachineLabel'
 import { directoryMachines, visibleMachines } from './machine-list'
-import '@/i18n/registerMobileWorkspaceCatalog'
 import { DeviceDirectoryRetry } from './DeviceDirectoryRetry'
 import { PhoneHostSetupEntry } from './PhoneHostSetupEntry'
 import { phoneAgentAvailable } from '../local-agent/nativeAgent'
@@ -83,8 +82,6 @@ export function ProjectsPage({
   onCreate,
   reveal,
   scrollMemo,
-  workspaceNavigation,
-  onBack,
 }: {
   /** 交出行所在的机器,❌ 当成别的。 */
   onOpenSession: (deviceId: string, session: SessionpageSessionSummary) => void
@@ -94,11 +91,8 @@ export function ProjectsPage({
   reveal?: { deviceId: string; sessionId: string }
   /** 滚动位置的存放处:进时间线再回来要还在原处,页面自己在返回时是重新挂的。 */
   scrollMemo: MutableRefObject<number>
-  workspaceNavigation?: ReactNode
-  onBack?: () => void
 }) {
   const { t } = useTranslation('main')
-  const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const { t: tFlow } = useTranslation('mobileTaskFlow')
   const { devices: allDevices, phones, loading: devicesLoading, error: devicesError } = useDevicesStore()
   const devices = useMemo(() => [...new Map([...(phones ?? []), ...allDevices].map((device) => [device.device_id, device])).values()], [allDevices, phones])
@@ -257,9 +251,7 @@ export function ProjectsPage({
 
   return (
     <AgentWatchScreen
-      title={workspaceNavigation ? tWorkspace('title') : t('agentWatch.projects.title')}
-      onBack={onBack}
-      headerAfter={workspaceNavigation}
+      title={t('agentWatch.projects.title')}
       testId="agent-watch-projects"
       bodyRef={bodyRef}
       actions={

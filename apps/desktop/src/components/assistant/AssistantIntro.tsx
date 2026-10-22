@@ -4,10 +4,10 @@ import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { ListChecks, MessageCircle } from '@/lib/icons'
 import '../../i18n/registerAssistantCatalog'
-import '../../i18n/registerMobileWorkspaceCatalog'
 
 /**
- * 「认识咕咕」介绍个人助理、工作区和协作对话三种用途，不把能力介绍当作手机底栏目录。
+ * 「认识咕咕」那一屏(product spec ②,照 ChatGPT dots 的「创建你的 dot」):咕咕的脸 + 一句话 + 三行
+ * (咕咕 / 项目 / 对话 —— 正是手机底栏那三格,图标同款)+ 一个主按钮 + 一个文字链。
  * 新账号的首次引导里画它;开通咕咕时它兼任介绍(❌ 再来一屏欢迎)。外层由调用方给 `.ta-onb` 卡与主题色。
  */
 export function AssistantIntro({
@@ -27,7 +27,6 @@ export function AssistantIntro({
   error?: string | null
 }) {
   const { t } = useTranslation('assistant')
-  const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const rows: { key: string; icon: ReactNode; title: string; body: string }[] = [
     {
       key: 'gugu',
@@ -35,7 +34,7 @@ export function AssistantIntro({
       title: t('intro.guguTitle'),
       body: t('intro.guguBody'),
     },
-    { key: 'workspace', icon: <ListChecks size={20} />, title: tWorkspace('title'), body: t('intro.projectsBody') },
+    { key: 'projects', icon: <ListChecks size={20} />, title: t('intro.projectsTitle'), body: t('intro.projectsBody') },
     { key: 'chats', icon: <MessageCircle size={20} />, title: t('intro.chatsTitle'), body: t('intro.chatsBody') },
   ]
   return (

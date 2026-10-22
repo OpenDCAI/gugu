@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BellOff, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
@@ -37,7 +37,6 @@ import { chatRowTag } from '../lib/chatRowTag'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { rendererLogger } from '../lib/log'
 import { chatListShortcutFor, nextChatId } from './chat-list-keyboard-nav'
-import '@/i18n/registerMobileWorkspaceCatalog'
 
 const chatListLog = rendererLogger('chat/list')
 
@@ -80,10 +79,6 @@ interface ChatListPanelProps {
   // (#3809 实际发生过)。必填让那种写法当场是编译错误 —— 比任何测试都早、也更便宜。
   onOpenAgentCreateDraft?: () => void
   onOpenSessionCreate?: () => void
-  /** A view projection only; selection and messages still belong to the shared chat store. */
-  listScope?: 'all' | 'groups'
-  headerTitle?: string
-  headerAfter?: ReactNode
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
@@ -507,16 +502,11 @@ export function ChatListPanel({
   onScan,
   onOpenAgentCreateDraft,
   onOpenSessionCreate,
-  listScope = 'all',
-  headerTitle,
-  headerAfter,
 }: ChatListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
-  const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const assistantShell = useAssistantShell()
-  const { chats: storedChats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
-  const chats = useMemo(() => listScope === 'groups' ? storedChats.filter((chat) => chat.kind === 'group') : storedChats, [storedChats, listScope])
+  const { chats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
   const workrooms = useAssistantWorkrooms(assistantShell, chats.filter((chat) => chat.kind === 'group')
     .map((chat) => `${chat.id}:${[...(chat.member_user_ids ?? [])].sort().join(',')}`).sort().join('|'))
   // @@@chat-list-agent-status (#437/#33) - one batched presence subscription for every agent shown in
@@ -796,7 +786,7 @@ export function ChatListPanel({
     <Pane paneRole="nav" mobile={mobile} style={NAV_PANE_STYLE}>
       <HeaderSearch mobile={mobile} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
       <PaneHeader
-        title={headerTitle ?? tMain('shell.chats')}
+        title={tMain('shell.chats')}
         mobile={mobile}
         titleLevel={mobile ? 'page' : undefined}
         style={mobile ? NAV_HEADER_STYLE : NAV_HEADER_STYLE_DESKTOP}
@@ -867,7 +857,6 @@ export function ChatListPanel({
         }
       />
       )}</HeaderSearch>
-      {headerAfter}
 
       {!mobile && (
         <SearchField
@@ -896,8 +885,8 @@ export function ChatListPanel({
           >
             <PaneEmptyState
               icon={<MessageCircle size={26} color="var(--text-tertiary)" />}
-              caption={listScope === 'groups' ? tWorkspace('groupsEmpty') : t('chatList.empty')}
-              hint={listScope === 'groups' ? tWorkspace('groupsEmptyHint') : t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
+              caption={t('chatList.empty')}
+              hint={t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
             />
           </div>
         )}
