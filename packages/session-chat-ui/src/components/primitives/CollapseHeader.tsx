@@ -32,7 +32,7 @@ import {
   collapseStatusError,
   collapseStatusPermission,
 } from './collapse-header.css';
-import { textShimmer } from '@session-chat/styles/effects.css';
+import { ShimmerText } from './ShimmerText';
 import { useChatTranslator } from '@session-chat/localization';
 
 export type CollapseHeaderProps = {
@@ -98,9 +98,9 @@ export function CollapseHeader(props: CollapseHeaderProps) {
       aria-expanded={props.collapsible ? (props.expanded ? 'true' : 'false') : undefined}
       data-collapse-id={props.collapsible ? props.id : undefined}
     >
-      <span class={collapseHeaderLabel} classList={{ [textShimmer]: !!props.active }}>
+      <ShimmerText class={collapseHeaderLabel} active={!!props.active}>
         {props.children}
-      </span>
+      </ShimmerText>
       {props.trailing}
       <Show when={props.collapsible}>
         <span class={chevron} classList={{ [chevronExpanded]: props.expanded }} aria-hidden="true">

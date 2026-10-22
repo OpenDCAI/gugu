@@ -3,6 +3,7 @@ import { DebugContext } from '../src/components/contexts/debug-context';
 import { storyDecorator } from '../src/styles/storybook.css';
 import '../src/chat-fonts.css';
 import '../src/styles/global.css';
+import '@gugu/session-shared/animation-visibility.css';
 import './preview.css';
 
 const preview: Preview = {
