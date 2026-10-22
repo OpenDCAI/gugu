@@ -23,7 +23,7 @@ import {
 import { events } from '@renderer/lib/ipc';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
-import type { SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
+import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -173,6 +173,12 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   /** spec session-page: Projects and Tasks section headers collapse too, like Pinned (persisted). */
   projectsCollapsed = false;
   sessionsCollapsed = false;
+  /** gugu-dev#181「对话」分区头也能收起(persisted)。 */
+  chatsCollapsed = false;
+  /** gugu-dev#181 侧栏「显示方式」:默认分开(顶上「项目 | 对话」两枚页签),也能合在一起(persisted)。 */
+  listLayout: SidebarListLayout = 'split';
+  /** 分开时看的是哪一页(persisted)。合在一起时不读它。 */
+  listPage: SidebarListPage = 'projects';
   /** Last task a navigation arrived at (`revealActiveSession`); `null` = left for a non-task view. */
   private revealedSessionKey: string | null = null;
   /**
@@ -1068,6 +1074,23 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.sessionsCollapsed = !this.sessionsCollapsed;
   }
 
+  toggleChatsCollapsed(): void {
+    this.chatsCollapsed = !this.chatsCollapsed;
+  }
+
+  setListLayout(layout: SidebarListLayout): void {
+    this.listLayout = layout;
+  }
+
+  setListPage(page: SidebarListPage): void {
+    this.listPage = page;
+  }
+
+  /** 「项目」页签上的琥珀点:各项目里在等你的会话数(与收起的项目行那颗同一个读数)。 */
+  get projectsNeedYouCount(): number {
+    return this.sidebarProjects.reduce((sum, ref) => sum + this.needsYouCountForProject(ref.id), 0);
+  }
+
   setStateGroupsEnabled(enabled: boolean): void {
     this.stateGroupsEnabled = enabled;
   }
@@ -1090,6 +1113,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       pinnedCollapsed: this.pinnedCollapsed,
       projectsCollapsed: this.projectsCollapsed,
       sessionsCollapsed: this.sessionsCollapsed,
+      chatsCollapsed: this.chatsCollapsed,
+      listLayout: this.listLayout,
+      listPage: this.listPage,
     };
   }
 
@@ -1115,6 +1141,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       this.projectsCollapsed = snapshot.projectsCollapsed;
     }
     if (typeof snapshot.sessionsCollapsed === 'boolean') this.sessionsCollapsed = snapshot.sessionsCollapsed;
+    if (typeof snapshot.chatsCollapsed === 'boolean') this.chatsCollapsed = snapshot.chatsCollapsed;
+    if (snapshot.listLayout === 'split' || snapshot.listLayout === 'merged') this.listLayout = snapshot.listLayout;
+    if (snapshot.listPage === 'projects' || snapshot.listPage === 'chats') this.listPage = snapshot.listPage;
   }
 
   /** Called on first load when no snapshot exists — expand all known projects. */

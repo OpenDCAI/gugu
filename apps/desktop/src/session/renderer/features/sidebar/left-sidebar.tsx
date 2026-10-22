@@ -31,14 +31,17 @@ import {
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SidebarSearchInput } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
+import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
+import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
 import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
-// spec session-page sidebar order, top to bottom: search → quick actions (New session /
-// Scheduled) → Pinned → Projects → Tasks. No foot: 资源库 and 设置 are on the far-left rail and
-// 问题反馈 is in its avatar menu (product spec, #7046) — they belong to the gugu shell.
+// gugu-dev#181 侧栏,自上而下:切换「项目 | 对话」→ 搜索 → 三行入口 → 置顶 → 列表,两页同一副骨架。
+// 三行入口的第一行都是「新建会话」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
+// 合在一起时没有切换,入口留项目那三行,列表是 置顶 → 项目 → 会话 → 对话。
+// No foot: 资源库 and 设置 are on the far-left rail (product spec, #7046) — they belong to the gugu shell.
 export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   const { navigate } = useNavigate();
   const { currentView } = useWorkspaceSlots();
@@ -116,6 +119,20 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   // 用 state 而不是 ref 存这两个节点:虚拟列表要在它们挂载后才拿得到 scrollElement,
   // ref 的赋值不触发重渲染,子组件会永远读到 null。
   const [scroller, setScroller] = React.useState<HTMLDivElement | null>(null);
+  const merged = sidebarStore.listLayout === 'merged';
+  const page = sidebarStore.listPage;
+  const showProjects = merged || page === 'projects';
+  const showChats = merged || page === 'chats';
+  // 两页各记各的滚动位置(同一个滚动容器,切页时存下离开那页的、恢复要去那页的)。
+  const scrollTopByPage = React.useRef({ projects: 0, chats: 0 });
+  const shownPage = React.useRef(page);
+  React.useLayoutEffect(() => {
+    if (!scroller || shownPage.current === page) return;
+    scrollTopByPage.current[shownPage.current] = scroller.scrollTop;
+    shownPage.current = page;
+    scroller.scrollTop = scrollTopByPage.current[page];
+  }, [page, scroller]);
+  const layoutMenu = useSidebarLayoutContextMenu();
   const [scrollContent, setScrollContent] = React.useState<HTMLDivElement | null>(null);
   const scrollTargets = React.useMemo<SidebarScrollTargets>(
     () => ({ scroller, content: scrollContent }),
@@ -134,7 +151,9 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onContextMenu={layoutMenu.onContextMenu}
     >
+      {layoutMenu.menu}
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-background-tertiary/80 backdrop-blur-sm">
           <FolderInput className="size-8 text-foreground" />
@@ -143,13 +162,15 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
           </span>
         </div>
       )}
-      <SidebarSpace />
+      <SidebarSpace end={<SidebarListLayoutButton />} />
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
         <SidebarContent className="flex flex-col">
           {/* mb-2:固定的动作区与下面滚动的分区之间要有一道呼吸。原先 mb-0 让「已安排」与
               「项目」标题之间的距离与行距一模一样,三个分区因此读不出是三个分区。 */}
           <SidebarGroup className="mb-2 flex shrink-0 flex-col">
             <SidebarMenu>
+              {/* 未读数由壳的聊天列表经格子发过来,还没接上时两枚页签只挂「需要你」那颗点。 */}
+              {!merged && <SidebarListSwitch projectsUnread={0} chatsUnread={0} />}
               <SidebarSearchInput />
               {/* 新建任务是一个视图(compose 页),与「已安排」「设置」同理:正在看它时带 active
                   底色。以前写死 isActive={false},落地页上只剩键盘光标那圈 ring 孤零零地画着,
@@ -175,29 +196,47 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                   <span className="truncate">{translate('sidebar.newTask')}</span>
                 </span>
               </SidebarMenuButton>
-              <SidebarMenuButton
-                isActive={isCurrentView(currentView, 'session-history')}
-                onClick={() => navigate('session-history')}
-                aria-label={translate('sidebar.sessionHistory')}
-                className="w-full justify-between"
-                data-testid="sidebar-session-history"
-              >
-                <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
-                  <History className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
-                  <span className="truncate">{translate('sidebar.sessionHistory')}</span>
-                </span>
-              </SidebarMenuButton>
-              <SidebarMenuButton
-                isActive={isCurrentView(currentView, 'automations')}
-                onClick={() => navigate('automations')}
-                aria-label={translate('sidebar.scheduled')}
-                className="w-full justify-between"
-              >
-                <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
-                  <Clock className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
-                  <span className="truncate">{translate('sidebar.scheduled')}</span>
-                </span>
-              </SidebarMenuButton>
+              {showProjects ? (
+                <>
+                  <SidebarMenuButton
+                    isActive={isCurrentView(currentView, 'session-history')}
+                    onClick={() => navigate('session-history')}
+                    aria-label={translate('sidebar.sessionHistory')}
+                    className="w-full justify-between"
+                    data-testid="sidebar-session-history"
+                  >
+                    <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
+                      <History className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
+                      <span className="truncate">{translate('sidebar.sessionHistory')}</span>
+                    </span>
+                  </SidebarMenuButton>
+                  <SidebarMenuButton
+                    isActive={isCurrentView(currentView, 'automations')}
+                    onClick={() => navigate('automations')}
+                    aria-label={translate('sidebar.scheduled')}
+                    className="w-full justify-between"
+                  >
+                    <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
+                      <Clock className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
+                      <span className="truncate">{translate('sidebar.scheduled')}</span>
+                    </span>
+                  </SidebarMenuButton>
+                </>
+              ) : (
+                shellChatActions.map(({ action, icon: Icon, label }) => (
+                  <SidebarMenuButton
+                    key={action}
+                    onClick={() => openShellChatAction(action)}
+                    aria-label={translate(label)}
+                    className="w-full justify-between"
+                  >
+                    <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
+                      <Icon className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
+                      <span className="truncate">{translate(label)}</span>
+                    </span>
+                  </SidebarMenuButton>
+                ))
+              )}
             </SidebarMenu>
           </SidebarGroup>
           {/* @@@sidebar-single-scroller — 置顶 / 项目 / 任务三区共用这一个滚动容器(见
@@ -210,21 +249,26 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
           >
             <div ref={setScrollContent}>
               <SidebarScrollContext.Provider value={scrollTargets}>
-                <SidebarPinnedSessionList />
-                {/* 与上面同理:项目区与任务区之间同样要有那一道呼吸,且是同一个数。 */}
-                <SidebarGroup className="mb-2 flex flex-col">
-                  <ProjectsGroupLabel />
-                  {!sidebarStore.projectsCollapsed && (
-                    <SidebarGroupContent className="flex flex-col">
-                      {/* 项目组的留白落在虚拟列表自己身上(SidebarVirtualList 里),所以这一层
-                          显式让开,不叠第二份。留白的数值只有一个出处:sidebarGroupInsetX。 */}
-                      <SidebarMenu className="flex flex-col px-0">
-                        <SidebarVirtualList />
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  )}
-                </SidebarGroup>
-                <SidebarSessionsSection />
+                {showProjects && (
+                  <>
+                    <SidebarPinnedSessionList />
+                    {/* 与上面同理:项目区与任务区之间同样要有那一道呼吸,且是同一个数。 */}
+                    <SidebarGroup className="mb-2 flex flex-col">
+                      <ProjectsGroupLabel />
+                      {!sidebarStore.projectsCollapsed && (
+                        <SidebarGroupContent className="flex flex-col">
+                          {/* 项目组的留白落在虚拟列表自己身上(SidebarVirtualList 里),所以这一层
+                              显式让开,不叠第二份。留白的数值只有一个出处:sidebarGroupInsetX。 */}
+                          <SidebarMenu className="flex flex-col px-0">
+                            <SidebarVirtualList />
+                          </SidebarMenu>
+                        </SidebarGroupContent>
+                      )}
+                    </SidebarGroup>
+                    <SidebarSessionsSection />
+                  </>
+                )}
+                {showChats && <SidebarChatsSection merged={merged} unread={0} />}
               </SidebarScrollContext.Provider>
             </div>
           </div>

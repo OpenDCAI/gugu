@@ -520,6 +520,17 @@ export function ChatListPanel({
   const shownAgent = useShownAgentStatus() // #7199 宿主闲时收回着的自己的 agent:不画睡团 / 「不在线」
   const [showGroupModal, setShowGroupModal] = useState<boolean | string>(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
+  // gugu-dev#181 会话页侧栏「对话」页的两行入口(新建群聊、添加联系人)开的是这两个弹窗。
+  useEffect(() => {
+    const openGroup = () => setShowGroupModal(true)
+    const openAddFriend = () => setShowAddFriendModal(true)
+    window.addEventListener(UI_EVENTS.openCreateGroup, openGroup)
+    window.addEventListener(UI_EVENTS.openAddContact, openAddFriend)
+    return () => {
+      window.removeEventListener(UI_EVENTS.openCreateGroup, openGroup)
+      window.removeEventListener(UI_EVENTS.openAddContact, openAddFriend)
+    }
+  }, [])
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)

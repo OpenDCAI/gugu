@@ -190,4 +190,11 @@ export type SidebarSnapshot = {
   pinnedCollapsed?: boolean;
   projectsCollapsed?: boolean;
   sessionsCollapsed?: boolean;
+  chatsCollapsed?: boolean;
+  /** gugu-dev#181 项目和对话分开(两枚页签)还是合在一起(一条列表),以及分开时看的是哪一页。 */
+  listLayout?: SidebarListLayout;
+  listPage?: SidebarListPage;
 };
+
+export type SidebarListLayout = 'split' | 'merged';
+export type SidebarListPage = 'projects' | 'chats';
