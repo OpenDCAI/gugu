@@ -104,6 +104,8 @@ describe('activity journal: the project comes from the subject', () => {
   });
 
   it('places a session created after the journal started, by any path, in its project', () => {
+    // A trigger on sessions records the project. The fixture runs every migration to head, so a later migration that
+    // rebuilds the sessions table (and drops its triggers with it) fails here.
     fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, title) VALUES ('s3', 'p2', 'forked outside the app')`);
     journal.append(about('late', 'session.renamed', { session_id: 's3' }));
     expect(ids('p2')).toEqual(['late']);
@@ -121,7 +123,10 @@ describe('activity journal: the project comes from the subject', () => {
   });
 
   it('refuses a project named by a producer', () => {
+    // At run time: the journal's observation schema is strict.
     expect(() => journal.append({ ...about('named', 'session.renamed'), project_id: 'p2' } as ActivityObservation)).toThrow();
+    // At compile time: the typecheck fails if a signal may carry project_id (an unused @ts-expect-error is an error).
+    // At run time the call reaches no journal: this test installs no signal listener.
     // @ts-expect-error producers cannot name a project
     activitySignal({ event_id: 'typed', kind: 'session.renamed', occurred_at: now, session_id: 's1', project_id: 'p2' });
     expect(ids('p2')).toEqual([]);

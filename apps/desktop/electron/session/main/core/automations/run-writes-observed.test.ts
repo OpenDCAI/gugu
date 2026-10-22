@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest';
 /**
  * Every insert or update of automation_runs in the main process goes through `writeRuns` in repo.ts, which signals
  * each written run to the activity journal. A run written anywhere else changes status without the journal seeing
- * it (skipped cron runs were once written that way), so this scan rejects any other write site.
+ * it (skipped cron runs were once written that way), so this scan rejects any other write site. It recognizes the
+ * table by name (`automationRuns`, `schema.automationRuns`, `automation_runs` in SQL text or interpolated into it);
+ * a write through the table bound to another name is not seen, so keep the name.
  */
 const ELECTRON = fileURLToPath(new URL('../../../../', import.meta.url));
 const REPO = 'session/main/core/automations/repo.ts';
@@ -28,9 +30,20 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+/** The drizzle table, under its own name or read off a namespace (`schema.automationRuns`). */
+function isRunsTable(node: ts.Node | undefined): boolean {
+  if (!node) return false;
+  if (ts.isIdentifier(node)) return node.text === 'automationRuns';
+  return ts.isPropertyAccessExpression(node) && node.name.text === 'automationRuns';
+}
+
+/** SQL text, with the table written in where it is interpolated (sql`UPDATE ${automationRuns} ...`). */
 function templateText(node: ts.Node): string | null {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isTemplateExpression(node)) return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(' ? ');
+  if (ts.isTemplateExpression(node)) {
+    return node.head.text + node.templateSpans.map((span) =>
+      (isRunsTable(span.expression) ? 'automation_runs' : ' ? ') + span.literal.text).join('');
+  }
   return null;
 }
 
@@ -53,7 +66,7 @@ function runWriteSites(): Site[] {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
         && ['insert', 'update'].includes(node.expression.name.text)
-        && node.arguments[0] && ts.isIdentifier(node.arguments[0]) && node.arguments[0].text === 'automationRuns') {
+        && isRunsTable(node.arguments[0])) {
         record(node);
       } else {
         const raw = templateText(node);
