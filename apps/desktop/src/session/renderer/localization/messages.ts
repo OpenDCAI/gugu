@@ -344,7 +344,7 @@ const enUSCoreMessages = {
   'extensions.installsCount': '{count}+ installs',
   'extensions.installsCaption': 'Installs',
   'extensions.updatedOnVersion': 'Updated {date} · v{version}',
-  'extensions.categoryCount': '{count} Apps',
+  'extensions.categoryCount': 'Apps: {count}',
   'extensions.categoryTotal': '{count} in total · by latest update',
   'extensions.categoryEmpty': 'No {surface} Apps in this category',
   'extensions.viewAll': 'View all Apps ({count})',
