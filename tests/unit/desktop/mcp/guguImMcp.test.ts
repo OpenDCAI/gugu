@@ -1659,12 +1659,14 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       if (path.startsWith('users?id=eq.agent-1&')) return [{ gugu_number: 42, display_name: 'Agent', avatar: null, bio: null, owner_user_id: 'owner-1' }]
       // 置顶是主人自己的状态:只读主人自己那几行里置顶的(与界面 setChatPinned 写的是同一列)。
       if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'g-2' }]
+      // #84 message_conversations 也列主人与好友的私聊(好友表是主人自己的);这里主人没有好友私聊,见 guguOwnerFriendDm84。
+      if (path.startsWith('friendships?')) return []
       throw new Error(`unexpected direct read: ${path}`)
     }
     const rpcs: unknown[][] = []
     const restRpc = async (name: string, body: Record<string, unknown>) => {
       rpcs.push([name, body])
-      if (name === 'list_my_chats_as') return chats
+      if (name === 'list_my_chats_as') return body.p_as_user_id === 'agent-1' ? chats : []
       throw new Error(`unexpected rpc: ${name}`)
     }
     const client = await connect({ ...h.deps, restGet, restRpc })
