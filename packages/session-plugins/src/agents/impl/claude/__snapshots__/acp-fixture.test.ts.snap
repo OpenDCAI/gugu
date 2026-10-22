@@ -1,20 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Claude ACP fixture parsing > agents 1`] = `
-[
-  {
-    "agentId": "ad0a1acabfb4a0dc1",
-    "background": true,
-    "launchTurnId": "677167db-64b7-4193-8470-302e96b223a6:turn:10",
-    "model": "claude-opus-4-8[1m]",
-    "name": "Find files containing stopReason",
-    "outputFile": "/private/tmp/claude-501/-private-tmp-gugu-acp-fixture-1783037827823/677167db-64b7-4193-8470-302e96b223a6/tasks/ad0a1acabfb4a0dc1.output",
-    "startedAt": 1577836800000,
-    "status": "running",
-    "toolCallId": "toolu_01N3Y7C4y7eLVpC11EJGC4oA",
-  },
-]
-`;
+exports[`Claude ACP fixture parsing > agents 1`] = `[]`;
 
 exports[`Claude ACP fixture parsing > config 1`] = `
 {
@@ -2992,12 +2978,8 @@ drwxr-xr-x@ 29 davidkonopka  wheel  928 Jul  2 17:18 ..",
           "text": "Use a subagent (Task tool) to find all files under \`packages/core/src/acp\` that contain the string \`stopReason\`, then summarize what each file does.",
         },
         {
-          "agentId": "ad0a1acabfb4a0dc1",
-          "background": true,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:10:tool:toolu_01N3Y7C4y7eLVpC11EJGC4oA",
-          "inputSummary": "Find files containing stopReason",
           "kind": "spawn-subagent-tool-call",
-          "model": "claude-opus-4-8[1m]",
           "name": "Find files containing stopReason",
           "outputText": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the agentId below, into a user-facing reply.)
 agentId: ad0a1acabfb4a0dc1 (internal ID - do not mention to user. Use SendMessage with to: 'ad0a1acabfb4a0dc1', summary: '<5-10 word recap>' to continue this agent.)
@@ -3021,6 +3003,7 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
           "status": "done",
           "title": "Find files containing stopReason",
           "toolCallId": "toolu_01N3Y7C4y7eLVpC11EJGC4oA",
+          "toolName": "Agent",
         },
         {
           "at": 1577836800000,
