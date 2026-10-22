@@ -17,7 +17,7 @@ export {
 } from './deliveryEnvelope'
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { normalizeAgentType, type AgentType } from '../../agentTypes'
-import type { AgentActivityStatus, AgentRuntimeStatus } from '../../shared/types/chat'
+import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
 import { getAgent, listAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
@@ -145,7 +145,6 @@ export interface AgentSetModelDevicePayload {
 
 export interface AgentRuntimeStateReport {
   agentUserId: string
-  runtimeStatus: AgentRuntimeStatus
   activityStatus: AgentActivityStatus
   runtimeKind: string
   runtimeLabel: string
@@ -390,8 +389,6 @@ export interface AgentCreateDeviceCommandResult {
   chat_id: string
   agent_type: AgentType
   project_path: string
-  runtime_status: 'offline'
-  activity_status: 'idle'
   created: boolean
 }
 
@@ -437,8 +434,6 @@ export interface AgentSetModelDeviceCommandResult {
 export interface AgentStopDeviceCommandResult {
   stopped: true
   gugu_user_id: string
-  runtime_status: 'offline'
-  activity_status: 'idle'
   runtime_type?: 'powershell'
   target_id?: string
   container_ref?: string
@@ -576,7 +571,6 @@ export async function handleAgentCreateDeviceCommand(
     await reportAgentRuntimeState(
       {
         agentUserId,
-        runtimeStatus: 'offline',
         activityStatus: 'idle',
         runtimeKind: 'gugu',
         runtimeLabel: hostname(),
@@ -590,8 +584,6 @@ export async function handleAgentCreateDeviceCommand(
       chat_id: provisioned.chatId,
       agent_type: agentType,
       project_path: projectPath,
-      runtime_status: 'offline',
-      activity_status: 'idle',
       created: provisioned.created,
     }
   } catch (error) {
@@ -599,7 +591,6 @@ export async function handleAgentCreateDeviceCommand(
     await reportAgentRuntimeState(
       {
         agentUserId,
-        runtimeStatus: 'offline',
         activityStatus: 'idle',
         runtimeKind: 'gugu',
         runtimeLabel: hostname(),
@@ -791,7 +782,6 @@ export async function handleAgentStopDeviceCommand(
   await reportAgentRuntimeState(
     {
       agentUserId: guguUserId,
-      runtimeStatus: 'offline',
       activityStatus: 'idle',
       runtimeKind: 'gugu',
       runtimeLabel: hostname(),
@@ -802,8 +792,6 @@ export async function handleAgentStopDeviceCommand(
   return {
     stopped: true,
     gugu_user_id: guguUserId,
-    runtime_status: 'offline',
-    activity_status: 'idle',
   }
 }
 
