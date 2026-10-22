@@ -146,7 +146,15 @@ class AcpAgentStatusBridge {
    */
   private derive(previous: SessionSummary | undefined, next: SessionSummary | undefined): AcpAgentStatusAction[] {
     try {
-      return deriveAcpAgentStatusActions(previous, next);
+      return deriveAcpAgentStatusActions(previous, next).map(action => {
+        if (action.kind !== 'event') return action;
+        let turnId = next?.activeTurnId;
+        // endWork commits the group before publishing WorkEnded, so the preceding working summary may already
+        // have a null active ID. Use the committed group's locator supplied by the runtime, without reading its body.
+        if (action.event.type === 'stop') turnId = next?.lastRecordedTurnId ?? previous?.activeTurnId ?? turnId;
+        else if (action.event.type === 'error') turnId = previous?.activeTurnId ?? turnId;
+        return turnId ? { ...action, event: { ...action.event, payload: { ...action.event.payload, turnId } } } : action;
+      });
     } catch (error) {
       log.error('ACP agent status bridge could not project a session summary', {
         sessionId: (next ?? previous)?.sessionId,

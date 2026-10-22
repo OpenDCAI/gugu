@@ -267,6 +267,13 @@
       "when": 1787190000010,
       "tag": "0037_project_root_detach",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1787190000011,
+      "tag": "0038_assistant_activity",
+      "breakpoints": true
     }
   ]
 }

@@ -2213,6 +2213,20 @@ function reportingCell() {
 }
 
 describe('SessionCell idle turns and queue commands', () => {
+  it('does not reuse a previous turn locator when an agent reports a work cycle without a transcript group', async () => {
+    const { cell } = makeCell();
+    expect(isOk(await cell.prompt({ text: 'previous input', origin: 'typed' }))).toBe(true);
+    const previous = cell.history().committed.at(-1)!;
+    expect(cell.lastRecordedTurnId).toBe(previous.id);
+
+    cell.setReportsState(true);
+    cell.push({ kind: 'agent_state', state: 'running' });
+    expect(cell.history().active).toBeNull();
+    cell.push({ kind: 'agent_state', state: 'idle' });
+    expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.history().committed.at(-1)?.id).toBe(previous.id);
+    expect(cell.lastRecordedTurnId).toBeNull();
+  });
   /**
    * #6191 —— 没声明自发轮的家(copilot 那种:usage 从不带 cost),取消之后补来的一句
    * 「Info: Operation cancelled by user」曾开出一个**永远关不上**的自发轮:停止键常亮、

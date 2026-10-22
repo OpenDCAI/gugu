@@ -52,6 +52,29 @@ function platformInjection() {
 }
 
 describe('AcpRuntime session manager', () => {
+  it('keeps a committed turn locator after activeTurnId is cleared, without adding its content to the summary', async () => {
+    const { rt, sessionId } = await startHarness('conv-activity-anchor');
+    expect(isOk(await rt.sendPrompt(sessionId, { text: 'ACTIVITY PRIVATE INPUT' }))).toBe(true);
+    const history = rt.getHistory(sessionId);
+    expect(isOk(history)).toBe(true);
+    if (!isOk(history)) return;
+    const last = history.data.turns.at(-1);
+    expect(last?.id).toBeTruthy();
+    const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
+    expect(summary).toMatchObject({ activeTurnId: null, lastRecordedTurnId: last!.id, lifecycle: 'ready' });
+    expect(JSON.stringify(summary)).not.toContain('ACTIVITY PRIVATE INPUT');
+  });
+  it('leaves an empty autonomous work cycle unanchored instead of pointing at an older committed turn', async () => {
+    const { rt, sessionId, client, providerSessionId } = await startHarness('conv-activity-no-body', { reportsState: true });
+    expect(isOk(await rt.sendPrompt(sessionId, { text: 'previous input' }))).toBe(true);
+    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId].lastRecordedTurnId;
+    expect(previous).toBeTruthy();
+    for (const state of ['running', 'idle'] as const) {
+      await client.sessionUpdate({ sessionId: providerSessionId, update: { sessionUpdate: 'state_update', state } as unknown as SessionUpdate });
+    }
+    const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
+    expect(summary).toMatchObject({ lifecycle: 'ready', activeTurnId: null, lastRecordedTurnId: null });
+  });
   /**
    * 插件清单漏了 liveSettings 声明是**本仓自己的 bug**,日志要响亮(error 档)——
    * 但响亮 ❌ 不等于杀掉用户的会话。owner 2026-09-19:「任何 bug 都不应该让会话打不开」。

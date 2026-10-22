@@ -170,6 +170,10 @@ export type PendingPermissionWait = z.infer<typeof pendingPermissionWaitSchema>;
 
 export const sessionSummarySchema = z.object({
   sessionId: z.string(),
+  /** Metadata locator for on-demand context; absent on older runtimes. */
+  activeTurnId: z.string().nullable().optional(),
+  /** Group at the latest work boundary, null for an empty cycle; absent on older runtimes. */
+  lastRecordedTurnId: z.string().nullable().optional(),
   projectId: z.string(),
   providerId: z.string(),
   lifecycle: sessionLifecycleSchema,

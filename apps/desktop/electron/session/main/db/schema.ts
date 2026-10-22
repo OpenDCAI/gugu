@@ -21,6 +21,26 @@ import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { workspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { workspaceProviderData } from '@shared/core/workspaces/workspace-provider-data';
 
+export const activityEvents = sqliteTable('activity_events', {
+  seq: integer('seq').primaryKey({ autoIncrement: true }),
+  eventId: text('event_id').notNull().unique(),
+  occurredAt: integer('occurred_at'),
+  observedAt: integer('observed_at').notNull(),
+  kind: text('kind').notNull(),
+  sessionId: text('session_id'),
+  projectId: text('project_id'),
+  data: text('data').notNull(),
+}, table => ({ time: index('activity_events_time').on(table.occurredAt, table.seq),
+  session: index('activity_events_session').on(table.sessionId, table.seq),
+  project: index('activity_events_project').on(table.projectId, table.seq) }));
+
+export const activityCoverage = sqliteTable('activity_coverage', {
+  id: text('id').primaryKey(),
+  startedAt: integer('started_at').notNull(),
+  lastSeenAt: integer('last_seen_at').notNull(),
+  endedAt: integer('ended_at'),
+});
+
 /**
  * SSH 远程已下架(#6264):表与引用它的列只为保留旧行而留在库里,产品代码不再读写。
  */

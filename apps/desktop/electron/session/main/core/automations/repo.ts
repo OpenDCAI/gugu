@@ -1,3 +1,4 @@
+import { activitySignal } from '../activity/signals';
 import { randomUUID } from 'node:crypto';
 import { Cron } from 'croner';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
@@ -39,6 +40,13 @@ import {
 } from '@shared/core/automations/session-schedule';
 import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { assertTimeZone, MIN_ONE_TIME_LEAD_MS } from './schedule-time';
+
+function observeRun(run: AutomationRun | null, at = Date.now()): AutomationRun | null {
+  if (run) activitySignal({ event_id: `automation.run:${run.id}:${run.status}`, kind: 'automation.run',
+    object_id: run.id, status: run.status, occurred_at: at,
+    ...(run.sessionId ? { session_id: run.sessionId } : {}) });
+  return run;
+}
 
 const DEFAULT_TZ = getLocalTimeZone();
 
@@ -671,7 +679,7 @@ export async function markDueCronRunsQueued(
     return mappedAutomation
       ? [
           {
-            run: { ...mapAutomationRunRow(run), status: 'queued' as const },
+            run: observeRun({ ...mapAutomationRunRow(run), status: 'queued' as const }, now)!,
             automation: mappedAutomation,
           },
         ]
@@ -755,7 +763,7 @@ export async function scheduleAutomationRun(input: {
       agent_config_snapshot AS agentConfigSnapshot,
       session_config_snapshot AS sessionConfigSnapshot
   `);
-  return rows[0] ? mapAutomationRunRow(rows[0]) : null;
+  return observeRun(rows[0] ? mapAutomationRunRow(rows[0]) : null);
 }
 
 export async function listQueuedRuns(limit = 100): Promise<
@@ -811,7 +819,7 @@ export async function startCreatingSession(
       session_config_snapshot AS sessionConfigSnapshot
   `);
   const [row] = rows;
-  return row ? mapAutomationRunRow(row) : null;
+  return observeRun(row ? mapAutomationRunRow(row) : null);
 }
 
 export type AutomationRunCleanupTarget = {
@@ -879,7 +887,9 @@ export async function insertRun(input: {
         : null,
     })
     .returning();
-  return mapAutomationRunRow(row);
+  const run = mapAutomationRunRow(row);
+  observeRun(run);
+  return run;
 }
 
 export async function updateRun(
@@ -908,7 +918,7 @@ export async function updateRun(
     .set(dbValues)
     .where(eq(automationRuns.id, id))
     .returning();
-  return row ? mapAutomationRunRow(row) : null;
+  return observeRun(row ? mapAutomationRunRow(row) : null);
 }
 
 export async function findRunsStuckInCreatingSession(): Promise<Array<{ id: string }>> {

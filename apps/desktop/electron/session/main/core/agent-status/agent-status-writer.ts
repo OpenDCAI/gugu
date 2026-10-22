@@ -51,7 +51,7 @@ import { translateAgentEvent, type TranslationContext } from './status-event-tra
  * 宿主按 agent 的流唯一的来源。出生、开机收残、打断、退出、provider 门、已读都是这里的一次写入。
  */
 export type AgentStatusWriterHooks = {
-  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string }) =>
+  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string; activityAt?: number; turnId?: string }) =>
     | void
     | Promise<void>;
 };
@@ -250,7 +250,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       appFocused: meta.appFocused,
       ...(options.soundEvent ? { soundEvent: options.soundEvent } : {}),
     });
-    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId });
+    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId,
+      ...(options.active ? { activityAt: meta.timestamp, turnId: meta.event?.payload.turnId } : {}) });
   }
 
   private now(): PublishMeta {

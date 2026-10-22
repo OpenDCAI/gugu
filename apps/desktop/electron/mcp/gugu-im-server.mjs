@@ -27,6 +27,7 @@ import {
   windowResult,
 } from './list-window.mjs'
 import { GUGU_MCP_SERVER_NAME } from './gugu-mcp-name.mjs'
+import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
 
@@ -49,7 +50,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 // `msg:<id>`。入参在 dispatchTool 解码（裸 id / 类型不符当场报错），出参在同一处按字段名编码。chat_id 不动：它
 // 本就接受可读的 public_id。编解码只在这一处，双向强制。
 const USER_ID_FIELDS = new Set([
-  'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'source_sender_user_id', 'agent_user_id',
+  'actor_user_id', 'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'source_sender_user_id', 'agent_user_id',
   'creator_user_id', 'inviter_agent_user_id', 'invitee_user_id', 'decision_user_id',
   'userId', 'agentUserId',
 ])
@@ -2052,6 +2053,7 @@ function preflightGuguMessageArgs(args) {
 }
 
 export const TOOL_DEFS = [
+  chatActivityTool(resolveChatIdInput),
   // ── message_ ── 聊天消息:写入走 command lease/群规闸/表达一致性,读走 messages_view;附件 = 消息的一种
   {
     name: 'message_send',
