@@ -102,8 +102,9 @@
   position: relative;
   flex: none;
   width: 100%;
-  /* 照 App Store 首页那张大图(约 16:9):宽的 2:1,窄了跟着缩;多张时每张 78% 宽,同样 2:1。 */
-  aspect-ratio: 2 / 1;
+  /* 一个定高,❌ 跟着宽度按比例长:按比例时 1280 × 900 的窗里精选 418px 高,下面那一排一张也露不全。
+     280px ≈ 一屏的三分之一,下面那一排整排进首屏;标题两行、简介两行、底下那一条正好放下。 */
+  height: 280px;
   scroll-snap-align: start;
   border-radius: var(--radius-surface);
   overflow: hidden;
@@ -114,7 +115,6 @@
 }
 .mk-hero.is-multi .mk-hero-card {
   width: calc(78% - 8px);
-  aspect-ratio: 16 / 9;
 }
 /* 精选下面那排页码点(App Store 首页大图下面那排):此刻翻到的那一颗实心。 */
 .mk-dots {
@@ -1284,7 +1284,6 @@ button.mk-name:focus-visible {
   }
   /* 窄了精选卡竖过来:字在上,截图 / 大图标在下半截。 */
   .mk-hero-card {
-    aspect-ratio: auto;
     height: 380px;
   }
   .mk-hero.is-multi .mk-hero-card {
