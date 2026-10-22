@@ -97,6 +97,7 @@ import { RETAINED_SURFACE_HIDDEN_STYLE } from '../lib/retainedSurface'
 import { rendererLogger } from '../lib/log'
 import { takeAssistantOpenRequest } from '../lib/firstRun'
 import { appState } from '../session/renderer/lib/stores/app-state'
+import { setComposerVerb } from '../lib/composerVerbBridge'
 import { sessionPeek } from '../session/renderer/app/session-peek'
 
 const openChatLog = rendererLogger('chat/open-dm')
@@ -481,9 +482,15 @@ function InnerLayout({
       setWatchCreateRequest((n) => n + 1)
       return
     }
+    // gugu-dev#181 只有一个「新建会话」:桌面上就是会话页的新建会话页(不进群)。
+    if (chatsAreBlocks) {
+      setActiveTab('tasks')
+      appState.navigation.navigate('new-session')
+      return
+    }
     setActiveTab('chats')
     openAgentCreateDraft()
-  }, [mobile, openAgentCreateDraft])
+  }, [chatsAreBlocks, mobile, openAgentCreateDraft])
   const composerFocusCleanupRef = useRef<(() => void) | null>(null)
   // 门控与移动软键盘语义都在契约里（见 lib/focusComposer.ts）；这里只表达「用户从哪个入口进来的」。
   const focusComposerForUserEntry = useCallback((reason: ComposerFocusReason) => {
@@ -772,13 +779,19 @@ function InnerLayout({
         setWatchCreateRequest((n) => n + 1)
         return
       }
+      // gugu-dev#181 桌面上:那个群的输入框换成「新任务」,把那个群摆出来 —— 建好的 agent 进这个群,结果回到这里。
+      if (chatsAreBlocks) {
+        setComposerVerb(chatId, 'task')
+        openChatBlock(chatId)
+        return
+      }
       setActiveTab('chats')
       openAgentCreateDraft()
       setAgentCreateBirthGroup({ chatId, name })
     }
     window.addEventListener(UI_EVENTS.createAgentInGroup, onCreateInGroup)
     return () => window.removeEventListener(UI_EVENTS.createAgentInGroup, onCreateInGroup)
-  }, [mobile, openAgentCreateDraft, t])
+  }, [chatsAreBlocks, mobile, openAgentCreateDraft, openChatBlock, t])
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
   useEffect(() => {
@@ -1337,7 +1350,8 @@ function InnerLayout({
             // #6158 聊天面常驻(与上面会话页那格同法):切到别的 tab 只隐藏(见 lib/retainedSurface.ts),❌ 条件卸载、❌ 换 key 重挂 ——
             // 话题分栏/选中会话/滚动/分栏草稿全是本地状态。隐藏期间快捷键与「看见即已读」由 ChatAreaPanel/ChatListPanel 按 activeTab 门控(#6089)。
             // 手机壳里它是分页器的一页,不隐藏(横滑时相邻页要看得见),只 inert。
-            chats: (
+            // gugu-dev#181 桌面上(有会话页)没有单独的聊天页:对话是会话页这屏的一块,列表在会话页侧栏「对话」里。
+            chats: !chatsAreBlocks && (
               <div key="chat" inert={activeTab !== 'chats'} style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', flex: 1, minWidth: 0, overflow: 'hidden', ...(activeTab === 'chats' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
                   {/* #2525 移动端全屏创建页:列表/会话/底部 tab 岛全部让位(display 隐藏而非卸载 ——
                       返回时列表滚动位置与会话状态原样还在),真正的 composer 由下面那份 fixed overlay
@@ -1365,9 +1379,6 @@ function InnerLayout({
                     />
                   </ResizableChatListPane>
                   <div data-shell-chat-detail={mobile ? undefined : ''} style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, position: 'relative', display: mobile && (mobilePane !== 'chat' || showCreateSurface) ? 'none' : 'flex' }}>
-                    {!mobile && sessionHostAvailable && (
-                      <div ref={composerSlotRef} style={{ flex: 1, minWidth: 0, minHeight: 0, display: showAgentCreateDraft ? 'flex' : 'none' }} />
-                    )}
                     {!mobile && acpCreateComposer && (
                       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: showAgentCreateDraft ? 'flex' : 'none' }}>{acpCreateComposer}</div>
                     )}
