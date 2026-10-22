@@ -35,14 +35,7 @@ export function connectionLaunchConfig(
   const api = kind === 'api-key';
   return {
     configDir,
-    unsetEnv: [
-      'OPENAI_API_KEY',
-      'CODEX_API_KEY',
-      'OPENAI_BASE_URL',
-      'OPENAI_ORG_ID',
-      'OPENAI_ORGANIZATION',
-      'OPENAI_PROJECT_ID',
-    ],
+    unsetEnv: [...CODEX_CONNECTION_UNSET_ENV],
     env: { [nativeHome.envVar]: configDir, ...(apiKey ? { OPENAI_API_KEY: apiKey } : {}) },
     config:
       'cli_auth_credentials_store = "file"\n' +
@@ -50,4 +43,30 @@ export function connectionLaunchConfig(
         ? `model_provider = "gugu_connection"\n[model_providers.gugu_connection]\nname = ${JSON.stringify(id)}\nbase_url = ${JSON.stringify(endpoint ?? 'https://api.openai.com/v1')}\nenv_key = "OPENAI_API_KEY"\nwire_api = "responses"\n`
         : ''),
   };
+}
+
+/** 选了 Codex 账号 / API 连接时,用户 shell 里继承来的这些认证变量不能顶掉所选的那个。 */
+export const CODEX_CONNECTION_UNSET_ENV = [
+  'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_ORG_ID',
+  'OPENAI_ORGANIZATION',
+  'OPENAI_PROJECT_ID',
+] as const;
+
+/**
+ * Codex API 连接跑在用户自己的根上(#26):provider 用 `-c` 现给,key 走 `OPENAI_API_KEY`,
+ * ❌ 不再写进某个独立根的 config.toml —— 那样会话就得换根,对话历史跟着丢。
+ * 与旧版 config.toml 里那段逐项相同(provider id、Responses 线协议、官方端点缺省)。
+ */
+export function codexApiKeyConnectionArgs(id: string, endpoint?: string): string[] {
+  const provider = 'gugu_connection';
+  return [
+    '-c', `model_provider=${JSON.stringify(provider)}`,
+    '-c', `model_providers.${provider}.name=${JSON.stringify(id)}`,
+    '-c', `model_providers.${provider}.base_url=${JSON.stringify(endpoint ?? 'https://api.openai.com/v1')}`,
+    '-c', `model_providers.${provider}.env_key="OPENAI_API_KEY"`,
+    '-c', `model_providers.${provider}.wire_api="responses"`,
+  ];
 }

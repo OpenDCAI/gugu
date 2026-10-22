@@ -130,7 +130,7 @@ export async function getAgentConfigRuntimeClient(): Promise<AgentConfigRuntimeC
  * 不是登录失效了,❌ 标上(10-07 mac1:没 key 的 MiMo 一轮被拒,重启后模型清单写「MiMo Code 登录已失效」)。
  */
 export async function markAgentAuthExpired(providerId: string, sessionId?: string): Promise<void> {
-  const connectionId = sessionHarnessConnectionId(sessionId);
+  const connectionId = await sessionHarnessConnectionId(sessionId);
   if (sessionId && !connectionId) return;
   const reading = await (await getAgentConfigRuntimeClient()).refreshAuthStatus({ providerId, connectionId });
   if (reading.success && reading.data.kind === 'unauthenticated' && reading.data.reason !== 'expired') return;
@@ -140,7 +140,7 @@ export async function markAgentAuthExpired(providerId: string, sessionId?: strin
 }
 
 export async function clearAgentAuthExpired(providerId: string, sessionId?: string): Promise<void> {
-  const connectionId = sessionHarnessConnectionId(sessionId);
+  const connectionId = await sessionHarnessConnectionId(sessionId);
   if (sessionId && !connectionId) return;
   const handle = await getAgentConfigRuntimeHandle();
   const result = await handle.client.clearAuthExpired({ providerId, connectionId });
@@ -187,7 +187,13 @@ function withHostResolvedCli(
       const status = await client.refreshAuthStatus({ ...input, runContext: await runContextFor(input) });
       if (!status.success) throw new Error('Cannot read the connection’s sign-in status');
       if (input.connectionId !== 'native' && status.data.kind !== 'authenticated') throw new Error('Sign in before using this connection');
-      await selectHarnessConnection(input.providerId, input.connectionId);
+      if (input.providerId === 'codex') {
+        // Codex 的已有会话跟着默认订阅走:换凭据前要先停掉在跑的会话(#26)。
+        const { switchCodexSubscription } = await import('@main/core/sessions/codex-subscription-switch');
+        await switchCodexSubscription(input.connectionId, (await runContextFor({ providerId: input.providerId })).env);
+      } else {
+        await selectHarnessConnection(input.providerId, input.connectionId);
+      }
       // Main-provider reading follows the selection; connection login state remains separate.
       const refreshed = await client.refreshAuthStatus({ providerId: input.providerId, runContext: await runContextFor({ providerId: input.providerId }) });
       if (!refreshed.success) throw new Error('Connection selected, but its sign-in status could not be refreshed');

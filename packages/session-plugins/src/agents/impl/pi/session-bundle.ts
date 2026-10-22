@@ -35,31 +35,11 @@ export const PI_GUGU_CAPABILITY_PACKAGE: CapabilityPackage = {
   ],
 };
 
-export const PI_MCP_EXTENSION_SOURCE = 'npm:pi-mcp-adapter@2.32.1';
-
 /** pi 认的配置根环境变量(pi `dist/config.js` 的 `getAgentDir()`)。 */
 const PI_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR';
 
 
-/**
- * 插件级(**非**逐会话)的 MCP 登记面,家目录相对 —— 与 `.cursor/mcp.json`、`.codex/config.toml` 同族。
- *
- * ⚠️ **它解析到的不是这两条腿的任何一个会话根,而是用户的真 OS home。** 这一族路径走
- * `plugin-host.fsFor()` → `resolveAgentHomeRoot(providerId)`,而那里只认 descriptor 上的
- * `configRoot` 声明:pi 本家 `injectionMode: 'runtime'`、**没有** `configRoot` ⇒
- * `resolveAgentHome()` 返回 null ⇒ root 落到 `homedir()`(`agent-home.ts` 的
- * `compute()`:`if (!home) return { env: {}, root: osHomeDir }`)。
- * ⇒ 实际落点是 `$HOME/.pi/agent/…`,**两条腿同一份**,与 `<guguHome>/.pi/{agent,acp-agent}` 是
- * **两根不同的轴**:这一族描述的是**用户自己那套 pi 安装**(逐 provider 一份),不是本次会话的配置根。
- * ⇒ 这份共享是**有意的**,不是分根漏了一半。
- * ⚠️ 它落的是 pi 的**默认**根,而 pi 根本不读这个文件:grep pi
- * `@earendil-works/pi-coding-agent@0.85.1` 的 `dist/` + `docs/`,`mcp.json` / `mcpServers` 命中 0
- * (阳控:`models.json` 39/5、`settings.json` 35/12、`auth.json` 27/5 —— 同一条 grep 会命中,
- * 所以那个 0 是读数不是仪器瞎了;唯一那条 `mcpServers` 在一个 minified chunk 里的 Google GenAI
- * SDK 请求转换函数里,不是 pi 的配置键)。MCP 真正的通道是 adapter 扩展 + `GUGU_PI_MCP_SERVERS`
- * 环境变量(descriptor 的 `mcp: { channel: 'extension-event' }`)。
- * ⇒ 它**不逐腿**(plugin scope 只有一个路径),但字面量照样从上面那两个常量派生。
- */
+/** 用户安装的 Pi 全局 MCP 配置;任务通过扩展 API 临时注册,不写进用户配置。 */
 export const PI_HOME_MCP_RELATIVE = `${PI_CONFIG_DIR_NAME}/${PI_AGENT_DIR_LEAF['tui']}/mcp.json`;
 
 /**
@@ -164,14 +144,15 @@ export const piSessionBundleDescriptor = {
     'tui': { identity: 'addressable', messageTransport: 'local-session' },
   },
   runtimeCompatibility: {
+    'acp': { kind: 'semver-supported-floor', supportedFloor: '0.99.0', versionArgs: ['--version'] },
     // Pi's zstd path requires Node 22.15+ on the 22 line or 23.8+; a single floor would
     // incorrectly admit the known-broken 23.7 runtime or reject the supported 22 line.
-    'tui': {
+    'tui': [{ kind: 'semver-supported-floor', supportedFloor: '0.99.0', versionArgs: ['--version'] }, {
       kind: 'semver-supported-ranges',
       runtime: 'node',
       supportedRanges: ['>=22.15.0 <23.0.0', '>=23.8.0'],
       versionArgs: ['--version'],
-    },
+    }],
   },
   units: {
     // MCP / env / model / promptBlocks 四维**两条腿答案相同**,所以仍是扁平声明 —— 不是图省事:
@@ -269,14 +250,6 @@ export const piSessionBundleDescriptor = {
       + '同仓 packages/coding-agent/docs/usage.md 的 Message Queue 一节佐证:'
       + '「Escape aborts and restores queued messages to the editor」。取证日期 2026-08-24。',
   },
-  // ❌ 其余五维不写:落 BASE_SESSION_COEXISTENCE。pi 只有 tui 一条腿
-  // (`surfaces` = ['tui'],provider 也没有 acp 行为),所以没有协议 cancel / plan,
-  // askUser 那条往返在 TUI 腿上两头都断(理由见 session-core 的 tui-coexistence.ts 末尾);
-  // MCP 不是 Pi 内建配置行为,但 tui 通过上面的外部 `pi-mcp-adapter` event registration
-  // 接入 session-scoped server;plugins 仍是 createFileDropPlugin —— 只写/删/探
-  // **咕咕自己那一个** `.pi/extensions/gugu-hook.ts`,从不枚举用户自己的 extension;
-  // trust 行为走 `--approve` 的 runtime-argv,不往 `.pi/agent/trust.json` 写用户配置;历史读回也只接了
-  // claude-code 与 codex(transcriptInventory.ts)。
   // ⚠️ 别把 units.promptBlocks('extension-event' = 经 GUGU_PI_SYSTEM_PROMPT 注系统提示)
   // 当成 memory:那是咕咕每次会话推进去的提示块,不是引擎自己会去读的记忆文件。
   // 这是「咕咕还没接」,不是「pi 做不到」。
@@ -332,16 +305,8 @@ function childEnv(
       server.transport === 'stdio' ? Object.values(server.env ?? {}) : []
     )
   );
-  const mcpServers = bundle.mcpServers.map((server, index) => {
-    // ⚠️ `eager` 在**运行时注册**这条路上**不等于「会话一起来就连」**。读 pi-mcp-adapter 2.32.1 的源码:
-    //    只有 `startLoadTimeInitialization()` 会在启动时连,而它扫的是 `earlyConfig.mcpServers`
-    //    ——**配置文件里**那些 server;运行时注册走 `attachRuntimeServerLifecycle`,那里 `eager`
-    //    只用来算 `persistsAfterFirstSpawn` ⇒ `idleTimeout: 0`(**首次拉起之后**不因空闲而断),
-    //    从头到尾不触发连接。⇒ 咕咕这台 server 实际是**首次被用到时才连**。
-    // 仍然发 `eager` 是对的:我们要的正是「这条会话期间别把它空闲断掉」。
-    // ❌ 但不许据此在任何声明或注释里说它在 session start 就完成了握手 —— 实测 initialize /
-    //    tools/list 出现在第一次代理工具调用之后,不在会话起来那一刻。
-    const lifecycle = server.alwaysLoad ? ('eager' as const) : ('lazy' as const);
+  const mcpServers = bundle.mcpServers.map((server) => {
+    const exposure = server.alwaysLoad ? 'direct' : 'deferred';
     if (server.transport === 'stdio') {
       assertSessionMcpStdioEnv(server, bundle, 'Pi');
       return {
@@ -350,29 +315,16 @@ function childEnv(
         ...(server.args ? { args: [...server.args] } : {}),
         ...(server.env ? { env: sessionMcpStdioEnv(server) } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        lifecycle,
+        exposure,
       };
     }
-    const bearerTokenEnv = server.authorizationEnv
-      ? `GUGU_PI_MCP_BEARER_${index}`
-      : undefined;
-    if (server.authorizationEnv) {
-      const authorization = sessionMcpAuthorization(server, env, 'Pi') ?? '';
-      const match = /^Bearer\s+(.+)$/i.exec(authorization);
-      if (!match?.[1]) {
-        throw new Error(
-          `Pi session adapter MCP '${server.name}' requires a Bearer authorization value`,
-        );
-      }
-      env[bearerTokenEnv!] = match[1];
-      if (!stdioEnvRefs.has(server.authorizationEnv)) delete env[server.authorizationEnv];
-    }
+    const authorization = sessionMcpAuthorization(server, env, 'Pi');
+    if (server.authorizationEnv && !stdioEnvRefs.has(server.authorizationEnv)) delete env[server.authorizationEnv];
     return {
       name: server.name,
       url: server.url,
-      auth: bearerTokenEnv ? ('bearer' as const) : false,
-      ...(bearerTokenEnv ? { bearerTokenEnv } : {}),
-      lifecycle,
+      ...(authorization ? { headers: { Authorization: authorization } } : {}),
+      exposure,
     };
   });
   if (mcpServers.length > 0) {
@@ -517,24 +469,7 @@ function acpSettingsArtifact(
   const model = bundle.model;
   const selected = model?.model?.trim();
   const settings: Record<string, unknown> = {
-    // 版本钉死的 MCP 适配器 —— 与终端腿 argv 上那一份是**同一个** source 常量。
-    packages: [PI_MCP_EXTENSION_SOURCE],
-    // @@@quiet-startup (#5557) 关掉适配器合成的那段开场清单 —— 它会成为对话里的第一条 assistant 消息。
-    //
-    // 那段横幅**不是 pi 在吵,是我们塞了一句话进它嘴里、它照着念**:pi-acp 的 `buildStartupInfo`
-    // 把 `<PI_CODING_AGENT_DIR>/settings.json` 的 `packages[]` 逐条列进 `## Extensions`
-    // (`npm:` 开头的还补一行 `- index.ts`),而那个数组正是上面这一行 ⇒ 用户看到
-    // 「pi v0.85.1 / Extensions / npm:pi-mcp-adapter 2.32.1 / index.ts」,一段没有作者的开场白。
-    // 它走正规 `session/update` + `agent_message_chunk`、**自称就是一条 assistant 消息**,
-    // 所以宿主渲染它毫不奇怪 —— 要治的是别让它被造出来,❌ 不是在宿主侧按文案去认它
-    // (认 `pi v` / `## Extensions` = 把判据挂在上游文案上,他们改一个字我们就瞎,而且瞎的时候不报错)。
-    //
-    // ⚠️ 这一维只关**合成的清单**,❌ 不是「把 pi 的输出全丢掉」——真正的失败一条都不经过这里:
-    //    鉴权走 `authRequired`、起不来走 `PiRpcSpawnError`、prompt 失败照旧抛;
-    //    版本更新提示(`buildUpdateNotice`)也不受它影响,照旧送到用户面前。
-    // ⚠️ 只给 ACP 腿:终端腿那段横幅是 pi 自己终端里的正常输出,用户本来就该看见。
-    // 出处:pi-acp@0.0.33 `getQuietStartup()` 读的就是这份全局 settings 的 `quietStartup`;
-    //      实测 2/4 次落进对话(竞态,见 #5557),关掉之后 0/6。
+    // ACP 适配器不合成启动清单(#5557);真实启动失败照常上报。
     quietStartup: true,
   };
   if (model && selected) {
@@ -625,7 +560,7 @@ export function materializePiSessionBundle(
   const promptValue = renderPromptBlocks(bundle.promptBlocks);
   const model = modelArtifact('tui', bundle);
   return {
-    argsAppend: ['--extension', PI_MCP_EXTENSION_SOURCE, ...modelArgs(bundle)],
+    argsAppend: modelArgs(bundle),
     env: childEnv('tui', bundle, promptValue),
     configMerges: [],
     artifacts: [

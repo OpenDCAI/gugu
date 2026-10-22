@@ -254,7 +254,7 @@ describe('harness tool naming comes only from capabilities.mcp.toolNames (#6192)
     );
     expect(guguSessionSurfaceBlock('tui', 'copilot', true)).toContain('`gugu-message_send`');
     expect(guguSessionSurfaceBlock('tui', 'pi', true)).toContain(
-      'call them through its `mcp` tool, naming the tool `gugu_<tool>`',
+      'Your harness lists each 咕咕 tool as `mcp__gugu__<tool>` (e.g. `mcp__gugu__message_send`)',
     );
     // 按腿声明的家(#6335 Antigravity:两条腿两个程序):终端腿 `agy` 经 call_mcp_tool 以 (server, 裸名) 调;
     // 聊天面板腿没量过 ⇒ 不写这一行,❌ 借终端腿的答案。
@@ -278,6 +278,7 @@ describe('harness tool naming comes only from capabilities.mcp.toolNames (#6192)
     expect(resolveSessionTuiDeliveryToolNames('claude')).toEqual({
       message: 'mcp__plugin_gugu-product_gugu__message_send',
     });
+    expect(resolveSessionTuiDeliveryToolNames('pi')).toEqual({ message: 'mcp__gugu__message_send' });
   });
 
   // #6615 问题 11 —— Codex 0.156.1 聊天面板腿:咕咕工具收在 `mcp__gugu` 命名空间里、名字是裸的;
