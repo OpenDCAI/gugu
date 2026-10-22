@@ -368,7 +368,8 @@ export type TurnFoldRun = {
  * （用户消息），且不跨天。夹了任何东西就必须断开 —— 否则会把内容搬到一条回复的另一
  * 侧去，读者看到的先后顺序就不是真的了。
  *
- * ⚠️ 这里**不**看 `ctx.active`：正在跑的那一轮同样折（#4981 #12）。owner 验收截图
+ * ⚠️ 正在跑的那一轮同样折（#4981 #12），判据只多一条：`live` 时最后一轮按 `planLiveTurnFold` 判
+ * （开口后接着干活，那句话算过程）。owner 验收截图
  * （2026-09-05）里，一摞折好的头下面吊着两行没人认领的裸 `unknown` 工具行 —— 那就是
  * 活动层。上游 `elements-tool-timeline` 的 `streaming` 是这条时间线自己的一个 prop，
  * 它整轮都在，只是换个会微光的标签；它的示例里 `open` 初值就是 `false`，即**跑着的
@@ -378,7 +379,11 @@ export function planTurnFoldRuns(
   turns: readonly TranscriptTurn[],
   prevDayKey: string | undefined,
   enabled: boolean,
-  /** 这一层的最后一轮正在跑(活动层):它按 `planLiveTurnFold` 判。 */
+  /**
+   * 这一层的最后一轮正在跑(活动层):它按 `planLiveTurnFold` 判。只在这一层只有正在跑的那一轮时传(桌面活动层、
+   * 手机的 live 层都是):agent 自己开头的一轮按它判会多出可折的过程,前面若还有一轮、末段没有尾巴,
+   * 这一轮就会被当成「接得上」并进前一轮的头里(#129 review)。
+   */
   live = false
 ): { folds: (TurnFoldPlan | null)[]; runs: Map<number, TurnFoldRun>; absorbed: boolean[] } {
   const foldPlans = turns.map((turn, i) =>
