@@ -73,6 +73,7 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/gl', () => {
 })
 
 let frames: FrameRequestCallback[] = []
+const stops: Array<() => void> = []
 /** 一帧:时间往前走 16ms(假的 performance.now 跟着走),排着的 rAF 一起跑 */
 function step() {
   vi.advanceTimersByTime(16)
@@ -87,9 +88,12 @@ async function boot(birds = 1, dpr = 1, tracking = false) {
   const { runtime } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
   for (let i = 0; i < birds; i++) {
     const canvas = document.createElement('canvas')
+    document.body.append(canvas)
     if (i === 0) fake.canvas = canvas
     const h = runtime.register(canvas, { shape: 'free', bg: false, crop: 'full', fx: false, tracking }, 1 + i, dpr, 'fjj-beak')
     fake.ids.set(h!.engine.frame, `b${i}`)
+    stops.push(() => { runtime.unregister(h!); canvas.remove() })
+    fake.intersect!([{ target: canvas, isIntersecting: true }])
   }
   await Promise.resolve()
   await Promise.resolve()
@@ -128,6 +132,7 @@ beforeEach(() => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
 })
 afterEach(() => {
+  for (const stop of stops.splice(0)) stop()
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -255,6 +260,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     await boot()
     const canvas = fake.canvas!
     const panel = document.createElement('div')
+    document.body.append(panel)
     panel.append(canvas)
     const { GuguEngine } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/engine')
     const updates = vi.spyOn(GuguEngine.prototype, 'update')
@@ -262,6 +268,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     expect(updates).toHaveBeenCalledTimes(1)
     expect(fake.draws).toHaveLength(1)
     panel.setAttribute('inert', '')
+    await Promise.resolve()
     fake.look = [5]
     updates.mockClear()
     step()
@@ -295,9 +302,12 @@ describe('小鸟的绘图层出岔子时不整只空白', () => {
     fake.made[0].reset = allocation.reset.bind(allocation)
     fake.allocate = (w, h) => { allocation.begin(w, h) }
     const preview = document.createElement('canvas')
+    document.body.append(preview)
     preview.width = preview.height = 656
     const handle = runtime.register(preview, { shape: 'free', bg: false, crop: 'full', fx: false, tracking: false }, 2, 2, 'fjj-beak')!
     fake.ids.set(handle.engine.frame, 'preview')
+    stops.push(() => { runtime.unregister(handle); preview.remove() })
+    fake.intersect!([{ target: preview, isIntersecting: true }])
 
     expect(() => step()).not.toThrow()
     expect(fake.order).toEqual(['paint:b0', 'copy:b0', 'paint:preview', 'copy:preview'])

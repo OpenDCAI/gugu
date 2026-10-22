@@ -1,23 +1,28 @@
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { InputArea } from '@/components/chat/InputArea'
-import { LocalizationProvider } from '@/i18n'
+import { LocalizationProvider, i18n, getLocaleSnapshot, setLocalePreference } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
 import '@/styles/tokens.css'
 
+let previousLocale = getLocaleSnapshot().preference
 let root: Root | null = null
 let host: HTMLDivElement | null = null
+
+beforeEach(() => { previousLocale = getLocaleSnapshot().preference })
 
 afterEach(() => {
   root?.unmount()
   host?.remove()
   root = null
   host = null
+  setLocalePreference(previousLocale)
 })
 
-it('an empty group composer mounted while hidden shows a full line without typing, then grows and clears', async () => {
+it.each(['en-US', 'zh-CN'] as const)('a hidden empty group composer shows its real %s placeholder without typing, then grows and clears', async (locale) => {
+  setLocalePreference(locale)
   await page.viewport(390, 844)
   host = document.body.appendChild(document.createElement('div'))
   host.style.cssText = 'display:none;width:370px'
@@ -40,7 +45,7 @@ it('an empty group composer mounted while hidden shows a full line without typin
   const style = getComputedStyle(textarea)
   const oneLine = parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
   expect(oneLine).toBeGreaterThan(0)
-  expect(textarea.placeholder).toContain('Type / for commands')
+  expect(textarea.placeholder).toBe(i18n.t('composer.placeholder', { ns: 'messaging' }))
   expect(textarea.value).toBe('')
   expect(textarea.getBoundingClientRect().height).toBeGreaterThanOrEqual(oneLine)
   expect(textarea.scrollHeight).toBeLessThanOrEqual(textarea.clientHeight)
