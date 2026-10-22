@@ -110,14 +110,5 @@ describe('项目行的「展开显示」', () => {
 
     expect(projectRows(store)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'busy-root', 'more:2']);
   });
-
-  it('搜索时不折', () => {
-    const store = storeWith(PROJECT, SEVEN_IDLE_ROOTS);
-    store.ensureProjectExpanded(PROJECT);
-    store.setSearchQuery('r');
-
-    expect(projectRows(store).filter((row) => row.startsWith('more'))).toEqual([]);
-    expect(projectRows(store)).toHaveLength(7);
-  });
 });
 

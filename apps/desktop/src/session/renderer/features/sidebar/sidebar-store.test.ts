@@ -625,18 +625,6 @@ describe('SidebarStore keyboard navigation chain', () => {
 
     sessionRegistry.release('task-nav');
   });
-
-  it('counts only the projects a search matches', () => {
-    const store = new SidebarStore(
-      projectManager([
-        { id: 'alpha', createdAt: '2026-01-01T00:00:00.000Z', name: 'alpha' },
-        { id: 'beta', createdAt: '2026-01-02T00:00:00.000Z', name: 'beta' },
-      ])
-    );
-    expect(store.projectCount).toBe(2);
-    store.setSearchQuery('alp');
-    expect(store.projectCount).toBe(1);
-  });
 });
 
 // #6264 behavior gugu-server「会话页里的别的机器」(owner 2026-09-25 选 A):别的机器上的会话一律属于那台机器上的
@@ -1104,7 +1092,7 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
     release();
   });
 
-  it('不在屏上的组照样是框(只剩细框);搜索时不成框,搜到的一条一条列', () => {
+  it('不在屏上的组照样是框(只剩细框)', () => {
     const { store, release } = setup();
     store.setJoinedGroups([{ anchor: 't2', sessionIds: ['t2', 't4'], onScreen: false }]);
     expect(under(store, HOME).map((e) => [e.sessionId, e.join?.onScreen])).toEqual([
@@ -1113,8 +1101,6 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
       ['t4', false],
       ['t3', undefined],
     ]);
-    store.setSearchQuery('t');
-    expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4']);
     release();
   });
 

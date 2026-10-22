@@ -67,8 +67,6 @@ export const UI_EVENTS = {
   // (askApp), a message in its list (askReveal) — the view showing that chat takes it, now or when it shows it.
   chatAsked: '__chat_asked',
   // gugu-dev#181 会话页侧栏「对话」页的两行入口:新建群聊、添加联系人。弹窗是聊天列表那一套,会话页只转达。
-  openCreateGroup: '__open_create_group',
-  openAddContact: '__open_add_contact',
   // #6646 扩展详情里点了「转发」:聊天壳用同一个转发页把这个扩展发出去(detail = ExtensionForwardRequest)。
   forwardExtension: '__forward_extension',
 } as const
