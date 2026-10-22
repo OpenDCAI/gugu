@@ -561,13 +561,39 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(ids(units)).toEqual(['u13', turnProcessId('t13'), toolRunId('t13', 'b1'), 'a13', toolRunId('t13', 'b4')]);
   });
 
-  it('agent 自发的一轮不套头:完成通知、后续 cycle 平铺,语义折叠就是它的折叠(「这就已经算折叠了」)', () => {
+  it('agent 自己开头、跑完一句话没留下的一轮不套头:外面只会剩一个空头,照旧平铺(#69)', () => {
     // 没有用户开场白、initiator 是 agent —— 比如后台子智能体跑完那一轮。
     const notified = turn('t10', [row('subagent-done-tool-call', 'd1'), row('subagent-done-tool-call', 'd2'), thinking('th10')], DONE);
     const units = flattenTier([notified], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     // 思考也进这一句(#7316,owner 10-16),所以两条「跑完了」和那一段思考是同一行。
     expect(ids(units)).toEqual([toolRunId('t10', 'd1')]);
+  });
+
+  // owner 2026-10-22(#69):后台命令跑完把 agent 叫醒的那一轮,跑完了过程还摊着,看着就是同一问没折。
+  it('#69 agent 自己开头、说了话的一轮同样折:时间头 + 最后一句话', () => {
+    const woke = turn('t11', [
+      row('background-command-done-tool-call', 'bd'), row('read-tool-call', 'rd'),
+      reply('a-mid', '汇总脚本写错了,先看是哪个 job 挂的'), bash('x1'), reply('a-final', '已重跑'),
+    ], DONE, { startedAt: 1_000, endedAt: 66_000 });
+    const units = flattenTier([woke], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(ids(units)).toEqual([turnProcessId('t11'), 'a-final']);
+    expect([header(units)?.startedAt, header(units)?.endedAt]).toEqual([1_000, 66_000]);
+  });
+
+  it('#69 一句话没说的那一轮与紧跟着开口的那一轮并成一个头,只留那句话', () => {
+    const silent = turn('t12', [row('background-command-done-tool-call', 'bd1'), bash('x1')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const spoke = turn('t13', [row('background-command-done-tool-call', 'bd2'), bash('x2'), reply('a13', '验证完了')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    const units = flattenTier([silent, spoke], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(ids(units)).toEqual([turnProcessId('t12'), 'a13']);
+  });
+
+  it('#69 agent 自己开头、正在跑的一轮也有头:在数、默认摊开', () => {
+    const running = turn('t14', [row('background-command-done-tool-call', 'bd'), bash('x1'), bash('x2')], undefined, { startedAt: 5_000 });
+    const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
+    expect(header(units)?.live).toBe(true);
+    expect(ids(units)[0]).toBe(turnProcessId('t14'));
+    expect(ids(units).length).toBeGreaterThan(1);
   });
 
   it('活动层:时间头带 live 在数,内容**默认摊开**(Codex:跑着的时候看得见在干嘛)', () => {

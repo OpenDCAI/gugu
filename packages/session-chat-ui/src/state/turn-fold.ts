@@ -418,14 +418,18 @@ export function turnFoldView(
 ): { leading: ChatItem[]; segments: { process: ChatItem[]; tail: ChatItem[]; header: TurnProcessHeader | null }[] } {
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
-  // 时间头只给**人问的那一轮**(含并进来的后续 cycle):「整体可以有个时间」说的是
-  // 回答这一问花了多久。agent 自发的一轮(完成通知、后续 cycle)没有头,平铺,
-  // 语义折叠就是它的折叠(「这就已经算折叠了」)。
+  // 人问的那一轮(含并进来的后续 cycle)有时间头。agent 自己开头的一轮(后台命令跑完、完成通知把它
+  // 叫醒)同样折、只留最后一句话(#69,owner 2026-10-22,推翻 09-06「自发轮平铺,语义折叠就是它的
+  // 折叠」:读的人分不出哪段是谁开的头,跑完了还摊着过程,看着就是同一问没折)。
+  // 例外:跑完了却一句话都没留下(只有完成通知、`[NO_REPLY]`)—— 折起来外面只剩一个空头,照旧平铺。
+  // 跑着的时候还不知道它会不会开口,先给头(在数、默认摊开,与人问的那一轮一样)。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
+  const leftWords = merged.segments.some((segment) => segment.tail.some((item) => !isContextBoundary(item)));
+  const headed = userRun || active || leftWords;
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {
-      if (!userRun) return { process: segment.process, tail: segment.tail, header: null };
+      if (!headed) return { process: segment.process, tail: segment.tail, header: null };
       // 时间头(owner 2026-09-06:「时间头本身算是过程的折叠,只不过是运行完成后,
       // 时间头是对过程的折叠」):跑着「已处理 16s」在数、内容摊开;跑完写总时长、把过程收起来。
       // 跑着的只有**最后一段** —— 前面那些已经被钩子封口了(#5350),所以按段判,不按轮判。
