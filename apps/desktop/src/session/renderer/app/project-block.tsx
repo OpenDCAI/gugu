@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderClosed } from '@/lib/icons';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
 import { ProjectMenu } from '@renderer/features/projects/components/project-menu';
@@ -15,6 +15,11 @@ import { projectGroupsStore } from '@renderer/features/projects/stores/project-g
 import { ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { useChatHasMessages } from '@/lib/chatActivityBridge';
+import { useComposerVerb } from '@/lib/composerVerbBridge';
+import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
+import { rpcOn } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { log } from '@renderer/utils/logger';
 import { screenLayout } from './screen-layout';
 
 /**
@@ -40,6 +45,14 @@ export const ProjectBlock = observer(function ProjectBlock({
   const label = projectDisplayName(getProjectStore(projectId)) ?? translate('projects.fallbackName');
   const chatId = projectGroupsStore.chatIdOf(projectId);
   const hasMessages = useChatHasMessages(chatId);
+  const verb = useComposerVerb(chatId);
+  // 项目就是群(gugu-dev#181):项目一摆上屏,它的群就该在 —— 新建的项目一进来就建好(只有自己一个人),
+  // 老项目没有群的也在这时补上。幂等;建好了由绑定变更事件刷新各处。
+  useEffect(() => {
+    void Promise.resolve().then(() => rpcOn(machineRegistry.machineOf(projectId) ?? null).projects.ensureProjectGroup(projectId)).then((result) => {
+      if (!result.success) log.warn('[project-block] 项目群没建成', { projectId, error: result.error });
+    }).catch((error: unknown) => log.warn('[project-block] 项目群没建成', { projectId, error: String(error) }));
+  }, [projectId]);
   return (
     <>
       <TabStripShell
@@ -61,13 +74,59 @@ export const ProjectBlock = observer(function ProjectBlock({
           <>
             <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
             {/* gugu-dev#181 群里输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(建在这个项目里)。 */}
-            <ComposerVerbDock chatId={chatId} projectId={projectId} />
+            {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : <ComposerVerbDock chatId={chatId} projectId={projectId} />}
           </>
         ) : (
           <SessionShellProvider>
             <ProjectMainPanel projectId={projectId} />
           </SessionShellProvider>
         )}
+      </div>
+    </>
+  );
+});
+
+/**
+ * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框,项目的文件夹卡浮到群聊上面 —— 整片统一淡下去,
+ * 卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,卡收回;直接打字、按 Esc、点空白处,
+ * 卡也让开。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
+ */
+const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
+  const stage = useProjectFolderStage(projectId);
+  const [cardShown, setCardShown] = useState(true);
+  const chosen = stage.scopedFolders.chosen?.workspaceId ?? null;
+  const chosenAtOpen = useRef(chosen);
+  useEffect(() => {
+    if (chosen !== chosenAtOpen.current) setCardShown(false);
+  }, [chosen]);
+  useEffect(() => {
+    if (!cardShown) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCardShown(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cardShown]);
+  return (
+    <>
+      {cardShown ? (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 px-4 pb-32"
+          data-project-task-card=""
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setCardShown(false);
+          }}
+        >
+          {stage.card}
+        </div>
+      ) : null}
+      <div
+        className="relative z-30"
+        onKeyDownCapture={(event) => {
+          if (cardShown && event.key.length === 1) setCardShown(false);
+        }}
+      >
+        <ComposerVerbDock chatId={chatId} projectId={stage.targetProjectId} workspaceId={chosen} />
       </div>
     </>
   );

@@ -18,6 +18,8 @@ import {
 } from '@renderer/lib/layout/navigation-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions';
+import { readChatHasMessages } from '@/lib/chatActivityBridge';
+import { setComposerVerb } from '@/lib/composerVerbBridge';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -171,6 +173,10 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     if (standInDevice) return openHomeComposer(standInDevice);
     if (!isProjectActive) navigate('project', { projectId });
+    // gugu-dev#181 悬停的「+」= 在这个项目里开新任务:群里已经有消息时,项目块的框直接是「新任务」、文件夹卡浮出来;
+    // 还没有消息时项目块本来就是项目首页(文件夹卡 + 新任务的框)。
+    const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
+    if (chatId && readChatHasMessages(chatId)) setComposerVerb(chatId, 'task');
     sidebarStore.ensureProjectExpanded(projectId);
   };
 

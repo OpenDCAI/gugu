@@ -27,6 +27,12 @@ function subscribe(listener: () => void): () => void {
   return () => window.removeEventListener(EVENT, listener)
 }
 
+/** 会话页(不在渲染里):这个对话有没有过消息;壳还没告诉过 = null。 */
+export function readChatHasMessages(chatId: string): boolean | null {
+  const activity = read()
+  return activity ? activity.withMessages.has(chatId) : null
+}
+
 /** 会话页:这个对话有没有过消息;壳还没告诉过 = null(还不知道,❌ 当成没有)。 */
 export function useChatHasMessages(chatId: string | undefined): boolean | null {
   return useSyncExternalStore(subscribe, () => {
