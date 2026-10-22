@@ -11,7 +11,7 @@ import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import type { AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
 import { platform } from '../../platform'
-import { showSessionBeside } from '../../session/renderer/app/screen-layout-actions'
+import { isScreenView, showSessionBeside } from '../../session/renderer/app/screen-layout-actions'
 import { openSessionInSessionWhenReady } from '../../session/renderer/features/sessions/open-session-in-session'
 import { appState } from '../../session/renderer/lib/stores/app-state'
 import { openSessionInFull } from '../appSlot/peekFullSession'
@@ -158,11 +158,10 @@ function useMyAgentJoin(chatId: string | null, agentUserId: string | null): 'pen
   return state
 }
 
-/** 点卡 = 屏上(会话 / 项目块)就拼在正看着那块右边(与侧栏 ⌘ 点同一条);在聊天页就整页打开它。 */
+/** 点卡 = 在这一屏上(会话、项目、对话块)就拼在正看着那块右边(与侧栏 ⌘ 点同一条);在聊天页就整页打开它。 */
 function openTaskCardSession(task: TaskCard): void {
   const target = { projectId: task.projectId, sessionId: task.sessionId }
-  const view = appState.navigation.currentViewId
-  if (view === 'session' || view === 'project') {
+  if (isScreenView(appState.navigation.currentViewId)) {
     showSessionBeside(target)
     openSessionInSessionWhenReady(target)
     return
