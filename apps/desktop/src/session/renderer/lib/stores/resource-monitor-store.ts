@@ -1,7 +1,7 @@
 import { computed, makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc } from '@renderer/lib/ipc';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
-import type { ResourcePtyEntry, ResourceSnapshot } from '@shared/resource-monitor';
+import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 export class ResourceMonitorStore {
   snapshot: ResourceSnapshot | null = null;
@@ -36,16 +36,15 @@ export class ResourceMonitorStore {
   }
 
   /**
-   * Total CPU usage as a fraction of the whole machine (0 - 100+%).
-   * pidusage reports each PID as % of one core; divide by core count to
-   * normalize against total CPU capacity. Undefined until the app's own processes have a reading.
+   * Total CPU usage in percent of one core (100% = one core fully busy), the unit the sampler records
+   * and the timeline stores. Undefined until the app's own processes have a reading.
    */
   get totalCpuPercent(): number | undefined {
     const snap = this.snapshot;
-    if (!snap || snap.cpuCount === 0 || snap.app.cpuPercent === undefined) return undefined;
+    if (!snap || snap.app.cpuPercent === undefined) return undefined;
     let sum = snap.app.cpuPercent;
     for (const e of snap.entries) sum += e.cpu;
-    return sum / snap.cpuCount;
+    return sum;
   }
 
   get totalMemoryBytes(): number | undefined {
@@ -123,11 +122,5 @@ export class ResourceMonitorStore {
     if (this.snapshot && this.snapshot.timestamp > snap.timestamp) return;
     this.previousSnapshot = this.snapshot;
     this.snapshot = snap;
-  }
-
-  /** Normalized CPU% (relative to all cores) for a single entry. */
-  normalizedCpu(entry: ResourcePtyEntry): number {
-    if (!this.snapshot || this.snapshot.cpuCount === 0) return 0;
-    return entry.cpu / this.snapshot.cpuCount;
   }
 }

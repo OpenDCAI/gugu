@@ -72,7 +72,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
               <Section heading={translate('palette.application')}>
                 <div className="flex flex-col">
                   {processes.map((p) => (
-                    <ProcessRow key={p.pid} process={p} cpuCount={snapshot?.cpuCount} />
+                    <ProcessRow key={p.pid} process={p} />
                   ))}
                 </div>
               </Section>
@@ -143,9 +143,9 @@ function Section({ heading, children }: { heading: string; children: ReactNode }
   );
 }
 
-function ProcessRow({ process, cpuCount }: { process: ResourceAppProcess; cpuCount?: number }) {
+function ProcessRow({ process }: { process: ResourceAppProcess }) {
   const label = appProcessLabel(process.type, process.name);
-  const cpu = process.cpu === undefined ? undefined : cpuCount ? process.cpu / cpuCount : process.cpu;
+  const cpu = process.cpu;
   return (
     <div
       className="grid grid-cols-[1fr_3rem_4rem] items-center gap-2 rounded-md px-2 py-1 text-xs text-foreground-muted hover:bg-row-hover"
@@ -197,7 +197,6 @@ function SessionRow({ session }: { session: SessionBucket }) {
 }
 
 function AgentRow({ entry }: { entry: Entry }) {
-  const norm = appState.resourceMonitor.normalizedCpu(entry);
   const label = entryLabel(entry);
   const [armed, setArmed] = useState(false);
 
@@ -224,7 +223,7 @@ function AgentRow({ entry }: { entry: Entry }) {
             armed && 'opacity-0'
           )}
         >
-          {norm.toFixed(0)}% · {formatBytes(entry.memory)}
+          {entry.cpu.toFixed(1)}% · {formatBytes(entry.memory)}
         </span>
         <StopButton
           ptySessionId={entry.ptySessionId}

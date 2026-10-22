@@ -17,6 +17,10 @@ vi.mock('@renderer/lib/ipc', () => ({
   },
 }));
 
+// formatReport's module reads agent names from appState; the unit test needs none of it.
+vi.mock('@renderer/lib/stores/app-state', () => ({ appState: {} }));
+vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({}));
+
 function snapshot(timestamp: number): ResourceSnapshot {
   return {
     timestamp, cpuCount: 1, totalMemoryBytes: 0,
@@ -42,6 +46,19 @@ describe('ResourceMonitorStore', () => {
     expect(store.snapshot?.timestamp).toBe(7);
     popup();
     expect(setOpen.mock.lastCall?.[2]).toBe(false);
+  });
+  it('reports CPU in percent of one core, the unit the timeline stores, regardless of core count', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const { formatReport } = await import('@renderer/features/command-palette/resource-monitor-utils');
+    const store = new ResourceMonitorStore();
+    store.watch();
+    const snap: ResourceSnapshot = {
+      ...snapshot(9), cpuCount: 32, app: { memoryBytes: 0, cpuPercent: 4 },
+      appProcesses: [{ pid: 1, type: 'Browser', cpu: 4, memory: 0 }],
+    };
+    snapshotHandler?.(snap);
+    expect(store.totalCpuPercent).toBe(4);
+    expect(formatReport(snap, []).split('\n')).toEqual(['CPU (100% = one core) 4.0% Memory 0 B', 'Main 4.0% 0 B (pid=1)']);
   });
   beforeEach(() => {
     vi.resetAllMocks();
