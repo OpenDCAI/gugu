@@ -39,8 +39,9 @@ export interface TaskCardFirstTurn {
   envelope: boolean
 }
 
+// 先看再发:没进群时 message_send 必然被拒,而有的 harness 把一次失败的咕咕工具调用记成整轮失败(Codex 实测)。
 export const TASK_CARD_NOT_MEMBER_HINT =
-  '这是你的任务卡。你加入这个群还在等群主同意：发不进群时，就把结果直接回在你自己的会话里。'
+  '这是你的任务卡。你加入这个群要等群主同意：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就把结果直接回在你自己的会话里，不往群里发。'
 
 export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Promise<TaskCardFirstTurn> {
   const text = input.text.trim()

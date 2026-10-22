@@ -12,6 +12,7 @@ import { showSessionBeside } from '../../session/renderer/app/screen-layout-acti
 import { getProjectStore, projectDisplayName } from '../../session/renderer/features/projects/stores/project-selectors'
 import { openSessionInSessionWhenReady } from '../../session/renderer/features/sessions/open-session-in-session'
 import { appState } from '../../session/renderer/lib/stores/app-state'
+import { isImplicitSessionHomeProjectId } from '../../session/shared/core/projects/session-home-project'
 import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { openSessionInFull } from '../appSlot/peekFullSession'
 
@@ -98,7 +99,8 @@ function useTaskCardPlace(task: TaskCard | null, isMine: boolean, senderName: st
   if (!task) return { local: false, label: null }
   if (!isMine) return { local: false, label: t('message.taskCard.onColleagueComputer', { name: senderName }) }
   if (here !== task.deviceId) return { local: false, label: here ? t('message.taskCard.onMachine', { machine: task.machineLabel }) : null }
-  const project = projectDisplayName(getProjectStore(task.projectId))
+  // 没选项目的任务跑在隐式的工作目录里:那不是一个用户认得的项目,❌ 写出它的内部名字。
+  const project = isImplicitSessionHomeProjectId(task.projectId) ? undefined : projectDisplayName(getProjectStore(task.projectId))
   return { local: true, label: project ? t('message.taskCard.inProject', { project }) : null }
 }
 
