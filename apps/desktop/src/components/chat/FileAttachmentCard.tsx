@@ -30,7 +30,7 @@ export function FileAttachmentCard({ file, isMine = false, details, onOpen, onDo
         </div>
         <div className="flex min-w-0 flex-col gap-1">
           <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] font-semibold" style={{ color: accent }}>{file.fileName}</span>
-          <span className="text-[length:var(--font-caption)]" style={{ color: muted }}>{details ?? `${formatAttachmentSize(file.sizeBytes)}${file.mimeType ? ` · ${file.mimeType}` : ''}`}</span>
+          <span className="truncate text-[length:var(--font-caption)]" style={{ color: muted }}>{details ?? `${formatAttachmentSize(file.sizeBytes)}${file.mimeType ? ` · ${file.mimeType}` : ''}`}</span>
         </div>
       </Button>
       {onDownload && (
