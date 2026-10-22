@@ -73,6 +73,12 @@ vi.mock('@main/db/client', () => ({
 }));
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
+vi.mock('../sessions/session-outputs', () => ({
+  sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
+  sessionOpenedFile: async (sessionId: string, path: string) =>
+    (openedOutputs.get(sessionId) ?? []).some((output) => output.kind === 'file' && output.path === path),
+}));
 vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args) }));
 vi.mock('@main/core/automations/repo', () => ({ listSessionSchedules: () => state.schedules }));
 /** 主进程推给渲染层的事件的旁听者(tapMainEvents);用例直接调它们,等于「主进程广播了一条」。 */
@@ -1308,8 +1314,8 @@ describe('session timeline service', () => {
 });
 
 /**
- * 手机点开附件卡(#7193):机器只读这条会话**真的**用 open_in_tab 打开过的文件,依据是它自己的记录。
- * 判据喂合成记录 + 临时文件;阴控是同一个文件、记录里没打开过它 —— 必须被拒。
+ * 手机点开附件卡(#7193):机器只读这条会话**真的**打开过的文件,依据是宿主记下的那一份(sessions/session-outputs.ts)。
+ * 判据喂记录 + 临时文件;阴控是同一个目录里、记录里没有的文件 —— 必须被拒。
  */
 const { mkdtempSync, writeFileSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
@@ -1322,36 +1328,12 @@ describe('readOpenedFile', () => {
   writeFileSync(report, '<h1>汇报</h1>');
   writeFileSync(other, 'not for the phone');
 
-  const openCall = (path: string, status: 'done' | 'error' = 'done') => ({
-    kind: 'mcp-tool-call',
-    id: `t1:tool:${path}`,
-    seq: 0,
-    toolCallId: path,
-    title: 'mcp__gugu__session_open_in_tab',
-    server: 'gugu',
-    tool: 'session_open_in_tab',
-    status,
-    rawInput: JSON.stringify({ path }),
-    outputText: JSON.stringify({ opened: true, path, intent: 'pinned' }),
-  });
-
-  function timelineWith(items: unknown[]) {
-    const fake = makeTimeline();
-    const getSnapshot = fake.timeline.getSnapshot;
-    fake.timeline.getSnapshot = (options) => ({
-      ...getSnapshot(options),
-      turns: [{ id: 't1', seq: 1, initiator: 'user', items } as unknown as TimelineSnapshot['turns'][number]],
-    });
-    return fake.timeline;
-  }
-
   beforeEach(() => {
-    service.resetSessionTimelineService();
-    state.rows = [row()];
+    openedOutputs.clear();
   });
 
   it('打开过的文件:按块读出原字节', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(report)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: report }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 1024 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1359,55 +1341,22 @@ describe('readOpenedFile', () => {
     expect(result.value.size).toBe(Buffer.byteLength('<h1>汇报</h1>'));
   });
 
-  it('记录里没打开过的文件:拒,哪怕它就在同一个目录里', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(report)]));
-    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 });
-    expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
-  });
-
-  it('打开失败的那一次不算打开过', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(other, 'error')]));
+  it('记录里没打开过的文件:拒,哪怕它就在同一个目录里;别的会话打开过的也不算', async () => {
+    openedOutputs.set('conv-1', [{ kind: 'file', path: report }]);
+    openedOutputs.set('conv-2', [{ kind: 'file', path: other }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过、后来被删了:如实说文件不在了', async () => {
     const gone = join(dir, 'gone.html');
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(gone)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: gone }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: gone, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'file_missing' } });
   });
 
-  it('同一份文件后面那几块不再翻整条记录(一份 20 MB 的文件要 40 块);没打开过的照旧拒', async () => {
-    let snapshots = 0;
-    service.setSessionTimelineFactory(async () => {
-      const timeline = timelineWith([openCall(report)]);
-      const getSnapshot = timeline.getSnapshot;
-      timeline.getSnapshot = (options) => {
-        snapshots += 1;
-        return getSnapshot(options);
-      };
-      return timeline;
-    });
-    expect((await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 4 })).ok).toBe(true);
-    const afterFirst = snapshots;
-    expect(afterFirst).toBeGreaterThan(0);
-    for (const offset of [4, 8]) {
-      const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset, length: 4 });
-      expect(result.ok).toBe(true);
-    }
-    expect(snapshots).toBe(afterFirst);
-    // 阴控:记住的是「这条会话 + 这个路径」,换一个没打开过的路径照样去核对、照样拒
-    const denied = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 4 });
-    expect(denied).toMatchObject({ ok: false, error: { code: 'not_opened' } });
-    expect(snapshots).toBeGreaterThan(afterFirst);
-    // 别的会话没核对过:同一个路径也不走记住的那条近路(这台机器上没有 conv-2,近路会照样读出来)
-    const otherSession = await service.readOpenedFile({ conversationId: 'conv-2', path: report, offset: 0, length: 4 });
-    expect(otherSession).toMatchObject({ ok: false, error: { code: 'session_not_found' } });
-  });
-
   it('打开的是一个目录:不读', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(dir)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: dir }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: dir, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_a_file' } });
   });

@@ -114,9 +114,6 @@ function openRequested(session: ViewedMachineSession, request: SessionpagePaneOp
   // 和本机 agent 打开同一个位置:对话右边并排(spec session-page「并排」)。
   if (request.target.kind === 'file') view.paneLayout.open('file', { path: request.target.path }, { preview, beside: true, activate: false });
   else view.showPage(request.target.url, { preview, reload: true, beside: true, activate: false });
-  view.recordOutput(
-    request.target.kind === 'file' ? { kind: 'file', path: request.target.path } : { kind: 'page', url: request.target.url }
-  );
   return { ok: true, tabs: sessionPaneTabs(view.paneLayout) };
 }
 
@@ -144,13 +141,14 @@ export function ensureMachineSessionWiring(): void {
   if (wired) return;
   wired = true;
 
-  // 看着 = 屏上每一条别的机器上的会话都订上它的 open_in_tab(一个任务一条会话);离开屏幕 = 退订。
-  // 那台机器的闲置回收据此判「有人看着」(remote-pane watching)。
+  // 看着 = 屏上每一条别的机器上的、会话页已经准备好的会话都订上它的 open_in_tab(一个任务一条会话);离开屏幕 = 退订。
+  // 那台机器的闲置回收据此判「有人看着」(remote-pane watching)。会话页还没准备好(远端工作区正在挂载)就不订:
+  // 订阅应答里攒着的那几条要开进这一页,页还没有就只能答「没开成」。
   // 浏览器格读在这里(跟着那台机器的直连变),订着的就地改,❌ 只在开始订的那一刻取一次。
   const viewers = new Map<string, RemotePaneViewer>();
   reaction(
     () =>
-      machineSessionsOnScreen().flatMap((page) => {
+      machineSessionsOnScreen().filter((page) => sessionView(page.projectId, page.sessionId)).flatMap((page) => {
         const browser = hasBrowser(page.deviceId);
         return [...(sessionRegistry.get(page.sessionId)?.sessions.keys() ?? [])].sort().map((sessionId) => ({ page, sessionId, browser }));
       }),

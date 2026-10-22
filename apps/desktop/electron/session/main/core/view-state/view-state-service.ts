@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { KV } from '@main/db/kv';
 import { sessions } from '@main/db/schema';
@@ -35,18 +35,4 @@ export const viewStateService = {
   del: (key: string): Promise<void> => viewStateKV.del(key),
 
   reset: (): Promise<void> => viewStateKV.clear(),
-
-  pruneOrphans: (): void => {
-    // Aggregate session blobs (exclude :tabs suffix entries — handled separately).
-    db.run(
-      sql`DELETE FROM kv WHERE key LIKE 'view-state:session:%' AND key NOT LIKE 'view-state:session:%:tabs' AND SUBSTR(key, LENGTH('view-state:session:') + 1) NOT IN (SELECT id FROM sessions)`
-    );
-    // Dedicated tab-state keys: session:${id}:tabs.
-    db.run(
-      sql`DELETE FROM kv WHERE key LIKE 'view-state:session:%:tabs' AND SUBSTR(key, LENGTH('view-state:session:') + 1, LENGTH(key) - LENGTH('view-state:session:') - LENGTH(':tabs')) NOT IN (SELECT id FROM sessions)`
-    );
-    db.run(
-      sql`DELETE FROM kv WHERE key LIKE 'view-state:project:%' AND SUBSTR(key, LENGTH('view-state:project:') + 1) NOT IN (SELECT id FROM projects)`
-    );
-  },
 };

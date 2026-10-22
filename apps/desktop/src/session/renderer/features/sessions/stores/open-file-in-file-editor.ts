@@ -11,7 +11,7 @@ import {
 } from '@renderer/features/sessions/stores/session-selectors';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { rpc } from '@renderer/lib/ipc';
-import type { SessionOutput } from '@shared/view-state';
+import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import { rendererLogger } from '../../../../../lib/log';
 import { isAbsolutePath, isPathInsideWorkspace, resolveWorkspacePath } from './workspace-path';
 import { workspaceRegistry } from './workspace-registry';
@@ -291,7 +291,7 @@ export async function openExternalFilePath(
  * 点了对话里的一张附件卡(#7193):agent 用 open_in_tab 打开过的那份文件 / 网页,重开在对话右边。
  * 与对话顶部「输出」里点那一条是同一个动作(`reopenOutput`),❌ 另写一条打开路。
  */
-export function reopenSessionOutput(projectId: string, sessionId: string, output: SessionOutput): void {
+export function reopenSessionOutput(projectId: string, sessionId: string, output: OpenedOutput): void {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
   if (!viewModel) {
@@ -387,7 +387,6 @@ export function openHostRequestedFileInSessionWhenReady({
       const session = asProvisioned(getSessionPageStore(projectId, sessionId));
       try {
         if (!session?.viewModel) throw new Error('target session pane is unavailable');
-        session.viewModel.recordOutput({ kind: 'file', path });
         // Same resolver the click path uses — that is the whole point: the file does
         // not land in a different tab depending on who asked for it. An outside path
         // is a read-only external file and consults nobody, which is also where the
@@ -568,7 +567,7 @@ export function openHostRequestedBrowserInSessionWhenReady({
   sessionId: string;
   url: string;
   intent: 'preview' | 'pinned';
-  onResult: (result: { success: boolean; error?: string; browserId?: string }) => void;
+  onResult: (result: { success: boolean; error?: string; browserId?: string; created?: boolean }) => void;
   timeout?: number;
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };
 }): () => void {
@@ -581,14 +580,12 @@ export function openHostRequestedBrowserInSessionWhenReady({
         if (!session?.viewModel) throw new Error('target session pane is unavailable');
         if (acquire) {
           void acquireBrowserPage(session.viewModel, url, acquire, lifetime.signal).then(
-            (browserId) => onResult({ success: true, browserId }),
+            (page) => onResult({ success: true, ...page }),
             (error: unknown) => onResult({ success: false, error: error instanceof Error ? error.message : String(error) }),
           );
           return;
         }
         session.viewModel.showPage(url, { preview: intent === 'preview', reload: true, beside: true, activate: false });
-        // 空白页不是产出:agent 要操作网页、会话还没有页签时先开的那一页(#7191)。
-        if (url !== 'about:blank') session.viewModel.recordOutput({ kind: 'page', url });
         onResult({ success: true });
       } catch (error) {
         onResult({
@@ -622,7 +619,7 @@ async function acquireBrowserPage(
   url: string,
   request: { browserId?: string; createIfMissing: boolean; deadline: number },
   signal: AbortSignal,
-): Promise<string> {
+): Promise<{ browserId: string; created: boolean }> {
   const checkDeadline = () => {
     signal.throwIfAborted();
     if (Date.now() >= request.deadline) throw new Error('timed out restoring the session browser page');
@@ -654,8 +651,7 @@ async function acquireBrowserPage(
     const page = await rpc.browser.ensureAgentPage({ browserId: snapshot.browserId, partition: snapshot.partition, url: snapshot.currentUrl });
     checkDeadline();
     if (!page.success) throw new Error(`could not restore the browser page: ${page.error}`);
-    if (created && url !== 'about:blank') view.recordOutput({ kind: 'page', url });
-    return snapshot.browserId;
+    return { browserId: snapshot.browserId, created };
   } catch (error) {
     // Only a tab created by this failed acquisition is rolled back; existing tabs and their login stay intact.
     closeCreated();
