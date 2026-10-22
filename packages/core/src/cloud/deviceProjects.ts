@@ -6,21 +6,28 @@
  * 那台机器此刻离线也照样列出来,不靠这一端从前问到过。写只有一条路:那台机器自己整份替换
  * (identity.publish_device_projects),变了才推进账号 revision(device_changed,与设备行同一个信号)。
  */
+import type { AbortablePromiseLike } from './boundedOperation'
 import type { Device } from '../shared/types/chat'
 import type { DeviceProject, DeviceProjectFolder } from '../shared/types/deviceProject'
 
 export type { DeviceProject, DeviceProjectFolder, DeviceProjectFolderKind } from '../shared/types/deviceProject'
 
 type RpcResult = { data: unknown; error: { message: string } | null }
+type PageResult = RpcResult & { count?: number | null }
 
 export interface DeviceProjectsRpcClient {
-  rpc(fn: 'publish_device_projects', args: { p_device_id: string; p_projects: unknown[] }): PromiseLike<RpcResult>
+  rpc(fn: 'publish_device_projects', args: { p_device_id: string; p_projects: unknown[] }): AbortablePromiseLike<RpcResult>
+}
+
+type DeviceProjectsPage = {
+  order(column: 'device_id' | 'local_project_id'): DeviceProjectsPage
+  range(from: number, to: number): PromiseLike<PageResult>
 }
 
 export interface DeviceProjectsTableClient {
   from(table: 'device_projects'): {
-    select(columns: string): {
-      eq(column: 'user_id', value: string): PromiseLike<RpcResult>
+    select(columns: string, options: { count: 'exact' }): {
+      eq(column: 'user_id', value: string): DeviceProjectsPage
     }
   }
 }
@@ -33,8 +40,10 @@ export async function publishDeviceProjects(
   client: DeviceProjectsRpcClient,
   deviceId: string,
   projects: readonly DeviceProject[],
+  /** 等太久就作废这次请求(见 deviceProjectsPublisher)。 */
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const { data, error } = await client.rpc('publish_device_projects', {
+  const request = client.rpc('publish_device_projects', {
     p_device_id: deviceId,
     p_projects: projects.map((project) => ({
       local_project_id: project.localProjectId,
@@ -51,24 +60,50 @@ export async function publishDeviceProjects(
       })),
     })),
   })
+  const { data, error } = await (signal && request.abortSignal ? request.abortSignal(signal) : request)
   if (error) throw new Error(error.message)
   return data === true
 }
 
 const DEVICE_PROJECT_COLUMNS = 'device_id, local_project_id, name, root_path, created_at, chat_id, group_representative, folders'
+export const DEVICE_PROJECT_PAGE_ROWS = 1000
 
-/** 账号上记着的每台机器的项目:deviceId → 项目(新建的在前)。没记过项目的机器不在其中。 */
+/**
+ * 账号上记着的每台机器的项目:deviceId → 项目(新建的在前)。没记过项目的机器不在其中。
+ * 一次请求最多回服务端设的那么多行(社区默认 1000),❌ 只读第一页、悄悄少列:按 (设备, 项目) 排好一页页往后读,
+ * 头一页带回总行数,读满为止。读的途中那份变了(行数对不上、同一行出现两次)= 这一次没读到 —— 变了的那台会推进
+ * 账号 revision,设备列表跟着再读一次。
+ */
 export async function listDeviceProjects(
   client: DeviceProjectsTableClient,
   ownerId: string,
 ): Promise<Record<string, DeviceProject[]>> {
   if (!ownerId) throw new Error('listDeviceProjects requires ownerId')
-  const { data, error } = await client.from('device_projects').select(DEVICE_PROJECT_COLUMNS).eq('user_id', ownerId)
-  if (error) throw new Error(error.message)
-  if (!Array.isArray(data)) throw new Error('Device project list response must be an array')
+  const rows: unknown[] = []
+  let total: number | null = null
+  while (total === null || rows.length < total) {
+    const { data, error, count } = await client
+      .from('device_projects')
+      .select(DEVICE_PROJECT_COLUMNS, { count: 'exact' })
+      .eq('user_id', ownerId)
+      .order('device_id')
+      .order('local_project_id')
+      .range(rows.length, rows.length + DEVICE_PROJECT_PAGE_ROWS - 1)
+    if (error) throw new Error(error.message)
+    if (!Array.isArray(data)) throw new Error('Device project list response must be an array')
+    if (typeof count !== 'number') throw new Error('Device project list response has no row count')
+    if (total !== null && count !== total) throw new Error('Device project list changed while it was being read')
+    total = count
+    if (data.length === 0 && rows.length < total) throw new Error('Device project list changed while it was being read')
+    rows.push(...data)
+  }
   const byDevice: Record<string, DeviceProject[]> = {}
-  for (const row of data) {
+  const seen = new Set<string>()
+  for (const row of rows) {
     const { deviceId, project } = normalizeDeviceProjectRow(row)
+    const key = `${deviceId}\u0000${project.localProjectId}`
+    if (seen.has(key)) throw new Error('Device project list changed while it was being read')
+    seen.add(key)
     ;(byDevice[deviceId] ??= []).push(project)
   }
   for (const projects of Object.values(byDevice)) {

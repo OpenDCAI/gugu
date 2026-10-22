@@ -103,6 +103,13 @@ describe('新建框那一句', () => {
     expect(machineUnavailableReason('asleep', '小咕', zh)).toBe('小咕 在休息，开始输入就会叫醒它。');
     expect(machineUnavailableReason('waking', '小咕', zh)).toBe('小咕 正在醒来，醒了就能发送。草稿已保留。');
   });
+  it('说真实原因:登录没了说重新登录、正在连说正在连,❌ 一律「离线」', () => {
+    expect(machineUnavailableReason('offline', 'd22', zh, null, '2026-10-22T00:00:00Z')).toBe('d22 上的登录已失效，请在 设置 → 设备 中重新登录。');
+    expect(machineUnavailableReason('connecting', 'd22', zh)).toBe('正在连接 d22…');
+    expect(machineUnavailableReason('reconnecting', 'd22', zh)).toBe('正在重新连接 d22…');
+    // 对照:只是离线。
+    expect(machineUnavailableReason('offline', 'd22', zh)).toBe('d22 离线。草稿已保留，上线后可发送，或换一台机器。');
+  });
   it('叫醒没成:说那句原因', () => {
     expect(machineUnavailableReason('wake-failed', '小咕', zh, '积分已用完，小咕 醒不来。')).toBe('积分已用完，小咕 醒不来。');
   });
@@ -115,6 +122,10 @@ describe('新建框那一句', () => {
     for (const state of ['wake-failed', 'outdated', 'updating', 'update-failed', 'sign-in', 'connected', null] as const) {
       expect(machineBlockIsStatus(state)).toBe(false);
     }
+    // 离线是因为那台机器上的登录没了:要人去重新登录,照旧是报错(登出时间不明 = null 也算)。
+    expect(machineBlockIsStatus('offline', '2026-10-22T00:00:00Z')).toBe(false);
+    expect(machineBlockIsStatus('offline', null)).toBe(false);
+    expect(machineBlockIsStatus('offline', undefined)).toBe(true);
   });
   it('宿主自己的原因(默认值读不到)压过云电脑那句时,画成报错', () => {
     const context = { projectId: undefined, blockReason: '小咕 在休息，开始输入就会叫醒它。', blockIsStatus: true, isContextPending: false, machine: { deviceId: 'cloud', label: '小咕' } } as unknown as MachineCreateContext;

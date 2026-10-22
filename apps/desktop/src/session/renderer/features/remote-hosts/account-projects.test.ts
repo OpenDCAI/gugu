@@ -6,6 +6,8 @@ import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-
 import { deviceSessionsOf } from '@/session/shared/remote-sessions/session-directory';
 import {
   accountBindingsOf,
+  accountCopyKey,
+  accountCopyReplacesLive,
   accountFoldersOf,
   accountProjectsOf,
   forgetRetiredProjectCaches,
@@ -66,6 +68,21 @@ describe('账号上那份 → 会话页的形状', () => {
       { workspaceId: 'ws-wt', projectId: 'proj-repo-1', kind: 'attached', path: '/srv/repo-wt', branch: null, sessionIds: [], attachedAt: '2026-10-02T00:00:00.000Z' },
     ]);
     expect(accountFoldersOf('dev-1', [record()], 'proj-elsewhere')).toBeNull();
+  });
+
+  it('没连着时账号上那份换不换掉列着的:这一端没经连接读到过 = 换;读到过 = 账号上那份之后又变了才换', () => {
+    const recorded = accountCopyKey([record()]);
+    // 同一份内容读两次(设备列表刷新一次就是新数组)是同一个指纹。
+    expect(accountCopyKey([record()])).toBe(recorded);
+    expect(accountCopyKey([record({ name: 'renamed' })])).not.toBe(recorded);
+    // 冷启动:还没连上过它,账号上那份就是知道的全部。
+    expect(accountCopyReplacesLive({ answeredLive: false, seenWhileLive: undefined, current: recorded })).toBe(true);
+    // 连着时看到的就是这一份,断开后它没变:❌ 拿它换掉连着时读到的(旧版本的机器不记 / 刚建的还没记上去)。
+    expect(accountCopyReplacesLive({ answeredLive: true, seenWhileLive: recorded, current: recorded })).toBe(false);
+    // 断开之后那台机器又记了一份:那是更新的。
+    expect(accountCopyReplacesLive({ answeredLive: true, seenWhileLive: recorded, current: accountCopyKey([]) })).toBe(true);
+    // 连着时这一端还没读到过账号上的那份:断开后读到的那份照用。
+    expect(accountCopyReplacesLive({ answeredLive: true, seenWhileLive: undefined, current: recorded })).toBe(true);
   });
 
   it('开机清掉每台桌面从前各记一份的那几样', () => {

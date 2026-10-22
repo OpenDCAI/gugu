@@ -32,6 +32,12 @@ function accountFolders(projectId: string): ProjectFolder[] | null {
   return machine ? remoteHostsStore.accountFolders(machine, projectId) : null;
 }
 
+/** 账号上那份比这一端经连接读到的新(见 RemoteHostsStore.accountIsNewer);本机的项目 = false。 */
+function accountIsNewer(projectId: string): boolean {
+  const machine = machineRegistry.machineOf(projectId);
+  return machine ? remoteHostsStore.accountIsNewer(machine) : false;
+}
+
 export function chosenFolderOf(rowId: string, folders: readonly ShownFolder[] | null): ShownFolder | null {
   if (!folders || folders.length === 0) return null;
   const chosen = folderChoice.get(rowId);
@@ -83,7 +89,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   const membersKey = memberIds.join('\u0000');
   // 账号上记着的那几份变了(那台机器离线时挂 / 摘了文件夹之后记上来、这一端刚读到账号上的那份):重读一遍。
   // 读的是 mobx 里的设备行 —— 项目首页是 observer,那一份变了这里才重算。
-  const accountKey = JSON.stringify(memberIds.map(accountFolders));
+  const accountKey = JSON.stringify(memberIds.map((projectId) => [accountFolders(projectId), accountIsNewer(projectId)]));
   // 换了项目:「刚挂上」跟着换成那个项目的(❌ 把上一个项目的那张带过来)。
   useEffect(() => setFresh(freshFolders.get(rowId)), [rowId]);
 
@@ -103,12 +109,16 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
     const publish = () => {
       if (cancelled) return;
       const lastShown = shown.current?.rowId === rowId ? shown.current.lists : null;
-      // 一台的那一份:读到的 > 读不到就用账号上记着的(标离线;这一端还没读到账号上的那份就用这一页刚才画的那份);
-      // 过了时限还没答的同样;还没到时限的先照旧列着上一次画的(❌ 每次重读远程机器的文件夹都闪一下),
-      // 这一行头一回读就先不画它(undefined)。
+      // 一台的那一份:读到的 > 读不到就用账号上记着的与这一页刚才画的那份里新的那个(都标离线;账号上那份在那台机器
+      // 经连接答过之后没变 = 刚才画的更新,❌ 拿它把刚挂上、还没记到账号上的文件夹抹掉);过了时限还没答的同样;
+      // 还没到时限的先照旧列着上一次画的(❌ 每次重读远程机器的文件夹都闪一下),这一行头一回读就先不画它(undefined)。
       const listFor = (projectId: string): ShownFolder[] | null | undefined => {
         const last = lastShown?.get(projectId);
-        const offline = () => fromAccount(projectId) ?? last?.map((folder) => ({ ...folder, offline: true })) ?? null;
+        const offline = () => {
+          const shownBefore = last?.map((folder) => ({ ...folder, offline: true })) ?? null;
+          const recorded = fromAccount(projectId);
+          return (accountIsNewer(projectId) ? recorded ?? shownBefore : shownBefore ?? recorded) ?? null;
+        };
         if (answered.has(projectId)) return answered.get(projectId) ?? offline();
         if (late.has(projectId)) return offline();
         return last;

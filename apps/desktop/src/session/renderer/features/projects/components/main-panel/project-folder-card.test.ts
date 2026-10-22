@@ -19,10 +19,15 @@ const mocks = vi.hoisted(() => ({
   groupListeners: new Set<(data: { projectId: string }) => void>(),
   // #113 账号上记着的别的机器上的文件夹(machine:projectId → 那一份)。
   account: new Map<string, ProjectFolder[]>(),
+  // 账号上那份在那台机器经连接答过之后没再变的机器(其余 = 账号上那份更新)。
+  accountNotNewer: new Set<string>(),
 }));
 
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
-  remoteHostsStore: { accountFolders: (machine: string, projectId: string) => mocks.account.get(`${machine}:${projectId}`) ?? null },
+  remoteHostsStore: {
+    accountFolders: (machine: string, projectId: string) => mocks.account.get(`${machine}:${projectId}`) ?? null,
+    accountIsNewer: (machine: string) => !mocks.accountNotNewer.has(machine),
+  },
 }));
 
 vi.mock('@renderer/lib/stores/app-state', () => ({
@@ -327,6 +332,7 @@ describe('useProjectFolders', () => {
     mocks.attach.mockReset();
     mocks.detach.mockReset();
     mocks.account.clear();
+    mocks.accountNotNewer.clear();
   });
 
   afterEach(() => {
@@ -480,6 +486,31 @@ describe('useProjectFolders', () => {
     expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
       ['ws-root', false],
       ['ws-d15-other', true],
+    ]);
+  });
+
+  it('a machine that stops answering right after a folder was attached keeps what it last answered while the account has not caught up', async () => {
+    onD15();
+    // 刚在 d15 上挂了一个文件夹,d15 答过了;它还没记到账号上(账号上那份在 d15 答过之后没变)就掉线了。
+    const D15_NEW = folder('ws-d15-new', 'attached', '/srv/new', [], 'proj-on-d15');
+    mocks.account.set('d15:proj-on-d15', [D15_ROOT]);
+    mocks.accountNotNewer.add('d15');
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT, D15_NEW] } }));
+    await mount('p-off', ['p-off', 'proj-on-d15']);
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] } }));
+    await act(async () => latest?.reload());
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15', true],
+      ['ws-d15-new', true],
+    ]);
+    // 对照:它后来记到账号上的是别的一份(账号上那份更新了)= 照账号上的。
+    mocks.accountNotNewer.clear();
+    mocks.account.set('d15:proj-on-d15', [D15_NEW]);
+    await act(async () => latest?.reload());
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15-new', true],
     ]);
   });
 

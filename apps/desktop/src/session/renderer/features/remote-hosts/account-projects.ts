@@ -66,6 +66,26 @@ export function accountFoldersOf(deviceId: string, records: readonly DeviceProje
   }));
 }
 
+/** 账号上那份的内容指纹:设备列表每刷新一次就是新的数组,按内容认是不是同一份。 */
+const copyKeys = new WeakMap<readonly DeviceProject[], string>();
+export function accountCopyKey(records: readonly DeviceProject[]): string {
+  let key = copyKeys.get(records);
+  if (key === undefined) {
+    key = JSON.stringify(records);
+    copyKeys.set(records, key);
+  }
+  return key;
+}
+
+/**
+ * 没连着那台机器时,账号上那份要不要换掉这一端此刻列着的。这一端还没经连接读到过它 = 要(账号上那份就是知道的全部);
+ * 读到过 = 只有账号上那份在那之后又变了才要。连着时看到的账号上那份都不比连接的回答新:那台机器一变就先告诉连着的这一端,
+ * 记到账号上要晚一步(旧版本的机器根本不记)—— ❌ 线一断就拿更旧的那份把刚读到的项目清掉。
+ */
+export function accountCopyReplacesLive(input: { answeredLive: boolean; seenWhileLive: string | undefined; current: string }): boolean {
+  return !input.answeredLive || input.seenWhileLive !== input.current;
+}
+
 /**
  * #113 之前每台桌面各记一份的那几样(各台机器的项目清单、主目录、群绑定、文件夹),换成账号上的那份之后不再读写:
  * 开机清掉,❌ 留着别的机器上的路径在这台电脑上。

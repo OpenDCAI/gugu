@@ -31,7 +31,14 @@ import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
 import { findHomeProject } from './machine-home';
-import { accountBindingsOf, accountFoldersOf, accountProjectsOf, forgetRetiredProjectCaches } from './account-projects';
+import {
+  accountBindingsOf,
+  accountCopyKey,
+  accountCopyReplacesLive,
+  accountFoldersOf,
+  accountProjectsOf,
+  forgetRetiredProjectCaches,
+} from './account-projects';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { machineSessionListClient } from './machine-session-list';
 import {
@@ -134,19 +141,22 @@ export class RemoteHostsStore {
   private readonly listSyncs = new Map<string, SessionListSync>();
   private readonly linkOffs = new Map<string, () => void>();
   private readonly homeProjectPromises = new Map<string, Promise<string>>();
+  /** #113 deviceId → 经连接读到它的清单之后、连着期间看到的账号上那份(内容指纹;见 accountCopyReplacesLive)。 */
+  private readonly accountSeenLive = new Map<string, string>();
   private stopDevices: (() => void) | null = null;
   private started = false;
 
   constructor() {
     makeAutoObservable<
       RemoteHostsStore,
-      'bridge' | 'linkOffs' | 'homeProjectPromises' | 'stopDevices' | 'started' | 'listSyncs'
+      'bridge' | 'linkOffs' | 'homeProjectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs'
     >(this, {
       bridge: observable.ref,
       directory: observable.ref,
       listSyncs: false,
       linkOffs: false,
       homeProjectPromises: false,
+      accountSeenLive: false,
       stopDevices: false,
       started: false,
     });
@@ -558,6 +568,8 @@ export class RemoteHostsStore {
         const state = this.hosts.get(deviceId);
         if (state) state.synced = true;
       });
+      const records = this.hosts.get(deviceId)?.device.projects;
+      if (records) this.accountSeenLive.set(deviceId, accountCopyKey(records));
     } catch (error) {
       log.warn('[machines] 读那台机器的项目清单失败', { deviceId, error: String(error) });
     }
@@ -590,6 +602,7 @@ export class RemoteHostsStore {
     retainDeviceSessions([...this.hosts.keys()].filter((id) => id !== deviceId));
     this.linkOffs.get(deviceId)?.();
     this.linkOffs.delete(deviceId);
+    this.accountSeenLive.delete(deviceId);
     closeMachineClient(deviceId);
     appState.projects.dropMachine(deviceId);
     machineRegistry.forgetMachine(deviceId);
@@ -602,14 +615,32 @@ export class RemoteHostsStore {
 
   /**
    * #113 没连着那台机器时,它的项目清单与群绑定照账号上记着的那份。这一端还没读到过账号上的那份就不动(❌ 拿空清单把侧栏里
-   * 它的项目清掉);连着时以那台机器此刻的回答为准(syncProjects、projectGroupsStore.refresh)。
+   * 它的项目清掉);连着时以那台机器此刻的回答为准(syncProjects、projectGroupsStore.refresh),这时看到的账号上那份记下来:
+   * 断开之后它没变,就照旧列着连着时读到的(见 accountCopyReplacesLive)。
    */
   private applyAccountProjects(deviceId: string): void {
     const state = this.hosts.get(deviceId);
     const records = state?.device.projects;
-    if (!state || !records || machineLinkState(deviceId) === 'open') return;
+    if (!state || !records) return;
+    if (machineLinkState(deviceId) === 'open') {
+      if (state.synced) this.accountSeenLive.set(deviceId, accountCopyKey(records));
+      return;
+    }
+    if (!this.accountIsNewer(deviceId)) return;
     appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
     projectGroupsStore.applyBindings(deviceId, accountBindingsOf(deviceId, records));
+  }
+
+  /** #113 账号上那份比这一端经连接读到的新(或这一端还没经连接读到过它):没连着时以账号上那份为准。 */
+  accountIsNewer(deviceId: string): boolean {
+    const state = this.hosts.get(deviceId);
+    const records = state?.device.projects;
+    if (!state || !records) return false;
+    return accountCopyReplacesLive({
+      answeredLive: state.synced,
+      seenWhileLive: this.accountSeenLive.get(deviceId),
+      current: accountCopyKey(records),
+    });
   }
 
   /** #113 账号上记着的那台机器上这个项目的文件夹;没读到过账号上的那份 / 那里没有这个项目 = null。 */
