@@ -1,4 +1,4 @@
-import { agentCursorArrived, pauseAgentBrowser, resumeAgentBrowser } from '@main/core/browser/agent-browser';
+import { agentBrowserStateOf, agentCursorArrived, pauseAgentBrowser, resumeAgentBrowser } from '@main/core/browser/agent-browser';
 import { defaultBrowser, importDefaultBrowserCookies } from '@main/core/browser/browser-cookie-import';
 import { configureBrowserProfileSession } from '@main/core/browser/browser-profile-session';
 import {
@@ -94,6 +94,9 @@ export const browserController = createRPCController({
       return { ok: false as const, browser: defaultBrowser().name, reason: 'other' as const, detail: error instanceof Error ? error.message : String(error) };
     }
   },
+
+  /** OpenDCAI/gugu#56 界面挂上来 / 重新露出来时补问:这个页签上 agent 现在是什么状态(事件只在变化时发一次)。 */
+  agentState: (browserId: string) => ({ state: agentBrowserStateOf(browserId) }),
 
   /** #7191 人在页签的「agent 正在操作」条上按「停止」。 */
   pauseAgent: (browserId: string) => {
