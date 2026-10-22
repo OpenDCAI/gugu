@@ -315,8 +315,9 @@ export function flattenTier(
       for (const segment of view.segments) {
         // 先按语义折一遍,再看**剩几行**(owner 2026-09-06 截图:「过程 · 2 步」底下只有一句
         // 「2 个子智能体跑完了」—— 折叠套折叠;「过程 · 1 步」—— 一步也套了头)。
-        const ops = planRows(segment.process);
         const header = segment.header;
+        // 不套头的那一段是平铺在外面的,和不折的一轮一样先剔掉别处已经画了的(卡片 / 改动汇总,#70 review)。
+        const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
           emitOps(ops, turn.id);

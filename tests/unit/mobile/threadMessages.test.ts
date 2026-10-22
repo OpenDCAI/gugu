@@ -234,6 +234,12 @@ describe('思考与过程折叠(同桌面)', () => {
     expect(toThreadMessages([running], { liveTurnId: 't2' }).every((m) => header(m) === undefined)).toBe(true)
   })
 
+  it('`[NO_REPLY]` 不画成一句话(同桌面,#70 review)', () => {
+    const agentTurn = { ...turn('t1', [toolItem('c1', 'Bash'), agentItem('a1', '[NO_REPLY]')]), initiator: 'agent' } as TranscriptTurn
+    const texts = toThreadMessages([agentTurn]).flatMap((m) => (m.content as unknown as Array<{ type: string; text?: string }>).filter((p) => p.type === 'text'))
+    expect(texts).toEqual([])
+  })
+
   it('人问的那一轮没收尾、下一轮 agent 接着干完 ⇒ 并成一个头,回复在外面(同桌面 #4981 合并)', () => {
     const ask = timed(turn('t1', [userItem('u1', '做吧'), toolItem('c1', 'Read')]), 1_000, 2_000)
     const cont = { ...timed(turn('t2', [toolItem('c2', 'Bash'), agentItem('a2', '做完了')]), 2_500, 9_000), initiator: 'agent' } as TranscriptTurn
