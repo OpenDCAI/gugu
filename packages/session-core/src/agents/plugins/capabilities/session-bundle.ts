@@ -782,7 +782,8 @@ export interface SessionBundleDescriptor {
   acpConfigRoot?: AcpConfigRoot;
   surfaces: readonly HarnessSessionSurface[];
   sessionpage: Partial<Record<SessionpageSessionSurface, SessionpageSessionIntegration>>;
-  runtimeCompatibility?: Partial<Record<HarnessSessionSurface, SessionRuntimeCompatibility>>;
+  /** 数组中的条件都必须通过,例如同时要求 harness 与它的 Node 解释器版本。 */
+  runtimeCompatibility?: Partial<Record<HarnessSessionSurface, SessionRuntimeCompatibility | SessionRuntimeCompatibility[]>>;
   units: {
     mcp: SurfaceScopedUnitDelivery<
       | 'plugin-manifest'
@@ -1029,9 +1030,10 @@ export function requiredExactRuntimeCompatibility(
  * 上移下界，不必回头改这里的结构常量。❌ 不允许更低：那等于插件单方面放宽核心的已知下界。
  */
 export function matchesRuntimeCompatibility(
-  declared: SessionRuntimeCompatibility,
+  declared: SessionRuntimeCompatibility | SessionRuntimeCompatibility[],
   required: SessionRuntimeCompatibility,
 ): boolean {
+  if (Array.isArray(declared)) return declared.some((entry) => matchesRuntimeCompatibility(entry, required));
   if (declared.kind !== required.kind) return false;
   if (declared.runtime !== required.runtime) return false;
   if (declared.versionArgs.length !== required.versionArgs.length
@@ -1885,9 +1887,9 @@ const sessionBundleDescriptorSchema: z.ZodType<SessionBundleDescriptor> = z.obje
     'tui': sessionpageSessionIntegrationSchema.optional(),
   }),
   runtimeCompatibility: z.object({
-    'acp': sessionRuntimeCompatibilitySchema.optional(),
-    'tui': sessionRuntimeCompatibilitySchema.optional(),
-    'app-server': sessionRuntimeCompatibilitySchema.optional(),
+    'acp': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
+    'tui': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
+    'app-server': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
   }).strict().optional(),
   units: z.object({
     mcp: surfaceScopedDeliverySchema([

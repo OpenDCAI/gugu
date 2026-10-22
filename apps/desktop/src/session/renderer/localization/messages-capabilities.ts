@@ -439,6 +439,7 @@ export const enUSCapabilityMessages = {
   'agentsPage.updateFailedTitle': 'Could not update {name}',
   'agentsPage.errPermissionDenied': 'Not enough permission to run that command.',
   'agentsPage.errCommandFailed': 'The command failed',
+  'agentsPage.errDownloadHostUnreachable': 'Cannot reach the download source {host}. Check that your network can access this address, then try again.',
   'agentsPage.errPtyOpenFailed': 'Could not open a terminal to run the command: {detail}',
   'agentsPage.errUnsupportedHost':
     'Automatic install not supported. Install it yourself, then select it above.',
@@ -1236,6 +1237,7 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'agentsPage.updateFailedTitle': '{name} 没能更新',
   'agentsPage.errPermissionDenied': '权限不够,跑不了这条命令。',
   'agentsPage.errCommandFailed': '命令失败',
+  'agentsPage.errDownloadHostUnreachable': '无法连接下载源 {host}。请确认当前网络能访问该地址后重试。',
   'agentsPage.errPtyOpenFailed': '打不开终端来跑这条命令:{detail}',
   'agentsPage.errUnsupportedHost': '不支持自动安装。请手动安装后在上方选择。',
   'agentsPage.errUnknownDependency': '不认识的依赖:{id}',

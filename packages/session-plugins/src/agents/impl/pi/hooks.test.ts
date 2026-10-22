@@ -9,7 +9,7 @@ import { parsePiHookEvent } from './hooks';
 import { PI_EXTENSION_CONTENT } from './plugin-file';
 
 type Handler = (event: unknown, ctx?: unknown) => unknown;
-type Extension = (api: { on(name: string, handler: Handler): void; events: { emit(): void } }) => void;
+type Extension = (api: { on(name: string, handler: Handler): void; registerMcpServer(name: string, config: unknown): void }) => void;
 
 /**
  * 把真的事件模块(`PI_EXTENSION_CONTENT`,就是落到 `.pi/extensions/gugu-hook.ts` 的那份字节)编译加载,
@@ -56,17 +56,31 @@ afterEach(() => {
 
 function loadFakePi() {
   const handlers = new Map<string, Handler[]>();
+  const registerMcpServer = vi.fn();
   extension({
     on: (name, handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-    events: { emit: () => {} },
+    registerMcpServer,
   });
   return {
+    registerMcpServer,
     handles: (name: string) => handlers.has(name),
     async fire(name: string, event: unknown = {}) {
       for (const handler of handlers.get(name) ?? []) await handler(event, {});
     },
   };
 }
+
+it('registers the task MCP with Pi itself without an adapter event protocol', () => {
+  vi.stubEnv('GUGU_PI_MCP_SERVERS', JSON.stringify([
+    { name: 'gugu', url: 'http://localhost:1234/mcp', headers: { Authorization: 'Bearer fixture' }, exposure: 'direct' },
+    { name: 'other', command: 'node', args: ['server.mjs'], env: { TOKEN: '${TOKEN}' }, exposure: 'deferred' },
+  ]));
+  const loaded = loadFakePi();
+  expect(loaded.registerMcpServer.mock.calls).toEqual([
+    ['gugu', { url: 'http://localhost:1234/mcp', headers: { Authorization: 'Bearer fixture' }, exposure: 'direct' }],
+    ['other', { command: 'node', args: ['server.mjs'], env: { TOKEN: '${TOKEN}' }, exposure: 'deferred' }],
+  ]);
+});
 
 /** 模块发给宿主的每一条,按宿主的解析器读回。 */
 function posted(): CanonicalHookEvent[] {
