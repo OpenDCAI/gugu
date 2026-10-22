@@ -4,10 +4,10 @@
   "packages": [
     {
       "name": "nodejs-lts",
-      "version": "24.18.0-1",
-      "path": "pool/main/n/nodejs-lts/nodejs-lts_24.18.0-1_aarch64.deb",
-      "sha256": "490f4d08c45b25a7ea7db6ee466ebb3ee61f07083260b85332704ed018f59a87",
-      "size": 9743764
+      "version": "24.18.0-2",
+      "path": "pool/main/n/nodejs-lts/nodejs-lts_24.18.0-2_aarch64.deb",
+      "sha256": "c799ca24e353ee6a3dc016577592142da7b8defadc32b225bfc189b00a639076",
+      "size": 9739112
     },
     {
       "name": "libc++",
@@ -25,10 +25,10 @@
     },
     {
       "name": "ca-certificates",
-      "version": "1:2026.09.25",
-      "path": "pool/main/c/ca-certificates/ca-certificates_1:2026.09.25_all.deb",
-      "sha256": "57fab24bf4561bfdd35afe71bc1929914e51c35458cfd1fca2b15e54bc8df7af",
-      "size": 105404
+      "version": "1:2026.10.20-1",
+      "path": "pool/main/c/ca-certificates/ca-certificates_1:2026.10.20-1_all.deb",
+      "sha256": "ab8a7fe63293b455c02399ee125eb8a0041e430ccfdf89a5be8317522fdf9107",
+      "size": 110132
     },
     {
       "name": "zlib",
@@ -39,10 +39,10 @@
     },
     {
       "name": "c-ares",
-      "version": "1.34.8",
-      "path": "pool/main/c/c-ares/c-ares_1.34.8_aarch64.deb",
-      "sha256": "7681fc23e822d7988ba8b2adf3468f93ae68f724dda365cff1385096a9fa87e6",
-      "size": 194924
+      "version": "1.34.9",
+      "path": "pool/main/c/c-ares/c-ares_1.34.9_aarch64.deb",
+      "sha256": "623d84855e176f3f2a415d24c0e1d2f529356f4b5439bb3313e6d7ff0da4585c",
+      "size": 200208
     },
     {
       "name": "resolv-conf",
