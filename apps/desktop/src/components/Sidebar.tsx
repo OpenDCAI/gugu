@@ -374,7 +374,7 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
           <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined}>
             {assistant
               ? <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={40} isAgent harnessBadge={false} imageMatteColor="var(--nav-rail)" />
-              : <Avatar name={t('rail')} seed="assistant-entry-placeholder" size={40} isAgent harnessBadge={false} imageMatteColor="var(--nav-rail)" />}
+              : <Avatar name={t('rail')} seed="assistant-entry-placeholder" size={40} isAgent harnessBadge={false} still imageMatteColor="var(--nav-rail)" />}
           </span>
           {entry === 'none' ? <span className="gg-sidebar-assistant-mark" aria-hidden="true"><Plus size={10} /></span> : null}
           {entry === 'unreadable' ? <span className="gg-sidebar-assistant-mark" data-tone="warn" aria-hidden="true">!</span> : null}
