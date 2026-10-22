@@ -42,7 +42,8 @@ import {
   permissionSide,
   type DeclaredPermission,
 } from '@shared/extensions/catalog';
-import { claimedSuffixes, compareExtensionVersions, type ExtensionManifest } from '@shared/extensions/manifest';
+import { claimedSuffixes, compareExtensionVersions, ownPageTab, type ExtensionManifest } from '@shared/extensions/manifest';
+import { appOpens, appSurfaces } from '@shared/extensions/app-search';
 import { pinsAutoUpdate } from '@shared/extensions/market-entries';
 import {
   marketSourceLabel,
@@ -76,6 +77,11 @@ export interface ExtensionDetailSubject {
   installRef: MarketSourceRef | undefined;
   cloud?: CloudMarketEntryMeta | null;
 }
+
+/** 群里打开的文件,用人话说是什么(「在群组中打开 PDF」);不在这张表里的后缀是它自己的文件格式。 */
+type FileKind = 'pdf' | 'slides' | 'sheets';
+const FILE_KINDS: Record<string, FileKind> = { '.pdf': 'pdf', '.pptx': 'slides', '.xlsx': 'sheets', '.xlsm': 'sheets' };
+const fileKindOf = (suffix: string): FileKind | undefined => FILE_KINDS[suffix.toLowerCase()];
 
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
@@ -118,6 +124,7 @@ export function AppProductPage({
   onAsk,
   onBrowseReplacement,
   similar = [],
+  installs = null,
   menu,
 }: {
   subject: ExtensionDetailSubject;
@@ -154,8 +161,10 @@ export function AppProductPage({
   /** 「对 agent 说」点一句 = 新建任务、这句已填好;不给(看的是别的机器)就只读。 */
   onAsk?: (text: string) => void;
   onBrowseReplacement?: (extensionId: string) => void;
-  /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
+  /** 右栏「同类 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
+  /** 安装数(档位的下沿,已经写成「10+」那样);读不到 = null,那一格不画。 */
+  installs?: string | null;
   menu: {
     onToggleDock?: () => void;
     onOpenInWindow?: () => void;
@@ -260,7 +269,8 @@ export function AppProductPage({
   const readmeParts = readme.status === 'ready' && readme.data ? splitReadme(readme.data) : null;
   const shots = readmeParts?.images ?? [];
   const official = Boolean(cloud);
-  const publisher = official ? translate('extensions.official') : (manifest.author ?? translate('extensions.publisherLocal'));
+  // 发布方就是 manifest 写的作者(SpexCode 就是 SpexCode);「官方」说的是审核,在右栏那张卡上。
+  const publisher = manifest.author ?? translate('extensions.publisherLocal');
   const category = marketCategoryOf(manifest);
   // 装着的看装着的那一版:它和市场上那版带的程序可以不一样,开关、给哪些 agent 管的是装着的这一份。
   const declaring = installed ?? manifest;
@@ -548,6 +558,58 @@ export function AppProductPage({
     </section>
   );
 
+  // ── 用在哪:一项一句(任务侧栏 → Agent 工具 → 群组),判据只有 `appSurfaces` ──
+  const page = ownPageTab(manifest);
+  const perSessionTab = manifest.contributes.tabs.find((tab) => tab.perSession === true);
+  const chatKinds = [...new Set(manifest.contributes.tabs.flatMap((tab) => claimedSuffixes(tab, 'chat')).map(fileKindOf).filter((kind): kind is FileKind => Boolean(kind)))];
+  const hasChatFiles = manifest.contributes.tabs.some((tab) => claimedSuffixes(tab, 'chat').length > 0);
+  const uses = appSurfaces(manifest).map((surface) => ({
+    surface,
+    text:
+      surface === 'task'
+        ? page
+          ? translate('extensions.useTaskTab', { title: page.hostPage ? text.name : page.title })
+          : translate('extensions.useTaskPerSession', { title: perSessionTab?.title ?? text.name })
+        : surface === 'agent'
+          ? translate(manifest.contributes.mcpServers?.length ? (manifest.contributes.skills ? 'extensions.useAgentToolsSkills' : 'extensions.useAgentTools') : 'extensions.useAgentSkills')
+          : hasChatFiles
+            ? chatKinds.length
+              ? translate('extensions.useGroupFiles', { kinds: listOf(chatKinds.map((kind) => translate(`extensions.fileKind.${kind}`)), locale) })
+              : translate('extensions.useGroupOwnFiles')
+            : translate('extensions.useGroup'),
+  }));
+
+  // ── 头上一排要点:数在上、名目在下,格子之间一根短竖线(照 Google Play)──
+  const size = cloudIsShown && cloud ? formatSize(cloud.bundleBytes) : null;
+  const minApp = (cloudIsShown ? cloud?.minAppVersion : undefined) ?? engineFloor(installed ?? manifest);
+  const permissionCount =
+    permissions.length === 0
+      ? translate('extensions.stripPermissionsNone')
+      : translate('extensions.stripPermissionsCount', { count: permissions.length });
+  const facts: { value: string; caption: string }[] = [
+    ...(installs ? [{ value: installs, caption: translate('extensions.installsCaption') }] : []),
+    { value: `v${shownVersion}`, caption: translate('extensions.stripVersion') },
+    ...(publishedAt ? [{ value: shortDate(publishedAt, locale), caption: translate('extensions.factUpdated') }] : []),
+    ...(size ? [{ value: size, caption: translate('extensions.stripSize') }] : []),
+    { value: permissionCount, caption: translate('extensions.detailPermissions') },
+    // App Store 产品页头上那一排同样有类别。
+    { value: translate(`extensions.category.${category}`), caption: translate('extensions.infoCategory') },
+  ];
+  // 信息表:正文最后一节,平铺在页上(照 App Store 产品页的「信息」),❌ 收进弹框里。
+  const info: [string, ReactNode][] = [
+    [translate('extensions.stripVersion'), `v${shownVersion}`],
+    ...(publishedAt ? ([[translate('extensions.updatedOn'), longDate(publishedAt, locale)]] as [string, ReactNode][]) : []),
+    ...(minApp ? ([[translate('extensions.stripNeedsApp'), translate('extensions.stripAndUp', { version: minApp })]] as [string, ReactNode][]) : []),
+    ...(size ? ([[translate('extensions.stripSize'), size]] as [string, ReactNode][]) : []),
+    [translate('extensions.detailPermissions'), permissionCount],
+    [translate('extensions.infoPublisher'), publisher],
+    ...(official && cloud ? ([[translate('extensions.infoReview'), translate('extensions.infoReviewed', { version: cloud.version })]] as [string, ReactNode][]) : []),
+    [translate('extensions.infoCategory'), translate(`extensions.category.${category}`)],
+    ...(manifest.license ? ([[translate('extensions.infoLicense'), manifest.license]] as [string, ReactNode][]) : []),
+    ...(appOpens(manifest).length ? ([[translate('extensions.infoFileTypes'), appOpens(manifest).join(' ')]] as [string, ReactNode][]) : []),
+  ];
+
+
   // ── 右边一栏:审核那张卡(照 Google Play 的「内容分级」卡)、链接、类似 App ──
   const links = [
     manifest.homepage && { label: translate('extensions.linkHomepage'), href: manifest.homepage },
@@ -570,7 +632,19 @@ export function AppProductPage({
           <span className="mk-review-k">{sourceButton ?? publisher}</span>
         </div>
       </div>
-      {links.length > 0 || manifest.license ? (
+      {/* 信息表(照 Google Play 右栏):版本、更新、大小、最低版本、发布方、许可、能打开的文件;窄了跟着右栏落到页底。 */}
+      <section className="mk-dsec is-side" data-testid="app-product-info">
+        <h3>{translate('extensions.info')}</h3>
+        <dl className="mk-info-list">
+          {info.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      {links.length > 0 ? (
         <section className="mk-dsec is-side">
           <h3>{translate('extensions.detailLinks')}</h3>
           <div className="mk-side-links">
@@ -580,11 +654,6 @@ export function AppProductPage({
                 <ExternalLink className="size-3" />
               </button>
             ))}
-            {manifest.license ? (
-              <span className="mk-note">
-                {translate('extensions.infoLicense')} {manifest.license}
-              </span>
-            ) : null}
           </div>
         </section>
       ) : null}
@@ -609,34 +678,6 @@ export function AppProductPage({
       ) : null}
     </aside>
   );
-
-  // ── 头上一排要点:数在上、名目在下,格子之间一根短竖线(照 Google Play)──
-  const size = cloudIsShown && cloud ? formatSize(cloud.bundleBytes) : null;
-  const minApp = (cloudIsShown ? cloud?.minAppVersion : undefined) ?? engineFloor(installed ?? manifest);
-  const permissionCount =
-    permissions.length === 0
-      ? translate('extensions.stripPermissionsNone')
-      : translate('extensions.stripPermissionsCount', { count: permissions.length });
-  const facts: { value: string; caption: string }[] = [
-    { value: `v${shownVersion}`, caption: translate('extensions.stripVersion') },
-    ...(publishedAt ? [{ value: shortDate(publishedAt, locale), caption: translate('extensions.factUpdated') }] : []),
-    ...(size ? [{ value: size, caption: translate('extensions.stripSize') }] : []),
-    { value: permissionCount, caption: translate('extensions.detailPermissions') },
-    // App Store 产品页头上那一排同样有类别。
-    { value: translate(`extensions.category.${category}`), caption: translate('extensions.infoCategory') },
-  ];
-  // 信息表:正文最后一节,平铺在页上(照 App Store 产品页的「信息」),❌ 收进弹框里。
-  const info: [string, ReactNode][] = [
-    [translate('extensions.stripVersion'), `v${shownVersion}`],
-    ...(publishedAt ? ([[translate('extensions.updatedOn'), longDate(publishedAt, locale)]] as [string, ReactNode][]) : []),
-    ...(minApp ? ([[translate('extensions.stripNeedsApp'), translate('extensions.stripAndUp', { version: minApp })]] as [string, ReactNode][]) : []),
-    ...(size ? ([[translate('extensions.stripSize'), size]] as [string, ReactNode][]) : []),
-    [translate('extensions.detailPermissions'), permissionCount],
-    [translate('extensions.infoPublisher'), publisher],
-    ...(official && cloud ? ([[translate('extensions.infoReview'), translate('extensions.infoReviewed', { version: cloud.version })]] as [string, ReactNode][]) : []),
-    [translate('extensions.infoCategory'), translate(`extensions.category.${category}`)],
-    ...(manifest.license ? ([[translate('extensions.infoLicense'), manifest.license]] as [string, ReactNode][]) : []),
-  ];
 
   return (
     <div className="mk" data-testid="app-product-page" data-extension-id={manifest.id}>
@@ -693,6 +734,17 @@ export function AppProductPage({
               ) : null}
             </div>
           </fieldset>
+          {uses.length > 0 ? (
+            // 装上以后在哪用(照 Google Play 的设备那一排,换成咕咕的「用在哪」):从 manifest 的声明推出来,次序照市场筛选那一排。
+            <ul className="mk-uses" data-testid="app-product-uses">
+              {uses.map(({ surface, text: line }) => (
+                <li key={surface}>
+                  {surface === 'task' ? <LayoutGrid className="size-4" /> : surface === 'agent' ? <Wrench className="size-4" /> : <Users className="size-4" />}
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <span className="mk-icon is-hero">
           <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
@@ -746,17 +798,6 @@ export function AppProductPage({
           {news}
           {addsSection}
           {permissionsSection}
-          <section className="mk-dsec" data-testid="app-product-info">
-            <h3>{translate('extensions.info')}</h3>
-            <dl className="mk-info-grid">
-              {info.map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
         </div>
         {side}
       </div>

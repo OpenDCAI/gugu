@@ -27,7 +27,7 @@
   container-type: inline-size;
 }
 
-/* ── 「市场 / 已安装」+ 装本地文件夹 ─────────────────────────────────── */
+/* ── 「推荐 / 最新 / 类别」那一行(「我的 App」里是返回 + 从文件夹安装) ───────── */
 .mk-bar {
   display: flex;
   align-items: center;
@@ -1207,24 +1207,127 @@ button.mk-name:focus-visible {
   font-size: var(--font-caption);
   color: var(--foreground-muted);
 }
-.mk-info-grid {
+.mk-info-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px 24px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 16px;
   margin: 0;
 }
-.mk-info-grid dt {
+.mk-info-list > div {
+  display: contents;
+}
+.mk-info-list dt {
+  color: var(--foreground-muted);
+}
+.mk-info-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── 首页头上:搜索框放宽(照 Google Play 顶栏的大搜索框),旁边「我的 App」 ─────── */
+.mk-head-aside {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.mk-search {
+  width: 320px;
+  max-width: 40cqw;
+}
+/* 每一排标题下面那一句(为什么是这几个):小一档、淡一档。 */
+.mk-sec-sub {
+  margin-left: 4px;
+  font-size: var(--font-caption);
+  font-weight: 400;
+  color: var(--foreground-passive);
+}
+/* 首页最后那两颗:「查看全部 App」「按类别浏览」。 */
+.mk-foot-links {
+  display: flex;
+  gap: 12px;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+/* 搜索第一个结果:一张带截图的卡,宽度照两列。 */
+.mk-top-result .mk-hero-card.is-card {
+  width: calc((100% - 20px) / 2);
+}
+
+/* ── 「类别」页:一类一张卡(照 Google Play 类别页),三列;每张写几个、前三个图标 ─────── */
+.mk-cats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mk-cat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.mk-cat:hover {
+  background: var(--xp-hover);
+}
+.mk-cat-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mk-cat-tx b {
   font-weight: 600;
 }
-.mk-info-grid dd {
-  margin: 4px 0 0;
-  color: var(--foreground-muted);
-  overflow-wrap: anywhere;
+.mk-cat-tx span {
+  font-size: var(--font-caption);
+  color: var(--foreground-passive);
+}
+.mk-cat-icons {
+  display: flex;
+}
+.mk-cat-icons > .mk-icon + .mk-icon {
+  margin-left: -6px;
+}
+.mk-icon.is-28 > img,
+.mk-icon.is-28 > span {
+  width: 28px;
+  height: 28px;
+  font-size: var(--font-caption);
+  box-shadow: 0 0 0 2px var(--background);
+}
+
+/* ── 产品页头上「用在哪」:一项一句,左边图标(照 Google Play 产品页的设备那一排) ─────── */
+.mk-uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mk-uses > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  background: var(--mk-field);
+  font-size: var(--font-body);
 }
 
 /* ── 窄:放在最后,压过上面同级的版面规则 ───────────────────────────────── */
 /* 两栏放不下:右栏落到正文下面(照 Google Play 窄屏)。 */
 @container (max-width: 860px) {
+  .mk-cats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .mk-dbody {
     grid-template-columns: minmax(0, 1fr);
     gap: 40px;
@@ -1273,8 +1376,16 @@ button.mk-name:focus-visible {
   .mk-lockup-shelf .mk-shelf-row {
     grid-auto-columns: 85%;
   }
-  .mk-info-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mk-cats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mk-top-result .mk-hero-card.is-card {
+    width: 80%;
+  }
+  .mk-search {
+    width: auto;
+    max-width: none;
+    flex: 1;
   }
   .mk-hero-card.is-card {
     width: 80%;
