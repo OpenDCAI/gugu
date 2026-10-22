@@ -5,8 +5,7 @@ import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/
 import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 import { Check, Clock, Sparkles } from '@/lib/icons'
-import { useChatStore } from '../../store/chatContext'
-import { AgentHarnessIcon } from '../AgentHarnessIdentity'
+import { AgentHarnessIcon, EngineIcon } from '../AgentHarnessIdentity'
 import { Avatar } from '../Avatar'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
@@ -48,7 +47,6 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   time: string
 }) {
   const { t } = useTranslation('messaging')
-  const { identitiesById } = useChatStore('identitiesById')
   const task = card.type === 'task' ? card : null
   const place = useTaskCardPlace(task, isMine, senderName)
   const join = useMyAgentJoin(isMine && isGroup ? chatId : null, task?.agentUserId ?? null)
@@ -66,7 +64,8 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
     >
       <span className="flex h-6 items-center gap-2">
         <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-document)] border border-[var(--border)]">
-          <ComposerCardMark type={card.type} agentUserId={task?.agentUserId ?? null} size={13} />
+          {/* 卡上记着接手的是哪种 agent(贴卡时写下的),谁看都画这一枚;没记的老卡画通用的星 —— ❌ 去查这个 agent 现在看不看得到。 */}
+          {task ? (task.agentType ? <EngineIcon engine={task.agentType} size={13} /> : <Sparkles size={13} />) : <Clock size={13} />}
         </span>
         <span className="text-[var(--font-body)] font-semibold">
           {task ? t('message.taskCard.task') : `${t('message.taskCard.schedule')} · ${card.type === 'schedule' ? card.scheduleLabel : ''}`}
@@ -78,7 +77,7 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
         <span className="flex h-5 min-w-0 items-center gap-2 text-[var(--font-caption)] text-[var(--muted-fg)]">
           <span className="shrink-0">{t('message.taskCard.handedTo')}</span>
           <span className="flex shrink-0 items-center gap-1">
-            <Avatar name={task.agentName} avatarUrl={identitiesById[task.agentUserId]?.avatar ?? null} seed={task.agentUserId} isAgent harnessBadge={false} size={16} still />
+            <Avatar name={task.agentName} avatarUrl={task.agentAvatar ?? null} seed={task.agentUserId} isAgent harnessBadge={false} size={16} still />
             <b className="font-medium text-[var(--text-secondary)]">{task.agentName}</b>
           </span>
           <span className="min-w-0 truncate">

@@ -130,6 +130,8 @@ const fallbackMessages = {
   'transcript.deliveryFromMe': 'You',
   'transcript.turnReturned': 'Back in {chat}',
   'transcript.turnReturnedUnnamed': 'Back in the group',
+  'transcript.questionAnswered': 'You answered: {answer}',
+  'transcript.questionWithdrawn': 'You withdrew the question',
   'transcript.deliveryWhisper': 'whisper',
   'transcript.deliveryViaApp': 'from app {app}',
   'transcript.deliveryViaSession': 'from a task',

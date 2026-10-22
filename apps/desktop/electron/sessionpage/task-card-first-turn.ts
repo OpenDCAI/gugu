@@ -14,7 +14,7 @@ import { listAgents } from '@gugu/core'
 import type { GuguIdentity } from '@gugu/core/local/agent/deliveryEnvelope'
 import { buildAgentDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-import { makeChatClient } from '../supabase'
+import { makeChatClient, makeIdentityClient } from '../supabase'
 import { awaitSessionpageCloudIdentity } from './emdash-agent-provisioning'
 
 export interface TaskCardFirstTurnInput {
@@ -56,6 +56,9 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
   if (roomError) throw new Error(`task card for ${input.sessionId}: read chat ${input.chatId}: ${roomError.message}`)
   if (!room) throw new Error(`task card for ${input.sessionId}: chat ${input.chatId} is not visible to its owner`)
   const kind = (room as { kind?: string | null }).kind ?? null
+  const { data: face, error: faceError } = await makeIdentityClient(input.auth.accessToken).from('users')
+    .select('avatar').eq('id', input.agentUserId).maybeSingle()
+  if (faceError) throw new Error(`task card for ${input.sessionId}: read the agent's avatar: ${faceError.message}`)
 
   const { error: writeError } = await chat.rpc('send_message_idempotent', {
     p_message_id: input.messageId,
@@ -68,6 +71,8 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
       text,
       agentUserId: input.agentUserId,
       agentName: agent.name,
+      agentType: agent.agent_type,
+      agentAvatar: (face as { avatar?: string | null } | null)?.avatar ?? null,
       sessionId: input.sessionId,
       projectId: input.projectId,
       deviceId: input.deviceId,

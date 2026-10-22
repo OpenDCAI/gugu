@@ -183,6 +183,12 @@ describe('delivery card contract (#4874)', () => {
     expect(r.boxBorder).toBe('0px');
   });
 
+  it('a quoted card reads as its words, not the JSON it is stored as (gugu-dev#181)', async () => {
+    const card = '{"v":1,"type":"question","text":"README 要不要写安装步骤？","options":["写","不写"],"ownerUserId":"owner"}';
+    const r = await mount(SINGLE, false, ENVELOPE.replace('<![CDATA[the earlier plan]]>', `<![CDATA[${card}]]>`).replace('from_id="user:bob" from="Bob"', 'from_id="user:agent" from="Claude 1"'));
+    expect(r.reply).toBe('Replying to Claude 1: README 要不要写安装步骤？');
+  });
+
   it('the details tier lists the remaining facts as labelled rows, time first', async () => {
     const open = await mount(SINGLE, true);
     expect(open.computed).toBe(open.dom);

@@ -113,6 +113,17 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(harness.container.textContent?.length ?? 0, 'its own chat was named: the settings open').toBeGreaterThan(before)
   })
 
+  it('in a block the strip gets the「+」for the group folder and Apps (第 ⑥ 步); the chat page has no strip and none', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    await renderPanel({ actions, title, tabs })
+    expect(tabs.querySelector('[data-testid="block-panel-plus"]')).not.toBeNull()
+    expect(tabs.querySelector('[data-panel-tab]'), 'the panel is closed: no tabs for it').toBeNull()
+    tabs.remove()
+    await renderPanel()
+    expect(document.querySelector('[data-testid="block-panel-plus"]')).toBeNull()
+    expect(document.querySelector('[data-panel-tab]')).toBeNull()
+  })
+
   it('in a block whose slots are not mounted yet still draws no header', async () => {
     await renderPanel({ actions: null, title: null, tabs: null })
     expect(header()).toBeNull()

@@ -3,8 +3,10 @@
  * content is one of these JSON shapes. The card is the person's own message — it names no recipient and wakes nobody
  * (the cloud delivery trigger skips cards); the agent it hands the words to gets them from the host as its first turn.
  *
- * The agent's name is a snapshot: archiving the session removes the agent from the group, after which the card still
- * has to say who took the task.
+ * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted. Everyone
+ * who sees the card draws it from these, never from what they can look up about that agent: archiving the session
+ * removes the agent from the group, and a colleague may not see an agent that is still waiting to be let in, yet the
+ * card still has to say who took the task.
  */
 export interface TaskCard {
   v: 1
@@ -13,6 +15,10 @@ export interface TaskCard {
   text: string
   agentUserId: string
   agentName: string
+  /** The agent's type (`claude-code`, `codex`, …): its engine mark. Cards posted before it was kept have none. */
+  agentType?: string
+  /** The agent's avatar (an image, or its look); none = drawn from its id. */
+  agentAvatar?: string | null
   sessionId: string
   /** The session's project on that machine (a local id: it opens the session there, nowhere else). */
   projectId: string

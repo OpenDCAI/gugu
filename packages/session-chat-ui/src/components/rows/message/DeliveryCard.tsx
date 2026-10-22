@@ -12,6 +12,7 @@ import { useSenderAvatar } from '@session-chat/lib/sender-avatar';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
 import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels';
 import type { ChatMessage } from '@session-chat/model';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
@@ -211,6 +212,8 @@ function channelLabel(facts: DeliveryReadFacts, translate: ChatTranslator, chatN
   return translate('transcript.deliveryViaChat');
 }
 
+const quotedWords = (preview: string): string => composerCardPreview(preview)?.text ?? preview;
+
 export function DeliveryCard(props: { data: ChatMessage; ctx: RenderCtx; vars: DeliveryVars; messageVars: MessageVars }) {
   const batch = () => props.data.guguDelivery?.segments ?? [];
   return (
@@ -343,10 +346,11 @@ function SingleDelivery(props: {
       </div>
       <Show when={facts()?.replyTo}>
         {(reply) => (
-          <div class={deliveryReply} data-slot="delivery-reply" title={reply().preview}>
+          // A quoted card (a task, a question) reads as its words, not as the JSON it is stored as.
+          <div class={deliveryReply} data-slot="delivery-reply" title={quotedWords(reply().preview)}>
             {translate('transcript.deliveryReplyTo', {
               from: shownSender(reply().from, reply().fromId, self()) ?? reply().fromId,
-              preview: reply().preview,
+              preview: quotedWords(reply().preview),
             })}
           </div>
         )}

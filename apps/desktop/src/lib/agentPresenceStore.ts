@@ -154,6 +154,21 @@ export async function refreshObservedAgentPresenceFromRevision(payloads: readonl
 }
 
 /**
+ * 我在的一个群里成员变了(进群、换角色、挪读水位,`chat_members_changed`):先前问不到的 agent 可能此刻看得到了 ——
+ * 它刚进了我在的群(审批过后才进群的 agent,卡上早已画着它)。服务端说「看不到」只是**那一刻**的事实,❌ 当成这个 agent
+ * 的终态一直留着;但这条修订连每一次读水位都发,所以只重问上次没问到的(gugu-dev#181 80e)。
+ */
+export async function recheckUnseenAgentPresence(memberIds: readonly string[]): Promise<void> {
+  await Promise.all([...new Set(memberIds)].map(async (id) => {
+    const entry = entries.get(id)
+    if (!entry || !entry.state.error) return
+    if (entry.listeners.size === 0) entry.dirty = true
+    // 还是看不到也是正常的答案(另一个成员挪了读水位),照旧记在这一条上,❌ 当成修订失败抛出去。
+    else await fetchSnapshot(entry)
+  }))
+}
+
+/**
  * 本机宿主按 agent 的流里这个 agent 的那一条(`null` = 它不再绑在这台机器的任何会话上)。
  * **这是这张表唯一的本机写入口** —— 产品里只允许 agentStatusFeedBridge 调它(渲染层的单属主;❌ 新增第二个
  * 写入者)。❌ 不要从某个会话面调:挂在视图上的写入者只在自己挂载那段时间里说话,它写下的状态在视图卸载之后

@@ -46,6 +46,8 @@ type CloudRow = {
   toUserIds?: string[] | null
   isWhisper?: boolean
   replyToSenderUserId?: string | null
+  replyToMessageId?: string | null
+  replyToContent?: string | null
   threadRootId?: string | null
   /** #5258:入群门比的是这一格。缺省 = 会话开张那一刻,即所有成员都在场之后。 */
   createdAt?: string
@@ -139,9 +141,9 @@ class FakeCloud {
         fileBlobId: row.fileBlobId ?? null,
         toUserIds: row.toUserIds ?? null,
         isWhisper: row.isWhisper ?? false,
-        replyToMessageId: null,
+        replyToMessageId: row.replyToMessageId ?? null,
         replyToSenderUserId: row.replyToSenderUserId ?? null,
-        replyToContent: null,
+        replyToContent: row.replyToContent ?? null,
         threadRootId: row.threadRootId ?? null,
         isThreadRoot: false,
         createdAt: row.createdAt ?? this.now,
@@ -323,6 +325,30 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(injections[0]!.text).not.toContain('send with session_message')
     expect(cloud.rows[0]!.content).toBe('@Codex 2 DM-MENTION-9440')
     if (threadRootId) expect(injections[0]!.text).toContain('<thread_context>')
+  })
+
+  // A quoted message names its sender, even when that is the receiving agent itself (its owner replying to what the agent
+  // said): the transcript's delivery card shows that name, not a bare user id (gugu-dev#181).
+  it('names the sender of the quoted message, the receiving agent included', async () => {
+    const cloud = new FakeCloud()
+    cloud.addChat('chat-quote', 'group')
+    cloud.join('chat-quote', AGENT)
+    cloud.join('chat-quote', HUMAN)
+    cloud.post({
+      chatId: 'chat-quote', id: 'q-1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '先不建', toUserIds: [AGENT],
+      replyToMessageId: 'mine-1', replyToSenderUserId: AGENT, replyToContent: '要不要建 README？',
+    })
+    const asked: string[][] = []
+    const { deps, injections } = makeDeps(cloud, {
+      resolveGuguIds: async (ids) => {
+        asked.push(ids.filter((id): id is string => typeof id === 'string'))
+        return new Map(ids.filter((id) => id === AGENT).map((id) => [id, { guguNumber: 7, displayName: 'Claude 1', isAgent: true }]))
+      },
+    })
+
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
+    expect(asked.flat()).toContain(AGENT)
+    expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
   })
 
   // #6835 悄悄话:库里的 is_whisper 行到信封上就是一格 whisper_to,agent 知道这句只有它和发信人看得见。

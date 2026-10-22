@@ -25,6 +25,7 @@
     "./session-record/message-preview": "./src/session-record/message-preview.ts",
     "./session-record/live-requests": "./src/session-record/live-requests.ts",
     "./session-record/reply-process": "./src/session-record/reply-process.ts",
+    "./session-record/question-answer": "./src/session-record/question-answer.ts",
     "./session-record/live-reply": "./src/session-record/live-reply.ts",
     "./session-record/question-tools": "./src/session-record/sources/question-tools.ts",
     "./session-record/session-list-delta": "./src/session-record/session-list-delta.ts",

@@ -602,6 +602,7 @@ export default {
     }
   },
   "header": {
+    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "history": "History",
     "memberList": "Members",

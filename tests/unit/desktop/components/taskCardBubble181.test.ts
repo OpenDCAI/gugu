@@ -6,14 +6,16 @@ import { MessageBubble } from '../../../../apps/desktop/src/components/chat/Mess
 import { serializeComposerCard, type TaskCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
-vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
+// What this viewer can look up about the agent: for a colleague's agent still waiting to be let in, nothing (80e).
+let lookedUp = 'codex'
+vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => lookedUp }))
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
+beforeEach(() => { harness = createReactHarness(); lookedUp = 'codex' })
 afterEach(() => { harness.cleanup() })
 
 const CARD: TaskCard = {
-  v: 1, type: 'task', text: '用一句话介绍你自己', agentUserId: 'agent-1', agentName: 'Codex 1',
+  v: 1, type: 'task', text: '用一句话介绍你自己', agentUserId: 'agent-1', agentName: 'Codex 1', agentType: 'codex',
   sessionId: 'session-1', projectId: 'project-1', deviceId: 'device-1', machineLabel: 'This computer',
 }
 const bubble = (msg: ReturnType<typeof message>) => createNode(MessageBubble, {
@@ -34,6 +36,25 @@ describe('task card in a chat (gugu-dev#181)', () => {
     expect(card.querySelector('[data-agent-harness]'), 'the card head is the agent engine mark').not.toBeNull()
     expect(card.textContent).not.toContain('project-1')
     expect(ring(), 'a task card is an event, not a line to read').toBeNull()
+  })
+
+  it('draws who took it from the card, whatever this viewer can look up about that agent (80e)', async () => {
+    lookedUp = 'unavailable'
+    await renderWithAppProviders(harness, bubble(message({
+      id: 'card-2', is_mine: false, sender_user_id: 'colleague', content_type: 'card', content: serializeComposerCard(CARD),
+    })))
+    const head = harness.container.querySelector('[data-testid="composer-card"] [data-agent-harness]')
+    expect(head?.getAttribute('data-agent-harness')).toBe('codex')
+  })
+
+  it('a card from before the type was kept gets a neutral mark, not an error', async () => {
+    const { agentType: _dropped, ...old } = CARD
+    await renderWithAppProviders(harness, bubble(message({
+      id: 'card-3', is_mine: true, content_type: 'card', content: serializeComposerCard(old as TaskCard),
+    })))
+    const card = harness.container.querySelector('[data-testid="composer-card"]')!
+    expect(card.querySelector('[data-agent-harness]')).toBeNull()
+    expect(card.textContent).toContain('Codex 1')
   })
 
   it('positive control: my plain message keeps its read ring', async () => {

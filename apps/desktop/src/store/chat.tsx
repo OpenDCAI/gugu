@@ -41,12 +41,13 @@ import { seedCacheFromDisk } from './chatDiskWindow'
 import type { ChatItem, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
 import {
   createAccountRevisionCoordinator,
+  readMemberRosterRevision,
   type AccountRevisionCoordinator,
   type AccountRevisionEvent,
   type AccountRevisionListener,
 } from '../lib/accountRevisionCoordinator'
 import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevisionSource'
-import { refreshObservedAgentPresenceFromRevision } from '../lib/agentPresenceStore'
+import { recheckUnseenAgentPresence, refreshObservedAgentPresenceFromRevision } from '../lib/agentPresenceStore'
 import { rendererLogger } from '../lib/log'
 
 const revisionLog = rendererLogger('chat/account-revision')
@@ -585,6 +586,11 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       chatProjection.attach(user.id, subscribeAccountRevision),
       // 在线状态的属主是 agentPresenceStore,不是会话列表:**不同状态的两个属主**,不是一份状态两条路。
       subscribeAccountRevision('presence_changed', async (operations) => { await refreshObservedAgentPresenceFromRevision(operations.map((operation) => operation.payload)) }),
+      // 一个 agent 进了我在的群,它的状态我才看得到(80e):成员变了就重问上次没问到的那几个。
+      subscribeAccountRevision('chat_members_changed', async (operations) => {
+        await recheckUnseenAgentPresence(operations.map((operation) => readMemberRosterRevision(operation.payload))
+          .flatMap((change) => (change.left || !change.memberId ? [] : [change.memberId])))
+      }),
       // These surfaces own no durable list while closed: opening them always performs an authoritative
       // fetch. Keep a mounted owner so an operation for a closed surface cannot head-of-line block the
       // account inbox; when the surface is open its scoped listener runs in the same dispatch.

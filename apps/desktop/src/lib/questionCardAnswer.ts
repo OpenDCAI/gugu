@@ -1,6 +1,7 @@
 import { composerCardPreview, parseComposerCard, type QuestionCard } from '@gugu/core/shared/ui/taskCardModels'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { QuestionAnswer, SessionpageSessionRespondResult } from '@gugu/session-core/session-record/contract'
+import { questionAnswerText } from '@gugu/session-core/session-record/question-answer'
 import { platform } from '../platform'
 import { chatDb } from './supabase'
 
@@ -38,10 +39,9 @@ export async function answerIfQuestionReply(sent: MessageItem, senderUserId: str
   await answerQuestionCard(card, sent.content)
 }
 
-/** What a settled question was answered with, in the owner's words (the picks, then what they wrote in). */
+/** What a settled question was answered with, in the owner's words (the same wording as the session's transcript). */
 export function questionAnsweredText(optionId: string | null): string {
   let answers: unknown
   try { answers = optionId ? JSON.parse(optionId) : null } catch { return '' }
-  if (!Array.isArray(answers)) return ''
-  return answers.map((answer: QuestionAnswer) => [...(answer.selected ?? []), ...(answer.other ? [answer.other] : [])].join(', ')).join(' / ')
+  return Array.isArray(answers) ? questionAnswerText(answers as QuestionAnswer[]) : ''
 }
