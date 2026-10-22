@@ -8,7 +8,7 @@ import {
   useWorkspaceId,
 } from '@renderer/features/sessions/session-view-context';
 import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@/components/preview/HtmlPreviewFrame';
-import { createBlobPreview, createProtocolPreview } from '@/components/preview/html-preview-registration';
+import { registerHtmlPreview } from '@/components/preview/html-preview-registration';
 import { ModelStatusOverlay } from '@renderer/lib/monaco/model-status-overlay';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { useModelStatus } from '@renderer/lib/monaco/use-model';
@@ -91,12 +91,8 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
   );
 
   const register = useCallback(
-    async (documentHtml: string): Promise<HtmlPreviewRegistration> => {
-      if (!window.electronAPI) return createBlobPreview(documentHtml);
-      const result = await workspaceRpc(projectId).files.createPreview(projectId, workspaceId, filePath, documentHtml);
-      if (result.success) return createProtocolPreview(result.data);
-      return { ok: false, message: 'message' in result.error ? result.error.message : 'Preview unavailable' };
-    },
+    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, () =>
+      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, filePath, documentHtml)),
     [projectId, workspaceId, filePath]
   );
 

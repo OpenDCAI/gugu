@@ -17,7 +17,7 @@ const boundary = vi.hoisted(() => ({
   preview: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
-vi.mock('@/components/preview/html-preview-registration', () => ({ registerDocumentPreview: boundary.preview }))
+vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } } }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: vi.fn(async () => ({ error: null })) } }))

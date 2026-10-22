@@ -14,7 +14,7 @@ import {
 } from '@/session/shared/preview/pinch-zoom'
 import { toExternalUrl } from '@/session/shared/preview/preview-link-script'
 import { HtmlPreviewFrame } from '../preview/HtmlPreviewFrame'
-import { registerDocumentPreview } from '../preview/html-preview-registration'
+import { registerHtmlPreview } from '../preview/html-preview-registration'
 import { truncateSheetXml } from './xlsxPreviewLimits'
 import './documentPreview.css'
 
@@ -87,7 +87,7 @@ function openHtmlLink(href: string) {
 }
 
 export function DocumentPreviewContent({ kind, content, title, onOpenExternally }: DocumentPreviewContentProps) {
-  if (kind === 'html' && typeof content === 'string') return <HtmlPreviewFrame fileName={title} rawContent={content} register={registerDocumentPreview} onLink={openHtmlLink} />
+  if (kind === 'html' && typeof content === 'string') return <HtmlPreviewFrame fileName={title} rawContent={content} register={registerHtmlPreview} onLink={openHtmlLink} />
   if (typeof content === 'string') return null
   if (!content) return null
   if (kind === 'docx') return <DocxPreview data={content} onOpenExternally={onOpenExternally} />

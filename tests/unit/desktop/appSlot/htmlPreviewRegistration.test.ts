@@ -3,7 +3,7 @@ import { previewDocumentHtml } from '@/session/shared/preview/preview-link-scrip
 
 const files = vi.hoisted(() => ({ createDocumentPreview: vi.fn(), setPreviewDocument: vi.fn(), releasePreview: vi.fn() }))
 vi.mock('@/session/renderer/lib/ipc', () => ({ rpc: { workspace: { files } } }))
-import { registerDocumentPreview } from '@/components/preview/html-preview-registration'
+import { registerHtmlPreview } from '@/components/preview/html-preview-registration'
 
 beforeEach(() => vi.clearAllMocks())
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -17,7 +17,7 @@ describe('document preview transports', () => {
       return `blob:preview-${blobs.length}`
     })
     const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const preview = await registerDocumentPreview('<h1>initial</h1>')
+    const preview = await registerHtmlPreview('<h1>initial</h1>')
     if (!preview.ok) throw Error(preview.message)
     expect(preview.url).toBe('blob:preview-1')
     expect(await blobs[0]!.text()).toBe(previewDocumentHtml('<h1>initial</h1>', true))
@@ -34,7 +34,7 @@ describe('document preview transports', () => {
     vi.stubGlobal('window', { electronAPI: {} })
     files.createDocumentPreview.mockResolvedValue({ success: true, data: { url: 'gugu-preview://document/index.html', previewId: 'document' } })
     files.setPreviewDocument.mockResolvedValue({ success: true, data: { success: true } })
-    const preview = await registerDocumentPreview('<h1>initial</h1>')
+    const preview = await registerHtmlPreview('<h1>initial</h1>')
     if (!preview.ok) throw Error(preview.message)
     expect(preview.url).toBe('gugu-preview://document/index.html?r=0')
     expect(await preview.update('edited')).toBe('gugu-preview://document/index.html?r=1')
@@ -46,9 +46,17 @@ describe('document preview transports', () => {
 
   it('a host authorization failure is shown without silently switching to Blob transport', async () => {
     vi.stubGlobal('window', { electronAPI: {} })
-    files.createDocumentPreview.mockResolvedValue({ success: false, error: { type: 'not_allowed', message: 'Not allowed' } })
+    files.createDocumentPreview.mockRejectedValue(new Error('Not allowed'))
     const blob = vi.spyOn(URL, 'createObjectURL')
-    expect(await registerDocumentPreview('body')).toEqual({ ok: false, message: 'Not allowed' })
+    await expect(registerHtmlPreview('body')).rejects.toThrow('Not allowed')
     expect(blob).not.toHaveBeenCalled()
+  })
+
+  it('uses the task file registration when supplied and keeps its error visible', async () => {
+    vi.stubGlobal('window', { electronAPI: {} })
+    const register = vi.fn(async () => ({ success: false as const, error: { type: 'fs_error' as const, message: 'File is gone' } }))
+    expect(await registerHtmlPreview('body', register)).toEqual({ ok: false, message: 'File is gone' })
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(files.createDocumentPreview).not.toHaveBeenCalled()
   })
 })
