@@ -65,13 +65,17 @@ describe('AcpRuntime session manager', () => {
     expect(JSON.stringify(summary)).not.toContain('ACTIVITY PRIVATE INPUT');
   });
   it('leaves an empty autonomous work cycle unanchored instead of pointing at an older group', async () => {
-    const { rt, sessionId, client, providerSessionId } = await startHarness('conv-activity-no-body', { reportsState: true });
+    const { h, rt, sessionId, client, providerSessionId } = await startHarness('conv-activity-no-body', { reportsState: true });
+    const report = (state: 'running' | 'idle') =>
+      client.sessionUpdate({ sessionId: providerSessionId, update: { sessionUpdate: 'state_update', state } as unknown as SessionUpdate });
+    // The agent reports its own work: running while the prompt is in flight, idle after it answered.
+    h.agent.prompt.mockImplementationOnce(async () => { await report('running'); return { stopReason: 'end_turn' }; });
     expect(isOk(await rt.sendPrompt(sessionId, { text: 'previous input' }))).toBe(true);
-    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId].lastTurnId;
-    expect(previous).toBeTruthy();
-    for (const state of ['running', 'idle'] as const) {
-      await client.sessionUpdate({ sessionId: providerSessionId, update: { sessionUpdate: 'state_update', state } as unknown as SessionUpdate });
-    }
+    await report('idle');
+    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
+    expect(previous).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: expect.any(String) });
+
+    for (const state of ['running', 'idle'] as const) await report(state);
     const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
     expect(summary).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: null });
   });
