@@ -52,12 +52,10 @@ describe('resource sampler CPU', () => {
   it('leaves missing process metrics unknown, then resumes real readings', async () => {
     const { sampleOnce } = await import('./resource-sampler');
     const missing = await sampleOnce();
-    expect(missing.app.unavailable).toBeTruthy();
     expect(missing.app.memoryBytes).toBeUndefined();
     expect(missing.app.cpuPercent).toBeUndefined();
     metrics.mockReturnValue([tab(10)]);
     const recovered = await sampleOnce();
-    expect(recovered.app.unavailable).toBeUndefined();
     expect(recovered.app.memoryBytes).toBe(1024);
   });
 
@@ -100,14 +98,7 @@ describe('resource sampler CPU', () => {
     metrics.mockReturnValue([tab(40)]);
     expect((await sampleOnce()).appProcesses[0].cpu).toBeUndefined();
   });
-  it('does not difference CPU counters when an OS pid has been reused', async () => {
-    const { sampleOnce } = await import('./resource-sampler');
-    metrics.mockReturnValue([{ ...tab(10), creationTime: 100 }]);
-    await sampleOnce();
-    vi.setSystemTime(2000);
-    metrics.mockReturnValue([{ ...tab(12), creationTime: 200 }]);
-    expect((await sampleOnce()).appProcesses[0].cpu).toBeUndefined();
-  });
+
 });
 
 describe('resource sampler cadence', () => {

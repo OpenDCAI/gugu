@@ -7,7 +7,3 @@ CREATE TABLE `resource_history` (
  `bytes` integer NOT NULL,
  `snapshot` text NOT NULL
 );
---> statement-breakpoint
-CREATE TABLE `resource_history_meta` (`discarded` integer NOT NULL);
---> statement-breakpoint
-INSERT INTO `resource_history_meta` VALUES (0);

@@ -32,7 +32,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
   const store = appState.resourceMonitor;
   const snapshot = store.snapshot;
   const isLoading = store.isLoadingInitialSnapshot;
-  const memLabel = snapshot?.app.unavailable ? '–' : formatBytes(store.totalMemoryBytes);
+  const memLabel = store.totalMemoryBytes === undefined ? '–' : formatBytes(store.totalMemoryBytes);
   const cpuLabel = store.totalCpuPercent === undefined ? '–' : `${store.totalCpuPercent.toFixed(1)}%`;
   const { translate } = useSessionMessages();
   const [changingDiagnostics, setChangingDiagnostics] = useState(false);

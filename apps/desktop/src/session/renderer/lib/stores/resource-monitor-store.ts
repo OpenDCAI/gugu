@@ -1,5 +1,5 @@
 import { computed, makeObservable, observable, runInAction } from 'mobx';
-import { events, eventSourceMachine, rpc } from '@renderer/lib/ipc';
+import { events, rpc } from '@renderer/lib/ipc';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 import type { ResourcePtyEntry, ResourceSnapshot } from '@shared/resource-monitor';
 
@@ -48,12 +48,13 @@ export class ResourceMonitorStore {
     return sum / snap.cpuCount;
   }
 
-  get totalMemoryBytes(): number {
-    return this.appMemoryBytes + this.agentMemoryBytes;
+  get totalMemoryBytes(): number | undefined {
+    const app = this.appMemoryBytes;
+    return app === undefined ? undefined : app + this.agentMemoryBytes;
   }
 
-  get appMemoryBytes(): number {
-    return this.snapshot?.app?.memoryBytes ?? 0;
+  get appMemoryBytes(): number | undefined {
+    return this.snapshot?.app.memoryBytes;
   }
 
   get agentMemoryBytes(): number {
@@ -77,7 +78,6 @@ export class ResourceMonitorStore {
       this.isLoadingInitialSnapshot = true;
     });
     const onSnapshot = (snap: ResourceSnapshot | null) => {
-      if (eventSourceMachine() !== null) return;
       if (this.subscriptionId !== subscriptionId) return;
       runInAction(() => {
         if (snap) this.applyFetchedSnapshot(snap);

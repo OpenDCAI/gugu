@@ -1,25 +1,14 @@
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { RendererMetrics } from './renderer-metrics';
-import { z } from 'zod';
-
-export const RESOURCE_CONTEXT_REQUEST = 'resource-monitor:context';
-export const resourceUiContextSchema = z.object({
-  observedAt: z.number().finite(),
-  tab: z.string(), settings: z.string().nullable(), view: z.string(),
-  projectId: z.string().optional(), sessionId: z.string().optional(), appId: z.string().optional(),
-  openedTasks: z.number().int().nonnegative(), auxiliaryWindows: z.number().int().nonnegative(),
-  remoteOpenedTasks: z.number().int().nonnegative(),
-});
-export type ResourceUiContext = z.infer<typeof resourceUiContextSchema>;
+export const RESOURCE_MONITOR_WINDOW_NAME = 'gugu-aux:resource-monitor';
 export type ResourceContext = {
-  ui?: ResourceUiContext; unavailable?: string;
-  localTasks?: { running: number; waiting: number; scheduled: number; unknown: number };
-  remoteTasks?: { unavailable: string };
-  windows: { id: number; focused: boolean; visible: boolean; minimized: boolean }[];
+  unavailable?: string;
+  localTasks?: { total: number; running: number; waiting: number; scheduled: number; unknown: number };
+  windows: { id: number; title: string; focused: boolean; visible: boolean; minimized: boolean }[];
 };
 export const RESOURCE_HISTORY_LIMITS = { points: 10_000, bytes: 64 * 1024 * 1024, ageMs: 24 * 60 * 60 * 1000 };
 export type ResourcePoint = { id: number; timestamp: number; cpu?: number; memory?: number; runId: string };
-export type ResourceHistory = { points: ResourcePoint[]; count: number; bytes: number; discarded: number; limits: typeof RESOURCE_HISTORY_LIMITS };
+export type ResourceHistory = { points: ResourcePoint[]; count: number; bytes: number; limits: typeof RESOURCE_HISTORY_LIMITS };
 
 /**
  * Per-PTY resource sample. `cpu` is a percentage of one core (can exceed 100
@@ -52,8 +41,7 @@ export interface ResourcePtyEntry {
  */
 export interface ResourceAppUsage {
   memoryBytes?: number;
-  unavailable?: string;
-  /** Sum of process CPU; unavailable until every current process has its own baseline. */
+  /** Sum of process CPU since the previous sample. */
   cpuPercent?: number;
 }
 
@@ -74,7 +62,6 @@ export type ResourceAppProcessType =
  */
 export interface ResourceAppProcess {
   pid: number;
-  creationTime?: number;
   type: ResourceAppProcessType;
   name?: string;
   /**

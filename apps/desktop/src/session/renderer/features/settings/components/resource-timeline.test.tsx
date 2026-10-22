@@ -20,7 +20,7 @@ vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ warn: vi.fn() }) }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 
 const snapshot = (timestamp: number): ResourceSnapshot => ({ timestamp, cpuCount: 4, totalMemoryBytes: 1024, app: {}, appProcesses: [], entries: [] });
-const history = (points: ResourcePoint[]) => ({ success: true, data: { points, count: points.length, bytes: 100, discarded: 0 } });
+const history = (points: ResourcePoint[]) => ({ success: true, data: { points, count: points.length, bytes: 100 } });
 const points: ResourcePoint[] = [
   { id: 1, timestamp: 1000, cpu: 1, memory: 1048576, runId: 'first' },
   { id: 2, timestamp: 2000, cpu: 2, memory: 2097152, runId: 'first' },
@@ -37,37 +37,32 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.theme; });
 const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} />); await act(async () => { await vi.dynamicImportSettled(); }); };
 
-it('coalesces compact history refreshes while retaining live full-page updates and chart data', async () => {
-  await render(true);
+it.each([false, true])('buckets history refreshes without dropping chart data (compact=%s)', async (compact) => {
+  await render(compact);
   const before = cpu();
   expect(rig.history).toHaveBeenCalledTimes(1);
   for (const timestamp of [1501, 3001, 4999]) {
     rig.snapshot = snapshot(timestamp);
-    await render(true);
+    await render(compact);
     expect(rig.history).toHaveBeenCalledTimes(1);
     expect(cpu().data).toBe(before.data);
   }
   rig.history.mockResolvedValueOnce(history([...points, { ...points[1], id: 3, timestamp: 5000 }]));
   rig.snapshot = snapshot(5000);
-  await render(true);
+  await render(compact);
   expect(rig.history).toHaveBeenCalledTimes(2);
   expect(cpu().spec).toBe(before.spec);
   expect(cpu().data?.[0].values.map((p) => p.id)).toEqual([1, 2, 3]);
   rig.snapshot = snapshot(6500);
-  await render(true);
+  await render(compact);
   expect(rig.history).toHaveBeenCalledTimes(2);
-  await render();
-  expect(rig.history).toHaveBeenCalledTimes(3);
-  rig.snapshot = snapshot(6501);
-  await render();
-  expect(rig.history).toHaveBeenCalledTimes(4);
 });
 
 it('keeps chart configuration and data unchanged while awaiting history, then updates only data', async () => {
   await render();
   const before = cpu();
   const pending = deferred<ReturnType<typeof history>>();
-  rig.history.mockReturnValueOnce(pending.promise); rig.snapshot = snapshot(2);
+  rig.history.mockReturnValueOnce(pending.promise); rig.snapshot = snapshot(5000);
   await render();
   expect(cpu().spec).toBe(before.spec);
   expect(cpu().data).toBe(before.data);
@@ -88,6 +83,7 @@ it('preserves sample selection, unit conversion, and run boundaries without refr
   await act(async () => { before.onClick({ datum: { id: 2 } }); });
   expect(rig.point).toHaveBeenCalledWith(2);
   expect(harness.container.querySelector('table')).not.toBeNull();
+  expect(harness.container.querySelectorAll('select')).toHaveLength(1);
   expect(cpu().spec).toBe(before.spec);
   expect(cpu().data).toBe(before.data);
 });
@@ -116,4 +112,5 @@ it('omits compact point marks while keeping full-page point selection and both d
   await act(async () => { cpu().onClick({ datum: { id: 2 } }); });
   expect(rig.point).toHaveBeenCalledWith(2);
   expect(harness.container.querySelector('table')).not.toBeNull();
+  expect(harness.container.querySelectorAll('select')).toHaveLength(1);
 });

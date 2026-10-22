@@ -190,7 +190,7 @@ function isStaleLocalPty(pid: number | undefined, usage: ProcessUsage | undefine
  * cputime (which `cumulativeCPUUsage` matched to the centisecond) reported 0.08-0.29%.
  */
 const MIN_CPU_INTERVAL_MS = 1000;
-let cpuBaseline: { at: number; seconds: Map<string, number> } | null = null;
+let cpuBaseline: { at: number; seconds: Map<number, number> } | null = null;
 
 function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProcess[] } {
   try {
@@ -198,7 +198,7 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
     if (!metrics.length) throw new Error('Application process metrics were empty');
     const now = Date.now();
     const base = cpuBaseline && now - cpuBaseline.at >= MIN_CPU_INTERVAL_MS ? cpuBaseline : null;
-    const seconds = new Map<string, number>();
+    const seconds = new Map<number, number>();
     let memoryBytes = 0;
     let cpuPercent: number | undefined;
     const processes: ResourceAppProcess[] = [];
@@ -206,21 +206,20 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
       const memBytes = m.memory.workingSetSize * 1024;
       memoryBytes += memBytes;
       const total = m.cpu.cumulativeCPUUsage;
-      const identity = `${m.pid}:${m.creationTime}`;
-      if (total !== undefined) seconds.set(identity, total);
-      const before = base?.seconds.get(identity);
+      if (total !== undefined) seconds.set(m.pid, total);
+      const before = base?.seconds.get(m.pid);
       const cpu =
         base && total !== undefined && before !== undefined && total >= before
           ? ((total - before) / ((now - base.at) / 1000)) * 100
           : undefined;
       if (cpu !== undefined) cpuPercent = (cpuPercent ?? 0) + cpu;
-      processes.push({ pid: m.pid, creationTime: m.creationTime, type: m.type, name: m.name ?? m.serviceName, cpu, memory: memBytes });
+      processes.push({ pid: m.pid, type: m.type, name: m.name ?? m.serviceName, cpu, memory: memBytes });
     }
     if (!cpuBaseline || base) cpuBaseline = { at: now, seconds };
-    return { usage: { memoryBytes, cpuPercent: processes.every((p) => p.cpu !== undefined) ? cpuPercent : undefined }, processes };
+    return { usage: { memoryBytes, cpuPercent }, processes };
   } catch (err) {
     log.warn('resource-sampler: app metrics failed', err);
-    return { usage: { unavailable: 'Application process metrics unavailable' }, processes: [] };
+    return { usage: {}, processes: [] };
   }
 }
 

@@ -4,12 +4,10 @@ import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 const setOpen = vi.fn();
 const getSnapshot = vi.fn();
-let source: string | null = null;
 let snapshotHandler: ((snap: ResourceSnapshot | null) => void) | null = null;
 const offSnapshot = vi.fn(() => { snapshotHandler = null; });
 
 vi.mock('@renderer/lib/ipc', () => ({
-  eventSourceMachine: () => source,
   rpc: { resourceMonitor: { setOpen, getSnapshot } },
   events: {
     on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot | null) => void) => {
@@ -48,7 +46,6 @@ describe('ResourceMonitorStore', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     snapshotHandler = null;
-    source = null;
     setOpen.mockResolvedValue({ success: true });
     getSnapshot.mockResolvedValue({ success: true, data: null });
     offSnapshot.mockImplementation(() => { snapshotHandler = null; });
@@ -85,13 +82,15 @@ describe('ResourceMonitorStore', () => {
     expect(store.snapshot?.timestamp).toBe(2);
     expect(store.isLoadingInitialSnapshot).toBe(false);
   });
-  it('does not mix another machine resource stream into this computer timeline', async () => {
+  it('keeps missing application memory unknown in totals instead of inventing zero', async () => {
     const { ResourceMonitorStore } = await import('./resource-monitor-store');
     const store = new ResourceMonitorStore(); store.start();
-    source = 'another-device'; snapshotHandler?.(snapshot(1));
-    expect(store.snapshot).toBeNull();
-    source = null; snapshotHandler?.(snapshot(2));
-    expect(store.snapshot?.timestamp).toBe(2);
+    expect(store.totalMemoryBytes).toBeUndefined();
+    snapshotHandler?.({ ...snapshot(1), app: {} });
+    expect(store.appMemoryBytes).toBeUndefined();
+    expect(store.totalMemoryBytes).toBeUndefined();
+    snapshotHandler?.({ ...snapshot(2), app: { memoryBytes: 12 } });
+    expect(store.totalMemoryBytes).toBe(12);
   });
 
   it('requests diagnostics only for an open page and always reopens collapsed', async () => {

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { sqlite } from '@main/db/client';
 import { RESOURCE_HISTORY_LIMITS, type ResourceHistory, type ResourcePoint, type ResourceSnapshot } from '@shared/resource-monitor';
 
@@ -15,25 +15,19 @@ export class ResourceHistoryStore {
       const memory = snapshot.app.memoryBytes === undefined ? null : snapshot.app.memoryBytes + snapshot.entries.reduce((n, e) => n + e.memory, 0);
       const id = Number(this.connection.prepare('INSERT INTO resource_history(timestamp,run_id,cpu,memory,bytes,snapshot) VALUES (?,?,?,?,?,?)')
         .run(snapshot.timestamp, snapshot.runId ?? '', cpu, memory, bytes, json).lastInsertRowid);
-      // Walk newest first until any retention limit is reached; prune only older complete samples.
-      const rows = this.connection.prepare('SELECT id,timestamp,bytes FROM resource_history ORDER BY id DESC').all() as { id: number; timestamp: number; bytes: number }[];
-      let total = 0;
-      const oldest = rows.find((row, i) => { total += row.bytes; return i >= this.limits.points || total > this.limits.bytes || row.timestamp < snapshot.timestamp - this.limits.ageMs; });
-      if (oldest) {
-        const removed = this.connection.prepare('DELETE FROM resource_history WHERE id <= ?').run(oldest.id).changes;
-        this.connection.prepare('UPDATE resource_history_meta SET discarded=discarded+?').run(removed);
-      }
+      this.connection.prepare(`DELETE FROM resource_history WHERE id <= (
+        SELECT max(id) FROM (
+          SELECT id,timestamp,row_number() OVER (ORDER BY id DESC) AS n,
+            sum(bytes) OVER (ORDER BY id DESC) AS total FROM resource_history
+        ) WHERE n > ? OR total > ? OR timestamp < ?
+      )`).run(this.limits.points, this.limits.bytes, snapshot.timestamp - this.limits.ageMs);
       return id;
     })();
   }
 
-  read(since = 0, until = Number.MAX_SAFE_INTEGER, pid?: number, runId?: string, creationTime?: number): ResourceHistory {
-    const all = (pid === undefined
-      ? this.connection.prepare('SELECT id,timestamp,cpu,memory,run_id AS runId FROM resource_history WHERE timestamp BETWEEN ? AND ? ORDER BY id').all(since, until)
-      : this.connection.prepare(`SELECT h.id,h.timestamp,json_extract(p.value,'$.cpu') AS cpu,json_extract(p.value,'$.memory') AS memory,h.run_id AS runId
-          FROM resource_history h,json_each(h.snapshot,'$.appProcesses') p
-          WHERE h.timestamp BETWEEN ? AND ? AND h.run_id=? AND json_extract(p.value,'$.pid')=?
-          AND (? IS NULL OR json_extract(p.value,'$.creationTime')=?) ORDER BY h.id`).all(since, until, runId ?? '', pid, creationTime ?? null, creationTime ?? null)) as ResourcePoint[];
+  read(since = 0, until = Number.MAX_SAFE_INTEGER): ResourceHistory {
+    const all = this.connection.prepare('SELECT id,timestamp,cpu,memory,run_id AS runId FROM resource_history WHERE timestamp BETWEEN ? AND ? ORDER BY id')
+      .all(since, until) as ResourcePoint[];
     // Keep bucket maxima, not just every Nth point, so short CPU/memory spikes remain selectable.
     const points: ResourcePoint[] = [];
     const step = Math.max(1, Math.ceil(all.length / 299));
@@ -46,8 +40,7 @@ export class ResourceHistoryStore {
     if (all.length) points.push(all[0], all[all.length - 1]);
     const unique = [...new Map(points.map((p) => [p.id, p])).values()].sort((a, b) => a.id - b.id);
     const totals = this.connection.prepare('SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM resource_history').get() as { count: number; bytes: number };
-    const { discarded } = this.connection.prepare('SELECT discarded FROM resource_history_meta').get() as { discarded: number };
-    return { points: unique.map((p) => ({ ...p, cpu: p.cpu ?? undefined, memory: p.memory ?? undefined })), ...totals, discarded, limits: this.limits };
+    return { points: unique.map((p) => ({ ...p, cpu: p.cpu ?? undefined, memory: p.memory ?? undefined })), ...totals, limits: this.limits };
   }
 
   point(id: number): ResourceSnapshot | null {
@@ -55,16 +48,22 @@ export class ResourceHistoryStore {
     return row ? JSON.parse(row.snapshot) as ResourceSnapshot : null;
   }
 
-  clear(): void {
-    this.connection.transaction(() => {
-      this.connection.prepare('DELETE FROM resource_history').run();
-      this.connection.prepare('UPDATE resource_history_meta SET discarded=0').run();
-    })();
-  }
+  clear(): void { this.connection.prepare('DELETE FROM resource_history').run(); }
 
-  export(): string {
-    const rows = this.connection.prepare('SELECT snapshot FROM resource_history ORDER BY id').all() as { snapshot: string }[];
-    return JSON.stringify({ format: 'gugu-resource-monitor-timeline/1', ...this.read(), samples: rows.map((r) => JSON.parse(r.snapshot)) });
+  /** Stream raw rows from a WAL read snapshot; recording can continue on the writer connection. */
+  async *export(): AsyncGenerator<string> {
+    const reader = new Database(this.connection.name, { readonly: true, fileMustExist: true });
+    try {
+      reader.exec('BEGIN');
+      const totals = reader.prepare('SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM resource_history').get();
+      yield JSON.stringify({ format: 'gugu-resource-monitor-timeline/1', limits: this.limits, ...totals as object }).slice(0, -1) + ',"samples":[';
+      let separator = '';
+      for (const row of reader.prepare('SELECT snapshot FROM resource_history ORDER BY id').iterate() as Iterable<{ snapshot: string }>) {
+        yield separator + row.snapshot;
+        separator = ',';
+      }
+      yield ']}';
+    } finally { reader.close(); }
   }
 }
 export const resourceHistory = new ResourceHistoryStore(sqlite);

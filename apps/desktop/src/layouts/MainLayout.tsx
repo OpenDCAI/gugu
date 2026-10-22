@@ -1421,7 +1421,7 @@ function InnerLayout({
 
       </div>
 
-      <ResourceMonitorHost tab={activeTab} settings={settingsModalOpen ? settingsSection : null} />
+      <ResourceMonitorHost />
       {settingsModalOpen && <SettingsPanel mobile={mobile} section={settingsSection} onSectionChange={setSettingsSection} onClose={() => setSettingsModalOpen(false)} />}
       {cameraPermissionSheetOpen && <CameraPermissionSheet onClose={() => setCameraPermissionSheetOpen(false)} />}
       <RemoteMachinesHost enabled={sessionHostAvailable} openSettingsSection={openSettingsSection} />

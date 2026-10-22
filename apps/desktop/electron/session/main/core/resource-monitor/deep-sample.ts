@@ -65,14 +65,13 @@ async function recordMemoryDumps(): Promise<ProcessMemoryDump[]> {
 }
 
 /** The JSON the user saves: the monitor's current snapshot plus one memory dump per process. */
-export async function captureDeepSample(snapshot: ResourceSnapshot, timeline?: unknown): Promise<string> {
+export async function captureDeepSample(snapshot: ResourceSnapshot): Promise<string> {
   const memoryDumps = await recordMemoryDumps();
   return JSON.stringify({
     format: 'gugu-resource-monitor-deep-sample/1',
     capturedAt: new Date().toISOString(),
     app: { version: app.getVersion(), platform: process.platform, arch: process.arch, electron: process.versions.electron },
     snapshot,
-    timeline,
     memoryDumps,
   }, null, 2);
 }
