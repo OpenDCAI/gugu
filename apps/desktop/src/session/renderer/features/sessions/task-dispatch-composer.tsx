@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { Sparkles, X } from '@/lib/icons';
-import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
+import { readComposerVerbChat, setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { platform } from '@/platform';
 import { machineLibraryHost } from '@renderer/features/library/library-host';
 import { useNewSessionMachine } from '@renderer/features/remote-hosts/use-new-session-machine';
@@ -136,9 +136,12 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
  * 对话底下那一格:输入框选了哪个词就摆哪个框(「新任务」/「定时任务」),没选 = 什么都不摆(对话自己的框在)。
  * 项目块、对话块都只放这一个,与 InputArea 收起自己是同一个读数(useComposerVerb)。
  */
-export function ComposerVerbDock(props: Parameters<typeof TaskDispatchComposer>[0]) {
-  const verb = useComposerVerb(props.chatId);
+export function ComposerVerbDock(given: Parameters<typeof TaskDispatchComposer>[0]) {
+  const verb = useComposerVerb(given.chatId);
   if (!verb) return null;
+  // 对话块只给 chatId:群名、派出去的 agent 进不进得了这个对话,由选词的那个输入框记下(composerVerbBridge)。
+  const chat = given.projectId ? null : readComposerVerbChat(given.chatId);
+  const props = chat ? { chatName: chat.name, joinChat: chat.joinable, ...given } : given;
   return (
     <div className={sessionComposerDockBandClassName}>
       <div className={sessionComposerDockedWidthClassName}>

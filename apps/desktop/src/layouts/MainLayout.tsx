@@ -783,7 +783,7 @@ function InnerLayout({
       }
       // gugu-dev#181 桌面上:那个群的输入框换成「新任务」,把那个群摆出来 —— 建好的 agent 进这个群,结果回到这里。
       if (chatsAreBlocks) {
-        setComposerVerb(chatId, 'task')
+        setComposerVerb(chatId, 'task', undefined, { name, joinable: true })
         openChatBlock(chatId)
         return
       }

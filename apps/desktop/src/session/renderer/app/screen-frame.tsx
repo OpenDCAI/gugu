@@ -27,6 +27,7 @@ import {
   type MentionDrop,
 } from './screen-layout-actions';
 import { ChatSlot } from '@renderer/lib/chat-slot';
+import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
 import { clearDraggedSession, getDraggedSession, hasDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
@@ -149,6 +150,8 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
       ) : null}
       {/* 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):对话由壳画进格子,它自带头栏。 */}
       {block?.kind === 'chat' ? <ChatSlot chatId={block.chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" /> : null}
+      {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
+      {block?.kind === 'chat' ? <ComposerVerbDock chatId={block.chatId} /> : null}
     </div>
   );
 });

@@ -4,6 +4,7 @@ import { Clock, Sparkles } from '@/lib/icons'
 import { setComposerVerb, type ComposerVerb } from '../../lib/composerVerbBridge'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { platform } from '../../platform'
+import { useChatStore } from '../../store/chatContext'
 import { Button } from '../ui/Button'
 
 /**
@@ -20,6 +21,7 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   onCarried: () => void
 }) {
   const { t } = useTranslation('messaging')
+  const { chats } = useChatStore('chats')
   const [inSlot, setInSlot] = useState<boolean | null>(null)
   const measure = useCallback((element: HTMLSpanElement | null) => {
     if (element) setInSlot(Boolean(element.closest('[data-chat-slot]')))
@@ -27,7 +29,8 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   if (!chatId || !platform.capabilities.sessionHost) return null
   const pick = (verb: ComposerVerb) => {
     if (inSlot) {
-      setComposerVerb(chatId, verb, draft)
+      const chat = chats.find((candidate) => candidate.id === chatId)
+      setComposerVerb(chatId, verb, draft, { name: chat?.name ?? '', joinable: chat?.kind === 'group' })
       if (draft.trim()) onCarried()
       return
     }

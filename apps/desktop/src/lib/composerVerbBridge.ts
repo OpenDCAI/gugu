@@ -20,6 +20,29 @@ function verbs(): Map<string, ComposerVerb> {
   return map
 }
 
+/** 选词的那个对话是什么:群名,以及派出去的 agent 进不进得了它(群 = 进;和人的私聊 = 进不去)。会话页那一侧不知道这些。 */
+export interface ComposerVerbChat {
+  name: string
+  joinable: boolean
+}
+
+const CHAT_KEY = '__GUGU_COMPOSER_VERB_CHATS__'
+
+function chats(): Map<string, ComposerVerbChat> {
+  const holder = window as unknown as Record<string, unknown>
+  let map = holder[CHAT_KEY] as Map<string, ComposerVerbChat> | undefined
+  if (!map) {
+    map = new Map()
+    holder[CHAT_KEY] = map
+  }
+  return map
+}
+
+/** 选词那一刻记下的对话(没经输入框选过 = null,例如群成员「新建 Agent 并加入本群」直接设的词)。 */
+export function readComposerVerbChat(chatId: string): ComposerVerbChat | null {
+  return chats().get(chatId) ?? null
+}
+
 const CARRY_KEY = '__GUGU_COMPOSER_VERB_CARRY__'
 
 function carries(): Map<string, string> {
@@ -36,8 +59,9 @@ function carries(): Map<string, string> {
  * 选了一个词(null = 点了标签上的 ×,框还原)。`carry` = 框里已经写了的话,跟着进新任务的框(由接手的那一侧
  * `takeComposerCarry` 取走一次)。
  */
-export function setComposerVerb(chatId: string, verb: ComposerVerb | null, carry?: string): void {
+export function setComposerVerb(chatId: string, verb: ComposerVerb | null, carry?: string, chat?: ComposerVerbChat): void {
   if (verb && carry?.trim()) carries().set(chatId, carry)
+  if (verb && chat) chats().set(chatId, chat)
   const map = verbs()
   if ((map.get(chatId) ?? null) === verb) return
   if (verb) map.set(chatId, verb)
