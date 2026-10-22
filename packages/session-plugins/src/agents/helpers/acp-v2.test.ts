@@ -313,6 +313,40 @@ describe('connectStdioAcpV2', () => {
     });
   });
 
+  it('gives the host the v2 name of a tool call where it reads the tool name', async () => {
+    const pair = agentPair();
+    await initialize(pair.api);
+    await pair.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'plan-1',
+      name: 'ExitPlanMode',
+      title: 'Ready to code?',
+      rawInput: { plan: '1. write the file' },
+      _meta: { claudeCode: { parentToolUseId: null } },
+    });
+    await pair.agent().request(v2.methods.client.session.requestPermission, {
+      sessionId: 's1',
+      title: 'Ready to code?',
+      subject: { type: 'tool_call', toolCall: { toolCallId: 'plan-1', name: 'ExitPlanMode' } },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    });
+    await settle();
+    expect(pair.updates[0]!.update).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'plan-1',
+      title: 'Ready to code?',
+      rawInput: { plan: '1. write the file' },
+      _meta: { claudeCode: { parentToolUseId: null }, toolName: 'ExitPlanMode' },
+    });
+    expect(pair.permissions).toEqual([
+      {
+        sessionId: 's1',
+        toolCall: { toolCallId: 'plan-1', title: 'Ready to code?', _meta: { toolName: 'ExitPlanMode' } },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      },
+    ]);
+  });
+
   it('asks the host about a v2 permission request as about its tool call, under the request title', async () => {
     const pair = agentPair();
     await initialize(pair.api);

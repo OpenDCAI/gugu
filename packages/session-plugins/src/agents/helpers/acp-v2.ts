@@ -316,7 +316,7 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messag
       messages.append((update as { messageId?: string | null }).messageId);
       return [update as unknown as SessionUpdate];
     case 'tool_call_update': {
-      const { content, ...fields } = update as v2.ToolCallUpdate;
+      const { content, ...fields } = v1ToolCall(update as v2.ToolCallUpdate);
       const reports: SessionUpdate[] = [];
       const v1Content = content?.flatMap((item): unknown[] => {
         if (item.type === 'terminal') {
@@ -347,6 +347,17 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messag
     default:
       return [update as unknown as SessionUpdate];
   }
+}
+
+/**
+ * A v2 tool call's fields as v1 carries them. v2 names the tool in `name`; v1 has no such field, and
+ * the host reads the agent's own tool name from `_meta.toolName`, which is what tells it a plan
+ * approval, a question or a todo list from any other call.
+ */
+function v1ToolCall<T extends { name?: unknown; _meta?: unknown }>(toolCall: T): Omit<T, 'name'> {
+  const { name, ...fields } = toolCall;
+  if (typeof name !== 'string' || !name) return fields;
+  return { ...fields, _meta: { ...(fields._meta as Record<string, unknown> | null | undefined), toolName: name } };
 }
 
 /**
@@ -417,7 +428,7 @@ function v1PermissionRequest(request: v2.RequestPermissionRequest): RequestPermi
   }
   return {
     sessionId: request.sessionId,
-    toolCall: { ...subject.toolCall, title: request.title } as RequestPermissionRequest['toolCall'],
+    toolCall: { ...v1ToolCall(subject.toolCall), title: request.title } as RequestPermissionRequest['toolCall'],
     options: request.options as RequestPermissionRequest['options'],
     ...(request._meta ? { _meta: request._meta } : {}),
   };
