@@ -26,7 +26,7 @@ import {
   type MachineLinkState,
 } from '@renderer/lib/machine-clients';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { machineRegistry } from '@renderer/lib/machine-routing';
+import { machineOfAlias, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
@@ -44,7 +44,7 @@ import type { SessionShellPeer } from '@shared/lib/ipc/shell-port';
 import { normalizeAgentType } from '@gugu/core/agentTypes';
 import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { sessionListFromDigest, startSessionListSync, type SessionListSync } from '@/session/shared/remote-sessions/session-list-sync';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import { IMPLICIT_SESSION_HOME_PROJECT_ID, isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
 import {
   remoteHostReachable,
   cloudComputerWakeFailureOf,
@@ -330,6 +330,18 @@ export class RemoteHostsStore {
 
   device(deviceId: string): RemoteHostDevice | null {
     return this.hosts.get(deviceId)?.device ?? null;
+  }
+
+  /**
+   * 这个项目是不是别的机器上的、而那台此刻的清单还没到(开机恢复那一刻:设备名册还没来、那台还没连上)。
+   * 是 ⇒ 这台桌面还不知道它在不在(见 projects/project-presence.ts)。认它属于哪台:id 是那台机器的换名,
+   * 或上次记下的那台机器的清单里有它。
+   */
+  awaitsMachineList(projectId: string): boolean {
+    const owners = Object.keys(this.cached).filter((deviceId) => this.cached[deviceId]?.some((project) => project.id === projectId));
+    const aliased = machineOfAlias(projectId, [IMPLICIT_SESSION_HOME_PROJECT_ID]);
+    if (aliased) owners.push(aliased);
+    return owners.some((deviceId) => !this.hosts.get(deviceId)?.synced);
   }
 
   /** 这个项目在哪台别的机器上;本机项目 = null。 */
@@ -633,6 +645,8 @@ export class RemoteHostsStore {
       });
       this.cached = { ...this.cached, [deviceId]: projects.slice(0, MAX_CACHED_PROJECTS) };
       saveCachedProjects(this.cached);
+      // 那台机器的清单到了:停在它的某个项目 / 会话上「还不知道」的那一页,现在知道了 —— 确实没了的照样退。
+      appState.navigation.revalidate();
     } catch (error) {
       log.warn('[machines] 读那台机器的项目清单失败', { deviceId, error: String(error) });
     }

@@ -13,7 +13,7 @@ import { sessionRegistry } from '@renderer/features/sessions/stores/session-regi
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, invokeOnMachine, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
-import { machineLinkState, subscribeMachineLink } from '@renderer/lib/machine-clients';
+import { onMachineReconnected } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { setRemoteLinkTargetProvider } from '@renderer/lib/remote-link-target';
 import { observeCommittedTurns, observePtyOutput } from '@renderer/lib/session-output-observers';
@@ -121,14 +121,7 @@ function paneLink(deviceId: string): PaneLink {
   return {
     invoke: (channel, payload) => invokeOnMachine(deviceId, channel, payload),
     onOpenEvent: (cb) => onMachineEvent(deviceId, { name: SESSION_HOST_PANE.open }, cb),
-    onReconnected: (cb) => {
-      let open = machineLinkState(deviceId) === 'open';
-      return subscribeMachineLink(deviceId, () => {
-        const now = machineLinkState(deviceId) === 'open';
-        if (now && !open) cb();
-        open = now;
-      });
-    },
+    onReconnected: (cb) => onMachineReconnected(deviceId, cb),
   };
 }
 
