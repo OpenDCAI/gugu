@@ -322,10 +322,14 @@ export function characterPacks(ch: Character): Pack[] {
   return out
 }
 
-/** 载入一个角色的全部素材；resolve 时都到位了（本体失败 = false） */
+/**
+ * 载入一个角色的全部素材:先刚体部件与它们的接触阴影,再本体和各状态形态。runtime 以「本体纹理到位」为能画的信号,
+ * 部件先到,就不会先画出一只没翅膀、没嘴的鸟。resolve 时都到位了(本体或部件失败 = false)
+ */
 export async function loadCharacter(gl: GuguGL, ch: Character): Promise<boolean> {
-  const rs = await Promise.all(
-    characterPacks(ch).map((p) => gl.loadTexture(p.id, spriteUrl(p), p.spr))
-  )
+  const rig = ch.rig ? ch.rig.pieces.flatMap((pc) => [pc, ...(pc.shade ? [pc.shade] : [])]) : []
+  const rigOk = (await Promise.all(rig.map((r) => gl.loadTexture(r.id, r.sprite, { w: r.box.w, h: r.box.h })))).every(Boolean)
+  if (!rigOk) return false
+  const rs = await Promise.all(characterPacks(ch).map((p) => gl.loadTexture(p.id, spriteUrl(p), p.spr)))
   return rs[0]
 }

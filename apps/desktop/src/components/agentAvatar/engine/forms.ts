@@ -88,7 +88,8 @@ export function neutralBody(): BodyParams {
     fx: 0,
     fy: 0,
     wl: 0,
-    wr: 0
+    wr: 0,
+    yaw: 0
   }
 }
 export function copyBody(d: BodyParams, s: BodyParams) {

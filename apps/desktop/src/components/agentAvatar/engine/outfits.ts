@@ -15,6 +15,7 @@
  */
 import { rendererLogger } from '@/lib/log'
 import { DEG, NEUTRAL_BODY, clamp, smoothstep, warp } from './geometry'
+import { onWing } from './rig'
 import { GRID_X, GRID_Y, type GuguGL } from './gl'
 import type { GuguFrame, Layer } from './engine'
 import type { FormId, Part } from './forms'
@@ -184,6 +185,15 @@ function secondary(d: Piece, rig: OutfitRig, sx: number, sy: number, out: [numbe
 /** 部件素材坐标 → 世界:GL 走软网格变形(place);2D 定格走和本体那张图同一个整体挤压 / 跳起 */
 type MapFn = (x: number, y: number, p: Part, out: [number, number]) => void
 const meshMap: MapFn = (x, y, p, out) => place(x, y, p, p.body, out)
+/** 骑在翅膀上的一点:先随翅膀的刚体动作转(rig.ts),再过身体(map);结果在 tmp */
+function wingMap(map: MapFn, p: Part, side: -1 | 1, x: number, y: number) {
+  if (p.pack.rig) onWing(p.pack.rig, side, p.body, x, y, tmp)
+  else {
+    tmp[0] = x
+    tmp[1] = y
+  }
+  map(tmp[0], tmp[1], p, tmp)
+}
 const flatMap: MapFn = (x, y, p, out) => {
   const P = p.pack
   out[0] = P.pivot.x + (x - P.pivot.x) * p.body.sx
@@ -201,6 +211,11 @@ export class OutfitDraw {
   private halfWidth = 0
   /** 刚换了一身:第一帧直接落到当前形态的取景上(❌ 一出场就缩放一下) */
   private snap = true
+  /**
+   * 这一身能不能跟着原地转圈(开心,rig.ts):装扮是正面画的贴图,转不过去。头上戴的、耳朵上的转起来看不出来;
+   * 脸上(眼镜)、脖子、背上、身上、手里、脚下的会露馅 —— 穿着这些时 runtime 让引擎改成原地跳(engine.spinOK)
+   */
+  spins = true
 
   constructor(private ch: Character) {}
 
@@ -216,6 +231,7 @@ export class OutfitDraw {
         return { def, cw: w.cw }
       })
       .sort((a, b) => a.def.z - b.def.z)
+    this.spins = this.worn.every((w) => w.def.slot === 'head' || w.def.slot === 'ears')
     this.extents.clear()
     const e = this.extentsFor('body')
     this.head = e.head
@@ -357,14 +373,22 @@ export class OutfitDraw {
         const sc = (fit.w * P.head.r) / pc.size.w
         const r = (fit.rot ?? 0) * DEG
         // 翅膀会转(引擎里 wr 在 -1…1.25 之间),伞跟着翅膀尖走、跟着转:两头和中间都真算一遍 warp,取最靠外的那一角
-        for (const v of [-1, -0.5, 0, 0.6, 1.25]) {
+        for (const v of [-1, -0.5, 0, 0.6, 1.25, 1.9]) {
           const b = { ...NEUTRAL_BODY, wl: v, wr: v }
-          warp(P.wings.r.rootX, P.wings.r.rootY, b, tmp, P)
+          const wing = (x: number, y: number) => {
+            if (P.rig) onWing(P.rig, 1, b, x, y, tmp)
+            else {
+              tmp[0] = x
+              tmp[1] = y
+            }
+            warp(tmp[0], tmp[1], b, tmp, P)
+          }
+          wing(P.wings.r.rootX, P.wings.r.rootY)
           const r0x = tmp[0],
             r0y = tmp[1]
           const gx = P.wings.r.x + P.wings.r.rx * 0.35,
             gy = P.wings.r.y + P.wings.r.ry * 0.25
-          warp(gx, gy, b, tmp, P)
+          wing(gx, gy)
           const a = r + Math.atan2(tmp[1] - r0y, tmp[0] - r0x) - Math.atan2(gy - P.wings.r.rootY, gx - P.wings.r.rootX)
           for (const [x, y] of [[0, 0], [pc.size.w, 0], [0, pc.size.h], [pc.size.w, pc.size.h]]) {
             const dx = (x - pc.anchor.x) * sc,
@@ -576,10 +600,10 @@ export class OutfitDraw {
       const sgn = pc.wing === 'r' ? 1 : -1
       const gx = wg.x + sgn * wg.rx * 0.35,
         gy = wg.y + wg.ry * 0.25
-      map(wg.rootX, wg.rootY, p, tmp)
+      wingMap(map, p, sgn, wg.rootX, wg.rootY)
       const r0x = tmp[0],
         r0y = tmp[1]
-      map(gx, gy, p, tmp)
+      wingMap(map, p, sgn, gx, gy)
       const t1x = tmp[0],
         t1y = tmp[1]
       const ang = Math.atan2(t1y - r0y, t1x - r0x) - Math.atan2(gy - wg.rootY, gx - wg.rootX)
@@ -601,10 +625,10 @@ export class OutfitDraw {
     // wing:握在右翅膀尖上
     const tipX = W.r.x + W.r.rx * 0.35,
       tipY = W.r.y + W.r.ry * 0.25
-    map(W.r.rootX, W.r.rootY, p, tmp)
+    wingMap(map, p, 1, W.r.rootX, W.r.rootY)
     const rx0 = tmp[0],
       ry0 = tmp[1]
-    map(tipX, tipY, p, tmp)
+    wingMap(map, p, 1, tipX, tipY)
     const ang = Math.atan2(tmp[1] - ry0, tmp[0] - rx0) - Math.atan2(tipY - W.r.rootY, tipX - W.r.rootX)
     const hx = tmp[0] + fit.tu * p.sc,
       hy = tmp[1] + fit.tv * p.sc
