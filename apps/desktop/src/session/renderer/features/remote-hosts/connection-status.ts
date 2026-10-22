@@ -128,25 +128,42 @@ export function hostStatusLabel(
 // ── 新建框:选着的那台此刻用不了 ─────────────────────────────────────────────
 
 /**
- * #7199 那句「用不了」只是在说云电脑此刻的状态(休眠中 / 正在唤醒):照样挡住发送,但画成说明(与私聊里那句同一个样子),
- * ❌ 画成报错的红字。叫醒没成、离线、版本太旧这些照旧是报错。
+ * 那句「用不了」只是在说那台机器此刻的状态:照样挡住发送,但画成说明(与私聊里那句同一个样子),❌ 画成报错的红字。
+ *  · #7199 云电脑休眠中 / 正在唤醒;
+ *  · 离线、正在连 / 重连:离线只是那台此刻用不了、不是出错(product spec「在哪跑」,owner 2026-10-22)。
+ * 叫醒没成、要先登录、离线是因为那台机器上的登录没了、版本太旧(正在更新 / 没更新成)照旧是报错:
+ * 那是要人知道、可能要人去做点什么的事。
  */
-export function machineBlockIsStatus(connection: HostConnectionState | null): boolean {
-  return connection === 'asleep' || connection === 'waking';
+export function machineBlockIsStatus(
+  connection: HostConnectionState | null,
+  /** 离线的原因是登录没了(见 RemoteHostDevice.signInExpiredAt)。 */
+  signInExpiredAt?: string | null
+): boolean {
+  if (connection === 'offline' && signInExpiredAt !== undefined) return false;
+  return (
+    connection === 'asleep' ||
+    connection === 'waking' ||
+    connection === 'offline' ||
+    connection === 'connecting' ||
+    connection === 'reconnecting'
+  );
 }
 
 /**
  * 选着的那台此刻用不了:说真实原因(与侧栏那颗点同一个判据)—— 版本太旧正在更新 / 没更新成 / 空闲时自己更新、
- * 要先登录,其余说离线。❌ 版本太旧时说「离线」。
+ * 要先登录、那台机器上的登录没了、正在连 / 重连,其余说离线。❌ 版本太旧、登录没了、正在连时说「离线」。
  */
 export function machineUnavailableReason(
   connection: HostConnectionState | null,
   label: string | null,
   translate: Translate,
   /** #7199 叫醒云电脑没成时那句原因(管家的原话 / 积分用完 / 等满了)。 */
-  wakeFailure?: string | null
+  wakeFailure?: string | null,
+  /** 离线的原因是登录没了(见 RemoteHostDevice.signInExpiredAt)。 */
+  signInExpiredAt?: string | null
 ): string {
   const device = label ?? translate('task.deviceOffline');
+  if (connection === 'offline' && signInExpiredAt !== undefined) return translate('remoteHost.status.signedOut', { device });
   switch (connection) {
     // 云电脑:休眠中 = 开始输入就叫醒它(看一眼不叫);正在醒 = 醒了发送键自己亮;❌ 说「离线」。
     case 'asleep':
@@ -163,6 +180,10 @@ export function machineUnavailableReason(
       return translate('task.remoteDeviceUpdateFailed', { device });
     case 'outdated':
       return translate('task.remoteDeviceTooOld', { device });
+    case 'connecting':
+      return translate('remoteHost.status.connecting', { device });
+    case 'reconnecting':
+      return translate('remoteHost.status.reconnecting', { device });
     default:
       return translate('task.remoteDeviceOffline', { device });
   }
