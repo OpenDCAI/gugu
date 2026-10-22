@@ -459,7 +459,7 @@ import type {
   SessionPromptDelivery,
 } from './session/main/core/acp/emdash-mcp-injector'
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
-import { createUpdateQuit } from './update-quit'
+import { createUpdateQuit, updateInstallFlags } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import {
   hardenWebPreferences,
@@ -2749,7 +2749,10 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => autoUpdater.quitAndInstall(),
+  handOff: () => {
+    const { isSilent, isForceRunAfter } = updateInstallFlags()
+    autoUpdater.quitAndInstall(isSilent, isForceRunAfter)
+  },
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),

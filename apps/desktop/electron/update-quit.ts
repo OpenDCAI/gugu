@@ -20,6 +20,16 @@
 /** 看门狗:库那条路若卡在「等一个不会再来的事件」上,到点我们自己走优雅停机退出。 */
 export const INSTALL_WATCHDOG_MS = 20_000
 
+// @@@win-silent-update: NSIS otherwise opens the assisted installer for every update.
+// Silent updates must restart the app; other platforms retain their existing behavior.
+export function updateInstallFlags(platform: NodeJS.Platform = process.platform): {
+  isSilent: boolean
+  isForceRunAfter: boolean
+} {
+  const silent = platform === 'win32'
+  return { isSilent: silent, isForceRunAfter: silent }
+}
+
 export interface UpdateQuitHost {
   /**
    * 立起「这次是真退出」。必须先于 handOff —— 顺序反过来就是 #5793 那 20 秒。
