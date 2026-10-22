@@ -356,7 +356,7 @@ export function flattenTier(
     if (!ctx.active) {
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
-      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
+      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id, ctx.caches.computeDiff);
       if (summary) processItem(summary);
     }
 

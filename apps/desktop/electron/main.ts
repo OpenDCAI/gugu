@@ -1964,6 +1964,14 @@ ipcMain.on('window:maximize', (event) => {
 })
 ipcMain.on('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
 ipcMain.handle('window:isMaximized', (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false)
+// @@@app-active 「App 在前台」= 咕咕有一扇窗口拿着焦点(快速聊天小窗也是主窗渲染层画的,它在前台也算)。
+// 渲染层的 visibilityState 答不了这个:主窗关了 backgroundThrottling,最小化、被遮住、切到别的应用时页面照样 visible,
+// 眼前那条会话就永远不弹通知、新消息一到就被标成已读(lib/onScreenChat.ts 读的就是这里)。
+const isAppActive = (): boolean => BrowserWindow.getFocusedWindow() !== null
+ipcMain.handle('app:is-active', () => isAppActive())
+const sendAppActive = (): void => { mainWindow?.webContents.send('app:active-changed', isAppActive()) }
+app.on('browser-window-focus', sendAppActive)
+app.on('browser-window-blur', sendAppActive)
 // @@@win-titlebar-row — Windows 标题栏「编辑 / 视图」菜单的命令(清单与理由见 window-menu-commands.ts)。
 ipcMain.on('window:menu-command', (event, command: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender)

@@ -899,17 +899,12 @@ export class OpenFile {
   }
 
   /**
-   * Main dropped a frame of this file's. `read-only`: a change this page may not make. Anything else
-   * (`not-granted`, `key-in-use`): main does not let this page speak for the file at all — it cannot
-   * sync, so it must not go on reading `online` (摩擦单 F46).
+   * Main refused this file's traffic (`read-only`, `not-granted`, `key-in-use`): end the replica,
+   * including its unconfirmed writes. Reconnecting it would only send the refused content again.
    */
   refused(reason: string): void {
     // Stopped already: a refusal of its last frames (a Close after a revocation) says nothing new.
     if (this.status === 'gone' || this.closed) return;
-    if (reason === 'read-only') {
-      void this.host.reportError(`gugu: a change to ${this.entry.name} was refused (${reason})`);
-      return;
-    }
     const message = `${this.entry.name} cannot sync: main refused its traffic (${reason})`;
     void this.host.reportError(`gugu: ${message}`);
     this.gone(guguError('file-unavailable', message));

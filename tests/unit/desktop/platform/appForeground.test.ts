@@ -56,6 +56,21 @@ describe('app foreground platform boundary', () => {
     )
   })
 
+  it('answers Electron app-active from the host focus, not the never-hidden page', () => {
+    const unsubscribe = vi.fn()
+    const subscribeAppActive = vi.fn((_listener: (active: boolean) => void) => unsubscribe)
+    vi.stubGlobal('window', { electronAPI: { subscribeAppActive } })
+    const listener = vi.fn()
+    const stop = electronPlatform.subscribeAppActive!(listener)
+    subscribeAppActive.mock.calls[0]![0](false)
+    expect(listener).toHaveBeenCalledWith(false)
+    stop()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+    expect(preloadSource).toMatch(/ipcRenderer\.invoke\('app:is-active'\)/)
+    expect(mainSource).toMatch(/app\.on\('browser-window-blur',\s*sendAppActive\)/)
+  })
+
   it('reports exact handle removal failure without an unhandled rejection', async () => {
     const failure = new Error('remove failed')
     appAddListener.mockResolvedValueOnce({ remove: vi.fn(async () => { throw failure }) })
