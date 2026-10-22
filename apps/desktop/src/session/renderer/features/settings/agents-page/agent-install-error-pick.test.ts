@@ -4,8 +4,41 @@ import {
   pickLastInstallError,
   pickLastInstallSuccessAt,
   pickLastUpdateError,
+  getAgentInstallErrorPresentation,
+  getAgentUpdateErrorPresentation,
   type SettledInstallEntry,
+  type Translate,
 } from './agent-install';
+
+describe('download source connection failures', () => {
+  it.each(['tls handshake eof', 'tcp connect error: connection timed out', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET'])(
+    'explains %s using the host from the failed download and keeps the diagnostic',
+    (reason) => {
+      const output = `mise ERROR error sending request for url (https://dl.google.com/agy-extensions/releases/agent.zip)\n${reason}`;
+      const error = { type: 'command-failed', message: reason, output } satisfies AgentInstallError;
+      const presented = getAgentInstallErrorPresentation(error);
+      expect(presented.message).toBe('Cannot reach the download source dl.google.com. Check that your network can access this address, then try again.');
+      expect(presented.diagnostic).toBe(output);
+      expect(getAgentUpdateErrorPresentation(error)).toEqual(presented);
+    },
+  );
+
+  it('uses the actual host and the selected language without a harness classification table', () => {
+    const translate: Translate = (key, params) => `${key}: ${params?.host}`;
+    expect(getAgentInstallErrorPresentation({ type: 'command-failed', message: 'ETIMEDOUT', output: 'https://downloads.example.org/cli.zip\nETIMEDOUT' }, { translate }).message)
+      .toBe('agentsPage.errDownloadHostUnreachable: downloads.example.org');
+  });
+
+  it.each([
+    'https://dl.google.com/agent.zip\nchecksum mismatch',
+    'https://dl.google.com/agent.zip\ncertificate verify failed',
+    'ENOTFOUND without a download URL',
+    'https://one.example/a https://two.example/b\nETIMEDOUT',
+  ])('does not guess a download host for %s', (output) => {
+    expect(getAgentInstallErrorPresentation({ type: 'command-failed', message: 'Download failed', output }).message)
+      .not.toContain('Cannot reach the download source');
+  });
+});
 
 /**
  * 安装报错要在表单里留着(toast 会飘走,而用户正要照着它改)。这几条钉的是**挑哪一条**——

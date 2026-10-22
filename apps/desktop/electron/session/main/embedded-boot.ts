@@ -631,6 +631,14 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // owner:「他是个美国人的服务吗?感觉我很多软件用户是国内的,这种数据外流可能不安全」。
   // 那条管子默认是开的,只差构建时传一个 key 就会往美国发;所以是拆,不是藏开关。
 
+  // #26 订阅连接的开机对齐:趁还没有任何会话、自动化也还没起,把默认账号的凭据放到会话要读的地方(见 harness-connections)。
+  try {
+    const { alignHarnessConnectionsAtStartup } = await import('@main/core/agents/harness-connections')
+    await alignHarnessConnectionsAtStartup()
+  } catch (e: unknown) {
+    log.warn('harness connections: startup alignment failed; sessions keep the credentials already in place', { error: e })
+  }
+
   // --- Eager service .initialize()/.start() block (index.ts:146-156). ---
   projectSettingsService.initialize()
   prSyncScheduler.initialize()

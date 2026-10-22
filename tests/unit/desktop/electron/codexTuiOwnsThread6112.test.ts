@@ -529,4 +529,39 @@ describe('@@@6112 session-live 的产地:threadId 到位的那一刻(registry �
       .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-stale' } } })
     expect(live).toEqual([])
   })
+
+  it('waitUntilReady 等待现成的 live 事件，而不是在 attach 前同步判死', async () => {
+    const registry = new CodexAppServerRegistry()
+    const session = makeSession({
+      awaitingTuiThread: true,
+      proc: { exitCode: null, signalCode: null },
+      endpoint: { kind: 'unix', address: 'unix:///tmp/live-wait.sock', socketPath: '/tmp/live-wait.sock' },
+    })
+    registry.register('agent-live', session, 'codex')
+    const ready = registry.waitUntilReady('conv-live')
+
+    let settled = false
+    void ready.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    ;(session as unknown as { adoptTuiThread(m: unknown): boolean })
+      .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-live' } } })
+    await session.waitForTuiThread()
+    await expect(ready).resolves.toBeUndefined()
+  })
+
+  it('waitUntilReady 超时仍 fail loud', async () => {
+    vi.useFakeTimers()
+    try {
+      const registry = new CodexAppServerRegistry()
+      registry.register('agent-live', makeSession({ awaitingTuiThread: true }), 'codex')
+      const ready = registry.waitUntilReady('conv-live')
+      const rejected = expect(ready).rejects.toThrow('did not become live within 15000ms')
+      await vi.advanceTimersByTimeAsync(15_000)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

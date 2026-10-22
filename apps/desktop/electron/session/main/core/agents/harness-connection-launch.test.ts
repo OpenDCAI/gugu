@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'smol-toml';
 import { composeAgentSpawnEnv } from '@gugu/session-core/agents/agent-run-context';
 import { createHarnessConnectionSchema } from '@gugu/session-core/workspace-server/agent-config';
-import { connectionLaunchConfig } from './harness-connection-launch';
+import { codexApiKeyConnectionArgs, connectionLaunchConfig } from './harness-connection-launch';
 
 describe('connection launch credentials', () => {
   it('keeps platform billing credentials above the selected local API connection', () => {
@@ -61,6 +61,18 @@ describe('connection launch credentials', () => {
       });
       expect(launch.config).not.toContain('secret');
       expect(launch.env).toEqual({ CODEX_HOME: '/owned/work/.codex', OPENAI_API_KEY: 'secret' });
+    }
+  );
+
+  it.each([undefined, 'https://gateway.example/v1'])(
+    'Codex API %s passes the same Responses provider as -c overrides, without the key',
+    (endpoint) => {
+      const args = codexApiKeyConnectionArgs('work', endpoint);
+      const config = parse(args.filter((_, index) => index % 2 === 1).join('\n'));
+      expect(args.filter((_, index) => index % 2 === 0).every((flag) => flag === '-c')).toBe(true);
+      const { model_provider, model_providers } = parse(connectionLaunchConfig('codex', 'work', 'api-key', '/owned/work', 'secret', endpoint).config!);
+      expect(config).toEqual({ model_provider, model_providers });
+      expect(args.join(' ')).not.toContain('secret');
     }
   );
 
