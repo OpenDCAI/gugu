@@ -4757,7 +4757,7 @@ app.whenReady().then(async () => {
           messageId: input.messageId,
           text: content,
           deviceId,
-          machineLabel: deviceLabelOption.label?.() ?? hostname(),
+          machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
           senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
           timestamp: formatDeliveryTimestamp(new Date().toISOString()),
           env: process.env,

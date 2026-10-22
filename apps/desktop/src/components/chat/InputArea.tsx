@@ -4,14 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUp, FileText, X } from '@/lib/icons'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
-import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'
-export type { ComposerAttachAction } from './ComposerAttachButton'
+import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'; export type { ComposerAttachAction } from './ComposerAttachButton'
 import { useToast } from '../toastContext'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
-// @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft'
+import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
+import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -111,6 +110,7 @@ export function InputArea({
   // 三个 300ms 防抖存 / ref 镜像 / currentChatRef 追踪）全部收进 useChatDraft，塌成一条同步 effect——切换
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
+  const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
   // 发失败回滚判「是否还在发送时那个会话」用（异步 send 期间用户可能切走 → 失败要回原会话而非当前会话，#1872）。
   const activeChatIdRef = useRef<string | null>(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
@@ -293,11 +293,11 @@ export function InputArea({
   // Grow with the content, then scroll only after the composer reaches its height cap.
   useEffect(() => {
     const ta = textareaRef.current
-    if (!ta || hidden) return
+    if (!ta || hidden || verbTakesOver) return // 收起时量出来是 0:等框回来再量
     ta.style.height = 'auto'
     ta.style.height = `${Math.min(ta.scrollHeight, 110)}px`
     ta.style.overflowY = ta.scrollHeight > ta.clientHeight ? 'auto' : 'hidden'
-  }, [text, hidden])
+  }, [text, hidden, verbTakesOver])
 
   useEffect(() => {
     if (quoteContent) scheduleComposerFocus('quote-attached', { target: () => textareaRef.current })
@@ -697,12 +697,7 @@ export function InputArea({
     {/* @@@1322 composer 外层 = 纯布局列容器（附件/悄悄话/引用条堆叠在 .box 上方）。
         边框/药丸/focus 态移到内层单行 .box（见下）。 */}
     <div
-      style={{
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-      }}
+      style={{ flexShrink: 0, display: verbTakesOver ? 'none' : 'flex', flexDirection: 'column', gap: '6px' }}
     >
       <input
         ref={fileInputRef}
@@ -855,6 +850,7 @@ export function InputArea({
             onPickFile={() => fileInputRef.current?.click()}
           />
         </div>
+        {surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />}
 
         {/* 中间框：只裹 textarea——border/圆角(--r-lg 12px)/focus/bg 在此层，独立增高(SSOT `.box` L148-149)。 */}
         <div

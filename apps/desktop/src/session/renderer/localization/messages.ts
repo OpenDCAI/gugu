@@ -897,7 +897,11 @@ const enUSCoreMessages = {
   'newAgent.projectsUnavailable':
     'The project list on the selected device could not be read. Cross-device project lists are not wired up yet — this will not show your local projects in their place.',
   'newAgent.birthGroupHint': 'Joins this group once created',
-  'newAgent.birthGroupSkip': 'Do not join a group',
+  'taskDispatch.task': 'New task',
+  'taskDispatch.schedule': 'Scheduled task',
+  'taskDispatch.cancel': 'Back to messages',
+  'taskDispatch.placeholder': 'Describe the task',
+  'taskDispatch.schedulePlaceholder': 'What should run each time',
 } as const;
 
 type CoreSessionMessageKey = keyof typeof enUSCoreMessages;
@@ -1725,7 +1729,11 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'newAgent.projectsUnavailable':
     '读不到所选设备上的项目列表。跨设备项目列表尚未接线——这里不会拿本机的项目冒充它的。',
   'newAgent.birthGroupHint': '建好后加入这个群',
-  'newAgent.birthGroupSkip': '不加入群',
+  'taskDispatch.task': '新任务',
+  'taskDispatch.schedule': '定时任务',
+  'taskDispatch.cancel': '回到发消息',
+  'taskDispatch.placeholder': '描述这件任务',
+  'taskDispatch.schedulePlaceholder': '每次到点要做什么',
 };
 
 export const enUSMessages = {

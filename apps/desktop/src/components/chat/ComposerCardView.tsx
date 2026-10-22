@@ -19,13 +19,12 @@ import { openSessionInFull } from '../appSlot/peekFullSession'
  * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, sentAt }: {
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName }: {
   card: ComposerCard
   isMine: boolean
   isGroup: boolean
   chatId: string
   senderName: string
-  sentAt: string
 }) {
   const { t } = useTranslation('messaging')
   const task = card.type === 'task' ? card : null
@@ -50,7 +49,6 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, se
         <span className="text-[var(--font-body)] font-semibold">
           {task ? t('message.taskCard.task') : `${t('message.taskCard.schedule')} · ${card.type === 'schedule' ? card.scheduleLabel : ''}`}
         </span>
-        <span className="ml-auto text-[var(--font-caption)] text-[var(--muted-fg)]">{clockOf(sentAt)}</span>
       </span>
       <span className="line-clamp-4 whitespace-pre-wrap break-words text-[var(--font-prose)] leading-[var(--lh-prose)]">{card.text}</span>
       {task && (
@@ -76,11 +74,6 @@ function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) 
   if (status === 'idle' || status === 'parked') return <Check role="img" aria-label={label} size={14} className="text-[var(--muted-fg)]" />
   const tone = status === 'working' ? 'bg-[var(--agent-tone-running)] animate-pulse motion-reduce:animate-none' : 'bg-[var(--agent-tone-error)]'
   return <span role="img" aria-label={label} title={label} className={`mx-[3px] size-2 rounded-full ${tone}`} />
-}
-
-function clockOf(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 let localDeviceIdOnce: Promise<string | null> | null = null

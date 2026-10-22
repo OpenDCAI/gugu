@@ -1062,6 +1062,11 @@ export function acpStartInputFor(
     workspaceId,
     cwd,
     providerSessionId: session.providerSessionId ?? null,
+    // 首轮的来路与会话页那份启动入参(acp-chat-store)同一组:不经会话页起的(launchCreatedSession)也要带上,
+    // 否则注入器认不出这一轮该落成一条咕咕消息 / 任务卡(gugu-dev#181 建完不打开的派任务正是走这里)。
+    ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
+    ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+    ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
     model: session.model ?? null,
     effort: session.effort ?? null,
     permissionMode: resolveSessionPermissionMode(session),

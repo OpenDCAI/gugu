@@ -54,6 +54,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   creationSurface,
   birthChatId,
   taskChatId,
+  openAfterCreate,
   onSessionCreated,
   machine = null,
   draftKey,
@@ -75,8 +76,10 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   creationSurface?: SessionCreationSurface;
   /** 建出来的 agent 一出生就进这个群(对话页从群成员里点的「新建 Agent」)。 */
   birthChatId?: string;
-  /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡,建完人留在原处(见 useCreateSessionCallback)。 */
+  /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(见 useCreateSessionCallback)。 */
   taskChatId?: string;
+  /** false = 建完人留在原处、当场起它(见 useCreateSessionCallback);缺省 = 导航过去。 */
+  openAfterCreate?: boolean;
   onSessionCreated?: (result: { projectId: string; sessionId: string }) => void;
   /**
    * #6264 所选机器是另一台(一套工作台:项目就是那台机器上的项目,建会话走同一条路);
@@ -156,6 +159,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     creationSurface,
     birthChatId,
     taskChatId,
+    openAfterCreate,
     beforeCreate: remoteInstall.beforeCreate,
   });
   const effectiveBlockReason = blockReason || messageTransportError;

@@ -530,7 +530,7 @@ export const MessageBubble = memo(function MessageBubble({
                     </div>
                   </div>
                 )}
-                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} sentAt={msg.created_at} /> : msg.content_type === 'widget' ? (() => {
+                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} /> : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
                   try {

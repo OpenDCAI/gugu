@@ -601,11 +601,10 @@ function InnerLayout({
   // 那棵子树里),桥若跟着草稿态一起卸掉,下次进页托盘会退回 context-not-ready /「无可用设备」
   // 重新加载一遍(实测约 4s)——文字草稿留住了、上下文却每次重来,这跟本页「返回保草稿」的承诺不一致。
   // ACP-only 那一侧必须放行「所选设备不是本机」:手机上根本不存在本机可运行的设备(#3195)。
-  const clearAgentCreateBirthGroup = useCallback(() => setAgentCreateBirthGroup(null), [])
   const agentCreateContext = useAgentCreateContextBridge(
     showAgentCreateDraft || retainAgentCreateDraft,
     // 桌面也放行远端设备(#6264,见 RemoteMachinesHost / use-machine-create-target.tsx)。
-    { allowRemoteDevice: true, birthGroup: agentCreateBirthGroup, onClearBirthGroup: clearAgentCreateBirthGroup },
+    { allowRemoteDevice: true, birthGroup: agentCreateBirthGroup },
   )
   // ACP-only 装配没有会话页实例可盖,composer 就是它自己。挂载条件跟 retain 走(隐藏而不卸载),否则草稿会蒸发。
   const acpCreateComposer = sessionHostAvailable || !retainAgentCreateDraft ? null : (
