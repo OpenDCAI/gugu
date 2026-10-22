@@ -11,6 +11,7 @@ import {
   turnsPerTick,
 } from './session-timeline-geometry';
 import { ticksFromTurns, type TimelineSender, type TimelineTurn } from './session-timeline-turns';
+import { chatDisplayName } from '@renderer/lib/chat/chat-name';
 
 /**
  * The rail itself: ticks, lens and preview cards, given the turns. Split from
@@ -33,7 +34,7 @@ function senderLabel(sender: TimelineSender | undefined, translate: Translate): 
     case 'forum':
       return `${sender.name} · ${translate('transcript.deliveryViaForum')}`;
     case 'group':
-      return `${sender.name} · ${translate('transcript.deliveryViaGroup', { chat: sender.chat })}`;
+      return `${sender.name} · ${((chat) => chat ? translate('transcript.deliveryViaGroup', { chat }) : translate('transcript.deliveryViaUnnamedGroup'))(sender.chatId ? chatDisplayName(sender.chatId) : null)}`;
     case 'chat':
       return `${sender.name} · ${translate('transcript.deliveryViaChat')}`;
   }

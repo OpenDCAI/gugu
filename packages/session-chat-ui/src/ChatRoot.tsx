@@ -46,6 +46,7 @@ import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
 import { AppNameProvider } from './lib/app-name';
+import { ChatNameProvider } from './lib/chat-name';
 import { CHAT_COMPOSER_EDGE_FADE_PX } from './layout-geometry';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
@@ -1881,6 +1882,7 @@ export function ChatRoot(props: ChatRootProps) {
       <SelfIdentityProvider value={props.context.selfIdentity}>
       <SenderAvatarProvider value={props.context.senderAvatar}>
       <AppNameProvider value={props.context.appName}>
+      <ChatNameProvider value={props.context.chatName}>
       <DebugContext.Provider value={debugValue}>
         <ThemeContext.Provider value={theme}>
         <CachesContext.Provider value={caches()}>
@@ -2021,6 +2023,7 @@ export function ChatRoot(props: ChatRootProps) {
         </CachesContext.Provider>
         </ThemeContext.Provider>
       </DebugContext.Provider>
+      </ChatNameProvider>
       </AppNameProvider>
       </SenderAvatarProvider>
       </SelfIdentityProvider>

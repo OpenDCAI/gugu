@@ -19,6 +19,7 @@ import { messageUnitDef, normalizeMessage } from './message.def';
 import { SelfIdentityProvider, type SelfIdentity } from '@session-chat/lib/self-identity';
 import { SenderAvatarProvider } from '@session-chat/lib/sender-avatar';
 import { AppNameProvider } from '@session-chat/lib/app-name';
+import { ChatNameProvider } from '@session-chat/lib/chat-name';
 import { createSignal } from 'solid-js';
 
 const WIDTH = 640;
@@ -65,6 +66,7 @@ async function mount(
   beforeRead: () => void = () => {},
   bodyExpanded = false,
   appName: (appId: string) => string | null = () => null,
+  chatName: (chatId: string) => string | null = () => null,
 ): Promise<Reading> {
   const raw: ChatMessage = { kind: 'message', id: 'd1', seq: 0, role: 'user', text };
   const item = patch(normalizeMessage(raw));
@@ -94,6 +96,7 @@ async function mount(
       <SelfIdentityProvider value={() => self}>
        <SenderAvatarProvider value={senderAvatar}>
        <AppNameProvider value={appName}>
+       <ChatNameProvider value={chatName}>
         <ThemeContext.Provider value={() => theme}>
           <CachesContext.Provider value={caches}>
             <CommandsContext.Provider value={() => ({
@@ -104,6 +107,7 @@ async function mount(
             </CommandsContext.Provider>
           </CachesContext.Provider>
         </ThemeContext.Provider>
+       </ChatNameProvider>
        </AppNameProvider>
        </SenderAvatarProvider>
       </SelfIdentityProvider>
@@ -169,7 +173,7 @@ describe('delivery card contract (#4874)', () => {
     // No host resolver ⇒ no avatar is drawn (#6306: no initial-letter stand-in), the slot keeps its width.
     expect(r.avatar).toEqual({ state: 'empty', src: null, width: 18 });
     expect(r.sender).toBe('Alice');
-    expect(r.route).toBe('via group 7');
+    expect(r.route).toBe('via a group');
     // Progressive disclosure (owner 2026-09-04): the time waits in the details tier.
     expect(r.time).toBeNull();
     expect(r.reply).toBe('Replying to Bob: the earlier plan');
@@ -308,9 +312,9 @@ describe('delivery card contract (#4874)', () => {
   it('marks a whisper and an app-sent delivery in the route line and the details', async () => {
     const whisper = ENVELOPE.replace('chat_kind="group"', 'chat_kind="group" whisper_to="user:kip" via_app="app:werewolf"');
     const closed = await mount(SINGLE, false, whisper);
-    expect(closed.route).toBe('from app app:werewolf · whisper · via group 7');
+    expect(closed.route).toBe('from app app:werewolf · whisper · via a group');
     const plain = await mount(SINGLE, false, ENVELOPE);
-    expect(plain.route).toBe('via group 7');
+    expect(plain.route).toBe('via a group');
     const open = await mount(SINGLE, true, whisper);
     const plainOpen = await mount(SINGLE, true, ENVELOPE);
     expect(open.computed).toBe(open.dom);
@@ -322,9 +326,19 @@ describe('delivery card contract (#4874)', () => {
     const viaApp = ENVELOPE.replace('chat_kind="group"', 'chat_kind="group" via_app="app:werewolf"');
     const named = (appId: string) => (appId === 'app:werewolf' ? '狼人杀' : null);
     const known = await mount(SINGLE, false, viaApp, (item) => item, null, () => null, () => {}, false, named);
-    expect(known.route).toBe('from app 狼人杀 · via group 7');
+    expect(known.route).toBe('from app 狼人杀 · via a group');
     const unknown = await mount(SINGLE, false, viaApp, (item) => item, null, () => null, () => {}, false, () => null);
-    expect(unknown.route).toBe('from app app:werewolf · via group 7');
+    expect(unknown.route).toBe('from app app:werewolf · via a group');
+  });
+
+  // 信封里的 chat 是群号(给 agent 寻址),人读群名:宿主按来源链接里的对话 id 认得这个群就写名字,认不得只说「来自群聊」,❌ 写群号。
+  it('names the group in the route line when the host knows it, and never shows its number', async () => {
+    const linked = ENVELOPE.replace('chat_kind="group"', 'chat_kind="group" source_link="gugu-chat://3f2a9c1e-0000-4000-8000-000000000007/5b0c0e1d-0000-4000-8000-000000000001"');
+    const named = (chatId: string) => (chatId === '3f2a9c1e-0000-4000-8000-000000000007' ? '设计评审' : null);
+    const known = await mount(SINGLE, false, linked, (item) => item, null, () => null, () => {}, false, () => null, named);
+    expect(known.route).toBe('via group 设计评审');
+    const unknown = await mount(SINGLE, false, linked, (item) => item, null, () => null, () => {}, false, () => null, () => null);
+    expect(unknown.route).toBe('via a group');
   });
 
   it('legacy nested envelope still renders as a delivery card, with no details band', async () => {

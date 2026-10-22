@@ -126,6 +126,7 @@ const fallbackMessages = {
   'transcript.planProgress': 'Plan · {done} of {total} done',
   'transcript.deliveryViaChat': 'via chat',
   'transcript.deliveryViaGroup': 'via group {chat}',
+  'transcript.deliveryViaUnnamedGroup': 'via a group',
   'transcript.deliveryWhisper': 'whisper',
   'transcript.deliveryViaApp': 'from app {app}',
   'transcript.deliveryViaSession': 'from a task',

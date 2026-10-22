@@ -14,7 +14,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
-import { useChatHasMessages } from '@/lib/chatActivityBridge';
+import { useChatHasMessages } from '@/lib/chatSummariesBridge';
 import { setComposerVerb, useComposerVerb } from '@/lib/composerVerbBridge';
 import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';

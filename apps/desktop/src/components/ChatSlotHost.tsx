@@ -4,7 +4,7 @@ import { CHAT_SLOT_PREFIX, chatPartSlotKey, installShellSlots, readShellSlots } 
 import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
-import { publishChatsWithMessages } from '../lib/chatActivityBridge'
+import { publishChatSummaries } from '../lib/chatSummariesBridge'
 import { useChatStore } from '../store/chatContext'
 
 installShellSlots()
@@ -17,10 +17,10 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
  * 块里没有群聊头:头上那排图标、对话的头像和名字画进这一块页签条上留的两格(chatPartSlotKey)。
  */
 export function ChatSlotHost(handlers: AssistantChatHandlers) {
-  // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流。
+  // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流,会话里「来自 X」写群名。
   const { chats } = useChatStore('chats')
   useEffect(() => {
-    publishChatsWithMessages(chats.filter((chat) => chat.last_message_at).map((chat) => chat.id))
+    publishChatSummaries(chats)
   }, [chats])
   const slots = readShellSlots()
   const entries = useSyncExternalStore(
