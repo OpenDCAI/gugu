@@ -439,8 +439,15 @@ module.exports = {
     // `shamefully-hoist` 这类扁平安装场景当保险 —— 那时它确实能挡下 1~2 份 230MB。
     // ❌ 别据此以为"改动前包里有 232MB 被省掉了",改动前也没有。
     '!node_modules/@anthropic-ai/claude-agent-sdk-*/**',
-    // Shared with the packaged runtime-entry guard.
-    ...require('./scripts/packaged-file-exclusions.cjs'),
+    // #41 files nothing loads at runtime: native build intermediates, vendored sources already compiled into
+    // the shipped .node, and TypeScript sources/types (Node refuses to strip types under node_modules).
+    // ❌ Broad *.md / test/ / *.c rules: playwright requires lib/mcp/test/*.js and reads lib/**/*.md, and
+    // npm's bundled node-gyp needs src/*.cc.
+    '!node_modules/**/build/Release/obj/**',
+    '!node_modules/**/build/Release/*.lib',
+    '!node_modules/**/*.{iobj,ipdb,exp,ilk,obj,tlog}',
+    '!node_modules/**/deps/**/*.{c,h,cc,cpp,hpp}',
+    '!node_modules/**/*.{ts,mts,cts}',
   ],
   // @@@kill-asar (#2299 / 0.2.26 闪退治本) — asar 关闭:整个 app 落地为 Contents/Resources/app/ 一棵
   // 真实目录树,不再有 app.asar(虚拟 fs)+ app.asar.unpacked(真实旁挂)的「双世界」。原本 asarUnpack
@@ -452,7 +459,8 @@ module.exports = {
   // 「unpacked 模块的 JS 依赖漏在 asar 侧、require 链炸穿」。符号隔离(-fvisibility=hidden,见 beforePack)
   // 是独立机制、与 asar 无关,保留。代价:装机后文件散落磁盘(非单一 archive),Windows 深路径需实测。
   asar: false,
-  // Chromium's built-in UI should ship the same languages as the product UI.
+  // #41 Chromium's own UI strings (.pak) only for the product's two UI languages; the product picks its
+  // language from app.getPreferredSystemLanguages(), not from these files.
   electronLanguages: ['zh-CN', 'en-US'],
   // @@@electron-fuses (#7195) — 翻哪几项、没翻哪几项及原因,全在 scripts/electron-fuses.cjs。
   electronFuses: resolveElectronFuses({ tier }),
