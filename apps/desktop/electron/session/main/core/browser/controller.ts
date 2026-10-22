@@ -11,7 +11,8 @@ import {
   navigateBrowserPage,
   releaseBrowserPage,
   runBrowserPageCommand,
-  setAgentOverlayInteractive,
+  closeAgentOverlayLayers,
+  setAgentCursorShown,
   setBrowserPageZoom,
   snapshotBrowserPage,
   type BrowserPageCommand,
@@ -70,9 +71,14 @@ export const browserController = createRPCController({
   snapshotPage: async (browserId: string) => ({ dataUrl: await snapshotBrowserPage(browserId) }),
   /** 界面要把焦点拿回自己身上(网页这个独立 view 拿着窗口焦点时,界面 JS 的 focus() 挪不动)。 */
   focusHost: (windowName: string) => ({ success: focusBrowserHost(windowName) }),
-  /** 人的鼠标指到 / 离开 agent 小条:指着时盖在网页上的那扇子窗接住点击,否则点击穿过去落到网页上。 */
-  setAgentOverlayInteractive: (args: { browserId: string; interactive: boolean }) => {
-    setAgentOverlayInteractive(args.browserId, args.interactive);
+  /** 页签那边画不画 agent 的鼠标:画的时候盖在网页上的那层鼠标露出来,不画就收起(它盖着网页,人的点击会落在它上面)。 */
+  setAgentCursorShown: (args: { browserId: string; shown: boolean }) => {
+    setAgentCursorShown(args.browserId, args.shown);
+    return { success: true as const };
+  },
+  /** 页签那边不要盖在网页上的那几层了:按 window.open 的名字关(界面 ❌ 自己 window.close,那会关掉整扇窗)。 */
+  closeAgentOverlayLayers: (frameNames: string[]) => {
+    closeAgentOverlayLayers(frameNames);
     return { success: true as const };
   },
 

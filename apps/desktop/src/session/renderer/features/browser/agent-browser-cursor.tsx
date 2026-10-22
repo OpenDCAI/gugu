@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { events, rpc } from '@renderer/lib/ipc';
 import { MotionPlayer, type Pt } from '@renderer/lib/vendor/cua-cursor-motion';
@@ -18,7 +18,11 @@ export function skipAgentCursorMove(event: { browserId: string; moveId: number; 
 
 /**
  * #7191 agent 操作网页时它的鼠标:盖在网页上的一张透明画布,❌ 画进网页 —— 网页不变、agent 的截图里没有它、
- * 人自己的鼠标不受影响。轨迹与画法用 cua 的 cursor-motion(lib/vendor)。
+ * 人自己的鼠标指针不被挪动。轨迹与画法用 cua 的 cursor-motion(lib/vendor)。
+ *
+ * 画布在窗口里叠在网页上面的那层里(agent-browser-overlay.tsx),那层铺满网页、点不穿:只在画鼠标时露出(告诉主进程),
+ * 这期间人点网页落在画布上 = 人接管(这一下只接管、不点到网页上;键盘焦点交给网页),和点进网页一样让 agent 停手
+ * (agent-browser.ts 第 3 条);滚动、悬停这时也到不了网页。
  *
  * 主进程每一下点击 / 悬停 / 滚动 / 打字前报一声 `move`,等这里回「到了」才把那一下交给网页(agent-browser.ts)。
  * 页签不在屏上(后台页签、会话页不在屏上)或人接管了就不播,当场回话 —— 没人看着时 ❌ 让 agent 白等。
@@ -33,10 +37,30 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
   const shown = visible && agentBrowserState(browserId) === 'driving';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<MotionPlayer | null>(null);
+  const [sized, setSized] = useState(false);
 
+  useEffect(() => {
+    if (!shown) return;
+    void rpc.browser.setAgentCursorShown({ browserId, shown: true });
+    return () => void rpc.browser.setAgentCursorShown({ browserId, shown: false });
+  }, [browserId, shown]);
+
+  // 那层刚开、主进程还没把它摆到网页上时画布是 0×0:等它有了大小再起鼠标 —— ❌ 头一回从左上角飞出来。
+  // 这之前 agent 的动作当场回「到了」、记下落点,鼠标起来时就落在那里。
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!shown || !canvas) return;
+    const observer = new ResizeObserver(() => setSized(canvas.clientWidth > 0 && canvas.clientHeight > 0));
+    observer.observe(canvas);
+    return () => {
+      observer.disconnect();
+      setSized(false);
+    };
+  }, [shown]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!shown || !sized || !canvas) return;
     const player = new MotionPlayer(canvas);
     player.place(lastPoint.get(browserId) ?? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
     playerRef.current = player;
@@ -45,7 +69,7 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
       player.destroy();
       playerRef.current = null;
     };
-  }, [browserId, shown]);
+  }, [browserId, shown, sized]);
 
   useEffect(
     () =>
@@ -73,7 +97,8 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
       ref={canvasRef}
       aria-hidden
       data-testid="agent-browser-cursor"
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      className="absolute inset-0 h-full w-full"
+      onMouseDown={() => void rpc.browser.pauseAgent(browserId)}
     />
   );
 });
