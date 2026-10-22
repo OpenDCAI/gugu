@@ -428,15 +428,28 @@ function InnerLayout({
   // gugu-dev#181 桌面上没有单独的聊天页:对话是会话页这屏的一块,打开一条对话 = 请会话页把它那块摆出来(项目群摆项目块,
   // 那边判)。true = 已经交给会话页;手机、没有会话页宿主的形态(网页)返回 false,照旧落在聊天页。
   const chatsAreBlocks = !mobile && sessionHostAvailable
-  const openChatBlock = useCallback((chatId: string): boolean => {
+  const composerFocusCleanupRef = useRef<(() => void) | null>(null)
+  // 门控与移动软键盘语义都在契约里（见 lib/focusComposer.ts）；这里只表达「用户从哪个入口进来的」。
+  // chatId:落到这条对话那一格里的输入框(屏上可以并排几块对话,❌ 落进别的块)。
+  const focusComposerForUserEntry = useCallback((reason: ComposerFocusReason, chatId?: string) => {
+    composerFocusCleanupRef.current?.()
+    const target = chatId
+      ? () => document.querySelector<HTMLTextAreaElement>(`[data-chat-slot="${chatId}"] [data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)
+      : undefined
+    composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile, target })
+  }, [mobile])
+  useEffect(() => () => composerFocusCleanupRef.current?.(), [])
+  /** focus:人从这个入口进来就该接着打字(与聊天页那一支同一个 reason);不给 = 不抢焦点。 */
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): boolean => {
     if (!chatsAreBlocks) return false
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
     setSettingsModalOpen(false)
     setActiveTab('tasks')
     sessionPage.openChat(chatId, false)
+    if (focus) focusComposerForUserEntry(focus, chatId)
     return true
-  }, [chatsAreBlocks, t])
+  }, [chatsAreBlocks, focusComposerForUserEntry, t])
   useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
     openChat: (chatId) => { if (openChatBlock(chatId)) return; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
     openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}) },
@@ -493,13 +506,6 @@ function InnerLayout({
     setActiveTab('chats')
     openAgentCreateDraft()
   }, [chatsAreBlocks, mobile, openAgentCreateDraft])
-  const composerFocusCleanupRef = useRef<(() => void) | null>(null)
-  // 门控与移动软键盘语义都在契约里（见 lib/focusComposer.ts）；这里只表达「用户从哪个入口进来的」。
-  const focusComposerForUserEntry = useCallback((reason: ComposerFocusReason) => {
-    composerFocusCleanupRef.current?.()
-    composerFocusCleanupRef.current = scheduleComposerFocus(reason, { mobileShell: mobile })
-  }, [mobile])
-  useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   const sessionSlotRef = useRef<HTMLDivElement>(null)
   const composerSlotRef = useRef<HTMLDivElement>(null)
   const emdashFrameHomeRef = useRef<HTMLDivElement>(null)
@@ -751,7 +757,7 @@ function InnerLayout({
     const handler = (event: Event) => {
       const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
       if (typeof chatId !== 'string' || chatId.length === 0) return
-      if (openChatBlock(chatId)) return
+      if (openChatBlock(chatId, 'notification-open')) return
       setActiveChatId(chatId)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -993,7 +999,7 @@ function InnerLayout({
     ))
     if (existing) {
       if (draft) setDraft(existing.id, () => draft)
-      if (openChatBlock(existing.id)) {
+      if (openChatBlock(existing.id, 'profile-chat')) {
         void refreshChats()
         return
       }
@@ -1021,7 +1027,7 @@ function InnerLayout({
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
       if (draft) setDraft(chatId, () => draft)
-      if (openChatBlock(chatId)) {
+      if (openChatBlock(chatId, 'profile-chat')) {
         void refreshChats()
         return
       }
@@ -1066,7 +1072,7 @@ function InnerLayout({
 
   // 手机上从群成员里建好 agent:回到那个群(与桌面 openAgentChat 的落点同一条规则)。
   const handleReturnToGroup = (chatId: string) => {
-    if (openChatBlock(chatId)) return
+    if (openChatBlock(chatId, 'group-chat')) return
     setActiveChatId(chatId)
     setActiveTab('chats')
     setMobilePane('chat')
@@ -1075,7 +1081,7 @@ function InnerLayout({
 
   const handleOpenGroupChat = (group: ContactGroupChat) => {
     upsertChat(createOptimisticGroupChat(group.id, group.name))
-    if (openChatBlock(group.id)) {
+    if (openChatBlock(group.id, 'group-chat')) {
       void refreshChats()
       return
     }
@@ -1162,7 +1168,7 @@ function InnerLayout({
         const birthGroup = agentCreateBirthGroupRef.current
         setAgentCreateDraftOpen(false)
         setAgentCreateDraftRetained(false)
-        if (openChatBlock(birthGroup?.chatId ?? chatId)) {
+        if (openChatBlock(birthGroup?.chatId ?? chatId, birthGroup ? 'group-chat' : 'agent-created')) {
           void refreshChats()
           return
         }
