@@ -509,10 +509,9 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     cheek: { lift: 0.05 },
     posture: pose({ nod: 10, sy: 0.985, w: -0.23 }),
     temper: { breath: 0.02, breathHz: 0.26, blink: 0, sway: 3 },
-    // 眼皮越来越沉、头往下栽（0.25–1.2s），头顶依次冒三个 z；栽到底一激灵：睁眼、眉毛弹起、轻跳，再慢慢回到半睁。还困着就隔 12s 再来一次
+    // 进入时演一次：眼皮越来越沉、头往下栽（0.25–1.2s），头顶依次冒三个 z；栽到底一激灵：睁眼、眉毛弹起、轻跳，再慢慢回到半睁，然后停住
     act: {
       dur: 2.4,
-      every: 12,
       fx: [
         { at: 0.3, kind: 'z' },
         { at: 0.8, kind: 'z' },
