@@ -290,7 +290,8 @@ describe('agent presence revision routing', () => {
       unsubscribe()
     }
   })
-  it('uses the server-derived expiry instead of a stale imperative online value', async () => {
+  // 在不在线只看设备行与 owner 意图;载荷里的 runtime_status / derived_status(老后端还会带)一律不读。
+  it('ignores runtime_status and derived_status: a reachable device with desired online is online', async () => {
     rpcMock.mockResolvedValueOnce({
       data: payload('active', '2026-08-15T00:00:04Z', {
         runtime_status: 'online',
@@ -305,28 +306,8 @@ describe('agent presence revision routing', () => {
     const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
     await settle()
     const state = getAgentPresenceSnapshot('agent-1')
-    expect(state?.payload?.runtimeStatus).toBe('online')
-    expect(state?.payload?.derivedStatus).toBe('offline')
+    expect(state?.payload).not.toHaveProperty('derivedStatus')
     expect(state?.status).toBe('idle')
-    unsubscribe()
-  })
-  // spec agent-status:「进程在不在内存」不让用户感知 —— 会话正在起对用户就是 working,没有「激活中」这个词。
-  it('shows a starting runtime as working', async () => {
-    rpcMock.mockResolvedValueOnce({
-      data: payload('active', '2026-08-15T00:00:05Z', {
-        runtime_status: 'starting',
-        desired_status: 'online',
-        device_id: 'device-1',
-        device_status: 'online',
-        device_last_seen_at: new Date().toISOString(),
-      }),
-      error: null,
-    })
-    const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
-    await settle()
-    const state = getAgentPresenceSnapshot('agent-1')
-    expect(state?.payload?.runtimeStatus).toBe('starting')
-    expect(state?.status).toBe('working')
     unsubscribe()
   })
 })

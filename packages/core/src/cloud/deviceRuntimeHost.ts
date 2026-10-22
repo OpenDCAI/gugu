@@ -1228,7 +1228,7 @@ export function createDeviceRuntimeHostLoop(
   // 云端的行就是「已发布过什么」:一次批量读(每 200 个一发)拿回本机每个 agent 的那一行,填进 publishedActivity /
   // publishedRecentActions,随后的边沿发布只写与云端不一样的行。空闲且一致的 agent 一发写都没有 —— 一轮的代价不随
   // 空闲会话数长。从前这里给每个 agent 都重写一遍 online(10-22 一台 82 个 agent 的机器,每小时 2 508 发里只有 308 发
-  // 是真变化):那是在给后端 180 s 的 derived_status 续命,而自 #2774(0.2.30)起没有读方再用它判在线 ——
+  // 是真变化):那是在给后端 180 s 的 derived_status 续命,而它的 offline 自 #2774(0.2.30)起总被 desired 盖过 ——
   // 在线只看设备行与 desired。
   // 删了的 agent 由这一读显式认出:remove_owned_agent 留的墓碑让主人照样读得到它,account_status='removed' ⇒
   // 收回名册行与发给它的卡(#2151/#6938 的 cloud-gone)。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
@@ -1334,7 +1334,6 @@ export function createDeviceRuntimeHostLoop(
           const recent = recentSnapshots.get(agentUserId) ?? null
           await reportRuntimeState({
             agentUserId,
-            runtimeStatus: 'online',
             ...presenceFields(published),
             runtimeKind: 'gugu',
             runtimeLabel: hostname(),
@@ -1386,8 +1385,7 @@ export function createDeviceRuntimeHostLoop(
     if (activeScheduledTasksRun) await activeScheduledTasksRun.catch(() => undefined)
     if (activeLeaseRenewal) await activeLeaseRenewal
     if (activeActivityPublish) await activeActivityPublish.catch(() => undefined)
-    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行(build_agent_presence_payload 的
-    // derived_status 不看 runtime_status,而那一写自己就把 last_seen 刷新成「刚见过」),设备行由租约清扫者在
+    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired,设备行由租约清扫者在
     // 租约过期后翻成 offline(#5912)。逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
   }
 

@@ -1607,8 +1607,7 @@ async function agentStatusReadings(deps, agentUserIds) {
           detail: presence.agent_status_detail ?? null,
           status_from: 'cloud',
           status_at: presence.updated_at ?? null,
-          // 那台机器在不在线只看设备行(#5912:租约清扫者翻它,在线 / 离线的唯一来源);❌ derived_status ——
-          // 它只看 agent 行的 last_seen,宿主退出之后还会说「在线」。
+          // 那台机器在不在线只看设备行(#5912:租约清扫者翻它,在线 / 离线的唯一来源)。
           host_online: presence.device_status === 'online' ? true : presence.device_status === 'offline' ? false : null,
         })
       }
