@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MainLayout } from '../../../../apps/desktop/src/layouts/MainLayout'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import { openConversationLink } from '../../../../apps/desktop/src/lib/conversationLinks'
+import { conversationLink } from '@gugu/core/shared/ui/conversationLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
@@ -886,5 +888,27 @@ describe('MainLayout: files.openWith', () => {
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
     expect(groupSlotMemory.takeFile('g-open')).toBeNull()
+  })
+})
+
+// gugu-dev#181 链接(⌘K 面板选中一条话题也走它)、通知、App 点名打开一条话题:都只是把它摆成一块,同一扇门
+// (sessionPage.openChat)。话题变成「源对话 + 话题分栏」只在 ChatAreaPanel 一处(那边的单测钉住)。
+describe('MainLayout: opening a topic on the desktop', () => {
+  // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
+  const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
+  const TOPIC = '0b1e7c1a-0000-4000-8000-000000000002'
+  const ways: Array<[string, () => void]> = [
+    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }],
+    ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }],
+    ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }],
+  ]
+  it.each(ways)('from %s, through the one door', async (_way, open) => {
+    chatStoreMock.chats = [{ id: SRC, kind: 'group', name: '咕咕内测群' }, { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: SRC }] as never
+    await renderMainLayoutWithToast()
+    await act(async () => {
+      open()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    })
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(TOPIC, false)
   })
 })

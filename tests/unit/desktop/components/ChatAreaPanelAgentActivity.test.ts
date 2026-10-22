@@ -13,6 +13,8 @@ import { DevicesContext, type DevicesContextValue } from '../../../../apps/deskt
 import type { AccountRevisionListener } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import { presentationOfDisplayStatus } from '../../../support/agentDisplayStatusTestDouble'
 import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
+import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
+import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 
 
 // @@@store-status-mock - Overridable so tests can flip the store's reported status independently of the
@@ -151,6 +153,15 @@ describe('ChatAreaPanel agent activity placement', () => {
     expect(runningBar?.textContent).toContain('Deploy Bot')
     // kindToStateWord(liveStream.latestKind=null) → 「运行中」(无 tool_call kind 时缺省流光动词)。
     expect(runningBar?.textContent).toContain('运行中')
+  })
+
+  // 对话头的名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName):私聊写对方,备注优先。
+  it('names the chat header the way chatDisplayName names the chat', async () => {
+    const dm = chat({ id: 'chat-1', kind: 'dm', name: 'Wei Zhang', peer_user_id: 'peer-1', peer_alias: '阿威' })
+    await renderChatArea({ activeChat: dm, messages: [] })
+    const header = harness.container.querySelector('[data-chat-area-header]')
+    expect(chatDisplayName(dm, 'Wei Zhang')).toBe('阿威')
+    expect(header?.textContent).toContain(chatDisplayName(dm, 'Wei Zhang'))
   })
 
   it('#2951: 远端 Agent 显示设备名，运行条名称取会话/通讯录解析结果', async () => {
@@ -476,6 +487,9 @@ async function renderChatArea(chatState: {
   messagesError?: Error | null
   refreshMessages?: (chatId?: string) => Promise<void>
   setDraft?: ChatContextValue['setDraft']
+  activeChatId?: string
+  setActiveChatId?: ChatContextValue['setActiveChatId']
+  mobile?: boolean
 }, devices: Device[] = [testDevice('device-1', [], { is_current_device: true })], contacts?: ContactUser[]) {
   const peerId = chatState.activeChat.peer_user_id
   const identitiesById = Object.fromEntries([
@@ -488,7 +502,7 @@ async function renderChatArea(chatState: {
     createElement(
       DevicesContext.Provider,
       { value: devicesStore(devices) },
-      createNode(ChatAreaPanel, { activeTab: 'chats' }),
+      createNode(ChatAreaPanel, { activeTab: 'chats', mobile: chatState.mobile }),
     ),
     {
       chat: {
@@ -735,5 +749,20 @@ describe('#5856 从一条消息开话题', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).not.toBeNull()
     // 老的群 thread 面板不该再出现(同名不同物,两个并存就是产品里有两个「话题」)。
     expect(harness.container.querySelector('[data-testid="group-thread-panel"]')).toBeNull()
+  })
+
+  // 链接、通知、App 点名、⌘K 面板都只是把这条对话摆上来(桌面摆成一块,手机聊天页设成当前对话);摆上来的是话题时,
+  // 在这里换成源对话 + 话题分栏 —— 只这一处。
+  it.each([['in a block', false], ['on the phone chat page', true]])('%s, a topic put up as the chat becomes its source chat with the topic as the split', async (_where, mobile) => {
+    const setActiveChatId = vi.fn()
+    await renderChatArea({
+      activeChat: chat({ id: 'topic-1', kind: 'topic', name: '登录页白屏', source_chat_id: 'chat-1' }),
+      activeChatId: 'topic-1',
+      setActiveChatId,
+      messages: [],
+      mobile,
+    })
+    expect(setActiveChatId).toHaveBeenCalledWith('chat-1')
+    expect(drainTopicSplitRequest('chat-1')).toMatchObject({ chatId: 'topic-1', name: '登录页白屏', sourceChatId: 'chat-1' })
   })
 })

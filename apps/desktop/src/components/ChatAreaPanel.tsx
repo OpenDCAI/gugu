@@ -83,7 +83,7 @@ import {
 import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { GroupPanelTabs } from './appSlot/GroupPanelTabs'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
-import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
+import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
 import { MemberListPanel } from './chat/MemberListPanel'
 import { useAgentFloodNotice } from '@/hooks/useAgentFloodNotice'
@@ -206,8 +206,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // @@@5856 场所型会话 = 群 + 话题:都有自己的名字、成员、文件与响应档位。头栏的搜索/工作区/成员
   // 三颗按钮问的是这个,不是「是不是群」。判据的唯一真源在 @gugu/core/shared/ui/chatModels。
   const isRoomChatSurface = activeChat ? isRoomChat(activeChat.kind) : false
-  // 场所型(群/话题)读自己的 name/avatar;私聊读对端。话题没有 peer_user_id,走错分支就是一条无名会话。
-  const activeChatName = isRoomChatSurface ? (activeChat?.name ?? '') : (activeChat?.peer_alias?.trim() || peerIdentity?.display_name || '')
+  // 场所型(群/话题)读自己的 name/avatar;私聊读对端。名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName)。
+  const activeChatName = activeChat ? chatDisplayName(activeChat, peerIdentity?.display_name) : ''
   const activeChatAvatar = isRoomChatSurface ? (activeChat?.avatar ?? null) : (peerIdentity?.avatar ?? null)
   // @@@1145 单聊 Agent 的联系人档(供 AgentSettingsModal 取完整资料)。点名时优先弹设置面板;
   // 找不到联系人(极少)则回落旧抽屉,不丢可达性。

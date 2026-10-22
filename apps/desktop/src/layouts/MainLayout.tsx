@@ -80,7 +80,6 @@ import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
 import { addFilePills } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, APP_SHOW_MESSAGE_EVENT, GROUP_FILE_OPEN_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail, type AppShowMessageDetail, type GroupFileOpenDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { askReveal } from '../hooks/useSourceMessageReveal'
-import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { resolveQrScanRoute, type QrScanRoute } from '../lib/qrScanRoute'
 import { describeBarcodeScanError } from '../lib/barcodeScanError'
 import { PlatformError } from '../platform/errors'
@@ -768,9 +767,9 @@ function InnerLayout({
   }, [focusComposerForUserEntry, openChatBlock, setActiveChatId])
 
   // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
-  // line with the topic as the split), and what was asked of it is left with the view that shows it (`UI_EVENTS.chatAsked`):
-  // a file (groupSlotMemory.askFile), a message (askReveal), the text for its composer (its draft). A chat the person is
-  // not in is said so, not opened into nothing.
+  // line with the topic as the split, which ChatAreaPanel makes of any topic put up), and what was asked of it is left with
+  // the view that shows it (`UI_EVENTS.chatAsked`): a file (groupSlotMemory.askFile), a message (askReveal), the text for
+  // its composer (its draft). A chat the person is not in is said so, not opened into nothing.
   const chatsRef = useRef(chats)
   chatsRef.current = chats
   // 群成员面板的「新建 Agent 并加入本群」:桌面与对话页「新建 Agent」同一个创建页、手机与联系人页「新建 Agent」
@@ -809,14 +808,12 @@ function InnerLayout({
         return false
       }
       ask(chat.id)
-      const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
-      if (!openChatBlock(topic?.source_chat_id ?? chat.id)) {
+      if (!openChatBlock(chat.id)) {
         setAgentCreateDraftOpen(false)
         setActiveTab('chats')
         setMobilePane('chat')
-        setActiveChatId(topic?.source_chat_id ?? chat.id)
+        setActiveChatId(chat.id)
       }
-      if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
