@@ -1,8 +1,8 @@
-import { BaseWindow, BrowserWindow, WebContentsView, type WebContents } from 'electron';
+import { BaseWindow, BrowserWindow, WebContentsView, type Size, type WebContents } from 'electron';
 import { getMainWindow } from '@main/app/window';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
-import { AUX_WINDOW_NAME_PREFIX, browserIdOfAgentOverlay } from '@shared/aux-window';
+import { AGENT_OVERLAY_WINDOW_NAME_PREFIX, AUX_WINDOW_NAME_PREFIX, agentOverlayOfFrame, type AgentOverlayPart } from '@shared/aux-window';
 import { BROWSER_TAB_URL_OPTIONS, normalizeBrowserUrl, normalizeBrowserZoomFactor } from '@shared/browser';
 import { BROWSER_PAGE_MEASURE_SCRIPT, parseBrowserPageLayout, type BrowserPageLayout } from '@shared/browser-page-layout';
 import {
@@ -13,6 +13,14 @@ import {
 } from '@shared/events/browserEvents';
 import { BROWSER_PINCH_MAX_LEVEL } from '@shared/preview/pinch-zoom';
 import { hardenWebPreferences } from '../../../../devtools-lock';
+import {
+  openWindowLayer,
+  raiseWindowLayers,
+  serveWindowLayers,
+  WINDOW_LAYER_RANK,
+  windowLayerOptions,
+  type WindowLayerContent,
+} from '../../../../window-layers';
 import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
@@ -34,7 +42,8 @@ import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
  * - **网页画在界面之上**:页签那一块在界面里只是一个空的占位(browser-page-surface.tsx),它量好自己在窗口里的
  *   位置报过来,这里把 view 摆上去。咕咕自己的浮层(菜单、弹窗、起始页…)压到网页上时,页签报 `occluded`:
  *   view 收起、占位换成一张网页截图,浮层照常盖在上面。
- * - **agent 的鼠标和「agent 正在操作」小条**画在一扇透明、点不着、拿不到焦点的子窗里(agentOverlay),盖在网页上。
+ * - **agent 的鼠标和「agent 正在操作」小条**是窗口里叠在网页上面的两层(window-layers.ts,❌ 另开子窗):小条那层只有
+ *   小条那么大;鼠标那层铺满网页那一块,只在 agent 操作时露出 —— 这期间人点网页落在它上面,算人接管(见下)。
  * - **不在屏上的网页停在「停放窗」里**:每扇咕咕窗口配一扇从不显示的窗,不在屏上(页签切走、会话藏起来、被浮层盖住)
  *   的网页挂到那里、大小照旧跟着页签。❌ 摘下来 / ❌ 挂着 setVisible(false):从没露过面的网页视口是 0×0,
  *   挂着隐藏的截图会卡死 —— agent 在后台操作它时截图、点击全不灵(exp11 / exp12 实测)。停在停放窗里平时不出帧;
@@ -66,8 +75,11 @@ type BrowserPage = {
   place: PagePlace;
   ready: boolean;
   releaseTimer: ReturnType<typeof setTimeout> | null;
-  overlay: BrowserWindow | null;
-  overlayInteractive: boolean;
+  /** 盖在网页上的 agent 鼠标、小条两层(页签那边开出来;不在用就是 null)。 */
+  layers: Record<AgentOverlayPart, WebContentsView | null>;
+  /** 小条那层内容的大小(preferred size);鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
+  badgeSize: Size | null;
+  cursorShown: boolean;
   dialogs: PageDialogs | null;
 };
 
@@ -108,7 +120,6 @@ function wireHost(host: BrowserWindow): void {
     syncParking(host);
     for (const page of pages.values()) {
       if (page.host !== host) continue;
-      placeOverlay(page);
       page.dialogs?.pageShown();
     }
   };
@@ -135,10 +146,6 @@ function wireHost(host: BrowserWindow): void {
   host.webContents.on('did-start-navigation', (event) => {
     if (!event.isMainFrame || event.isSameDocument) return;
     for (const page of [...pages.values()]) if (page.host === host) destroyBrowserPage(page.browserId);
-  });
-  host.webContents.on('did-create-window', (child, { frameName }) => {
-    const browserId = browserIdOfAgentOverlay(frameName);
-    if (browserId) adoptAgentOverlay(browserId, child);
   });
 }
 
@@ -176,7 +183,11 @@ function placeOn(page: BrowserPage, where: 'host' | 'parked'): void {
   const host = page.host;
   if (!host || host.isDestroyed() || page.place === where) return;
   unplace(page);
-  (where === 'host' ? host.contentView : parkingFor(host).contentView).addChildView(page.view);
+  if (where === 'host') {
+    host.contentView.addChildView(page.view);
+    // 后挂上去的网页会压住窗口里的层(agent 的鼠标、小条、构建角标):叠回去。
+    raiseWindowLayers(host);
+  } else parkingFor(host).contentView.addChildView(page.view);
   page.place = where;
 }
 
@@ -209,7 +220,7 @@ function applyLayout(page: BrowserPage): void {
   if (page.fullscreen) page.view.setBounds(contentRect(host));
   else if (sized) page.view.setBounds(page.rect as Rect);
   placeOn(page, shown ? 'host' : 'parked');
-  placeOverlay(page);
+  placeAgentLayers(page);
   page.dialogs?.pageShown();
 }
 
@@ -284,8 +295,9 @@ export function mountBrowserPage(args: {
     place: null,
     ready: false,
     releaseTimer: null,
-    overlay: null,
-    overlayInteractive: false,
+    layers: { cursor: null, badge: null },
+    badgeSize: null,
+    cursorShown: false,
     dialogs: null,
   };
   pages.set(args.browserId, page);
@@ -309,9 +321,8 @@ function moveToHost(page: BrowserPage, windowName: string): void {
     unplace(page);
     page.host = host;
     if (host) wireHost(host);
-    // 换了窗:旧窗上的那扇浮层子窗关掉,新窗那边页签会重新开。
-    if (page.overlay && !page.overlay.isDestroyed()) page.overlay.close();
-    page.overlay = null;
+    // 换了窗:旧窗里的那两层关掉,新窗那边页签会重新开。
+    closeAgentLayers(page);
   }
   page.windowName = windowName;
   applyLayout(page);
@@ -379,7 +390,10 @@ function wirePage(page: BrowserPage): void {
     page.fullscreen = true;
     applyLayout(page);
     // 叠到最上面:分栏时别的网页 view 不能压着它(再挂一次就到最上层)。
-    if (page.host && !page.host.isDestroyed() && page.place === 'host') page.host.contentView.addChildView(page.view);
+    if (page.host && !page.host.isDestroyed() && page.place === 'host') {
+      page.host.contentView.addChildView(page.view);
+      raiseWindowLayers(page.host);
+    }
   });
   webContents.on('leave-html-full-screen', () => {
     page.fullscreen = false;
@@ -389,7 +403,7 @@ function wirePage(page: BrowserPage): void {
     if (pages.get(page.browserId) === page) {
       pages.delete(page.browserId);
       if (page.releaseTimer) clearTimeout(page.releaseTimer);
-      if (page.overlay && !page.overlay.isDestroyed()) page.overlay.close();
+      closeAgentLayers(page);
     }
   });
 }
@@ -434,8 +448,7 @@ export function releaseBrowserPage(browserId: string): void {
   if (!page) return;
   page.mode = 'background';
   applyLayout(page);
-  if (page.overlay && !page.overlay.isDestroyed()) page.overlay.close();
-  page.overlay = null;
+  closeAgentLayers(page);
   if (page.releaseTimer) clearTimeout(page.releaseTimer);
   page.releaseTimer = setTimeout(() => destroyBrowserPage(browserId), RELEASE_GRACE_MS);
 }
@@ -446,8 +459,7 @@ export function destroyBrowserPage(browserId: string): void {
   if (!page) return;
   pages.delete(browserId);
   if (page.releaseTimer) clearTimeout(page.releaseTimer);
-  if (page.overlay && !page.overlay.isDestroyed()) page.overlay.close();
-  page.overlay = null;
+  closeAgentLayers(page);
   unplace(page);
   if (!page.webContents.isDestroyed()) page.webContents.close();
 }
@@ -554,57 +566,108 @@ export function focusBrowserHost(windowName: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------
-// agent 的鼠标与小条:一扇透明、点不着、拿不到焦点的子窗,盖在网页那一块上(由页签那边 window.open 开出来,
-// 界面同一个渲染进程直接画进去;主进程这里只管它摆在哪、点不点得着)。
+// agent 的鼠标与小条:窗口里叠在网页上面的两层(window-layers.ts),由页签那边 window.open 开出来、界面同一个渲染进程
+// 直接画进去;主进程这里只管它们摆在哪、露不露。
 
-function adoptAgentOverlay(browserId: string, overlay: BrowserWindow): void {
-  const page = livePage(browserId);
-  if (!page) {
-    overlay.close();
-    return;
-  }
-  if (page.overlay && page.overlay !== overlay && !page.overlay.isDestroyed()) page.overlay.close();
-  page.overlay = overlay;
-  page.overlayInteractive = false;
-  // 人的鼠标穿过它落到网页上(forward:鼠标移动照样报给它,它好知道人是不是指着小条)。
-  overlay.setIgnoreMouseEvents(true, { forward: true });
-  overlay.on('closed', () => {
-    if (page.overlay === overlay) page.overlay = null;
+/** 小条底边离网页底边多远(小条那层四周留了一圈给阴影的透明边,这里扣掉)。 */
+const BADGE_BOTTOM_GAP = 4;
+
+/** 开着的层,按 window.open 的名字(每次开都不一样):页签那边不要了时按名字关。 */
+const agentLayersByName = new Map<string, WebContentsView>();
+
+serveWindowLayers(AGENT_OVERLAY_WINDOW_NAME_PREFIX, {
+  accepts: (frameName) => agentOverlayOfFrame(frameName) !== null,
+  options: (frameName) => windowLayerOptions({ enablePreferredSizeMode: agentOverlayOfFrame(frameName)?.part === 'badge' }),
+  open: openAgentLayer,
+});
+
+function openAgentLayer(host: BrowserWindow, frameName: string, content: WindowLayerContent): void {
+  const { webContents } = content;
+  const overlay = agentOverlayOfFrame(frameName);
+  const page = overlay ? livePage(overlay.browserId) : null;
+  const view = openWindowLayer(host, content, overlay?.part === 'badge' ? WINDOW_LAYER_RANK.agentBadge : WINDOW_LAYER_RANK.agentCursor);
+  agentLayersByName.set(frameName, view);
+  webContents.once('destroyed', () => {
+    if (agentLayersByName.get(frameName) === view) agentLayersByName.delete(frameName);
   });
-  placeOverlay(page);
-}
-
-function placeOverlay(page: BrowserPage): void {
-  const overlay = page.overlay;
-  if (!overlay || overlay.isDestroyed()) return;
-  const host = page.host;
-  const rect = page.rect;
-  const visible =
-    !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized() && page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
-  if (!visible || !host || !rect) {
-    if (overlay.isVisible()) overlay.hide();
+  // 没有这张网页 / 网页不在开它的那扇窗上(正挪窗):关掉,页签在新位置会重新开。
+  if (!overlay || !page || page.host !== host) {
+    setImmediate(() => {
+      if (!webContents.isDestroyed()) webContents.close();
+    });
     return;
   }
-  const content = host.getContentBounds();
-  overlay.setBounds({ x: content.x + rect.x, y: content.y + rect.y, width: rect.width, height: rect.height });
-  if (!overlay.isVisible()) {
-    if (process.platform === 'darwin') {
-      // showInactive 在 macOS 仍会 orderFrontRegardless,把浮窗连同父窗提到别的 App 前面(electron#49393)。
-      // moveAbove 会按父窗现有的位置露出浮窗,不改父窗的层级;露出后再接回原生父子关系,跟着父窗移动、隐藏。
-      overlay.moveAbove(host.getMediaSourceId());
-      overlay.setParentWindow(host);
-    } else {
-      overlay.showInactive();
+  const { part } = overlay;
+  const previous = page.layers[part];
+  if (previous && previous !== view && !previous.webContents.isDestroyed()) previous.webContents.close();
+  page.layers[part] = view;
+  if (part === 'badge') {
+    page.badgeSize = null;
+    webContents.on('preferred-size-changed', (_event, preferred) => {
+      if (page.layers.badge !== view) return;
+      const sized = Number.isFinite(preferred.width) && Number.isFinite(preferred.height) && preferred.width > 0 && preferred.height > 0;
+      page.badgeSize = sized ? { width: Math.ceil(preferred.width), height: Math.ceil(preferred.height) } : null;
+      placeAgentLayers(page);
+    });
+  }
+  webContents.once('destroyed', () => {
+    if (page.layers[part] !== view) return;
+    page.layers[part] = null;
+    if (part === 'badge') page.badgeSize = null;
+  });
+  placeAgentLayers(page);
+}
+
+/** 两层只在网页露着(挂在窗口上、页签那一块看得见、不是全屏)时露:小条摆在网页底部正中,鼠标那层铺满网页、agent 操作时才露。 */
+function placeAgentLayers(page: BrowserPage): void {
+  const { cursor, badge } = page.layers;
+  if (!cursor && !badge) return;
+  const rect = page.rect;
+  const shown = page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
+  if (cursor && !cursor.webContents.isDestroyed()) {
+    if (shown && rect && page.cursorShown) cursor.setBounds(rect);
+    cursor.setVisible(shown && page.cursorShown);
+  }
+  if (badge && !badge.webContents.isDestroyed()) {
+    const size = page.badgeSize;
+    if (shown && rect && size) {
+      badge.setBounds({
+        x: rect.x + Math.round((rect.width - size.width) / 2),
+        y: rect.y + rect.height - size.height - BADGE_BOTTOM_GAP,
+        ...size,
+      });
     }
+    badge.setVisible(shown && !!size);
   }
 }
 
-/** 人的鼠标指到 / 离开小条:指着时子窗接住点击(按「停止」「让 agent 继续」),否则点击穿过去。 */
-export function setAgentOverlayInteractive(browserId: string, interactive: boolean): void {
+function closeAgentLayers(page: BrowserPage): void {
+  for (const part of ['cursor', 'badge'] as const) {
+    const view = page.layers[part];
+    page.layers[part] = null;
+    if (view && !view.webContents.isDestroyed()) view.webContents.close();
+  }
+  page.badgeSize = null;
+}
+
+/**
+ * 页签那边不要这几层了(agent 不用这个页签了、页签不在屏上、挪了位置):按名字关掉。界面那边 ❌ 自己 window.close —— 那会关掉
+ * 整扇咕咕窗口(window-layers.ts)。紧接着新开的那几层名字不同,不受影响。
+ */
+export function closeAgentOverlayLayers(frameNames: readonly string[]): void {
+  for (const frameName of frameNames) {
+    const view = agentLayersByName.get(frameName);
+    if (view && !view.webContents.isDestroyed()) view.webContents.close();
+  }
+}
+
+/**
+ * 页签那边要不要画 agent 的鼠标(agent 在操作这个页签、页签在屏上):要画时鼠标那层铺满网页露出来,
+ * 不画时收起 —— 它盖着网页,这时人的点击、滚动都落在它上面(点它 = 人接管,页签那边处理)。
+ */
+export function setAgentCursorShown(browserId: string, shown: boolean): void {
   const page = livePage(browserId);
-  const overlay = page?.overlay;
-  if (!page || !overlay || overlay.isDestroyed() || page.overlayInteractive === interactive) return;
-  page.overlayInteractive = interactive;
-  if (interactive) overlay.setIgnoreMouseEvents(false);
-  else overlay.setIgnoreMouseEvents(true, { forward: true });
+  if (!page || page.cursorShown === shown) return;
+  page.cursorShown = shown;
+  placeAgentLayers(page);
 }

@@ -104,11 +104,15 @@ export function BuildTagBadge() {
       observer.disconnect()
       sizeObserver.disconnect()
       window.removeEventListener('resize', sync)
-      // StrictMode 会立即释放再认领同一组件。先交回这一轮同步任务,只关闭确实无人认领的窗口。
+      // StrictMode 会立即释放再认领同一组件。先交回这一轮同步任务,只收起确实无人认领的那一层。
+      // ❌ popup.close():角标是主窗里的一层,Electron 的 window.close 会把整个主窗关掉(electron/window-layers.ts)。
+      // 清空、写成 0 大小,主进程就收起它;再认领时开一层新的,主进程换掉这层。
       queueMicrotask(() => {
         if (lifecycle.generation !== generation) return
         owned.current = null
-        if (!popup.closed) popup.close()
+        mount.remove()
+        doc.documentElement.style.width = '0px'
+        doc.documentElement.style.height = '0px'
       })
     }
   }, [tag, native])
