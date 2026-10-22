@@ -91,8 +91,8 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
   );
 
   const register = useCallback(
-    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, () =>
-      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, filePath, documentHtml)),
+    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, (content) =>
+      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, filePath, content)),
     [projectId, workspaceId, filePath]
   );
 

@@ -28,7 +28,7 @@ import {
   type PreviewRoot,
 } from '@shared/preview/preview-url';
 import { remotePageRoot } from '@shared/preview/remote-page-url';
-import { DOCUMENT_PREVIEW_CSP, previewDocumentHtml } from '@shared/preview/preview-link-script';
+import { previewDocumentHtml } from '@shared/preview/preview-link-script';
 import { resolveWorkspace } from '../projects/utils';
 import { readRemotePreviewBytes, remotePreviewFailureStatus, withUtf8Charset, type RemoteChunk } from './remote-preview-read';
 
@@ -436,9 +436,7 @@ function htmlResponse(html: string, registration: PreviewRegistration | Document
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      ...(registration.source.kind === 'document'
-        ? { 'Content-Security-Policy': DOCUMENT_PREVIEW_CSP }
-        : isRemotePanePreview(registration) ? { 'Content-Security-Policy': REMOTE_PANE_PREVIEW_CSP } : {}),
+      ...(isRemotePanePreview(registration) ? { 'Content-Security-Policy': REMOTE_PANE_PREVIEW_CSP } : {}),
     },
   });
 }

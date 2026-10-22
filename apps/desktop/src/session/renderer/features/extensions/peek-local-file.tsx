@@ -135,8 +135,8 @@ function PeekHtml({ target }: { target: LocalPeek }) {
   const { projectId, workspaceId, absolutePath } = target;
   const content = useFileText(target);
   const register = useCallback(
-    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, () =>
-      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, documentHtml)),
+    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, (content) =>
+      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, content)),
     [projectId, workspaceId, absolutePath]
   );
   if (content === null) return null;
