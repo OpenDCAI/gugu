@@ -3,7 +3,6 @@ import { observer } from 'mobx-react-lite';
 import { SettingsNote, SettingsPage, SettingsRow } from '@/components/settings/SettingsPrimitives';
 import { Switch } from '@/components/ui/Switch';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import { ResourceMonitorView } from '@renderer/features/command-palette/resource-monitor-view';
 import { appState } from '@renderer/lib/stores/app-state';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { openResourcePopup } from './resource-monitor-host';
@@ -28,9 +27,8 @@ export const ResourceMonitorSettingsPage = observer(function ResourceMonitorSett
         description={translate('resourceMonitor.description')}
         control={<Switch aria-label={translate('resourceMonitor.enabled')} checked={enabled} disabled={isLoading || isSaving} onCheckedChange={(next) => update({ enabled: next })} />}
       />
-      <button type="button" disabled={!enabled} onClick={openResourcePopup} className="rounded-md border border-foreground/10 px-3 py-2 text-xs disabled:opacity-50">{translate('resourceMonitor.float')}</button>
-      <ResourceTimeline />
-      {enabled ? <ResourceMonitorView /> : <SettingsNote>{translate('resourceMonitor.off')}</SettingsNote>}
+      {!enabled && <SettingsNote>{translate('resourceMonitor.off')}</SettingsNote>}
+      <ResourceTimeline live={enabled} onFloat={enabled ? openResourcePopup : undefined} />
     </SettingsPage>
   );
 });

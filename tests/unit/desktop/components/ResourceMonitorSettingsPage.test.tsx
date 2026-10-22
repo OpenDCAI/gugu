@@ -6,11 +6,8 @@ import { ResourceMonitorSettingsPage } from '../../../../apps/desktop/src/sessio
 
 const monitor = vi.hoisted(() => ({ watch: vi.fn(), dispose: vi.fn(), setInternals: vi.fn() }));
 vi.mock('../../../../apps/desktop/src/session/renderer/features/settings/components/resource-monitor-host', () => ({ openResourcePopup: vi.fn() }));
-vi.mock('../../../../apps/desktop/src/session/renderer/features/settings/components/resource-timeline', () => ({ ResourceTimeline: () => <div data-testid="timeline" /> }));
+vi.mock('../../../../apps/desktop/src/session/renderer/features/settings/components/resource-timeline', () => ({ ResourceTimeline: ({ live }: { live: boolean }) => <div data-testid="timeline" data-live={String(live)} /> }));
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { resourceMonitor: monitor } }));
-vi.mock('@renderer/features/command-palette/resource-monitor-view', () => ({
-  ResourceMonitorView: () => <div data-testid="live-resources" />,
-}));
 vi.mock('@renderer/localization/use-session-messages', () => ({
   useSessionMessages: () => ({ translate: (key: string) => key }),
 }));
@@ -40,15 +37,15 @@ it('shows the page without starting monitoring until the user enables it, then s
   await harness.render(<ResourceMonitorSettingsPage />);
   expect(harness.container.textContent).toContain('resourceMonitor.off');
   expect(harness.container.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
-  expect(harness.container.querySelector('[data-testid="live-resources"]')).toBeNull();
+  const live = () => harness.container.querySelector('[data-testid="timeline"]')?.getAttribute('data-live');
+  expect(live()).toBe('false');
   expect(monitor.watch).not.toHaveBeenCalled();
-  expect(harness.container.querySelector('[data-testid="timeline"]')).not.toBeNull();
   await toggle();
   expect(monitor.watch).toHaveBeenCalledTimes(1);
-  expect(harness.container.querySelector('[data-testid="live-resources"]')).not.toBeNull();
+  expect(live()).toBe('true');
   await toggle();
   expect(monitor.dispose).toHaveBeenCalledTimes(1);
-  expect(harness.container.querySelector('[data-testid="live-resources"]')).toBeNull();
+  expect(live()).toBe('false');
 });
 
 it('releases only the display and advanced diagnostics when leaving the page', async () => {

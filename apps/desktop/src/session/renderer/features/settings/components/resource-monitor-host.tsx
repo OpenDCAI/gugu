@@ -36,5 +36,5 @@ export function ResourceMonitorHost() {
       if (!popup.closed) popup.close();
     };
   }, [popup]);
-  return popup ? createPortal(<div className="gugu-skin bg-background p-3 text-foreground" data-resource-popup=""><Suspense><ResourceTimeline compact /></Suspense></div>, popup.document.body) : null;
+  return popup ? createPortal(<div className="gugu-skin bg-background p-3 text-foreground" data-resource-popup=""><Suspense><ResourceTimeline compact live /></Suspense></div>, popup.document.body) : null;
 }

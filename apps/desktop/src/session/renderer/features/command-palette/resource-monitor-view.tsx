@@ -28,12 +28,13 @@ import {
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { ResourceMonitorInternalsSection } from './resource-monitor-internals-section';
 
-export const ResourceMonitorView = observer(function ResourceMonitorView() {
+/**
+ * One process table for both the live view and a recorded moment. `live` decides whether rows can be stopped
+ * and diagnostics toggled; a recorded snapshot is read-only. `header` says which of the two the reader is looking at.
+ */
+export const ResourceMonitorView = observer(function ResourceMonitorView({ snapshot, live, header }: { snapshot: ResourceSnapshot | null; live: boolean; header: ReactNode }) {
   const store = appState.resourceMonitor;
-  const snapshot = store.snapshot;
-  const isLoading = store.isLoadingInitialSnapshot;
-  const memLabel = store.totalMemoryBytes === undefined ? '–' : formatBytes(store.totalMemoryBytes);
-  const cpuLabel = store.totalCpuPercent === undefined ? '–' : `${store.totalCpuPercent.toFixed(1)}%`;
+  const isLoading = live && store.isLoadingInitialSnapshot;
   const { translate } = useSessionMessages();
   const [changingDiagnostics, setChangingDiagnostics] = useState(false);
   const toggleDiagnostics = async () => {
@@ -55,15 +56,18 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
 
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-foreground/10 px-2 py-2">
-        <div className="ml-auto flex items-center gap-3 text-xs tabular-nums">
-          <Stat label="CPU" value={cpuLabel} />
-          <Stat label="Mem" value={memLabel} />
-          <CopyReportButton snapshot={snapshot} groups={groups} />
-        </div>
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">{header}</div>
+        <CopyReportButton snapshot={snapshot} groups={groups} />
       </div>
 
       <div className="min-h-[14rem] px-1.5 py-1.5">
+        {/* Inside the rows' container with the rows' own inset, so each column header sits over its numbers. */}
+        <div className="grid grid-cols-[1fr_4rem_5rem] gap-2 border-b border-border px-2 pt-2 pb-1 text-xs text-foreground-muted">
+          <span>{translate('resourceMonitor.process')}</span>
+          <span className="text-right">CPU</span>
+          <span className="text-right">{translate('resourceMonitor.memory')}</span>
+        </div>
         {isLoading ? (
           <ResourceMonitorLoadingState />
         ) : (
@@ -82,7 +86,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
               {hasProjects ? (
                 <div className="flex flex-col gap-1">
                   {groups.map((g) => (
-                    <ProjectRow key={g.projectId} group={g} />
+                    <ProjectRow key={g.projectId} group={g} live={live} />
                   ))}
                 </div>
               ) : (
@@ -91,7 +95,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
                 </div>
               )}
             </Section>
-            <button
+            {live && <button
               type="button"
               aria-expanded={store.internals}
               disabled={changingDiagnostics}
@@ -100,8 +104,8 @@ export const ResourceMonitorView = observer(function ResourceMonitorView() {
             >
               <ChevronRight size={14} className={store.internals ? 'rotate-90' : ''} />
               {translate('resourceMonitor.advanced')}
-            </button>
-            {store.internals && <ResourceMonitorInternalsSection />}
+            </button>}
+            {live && store.internals && <ResourceMonitorInternalsSection />}
           </>
         )}
       </div>
@@ -123,15 +127,6 @@ function ResourceMonitorLoadingState() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <span>
-      <span className="text-foreground/40">{label} </span>
-      <span className="font-medium text-foreground">{value}</span>
-    </span>
-  );
-}
-
 function Section({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <div className="flex flex-col">
@@ -148,7 +143,7 @@ function ProcessRow({ process }: { process: ResourceAppProcess }) {
   const cpu = process.cpu;
   return (
     <div
-      className="grid grid-cols-[1fr_3rem_4rem] items-center gap-2 rounded-md px-2 py-1 text-xs text-foreground-muted hover:bg-row-hover"
+      className="grid grid-cols-[1fr_4rem_5rem] items-center gap-2 rounded-md px-2 py-1 text-xs text-foreground-muted hover:bg-row-hover"
       title={`pid ${process.pid}`}
     >
       <span className="truncate">{label}</span>
@@ -160,7 +155,7 @@ function ProcessRow({ process }: { process: ResourceAppProcess }) {
   );
 }
 
-const ProjectRow = observer(function ProjectRow({ group }: { group: Group }) {
+const ProjectRow = observer(function ProjectRow({ group, live }: { group: Group; live: boolean }) {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2 rounded-md px-2 py-1">
@@ -172,14 +167,14 @@ const ProjectRow = observer(function ProjectRow({ group }: { group: Group }) {
       </div>
       <div className="ml-[14px] flex flex-col border-l border-foreground/10 pl-1.5">
         {group.sessions.map((session) => (
-          <SessionRow key={session.scopeId} session={session} />
+          <SessionRow key={session.scopeId} session={session} live={live} />
         ))}
       </div>
     </div>
   );
 });
 
-function SessionRow({ session }: { session: SessionBucket }) {
+function SessionRow({ session, live }: { session: SessionBucket; live: boolean }) {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 px-2 py-0.5">
@@ -189,14 +184,14 @@ function SessionRow({ session }: { session: SessionBucket }) {
       </div>
       <div className="ml-[10px] flex flex-col border-l border-foreground/10 pl-1.5">
         {session.entries.map((entry) => (
-          <AgentRow key={entry.ptySessionId} entry={entry} />
+          <AgentRow key={entry.ptySessionId} entry={entry} live={live} />
         ))}
       </div>
     </div>
   );
 }
 
-function AgentRow({ entry }: { entry: Entry }) {
+function AgentRow({ entry, live }: { entry: Entry; live: boolean }) {
   const label = entryLabel(entry);
   const [armed, setArmed] = useState(false);
 
@@ -219,18 +214,20 @@ function AgentRow({ entry }: { entry: Entry }) {
       <div className="relative flex shrink-0 items-center">
         <span
           className={cn(
-            'text-xs text-foreground/50 tabular-nums transition-opacity group-hover/agent:opacity-0',
+            'grid grid-cols-[4rem_5rem] gap-2 text-right text-xs text-foreground/50 tabular-nums transition-opacity',
+            live && 'group-hover/agent:opacity-0',
             armed && 'opacity-0'
           )}
         >
-          {entry.cpu.toFixed(1)}% · {formatBytes(entry.memory)}
+          <span>{entry.cpu.toFixed(1)}%</span>
+          <span>{formatBytes(entry.memory)}</span>
         </span>
-        <StopButton
+        {live && <StopButton
           ptySessionId={entry.ptySessionId}
           label={label}
           armed={armed}
           onArmedChange={setArmed}
-        />
+        />}
       </div>
     </div>
   );

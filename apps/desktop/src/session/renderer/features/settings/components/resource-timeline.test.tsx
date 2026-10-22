@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { CartesianTimeAxis } from '@visactor/vchart/cjs/component/axis/cartesian/time-axis';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ResourcePoint, ResourceSnapshot } from '@shared/resource-monitor';
@@ -16,6 +16,9 @@ const rig = vi.hoisted(() => ({ charts: [] as ChartProps[], history: vi.fn(), po
 vi.mock('mobx-react-lite', () => ({ observer: (component: unknown) => component }));
 vi.mock('@visactor/react-vchart', () => ({ VChart: (props: ChartProps) => { rig.charts.push(props); return <div />; } }));
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { resourceMonitor: { get snapshot() { return rig.snapshot; } } } }));
+vi.mock('@renderer/features/command-palette/resource-monitor-view', () => ({
+  ResourceMonitorView: ({ live, header }: { live: boolean; header: ReactNode }) => <div data-testid="process-table" data-live={String(live)}>{header}</div>,
+}));
 vi.mock('@renderer/lib/ipc', () => ({ rpc: { resourceMonitor: { history: rig.history, point: rig.point } } }));
 vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ warn: vi.fn() }) }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
@@ -37,7 +40,7 @@ beforeEach(() => {
   harness = createReactHarness();
 });
 afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.theme; });
-const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} />); await act(async () => { await vi.dynamicImportSettled(); }); };
+const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} live />); await act(async () => { await vi.dynamicImportSettled(); }); };
 
 it.each([false, true])('buckets history refreshes without dropping chart data (compact=%s)', async (compact) => {
   await render(compact);
@@ -85,8 +88,11 @@ it('preserves sample selection, unit conversion, and run boundaries without refr
   const before = cpu();
   await act(async () => { clickAt(2); });
   expect(rig.point).toHaveBeenCalledWith(2);
-  expect(harness.container.querySelector('table')).not.toBeNull();
-  expect(harness.container.querySelectorAll('select')).toHaveLength(1);
+  const table = harness.container.querySelector('[data-testid="process-table"]');
+  expect(table?.getAttribute('data-live')).toBe('false');
+  expect(table?.textContent).toContain('resourceMonitor.snapshotAt');
+  expect(table?.textContent).toContain('resourceMonitor.backToLive');
+  expect(harness.container.querySelectorAll('[role="tab"]')).toHaveLength(3);
   expect(cpu().spec).toBe(before.spec);
   expect(cpu().data).toBe(before.data);
 });
@@ -105,15 +111,18 @@ it('draws lines without point marks, hides hover readouts only in compact mode, 
   const values = [cpu().data, memory().data];
   expect([cpu().spec.point.visible, memory().spec.point.visible]).toEqual([false, false]);
   expect([cpu().spec.tooltip.visible, memory().spec.tooltip.visible]).toEqual([true, true]);
-  await harness.render(<ResourceTimeline compact />);
+  await harness.render(<ResourceTimeline compact live />);
   expect([cpu().spec.tooltip.visible, memory().spec.tooltip.visible]).toEqual([false, false]);
   expect([cpu().data, memory().data]).toEqual(values);
   await render();
   expect(cpu().spec.tooltip.visible).toBe(true);
   await act(async () => { clickAt(2); });
   expect(rig.point).toHaveBeenCalledWith(2);
-  expect(harness.container.querySelector('table')).not.toBeNull();
-  expect(harness.container.querySelectorAll('select')).toHaveLength(1);
+  const table = harness.container.querySelector('[data-testid="process-table"]');
+  expect(table?.getAttribute('data-live')).toBe('false');
+  expect(table?.textContent).toContain('resourceMonitor.snapshotAt');
+  expect(table?.textContent).toContain('resourceMonitor.backToLive');
+  expect(harness.container.querySelectorAll('[role="tab"]')).toHaveLength(3);
 });
 
 it('shows distinct clock labels for samples on the same day through the real time-axis formatter', async () => {
@@ -126,4 +135,16 @@ it('shows distinct clock labels for samples on the same day through the real tim
     const format = getLabelFormat.call({ _spec: chart.spec.axes.find((axis) => axis.orient === 'bottom') });
     expect(timestamps.map((value, i) => format(value, {}, i, [], 0))).toEqual(['15:00:00', '15:00:05']);
   }
+});
+
+it('shows one process table that is live until a moment is picked, then that moment until going back to live', async () => {
+  await render();
+  const table = () => harness.container.querySelector('[data-testid="process-table"]');
+  expect(table()?.getAttribute('data-live')).toBe('true');
+  await act(async () => { clickAt(2); });
+  expect(table()?.getAttribute('data-live')).toBe('false');
+  const back = [...harness.container.querySelectorAll('button')].find((b) => b.textContent === 'resourceMonitor.backToLive');
+  await act(async () => { back!.click(); });
+  expect(table()?.getAttribute('data-live')).toBe('true');
+  expect(cpu().data?.[0].values.map((p) => p.id)).toEqual([1, 2]);
 });
