@@ -41,11 +41,21 @@ import {
 import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { assertTimeZone, MIN_ONE_TIME_LEAD_MS } from './schedule-time';
 
-function observeRun(run: AutomationRun | null, at = Date.now()): AutomationRun | null {
-  if (run) activitySignal({ event_id: `automation.run:${run.id}:${run.status}`, kind: 'automation.run',
-    object_id: run.id, status: run.status, occurred_at: at,
-    ...(run.sessionId ? { session_id: run.sessionId } : {}) });
-  return run;
+/**
+ * The one way this module inserts or updates automation_runs rows. `write` performs the write and returns the rows it
+ * wrote; each written run is signalled to the activity journal with `at`, the time the write used. Writing and
+ * observing are one step, so no path can change a run's status unseen, and what is observed is what was written,
+ * never rows read before the write. A write that cannot return its rows cannot be expressed here.
+ * `run-writes-observed.test.ts` keeps every other insert or update of automation_runs out of the main process.
+ * Deleting a run is not a status change and does not come through here.
+ */
+function writeRuns(at: number, write: () => AutomationRunRow[]): AutomationRun[] {
+  const runs = write().map((row) => mapAutomationRunRow(row));
+  for (const run of runs) {
+    activitySignal({ event_id: `automation.run:${run.id}:${run.status}`, kind: 'automation.run',
+      object_id: run.id, status: run.status, occurred_at: at });
+  }
+  return runs;
 }
 
 const DEFAULT_TZ = getLocalTimeZone();
@@ -374,9 +384,10 @@ export async function skipQueuedCronRuns(
   code: string
 ): Promise<AutomationRun[]> {
   const error = JSON.stringify({ step: 'queue', code });
-  const rows = await db
+  const now = Date.now();
+  return writeRuns(now, () => db
     .update(automationRuns)
-    .set({ status: 'skipped', finishedAt: Date.now(), error })
+    .set({ status: 'skipped', finishedAt: now, error })
     .where(
       and(
         eq(automationRuns.automationId, automationId),
@@ -384,8 +395,8 @@ export async function skipQueuedCronRuns(
         eq(automationRuns.triggerKind, 'cron')
       )
     )
-    .returning();
-  return rows.map((row) => mapAutomationRunRow(row));
+    .returning()
+    .all());
 }
 
 async function projectExists(projectId: string): Promise<boolean> {
@@ -672,18 +683,18 @@ export async function markDueCronRunsQueued(
   if (rows.length === 0) return [];
 
   const ids = rows.map((r) => r.run.id);
-  await db.update(automationRuns).set({ status: 'queued' }).where(inArray(automationRuns.id, ids));
+  const queued = new Map(writeRuns(now, () => db
+    .update(automationRuns)
+    .set({ status: 'queued' })
+    .where(inArray(automationRuns.id, ids))
+    .returning()
+    .all()).map((run) => [run.id, run]));
 
+  // The runs as written, in schedule order.
   return rows.flatMap(({ run, automation }) => {
+    const written = queued.get(run.id);
     const mappedAutomation = mapAutomationRowSafely(automation);
-    return mappedAutomation
-      ? [
-          {
-            run: observeRun({ ...mapAutomationRunRow(run), status: 'queued' as const }, now)!,
-            automation: mappedAutomation,
-          },
-        ]
-      : [];
+    return written && mappedAutomation ? [{ run: written, automation: mappedAutomation }] : [];
   });
 }
 
@@ -727,7 +738,7 @@ export async function scheduleAutomationRun(input: {
   const triggerSnap = JSON.stringify(input.triggerConfigSnapshot);
   const convSnap = JSON.stringify(input.agentConfigSnapshot);
   const sessionSnap = input.sessionConfigSnapshot ? JSON.stringify(input.sessionConfigSnapshot) : null;
-  const rows = db.all<AutomationRunRow>(sql`
+  const [run] = writeRuns(Date.now(), () => db.all<AutomationRunRow>(sql`
     INSERT INTO automation_runs (
       id, automation_id, scheduled_at, deadline_at, status, trigger_kind,
       trigger_config_snapshot, agent_config_snapshot, session_config_snapshot,
@@ -762,8 +773,8 @@ export async function scheduleAutomationRun(input: {
       trigger_config_snapshot AS triggerConfigSnapshot,
       agent_config_snapshot AS agentConfigSnapshot,
       session_config_snapshot AS sessionConfigSnapshot
-  `);
-  return observeRun(rows[0] ? mapAutomationRunRow(rows[0]) : null);
+  `));
+  return run ?? null;
 }
 
 export async function listQueuedRuns(limit = 100): Promise<
@@ -797,7 +808,7 @@ export async function startCreatingSession(
   id: string,
   now = Date.now()
 ): Promise<AutomationRun | null> {
-  const rows = db.all<AutomationRunRow>(sql`
+  const [run] = writeRuns(now, () => db.all<AutomationRunRow>(sql`
     UPDATE automation_runs
     SET status = 'creating_session', started_at = ${now}
     WHERE id = ${id}
@@ -817,9 +828,8 @@ export async function startCreatingSession(
       trigger_config_snapshot AS triggerConfigSnapshot,
       agent_config_snapshot AS agentConfigSnapshot,
       session_config_snapshot AS sessionConfigSnapshot
-  `);
-  const [row] = rows;
-  return observeRun(row ? mapAutomationRunRow(row) : null);
+  `));
+  return run ?? null;
 }
 
 export type AutomationRunCleanupTarget = {
@@ -865,7 +875,7 @@ export async function insertRun(input: {
   generatedSessionName?: string | null;
   error?: RunError | null;
 }): Promise<AutomationRun> {
-  const [row] = await db
+  const [run] = writeRuns(Date.now(), () => db
     .insert(automationRuns)
     .values({
       id: randomUUID(),
@@ -886,10 +896,9 @@ export async function insertRun(input: {
         ? JSON.stringify(input.sessionConfigSnapshot)
         : null,
     })
-    .returning();
-  const run = mapAutomationRunRow(row);
-  observeRun(run);
-  return run;
+    .returning()
+    .all());
+  return run!;
 }
 
 export async function updateRun(
@@ -913,12 +922,13 @@ export async function updateRun(
     ...rest,
     ...(error !== undefined ? { error: error ? JSON.stringify(error) : null } : {}),
   };
-  const [row] = await db
+  const [run] = writeRuns(Date.now(), () => db
     .update(automationRuns)
     .set(dbValues)
     .where(eq(automationRuns.id, id))
-    .returning();
-  return observeRun(row ? mapAutomationRunRow(row) : null);
+    .returning()
+    .all());
+  return run ?? null;
 }
 
 export async function findRunsStuckInCreatingSession(): Promise<Array<{ id: string }>> {
