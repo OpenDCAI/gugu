@@ -169,13 +169,14 @@ type Entity = Record<string, unknown>;
 class V2Updates {
   private readonly tools = new Map<string, Entity>();
   private readonly children = new Map<string, v2.SubagentUpdate>();
+  private readonly childDelegations = new Map<string, string>();
   private readonly terminals = new Map<string, Entity>();
   private readonly terminalTools = new Map<string, string>();
   private readonly terminalDecoders = new Map<string, StringDecoder>();
 
   forget(sessionId: string): void {
     for (const map of [this.tools, this.terminals, this.terminalTools, this.terminalDecoders]) for (const key of map.keys()) if (key.startsWith(`${sessionId}\0`)) map.delete(key);
-    for (const key of this.children.keys()) if (key.startsWith(`${sessionId}\0`)) this.children.delete(key);
+    for (const key of this.children.keys()) if (key.startsWith(`${sessionId}\0`)) { this.children.delete(key); this.childDelegations.delete(key); }
   }
 
   tool(sessionId: string, patch: v2.ToolCallUpdate): Entity {
@@ -196,6 +197,11 @@ class V2Updates {
       case 'tool_call_update': {
         const patch = update as v2.ToolCallUpdate;
         const tool = this.tool(sessionId, patch);
+        if (patch.content !== undefined) {
+          for (const [key, owner] of this.terminalTools) {
+            if (owner === patch.toolCallId && key.startsWith(`${sessionId}\0`)) this.terminalTools.delete(key);
+          }
+        }
         const content = (tool.content as v2.ToolCallContent[] | null | undefined)?.flatMap<ToolCallContent>((item) => {
           if (v2.ToolCallContent.isTerminal(item)) {
             const terminalKey = `${sessionId}\0${item.terminalId}`;
@@ -215,9 +221,10 @@ class V2Updates {
         const previous = this.children.get(key);
         const child = { ...previous, ...patch, _meta: patchedMetadata(previous?._meta, patch._meta) };
         this.children.set(key, child);
+        if (typeof child._meta?.delegationToolCallId === 'string') this.childDelegations.set(key, child._meta.delegationToolCallId);
         const items: Entity[] = [];
         if (!previous || patch.title !== undefined || patch.description !== undefined || patch.capabilities !== undefined || patch._meta !== undefined) {
-          const delegation = child._meta?.delegationToolCallId;
+          const delegation = this.childDelegations.get(key);
           items.push({ sessionUpdate: 'subagent_spawned', subagentSessionId: child.sessionId, name: child.title, task: child.description, capabilities: { cancel: child.capabilities?.cancel != null }, background: true,
             ...(typeof delegation === 'string' ? { launchToolCallId: delegation, associationOnly: true } : {}) });
         }

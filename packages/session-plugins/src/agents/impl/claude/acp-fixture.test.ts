@@ -1,8 +1,9 @@
 /**
  * Fixture-driven snapshot tests for Claude ACP transcript parsing.
  *
- * The fixture stores raw ACP output. This test applies Claude enrichment while
- * parsing so provider-specific Task metadata is materialized into subagent rows.
+ * The fixture archives a historical v1 transcript. Its ordinary messages and tools
+ * remain parseable; child lifecycle is now supplied by v2 protocol entities,
+ * never inferred from legacy Task text or XML notifications.
  */
 
 import {

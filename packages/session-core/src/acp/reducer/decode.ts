@@ -249,10 +249,10 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       if (!raw.subagentSessionId) return { kind: 'ignored' };
       return {
         kind: 'subagent',
-        ...(raw.launchToolCallId ? { agentId: raw.subagentSessionId } : {}),
+        ...(raw.associationOnly && raw.launchToolCallId ? { agentId: raw.subagentSessionId } : {}),
         // 会话形态下派它出去的那次调用由 reducer 按会话号回填;这里先用会话号占位,
         // ❌ 不编一个假的 toolCallId。
-        toolCallId: raw.launchToolCallId ?? raw.subagentSessionId,
+        toolCallId: raw.associationOnly && raw.launchToolCallId ? raw.launchToolCallId : raw.subagentSessionId,
         subagentSessionId: raw.subagentSessionId,
         ...(raw.name ? { title: raw.name } : {}),
         ...(raw.task ? { inputSummary: raw.task } : {}),

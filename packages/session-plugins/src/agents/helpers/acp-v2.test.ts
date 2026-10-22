@@ -87,6 +87,12 @@ describe('shared ACP v2 protocol boundary', () => {
     const patched = updates.find(({ update }) => update._meta?.added === 1)?.update;
     expect(patched?._meta).toEqual({ toolName: 'Bash', vendor: { parent: 'delegate' }, added: 1, entitySnapshot: true });
     expect(decodeSessionUpdate(updates[0].update)).toMatchObject({ kind: 'tool_call', toolName: 'Bash', terminalId: 'terminal' });
+    await send({ sessionUpdate: 'tool_call_update', toolCallId: 'command', content: null });
+    await vi.waitFor(() => expect(updates.at(-1)?.update).toMatchObject({ sessionUpdate: 'tool_call', toolCallId: 'command', content: undefined }));
+    const count = updates.length;
+    await send({ sessionUpdate: 'terminal_output_chunk', terminalId: 'terminal', data: Buffer.from('late').toString('base64') });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(updates).toHaveLength(count);
   });
 
   it('materializes v2 patches for edit approvals and clears removed tool content', async () => {
