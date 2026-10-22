@@ -108,14 +108,23 @@ export async function assertCodexFileCredentialStore(nativeRoot: string): Promis
   }
 }
 
-/** 用户根里此刻是哪个连接的账号。`native` 还没有保管副本 = 还没换出过,用户根里的就是它。 */
+/**
+ * 用户根里此刻是哪个连接的账号。
+ *
+ * `native` 还没有保管副本 = 还没换出过,用户根里的就是它 —— 先判这一条:用户又把同一个账号加成了账号连接时,
+ * 按身份会先撞上那个连接,于是原生连接永远「不在用户根里」、又没有副本,再也选不回去。
+ * 同一个账号既是原生又是某个连接时也归原生:两边的凭据本来就是同一个人的。
+ */
 export async function codexLiveOwner(paths: CodexAuthSlotPaths, connectionIds: readonly string[]): Promise<string | null> {
+  const native = await readAuth(paths.vaultRoot('native'));
+  if (!native) return 'native';
   const live = await readAuth(paths.nativeRoot);
-  if (!live?.identity) return (await readAuth(paths.vaultRoot('native'))) ? null : 'native';
+  if (!live?.identity) return null;
+  if (native.identity === live.identity) return 'native';
   for (const id of connectionIds) {
-    if ((await readAuth(paths.vaultRoot(id)))?.identity === live.identity) return id;
+    if (id !== 'native' && (await readAuth(paths.vaultRoot(id)))?.identity === live.identity) return id;
   }
-  return (await readAuth(paths.vaultRoot('native'))) ? null : 'native';
+  return null;
 }
 
 /** 读某个连接的凭据该去哪个根:它的账号此刻在用户根里就读用户根(那份才是最新的),否则读它的保管目录。 */
