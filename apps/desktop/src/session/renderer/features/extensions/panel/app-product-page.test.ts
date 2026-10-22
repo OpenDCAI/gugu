@@ -69,12 +69,44 @@ describe('App 的产品页 (#7059)', () => {
     expect((await render({})).text).toContain('node mcp/server.mjs');
   });
 
-  it('没写作者时,只有市场上那份写官方;文件夹装的、聊天里收到的不写', async () => {
-    expect((await render({})).text).not.toContain('extensions.official');
+  it('发布方是 manifest 写的作者(市场上的也一样,❌ 一律写官方);没写作者的写「本地文件夹」', async () => {
     const source = { repo: 'shuxueshuxue/promo-skills', path: '.', commit: '6f46446' + 'a'.repeat(33) };
-    expect((await render({ subject: { manifest: pomodoro, installed: undefined, installRef: { extensionId: 'pomodoro-log', version: '1.2.0' }, cloud: { source } } })).text).toContain(
-      'extensions.official'
-    );
+    const fromMarket = (manifest: unknown) => ({ subject: { manifest, installed: undefined, installRef: { extensionId: 'pomodoro-log', version: '1.2.0' }, cloud: { source, version: '1.2.0' } } });
+    const authored = { ...(pomodoro as object), author: 'SpexCode' };
+    const page = await render(fromMarket(authored));
+    expect(page.text).toContain('SpexCode');
+    expect(page.text).not.toContain('extensions.official');
+    expect((await render(fromMarket(pomodoro))).text).toContain('extensions.publisherLocal');
+  });
+
+  it('安装数:给了就是数据带的第一格;读不到(null)就没有这一格,❌ 写 0', async () => {
+    const strip = async (installs: string | null) => {
+      let cells: string[] = [];
+      await render({ installs }, async (document) => {
+        cells = [...document.querySelectorAll('[data-testid="app-product-strip"] dt')].map((node) => node.textContent ?? '');
+      });
+      return cells;
+    };
+    expect((await strip('10+'))[0]).toBe('extensions.installsCaption');
+    expect(await strip(null)).not.toContain('extensions.installsCaption');
+  });
+
+  it('「用在哪」照 manifest 的声明一项一句,次序 任务侧栏 → Agent 工具 → 群组', async () => {
+    const papers = {
+      ...(pomodoro as object),
+      id: 'paper-club',
+      permissions: { capabilities: ['agents:tools', 'chat:read'] },
+      contributes: {
+        tabs: [{ name: 'shelf', title: 'Papers' }, { name: 'reader', title: 'Papers', opensFiles: { chat: ['.pdf', '.paper.json'] } }],
+        mcpServers: [{ tools: 'tools.js' }],
+        skills: 'skills',
+      },
+    };
+    let uses: string[] = [];
+    await render({ subject: { manifest: papers, installed: undefined, installRef: undefined, cloud: null } }, async (document) => {
+      uses = [...document.querySelectorAll('[data-testid="app-product-uses"] li')].map((node) => node.textContent ?? '');
+    });
+    expect(uses).toEqual(['extensions.useTaskTab(Papers)', 'extensions.useAgentToolsSkills', 'extensions.useGroupFiles(extensions.fileKind.pdf)']);
   });
 
   it('市场有来源时显示「查看源码」,仓、提交和目录只在悬停提示里;没有来源记录的旧版本不写', async () => {

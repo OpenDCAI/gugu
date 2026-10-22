@@ -32,7 +32,7 @@ const h = vi.hoisted(() => {
   });
   const listing = (ids: string[], fetchedAt: string) => ({
     success: true,
-    data: { extensions: ids.map((id) => item(id)), featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
+    data: { extensions: ids.map((id) => item(id)), featured: [], home: [{ kind: 'more', items: ids.map((id) => item(id)) }], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
   });
   const answer = (data: unknown) => async () => ({ success: true, data });
   const api = {
@@ -40,7 +40,7 @@ const h = vi.hoisted(() => {
     revoked: vi.fn(answer({})),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-10-16T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),
-    market: vi.fn(),
+    marketBrowse: vi.fn(),
     marketRefresh: vi.fn(),
     marketEntry: vi.fn(async () => ({ success: false, error: 'offline' })),
   };
@@ -135,7 +135,7 @@ describe('the App page market: the index in hand at once, the download site behi
     h.host.key = `local-${Math.random()}`;
     h.host.local = true;
     h.heard.length = 0;
-    h.api.market.mockReset().mockResolvedValue(h.listing(['one', 'two'], T1));
+    h.api.marketBrowse.mockReset().mockResolvedValue(h.listing(['one', 'two'], T1));
     h.api.marketRefresh.mockReset().mockResolvedValue({ success: true, data: { outcome: 'unchanged', fetchedAt: T1 } });
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     skeletonsAfterTiles = 0;
@@ -161,7 +161,7 @@ describe('the App page market: the index in hand at once, the download site behi
     await turn();
     expect(tileIds()).toEqual(['one', 'two']);
     await close();
-    h.api.market.mockReturnValue(new Promise(() => undefined));
+    h.api.marketBrowse.mockReturnValue(new Promise(() => undefined));
     await open();
     expect(tileIds()).toEqual(['one', 'two']);
     expect(skeleton()).toBeNull();
@@ -180,7 +180,7 @@ describe('the App page market: the index in hand at once, the download site behi
     // Its answer (unchanged) is in by the next task: asked once, nothing more is read.
     await turn();
     expect(h.api.marketRefresh).toHaveBeenCalledTimes(1);
-    expect(h.api.market).toHaveBeenCalledTimes(1);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(1);
     expect(stale()).toBeNull();
   });
 
@@ -194,11 +194,11 @@ describe('the App page market: the index in hand at once, the download site behi
     const before = tiles()[0];
     // The read again is on its way (its answer held): what is drawn stays, ❌ a skeleton in between.
     const reread = deferred<unknown>();
-    h.api.market.mockReturnValue(reread.promise);
+    h.api.marketBrowse.mockReturnValue(reread.promise);
     await act(async () => refreshed.resolve({ success: true, data: { outcome: 'changed', fetchedAt: T2 } }));
-    await until('read again', () => h.api.market.mock.calls.length, (n) => n >= 2);
+    await until('read again', () => h.api.marketBrowse.mock.calls.length, (n) => n >= 2);
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(2);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
     expect(skeleton()).toBeNull();
     expect(tileIds()).toEqual(['one', 'two']);
     await act(async () => reread.resolve(h.listing(['one', 'two', 'three'], T2)));
@@ -207,27 +207,27 @@ describe('the App page market: the index in hand at once, the download site behi
     expect(tileIds()).toEqual(['one', 'two', 'three']);
     expect(tiles()[0]).toBe(before);
     expect(skeletonsAfterTiles).toBe(0);
-    expect(h.api.market).toHaveBeenCalledTimes(2);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
   });
 
   it('a change pushed by main (an install took the index now) is read again too; the push and the answer of one moment, once', async () => {
     h.api.marketRefresh.mockResolvedValue({ success: true, data: { outcome: 'changed', fetchedAt: T2 } });
     // Main answers from the index in hand: the one of T1 when the page opens, the one of T2 once that came.
-    h.api.market.mockResolvedValueOnce(h.listing(['one', 'two'], T1)).mockResolvedValue(h.listing(['one'], T2));
+    h.api.marketBrowse.mockResolvedValueOnce(h.listing(['one', 'two'], T1)).mockResolvedValue(h.listing(['one'], T2));
     await open();
-    await until('read again after the answer (T2)', () => h.api.market.mock.calls.length, (n) => n >= 2);
+    await until('read again after the answer (T2)', () => h.api.marketBrowse.mock.calls.length, (n) => n >= 2);
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(2);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
     expect(tileIds()).toEqual(['one']);
     // The push of the same moment: by the next task nothing more is read.
     await push({ outcome: 'changed', fetchedAt: T2 });
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(2);
-    h.api.market.mockResolvedValue(h.listing(['one', 'four'], '2026-10-16T01:09:00.000Z'));
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
+    h.api.marketBrowse.mockResolvedValue(h.listing(['one', 'four'], '2026-10-16T01:09:00.000Z'));
     await push({ outcome: 'changed', fetchedAt: '2026-10-16T01:09:00.000Z' });
-    await until('the push of a later moment read', () => h.api.market.mock.calls.length, (n) => n >= 3);
+    await until('the push of a later moment read', () => h.api.marketBrowse.mock.calls.length, (n) => n >= 3);
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(3);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(3);
     expect(tileIds()).toEqual(['one', 'four']);
   });
 
@@ -250,20 +250,20 @@ describe('the App page market: the index in hand at once, the download site behi
     h.host.local = false;
     h.api.marketRefresh.mockResolvedValue({ success: true, data: { outcome: 'changed', fetchedAt: T2 } });
     await open();
-    await until('the tiles read again', () => h.api.market.mock.calls.length, (n) => n >= 2);
+    await until('the tiles read again', () => h.api.marketBrowse.mock.calls.length, (n) => n >= 2);
     await until('its update check read again', () => h.api.marketUpdates.mock.calls.length, (n) => n >= 2);
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(2);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
     expect(h.api.marketUpdates).toHaveBeenCalledTimes(2);
   });
 
   it('control — this machine: its 「有新版」 follows the pushes from main (wireMarketRefresh), not a second read from the page', async () => {
     h.api.marketRefresh.mockResolvedValue({ success: true, data: { outcome: 'changed', fetchedAt: T2 } });
     await open();
-    await until('the tiles read again', () => h.api.market.mock.calls.length, (n) => n >= 2);
+    await until('the tiles read again', () => h.api.marketBrowse.mock.calls.length, (n) => n >= 2);
     // The answer and the read again are in by the next task: read twice, and the page asked no second update check.
     await turn();
-    expect(h.api.market).toHaveBeenCalledTimes(2);
+    expect(h.api.marketBrowse).toHaveBeenCalledTimes(2);
     expect(h.api.marketUpdates).toHaveBeenCalledTimes(1);
   });
 });
