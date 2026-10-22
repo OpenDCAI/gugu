@@ -16,7 +16,7 @@ import {
   miseDependency,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { resolveWindowsHandoffExecutable } from '@gugu/session-core/exec';
-import { connectStdioAcp } from '../../helpers/acp-stdio';
+import { connectStdioAcpV2 } from '../../helpers/acp-v2';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
 import {
   NODE_FOR_CLAUDE_ACP,
@@ -68,6 +68,16 @@ export const CLAUDE_ACP_CONTEXT_WINDOW_PATCH_MARKERS = [
 export const CLAUDE_ACP_STEERING_PATCH_MARKERS = [
   'params._meta?.steering?.delivery === "next"',
 ] as const;
+
+/**
+ * 宿主讲 ACP v2(`connectStdioAcpV2`),要桥在 v2 上服务插话与后台任务扩展,插话也进 Claude 自发的周期
+ * (gugu-acp 1.5.0 的「serve _session/steering on ACP v2」「serve the async tasks extension on ACP v2」)。
+ * 键是 dist 里的文件(相对 `acp-agent.js` 所在目录)。
+ */
+export const CLAUDE_ACP_V2_EXTENSION_MARKERS = {
+  'acp-agent.js': ['if (!turnInFlight && !this.foregroundWork.has(sessionId)) {'],
+  'v2/agent.js': ['v2Steer(agent, params)', 'agent.stopAsyncTask(params)'],
+} as const;
 
 const CLAUDE_ULTRACODE_EFFORT_ID = 'ultracode';
 const CLAUDE_ULTRACODE_SETTINGS = '{"ultracode":true}';
@@ -393,11 +403,12 @@ export const provider = registerPluginBehavior(plugin, {
         // 以 root 跑咕咕时,桥会把「完全访问」这一档整个不报 —— 取证与 A/B 见 ./root-bypass.ts。
         // 非 root 上返回 {},这一行什么都不加。
         ...claudeAcpRootBypassEnv(),
+        // 桥只讲 v2:讲 v1 的客户端在握手处就被拒(-32022),❌ 不会悄悄退回 v1。
+        CLAUDE_AGENT_ACP_PROTOCOL: 'v2',
       },
     }),
-    connect: (io, toClient) => {
-      return connectStdioAcp(io, toClient);
-    },
+    // ACP v2:一轮在前台 idle 处结束,后台子智能体不再扣住这一轮的结局(子智能体在跑时下一句不进队列)。
+    connect: connectStdioAcpV2,
     enrich: enrichClaudeUpdate,
   },
   auth: {
