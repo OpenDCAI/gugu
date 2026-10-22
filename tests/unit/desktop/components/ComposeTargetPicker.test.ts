@@ -85,8 +85,10 @@ describe('ComposeTargetPicker', () => {
     await expect(picked).resolves.toBeNull()
   })
 
-  it('a search narrows chats and tasks alike', async () => {
+  it('on the App\'s own page: 「我的任务」 still first, newest first, nothing ticked; a search narrows chats and tasks alike', async () => {
     await act(async () => { void pickComposeTarget({ tasks: true, current: null }) })
+    expect(rowIds()).toEqual(['session:s-other', 'session:s-sibling', 'session:s-here', 'chat:c-group', 'chat:c-dm'])
+    expect(ticked()).toEqual([])
     const field = document.body.querySelector('input') as HTMLInputElement
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'same')

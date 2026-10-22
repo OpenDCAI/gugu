@@ -59,6 +59,7 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
       avatar: { name: session.title || session.conversationId, seed: session.conversationId, isAgent: true },
       hint: <span className="gg-list-row-meta">{getProjectStore(session.projectId)?.name ?? session.projectId}</span>,
     }))
+  // 「我的任务」 first: where it is offered, the App is on this computer, about its work here.
   const taskSection: ChatPickSection = { id: 'tasks', title: t('composePick.tasks'), rows: taskRows }
   const chatSection: ChatPickSection = { id: 'chats', title: t('composePick.chats'), rows: chatRows }
   const [picked] = selected
@@ -68,7 +69,7 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
       onClose={() => finish(null)}
       testId="compose-target-picker"
       rows={[]}
-      sections={asked.current ? [taskSection, chatSection] : [chatSection, taskSection]}
+      sections={[taskSection, chatSection]}
       selected={selected}
       onToggle={(id) => setSelected(new Set([id]))}
       query={query}
