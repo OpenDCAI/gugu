@@ -552,7 +552,7 @@ class AppService implements IInitializable, IDisposable {
   async saveTextFile(args: {
     title: string;
     defaultPath: string;
-    content: string;
+    content: string | AsyncIterable<string>;
   }): Promise<string | undefined> {
     const result = await dialog.showSaveDialog(getMainWindow()!, {
       title: args.title,

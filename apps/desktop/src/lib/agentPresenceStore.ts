@@ -379,9 +379,6 @@ function presentationOf(
   const reachability = deriveAgentReachability({
     accountStatus: payload.accountStatus,
     desiredStatus: payload.desiredStatus,
-    // The server-derived status expires stale runtime heartbeats. Older payloads that predate the
-    // field still fall back to the imperative column instead of inventing a state client-side.
-    runtimeStatus: payload.derivedStatus ?? payload.runtimeStatus,
     deviceOnline,
   })
   return presentAgentStatus({ reading: reading ?? (local ? null : readingOfPresenceProjection(payload)), reachability })

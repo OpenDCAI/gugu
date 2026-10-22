@@ -75,10 +75,10 @@ export const ProjectTaskComposer = observer(function ProjectTaskComposer({
 }) {
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
-  // gugu #2328: bootstrapping 阶段页面已上屏,发送/设置由 mounted 态解锁;这行小字是
-  // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
-  const isBootstrapping = projectViewKind(getProjectStore(projectId)) === 'bootstrapping';
   const { rowId, scope, scopedFolders, targetProjectId, machineContext, projectMachines, machineOfProject, pickAndAttach } = stage;
+  // gugu #2328: 挂载中页面已上屏,发送由新会话要建进去的那个项目挂上之后解锁;这行小字是
+  // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
+  const isBootstrapping = projectViewKind(getProjectStore(targetProjectId)) === 'bootstrapping';
   const boxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (focusOnOpen && boxRef.current) focusSessionComposer(boxRef.current);

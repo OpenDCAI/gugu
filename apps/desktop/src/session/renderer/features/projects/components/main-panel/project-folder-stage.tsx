@@ -9,6 +9,7 @@ import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
+import { useEnsureMounted } from '@renderer/features/projects/hooks/use-ensure-mounted';
 import { foldersInScope, useProjectDeviceScope } from './project-device-scope';
 import { ProjectFolderCard, shortHome, type AttachMachine, type FolderCardMachine } from './project-folder-card';
 import { linkFolderOnMachine, planAttach, type LinkFolderDeps } from '@shared/core/projects/project-attach-flow';
@@ -61,6 +62,9 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
   const scopedFolders = foldersInScope(folders, scope.selected, (id) => machineRegistry.machineOf(id) ?? null);
   // 新会话开在哪:卡片 / 托盘上选中的那个文件夹所属的本地项目(可能在别的机器上);没选 = 这一页的项目。
   const targetProjectId = scopedFolders.chosen?.projectId ?? projectId;
+  // 这一页画的项目和新会话要建进去的项目(选了别的机器上的文件夹时是那台上的本地项目)都要挂上:
+  // 发送要它的会话列表,「在…中打开」要它的路径。
+  useEnsureMounted([projectId, targetProjectId]);
   useEffect(() => remoteHostsStore.start(), []);
   const executionDevice = machineRegistry.machineOf(targetProjectId);
   const machineContext = useMachineCreateContext(executionDevice ? {

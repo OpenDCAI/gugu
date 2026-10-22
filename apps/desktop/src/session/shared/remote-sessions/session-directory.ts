@@ -70,9 +70,17 @@ export function useLiveDeviceSessions(): Readonly<Record<string, DeviceSessions>
   return useSyncExternalStore(subscribeDeviceSessions, liveDeviceSessions)
 }
 
+/**
+ * 一台机器上的项目与会话。离线时会话照心跳摘要;项目照账号上记着的那份(#113)列全 —— ❌ 只列摘要里碰巧有会话的那几个。
+ * 摘要里的会话所在的项目账号上没有(还没读到账号上的那份)也照样列出,会话不能没有归处。
+ */
 export function deviceSessionsOf(device: Device, liveSessions: Readonly<Record<string, DeviceSessions>>): DeviceSessions {
   if (device.is_online) return liveSessions[device.device_id] ?? EMPTY
-  return { ...sessionListFromDigest(device.session_digest), cached: false, loading: false, error: null }
+  const digest = sessionListFromDigest(device.session_digest)
+  const recorded = (device.projects ?? []).map((project) => ({ id: project.localProjectId, name: project.name, path: project.rootPath }))
+  const known = new Set(recorded.map((project) => project.id))
+  const projects = [...recorded, ...digest.projects.filter((project) => !known.has(project.id))]
+  return { ...digest, projects, cached: false, loading: false, error: null }
 }
 
 /** 全部机器的行;地址是行上的机器,❌ 人进的是哪台。 */

@@ -120,8 +120,10 @@ export function useMachineCreateContext(target: MachineCreateTarget | null): Mac
   return {
     projectId: current?.id ?? undefined,
     // 选着的机器掉线了:说出来,但输入框照旧可写、写好的内容留着(不重挂),它一回来发送键自己亮。
-    blockReason: !connected ? machineUnavailableReason(connection, device?.label ?? null, translate, wakeFailureLine(target.deviceId, label, translate)) : projectError,
-    blockIsStatus: !connected && machineBlockIsStatus(connection),
+    blockReason: !connected
+      ? machineUnavailableReason(connection, device?.label ?? null, translate, wakeFailureLine(target.deviceId, label, translate), device?.signInExpiredAt)
+      : projectError,
+    blockIsStatus: !connected && machineBlockIsStatus(connection, device?.signInExpiredAt),
     isContextPending: connected && !current?.id && !projectError,
     host: machineLibraryHost({
       deviceId: target.deviceId,
