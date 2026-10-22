@@ -211,7 +211,7 @@ export type HarnessCatalogState =
       expired?: boolean;
     }
   /** 装了、登录了，但这次没读出来（超时/协议异常）。界面给原因与重试。 */
-  | { kind: 'unavailable'; reason: string };
+  | { kind: 'unavailable'; reason: string; reasonCode?: 'probe-failed' };
 
 /**
  * 起一个 harness 的 ACP 进程。由组合根注入。
@@ -550,7 +550,19 @@ async function ensureCatalog(
   if (running) return running;
 
   const task = (async () => {
-    const state = await probeHarnessModelCatalog(pluginId, leg);
+    // @@@catalog-probe-no-spin:抛出也要缓存终态,否则 lookup 永远返回 unknown 并反复探测。
+    // 原因码由界面按当前语言呈现,异常细节只进日志。
+    let state: HarnessCatalogState;
+    try {
+      state = await probeHarnessModelCatalog(pluginId, leg);
+    } catch (error) {
+      log.error({ error }, `${pluginId}: 模型目录探测抛出 → 落为 unavailable(界面给原因与重试)`);
+      state = {
+        kind: 'unavailable',
+        reason: 'Model catalog probe failed',
+        reasonCode: 'probe-failed',
+      };
+    }
     const next = { ...(await loadAll()), [key]: { state, inputsHash, probedAt: Date.now() } };
     memory = next;
     // 落盘失败不该让这次探测作废 —— 内存里已经有结果，界面照常用。
@@ -895,7 +907,10 @@ export async function probeHarnessModelCatalog(
   if (first.kind !== 'auth-required') return first;
 
   // 占位凭据按这家真会话的 Chat UI 注入信封生成;需要落盘的文档只写进这一趟的临时目录,探完整目录删掉。
-  // 生成不出来就抛,写明哪一家、为什么 —— ❌ 当成「没有凭据」跳过,那正是这一趟从来没跑过的原因。
+  // 生成不出来就抛,写明哪一家、为什么 —— ❌ 当成「没有凭据」跳过,那正是这一趟从来没跑过的原因
+  // (这一趟曾因「悄悄退回」从接上那天起静默失效过很久)。⚠️ 这条**不能**改成「退回第一趟」:
+  // 那就是把那次静默失效原样做回来。抛出去之后由 `ensureCatalog` 落成 `unavailable`,界面给原因与重试 ——
+  // 响亮的落点是那里,不是让用户盯着一个转不完的圈。
   const scratchDir = await mkdtemp(join(tmpdir(), `gugu-probe-creds-${pluginId}-`));
   try {
     const probeCredentials = await resolveProbePlatformEnv(pluginId, scratchDir);

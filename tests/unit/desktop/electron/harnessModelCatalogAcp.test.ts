@@ -962,6 +962,36 @@ setInterval(() => {}, 1000);
     await waitForSpawnCount(1)
     expect(spawns).toBe(1)
   })
+  it('@@@catalog-probe-no-spin 占位凭据抛出 → 落为 unavailable 并写缓存,lookup 必须收敛', async () => {
+    // pi 的真实形状:第一趟判出「需要登录」,第二趟生成占位凭据时抛(它的模型由 models.json 交付)。
+    await useAgent(`
+function handle(msg) {
+  if (msg.method === 'initialize') return reply(msg.id, { protocolVersion: 1 });
+  if (msg.method === 'initialized') return;
+  if (msg.method === 'session/new') return fail(msg.id, {
+    code: -32000,
+    message: 'Authentication required',
+    data: { authMethods: [{ id: 'pi_terminal_login', name: 'Log in from the terminal' }] },
+  });
+}
+`)
+    setProbePlatformEnvResolver(async () => {
+      throw new Error('model catalog probe: pi placeholder credentials unavailable — its model is delivered by a session-bundle config file the probe does not materialize')
+    })
+
+    const first = await lookupHarnessModelCatalog('pi', { leg: 'acp', harnessVersion: '1' })
+    expect(first.refreshing, '第一次问:后台刚起探测,这时候说还在读是对的').toBe(true)
+
+    await __drainProbesForTest()
+
+    const second = await lookupHarnessModelCatalog('pi', { leg: 'acp', harnessVersion: '1' })
+    expect(second.refreshing, '探测收摊后仍说 refreshing ⇒ 渲染层每 700ms 再问一次,界面永远转圈').toBe(false)
+    expect(second.state.kind, 'unknown = 还没探过;探过且炸了必须是 unavailable').toBe('unavailable')
+    if (second.state.kind !== 'unavailable') return
+    expect(second.state.reasonCode).toBe('probe-failed')
+    expect(second.state.reason, '异常原文漏进了用户可见文案').not.toMatch(/placeholder credentials|session-bundle config file/)
+  })
+
   it('缓存新鲜 → 直接给,refreshing=false,❌ 不再起进程', async () => {
     const entry = await fakeAgent(SESSION_WITH_MODELS)
     setAcpSpawnResolver(async () => {
