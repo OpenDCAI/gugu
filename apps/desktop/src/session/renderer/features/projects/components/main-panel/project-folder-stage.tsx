@@ -25,7 +25,12 @@ function folderName(path: string): string {
  * 新任务从哪个文件夹开工。项目首页摆着它;项目块里点「新任务」时它浮到群聊上面(gugu-dev#181)—— 两处是同一张卡、
  * 同一个选择,❌ 各写一份。
  */
-export function useProjectFolderStage(projectId: string) {
+export function useProjectFolderStage(projectId: string, { floating = false, onChosen }: {
+  /** 浮在群聊上面(项目块里开新任务):卡一浮出来就摊开。 */
+  floating?: boolean;
+  /** 在卡上点中了一张(浮着的卡据此让开)。 */
+  onChosen?: () => void;
+} = {}) {
   const { translate } = useSessionMessages();
   const displayName = projectDisplayName(getProjectStore(projectId)) ?? '';
   // #7341 第二步:这个项目在各台机器上的本地项目(绑在同一个项目群上)。点进来的若是被并进别的行的那一个,按那一行看。
@@ -244,6 +249,7 @@ export function useProjectFolderStage(projectId: string) {
         const folder = folders.folders?.find((item) => item.workspaceId === workspaceId);
         if (folder) scope.include(machineRegistry.machineOf(folder.projectId) ?? null);
         folders.choose(workspaceId);
+        onChosen?.();
       } }}
       memberIds={memberIds}
       machineOf={machineOfProject}
@@ -251,6 +257,7 @@ export function useProjectFolderStage(projectId: string) {
       onAttach={pickAndAttach}
       onAddMachine={remoteHostsStore.canAddMachine ? () => remoteHostsStore.openAddMachine() : undefined}
       onDropFolder={dropFolder}
+      floating={floating}
     />
   );
   return {
@@ -258,3 +265,5 @@ export function useProjectFolderStage(projectId: string) {
     machineOfProject, pickAndAttach, card,
   };
 }
+
+export type ProjectFolderStage = ReturnType<typeof useProjectFolderStage>;

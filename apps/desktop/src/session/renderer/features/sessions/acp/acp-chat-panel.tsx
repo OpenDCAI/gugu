@@ -1,3 +1,6 @@
+import { useComposerVerb } from '@/lib/composerVerbBridge';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
+import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
 import { openConversationLink } from '@/lib/conversationLinks';
 import {
@@ -407,6 +410,9 @@ const ComposerForStore = observer(function ComposerForStore({
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
+  // 只有项目里的会话(项目有群)才能从这里派:任务卡和结果要有地方落。
+  const groupChatId = projectGroupsStore.chatIdOf(store.projectId);
+  const verb = useComposerVerb(groupChatId ? sessionVerbKey(store.sessionId) : null);
   const editorApiRef = useRef<PromptEditorRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -1565,6 +1571,11 @@ const ComposerForStore = observer(function ComposerForStore({
 
   const a = store.affordances;
 
+  // gugu-dev#181 ⑫ 项目里的会话也能派:选了「新任务 / 定时任务」,这一框换成那件事(任务卡落项目群)。
+  if (verb && groupChatId) {
+    return createPortal(<SessionVerbDock sessionId={store.sessionId} verb={verb} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
+  }
+
   return createPortal(
     <>
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileInputChange} />
@@ -1722,6 +1733,9 @@ const ComposerForStore = observer(function ComposerForStore({
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}
+        toolbarExtra={groupChatId ? (
+          <SessionComposerVerbs sessionId={store.sessionId} draft={store.draftText} onCarried={() => store.setDraftText('')} />
+        ) : undefined}
       />
     </>,
     composerSlot

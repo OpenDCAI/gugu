@@ -1,7 +1,6 @@
 import cronstrue from 'cronstrue';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
-import { Clock, X } from '@/lib/icons';
 import { setComposerVerb, takeComposerCarry } from '@/lib/composerVerbBridge';
 import { platform } from '@/platform';
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels';
@@ -15,7 +14,8 @@ import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { formatAutomationError } from '../automations/automation-run-format';
 import { useAutomations } from '../automations/use-automations';
 import { useAutomationFormState } from '../automations/useAutomationFormState';
-import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle, sessionComposerTrayTriggerClassName } from './session-composer-styles';
+import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from './session-composer-styles';
+import { composerVerbLook } from './composer-verb-tag';
 
 /** 已安排卡上那一句时间:与「已安排」列表里的那一行同一个读法。 */
 function scheduleLabelOf(expr: string): string {
@@ -34,16 +34,19 @@ function scheduleLabelOf(expr: string): string {
 export const ScheduleDispatchComposer = observer(function ScheduleDispatchComposer({
   chatId,
   projectId: fixedProjectId,
+  verbKey = chatId,
 }: {
   chatId: string;
   /** 项目块:建在这个项目里,项目不可选。 */
   projectId?: string;
+  /** 这个词记在 composerVerbBridge 的哪一格;缺省 = 这个对话(会话输入框里选的记在那条会话上)。 */
+  verbKey?: string;
 }) {
   const { translate } = useSessionMessages();
   const form = useAutomationFormState();
   // 选词那一刻框里写着的话跟过来(与新任务那个框同一份 carry)。
   useState(() => {
-    const carried = takeComposerCarry(chatId);
+    const carried = takeComposerCarry(verbKey);
     if (carried) form.initialSession.setPrompt(carried);
     return null;
   });
@@ -54,7 +57,7 @@ export const ScheduleDispatchComposer = observer(function ScheduleDispatchCompos
   }
   const { create } = useAutomations();
   const [error, setError] = useState<string | null>(null);
-  const close = () => setComposerVerb(chatId, null);
+  const close = () => setComposerVerb(verbKey, null);
   const canSubmit =
     form.prompt.trim().length > 0 && !!form.provider && form.autoApprove && !!form.effectiveProjectId && form.workspaceConfig.isValid && !create.isPending;
 
@@ -97,20 +100,6 @@ export const ScheduleDispatchComposer = observer(function ScheduleDispatchCompos
   return (
     <div data-testid="schedule-dispatch-composer" data-chat-id={chatId}>
       <div className={sessionComposerTrayClassName} style={sessionComposerTrayStyle}>
-        <span className={sessionComposerTrayTriggerClassName} data-testid="schedule-dispatch-verb">
-          <Clock className="size-3 shrink-0" />
-          <span>{translate('taskDispatch.schedule')}</span>
-          <button
-            type="button"
-            aria-label={translate('taskDispatch.cancel')}
-            title={translate('taskDispatch.cancel')}
-            onClick={close}
-            className="-mr-1 grid size-4 place-items-center rounded-sm hover:bg-row-hover"
-            data-testid="schedule-dispatch-cancel"
-          >
-            <X className="size-3" />
-          </button>
-        </span>
         {fixedProjectId ? null : (
           <ProjectSelector machine={null} value={form.effectiveProjectId} onChange={(projectId) => form.setProjectId(projectId)} />
         )}
@@ -127,6 +116,7 @@ export const ScheduleDispatchComposer = observer(function ScheduleDispatchCompos
         >
           <SessionField
             placeholder={translate('taskDispatch.schedulePlaceholder')}
+            verb={composerVerbLook('schedule', { label: translate('taskDispatch.schedule'), onCancel: close, testId: 'schedule-dispatch' })}
             enableMentions={false}
             showAutoApproveToggle={false}
             enableAttachments={false}

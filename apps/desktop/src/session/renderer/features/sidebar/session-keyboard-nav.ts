@@ -38,9 +38,12 @@ const OPEN_COALESCE_MS = 100;
 /** How long the first ⌃X stays armed before the archive silently disarms itself. */
 export const ARCHIVE_CONFIRM_WINDOW_MS = 3_000;
 
-/** Focus the composer of whatever the main area currently shows. Mirrors the `session.focusComposer` command. */
-export function focusSessionComposer(): boolean {
-  const composer = document.querySelector<HTMLElement>('[data-region="composer"]');
+/**
+ * Focus the composer of whatever the main area currently shows. Mirrors the `session.focusComposer` command.
+ * `within` = the composer inside that element (a block's own new-task box).
+ */
+export function focusSessionComposer(within: ParentNode = document): boolean {
+  const composer = within.querySelector<HTMLElement>('[data-region="composer"]');
   const input = composer?.querySelector<HTMLElement>(COMPOSER_INPUT_SELECTOR);
   if (!input) return false;
   input.focus();

@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Clock, Sparkles } from '@/lib/icons'
 import { setComposerVerb, type ComposerVerb } from '../../lib/composerVerbBridge'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { platform } from '../../platform'
+import { useInChatSlot } from '../../lib/shellSlots'
 import { useChatStore } from '../../store/chatContext'
 import { Button } from '../ui/Button'
 
@@ -22,10 +22,7 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
 }) {
   const { t } = useTranslation('messaging')
   const { chats } = useChatStore('chats')
-  const [inSlot, setInSlot] = useState<boolean | null>(null)
-  const measure = useCallback((element: HTMLSpanElement | null) => {
-    if (element) setInSlot(Boolean(element.closest('[data-chat-slot]')))
-  }, [])
+  const inSlot = useInChatSlot()
   if (!chatId || !platform.capabilities.sessionHost) return null
   const pick = (verb: ComposerVerb) => {
     if (inSlot) {
@@ -36,9 +33,9 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
     }
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
   }
-  // 输入行窄(块并排、对话块)时两个词只留图标,❌ 把输入框挤没。
+  // 输入行窄(块并排、对话块)时两个词只留图标,❌ 把输入框挤没。格子里它们在框内底排;格子外在框左边,与坞同高。
   return (
-    <span ref={measure} data-composer-verbs="" className="flex h-[42px] shrink-0 items-center gap-1">
+    <span data-composer-verbs="" className={inSlot ? 'flex shrink-0 items-center gap-1' : 'flex h-[42px] shrink-0 items-center gap-1'}>
       {(inSlot || isGroupChat) && (
         <Button variant="ghost" size="sm" data-testid="composer-verb-task" aria-label={t('composer.verb.task')} title={t('composer.verb.task')} onClick={() => pick('task')}>
           <Sparkles size={14} /><span className="@max-[35rem]:hidden">{t('composer.verb.task')}</span>

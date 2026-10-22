@@ -8,6 +8,8 @@
 // 谁登记了哪种前缀的格,由壳那边认这个前缀的那一处去画;一个键同一时刻只有一个格子。
 // 只由壳装(装在 window 上);会话页 bundle 只读写 window 上那一个对象,❌ 自己装(会装上一个永远空的副本)。
 
+import { createContext, useContext } from 'react'
+
 export const SHELL_SLOTS_KEY = '__GUGU_SHELL_SLOTS__' as const
 
 export interface ShellSlots {
@@ -54,3 +56,10 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 /** 画一个对话的那种格子(项目块里的项目群、对话块):壳那边 components/ChatSlotHost.tsx 认这个前缀。 */
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
+
+/**
+ * 这个对话是不是画在会话页的格子里(项目块、对话块,gugu-dev#181):ChatSlotHost 给它包上 true。
+ * 输入框据此换成格子里的排法(「新任务 / 定时任务」在框内底排,能换成会话页那一侧的框);❌ 去 DOM 里找格子猜。
+ */
+export const InChatSlot = createContext(false)
+export const useInChatSlot = () => useContext(InChatSlot)
