@@ -206,6 +206,8 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
     useContactsStore: () => ({ contacts: [], pendingRequests: [] })
   }
 })
+// gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
+const sessionPageViewRequests = { request: vi.fn(), openChat: vi.fn() }
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
@@ -289,6 +291,8 @@ beforeEach(() => {
   phoneAssistantMock.state.chatId = null
   phoneAssistantMock.state.stage = { stage: 'cloud-loading' }
   delete (window as Window & { electronAPI?: unknown }).electronAPI
+  sessionPageViewRequests.openChat.mockReset()
+  ;(window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__ = sessionPageViewRequests
   Object.defineProperty(window, '__guguNativeBackHandled', {
     configurable: true,
     writable: true,
@@ -297,6 +301,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  delete (window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -478,8 +483,9 @@ describe('MainLayout', () => {
       host!.openAgentChat({ chatId: 'agent-dm', agentUserId: 'agent-1' })
       await Promise.resolve()
     })
-    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('agent-dm')
-    expect(harness.container.textContent).toContain('chat-area-panel')
+    // gugu-dev#181 桌面上没有单独的聊天页:新建 agent 的那条对话在会话页这屏打开(一块),❌ 换壳的当前对话。
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('agent-dm', false)
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
   })
   it('publishes the exact ordinary sendMessageToChat API to the taskpage composer', async () => {
     await renderMainLayoutWithToast()
@@ -853,7 +859,8 @@ describe('MainLayout: files.openWith', () => {
     chatStoreMock.chats = [{ id: 'g-open', kind: 'group', name: 'G' } as never]
     await renderMainLayoutWithToast()
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
-    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('g-open')
+    // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
     expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', opener: detail })
   })
 
@@ -873,6 +880,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     expect(toast).toHaveBeenCalledTimes(1)
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
     expect(groupSlotMemory.takeFile('g-open')).toBeNull()
   })
 })

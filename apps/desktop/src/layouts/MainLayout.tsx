@@ -1147,7 +1147,7 @@ function InnerLayout({
     return () => {
       if (w.__GUGU_SESSIONPAGE_MESSAGES__ === host) delete w.__GUGU_SESSIONPAGE_MESSAGES__
     }
-  }, [appendMessage, focusComposerForUserEntry, refreshChats, sendMessageToChat, setActiveChatId, sessionHostAvailable, upsertChat, user])
+  }, [appendMessage, focusComposerForUserEntry, openChatBlock, refreshChats, sendMessageToChat, setActiveChatId, sessionHostAvailable, upsertChat, user])
 
   useEffect(() => {
     if (!sessionHostAvailable) return
