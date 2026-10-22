@@ -112,7 +112,6 @@
 }
 [data-join][data-join-on]::before {
   background-color: var(--tab-strip);
-  border-color: transparent;
 }
 [data-join][data-join-on][data-active='true'] {
   background-color: var(--tab-face);
