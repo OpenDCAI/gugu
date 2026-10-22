@@ -501,7 +501,7 @@ const LOOK_GRID = [0, 0.5, 1]
 export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: OutfitDraw | null = null): number[] {
   out.length = 0
   const v = viewFor(o.w, o.h, o.crop, o.shape, f.ch, outfit)
-  out.push(f.desat * 255, f.dim * 255, f.blush * 255, f.cheek.lift * 255, f.cheek.wide * 255, f.cheek.lines * 255)
+  out.push(f.desat * 255, f.dim * 255, f.blush * 255)
   if (f.tint) out.push(f.tint[0] * 255, f.tint[1] * 255, f.tint[2] * 255)
   for (const L of f.layers) {
     const lay = f.alpha * L.alpha
@@ -529,7 +529,7 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
           out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s)
           onPart(ps, pc.at, pc.box.x + pc.box.w, pc.box.y + pc.box.h, tmp)
           out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s)
-          out.push(ps.alpha * 255, ps.shade * 255, ps.depth >= 0 ? 255 : 0)
+          out.push(ps.alpha * 255) // 前后次序、接触阴影都跟着翅膀转角和 yaw 变,四角已经记了;按 255 色阶记它们,弹簧收尾的微动也会被当成要重画
         }
     }
     const ep = parts.list[L.eye.part]
@@ -540,7 +540,7 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
       const sh = e.shape
       out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s, e.alpha * 255, k * sh.size, k * e.aspect, k * e.ax, k * e.ay, k * e.bx, k * e.by)
       out.push(k * sh.tOff, k * sh.tSlope, k * sh.tBow, k * sh.bOff, k * sh.bSlope, k * sh.bBow, k * e.gx * 0.1, k * e.gy * 0.1)
-      out.push(k * sh.arc, k * sh.flat, sh.chev > 0.5 ? 255 : 0)
+      out.push(k * sh.arc, k * sh.flat, sh.chev > 0.5 ? 255 : 0, k * f.cheek.lift, k * f.cheek.wide, f.cheek.lines * 255)
       if (L.id === 'body') out.push(e.brow.on * 255, k * e.brow.lift, k * e.brow.tilt, k * e.brow.arch)
     }
     outfit?.drawnLook(f, L, v, o, out)
