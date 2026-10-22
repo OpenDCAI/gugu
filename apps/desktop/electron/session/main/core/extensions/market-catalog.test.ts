@@ -392,10 +392,11 @@ describe('CloudExtensionMarket.list', () => {
       ['group', ['soup', 'slides', 'papers']],
       ['more', ['board', 'calendar']],
     ]);
-    // 推荐页也照「用在哪」筛:选了群组,精选和那几排都只从群组那几个里排(❌ 拿整份目录排)。
+    // 推荐页也照「用在哪」筛:选了群组,精选和那几排都只从群组那几个里排(❌ 拿整份目录排)。scanner 也打开群文件:
+    // 筛过以后 Agent 工具那一排只剩它一个、不成排,它落进群组那一排。
     const grouped = await market.list({ page: 0, surface: 'group' });
-    expect(grouped.home.map((section) => [section.kind, ids(section.entries)])).toEqual([['group', ['soup', 'slides', 'papers']]]);
-    expect(grouped.extensions.map((entry) => entry.manifest.id).sort()).toEqual(['papers', 'slides', 'soup']);
+    expect(grouped.home.map((section) => [section.kind, ids(section.entries)])).toEqual([['group', ['scanner', 'soup', 'slides', 'papers']]]);
+    expect(grouped.extensions.map((entry) => entry.manifest.id).sort()).toEqual(['papers', 'scanner', 'slides', 'soup']);
     expect(ids((await market.list({ page: 0 })).featured)).toEqual(['browser', 'slides']);
     expect(ids(grouped.featured)).toEqual(['slides']);
     expect((await market.list({ page: 0, search: 'board' })).home).toEqual([]);
