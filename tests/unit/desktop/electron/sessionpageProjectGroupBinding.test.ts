@@ -512,6 +512,19 @@ describe('操作 agent 的项目群公告权限', () => {
     await expect(ensureProjectNoticeAccess(auth, 'caller', project)).rejects.toThrow('明确重新加入')
     expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(0)
   })
+  it('建项目的 agent(founding):项目群建项目时就有了、只有群主 ⇒ 它在这里入座,再发群通知', async () => {
+    seedGroup('chat-new')
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent').map((call) => call.args.p_agent_user_id)).toEqual(['caller'])
+    expect(groups.get('chat-new')?.members.has('caller')).toBe(true)
+  })
+  it('founding 也不越过审批:群要审批 ⇒ 如实报错', async () => {
+    seedGroup('chat-new')
+    addGroupAgent = () => ({ data: { status: 'pending_approval' }, error: null })
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await expect(ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })).rejects.toThrow('需审批')
+  })
 })
 
 describe('对照变了就叫一声(渲染层据此重读绑定)', () => {

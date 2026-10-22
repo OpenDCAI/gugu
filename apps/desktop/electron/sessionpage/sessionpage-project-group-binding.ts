@@ -132,11 +132,14 @@ async function createOwnerOnlyGroup(chat: ChatClient, chatId: string, name: stri
 }
 
 /** The trusted caller binding supplies the owner's acting agent. Membership lets it announce a
- * project change; it does not move its session, change its pinned project/group or start an agent. */
+ * project change; it does not move its session, change its pinned project/group or start an agent.
+ * `founding`: the agent just created this project (project_create). The group is created with the project and
+ * holds only the owner (gugu-dev#181), so the creator takes its seat here; any other absent agent is refused. */
 export async function ensureProjectNoticeAccess(
   auth: { accessToken: string; userId: string },
   agentUserId: string,
   project: { projectId: string; projectName: string; chatId: string },
+  { founding = false }: { founding?: boolean } = {},
 ): Promise<void> {
   const chat = makeChatClient(auth.accessToken)
   const { chatId } = project
@@ -156,7 +159,11 @@ export async function ensureProjectNoticeAccess(
   if (state !== 'active') throw new ProjectGroupCloudError(`项目群不可用: ${state}`)
   const member = await chat.from('chat_members').select('user_id').eq('chat_id', chatId).eq('user_id', agentUserId).maybeSingle()
   if (member.error) throw new ProjectGroupCloudError(member.error.message)
-  if (!member.data) throw new ProjectGroupCloudError('操作 agent 已不在项目群中；明确重新加入后才能发布群通知')
+  if (member.data) return
+  if (!founding) throw new ProjectGroupCloudError('操作 agent 已不在项目群中；明确重新加入后才能发布群通知')
+  const joined = await createGroupAdmin(chat, auth.userId).addAgent(chatId, agentUserId)
+    .catch((error: Error) => { throw new ProjectGroupCloudError(error.message) })
+  if (joined.status === 'pending_approval') throw new ProjectGroupCloudError('项目群开了「Agent 加入需审批」,创建项目的 agent 等群主同意后才能发布群通知')
 }
 
 export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupHostDeps): ProjectGroupHost {

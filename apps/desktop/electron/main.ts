@@ -4425,7 +4425,7 @@ app.whenReady().then(async () => {
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),
-          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project),
+          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project, { founding: record.action === 'project_create' }),
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
