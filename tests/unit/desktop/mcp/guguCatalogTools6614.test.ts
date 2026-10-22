@@ -3,13 +3,14 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   createDesktopGuguMcpHost,
   setSessionExtensionCatalog,
   type DesktopGuguMcpHost,
   type GuguMcpContext,
 } from '../../../../apps/desktop/electron/acp-engine-utils'
-import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, type CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
+import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, unlistedTools, type CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { AppSearchHit } from '../../../../apps/desktop/electron/mcp/gugu-app-search-tool'
 import { GUIDE_TOPICS } from '../../../../apps/desktop/electron/mcp/gugu-guide-tool'
 import { PROJECT_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-project-tool'
@@ -230,6 +231,66 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
     expect(unknown.isError).toBe(true)
     expect(text(unknown)).toContain('catalog_list')
     expect(text(unknown)).not.toContain('one of your own tools')
+  })
+
+  // 模型把单个参数套进一层同名对象后就出不来了 —— 报错只说 received object,它试几十种写法产出的仍是同一层嵌套。
+  it('同名对象包装仍然失败,指出正确写法;其它形状保持原行为', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo({
+      kind: 'session-only',
+      expectedOwnerUserId: 'owner-1',
+      subjectId: 'agent-1',
+      runSessionAction: async (action) => {
+        seen.push(action)
+        return { schedule_id: (action as { schedule_id: string }).schedule_id, cancelled: true }
+      },
+    })
+    const call = (args: unknown) => client.callTool({ name: 'catalog_call', arguments: { tool: 'schedule_cancel', args } })
+    const nested = await call({ schedule_id: { schedule_id: 'schedule:5f849623-2f0e-480e-81b5-b4f5ef63cf2c' } })
+    expect(nested.isError).toBe(true)
+    expect(text(nested)).toContain('schedule_id 多套了一层同名对象')
+    expect(text(nested)).toContain('应写成 {"schedule_id":"schedule:5f849623-2f0e-480e-81b5-b4f5ef63cf2c"}')
+    expect(text(nested)).toContain('不要写 {"schedule_id":{"schedule_id":"schedule:5f849623-2f0e-480e-81b5-b4f5ef63cf2c"}}')
+    expect(seen).toEqual([])
+
+    // 判假的另一半:嵌套里还有别的键就不是这一种形状,不猜 —— 猜它会顺手删掉 agent 真想说的参数。
+    for (const schedule_id of [
+      { schedule_id: 'schedule:x', _flat: true },
+      { schedule_id: { schedule_id: 'schedule:x' } },
+      { schedule_id: ['schedule:x'] },
+      { other: 'schedule:x' },
+    ]) {
+      const junk = await call({ schedule_id })
+      expect(junk.isError).toBe(true)
+      expect(text(junk)).toContain('schedule_id: Invalid input: expected string, received object')
+      expect(text(junk)).not.toContain('多套了一层')
+    }
+    expect(seen).toEqual([])
+
+    // 本来就能过的扁平形状一字不变。
+    expect((await call({ schedule_id: 'schedule:y' })).isError ?? false).toBe(false)
+    expect(seen).toEqual([
+      { action: 'schedule_cancel', schedule_id: 'schedule:y' },
+    ])
+  })
+
+
+  it('schema 允许的同名对象原样交给工具', async () => {
+    const seen: unknown[] = []
+    const server = new McpServer({ name: 'catalog-object', version: '1' })
+    server.registerTool('object_tool', { inputSchema: z.object({ files: z.object({ files: z.string() }) }) }, async (args) => {
+      seen.push(args)
+      return { content: [{ type: 'text', text: 'ok' }] }
+    })
+    registerGuguCatalogTools(server, () => unlistedTools(server))
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    const client = new Client({ name: 'catalog-probe', version: '1' })
+    clients.push(client)
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
+    const args = { files: { files: 'content' } }
+    const result = await client.callTool({ name: 'catalog_call', arguments: { tool: 'object_tool', args } })
+    expect(result.isError ?? false).toBe(false)
+    expect(seen).toEqual([args])
   })
 
   // #6634 问题 14 W-21: Claude, having installed through catalog_call, sent catalog_list / catalog_call through it too and got
