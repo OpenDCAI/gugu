@@ -13,6 +13,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
   SessionUpdate,
+  StopReason,
   ToolCallLocation,
 } from '@agentclientprotocol/sdk';
 import type { AttachmentRef } from '../models/attachments';
@@ -42,6 +43,8 @@ export type NormalizedEvent =
        */
       messageId: string | null;
       text: string;
+      /** An entity snapshot replaces text; streamed chunks append. */
+      replace?: boolean;
       revertAnchor?: string;
       /** A cell-inserted communication message that continues the active turn. */
       steering?: boolean;
@@ -52,10 +55,13 @@ export type NormalizedEvent =
       kind: 'thinking';
       messageId: string | null;
       text: string;
+      replace?: boolean;
     }
   | {
       kind: 'tool_call';
       toolCallId: string;
+      /** A materialized v2 entity replaces its protocol-owned fields. */
+      replace?: boolean;
       title: string;
       /** 供应商自己的工具名,标题是显示名时由 EnrichHook 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
       toolName?: string;
@@ -102,6 +108,8 @@ export type NormalizedEvent =
     }
   | {
       kind: 'subagent';
+      /** A standard child association; its delegation is a separate tool call. */
+      associationOnly?: boolean;
       toolCallId: string;
       rawInput?: string;
       rawOutput?: string;
@@ -483,6 +491,10 @@ export type NormalizedEvent =
        */
       kind: 'agent_state';
       state: 'running' | 'requires_action' | 'idle';
+      stopReason?: StopReason | 'error';
+      error?: { code: number; message: string; data?: unknown };
+      usage?: { totalTokens: number; inputTokens: number; outputTokens: number; thoughtTokens?: number; cachedReadTokens?: number; cachedWriteTokens?: number };
+      _meta?: Record<string, unknown>;
     }
   | { kind: 'ignored' };
 

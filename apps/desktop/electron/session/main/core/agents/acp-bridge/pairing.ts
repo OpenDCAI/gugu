@@ -12,6 +12,7 @@ import { z } from 'zod';
 
 const releaseSchema = z.object({
   version: z.string().min(1),
+  protocolVersion: z.number().int().positive().optional(),
   upstreamTag: z.string().optional(),
   cliFrom: z.string().min(1),
   verified: z.array(z.object({ cli: z.string().min(1) }).passthrough()),

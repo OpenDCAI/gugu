@@ -396,7 +396,7 @@ export const provider = registerPluginBehavior(plugin, {
       },
     }),
     connect: (io, toClient) => {
-      return connectStdioAcp(io, toClient);
+      return connectStdioAcp(io, toClient, 2);
     },
     enrich: enrichClaudeUpdate,
   },

@@ -2950,3 +2950,57 @@ describe('native in-place conversation revert', () => {
     finish({ stopReason: 'end_turn' }); await running;
   });
 });
+
+describe('ACP v2 foreground lifecycle', () => {
+  function v2Cell() {
+    const agent = Object.assign(new FakeAcpAgent(), { protocolVersion: 2 as const });
+    const { cell } = makeCell(agent);
+    cell.setReportsState(true);
+    agent.prompt.mockResolvedValue({ messageId: 'provider-message' });
+    return { agent, cell };
+  }
+
+  it('keeps an admitted prompt working until foreground idle, then accepts the next message while its child runs', async () => {
+    const { cell, agent } = v2Cell();
+    await cell.prompt({ text: 'start a child' });
+    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'subagent', toolCallId: 'child', subagentSessionId: 'child', status: 'completed', parentToolCallId: null, background: true, canCancel: true });
+    expect(cell.machine.isWorking).toBe(true);
+    cell.push({ kind: 'agent_state', state: 'idle', stopReason: 'end_turn' });
+    expect(cell.machine.isWorking).toBe(false);
+    const next = await cell.prompt({ text: 'next message' });
+    expect(next).toMatchObject({ success: true, data: { queued: false } });
+    expect(agent.prompt).toHaveBeenCalledTimes(2);
+    expect(cell.machine.queuedPrompts).toHaveLength(0);
+  });
+
+  it('allows idle before the admission response, and never lets that old receipt end new foreground work', async () => {
+    const { cell, agent } = v2Cell();
+    let admit!: (response: { messageId: string }) => void;
+    agent.prompt.mockImplementationOnce(() => new Promise((resolve) => { admit = resolve; }));
+    const first = cell.prompt({ text: 'first' });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
+    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', state: 'idle', stopReason: 'max_tokens' });
+    expect(cell.machine.isWorking).toBe(false);
+    await cell.prompt({ text: 'second' });
+    cell.push({ kind: 'agent_state', state: 'running' });
+    admit({ messageId: 'first-native-id' });
+    await first;
+    expect(cell.machine.isWorking).toBe(true);
+    cell.push({ kind: 'agent_state', state: 'idle', stopReason: 'end_turn' });
+    expect(cell.machine.isWorking).toBe(false);
+    expect(cell.history().committed[0].outcome).toMatchObject({ kind: 'done', reason: 'max_tokens' });
+  });
+
+  it('settles post-admission errors from idle and applies repeated idle snapshots once', async () => {
+    const { cell } = v2Cell();
+    await cell.prompt({ text: 'fail after admission' });
+    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', state: 'idle', stopReason: 'error', error: { code: -32603, message: 'provider refused the turn' } });
+    expect(cell.machine.isWorking).toBe(false);
+    expect(cell.history().committed[0].outcome).toMatchObject({ kind: 'error' });
+    cell.push({ kind: 'agent_state', state: 'idle', stopReason: 'error', error: { code: -32603, message: 'provider refused the turn' } });
+    expect(cell.history().committed).toHaveLength(1);
+  });
+});

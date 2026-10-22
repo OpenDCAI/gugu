@@ -25,8 +25,9 @@
     "generate:acp-fixture": "tsx tooling/fixtures/create-acp-transcript.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.4.1",
+    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@2.0.0",
     "@agentclientprotocol/sdk": "^1.4.0",
+    "@agentclientprotocol/sdk-v2": "npm:@agentclientprotocol/sdk@2.0.0",
     "@gitbeaker/rest": "^43.8.0",
     "@gugu/session-core": "workspace:*",
     "@gugu/session-shared": "workspace:*",
@@ -37,6 +38,7 @@
     "@octokit/rest": "^22.0.1",
     "@team-plain/graphql": "^1.0.1",
     "asana": "^3.1.12",
+    "diff": "9.0.0",
     "featurebase-node": "^0.14.0",
     "imapflow": "2.4.2",
     "jira.js": "^5.4.0",

@@ -418,7 +418,7 @@ export class SessionCell {
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
     if (event.kind === 'agent_state') {
-      this.onAgentState(event.state);
+      this.onAgentState(event);
       return;
     }
     // 会话级背景(③)是第一轮里**单独的一个文本块**;回放历史时这一家把它当用户的话原样放回来
@@ -1235,6 +1235,8 @@ export class SessionCell {
    * @returns 这一次落定了(或记下了)吗 —— 什么都没开着时它什么都不做,调用方靠这个返回值分辨。
    */
   settleTurn(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean }): boolean {
+    // A v2 prompt failure before admission has no later foreground idle.
+    if (this.agent?.protocolVersion === 2) return this.endWork(outcome, opts);
     if (this.reportsState && this.machine.isWorking && !this.idleReported) {
       this.pendingWorkEnd = { outcome, ...opts };
       this.closeTurnCompletion();
@@ -1274,7 +1276,8 @@ export class SessionCell {
    * agent 报的状态(`state_update`):在不在干活只听这个,谁开的工都一样(#7087)。
    * ❌ 别再猜「它停了」:静默定时器(2026-09-06 把消息切碎)和「带 cost 的 usage」都是猜,它自己会报。
    */
-  private onAgentState(state: 'running' | 'requires_action' | 'idle'): void {
+  private onAgentState(event: Extract<NormalizedEvent, { kind: 'agent_state' }>): void {
+    const { state } = event;
     if (!this.reportsState) return;
     if (state !== 'idle') {
       this.idleReported = false;
@@ -1282,6 +1285,17 @@ export class SessionCell {
       return;
     }
     if (!this.machine.isWorking) return;
+    if (this.agent?.protocolVersion === 2) {
+      // State is authoritative even if the admission response is still in flight.
+      // Repeated idle snapshots reach ready and do not settle another turn.
+      const outcome = event.error
+        ? classifyTurnFailure({ at: 'prompt', cause: toSerializedError(Object.assign(new Error(event.error.message), event.error)), platformCredentials: this.deps.platformCredentials }).outcome
+        : event.stopReason === 'error'
+          ? { kind: 'error' as const, reason: 'prompt_failed' as const }
+          : this.settledOutcome(event.stopReason ?? 'end_turn');
+      this.endWork(outcome);
+      return;
+    }
     if (this.activeTurnCompletion) {
       // 还有请求没答复:它的答复带着结局,由它落定。
       this.idleReported = true;
@@ -1732,6 +1746,7 @@ export class SessionCell {
       });
       this.emitTranscriptChanged();
     }
+    const promptCompletion = this.activeTurnCompletion;
     try {
       // 按路径带的图(`local-file`:另一台机器发来的附件、首轮随启动队列带的附件)只在 agent
       // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
@@ -1806,6 +1821,10 @@ export class SessionCell {
       }
 
       const response = await this.agent.prompt(promptRequest);
+      if ('messageId' in response) {
+        this.rawLog.record({ kind: 'prompt_accepted', sessionId: this.acpSessionId, clientMessageId: messageId, messageId: response.messageId });
+        return ok({ queued: false });
+      }
       const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
       if (!steered && typeof anchor === 'string' && anchor) {
         this.transcript.setRevertAnchor(messageId, anchor);
@@ -1899,7 +1918,7 @@ export class SessionCell {
         }
       }
 
-      if (!steered) {
+      if (!steered && (this.agent?.protocolVersion !== 2 || this.activeTurnCompletion === promptCompletion)) {
         const classified = classifyTurnFailure({
           at: 'prompt',
           cause,

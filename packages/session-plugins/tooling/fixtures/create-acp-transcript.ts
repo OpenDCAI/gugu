@@ -24,6 +24,7 @@ import { createRequire } from 'node:module';
 import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AcpBridgeSource } from '@gugu/session-core/agents/plugins';
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { createAcpAgentConnection } from '@gugu/session-runtime/acp-agents';
 import { createScope } from '@gugu/session-wire/util';
 import { pluginRegistry } from '../../src/agents/registry';
@@ -125,6 +126,15 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
 
   let providerSessionId: string | null = null;
   const { client, dispose: disposeClient } = buildRecordingClient(recorder, host, () => providerSessionId);
+  let foreground: { running: boolean; done: ReturnType<typeof Promise.withResolvers<string | null>> } | null = null;
+  const recordUpdate = client.sessionUpdate.bind(client);
+  client.sessionUpdate = async (params) => {
+    await recordUpdate(params);
+    const state = decodeSessionUpdate(params.update);
+    if (params.sessionId !== providerSessionId || state.kind !== 'agent_state' || !foreground) return;
+    if (state.state !== 'idle') foreground.running = true;
+    else if (foreground.running) foreground.done.resolve(state.stopReason ?? null);
+  };
   const scope = createScope({ label: `acp-fixture:${opts.providerId}` });
   const spawnContext = await host.resolveSpawnContext(opts.providerId);
   const spawn = behavior.buildSpawn({
@@ -195,8 +205,12 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
         recorder.record({ kind: 'prompt', sessionId: providerSessionId, content });
 
         console.log(`[fixture] → prompt: "${step.text.slice(0, 60)}…"`);
+        if (agent.protocolVersion === 2) foreground = { running: false, done: Promise.withResolvers<string | null>() };
         const promptResp = await agent.prompt({ sessionId: providerSessionId, prompt: content });
-        const stopReason = promptResp.stopReason ?? null;
+        const stopReason = 'messageId' in promptResp
+          ? await foreground!.done.promise
+          : promptResp.stopReason ?? null;
+        foreground = null;
         console.log(`[fixture] ← stopReason: ${stopReason}`);
         recorder.record({ kind: 'prompt_result', sessionId: providerSessionId, stopReason });
       } else if (step.kind === 'setModel') {

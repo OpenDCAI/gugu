@@ -243,20 +243,23 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
         launchToolCallId?: string;
         parentToolCallId?: string;
         request?: string;
+        associationOnly?: boolean;
       };
       // 没有会话号这条就没有身份可用 —— ❌ 别编一个,宁可丢弃。
       if (!raw.subagentSessionId) return { kind: 'ignored' };
       return {
         kind: 'subagent',
+        ...(raw.launchToolCallId ? { agentId: raw.subagentSessionId } : {}),
         // 会话形态下派它出去的那次调用由 reducer 按会话号回填;这里先用会话号占位,
         // ❌ 不编一个假的 toolCallId。
-        toolCallId: raw.subagentSessionId,
+        toolCallId: raw.launchToolCallId ?? raw.subagentSessionId,
         subagentSessionId: raw.subagentSessionId,
         ...(raw.name ? { title: raw.name } : {}),
         ...(raw.task ? { inputSummary: raw.task } : {}),
         status: raw.background === true ? 'completed' : 'in_progress',
         parentToolCallId: raw.parentToolCallId ?? null,
         canCancel: raw.capabilities?.cancel === true,
+        ...(raw.associationOnly ? { associationOnly: true } : {}),
         ...(raw.background === true ? { background: true } : {}),
         ...(raw.model ? { model: raw.model } : {}),
         ...(raw.launchToolCallId ? { agentToolUseId: raw.launchToolCallId } : {}),
@@ -527,10 +530,16 @@ function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nu
  * ⚠️ 是 state_update 就**绝不**返回 null:信封的 toolCallId 只是填位,交回主 switch 会长出一条工具行。
  */
 function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = unwrapDraftUpdate(wrapped) as unknown as { sessionUpdate?: string; state?: unknown };
+  const update = unwrapDraftUpdate(wrapped) as unknown as Extract<NormalizedEvent, { kind: 'agent_state' }> & { sessionUpdate?: string };
   if (update.sessionUpdate !== 'state_update') return null;
   return update.state === 'running' || update.state === 'requires_action' || update.state === 'idle'
-    ? { kind: 'agent_state', state: update.state }
+    ? {
+        kind: 'agent_state', state: update.state,
+        ...(update.stopReason ? { stopReason: update.stopReason } : {}),
+        ...(update.error ? { error: update.error } : {}),
+        ...(update.usage ? { usage: update.usage } : {}),
+        ...(update._meta ? { _meta: update._meta } : {}),
+      }
     : { kind: 'ignored' };
 }
 
@@ -554,32 +563,35 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
 
   switch (update.sessionUpdate) {
     case 'user_message_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
+      if (update.content.type !== 'text') return { kind: 'ignored' };
       return {
         kind: 'message',
         role: 'user',
         messageId: update.messageId ?? null,
         text: update.content.text,
+        ...(update._meta?.messageSnapshot === true ? { replace: true } : {}),
         ...(typeof update._meta?.guguRevertAnchor === 'string' ? { revertAnchor: update._meta.guguRevertAnchor } : {}),
       };
     }
 
     case 'agent_message_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
+      if (update.content.type !== 'text') return { kind: 'ignored' };
       return {
         kind: 'message',
         role: 'assistant',
         messageId: update.messageId ?? null,
         text: update.content.text,
+        ...(update._meta?.messageSnapshot === true ? { replace: true } : {}),
       };
     }
 
     case 'agent_thought_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
+      if (update.content.type !== 'text') return { kind: 'ignored' };
       return {
         kind: 'thinking',
         messageId: update.messageId ?? null,
         text: update.content.text,
+        ...(update._meta?.messageSnapshot === true ? { replace: true } : {}),
       };
     }
 
@@ -594,6 +606,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
       return {
         kind: 'tool_call',
         toolCallId: update.toolCallId,
+        ...(update._meta?.entitySnapshot === true ? { replace: true } : {}),
         title: update.title,
         ...(toolName !== undefined ? { toolName } : {}),
         toolKind: update.kind ?? null,

@@ -200,13 +200,15 @@ export interface AcpProcessIo {
  * structurally — only the methods the session backend actually uses are required here.
  */
 export interface AcpAgentApi {
+  /** Requested wire version; initialize must confirm this version. */
+  readonly protocolVersion?: 2;
   initialize(params: InitializeRequest): Promise<InitializeResponse>;
   newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
   loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
   unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse>;
-  prompt(params: PromptRequest): Promise<PromptResponse>;
+  prompt(params: PromptRequest): Promise<PromptResponse | { messageId: string; _meta?: Record<string, unknown> | null }>;
   cancel(params: CancelNotification): Promise<void>;
   /** Optional — only available when the agent advertises `sessionCapabilities.list`. */
   listSessions?(params: ListSessionsRequest): Promise<ListSessionsResponse>;

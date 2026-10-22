@@ -42,8 +42,8 @@ export interface AcpAgentConnection {
   /** agent 在 initialize._meta 里声明 ACP steering 扩展。 */
   supportsSteering: boolean;
   /**
-   * agent 自己报状态(`agentCapabilities._meta.sessionState`,随后发 `state_update`):
-   * 在不在跑只听它的,谁开的工都一样。不报的家只有「prompt 请求还没答」这一个事实可用。
+   * Negotiated v2 reports foreground work through `state_update`. Legacy
+   * harnesses can opt into state reports; otherwise prompt completion ends work.
    */
   reportsState: boolean;
   /**
@@ -193,7 +193,7 @@ export async function createAcpAgentConnection(
     const supportsImagePrompt = initialized.agentCapabilities?.promptCapabilities?.image === true;
     const initializeMeta = (initialized as InitializeResponse & { _meta?: unknown })._meta;
     const supportsSteering = isSteeringCapability(initializeMeta);
-    const reportsState = isObject(
+    const reportsState = initialized.protocolVersion === 2 || isObject(
       (initialized.agentCapabilities?._meta as Record<string, unknown> | undefined)?.sessionState,
     );
     logger.debug('createAcpAgentConnection: initialized', {
@@ -368,7 +368,7 @@ type SubagentAwareInitializeRequest = Omit<
 
 function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
   const request: SubagentAwareInitializeRequest = {
-    protocolVersion: 1,
+    protocolVersion: agent.protocolVersion ?? 1,
     clientInfo: { name: 'gugu', version: '1' },
     clientCapabilities: {
       fs: { readTextFile: true, writeTextFile: true },
@@ -435,12 +435,6 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
       _meta: {
         'gugu.mcp-input-preview': true,
         'terminal-auth': true,
-        /**
-         * 请 agent 报自己的状态(ACP v2 草案 prompt 生命周期的 `state_update`,在 v1 上按这一位
-         * 选择加入;v1 的联合里没有这一种,`acp-stdio` 进门前裹信封)。咕咕判「在不在跑」只认状态,
-         * ❌ 不认「哪一轮还没结」—— agent 自己开工(后台任务完成的通知)时根本没有那一轮(#7087)。
-         */
-        'session-state': true,
         /**
          * 上面 `subagents: {}` 是规范草案字段(agent-client-protocol#1992),已发布的
          * TypeScript SDK 还没保留它;在它落地之前,同一件事的过渡signal走 JetBrains AIR

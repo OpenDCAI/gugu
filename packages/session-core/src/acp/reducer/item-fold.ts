@@ -864,7 +864,7 @@ export function foldItem(
         const msg = base[idx] as TranscriptMessage;
         const updated: TranscriptMessage = {
           ...msg,
-          text: msg.text + event.text,
+          text: event.replace ? event.text : msg.text + event.text,
           ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
           ...(event.attachments?.length
             ? { attachments: [...(msg.attachments ?? []), ...event.attachments] }
@@ -893,12 +893,12 @@ export function foldItem(
     case 'thinking': {
       const id = makeThinkingId(turnId, event.messageId);
       const idx = flatItems.findIndex(
-        (it) => it.kind === 'thinking' && it.id === id && it.status === 'thinking'
+        (it) => it.kind === 'thinking' && it.id === id && (it.status === 'thinking' || event.replace)
       );
       if (idx >= 0) {
         const th = flatItems[idx] as TranscriptThinking;
         return normalizeToolStructure(
-          flatItems.map((it, i) => (i === idx ? { ...th, text: th.text + event.text } : it)),
+          flatItems.map((it, i) => (i === idx ? { ...th, text: event.replace ? event.text : th.text + event.text } : it)),
           turnId
         );
       }
@@ -1043,9 +1043,10 @@ export function foldItem(
       // ⚠️ 这里曾经是 `if (isEditKind(...)) return base` —— 一次还没产出差异的编辑
       // **整个不渲染**:跑着的时候看不见,失败了也看不见(实测 edit + status=failed
       // 一条条目都不留)。差异一到,`upsertFileOperations` 会把这一行换掉,所以照常建。
+      const previous = event.replace ? base.find((item): item is ToolCallItem => isToolCallItem(item) && item.toolCallId === event.toolCallId) : undefined;
       const tool = createToolCallItem({
         id: toolId,
-        seq: nextSeq(base),
+        seq: previous?.seq ?? nextSeq(base),
         toolCallId: event.toolCallId,
         title: event.title,
         toolKind: event.toolKind,
@@ -1059,14 +1060,16 @@ export function foldItem(
         ...(event.images !== undefined ? { images: event.images } : {}),
         ...(event.backgroundTaskId !== undefined
           ? { backgroundTaskId: event.backgroundTaskId }
-          : {}),
+          : previous?.backgroundTaskId !== undefined ? { backgroundTaskId: previous.backgroundTaskId } : {}),
+        ...(previous?.backgroundTaskDone ? { backgroundTaskDone: true } : {}),
         ...(event.terminalId !== undefined ? { terminalId: event.terminalId } : {}),
         ...(event.exitStatus !== undefined ? { exitStatus: event.exitStatus } : {}),
         locations: event.locations,
         // 卡上那句「跑了多久」从这里算起(见 createToolCallItem 的 startedAt)。
-        startedAt: at,
+        startedAt: previous && 'startedAt' in previous && typeof previous.startedAt === 'number' ? previous.startedAt : at,
       });
-      const next = upsertToolCallItem(base, tool);
+      const withoutOldDiffs = event.replace ? base.filter((item) => !isToolCallItem(item) || item.toolCallId !== event.toolCallId || item.id === toolId) : base;
+      const next = upsertToolCallItem(withoutOldDiffs, tool);
       return normalizeToolStructure(next, turnId);
     }
 

@@ -56,9 +56,9 @@ export const realClaudeBridgeDeps: ClaudeBridgeDeps = {
   },
   readBundled() {
     const req = createRequire(join(app.getAppPath(), 'package.json'));
-    const bridgePkg = req(`${BUNDLED_BRIDGE_ALIAS}/package.json`) as { version: string };
+    const bridgePkg = req(`${BUNDLED_BRIDGE_ALIAS}/package.json`) as { version: string; gugu?: { protocolVersion?: number } };
     const compatPkg = req(`${COMPAT_PACKAGE}/package.json`) as { version?: unknown; gugu?: { compat?: unknown } };
-    return { bridgeVersion: bridgePkg.version, compat: compatFromPackageJson(compatPkg) };
+    return { bridgeVersion: bridgePkg.version, protocolVersion: bridgePkg.gugu?.protocolVersion, compat: compatFromPackageJson(compatPkg) };
   },
   async fetchLatestCompat(env) {
     // 走随包的 npm:用户的 registry / 镜像 / 代理配置(.npmrc、npm_config_*)照常生效。

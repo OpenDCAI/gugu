@@ -1,6 +1,7 @@
 import { Writable } from 'node:stream';
 import { ClientSideConnection, ndJsonStream } from '@agentclientprotocol/sdk';
 import { DRAFT_UPDATE_META_KEY } from '@gugu/session-core/acp';
+import { connectStdioAcpV2 } from './acp-v2';
 import type {
   AcpAgentApi,
   AcpClientFactory,
@@ -121,7 +122,8 @@ export function rewriteDraftSessionUpdates(
   });
 }
 
-export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi {
+export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory, protocolVersion: 1 | 2 = 1): AcpAgentApi {
+  if (protocolVersion === 2) return connectStdioAcpV2(io, toClient);
   const stream = ndJsonStream(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
     rewriteDraftSessionUpdates(nodeReadableToWeb(io.stdout))

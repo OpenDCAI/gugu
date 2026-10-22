@@ -81,6 +81,7 @@ export interface RawAcpPermissionResolvedEvent {
 }
 
 export type RawAcpEvent =
+  | { kind: 'prompt_accepted'; sessionId: string; clientMessageId: string; messageId: string }
   | RawAcpSessionUpdateEvent
   | RawAcpPromptEvent
   | RawAcpPromptResultEvent

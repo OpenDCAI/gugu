@@ -1,24 +1,5 @@
-/**
- * 聊天面板用的 Claude 桥接,按**用户自己这份 Claude 的版本**配(#6394)。
- *
- * 桥接(`@gugu-acp/claude-agent-acp`)夹在咕咕与用户自装、会自更新的 Claude 之间。官方的对应关系是
- * 一对一、没有兼容区间;把桥接定死在安装包里,用户的 Claude 一升级就失配 —— 2.1.270 改了「空闲」信号的
- * 节奏,定死的 0.75.1 让被插过消息的回合永不结束。⇒ 桥接跟着 CLI 走,Selenium Manager 那种做法:
- *
- * 1. 读用户这份 Claude 的版本(按路径 + mtime + 大小记住,换了/升级了才重读);
- * 2. 手上的配对表 = 随包的 `@gugu-acp/compat` 与上次联网拿到的那份里**较新**的一份;
- * 3. 只有这份 Claude 比表里知道的都新,才联网取最新的表(同一版本 6 小时内只查一次)。
- *    查表在**后台**:这一次按手上的表选(最新那一版没有上限,新 CLI 落在它身上),查到新桥下一次再用;
- * 4. 按表选出管这个版本的发布:就是随包那份 → 用随包的;否则用缓存里的,没有就下载(npm,随包的 npm CLI)。
- *
- * 下载是**共享的后台任务**:同一版本只装一次,谁先要谁触发,其余的都等同一个结果。只有真会话启动
- * (`wait`)才等它,并经 `wait.onWaiting` 把这一步报到启动进度里;模型目录探针这类调用不等 ——
- * 这一次用随包的,下载在后台接着跑。
- *
- * 用户看到的、实际在跑的,始终是他自己装的那份 Claude(`CLAUDE_CODE_EXECUTABLE`);这里只换桥接。
- * 任何一步失败都退回随包的那份并**响亮记日志** —— 断网、镜像没同步不能让聊天面板起不来,
- * 但也不能悄悄发生。
- */
+/** Claude bridge selection is protocol-strict: only declared v2 releases
+ * are eligible, and any failed selection or installation is an error. */
 import { join } from 'node:path';
 import { createLogger } from '../../../../../lib/logger';
 import {
@@ -31,13 +12,13 @@ import {
 
 const log = createLogger('acp-bridge/claude');
 
-export const CLAUDE_BRIDGE_KEY = 'claude-agent-acp';
+export const CLAUDE_BRIDGE_KEY = 'claude-agent-acp-v2';
 
 export type ClaudeBridgeDeps = {
   /** 用户这份 Claude 的 `--version`;读不出 = null。 */
   probeCliVersion(cliPath: string, env: Record<string, string>): Promise<string | null>;
   /** 随包的桥接版本 + 随包的配对表。 */
-  readBundled(): { bridgeVersion: string; compat: VersionedCompat };
+  readBundled(): { bridgeVersion: string; protocolVersion?: number; compat: VersionedCompat };
   /** 联网取最新的 `@gugu-acp/compat`。 */
   fetchLatestCompat(env: Record<string, string>): Promise<VersionedCompat>;
   readCache(cacheDir: string): { compat: VersionedCompat | null; lastCheck: CompatCheck | null };
@@ -63,15 +44,11 @@ export type BridgeWait = {
 };
 
 /** 按安装目录合并的下载:同一版本只装一次。结果 = 装没装成;失败在任务里记一次日志。 */
-const installs = new Map<string, Promise<boolean>>();
+const installs = new Map<string, Promise<void>>();
 /** 按「缓存目录 × CLI 版本」合并的后台查表。 */
 const refreshes = new Map<string, Promise<void>>();
 
-/**
- * 这次该用哪份桥接。返回入口路径;返回 `undefined` = 用随包的那份。❌ 不抛:
- * 起不来的聊天面板比「这一轮用了随包的桥接」更糟,但每一次退回都在日志里说清为什么。
- * `wait` 只给真会话启动:要配的那一版还没下完就等它;不给 = 不等,先用随包的。
- */
+/** Resolve the declared v2 release, awaiting its installation when necessary. */
 export async function resolveClaudeBridgeEntry(opts: {
   cliPath: string;
   env: Record<string, string>;
@@ -80,40 +57,25 @@ export async function resolveClaudeBridgeEntry(opts: {
   wait?: BridgeWait;
 }): Promise<string | undefined> {
   const { cliPath, env, cacheDir, deps, wait } = opts;
-  let bundled: ReturnType<ClaudeBridgeDeps['readBundled']>;
-  try {
-    bundled = deps.readBundled();
-  } catch (error) {
-    log.warn({ err: String(error) }, 'bundled bridge or compat table unreadable; using the bundled bridge');
-    return undefined;
-  }
-  const cache = safeReadCache(deps, cacheDir);
+  const bundled = deps.readBundled();
+  const cache = deps.readCache(cacheDir);
   const known = newerCompat(bundled.compat, cache.compat)!;
-
-  const cliVersion = await deps.probeCliVersion(cliPath, env).catch(() => null);
-  if (!cliVersion) {
-    log.warn({ cliPath }, 'could not read the Claude CLI version; using the bundled bridge');
-    return undefined;
-  }
-
+  const cliVersion = await deps.probeCliVersion(cliPath, env);
+  if (!cliVersion) throw new Error('Could not read the Claude CLI version');
   const bridge = known.table.bridges[CLAUDE_BRIDGE_KEY];
-  if (!bridge) {
-    log.warn({ compatVersion: known.compatVersion }, 'compat table has no claude bridge; using the bundled bridge');
-    return undefined;
-  }
-
+  if (!bridge) throw new Error('The compatibility table has no Claude bridge');
   if (shouldRefreshCompat({ bridge, cliVersion, lastCheck: cache.lastCheck, now: deps.now() })) {
     refreshCompatInBackground({ cliVersion, env, cacheDir, deps, cachedCompat: cache.compat });
   }
-
-  const pick = pickRelease(bridge, cliVersion);
+  const releases = bridge.releases.filter((release) => release.protocolVersion === 2);
+  if (releases.length === 0) throw new Error('The compatibility table has no ACP v2 Claude bridge release');
+  const pick = pickRelease({ ...bridge, releases }, cliVersion);
   const version = pick.release.version;
   const facts = { cliVersion, bridgeVersion: version, reason: pick.reason, compatVersion: known.compatVersion };
-  if (pick.reason === 'below-lowest') {
-    log.warn(facts, 'Claude CLI is older than every release in the compat table; using the lowest release');
-  }
+  if (pick.reason === 'below-lowest') throw new Error(`No ACP v2 Claude bridge supports CLI ${cliVersion}`);
   if (version === bundled.bridgeVersion) {
-    log.info(facts, 'claude bridge paired: bundled');
+    if (bundled.protocolVersion !== 2) throw new Error(`Bundled Claude bridge ${version} does not declare ACP v2`);
+    log.info(facts, 'claude v2 bridge paired: bundled');
     return undefined;
   }
 
@@ -123,20 +85,14 @@ export async function resolveClaudeBridgeEntry(opts: {
     return entry;
   }
   const spec = `${bridge.package}@${version}`;
-  const installed = ensureInstalled({ spec, entry, destDir: join(cacheDir, `${CLAUDE_BRIDGE_KEY}@${version}`), env, deps, facts });
-  if (!wait) {
-    log.info({ ...facts, entry }, 'paired claude bridge is still downloading; this caller uses the bundled bridge');
-    return undefined;
-  }
-  wait.onWaiting(spec);
-  let ok: boolean;
+  const installed = ensureInstalled({ spec, entry, destDir: join(cacheDir, `${CLAUDE_BRIDGE_KEY}@${version}`), env, deps });
+  wait?.onWaiting(spec);
   try {
-    ok = await installed;
+    await installed;
   } finally {
-    wait.onSettled();
+    wait?.onSettled();
   }
-  if (!ok) return undefined; // 原因已由下载任务记过一次
-  log.info({ ...facts, entry }, 'claude bridge paired: downloaded');
+  log.info({ ...facts, entry }, 'claude v2 bridge paired: downloaded');
   return entry;
 }
 
@@ -147,24 +103,15 @@ function ensureInstalled(opts: {
   destDir: string;
   env: Record<string, string>;
   deps: ClaudeBridgeDeps;
-  facts: Record<string, unknown>;
-}): Promise<boolean> {
-  const { spec, entry, destDir, env, deps, facts } = opts;
+}): Promise<void> {
+  const { spec, entry, destDir, env, deps } = opts;
   const running = installs.get(entry);
   if (running) return running;
-  const task = deps.installBridge(spec, destDir, env).then(
-    () => {
-      if (deps.exists(entry)) return true;
-      log.warn({ ...facts, entry }, 'paired claude bridge installed but its entry is missing; using the bundled bridge');
-      return false;
-    },
-    (error: unknown) => {
-      log.warn({ ...facts, err: String(error) }, 'could not download the paired claude bridge; using the bundled bridge');
-      return false;
-    },
-  );
+  const task = deps.installBridge(spec, destDir, env).then(() => {
+    if (!deps.exists(entry)) throw new Error(`Installed Claude v2 bridge entry is missing: ${spec}`);
+  });
   installs.set(entry, task);
-  void task.finally(() => installs.delete(entry));
+  void task.then(() => installs.delete(entry), () => installs.delete(entry));
   return task;
 }
 
@@ -193,15 +140,6 @@ function refreshCompatInBackground(opts: {
   });
   refreshes.set(key, task);
   void task.finally(() => refreshes.delete(key));
-}
-
-function safeReadCache(deps: ClaudeBridgeDeps, cacheDir: string): ReturnType<ClaudeBridgeDeps['readCache']> {
-  try {
-    return deps.readCache(cacheDir);
-  } catch (error) {
-    log.warn({ err: String(error) }, 'bridge cache unreadable; ignoring it');
-    return { compat: null, lastCheck: null };
-  }
 }
 
 function safeWriteCache(deps: ClaudeBridgeDeps, cacheDir: string, data: Parameters<ClaudeBridgeDeps['writeCache']>[1]): void {

@@ -64,6 +64,8 @@ export interface ParserState {
   pendingModeId: string | null;
   segment: SegmentState;
   agents: AgentState[];
+  /** Per-message child content, retained independently of foreground turns. */
+  childMessages: Record<string, Record<string, { output?: string; reasoning?: string }>>;
   plan: PlanState | null;
   /**
    * True between `replay_start` and `replay_end`.
@@ -121,6 +123,7 @@ export function initialState(): ParserState {
     pendingModeId: null,
     segment: initialSegment(),
     agents: [],
+    childMessages: {},
     plan: null,
     replaying: false,
   };
@@ -478,6 +481,10 @@ function canonicalizeSubagentIdentity(
   event: NormalizedEvent,
   agents: readonly AgentState[]
 ): NormalizedEvent {
+  if ((event.kind === 'subagent_update' || event.kind === 'subagent_done') && event.subagentSessionId) {
+    const owner = agents.find((agent) => agent.subagentSessionId === event.subagentSessionId);
+    if (owner) return { ...event, agentId: owner.agentId, toolCallId: owner.toolCallId };
+  }
   if (event.kind === 'subagent' && !event.subagentSessionId && event.agentId) {
     const owner = agents.find((agent) => agent.subagentSessionId === event.agentId);
     if (owner && owner.toolCallId !== event.toolCallId) {
@@ -510,11 +517,27 @@ function reduceSubagentStream(
   const launch = active && findToolCallNode(active.items, owner.toolCallId) ? active
     : s.transcript.committed.find((turn) => findToolCallNode(turn.items, owner.toolCallId));
 
+  if (inner.kind === 'subagent' && inner.associationOnly) {
+    return { ...s, agents: updateAgentSlice(s.agents, inner, launch?.id ?? null, at) };
+  }
+
   if (inner.kind === 'message' || inner.kind === 'thinking') {
     if (inner.kind === 'message' && inner.role !== 'assistant') return s;
     const field = inner.kind === 'thinking' ? 'reasoning' : 'output';
-    const value = (owner[field] ?? '') + inner.text;
-    return { ...s, agents: s.agents.map((agent) => agent === owner ? { ...agent, [field]: value } : agent) };
+    if (!inner.messageId) {
+      const value = inner.replace ? inner.text : (owner[field] ?? '') + inner.text;
+      return { ...s, agents: s.agents.map((agent) => agent === owner ? { ...agent, [field]: value } : agent) };
+    }
+    const messages = owner.output === undefined && owner.reasoning === undefined
+      ? {} : s.childMessages[stream.subagentSessionId] ?? {};
+    const previous = messages[inner.messageId] ?? {};
+    const text = inner.replace ? inner.text : (previous[field] ?? '') + inner.text;
+    const next = { ...messages, [inner.messageId]: { ...previous, [field]: text } };
+    const value = Object.values(next).map((message) => message[field] ?? '').join('');
+    return { ...s,
+      childMessages: { ...s.childMessages, [stream.subagentSessionId]: next },
+      agents: s.agents.map((agent) => agent === owner ? { ...agent, [field]: value } : agent),
+    };
   }
 
   switch (inner.kind) {
@@ -963,12 +986,45 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
         : decodeSessionUpdate(input.update);
   const event = canonicalizeSubagentIdentity(decoded, s.agents);
 
+  if (event.kind === 'tool_call' && event.replace) {
+    const index = s.transcript.committed.findIndex((turn) => findToolCallNode(turn.items, event.toolCallId));
+    if (index >= 0) {
+      const committed = s.transcript.committed.map((turn, i) => i === index
+        ? { ...turn, items: foldItem(turn.items, event, turn.id, input.at) } : turn);
+      return { ...s, transcript: { ...s.transcript, committed } };
+    }
+  }
+
+  // A v2 entity snapshot can update a message after its foreground work ended.
+  // Keep that entity in its original turn instead of opening another one.
+  if ((event.kind === 'message' || event.kind === 'thinking') && event.replace && event.messageId) {
+    const messageId = event.messageId;
+    const index = s.transcript.committed.findIndex((turn) => {
+      const id = event.kind === 'message'
+        ? makeMessageId(turn.id, messageId, event.role)
+        : makeThinkingId(turn.id, messageId);
+      return turn.items.some((item) => item.id === id);
+    });
+    if (index >= 0) {
+      const committed = s.transcript.committed.map((turn, i) => i === index
+        ? { ...turn, items: foldItem(turn.items, { ...event, messageId } as FoldEvent, turn.id, input.at) }
+        : turn);
+      return { ...s, transcript: { ...s.transcript, committed } };
+    }
+  }
+
   if (event.kind === 'subagent_done' && event.subagentSessionId) {
     const previous = s.agents.find((agent) => agent.subagentSessionId === event.subagentSessionId);
     if (previous?.status === toAgentStatus(event.status) && (!event.summary || previous.summary === event.summary)) return s;
   }
 
   if (event.kind === 'subagent_stream') return reduceSubagentStream(s, event, input.at, deps);
+  if (event.kind === 'subagent' && event.associationOnly) {
+    const active = s.transcript.active;
+    const launch = active && findToolCallNode(active.items, event.toolCallId) ? active
+      : s.transcript.committed.find((turn) => findToolCallNode(turn.items, event.toolCallId));
+    return { ...s, agents: updateAgentSlice(s.agents, event, launch?.id ?? null, input.at) };
+  }
 
   switch (event.kind) {
     case 'config': {
@@ -1099,10 +1155,8 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     resolvedEvent = target;
   }
 
-  // 后台任务的归属/落定要改的那张卡,多半**不在当前轮**:这是协议本意 —— 0.75.1 只为
-  // **子智能体**推迟收口(`Turn.deferredSettle`,源码注释「held for background subagents it
-  // spawned」),后台 Bash 的轮当场收口,终态之后单独到根会话(真机 `raw-aae46e84.json`:
-  // 派发后 9 秒 end_turn,60 秒后才到 `async_task_state_update`)。fold 只认当前轮,找不到就
+  // 后台任务的归属/落定要改的那张卡,多半**不在当前轮**:前台结束之后后台仍独立运行。
+  // fold 只认当前轮,找不到就
   // 新建一行 —— 那一行就是 owner 2026-09-07 截图里凭空多出的「工具」,而真正该改的卡一直没动,
   // 摘要栏那张 `sleep 60` 于是永远在跑。⇒ 卡在已落定的轮里就**就地改它**,不进 fold。
   //
