@@ -1984,7 +1984,7 @@ async function resolvePlatformModelForSession(input: PlatformModelForSessionInpu
   // pins it on the visible TUI from the same app-server argv (codexTuiModelSelectionArgs, #6264).
   const visibleProviderArgs = contract
     && hasCredentialSink(contract, 'visibleClient', 'providerConfigArgs')
-    ? codexPlatformProviderArgs(platformProvider, modelCapability?.platformCallableRoutes)
+    ? codexPlatformProviderArgs(platformProvider, modelCapability?.platformCallableRoutes, modelCapability?.model)
     : []
 
   const result: SessionpagePlatformModel = {

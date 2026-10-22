@@ -101,8 +101,8 @@ export function CreateGroupChatForm({ onClose, onCreated, initialName, initialSe
     !q || [c.display_name, c.alias ?? '', c.agent_type ?? ''].join(' ').toLocaleLowerCase().includes(q)
   // @@@1761 云 agent 禁入群(密钥短时凭据化+群协议基建补齐前的止血):选择器直接不出现。
   // isCloudAgentMarked 双标记判定——好友的云 agent 没有 agent_type 富化,单看它会漏(review F3)。
-  // 只列自己名下的 agent:别人的 agent 要它的主人同意才能进群(product spec),建群时直接拉会被库拒。
-  const agents = contacts.filter((c) => c.type === 'agent' && !isCloudAgentMarked(c) && c.owner_user_id === currentUserId && match(c))
+  // 自有 agent 直接加入，公开的外部 agent 在建群后发送给主人接受的邀请。
+  const agents = contacts.filter((c) => c.type === 'agent' && !isCloudAgentMarked(c) && (c.owner_user_id === currentUserId || c.agent_public === true) && match(c))
   const humans = contacts.filter((c) => c.type !== 'agent' && match(c))
   const selectedContacts = contacts.filter((c) => selected.has(c.id))
 

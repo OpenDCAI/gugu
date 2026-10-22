@@ -1,10 +1,11 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { PermissionBand } from '@gugu/session-ui/react/components';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
 // TODO(conversations-extraction): Pass task context actions into the panel as composition.
 import { ContextBar } from '@renderer/features/sessions/context-bar/context-bar';
 // TODO(conversations-extraction): Pass task scope into conversations instead of importing task hooks.
@@ -123,10 +124,13 @@ export const SessionsPanel = observer(function SessionsPanel() {
   }, [sessionStatus]);
 
   // State-driven notification clearing: mark the active conversation as seen
-  // whenever this task view is the active route and the conversation has an
-  // unseen status. This covers the split-pane case where the same tab stays
-  // active — the engine's onActivate() only fires on tab identity changes.
-  useMarkSeenWhenShown(activeSession, isActive);
+  // whenever it is on screen and has an unseen status. This covers the
+  // split-pane case where the same tab stays active — the engine's onActivate()
+  // only fires on tab identity changes.
+  // 「在屏上」= 这一页看得见(PageShownContext:主窗那页、屏上的每一块、单独的窗、页签窗),与聊天那条腿同一个
+  // 判据(acp-chat-panel)。❌ isActive(只认主窗路由的那一页):摆在别的块里、开在窗里的终端会话看着也一直未读。
+  // isActive 只管键盘焦点给谁。
+  useMarkSeenWhenShown(activeSession, useContext(PageShownContext));
 
   const hideContextBarTrigger = interfaceSettings?.hideContextBar ?? false;
 

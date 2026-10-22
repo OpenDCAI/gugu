@@ -211,13 +211,15 @@ export function SidePanelSplit({
         />
       ) : null}
       {/* 收起动画放完之前不卸载,否则面板会在收到一半时凭空消失;两栏并排时它是流内元素,
-          盖着聊天栏时出流、贴右缘浮在上面(同一个元素只换定位,里面的网页与终端不重挂)。 */}
+          盖着聊天栏时出流、贴右缘浮在上面(同一个元素只换定位,里面的网页与终端不重挂)。
+          盖住聊天栏靠的是 DOM 顺序加聊天栏的 isolate,❌ 别给它 z-index:App 页住在栏外那层
+          z-index:5 的 fixed 层里、只是摆到这一格上,群聊页的右栏一抬高就整块盖住它,看不见也点不到。 */}
       <motion.aside
         data-testid="session-workspace-panel"
         data-app-shell-focus-area="right-panel"
         className={cn(
           'h-full min-h-0 shrink-0 overflow-hidden',
-          covering ? 'absolute inset-y-0 right-0 z-10' : 'relative',
+          covering ? 'absolute inset-y-0 right-0' : 'relative',
           !isPanelMounted && 'pointer-events-none'
         )}
         style={{ width: covering ? coverWidth : animatedWidth }}

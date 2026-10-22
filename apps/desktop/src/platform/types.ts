@@ -88,6 +88,7 @@ export interface AppPlatform {
    * ⚠️ 为什么不能用 `document.visibilityState` 代替:「后台守着」(setBackgroundWatch)开着时,
    * 前台服务会持续告诉 WebView「你还看得见」(否则 Chromium 冻掉页面里的定时器),
    * 于是 App 明明在后台,页面仍然自称 visible。只有宿主自己知道真相。
+   * 桌面同理:主窗关了 backgroundThrottling,最小化、被遮住、切到别的应用时页面照样 visible(main.ts @@@app-active)。
    * 宿主答不上来就不实现它,调用方退回 visibilityState —— 那是没有前台服务的宿主,不会被骗。
    */
   subscribeAppActive?: (listener: (active: boolean) => void) => () => void

@@ -1,6 +1,6 @@
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { rendererLogger } from '@/lib/log';
 import {
   getSessionManagerStore,
@@ -102,11 +102,30 @@ function SessionErrorScreen({
 }
 
 export const SessionMainPanel = observer(function SessionMainPanel() {
+  const { projectId, sessionId } = useSessionViewContext();
+  const kind = sessionViewKind(getSessionPageStore(projectId, sessionId), projectId);
+  useLoadingSpanStopwatch(kind, projectId, sessionId);
+  return (
+    <SessionContentGate>
+      <ReadySessionMainPanel />
+    </SessionContentGate>
+  );
+});
+
+/**
+ * 会话的内容(页签、终端、文件、对话)只在会话 ready 时画:它们读工作区,而工作区只在 ready 时在
+ * (`useWorkspaceId` 等读不到就抛)。没 ready 的每一档在这里换成它自己那一屏 —— 正在准备、出错、正在唤醒。
+ *
+ * **每个画会话内容的地方都经过这一道**:会话页(上面的 SessionMainPanel)、单独成窗的页签(WindowTabPane)。
+ * 会话离开 ready 不只发生在打开之前:闲置回收把它挂起成「没准备」时,它的页签还开着。❌ 哪个界面绕过这一道
+ * 直接画 PaneContent:那一刻它拿着一条没有工作区的会话去画内容,错误冒到应用根上,整个应用崩成「出现问题」
+ * (2026-10-22 owner 实测:页签开在新窗口里审阅,会话被回收,「useWorkspaceId: session has no workspace」)。
+ */
+export const SessionContentGate = observer(function SessionContentGate({ children }: { children: ReactNode }) {
   const { translate } = useSessionMessages();
   const { projectId, sessionId } = useSessionViewContext();
   const sessionPageStore = getSessionPageStore(projectId, sessionId);
   const kind = sessionViewKind(sessionPageStore, projectId);
-  useLoadingSpanStopwatch(kind, projectId, sessionId);
   // 要画这条会话、它的项目还没挂:挂上(别的机器上的项目只在用到时挂;那台机器没连上就等它连上)。
   useEffect(() => {
     if (kind !== 'project-mounting') return;
@@ -212,7 +231,7 @@ export const SessionMainPanel = observer(function SessionMainPanel() {
     return null;
   }
 
-  return <ReadySessionMainPanel />;
+  return children;
 });
 
 const ReadySessionMainPanel = observer(function ReadySessionMainPanel() {

@@ -47,6 +47,7 @@ interface Window {
     syncThemePreference?: (preference: 'light' | 'dark' | 'system') => 'light' | 'dark' | null
     relaunchApp: () => Promise<void>
     onAppForeground: (callback: () => void) => () => void
+    subscribeAppActive: (callback: (active: boolean) => void) => () => void
     showNotification: (payload: { title: string; body?: string; chatId?: string | null }) => Promise<unknown>
     getLocalDeviceSelfSnapshot: () => Promise<unknown>
     releaseOwnedAgentLocalFootprint: (agentUserId: string) => Promise<unknown>

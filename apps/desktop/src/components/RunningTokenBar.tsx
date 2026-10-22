@@ -1,5 +1,5 @@
 // @@@1696 统一运行态运行条：单聊/群聊共用同一「运行 token」= [头像]{名}{流光状态词}。
-// DM = 1 个 token（退化态）；群聊 = 多 token 单行，排不下 → +N（hover 展开卡，去术语）。
+// DM = 1 个 token（退化态）；群聊 = 多 token 单行，手机横滚，桌面排不下 → +N。
 // 消除 DM 三跳点 vs GroupAgentStatusBar(群聊竖排文字+工具名) 双轨(两者都已删)。
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
 import { useEffect, useId, useRef, useState } from 'react'
@@ -27,7 +27,7 @@ export interface RunningToken {
 
 export interface RunningTokenBarProps {
   tokens: RunningToken[]
-  /** 单行最多显示几个 token，其余进 +N；DM 传 1，群聊传 GROUP_AGENT_BAR_MAX。 */
+  /** 桌面单行最多显示几个 token，其余进 +N；手机全部横滚。DM 传 1，群聊传 GROUP_AGENT_BAR_MAX。 */
   cap: number
   onTokenClick?: (id: string) => void
   /** 兼容既有 e2e/testid：DM 传 'agent-running-status'，群聊传 'group-agent-running-status'。 */
@@ -39,6 +39,8 @@ export interface RunningTokenBarProps {
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
 .rtb-bar{display:flex;align-items:center;gap:16px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
+.rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
 .rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-tok[data-clickable=true]{cursor:pointer}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
@@ -160,9 +162,11 @@ function MoreOverflow({
 
 export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
+  const mobile = useMobileShell()
   if (tokens.length === 0) return null
-  const shown = tokens.slice(0, cap)
-  const overflow = tokens.slice(cap)
+  const visible = mobile ? tokens.length : cap
+  const shown = tokens.slice(0, visible)
+  const overflow = tokens.slice(visible)
   return (
     <div data-testid={testId} style={{ flexShrink: 0 }}>
       <style>{STYLE}</style>
@@ -171,7 +175,7 @@ export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChat
         if (details.reason === 'trigger-press') details.cancel()
       }}>
         {({ payload: token }) => <>
-          <div className="rtb-bar">
+          <div className="rtb-bar" data-mobile={mobile}>
             {shown.map((t, i) => (
               <RunningTokenItem key={t.id} token={t} index={i} onTokenClick={onTokenClick} preview={handle} />
             ))}

@@ -21,6 +21,7 @@ import {
   safeStorage,
   screen,
   desktopCapturer,
+  webContents,
   type OpenDialogOptions
 } from 'electron'
 import { listAgents, listDevices, listReapedAgents, provisionSessionpageAgentOneTrip, resolveMachineHardwareId, type DeviceTableClient, type RuntimeAuthProvider } from '@gugu/core'
@@ -77,6 +78,7 @@ import { isWindowMenuCommand } from '../shared/window-menu-commands'
 import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
+import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -1332,6 +1334,50 @@ function loadMainWindowContents(): void {
 }
 
 /**
+ * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(前提与边界见 macWebAuthn.ts 头注释)。只在包里嵌着描述文件时打开;
+ * 要在界面语言定下之后调用 —— 系统指纹框里那句「正在尝试…」用的是它。
+ */
+function enableMacTouchIdPasskeys(): void {
+  if (process.platform !== 'darwin' || !app.isPackaged) return
+  const logger = createLogger('webauthn')
+  const profilePath = join(dirname(process.execPath), '..', 'embedded.provisionprofile')
+  // 描述文件是 CMS 包着的 plist,按 latin1 读,里面那段 XML 原样可见(只取 ASCII 的应用 ID)。
+  const keychainAccessGroup = webAuthnKeychainGroup(existsSync(profilePath) ? readFileSync(profilePath, 'latin1') : null)
+  if (!keychainAccessGroup) {
+    logger.info('包里没有嵌描述文件(开发版 / 验收包 / ad-hoc 包),不开 Touch ID 通行密钥')
+    return
+  }
+  // 指纹框里那句交给系统后就定了,改界面语言要下次启动才跟上;选账号的对话框每次弹时现取(见下)。
+  app.configureWebAuthn({ touchID: { keychainAccessGroup, promptReason: currentHostCatalog().webAuthn.touchIdReason } })
+  logger.info({ keychainAccessGroup }, 'Touch ID 通行密钥已开')
+
+  // 同一网站存着多把:不接这个事件,请求就被当成取消(恰好回调一次、看不见就不问,见 createSelectAccountHandler)。
+  // 事件挂在 session 上,而内置浏览器每个档案一个 session、用到才建 ⇒ 默认那个现在挂,之后建的在 session-created 里挂。
+  const handle = createSelectAccountHandler<BrowserWindow, Electron.WebFrameMain>({
+    parentFor: (frame) => {
+      const contents = frame ? webContents.fromFrame(frame) : undefined
+      if (!contents || contents.isDestroyed()) return null
+      // 内置浏览器的网页是摆在咕咕窗口上(或停在看不见的停放窗里)的 view ⇒ 由会话页说它此刻露在哪扇窗上;
+      // 其余网页(咕咕自己的窗口)就是拥有它的那扇窗。
+      const page = loadEmdashBridge()?.emdashVisibleHostOfPage(contents)
+      if (page !== undefined) return page
+      const owner = BrowserWindow.fromWebContents(contents)
+      return owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() ? owner : null
+    },
+    copy: () => currentHostCatalog().webAuthn.chooseAccount,
+    ask: async (parent, options) => (await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })).response,
+    warn: (message, error) => logger.warn({ err: error }, message),
+  })
+  const onSelectAccount = (
+    _event: Electron.Event,
+    details: Electron.SelectWebauthnAccountDetails,
+    callback: (credentialId?: string | null) => void,
+  ): void => handle(details, callback)
+  session.defaultSession.on('select-webauthn-account', onSelectAccount)
+  app.on('session-created', (created) => created.on('select-webauthn-account', onSelectAccount))
+}
+
+/**
  * 连着崩到上限:当面问 —— 重新载入还是退出。窗口可能正收在托盘里,先让它露面:
  * ❌ 把对话框挂在看不见的窗口上,那等于没问,本机 agent 的令牌也一直签不出来。
  */
@@ -1963,6 +2009,14 @@ ipcMain.on('window:maximize', (event) => {
 })
 ipcMain.on('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
 ipcMain.handle('window:isMaximized', (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false)
+// @@@app-active 「App 在前台」= 咕咕有一扇窗口拿着焦点(快速聊天小窗也是主窗渲染层画的,它在前台也算)。
+// 渲染层的 visibilityState 答不了这个:主窗关了 backgroundThrottling,最小化、被遮住、切到别的应用时页面照样 visible,
+// 眼前那条会话就永远不弹通知、新消息一到就被标成已读(lib/onScreenChat.ts 读的就是这里)。
+const isAppActive = (): boolean => BrowserWindow.getFocusedWindow() !== null
+ipcMain.handle('app:is-active', () => isAppActive())
+const sendAppActive = (): void => { mainWindow?.webContents.send('app:active-changed', isAppActive()) }
+app.on('browser-window-focus', sendAppActive)
+app.on('browser-window-blur', sendAppActive)
 // @@@win-titlebar-row — Windows 标题栏「编辑 / 视图」菜单的命令(清单与理由见 window-menu-commands.ts)。
 ipcMain.on('window:menu-command', (event, command: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender)
@@ -4097,6 +4151,11 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), HOST_LOCALE_STATE_FILE),
     app.getPreferredSystemLanguages(),
   )
+  try {
+    enableMacTouchIdPasskeys()
+  } catch (error) {
+    createLogger('webauthn').error({ err: error }, 'Touch ID 通行密钥没开成,内置浏览器照旧(网站会以为这台电脑没有指纹)')
+  }
 
   try {
     const retired = await removeRetiredCodexCapabilityRuns(process.env)

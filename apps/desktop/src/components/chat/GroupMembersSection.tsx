@@ -88,7 +88,7 @@ export function GroupMembersSection({
   currentUserId: string | null
   onReload: () => Promise<void>
   onClose: () => void
-  /** 可能是 async —— await 它,失败才进得了错误行(#1730)。缺省走 chatService.leaveGroup。 */
+  /** 可能是 async —— await 它,失败才进得了错误行(#1730)。缺省走 chatService.removeGroupMember。 */
   onLeaveGroup?: () => void | Promise<void>
   /** 群主解散;同样 await(#1731)。 */
   onDissolveGroup?: () => void | Promise<void>
@@ -175,7 +175,7 @@ export function GroupMembersSection({
       } else if (onLeaveGroup) {
         await onLeaveGroup()
       } else {
-        await chatService.leaveGroup(chatId, currentUserId)
+        await chatService.removeGroupMember(chatId, currentUserId)
         await onReload()
       }
       setConfirmExit(false)

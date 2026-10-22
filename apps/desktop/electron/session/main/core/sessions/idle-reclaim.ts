@@ -31,8 +31,8 @@ export type IdleReclaimDeps = {
   listLive(): LiveSession[];
   /** 会话行的事实;行已不在返回 null。 */
   facts(sessionId: string): SessionFacts | null;
-  /** 正在显示(或最后显示)的会话 —— 人在看,不回收。 */
-  displayedSessionId(): string | null;
+  /** 这条会话在屏上(或是最后显示的那条)—— 人在看,不回收。 */
+  onScreen(sessionId: string): boolean;
   /** 远端桌面此刻看着这条会话(咕咕 server)—— 同样是人在看。 */
   watchedRemotely(sessionId: string): boolean;
   /** 开着终端 shell 的会话(用户自己的进程,卸下挂载会连带停掉)。 */
@@ -78,7 +78,6 @@ export class IdleReclaimer {
     // 进程不在了(被停、退出)的会话不再计时;下次起来重新算。
     for (const id of [...this.idleSince.keys()]) if (!liveIds.has(id)) this.idleSince.delete(id);
 
-    const displayed = this.deps.displayedSessionId();
     const withTerminals = this.deps.sessionsWithLiveTerminals();
     const reclaimed: ReclaimTarget[] = [];
     for (const entry of live) {
@@ -94,7 +93,7 @@ export class IdleReclaimer {
       }
       const idleMs = now - since;
       if (idleMs < IDLE_RECLAIM_AFTER_MS) continue;
-      if (entry.sessionId === displayed || withTerminals.has(entry.sessionId)) continue;
+      if (this.deps.onScreen(entry.sessionId) || withTerminals.has(entry.sessionId)) continue;
       if (this.deps.watchedRemotely(entry.sessionId)) continue;
       if (!facts.resumable || (entry.runtime === 'acp' && !entry.acpAtRest)) continue;
       const target = { projectId: entry.projectId, sessionId: entry.sessionId };

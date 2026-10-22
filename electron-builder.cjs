@@ -193,7 +193,8 @@ if (macProvisioningProfile) {
 /**
  * 主程序的权限 = 公共那份 + 描述文件授权的三项。**只给主程序**:辅助进程(Helper、tmux、原生助手)没有自己的
  * 描述文件,声明受限权限会被系统当场杀掉,所以它们仍用 entitlementsInherit 那份公共的。
- * 钥匙串组取 `<团队>.<Mac 标识>`(描述文件允许 `<团队>.*`),Touch ID 通行密钥存在这一组里。
+ * 钥匙串组取 `<团队>.<Mac 标识>`,外加 Touch ID 通行密钥专用的 `<团队>.<Mac 标识>.webauthn`(Electron 文档的
+ * 惯例写法;运行期 macWebAuthn.ts 按同一规则从描述文件推出它)。描述文件允许 `<团队>.*`。
  */
 function macMainEntitlements() {
   if (!macProvisioningProfile) return macEntitlements
@@ -203,7 +204,7 @@ function macMainEntitlements() {
     '    <!-- @@@7394 描述文件授权的受限权限(由 electron-builder.cjs 按 tier 生成,❌ 手改) -->',
     `    <key>com.apple.application-identifier</key>\n    <string>${appIdentifier}</string>`,
     `    <key>com.apple.developer.team-identifier</key>\n    <string>${teamId}</string>`,
-    `    <key>keychain-access-groups</key>\n    <array>\n      <string>${appIdentifier}</string>\n    </array>`,
+    `    <key>keychain-access-groups</key>\n    <array>\n      <string>${appIdentifier}</string>\n      <string>${appIdentifier}.webauthn</string>\n    </array>`,
   ].join('\n')
   const base = fs.readFileSync(macEntitlements, 'utf8')
   if (!base.includes('  </dict>\n</plist>')) throw new Error(`${macEntitlements} 的结尾变了,生成主程序权限的拼接点对不上`)

@@ -77,6 +77,7 @@ function codexAppServerPlatformArgs(platform: AcpPlatformInjection): string[] {
     // #6921 与 app-server 腿(session-bundle 的 modelArgs)同一个开关:这份 argv 经咕咕的桥原样转给
     // `codex app-server`(`codex-app-server-acp.mjs` 的 inheritedArgs)。
     ...(platform.callableRoutes ? { callableRoutes: platform.callableRoutes } : {}),
+    model: platform.model,
   }));
   return args;
 }

@@ -458,8 +458,11 @@ export default {
     "nameLoading": "Loading…",
     "namePlaceholder": "Group name",
     "picker": {
+      "invitationHint": "Your Agents join directly. Other members join after accepting an invitation.",
+      "sendInvitation": "Send invitation",
       "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
       "agentRequestRejected": "Your last request was declined; you can submit again",
+      "invitationSent": "Sent {{count}} invitations; members join after they or their Agent owner accept",
       "pendingApproval": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
       "pendingApproval_one": "Submitted for approval: {{count}} Agent will join once the owner or an admin approves",
       "pendingApproval_other": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",

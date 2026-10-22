@@ -52,10 +52,18 @@ describe('machine routing (one workbench seam)', () => {
   it('keeps the gugu-preview:// registrations on this computer even with a machine project id', () => {
     const r = registry();
     // 登记表在看界面的这台电脑的主进程里;字节另经 readChunk 去那台机器取(那一条照常路由)。
+    expect(r.route('workspace.files.createDocumentPreview', [P])).toBeNull();
     expect(r.route('workspace.files.createRemotePreview', [{ projectId: P, workspaceId: 'ws', root: '/srv/a' }])).toBeNull();
     expect(r.route('workspace.files.setPreviewDocument', [P, 'ws', 'index.html'])).toBeNull();
     expect(r.route('workspace.files.releasePreview', [P, 'ws'])).toBeNull();
     expect(r.route('workspace.files.readChunk', [P, 'ws', { path: 'a', offset: 0, length: 1 }])).toBe('dev-a');
+  });
+
+  it('keeps the on-screen report on this computer, whichever machines the sessions on screen are on', () => {
+    const r = registry();
+    r.register('dev-b', [C]);
+    // 屏上同时摆着两台机器上的会话:报给的是这台电脑自己的闲置回收,❌ 发去那台机器、❌ 当成「指向几台机器」报错。
+    expect(r.route('sessions.reportSessionsOnScreen', [[P, C, LOCAL_P]])).toBeNull();
   });
 
   it('learns session ids from what the machine returns', () => {

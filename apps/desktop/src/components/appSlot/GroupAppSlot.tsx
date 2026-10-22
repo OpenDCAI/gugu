@@ -650,7 +650,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={pageSlot(slotId, opened)} narrow={mobile}>
-        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={back} onClose={props.onClose} /> : null}
+        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={back} full={props.full} onToggleFull={props.onToggleFull} onClose={props.onClose} /> : null}
         {desktop ? opened?.file ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />

@@ -128,7 +128,7 @@ describe('#6077 chat.message_wakes_agent 真值表(纯谓词,无夹具)', () => 
     ['无点名 · 群 · active', ['B', 'active', 'all', 'group', 'H', false, false, null, false, null], true],
     ['无点名 · 话题 · active', ['B', 'active', 'all', 'topic', 'H', false, false, null, false, null], true],
     ['无点名 · passive 不醒', ['B', 'passive', 'all', 'group', 'H', false, false, null, false, null], false],
-    ['无点名 · 私聊没有「场所」', ['B', 'active', 'all', 'dm', 'H', false, false, null, false, null], false],
+    ['unaddressed human DM names the peer (gugu-supabase #14)', ['B', 'active', 'all', 'dm', 'H', false, false, null, false, null], true],
     ['无点名 · agent 发的不唤醒人(#1671)', ['B', 'active', 'all', 'group', 'A', true, false, null, false, null], false],
     ['@A · A 是 passive 也醒', ['A', 'passive', 'all', 'group', 'H', false, false, ['A'], false, null], true],
     ['@A · 旁观的 active B 不醒(#6077)', ['B', 'active', 'all', 'group', 'H', false, false, ['A'], false, null], false],

@@ -118,7 +118,14 @@ function fakeChat() {
         if (!answer.error && (answer.data as { status?: string } | undefined)?.status === 'joined') {
           groups.get(String(args.p_chat_id))?.members.set(String(args.p_agent_user_id), { listen_mode: 'mention' })
         }
-        return answer
+        return { ...answer, data: answer.data ? { ...answer.data as Record<string, unknown>, chat_id: String(args.p_chat_id) } : answer.data }
+      }
+      if (name === 'set_agent_listen_mode_as') {
+        const chatId = String(args.p_chat_id), userId = String(args.p_agent_user_id), mode = String(args.p_mode)
+        memberUpdates.push({ chatId, userId, patch: { listen_mode: mode } })
+        const member = groups.get(chatId)?.members.get(userId)
+        if (member) member.listen_mode = mode
+        return { data: { chat_id: chatId, user_id: userId, listen_mode: mode }, error: null }
       }
       return { data: null, error: null }
     },
@@ -371,7 +378,7 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
     }
     const result = await (await makeHost()).bindToGroup(subjectA, 'chat-raced')
     expect(result).toMatchObject({ success: true, data: { movedAgents: 1 } })
-    expect(rpcCalls.map((c) => c.name), '建群撞主键之后走了「加人」那一支').toEqual(['create_gugu_group', 'add_group_agent'])
+    expect(rpcCalls.map((c) => c.name), '建群撞主键之后走了「加人」那一支').toEqual(['create_gugu_group', 'add_group_agent', 'set_agent_listen_mode_as'])
     expect(groups.get('chat-raced')?.members.get('agent-1')?.listen_mode).toBe('active')
     expect(pinOf('agent-1')).toBe('chat-raced')
   })
@@ -487,18 +494,19 @@ describe('操作 agent 的项目群公告权限', () => {
     expect(agent).toEqual(before)
     expect(memberUpdates).toEqual([])
   })
-  it('已有群只补当前成员,重复调用不再加人', async () => {
-    seedGroup('chat-new')
+  it('an existing member may announce repeatedly without any join mutation', async () => {
+    seedGroup('chat-new', { members: [OWNER, 'caller'] })
     const { ensureProjectNoticeAccess } = await import(SUT)
     await ensureProjectNoticeAccess(auth, 'caller', project)
     await ensureProjectNoticeAccess(auth, 'caller', project)
-    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(1)
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(0)
   })
-  it('待审批没有被伪报成可以公告', async () => {
+  it('an absent Agent is not silently re-added, including while approval is pending', async () => {
     seedGroup('chat-new')
     addGroupAgent = () => ({ data: { status: 'pending_approval' }, error: null })
     const { ensureProjectNoticeAccess } = await import(SUT)
-    await expect(ensureProjectNoticeAccess(auth, 'caller', project)).rejects.toThrow('等待审批')
+    await expect(ensureProjectNoticeAccess(auth, 'caller', project)).rejects.toThrow('明确重新加入')
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(0)
   })
 })
 

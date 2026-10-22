@@ -63,6 +63,7 @@ export function codexPlatformProviderArgs(
   platformProvider: SessionModelCapability['platformProvider'],
   /** #6921 同一份声明的出图开关;与 app-server / ACP 那两份逐字相同,❌ 让可见客户端说另一种话。 */
   callableRoutes: SessionModelCapability['platformCallableRoutes'],
+  model: SessionModelCapability['model'],
 ): string[] {
   const block = codexPlatformProviderBlock(platformProvider);
   if (!block) return [];
@@ -71,6 +72,7 @@ export function codexPlatformProviderArgs(
     providerName: block.name,
     baseUrl: block.base_url,
     ...(callableRoutes ? { callableRoutes } : {}),
+    ...(model ? { model } : {}),
   });
 }
 
@@ -150,7 +152,7 @@ export const platformModel: IPlatformModelBehavior = {
     if (positiveWindow(model.contextWindow)) {
       extraArgs.push('-c', `model_context_window=${model.contextWindow}`);
     }
-    extraArgs.push(...codexPlatformProviderArgs(model.platformProvider, model.platformCallableRoutes));
+    extraArgs.push(...codexPlatformProviderArgs(model.platformProvider, model.platformCallableRoutes, model.model));
     return extraArgs.length > 0 ? { extraArgs } : {};
   },
 };

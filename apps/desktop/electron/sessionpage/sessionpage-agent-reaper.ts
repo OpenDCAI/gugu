@@ -1,3 +1,4 @@
+import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — DELETION SYNC (spec ⑨「删除必同步」, owner: 千万不要只同步增、不同步删).
 // Provisioning mirrors a session-page conversation INTO gugu's social side (an agent contact, and for a
 // project-scoped conversation a member seat in the group mirroring that project). This module mirrors the
@@ -407,8 +408,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       }
       // gugu has no group hard-delete (chat.chats has no DELETE policy — owner/admin may only UPDATE), so
       // removing a group means archiving it. Honest about the real capability rather than faking a delete.
-      const { error } = await chat.from('chats').update({ status: 'archived' }).eq('id', chatId)
-      if (error) throw new Error(error.message)
+      await createGroupAdmin(chat, reaperUserId).archive(chatId)
       archivedGroups++
       // 项目没了、群已归档 → 忘掉「项目 → 群」的映射,否则同 id 项目再出现时会复用一个归档群。
       await forgetDeadProjects(projectIds)
@@ -431,7 +431,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       continue
     }
     try {
-      await reapAgent(agent, { chat, deviceId, accessToken: auth.accessToken, env, deps })
+      await reapAgent(agent, { chat, deviceId, accessToken: auth.accessToken, ownerUserId: auth.userId, env, deps })
       reapedAgents++
       console.log(
         `[sessionpage-reap] reaped agent ${agent.name} (${agent.guguUserId}) — session-page session ${agent.sessionId} is gone`,
@@ -505,6 +505,7 @@ async function reapAgent(
     chat: ReturnType<typeof makeChatClient>
     deviceId: string | null
     accessToken: string
+    ownerUserId: string
     env: NodeJS.ProcessEnv
     deps: SessionpageReapDeps
   },
@@ -549,12 +550,7 @@ async function reapAgent(
         throw new Error(`cleanup group seat ${agent.chatId}: ${error.message}`)
       }
     } else {
-      const { error } = await ctx.chat
-        .from('chat_members')
-        .delete()
-        .eq('chat_id', agent.chatId)
-        .eq('user_id', agent.guguUserId)
-      if (error) throw new Error(`leave group ${agent.chatId}: ${error.message}`)
+      await createGroupAdmin(ctx.chat, ctx.ownerUserId).remove(agent.chatId, agent.guguUserId)
     }
   }
 

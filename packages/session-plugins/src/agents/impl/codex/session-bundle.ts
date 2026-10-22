@@ -631,6 +631,7 @@ function modelArgs(
       baseUrl: model.platformProvider.baseUrl,
       // #6921 令牌能调 codex 写死的出图模型 ⇒ 打开它自己的出图工具(ACP 腿同一个函数,见 index.ts)。
       ...(model.platformCallableRoutes ? { callableRoutes: model.platformCallableRoutes } : {}),
+      ...(model.model ? { model: model.model } : {}),
     }));
     env.OPENAI_API_KEY = model.platformProvider.apiKey;
     // 编程面 app-server 的启动方据此写 codex 的 model catalog。ACP 腿这份事实只由 `buildSpawn`

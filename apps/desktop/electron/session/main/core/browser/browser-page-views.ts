@@ -506,6 +506,21 @@ export async function snapshotBrowserPage(browserId: string): Promise<string | n
 }
 
 /**
+ * 要当面问人一句(如选哪把通行密钥)时,这一页此刻挂在哪扇人看得见的窗上:挂在窗上、那扇窗露着且没最小化才算。
+ * 停放着、窗收进托盘或最小化 ⇒ null —— 调用方据此不问,❌ 为了问一句把窗抢到前面(会打断人在别处打字)。
+ * 不是内置浏览器的网页(没登记在这里)⇒ undefined,由调用方自己认;❌ 和 null 混成一个值 —— 停放着的网页
+ * 再去按「谁拥有它」找窗,就会把对话框挂到一扇看不见这页的窗上。
+ */
+export function visibleHostOfPage(contents: WebContents): BrowserWindow | null | undefined {
+  for (const page of pages.values()) {
+    if (page.webContents !== contents) continue;
+    const host = page.place === 'host' ? page.host : null;
+    return host && !host.isDestroyed() && host.isVisible() && !host.isMinimized() ? host : null;
+  }
+  return undefined;
+}
+
+/**
  * 界面要把焦点拿回自己身上(人在网页里时按了 ⌘K、点了界面的「聚焦地址栏」…):界面 JS 的 `focus()` 只在
  * 它自己那棵树里挪,网页这个独立 view 拿着窗口焦点时挪不动 —— 先把窗口焦点交回界面那一层。
  */
