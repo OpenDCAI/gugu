@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed } from '@/lib/icons';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
+import { ProjectMiniFolder } from '@renderer/features/projects/components/main-panel/project-folder-card';
 import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
 import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
@@ -78,12 +78,13 @@ export const ProjectBlock = observer(function ProjectBlock({
               isFocusedPane={focused}
               label={label}
               preSlot={
-                // gugu-dev#181:页签上那枚小文件夹 = 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
+                // gugu-dev#181:页签上那枚彩色小文件夹(项目文件夹卡的缩影)= 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
                 // 群里还没有消息时这一块本来就是项目首页,不用它。
                 chatId && hasMessages !== false ? (
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="xs"
+                    className="px-1"
                     aria-label={translate('taskDispatch.task')}
                     title={translate('taskDispatch.task')}
                     onClick={(event) => {
@@ -91,10 +92,10 @@ export const ProjectBlock = observer(function ProjectBlock({
                       setComposerVerb(chatId, 'task');
                     }}
                   >
-                    <FolderClosed className="size-3.5 shrink-0" />
+                    <ProjectMiniFolder projectId={projectId} />
                   </Button>
                 ) : (
-                  <FolderClosed className="size-3.5 shrink-0" />
+                  <ProjectMiniFolder projectId={projectId} />
                 )
               }
             />
