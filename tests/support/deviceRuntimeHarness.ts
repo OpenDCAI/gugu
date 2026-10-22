@@ -104,25 +104,6 @@ export async function createTestLocalAgentWithoutPath(
   return agent
 }
 
-export function expectedRuntimeReport(
-  activityStatus: 'idle' | 'running' = 'running',
-  runtimeStatus: 'offline' | 'online' | 'starting' = 'online',
-  includeLabel = true
-) {
-  // recentActions is null on per-event / offline reports (COALESCE-keep) and an array on tick reports;
-  // these status-transition assertions don't care which, so accept either.
-  const nullOrArray = { asymmetricMatch: (v: unknown) => v === null || Array.isArray(v) }
-  const report: Record<string, unknown> = {
-    agentUserId: TEST_AGENT_USER_ID,
-    runtimeStatus,
-    activityStatus,
-    runtimeKind: 'gugu',
-    recentActions: nullOrArray
-  }
-  if (includeLabel) report.runtimeLabel = expect.any(String)
-  return report
-}
-
 export function expectedDeliveredMessage(
   targetId: string,
   content = TEST_MESSAGE_CONTENT,

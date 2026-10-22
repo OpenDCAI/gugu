@@ -15,6 +15,7 @@ import { DraftWorkspacePanel } from '@renderer/features/sessions/draft-workspace
 import { PageTitleActions } from '@renderer/features/sessions/titlebar-actions';
 import { SidePanelSplit } from '@renderer/lib/layout/side-panel-split';
 import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
+import { useEnsureMounted } from '@renderer/features/projects/hooks/use-ensure-mounted';
 import {
   sessionComposerDockBandClassName,
   sessionComposerDockedWidthClassName,
@@ -55,9 +56,6 @@ export const ProjectHome = observer(function ProjectHome() {
   const { navigate } = useNavigate();
   const project = getProjectStore(projectId);
   const displayName = projectDisplayName(project) ?? '';
-  // gugu #2328: bootstrapping 阶段页面已上屏,发送/设置由 mounted 态解锁;这行小字是
-  // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
-  const isBootstrapping = projectViewKind(project) === 'bootstrapping';
   const { isNewSessionWorkspaceOpen, setNewSessionWorkspaceOpen } = useSessionShellContext();
 
   // 在托盘里换一个项目 = 去那个项目的页面,写好的话跟着走(那边还没有草稿时)。
@@ -99,6 +97,12 @@ export const ProjectHome = observer(function ProjectHome() {
   const scopedFolders = foldersInScope(folders, scope.selected, (id) => machineRegistry.machineOf(id) ?? null);
   // 新会话开在哪:卡片 / 托盘上选中的那个文件夹所属的本地项目(可能在别的机器上);没选 = 这一页的项目。
   const targetProjectId = scopedFolders.chosen?.projectId ?? projectId;
+  // 这一页画的项目和新会话要建进去的项目(选了别的机器上的文件夹时是那台上的本地项目)都要挂上:
+  // 发送要它的会话列表,「在…中打开」要它的路径。
+  useEnsureMounted([projectId, targetProjectId]);
+  // gugu #2328: 挂载中页面已上屏,发送由新会话要建进去的那个项目挂上之后解锁;这行小字是
+  // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
+  const isBootstrapping = projectViewKind(getProjectStore(targetProjectId)) === 'bootstrapping';
   useEffect(() => remoteHostsStore.start(), []);
   const executionDevice = machineRegistry.machineOf(targetProjectId);
   const machineContext = useMachineCreateContext(executionDevice ? {

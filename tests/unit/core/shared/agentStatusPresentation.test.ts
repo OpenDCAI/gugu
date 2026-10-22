@@ -86,18 +86,16 @@ describe('chat folds the presentation into its coarse status', () => {
   })
 
   it('reachability: removed > device offline > owner intent', () => {
-    const base = { accountStatus: 'active' as const, desiredStatus: 'online' as const, runtimeStatus: 'online' as const, deviceOnline: true }
+    // 设备可达、没有活会话仍是在线(收到消息会被宿主恢复,#6168):在不在线只看设备行与 owner 意图。
+    const base = { accountStatus: 'active' as const, desiredStatus: 'online' as const, deviceOnline: true }
     expect(deriveAgentReachability(base)).toBe('online')
     expect(deriveAgentReachability({ ...base, accountStatus: 'removed' })).toBe('removed')
     expect(deriveAgentReachability({ ...base, deviceOnline: false })).toBe('offline')
     expect(deriveAgentReachability({ ...base, desiredStatus: 'offline' })).toBe('offline')
-    // 设备可达、没有活会话仍是在线(收到消息会被宿主恢复,#6168)。
-    expect(deriveAgentReachability({ ...base, runtimeStatus: 'offline' })).toBe('online')
   })
 
   it('an old host with no reading still says "running" through its projection, and nothing else', () => {
-    expect(readingOfPresenceProjection({ runtimeStatus: 'starting', activityStatus: 'idle' })).toEqual({ status: 'working', detail: 'running' })
-    expect(readingOfPresenceProjection({ runtimeStatus: 'online', activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
-    expect(readingOfPresenceProjection({ runtimeStatus: 'online', activityStatus: 'idle' })).toBeNull()
+    expect(readingOfPresenceProjection({ activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
+    expect(readingOfPresenceProjection({ activityStatus: 'idle' })).toBeNull()
   })
 })

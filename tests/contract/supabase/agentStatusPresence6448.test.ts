@@ -96,7 +96,6 @@ describe('#6448 agent status reading on the presence row', () => {
     const published = publishedStatusOf(r)
     await report({
       agentUserId: agent,
-      runtimeStatus: 'online',
       activityStatus: published.activityStatus,
       agentStatus: published.reading?.status ?? null,
       agentStatusDetail: published.reading?.detail ?? null,
@@ -110,8 +109,8 @@ describe('#6448 agent status reading on the presence row', () => {
 
   it('a write that cannot state a reading (an offline write) clears it; readers fall back to the projection', async () => rollback(async ({ owner, agent }) => {
     const report = createAgentRuntimeStateReporter(ownerRpcClient(owner))
-    await report({ agentUserId: agent, runtimeStatus: 'online', activityStatus: 'running', agentStatus: 'working', agentStatusDetail: 'running', runtimeKind: 'gugu', runtimeLabel: 'h' })
-    await report({ agentUserId: agent, runtimeStatus: 'offline', activityStatus: 'idle', runtimeKind: 'gugu', runtimeLabel: 'h' })
+    await report({ agentUserId: agent, activityStatus: 'running', agentStatus: 'working', agentStatusDetail: 'running', runtimeKind: 'gugu', runtimeLabel: 'h' })
+    await report({ agentUserId: agent, activityStatus: 'idle', runtimeKind: 'gugu', runtimeLabel: 'h' })
     const presence = await readPresence(agent)
     expect(presence.status).toBeNull()
     expect(presence.activityStatus).toBe('idle')

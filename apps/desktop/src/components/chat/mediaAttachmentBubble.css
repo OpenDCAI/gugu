@@ -5,7 +5,8 @@
   display: block;
   width: auto;
   height: auto;
-  max-width: min(280px, 100cqw);
+  /* 100cqw 是整条气泡(列宽);气泡左右各 12px 内边距(messageBubbleStyle),图只能占内容区。 */
+  max-width: min(280px, calc(100cqw - 24px));
   max-height: 280px;
   object-fit: contain;
 }

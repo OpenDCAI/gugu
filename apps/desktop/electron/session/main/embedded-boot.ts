@@ -203,8 +203,10 @@ import {
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge'
 import {
   listSessionStates,
+  setConnectionConfigRootResolver,
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
+import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
@@ -684,6 +686,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ⚠️ 不跟着 browserFeatures 走:那道开关管的是浏览器 tab 扩展面,
   // 而手机看管页的状态与它无关 —— 挂上去等于「没开扩展就看不到 agent 在跑」。
   setSessionStatusFeed(onAgentStatus)
+  // 跑在非原生订阅连接上的 Claude 会话,记录在连接自己的配置根里:交给时间线服务去那里找(同样是注入,免得成环)。
+  setConnectionConfigRootResolver(connectionConfigRoot)
   // 手机端往一条**已经不活**的 ACP 会话里回话时,先按桌面端同一条「唤醒」把引擎拉起来。
   // 同样是注入(write-bridge 被本模块经 session-timeline 引着,反向 import 成环)。
   setSessionWake(ensureEmdashSession)

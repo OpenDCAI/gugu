@@ -7,8 +7,6 @@ import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 const fakePayload: AgentPresencePayload = {
   agentUserId: 'agent-test',
   accountStatus: 'active',
-  runtimeStatus: 'online',
-  derivedStatus: 'online',
   desiredStatus: 'online',
   activityStatus: 'idle',
   status: null,
@@ -19,7 +17,6 @@ const fakePayload: AgentPresencePayload = {
   lastActionAt: null,
   windowTitle: null,
   pid: null,
-  runtimeLastSeenAt: null,
   deviceId: null,
   deviceStatus: 'online',
   hostRuntimeCapability: null,

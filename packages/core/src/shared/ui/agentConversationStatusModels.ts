@@ -15,10 +15,8 @@ import type {
 } from '../types/chat'
 
 export const AGENT_ACCOUNT_STATUSES: AgentAccountStatus[] = ['active', 'removed']
-export const AGENT_RUNTIME_STATUSES: AgentRuntimeStatus[] = ['starting', 'online', 'offline']
 export const AGENT_ACTIVITY_STATUSES: AgentActivityStatus[] = ['idle', 'running']
 
-export const DEFAULT_AGENT_RUNTIME_STATUS: AgentRuntimeStatus = 'offline'
 export const DEFAULT_AGENT_ACTIVITY_STATUS: AgentActivityStatus = 'idle'
 export const DEFAULT_AGENT_DISPLAY_STATUS: AgentDisplayStatus = 'offline'
 
@@ -28,16 +26,8 @@ export function isAgentAccountStatus(value: unknown): value is AgentAccountStatu
   return typeof value === 'string' && AGENT_ACCOUNT_STATUSES.includes(value as AgentAccountStatus)
 }
 
-export function isAgentRuntimeStatus(value: unknown): value is AgentRuntimeStatus {
-  return typeof value === 'string' && AGENT_RUNTIME_STATUSES.includes(value as AgentRuntimeStatus)
-}
-
 export function isAgentActivityStatus(value: unknown): value is AgentActivityStatus {
   return typeof value === 'string' && AGENT_ACTIVITY_STATUSES.includes(value as AgentActivityStatus)
-}
-
-export function normalizeAgentRuntimeStatus(value: unknown): AgentRuntimeStatus {
-  return isAgentRuntimeStatus(value) ? value : DEFAULT_AGENT_RUNTIME_STATUS
 }
 
 export function normalizeAgentActivityStatus(value: unknown): AgentActivityStatus {
@@ -61,27 +51,20 @@ export function isTransientAgentConversationStatus(status: AgentDisplayStatus): 
 export function deriveAgentReachability(input: {
   accountStatus: AgentAccountStatus
   desiredStatus?: AgentDesiredStatus | null
-  runtimeStatus: AgentRuntimeStatus
   deviceOnline: boolean
 }): Exclude<AgentReachability, 'pending'> {
   if (input.accountStatus === 'removed') return 'removed'
   if (!input.deviceOnline) return 'offline'
   if (input.desiredStatus === 'offline') return 'offline'
-  if (input.runtimeStatus === 'offline') return input.desiredStatus === 'online' ? 'online' : 'offline'
   return 'online'
 }
 
 /**
- * 云端那一行没有读数时(老宿主只写得出 running/idle 投影,或会话正在起)能陈述的那一句:正在起 / 在跑 = 一轮在飞,
- * 否则没有读数。❌ 从连续投递失败的计数推「出错」—— 出错只认宿主写入者(owner 2026-09-25)。
+ * 云端那一行没有读数时(老宿主只写得出 running/idle 投影)能陈述的那一句:在跑 = 一轮在飞,否则没有读数。
+ * ❌ 从连续投递失败的计数推「出错」—— 出错只认宿主写入者(owner 2026-09-25)。
  */
-export function readingOfPresenceProjection(input: {
-  runtimeStatus: AgentRuntimeStatus
-  activityStatus: AgentActivityStatus
-}): AgentStatusView | null {
-  return input.runtimeStatus === 'starting' || input.activityStatus === 'running'
-    ? { status: 'working', detail: 'running' }
-    : null
+export function readingOfPresenceProjection(input: { activityStatus: AgentActivityStatus }): AgentStatusView | null {
+  return input.activityStatus === 'running' ? { status: 'working', detail: 'running' } : null
 }
 
 /** presentation 折成聊天侧的粗分类。 */

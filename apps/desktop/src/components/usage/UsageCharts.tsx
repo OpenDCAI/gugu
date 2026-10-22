@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useChartTheme } from './useChartTheme'
 import { VChart } from '@visactor/react-vchart'
 import type { ChartPoint, ModelTotal } from '../../lib/usage/charts'
 
@@ -10,18 +10,6 @@ const PALETTE_10 = ['#1664FF', '#1AC6FF', '#FF8A00', '#3CC780', '#7442D4', '#FFC
 const PALETTE_20 = ['#1664FF', '#B2CFFF', '#1AC6FF', '#94EFFF', '#FF8A00', '#FFCE7A', '#3CC780', '#B9EDCD', '#7442D4', '#DDC5FA',
   '#FFC400', '#FAE878', '#304D77', '#8B959E', '#B48DEB', '#EFE3FF', '#009488', '#59BAA8', '#FF7DDA', '#FFCFEE']
 const colorScale = (domain: string[]) => ({ type: 'ordinal', domain, range: domain.length > 10 ? PALETTE_20 : PALETTE_10 })
-
-/** 跟着咕咕的 [data-theme] 切明暗 —— 图表画在 canvas 上,吃不到 CSS 变量。 */
-function useChartTheme(): 'dark' | 'light' {
-  const read = (): 'dark' | 'light' => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
-  const [theme, setTheme] = useState(read)
-  useEffect(() => {
-    const observer = new MutationObserver(() => setTheme(read()))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [])
-  return theme
-}
 
 const OPTIONS = { mode: 'desktop-browser' as const }
 const BASE = { background: 'transparent', padding: { top: 12, right: 12, bottom: 4, left: 4 } }
