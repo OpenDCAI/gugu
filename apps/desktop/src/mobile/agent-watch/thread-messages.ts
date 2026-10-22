@@ -239,7 +239,7 @@ export function toThreadMessages(
     // 打开给人看的东西记下来,挂在一轮最后;轮本身照常折(与桌面 flattenTier 同一步)。
     // 还在跑的那一轮一张不挂(#7305,与桌面同一条判据,见 collectOpenedOutputs)。
     const opened = collectOpenedOutputs(tier.turns, { live: tier.live })
-    const { folds, runs, absorbed } = planTurnFoldRuns(tier.turns, undefined, true)
+    const { folds, runs, absorbed } = planTurnFoldRuns(tier.turns, undefined, true, tier.live)
     tier.turns.forEach((turn, index) => {
       // 被前一轮的折叠吸收了:它的条目已经排进那一轮的过程与收尾里。
       if (absorbed[index]) return
@@ -327,7 +327,7 @@ export function toThreadMessages(
         for (const segment of view.segments) {
           if (segment.header) {
             // 这一段过程单独成一条消息,折叠头挂在它上面;画不出东西就没有这条,也就没有头 ——
-            // 跑着的那一段除外:过程还空着(先开口说了一句、正去干活)时头占着位置(同桌面);
+            // 跑着的那一段除外:过程还空着(先开口说了一句、还没开始干活)时头占着位置(同桌面);
             // 这一段还什么都没有(在等人答提问、刚插了话)就不占。
             flushAssistant()
             emit(segment.process as readonly TranscriptItem[])

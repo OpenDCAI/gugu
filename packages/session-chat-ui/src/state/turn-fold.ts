@@ -169,8 +169,44 @@ export function turnProcessId(turnId: string, segment = 0): string {
  */
 export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   if (turn.outcome && turn.outcome.kind !== 'done') return null;
-  const plan = segmentTurn(turn);
+  return foldable(segmentTurn(turn));
+}
+
+function foldable(plan: TurnFoldPlan): TurnFoldPlan | null {
   return plan.segments.every((segment) => segment.process.length === 0) ? null : plan;
+}
+
+/**
+ * 正在跑的那一轮:agent 说了一句、接着去干活(跑命令、读文件、思考)—— 那句话已经不是收尾,它和后面的活
+ * 一起算过程,头从这一刻起写「已处理 Ns」(owner 2026-10-23 真机:先开口、再连跑一分钟命令,头一直写
+ * 「正在思考…」,命令明明在跑;推翻同日「第二句话的时候出现已处理多少秒」)。
+ * 只看末段尾巴里那句话之后、下一条边界线 / 人说的话 / 提问之前的那一截 —— 那些照旧留在外面,收起头也看得见。
+ * 只说了话、还没干活(那句话可能就是收尾)⇒ 不动,头照旧占位(`pendingTurnHeader`)。
+ * 落定之后按 `planTurnFold` 重新判:那句话之后只剩工具、再没开口,它就是收尾,不折。
+ */
+function planLiveTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
+  if (turn.outcome && turn.outcome.kind !== 'done') return null;
+  const plan = segmentTurn(turn);
+  const last = plan.segments[plan.segments.length - 1];
+  if (last) {
+    let end = 1;
+    while (end < last.tail.length && !staysOutside(last.tail[end] as ChatItem)) end++;
+    if (last.tail.slice(1, end).some(isWork)) {
+      last.process = [...last.process, ...last.tail.slice(0, end)];
+      last.tail = last.tail.slice(end);
+    }
+  }
+  return foldable(plan);
+}
+
+/** 一轮里永远画在折叠之外的:边界线、人说的话、问人的那一下(见 `splitAtContextBoundaries`)。 */
+function staysOutside(item: ChatItem): boolean {
+  return isContextBoundary(item) || itemIsUser(item) || isQuestionCall(item);
+}
+
+/** agent 在干活:说话、钩子通知、路过的事件都不算。 */
+function isWork(item: ChatItem): boolean {
+  return item.kind !== 'message' && !isPassingEvent(item) && !staysOutside(item);
 }
 
 /**
@@ -289,7 +325,7 @@ function splitAtContextBoundaries(segment: TurnFoldSegment, clocked: boolean): T
   let process: ChatItem[] = [];
   let startedAt = segment.startedAt;
   for (const item of segment.process) {
-    if (!isContextBoundary(item) && !itemIsUser(item) && !isQuestionCall(item)) {
+    if (!staysOutside(item)) {
       process.push(item);
       continue;
     }
@@ -332,7 +368,8 @@ export type TurnFoldRun = {
  * （用户消息），且不跨天。夹了任何东西就必须断开 —— 否则会把内容搬到一条回复的另一
  * 侧去，读者看到的先后顺序就不是真的了。
  *
- * ⚠️ 这里**不**看 `ctx.active`：正在跑的那一轮同样折（#4981 #12）。owner 验收截图
+ * ⚠️ 正在跑的那一轮同样折（#4981 #12），判据只多一条：`live` 时最后一轮按 `planLiveTurnFold` 判
+ * （开口后接着干活，那句话算过程）。owner 验收截图
  * （2026-09-05）里，一摞折好的头下面吊着两行没人认领的裸 `unknown` 工具行 —— 那就是
  * 活动层。上游 `elements-tool-timeline` 的 `streaming` 是这条时间线自己的一个 prop，
  * 它整轮都在，只是换个会微光的标签；它的示例里 `open` 初值就是 `false`，即**跑着的
@@ -341,9 +378,17 @@ export type TurnFoldRun = {
 export function planTurnFoldRuns(
   turns: readonly TranscriptTurn[],
   prevDayKey: string | undefined,
-  enabled: boolean
+  enabled: boolean,
+  /**
+   * 这一层的最后一轮正在跑(活动层):它按 `planLiveTurnFold` 判。只在这一层只有正在跑的那一轮时传(桌面活动层、
+   * 手机的 live 层都是):agent 自己开头的一轮按它判会多出可折的过程,前面若还有一轮、末段没有尾巴,
+   * 这一轮就会被当成「接得上」并进前一轮的头里(#129 review)。
+   */
+  live = false
 ): { folds: (TurnFoldPlan | null)[]; runs: Map<number, TurnFoldRun>; absorbed: boolean[] } {
-  const foldPlans = turns.map((turn) => (enabled ? planTurnFold(turn) : null));
+  const foldPlans = turns.map((turn, i) =>
+    !enabled ? null : live && i === turns.length - 1 ? planLiveTurnFold(turn) : planTurnFold(turn)
+  );
   /** 被前面的锚吸收掉的回合，主循环整个跳过。 */
   const absorbed = new Array<boolean>(turns.length).fill(false);
   /** 锚的合并结果，键是锚在 `turns` 里的下标。 */
@@ -500,11 +545,11 @@ export function turnFoldView(
 
 /**
  * 跑着、这一段还没有可折的过程时,头先占着它的位置:写「正在思考…」、不数秒、没有箭头(下面没有可展开的东西,
- * ❌ 一个点了没反应的箭头)。过程一出现(第二句话把第一句推进过程,或第一个工具 / 思考到了),
+ * ❌ 一个点了没反应的箭头)。agent 一开始干活(第一个工具 / 思考到了,见 `planLiveTurnFold`),
  * 同一个 id 的头接着写「已处理 Ns」。
- * owner 2026-10-23:「这个头不应该闪现,可以有个占位是正在思考。助理说话,然后第二句话的时候出现已处理多少秒」——
+ * owner 2026-10-23:「这个头不应该闪现,可以有个占位是正在思考」——
  * 从前 agent 先开口说一句、再去跑命令时,过程是空的,头被撤掉,第二句话到了又冒出来(真机:消失 13.7 s)。
- * 推翻 10-07「发出就在数「已处理 Ns」」:秒数只跟着可折的过程出现。
+ * 推翻 10-07「发出就在数「已处理 Ns」」:秒数跟着干活出现。
  */
 export function placeholderTurnHeader(id: string): TurnProcessHeader {
   return { id, live: true, placeholder: true };
@@ -515,7 +560,7 @@ export function placeholderTurnHeader(id: string): TurnProcessHeader {
  * 插在 `at`(它前面有几条)。两种时候:
  * ① 这一轮里只有人说的话:上游首字节常常要几十秒(10-07 devdb 网关实测 5–61 s),那段时间里没有任何一层有
  *    thinking 可画 —— 不画这一头,消息下面就是空的,像是没发出去(owner 10-07)。占在人那句话之后,第一段的 id;
- * ② 人问的这一轮,agent 先开口说了一句、正去干活:那句话是收尾的候选,过程还是空的(owner 10-23)。
+ * ② 人问的这一轮,agent 先开口说了一句、还没开始干活:那句话是收尾的候选,过程还是空的(owner 10-23)。
  *    占在**最后一段**那句话之前、用那一段的 id —— 前面有边界线(启动提示、提问、压缩)时,过程到了接手的是
  *    线后面那一段的头;占在别处、用别的 id,接手时头就换位置再冒出来一次(#124 review)。
  *    最后一段还什么都没有(在等人答提问、刚插了话、刚压缩完)就不占:那时 agent 没在想,❌ 一行「正在思考」在扫。
