@@ -449,10 +449,11 @@ describe('#4981 #12 活动层的过程也折', () => {
 });
 
 /**
- * owner 10-07:发出去以后上游首字节常常要几十秒,那段时间里转录里只有用户那一句。这一轮的时间头从那一刻就在数秒
+ * owner 10-07:发出去以后上游首字节常常要几十秒,那段时间里转录里只有用户那一句。这一轮的头从那一刻就在
  * (`pendingTurnHeader`),两种视图都是;双栏里思考一到就落在同一个头下面,单栏里第一行内容一到它就让位。
+ * owner 10-23:还没有可折的过程时头是占位 ——「正在思考…」、不数秒;过程到了同一个头才写「已处理 Ns」。
  */
-describe('一轮开始了、还什么都没有:时间头已经在数秒', () => {
+describe('一轮开始了、还没有可折的过程:头占位', () => {
   const STARTED_AT = Date.now() - 7_000;
   const ONLY_PROMPT: TranscriptTurn = {
     id: 'pending-1',
@@ -465,7 +466,7 @@ describe('一轮开始了、还什么都没有:时间头已经在数秒', () => 
     kind: 'thinking', id: 'pth1', seq: 1, segmentId: 'pth1', text: 'Multiplying first.', status: 'thinking', startedAt: STARTED_AT + 5_000,
   } as TranscriptTurn['items'][number];
 
-  it.each(['double', 'single'] as const)('%s:头在数、带微光、高度与 measure() 一致;思考到了之后', async (preset) => {
+  it.each(['double', 'single'] as const)('%s:头占位、带微光、高度与 measure() 一致;思考到了之后', async (preset) => {
     const ctx = createChatContext({ layout: { preset, userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
@@ -481,24 +482,68 @@ describe('一轮开始了、还什么都没有:时间头已经在数秒', () => 
       const h = header()!;
       expect(h.dataset.live).toBe('true');
       expect(h.dataset.turnId).toBe(ONLY_PROMPT.id);
-      expect(h.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
+      expect(h.textContent).toContain('Thinking…');
+      expect(h.textContent).not.toMatch(/\d/);
       const label = h.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
       expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       const mctx: MeasureCtx = { theme: ctx.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches: createChatCaches(), expandedId: null };
-      const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true, startedAt: STARTED_AT };
+      const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true };
       expect(h.offsetHeight).toBe(turnProcessUnitDef.measure(item, mctx, turnProcessUnitDef.vars!));
 
       state.transcript.activeTurn.set({ ...ONLY_PROMPT, items: [...ONLY_PROMPT.items, thinking] } as TranscriptTurn);
       await until('thinking row mounts', () => thinkingRow() != null);
       await settled(host);
       if (preset === 'double') {
-        // 同一个头还在、还在数,思考落在它下面
+        // 同一个头还在,思考落在它下面,头从这一轮的起点数秒
         expect(header()?.dataset.live).toBe('true');
+        expect(header()?.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
         expect((thinkingRow() as HTMLElement).getBoundingClientRect().top).toBeGreaterThan(header()!.getBoundingClientRect().top);
       } else {
         // 单栏不折叠:第一行内容就是动静,头让位
         expect(header()).toBeNull();
       }
+    } finally {
+      view.dispose();
+      ctx.dispose();
+      state.dispose();
+      document.body.removeChild(host);
+    }
+  });
+
+  // owner 10-23 真机:agent 先说一句再去干活,头被撤掉,第二句话到了又冒出来(消失 13.7 s)。
+  it('先开口再干活:头一直在原处,第二句话之前占位、不带微光,之后数秒', async () => {
+    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 0 } });
+    const state = createChatState(ctx);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
+    document.body.appendChild(host);
+    const view = createChatView({ context: ctx, state, parent: host });
+    const header = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]');
+    const shimmering = () => header()?.querySelector('[data-slot="collapse-header"] > span [data-shimmer-text]') != null;
+    type Item = TranscriptTurn['items'][number];
+    const step = (...rest: Item[]) =>
+      state.transcript.activeTurn.set({ ...ONLY_PROMPT, items: [...ONLY_PROMPT.items, ...rest] } as TranscriptTurn);
+    const first = msg('pa1', 1, 'assistant', 'Multiplying 89 by 64 first.') as Item;
+    try {
+      step(first);
+      await until('first sentence on screen', () => host.textContent?.includes('Multiplying 89 by 64 first.') ?? false);
+      await settled(host);
+      const top = header()!.getBoundingClientRect().top;
+      expect(header()!.textContent).toContain('Thinking…');
+      expect(header()!.textContent).not.toMatch(/\d/);
+      expect(shimmering(), '那句话就在头下面,头不再带微光').toBe(false);
+
+      step(first, thinking);
+      await until('work arrives under the sentence', () => host.querySelector('[data-row-kind="thinking"]') != null);
+      await settled(host);
+      expect(header()?.getBoundingClientRect().top).toBe(top);
+      expect(header()!.textContent).toContain('Thinking…');
+
+      step(first, thinking, msg('pa2', 2, 'assistant', 'The answer is 5696.') as Item);
+      await until('second sentence folds the first', () => header()?.textContent ?? '', (text) => /Worked for (?:\d+m)?\d+s/.test(text));
+      await settled(host);
+      expect(header()?.getBoundingClientRect().top).toBe(top);
+      expect(header()?.dataset.turnId).toBe(ONLY_PROMPT.id);
     } finally {
       view.dispose();
       ctx.dispose();

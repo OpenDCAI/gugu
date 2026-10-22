@@ -676,33 +676,60 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(ids(units)).toContain('c1');
   });
 
-  // owner 10-07:上游首字节常常几十秒,那段时间里这一轮只有用户那一句 —— 头从这一刻就在数(`pendingTurnHeader`)。
-  it.each([true, false])('活动层只有用户那一句:时间头已经在数,id 就是过程折叠的头(foldTurnProcess=%s)', (fold) => {
+  // owner 10-07:上游首字节常常几十秒,那段时间里这一轮只有用户那一句 —— 头从这一刻就在(`pendingTurnHeader`)。
+  // owner 10-23:还没有可折的过程时它是占位,写「正在思考…」、不数秒(`placeholderTurnHeader`)。
+  it.each([true, false])('活动层只有用户那一句:头已经在、只占位不数秒,id 就是过程折叠的头(foldTurnProcess=%s)', (fold) => {
     const live = turn('t12', [user('u12')], undefined, { startedAt: 7_000 });
     const units = flattenTier([live], ctxWith({ foldTurnProcess: fold, active: true }), SEGMENTERS);
     expect(ids(units)).toEqual(['u12', turnProcessId('t12')]);
-    expect(header(units)).toMatchObject({ live: true, startedAt: 7_000, turnId: 't12' });
-    // 思考一到,双栏里它落在同一个头下面
+    expect(header(units)).toMatchObject({ live: true, turnId: 't12' });
+    expect(header(units)).not.toHaveProperty('startedAt');
+    expect(header(units)).not.toHaveProperty('withBody');
+    // 思考一到,双栏里它落在同一个头下面,头接着从这一轮的起点数
     const withThinking = flattenTier([{ ...live, items: [user('u12'), thinking('th12')] as TranscriptTurn['items'] }], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(ids(withThinking)).toEqual(['u12', turnProcessId('t12'), 'th12']);
+    expect(header(withThinking)).toMatchObject({ live: true, startedAt: 7_000 });
   });
 
-  // 乐观行(发出了、真的那一轮还没开出,新会话可能还在建立):带着发出时刻只为日期分隔(那一格见
-  // session-start-first-message.contract),时间头 ❌ 计时 —— 还没有可计的一轮,只说「处理中」。
-  it('乐观行:时间头在跑但不计时', () => {
+  // 乐观行(发出了、真的那一轮还没开出,新会话可能还在建立)与真开出来的一轮,头一样是占位。
+  it('乐观行与刚开出的真一轮:头都是占位,不计时', () => {
     const sentAt = new Date(2026, 9, 16, 9, 30).getTime();
     const units = flattenTier([pendingPromptTurn({ id: 'p1', text: 'hi', sentAt })], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     expect(ids(units)).toEqual(['p1', turnProcessId('pending:p1:turn')]);
     expect(header(units)).toMatchObject({ live: true });
     expect(header(units)).not.toHaveProperty('startedAt');
-    // 阳控:同样形状的真一轮,时间头从它的起点数
     const real = flattenTier([turn('t15', [user('u15')], undefined, { startedAt: sentAt })], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
-    expect(header(real)).toMatchObject({ live: true, startedAt: sentAt });
+    expect(header(real)).toMatchObject({ live: true });
+    expect(header(real)).not.toHaveProperty('startedAt');
   });
 
-  it('❌ 已经开口的活动轮、落定的轮都没有这个空头', () => {
-    const talking = turn('t13', [user('u13'), reply('a13', 'on it')], undefined, { startedAt: 7_000 });
-    expect(kinds(flattenTier([talking], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS))).not.toContain('turn-process');
+  // owner 10-23 真机:agent 先说一句再去跑命令,过程是空的,头被撤掉,第二句话到了又冒出来(消失 13.7 s)。
+  it('先开口再干活:头从发出到落定一直在、id 不变;第二句话之前占位,之后数秒', () => {
+    const at = (items: ChatItem[]) =>
+      flattenTier([turn('t16', items, undefined, { startedAt: 7_000 })], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
+    const steps = [
+      [user('u16')],
+      [user('u16'), reply('a1', '先跑第一条')],
+      [user('u16'), reply('a1', '先跑第一条'), bash('c1')],
+      [user('u16'), reply('a1', '先跑第一条'), bash('c1'), reply('a2', '再跑第二条')],
+    ].map(at);
+    for (const units of steps) {
+      expect(units.filter((u) => u.kind === 'turn-process').map((u) => u.itemId)).toEqual([turnProcessId('t16')]);
+      expect(ids(units).slice(0, 2)).toEqual(['u16', turnProcessId('t16')]);
+    }
+    // 第一句话在、过程还空:头占位(不数秒),那句话在它下面,头不带微光
+    expect(ids(steps[1])).toEqual(['u16', turnProcessId('t16'), 'a1']);
+    expect(header(steps[1])).toMatchObject({ live: true, withBody: true });
+    expect(header(steps[1])).not.toHaveProperty('startedAt');
+    expect(header(steps[2])).not.toHaveProperty('startedAt');
+    // 第二句话一到,第一句与那条命令折进头里,头开始写「已处理 Ns」
+    expect(header(steps[3])).toMatchObject({ live: true, withBody: true, startedAt: 7_000 });
+    expect(ids(steps[3]).at(-1)).toBe('a2');
+  });
+
+  it('❌ 落定的轮没有空头 —— 一句话就答完的那轮,落定后头收掉', () => {
+    const answered = turn('t13', [user('u13'), reply('a13', 'on it')], DONE, { startedAt: 7_000, endedAt: 9_000 });
+    expect(kinds(flattenTier([answered], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
     const settled = turn('t14', [user('u14')], DONE, { startedAt: 7_000, endedAt: 9_000 });
     expect(kinds(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
   });
@@ -729,8 +756,8 @@ describe('turnProcessLabel', () => {
     expect(turnProcessLabel({ live: true, startedAt: 10_000 }, 26_400, t)).toBe('Worked for 16s');
     expect(turnProcessLabel({ live: true, startedAt: 10_000 }, 72_000, t)).toBe('Worked for 1m02s');
   });
-  it('跑着但不知道起点 ⇒ 处理中,❌ 编一个时长', () => {
-    expect(turnProcessLabel({ live: true }, 26_400, t)).toBe('Working…');
+  it('跑着、占位(没有起点)⇒ 正在思考,❌ 编一个时长', () => {
+    expect(turnProcessLabel({ live: true }, 26_400, t)).toBe('Thinking…');
   });
   it('落定:总时长,与 now 无关', () => {
     expect(turnProcessLabel({ startedAt: 10_000, endedAt: 52_000 }, 999_999, t)).toBe('Took 42s');

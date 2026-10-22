@@ -33,7 +33,7 @@ const fallbackMessages = {
   'transcript.planStartRestore': 'Start in my previous mode',
   'transcript.planKeepPlanning': 'Keep planning',
   'transcript.planRejectExit': "Don't start — leave planning",
-  'transcript.working': 'Working…',
+  'transcript.working': 'Thinking…',
   // thinking 行头的 5 个状态。`{seconds}` 是已经算好的整秒数——
   // 秒数本身是数据，不是文案，所以计时逻辑留在组件里，这里只管怎么说这句话。
   'transcript.thinking': 'Thinking',

@@ -13,7 +13,6 @@ import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
-import { isPendingPromptTurn } from '@session-chat/state/pending-prompt';
 
 /** Returns true when the item is a user-role message (boundary seam sentinel). */
 export function itemIsUser(item: ChatItem): boolean {
@@ -492,18 +491,38 @@ export function turnFoldView(
 }
 
 /**
- * 一轮开始了、agent 还没交出任何东西(这一轮里只有人说的话)时,它的活动时间头:发出就在数「已处理 Ns」,
- * 起点是记录里的 `turn.startedAt`,没有起点就写「处理中…」(`turnProcessLabel`)。
- * 上游首字节常常要几十秒(10-07 devdb 网关实测 5–61 s),那段时间里没有任何一层有 thinking 可画 ——
- * 不画这一头,消息下面就是空的,像是没发出去(owner 10-07)。Claude / Codex 自己的 TUI 也是发出就有一行在走秒。
- * id 就是过程折叠第一段的头:思考 / 工具一到,它们落在同一个头下面,头不换、不跳。
+ * 跑着、这一段还没有可折的过程时,头先占着它的位置:写「正在思考…」、不数秒(`turnProcessLabel` 无起点)。
+ * 过程一出现(第二句话把第一句推进过程,或第一个工具 / 思考到了),同一个 id 的头接着写「已处理 Ns」。
+ * owner 2026-10-23:「这个头不应该闪现,可以有个占位是正在思考。助理说话,然后第二句话的时候出现已处理多少秒」——
+ * 从前 agent 先开口说一句、再去跑命令时,过程是空的,头被撤掉,第二句话到了又冒出来(真机:消失 13.7 s)。
+ * 推翻 10-07「发出就在数「已处理 Ns」」:秒数只跟着可折的过程出现。
+ */
+export function placeholderTurnHeader(id: string): TurnProcessHeader {
+  return { id, live: true };
+}
+
+/**
+ * 跑着、还没有可折的过程(`planTurnFold` 为 null)时这一轮的头 —— 占位(`placeholderTurnHeader`),
+ * 插在人说的那几句之后(`at` = 它前面有几条)。两种时候:
+ * ① 这一轮里只有人说的话:上游首字节常常要几十秒(10-07 devdb 网关实测 5–61 s),那段时间里没有任何一层有
+ *    thinking 可画 —— 不画这一头,消息下面就是空的,像是没发出去(owner 10-07);
+ * ② 人问的这一轮,agent 先开口说了一句、正去干活:那句话是收尾的候选,过程还是空的(owner 10-23)。
+ * id 就是过程折叠第一段的头:过程一到,它们落在同一个头下面,头不换、不跳。
+ * `folding` = 这一视图折不折过程。不折的视图(单栏)只有 ①:那里没有折叠头来接手,第一行内容一到占位就让位。
  * 桌面 `flattenTier` 与手机会话页共用这一条判断。
  */
-export function pendingTurnHeader(turn: TranscriptTurn, active: boolean): TurnProcessHeader | null {
-  if (!active || !(turn.items as readonly ChatItem[]).every(itemIsUser)) return null;
-  // 乐观行带着发出时刻只为定日期;真的那一轮还没开出,没有可计的时 —— 只说「处理中」(见 pending-prompt.ts)。
-  const clock = isPendingPromptTurn(turn) ? undefined : turn.startedAt;
-  return { id: turnProcessId(turn.id), live: true, ...(clock !== undefined ? { startedAt: clock } : {}) };
+export function pendingTurnHeader(
+  turn: TranscriptTurn,
+  active: boolean,
+  folding = true
+): { header: TurnProcessHeader; at: number } | null {
+  if (!active) return null;
+  const items = turn.items as readonly ChatItem[];
+  let at = 0;
+  while (at < items.length && itemIsUser(items[at] as ChatItem)) at++;
+  const userRun = at > 0 || turn.initiator === 'user';
+  if (at < items.length && !(folding && userRun)) return null;
+  return { header: placeholderTurnHeader(turnProcessId(turn.id)), at };
 }
 
 /**

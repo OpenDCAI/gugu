@@ -51,8 +51,8 @@ describe('session start with a first message', () => {
         (host.textContent?.includes(FIRST) ?? false) && header(host)?.getAttribute('data-live') === 'true'
       )
       expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
-      // 在跑,但不报秒数、不报启动步骤:还没有真的一轮可计时(行尾那个 › 是折叠箭头)。
-      expect(header(host)?.textContent).toContain('Working…')
+      // 在跑,但不报秒数、不报启动步骤:还没有可折的过程,头只占位(行尾那个 › 是折叠箭头)。
+      expect(header(host)?.textContent).toContain('Thinking…')
       expect(header(host)?.textContent).not.toMatch(/\d|Worked for/)
       expect(host.querySelector('[data-slot="session-condition"]')).toBeNull()
       expect(host.querySelector('[data-slot="session-start-skeleton"]')).toBeNull()
@@ -67,7 +67,9 @@ describe('session start with a first message', () => {
       }
       state.transcript.activeTurn.set(turn)
       state.session.setPendingPrompt(null)
-      await until('the real turn takes over', () => header(host)?.textContent ?? '', (text) => text.includes('Worked for'))
+      await until('the real turn takes over', () => header(host)?.getAttribute('data-turn-id') ?? '', (id) => id === 'live')
+      // 真的一轮开出来了,过程还没有:头照旧占位,不跳成秒数(owner 10-23)
+      expect(header(host)?.textContent).toContain('Thinking…')
       expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
     }
   )
@@ -98,7 +100,7 @@ describe('session start with a first message', () => {
         items: [{ kind: 'message', id: 'prompt', seq: 0, role: 'user', text: FIRST }]
       })
       state.session.setPendingPrompt(null)
-      await until('the real turn takes over', () => header(host)?.textContent ?? '', (text) => text.includes('Worked for'))
+      await until('the real turn takes over', () => header(host)?.getAttribute('data-turn-id') ?? '', (id) => id === 'live')
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       const after = cards()
       expect(after).toHaveLength(1)
