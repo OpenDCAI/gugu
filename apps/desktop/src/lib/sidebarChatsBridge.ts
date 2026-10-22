@@ -26,6 +26,8 @@ export type SidebarSessionLine = {
   readonly time: number
   /** 要你处理 / 在跑;都不是 = null(行尾不挂状态)。 */
   readonly group: 'needs-you' | 'working' | null
+  /** 这个会话的 agent(行照它的私聊那样画:头像、名字);还不知道 = null。 */
+  readonly agentUserId: string | null
 }
 
 export type SidebarChatView = {

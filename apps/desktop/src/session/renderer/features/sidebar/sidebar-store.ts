@@ -989,7 +989,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return entries
       // 置顶的那几条在「置顶」里,❌ 再排一遍。
       .filter((entry) => !entry.isPinned && (!entry.parentSessionId || !here.has(entry.parentSessionId)))
-      .map(({ projectId, id, title, time, group }) => ({ projectId, sessionId: id, title, time, group }))
+      .map(({ projectId, id, title, time, group }) => ({ projectId, sessionId: id, title, time, group, agentUserId: sessionAgentNames.identityFor(id)?.agentUserId ?? null }))
       .sort((a, b) => b.time - a.time);
   }
 
