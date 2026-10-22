@@ -93,6 +93,7 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
 import { sidebarIdentityCard } from '@renderer/features/sidebar/sidebar-identity-card'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -250,7 +251,7 @@ it('行尾的归档:按下后指针挪了几个像素再松开,仍是一次点�
   mount()
   await mounted()
   const { actions, row } = layers()
-  const title = row.querySelector<HTMLElement>('button[aria-label^="Open conversation"]')!
+  const title = row.querySelector<HTMLElement>(`button[aria-label^="${translateSessionMessage('sidebar.openConversation', { title: '' }).trim()}"]`)!
   const archive = Array.from(actions.querySelectorAll('button')).at(-1)!
   const dragSources: EventTarget[] = []
   const onDragStart = (e: DragEvent) => dragSources.push(e.target!)

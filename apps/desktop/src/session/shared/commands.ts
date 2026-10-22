@@ -3,6 +3,11 @@ import type { ShortcutSettingsKey } from '@shared/shortcuts';
 export interface CommandDef {
   id: string;
   label: string;
+  /**
+   * 命令面板里写什么:和这件事在侧栏 / 壳里那个入口同一个文案键(会话页的键,或 `main:` 打头的壳的键),
+   * 跟着界面语言走;给了就不用 `label`(那是英文的内部名字)。
+   */
+  labelKey?: string;
   description?: string;
   group?: string;
   scope: 'app' | 'project' | 'task' | 'session-sub';
@@ -23,6 +28,7 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     id: 'app.settings',
     label: 'Open Settings',
+    labelKey: 'appSettings.settings',
     description: 'Open application settings',
     scope: 'app',
     shortcutKey: 'settings',
@@ -32,6 +38,7 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     id: 'app.library',
     label: 'Open Library',
+    labelKey: 'sidebar.library',
     description: 'Open the Library',
     scope: 'app',
     shortcutKey: 'library',
@@ -41,6 +48,7 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     id: 'app.newProject',
     label: 'New Project',
+    labelKey: 'sidebar.addProject',
     description: 'Add a new local or SSH project',
     scope: 'app',
     shortcutKey: 'newProject',
@@ -50,6 +58,7 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     id: 'app.newSession',
     label: 'New Task',
+    labelKey: 'sidebar.newTask',
     description: 'Create a new task in this project',
     scope: 'app',
     shortcutKey: 'newSession',
@@ -59,7 +68,8 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     // spec session-page「会话历史」(#6083):取代从前的「导入会话」弹窗。
     id: 'app.sessionHistory',
-    label: '会话历史',
+    label: 'Task history',
+    labelKey: 'sidebar.sessionHistory',
     description: '咕咕会话与本机 Claude Code / Codex 会话同处一表:打开、恢复已归档的、导入还没导入的',
     scope: 'app',
     group: 'App',
@@ -68,6 +78,7 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
   {
     id: 'app.giveFeedback',
     label: 'Give Feedback',
+    labelKey: 'main:shell.feedback',
     description: '把问题反馈给咕咕团队',
     scope: 'app',
     group: 'App',

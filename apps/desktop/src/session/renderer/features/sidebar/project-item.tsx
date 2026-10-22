@@ -247,7 +247,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               换过来之后文件夹图标常驻不再消失,箭头有自己的位置。 */}
           <SidebarTwistyLane
             expanded={isExpanded}
-            label={`${isExpanded ? 'Collapse' : 'Expand'} ${projectLabel}`}
+            label={translate(isExpanded ? 'sidebar.collapseProject' : 'sidebar.expandProject', { project: projectLabel })}
             onToggle={
               project.state === 'unregistered'
                 ? undefined
@@ -261,7 +261,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               <ProjectIcon className={cn('size-4 shrink-0', machineDown && 'opacity-60')} />
             )}
             <SidebarMenuAction
-              aria-label={`Open project ${projectLabel}`}
+              aria-label={translate('sidebar.openProject', { project: projectLabel })}
               className={cn(
                 'truncate font-medium transition-colors select-none',
                 (projectViewKind(getProjectStore(projectId)) === 'bootstrapping' || machineDown) &&

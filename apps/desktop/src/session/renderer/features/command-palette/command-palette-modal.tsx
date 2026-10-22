@@ -26,6 +26,8 @@ import { PaletteSessionItem } from './palette-session-item';
 import { applyContextAffinity, getPaletteFileDisplayPath } from './search-utils';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import type { SessionMessageKey } from '@renderer/localization/messages';
+import { i18n } from '@/i18n';
 
 interface CommandPaletteProps {
   projectId?: string;
@@ -167,6 +169,10 @@ export function CommandPaletteModal({
     enabled: debouncedQuery.length === 0 || debouncedQuery.length >= 3,
   });
 
+  // 和侧栏 / 壳里那个入口叫同一个名字(CommandDef.labelKey),跟着界面语言走;没给的照旧写 label。
+  const commandTitle = (def: CommandDef | undefined, fallback: string) =>
+    !def?.labelKey ? fallback : def.labelKey.startsWith('main:') ? i18n.t(def.labelKey.slice('main:'.length), { ns: 'main' }) : translate(def.labelKey as SessionMessageKey);
+
   const registryActions = useObserver((): PaletteAction[] =>
     commandRegistry.activeCommands
       .filter((cmd) => cmd.enabled !== false && !cmd.hideFromPalette)
@@ -175,7 +181,7 @@ export function CommandPaletteModal({
         return {
           kind: 'action' as const,
           id: cmd.id,
-          title: cmd.label,
+          title: commandTitle(def, cmd.label),
           subtitle: cmd.description,
           shortcut: cmd.shortcutKey ? getEffectiveHotkey(cmd.shortcutKey, keyboard) : null,
           icon: getCommandIcon(def?.iconKey),
@@ -295,7 +301,7 @@ export function CommandPaletteModal({
                 const displayItem: PaletteAction = {
                   kind: 'action',
                   id: item.id,
-                  title: live.label,
+                  title: commandTitle(def, live.label),
                   subtitle: live.description,
                   shortcut,
                   icon: getCommandIcon(def?.iconKey),
