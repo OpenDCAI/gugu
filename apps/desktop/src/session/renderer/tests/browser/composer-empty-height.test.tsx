@@ -1,6 +1,6 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
@@ -72,9 +72,18 @@ describe('the session composer\'s box', () => {
     expect(Math.round(second.left - first.right)).toBe(sessionComposerBox.toolbarGapPx)
 
     // 卡面:群框在格子里挂的那组类,画出来和真的会话框一样 —— 同一圈描边、同一个底、没有投影。
+    // 两只框都静止着比:鼠标停在框外(上一个用例可能把它留在这里,`unhover` 停在 body 正中、可能正落在框上)、没有焦点、
+    // 描边的过渡走完 —— 不然读到的是过渡中间的颜色。
     const probe = document.createElement('div')
     probe.className = sessionComposerCardClassName
     container!.appendChild(probe)
+    const rest = document.createElement('div')
+    rest.style.height = '24px'
+    container!.appendChild(rest)
+    await userEvent.hover(rest)
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    const still = (el: HTMLElement) => !el.matches(':hover') && !el.matches(':focus-within') && el.getAnimations().length === 0
+    await until('两只框都静止', () => still(card()!) && still(probe))
     const real = getComputedStyle(card()!)
     const drawn = getComputedStyle(probe)
     expect(drawn.borderTopWidth).toBe(real.borderTopWidth)
