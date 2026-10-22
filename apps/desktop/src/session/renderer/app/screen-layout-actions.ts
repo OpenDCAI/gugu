@@ -198,6 +198,12 @@ function followFocus(): void {
   if (focusedId && screenLayout.focusedBlockId !== focusedId && screenLayout.blocks.has(focusedId)) screenLayout.focus(focusedId);
 }
 
+/** 这几个视图看的是这一屏:会话、项目、对话都是其中一块(gugu-dev#181)。⌘ 点「拼到旁边」也只在这些视图上才有「正看着那块」。 */
+const SCREEN_VIEWS: ReadonlySet<string> = new Set(['session', 'project', 'chat']);
+export function isScreenView(viewId: string | null | undefined): boolean {
+  return !!viewId && SCREEN_VIEWS.has(viewId);
+}
+
 /** 在一块里按下 = 看这一块。 */
 export function focusScreenBlock(blockId: string): void {
   if (screenLayout.focusedBlockId === blockId) return;

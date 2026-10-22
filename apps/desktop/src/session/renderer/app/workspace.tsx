@@ -21,7 +21,7 @@ import { anchoredToBlock, BlockDropPreviewLayer, hasDraggedAppBlock, ScreenFrame
 import { hasDraggedSession } from '@renderer/lib/drag-session';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from './screen-layout';
-import { ensureScreenLayoutSync, focusScreenBlock, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
+import { ensureScreenLayoutSync, focusScreenBlock, isScreenView, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
 import { auxWindows } from './aux-windows';
 import { followBox, PEEKED_PAGE_STYLE, sessionPeek } from './session-peek';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
@@ -33,8 +33,6 @@ import { ensureMachineSessionWiring } from '@renderer/features/remote-hosts/work
 import { ensureMachineWorkspaceBackend } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
 import { isEmbedVisible, subscribeEmbedVisibility } from '@renderer/lib/portal-container';
 
-/** 这几个视图看的是这一屏:会话、项目、对话都是其中一块(gugu-dev#181)。 */
-const SCREEN_VIEWS: ReadonlySet<string | null | undefined> = new Set(['session', 'project', 'chat']);
 
 export function Workspace() {
   useTheme();
@@ -65,10 +63,10 @@ export function Workspace() {
         leftSidebar={<LeftSidebar />}
         mainContent={
           <ScreenArea
-            onScreenView={SCREEN_VIEWS.has(currentView)}
+            onScreenView={isScreenView(currentView)}
             current={currentView === 'session' ? (wrapParams as SessionParams) : null}
           >
-            {SCREEN_VIEWS.has(currentView) ? null : (
+            {isScreenView(currentView) ? null : (
               <WrapView {...wrapParams}>
                 <WorkspaceViewContent />
               </WrapView>
