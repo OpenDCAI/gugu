@@ -141,11 +141,13 @@ function checkProvisioned(app, label, deep) {
 
   const main = run('/usr/bin/codesign', ['-d', '--entitlements', '-', '--xml', app])
   check(
-    '主程序带描述文件授权的受限权限(application-identifier / team-identifier / keychain-access-groups)',
+    '主程序带描述文件授权的受限权限(application-identifier / team-identifier / keychain-access-groups 含 .webauthn)',
     main.ok &&
       plistString(main.out, 'com.apple.application-identifier') === appIdentifier &&
       plistString(main.out, 'com.apple.developer.team-identifier') === teamId &&
-      plistStrings(main.out, 'keychain-access-groups').includes(appIdentifier),
+      plistStrings(main.out, 'keychain-access-groups').includes(appIdentifier) &&
+      // Touch ID 通行密钥存在这一组(运行期 macWebAuthn.ts 按同一规则推出它),缺了 configureWebAuthn 第一次用就被系统拒。
+      plistStrings(main.out, 'keychain-access-groups').includes(`${appIdentifier}.webauthn`),
     main.out
   )
 

@@ -77,6 +77,7 @@ import { isWindowMenuCommand } from '../shared/window-menu-commands'
 import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
+import { chooseWebAuthnAccount, webAuthnKeychainGroup } from './macWebAuthn'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -1329,6 +1330,55 @@ function loadMainWindowContents(): void {
     // renderer output 打包在 app root 的 dist/,由 whenReady 里的 protocol.handle 供给。
     mainWindow.loadURL('gugu-app://app/index.html')
   }
+}
+
+/**
+ * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(前提与边界见 macWebAuthn.ts 头注释)。只在包里嵌着描述文件时打开;
+ * 要在界面语言定下之后调用 —— 系统指纹框里那句「正在尝试…」用的是它。
+ */
+function enableMacTouchIdPasskeys(): void {
+  if (process.platform !== 'darwin' || !app.isPackaged) return
+  const logger = createLogger('webauthn')
+  const profilePath = join(dirname(process.execPath), '..', 'embedded.provisionprofile')
+  // 描述文件是 CMS 包着的 plist,按 latin1 读,里面那段 XML 原样可见(只取 ASCII 的应用 ID)。
+  const keychainAccessGroup = webAuthnKeychainGroup(existsSync(profilePath) ? readFileSync(profilePath, 'latin1') : null)
+  if (!keychainAccessGroup) {
+    logger.info('包里没有嵌描述文件(开发版 / 验收包 / ad-hoc 包),不开 Touch ID 通行密钥')
+    return
+  }
+  // 指纹框里那句交给系统后就定了,改界面语言要下次启动才跟上;选账号的对话框每次弹时现取(见下)。
+  app.configureWebAuthn({ touchID: { keychainAccessGroup, promptReason: currentHostCatalog().webAuthn.touchIdReason } })
+  logger.info({ keychainAccessGroup }, 'Touch ID 通行密钥已开')
+
+  // 同一网站存着多把:不接这个事件,请求就被当成取消;接了就必须恰好回调一次,否则网页一直挂着。
+  // 事件挂在 session 上,而内置浏览器每个档案一个 session、用到才建 ⇒ 默认那个现在挂,之后建的在 session-created 里挂。
+  const onSelectAccount = (
+    _event: Electron.Event,
+    details: Electron.SelectWebauthnAccountDetails,
+    callback: (credentialId?: string | null) => void,
+  ): void => {
+    let picked: string | null = null
+    const parent = BrowserWindow.getFocusedWindow() ?? (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+    // 文案每次现取(跟得上改过的界面语言);放进链里:取的时候抛了也走下面的 finally,回调照样恰好一次。
+    void Promise.resolve()
+      .then(() =>
+        chooseWebAuthnAccount(details.relyingPartyId, details.accounts, currentHostCatalog().webAuthn.chooseAccount, async (options) => {
+          const { response } = parent
+            ? await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })
+            : await dialog.showMessageBox({ type: 'question', ...options, defaultId: 0 })
+          return response
+        }),
+      )
+      .then((credentialId) => {
+        picked = credentialId
+      })
+      .catch((error) => {
+        logger.warn({ err: error }, '选通行密钥的对话框出错,这次请求按取消处理')
+      })
+      .finally(() => callback(picked))
+  }
+  session.defaultSession.on('select-webauthn-account', onSelectAccount)
+  app.on('session-created', (created) => created.on('select-webauthn-account', onSelectAccount))
 }
 
 /**
@@ -4105,6 +4155,11 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), HOST_LOCALE_STATE_FILE),
     app.getPreferredSystemLanguages(),
   )
+  try {
+    enableMacTouchIdPasskeys()
+  } catch (error) {
+    createLogger('webauthn').error({ err: error }, 'Touch ID 通行密钥没开成,内置浏览器照旧(网站会以为这台电脑没有指纹)')
+  }
 
   try {
     const retired = await removeRetiredCodexCapabilityRuns(process.env)
