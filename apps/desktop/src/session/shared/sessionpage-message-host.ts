@@ -28,13 +28,6 @@ export interface SessionpageMessageHost {
     options: { toUserIds: string[]; onSent: (id: string) => void },
   ): Promise<void>;
   openAgentChat(address: SessionpageAgentAddress): void;
-  /**
-   * gugu-dev#181 侧栏项目行底下的话题:来源群那一块摆出来(项目群 = 项目块),话题在它里面开成分栏。
-   * 分栏的请求盒子在咕咕那棵树里,所以经这里,❌ 会话页自己 import 一份(拿到的是一份没人取的副本)。
-   */
-  openTopic(topicChatId: string): void;
-  /** 话题行底下的「更多 · N」:来源群那一块摆出来,打开它的「历史 → 话题」面板(那条线全部话题的主场)。 */
-  openTopics(sourceChatId: string): void;
   /** gugu-dev#181 我发出的一张卡(content_type='card',taskCardModels):不点名、不叫醒人。「已安排」那张由这里落。 */
   sendCardToChat(chatId: string, content: string): Promise<void>;
   /** gugu-dev#181 在这个对话里派任务记着的项目(这台设备上;这个对话没选过 = 最近一次选的)。 */

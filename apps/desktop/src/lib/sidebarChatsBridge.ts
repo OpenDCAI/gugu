@@ -6,8 +6,6 @@
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
-import { compareChatsByActivityDesc, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
-import { splitSunkTopics } from '../components/chatListTopicNesting'
 
 /** 会话页侧栏「对话」那一格在 lib/shellSlots 里的键:会话页登记,壳的 components/ChatListSlotHost.tsx 往里画。 */
 export const CHAT_LIST_SLOT_KEY = 'chat-list'
@@ -17,15 +15,7 @@ export type SidebarChatSignals = {
   readonly chatsUnread: number
   /** 每个项目群的未读(含从它开出来的话题),免打扰的不算;没有未读的群不在里面。 */
   readonly groupUnread: ReadonlyMap<string, number>
-  /**
-   * 项目群底下挂的话题,规矩同聊天列表里的群(splitSunkTopics):最近几条摊开、有未读的不收,其余只数个数(「更多 · N」)。
-   * 没有话题的群不在里面。
-   */
-  readonly projectTopics: ReadonlyMap<string, SidebarProjectTopics>
 }
-
-export type SidebarTopicLine = { readonly id: string; readonly name: string; readonly unread: number }
-export type SidebarProjectTopics = { readonly live: readonly SidebarTopicLine[]; readonly more: number }
 
 /** gugu-dev#181 没有项目的会话(它就是和 agent 私聊):会话页发给壳,和对话一起排进「对话」。 */
 export type SidebarSessionLine = {
@@ -66,18 +56,7 @@ export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats
     if (projectGroupChats.has(line)) groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
     else chatsUnread += chat.unread_count
   }
-  const topicsByGroup = new Map<string, ChatItem[]>()
-  for (const chat of chats) {
-    if (chat.kind !== 'topic' || !chat.source_chat_id || !projectGroupChats.has(chat.source_chat_id)) continue
-    topicsByGroup.set(chat.source_chat_id, [...(topicsByGroup.get(chat.source_chat_id) ?? []), chat])
-  }
-  const now = Date.now()
-  const projectTopics = new Map<string, SidebarProjectTopics>()
-  for (const [groupId, topics] of topicsByGroup) {
-    const { live, sunk } = splitSunkTopics([...topics].sort(compareChatsByActivityDesc), (topic) => isSunkTopic(topic, now))
-    projectTopics.set(groupId, { live: live.map((topic) => ({ id: topic.id, name: topic.name ?? '', unread: topic.unread_count })), more: sunk.length })
-  }
-  return { chatsUnread, groupUnread, projectTopics }
+  return { chatsUnread, groupUnread }
 }
 
 const NO_VIEW: SidebarChatView = { query: '', focusedChatId: null, focusedSessionId: null }
@@ -107,8 +86,7 @@ export function publishSidebarChatSignals(next: SidebarChatSignals): void {
     current &&
     current.chatsUnread === next.chatsUnread &&
     current.groupUnread.size === next.groupUnread.size &&
-    [...next.groupUnread].every(([chatId, count]) => current.groupUnread.get(chatId) === count) &&
-    JSON.stringify([...current.projectTopics]) === JSON.stringify([...next.projectTopics])
+    [...next.groupUnread].every(([chatId, count]) => current.groupUnread.get(chatId) === count)
   ) return
   write(SIGNALS_KEY, SIGNALS_EVENT, next)
 }

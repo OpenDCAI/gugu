@@ -25,7 +25,7 @@ import { onEachMachine } from '@renderer/lib/machine-clients';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
-import type { SidebarProjectTopics, SidebarSessionLine, SidebarTopicLine } from '@/lib/sidebarChatsBridge';
+import type { SidebarSessionLine } from '@/lib/sidebarChatsBridge';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -53,10 +53,7 @@ export type SidebarRow =
   | { kind: 'project'; projectId: string }
   | { kind: 'state-header'; projectId: string; group: SidebarStateGroup; count: number }
   | ({ kind: 'conversation' } & SidebarSessionRow)
-  | { kind: 'more'; projectId: string; expanded: boolean; hiddenCount: number }
-  // gugu-dev#181 项目就是群:项目群的话题挂在项目行底下,规矩同聊天列表里的群(最近几条 + 「更多 · N」)。
-  | { kind: 'topic'; projectId: string; topic: SidebarTopicLine }
-  | { kind: 'topics-more'; projectId: string; count: number };
+  | { kind: 'more'; projectId: string; expanded: boolean; hiddenCount: number };
 
 /**
  * behavior session-page「键盘导航」: a station on the keyboard navigation chain. Only three kinds are
@@ -183,8 +180,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   listLayout: SidebarListLayout = 'split';
   /** 分开时看的是哪一页(persisted)。合在一起时不读它。 */
   listPage: SidebarListPage = 'projects';
-  /** 项目行(侧栏那一行的 id)底下挂的话题,壳发过来、left-sidebar 按项目群对好再喂进来。 */
-  projectTopics: ReadonlyMap<string, SidebarProjectTopics> = new Map();
   /** Last task a navigation arrived at (`revealActiveSession`); `null` = left for a non-task view. */
   private revealedSessionKey: string | null = null;
   /**
@@ -227,7 +222,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       revealedSessionKey: false,
       machines: observable.ref,
       joinedGroups: observable.ref,
-      projectTopics: observable.ref,
       homeLayout: computed,
       projectGroups: computed,
       expandedProjectIds: false,
@@ -298,9 +292,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         const names = [ref.project.name ?? '', (deviceId && this.machines?.label(deviceId)) || ''];
         const nameMatch = names.some((name) => name.toLowerCase().includes(filter));
         const projected = this.sessionRows(this.projectEntries(ref), filter).rows;
-        const topics = this.topicRows(projectId, filter);
-        if (projected.length === 0 && topics.length === 0 && !nameMatch) continue;
-        rows.push({ kind: 'project', projectId }, ...topics);
+        if (projected.length === 0 && !nameMatch) continue;
+        rows.push({ kind: 'project', projectId });
         for (const group of SIDEBAR_STATE_GROUP_ORDER) {
           const bucket = projected.filter((e) => e.group === group);
           if (bucket.length === 0) continue;
@@ -316,7 +309,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       }
       rows.push({ kind: 'project', projectId });
       if (!this.expandedProjectIds.has(projectId)) continue;
-      rows.push(...this.topicRows(projectId, null));
       // 别的机器上的项目列出不挂载:行来自会话目录,没挂也照画。
       if (!ref.project.mountedProject && !this.isRemote(ref.id)) continue;
       // spec session-page「会话列表与状态」: every task's conversation families are flattened under the
@@ -1033,20 +1025,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   setListPage(page: SidebarListPage): void {
     this.listPage = page;
-  }
-
-  setProjectTopics(topics: ReadonlyMap<string, SidebarProjectTopics>): void {
-    this.projectTopics = topics;
-  }
-
-  /** 项目行底下的话题行;搜索时只留名字命中的(不出「更多」)。 */
-  private topicRows(projectId: string, filter: string | null | undefined): SidebarRow[] {
-    const topics = this.projectTopics.get(projectId);
-    if (!topics) return [];
-    const live = filter ? topics.live.filter((topic) => topic.name.toLowerCase().includes(filter)) : topics.live;
-    const rows: SidebarRow[] = live.map((topic) => ({ kind: 'topic', projectId, topic }));
-    if (!filter && topics.more > 0) rows.push({ kind: 'topics-more', projectId, count: topics.more });
-    return rows;
   }
 
   /** 「项目」页签上的琥珀点:各项目里在等你的会话数(与收起的项目行那颗同一个读数)。 */

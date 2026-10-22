@@ -81,7 +81,6 @@ import { addFilePills } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, APP_SHOW_MESSAGE_EVENT, GROUP_FILE_OPEN_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail, type AppShowMessageDetail, type GroupFileOpenDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { askReveal } from '../hooks/useSourceMessageReveal'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
-import { requestTopicsPanel } from '../lib/topicsPanelRequest'
 import { resolveQrScanRoute, type QrScanRoute } from '../lib/qrScanRoute'
 import { describeBarcodeScanError } from '../lib/barcodeScanError'
 import { PlatformError } from '../platform/errors'
@@ -1145,17 +1144,6 @@ function InnerLayout({
             if (entry) options.onSent(entry.id)
           },
         })
-      },
-      // gugu-dev#181 侧栏项目行底下的话题:来源群那一块(项目块)摆出来,话题在里面开分栏;「更多」开它的话题面板。
-      openTopic(topicChatId) {
-        const topic = chatsRef.current.find((chat) => chat.id === topicChatId)
-        if (!topic?.source_chat_id) throw new Error(`topic ${topicChatId} is not in the chat list`)
-        if (!openChatBlock(topic.source_chat_id)) throw new Error('topics open on the session page only')
-        requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id, focusComposer: true })
-      },
-      openTopics(sourceChatId) {
-        if (!openChatBlock(sourceChatId)) throw new Error('topics open on the session page only')
-        requestTopicsPanel(sourceChatId)
       },
       async sendCardToChat(chatId, content) {
         await chatService.sendMessage(chatId, user.id, content, crypto.randomUUID(), 'card')

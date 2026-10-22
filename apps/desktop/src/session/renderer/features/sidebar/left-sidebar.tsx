@@ -33,8 +33,7 @@ import { SidebarSearchInput } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
-import { publishSidebarChatView, publishSidebarSessions, useSidebarChatSignals, type SidebarProjectTopics } from '@/lib/sidebarChatsBridge';
-import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
+import { publishSidebarChatView, publishSidebarSessions, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -155,18 +154,6 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   // 没有项目的会话就是和它的 agent 私聊(gugu-dev#181):不在这边单列一个分区,交给壳和对话一起排进「对话」。
   const standaloneLines = sidebarStore.standaloneLines;
   React.useEffect(() => publishSidebarSessions(standaloneLines), [standaloneLines]);
-  // 项目群的话题挂在项目行底下:壳按群发过来,这里按侧栏那一行对上(几台机器上的同一个项目绑同一个群)。
-  const projectTopics = chatSignals?.projectTopics;
-  const rowProjects = sidebarStore.sidebarProjects;
-  React.useEffect(() => {
-    const byRow = new Map<string, SidebarProjectTopics>();
-    for (const ref of rowProjects) {
-      const groupChatId = projectGroupsStore.chatIdOf(ref.id);
-      const topics = groupChatId ? projectTopics?.get(groupChatId) : undefined;
-      if (topics) byRow.set(ref.id, topics);
-    }
-    sidebarStore.setProjectTopics(byRow);
-  }, [projectTopics, rowProjects]);
   const [scrollContent, setScrollContent] = React.useState<HTMLDivElement | null>(null);
   const scrollTargets = React.useMemo<SidebarScrollTargets>(
     () => ({ scroller, content: scrollContent }),
