@@ -226,7 +226,7 @@ export function createDeviceRpcAskers<TChannel>(input: {
           const flushStartedAt = Date.now()
           asker.joined = true
           const queued = asker.queue
-          const queuedBytes = queued.reduce((total, payload) => {
+          const queuedBytes = queued.reduce<number>((total, payload) => {
             const serialized = JSON.stringify(payload)
             return total + (serialized === undefined ? 0 : Buffer.byteLength(serialized, 'utf8'))
           }, 0)
