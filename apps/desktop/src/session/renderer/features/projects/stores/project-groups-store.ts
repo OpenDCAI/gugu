@@ -3,6 +3,7 @@ import { projectGroupBindingChangedChannel } from '@shared/core/projects/project
 import { events, rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
+import { publishProjectGroupChats } from './project-group-chats-bridge';
 
 /** 每台机器上次读到的绑定(机器 → 本地项目 → 群;这台电脑记作 'local')。 */
 const STORAGE_KEY = 'gugu.projectGroups.v1';
@@ -78,9 +79,16 @@ export class ProjectGroupsStore {
       );
       // 哪台机器上的绑定变了(并进来、撤销、agent 挂的):本机与各台连着的都重读,省得猜是哪台推的。
       const offEvent = events.on(projectGroupBindingChangedChannel, () => this.refreshAll());
+      // 聊天页的列表据此把项目群拿掉(它们在项目页里)。
+      const offPublish = reaction(
+        () => [...new Set(this.byProject.values())].sort().join('\u0000'),
+        (joined) => publishProjectGroupChats(joined ? joined.split('\u0000') : []),
+        { fireImmediately: true }
+      );
       this.stop = () => {
         offHosts();
         offEvent();
+        offPublish();
       };
     }
   }

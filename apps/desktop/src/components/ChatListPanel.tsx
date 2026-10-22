@@ -14,6 +14,7 @@ import { IconButton } from './ui/IconButton'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useAssistantShell } from '../session/renderer/features/assistant/assistant-shell'
 import { isDuplicateAssistantChat } from '../lib/assistantChatList'
+import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
 import { formatCalendarDay } from '../lib/calendarTime'
@@ -506,6 +507,7 @@ export function ChatListPanel({
   const { t: tMain } = useTranslation('main')
   const assistantShell = useAssistantShell()
   const { chats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const projectGroupChats = useProjectGroupChats()
   const workrooms = useAssistantWorkrooms(assistantShell, chats.filter((chat) => chat.kind === 'group')
     .map((chat) => `${chat.id}:${[...(chat.member_user_ids ?? [])].sort().join(',')}`).sort().join('|'))
   // @@@chat-list-agent-status (#437/#33) - one batched presence subscription for every agent shown in
@@ -553,8 +555,11 @@ export function ChatListPanel({
   const hasSearchQuery = searchQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的
   // 指名道姓,不受此约束:搜得到就打得开,不然会话页开出来的空私聊只剩通讯录一条路。
+  // gugu-dev#181 项目群在项目页里(连同从它开出来的话题),对话页只剩人和用户群;搜索也不出现 —— 它在项目页打开。
+  const isProjectGroupLine = (chat: ChatItem) => projectGroupChats.has(chat.kind === 'topic' ? (chat.source_chat_id ?? '') : chat.id)
   const isListed = (chat: ChatItem) =>
     !isDuplicateAssistantChat(chat, assistantShell, workrooms)
+      && !isProjectGroupLine(chat)
       && (hasSearchQuery || isChatListed(chat, { activeChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
   // @@@5856 沉降:长期无活动的话题落到底部的「更早」。它**只是列表位置**,不是话题的一种状态 ——
   // 话题没有开关(product spec)。任何人发一句,last_message_at 前移,这一条自己就浮回来了。
@@ -578,7 +583,7 @@ export function ChatListPanel({
     // isListed / matchesSearch 都是每次渲染新建的闭包,进依赖数组等于不缓存;
     // 它们的输入(chats / 搜索词 / 草稿 / 当前会话)已经在下面列全了。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chats, searchQuery, activeChatId, drafts, assistantShell, workrooms])
+  }, [chats, searchQuery, activeChatId, drafts, assistantShell, workrooms, projectGroupChats])
   const isTopLevel = (c: ChatItem) => isTopLevelChatRow(c, topicNesting, isListed, matchesSearch)
   const pinnedChats = chats.filter((c) => c.is_pinned && isTopLevel(c)).sort(byTime)
   const normalChats = chats.filter((c) => !c.is_pinned && isTopLevel(c)).sort(byTime)

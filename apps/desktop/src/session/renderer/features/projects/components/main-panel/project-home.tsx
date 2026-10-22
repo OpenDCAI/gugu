@@ -100,6 +100,13 @@ export const ProjectHome = observer(function ProjectHome() {
   // 新会话开在哪:卡片 / 托盘上选中的那个文件夹所属的本地项目(可能在别的机器上);没选 = 这一页的项目。
   const targetProjectId = scopedFolders.chosen?.projectId ?? projectId;
   useEffect(() => remoteHostsStore.start(), []);
+  // 项目就是群(gugu-dev#181):打开项目页时它的群就该在 —— 新建的项目一进来就建好(只有自己一个人),
+  // 老项目没有群的也在这时补上。幂等;建好了由绑定变更事件刷新各处。
+  useEffect(() => {
+    void rpcOn(machineRegistry.machineOf(rowId) ?? null).projects.ensureProjectGroup(rowId).then((result) => {
+      if (!result.success) log.warn('[project-home] 项目群没建成', { projectId: rowId, error: result.error });
+    }).catch((error: unknown) => log.warn('[project-home] 项目群没建成', { projectId: rowId, error: String(error) }));
+  }, [rowId]);
   const executionDevice = machineRegistry.machineOf(targetProjectId);
   const machineContext = useMachineCreateContext(executionDevice ? {
     deviceId: executionDevice, projectId: targetProjectId,

@@ -5,9 +5,8 @@ import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // 绑定记在本机那份「项目 → 群」对照里(sessionpage-project-groups.ts,按账号分区)。这个模块是会话页 `projects.*`
 // 那四个操作在宿主这一侧的实现(会话页经 setProjectGroupHost 接上):
 //   · 读:这台机器、当前账号下每个本地项目绑的群。
-//   · 预留:项目还没有群(从没开过会话)⇒ 像第一个会话那样先记下一个群 id,云端的群由第一个进来的 agent 建出来 ——
-//     云端 chat.create_gugu_group 不许建只有群主一个人的群,provision_taskpage_agent 遇到「对照里的群云端还没有」
-//     就用这个 id 建(与本机先起的那一拍同一个形状)。
+//   · 建群:项目还没有群 ⇒ 当场在云端建一个只有群主的群(product spec「建项目那一刻群就建好」,gugu-dev#181;
+//     云端 #8 起允许只有群主一个人的群)。老版本只预留了 id、云端还没建出来的,也在这一步按那个 id 建。
 //   · 并进来(owner 2026-10-17 选 A):这个项目里的 agent 都加进那个群(chat.add_group_agent,与「把自己的 agent 拉进群」
 //     同一个入口),名册里钉着的群改成它;原来的群不删不归档,留作历史。
 //   · 撤销:忘掉对照,agent 在名册里钉回并进来之前的群;已经加进那个群的 agent 留在里面。
@@ -108,10 +107,28 @@ function projectAgents(roster: LocalAgentRecord[], subject: ProjectGroupSubject,
   })
 }
 
-/** 项目里的 agent 在群里要听全部消息(与第一个会话进群时同一个设定)。 */
-async function listenActively(chat: ChatClient, chatId: string, agentUserId: string, ownerUserId: string): Promise<void> {
-  try { await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, agentUserId, 'active') }
+/** 项目里的 agent 是任务 agent:在群里只接 @ 它的话(gugu-dev#181,与第一个会话进群时同一个设定)。 */
+async function listenPassively(chat: ChatClient, chatId: string, agentUserId: string, ownerUserId: string): Promise<void> {
+  try { await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, agentUserId, 'passive') }
   catch (error) { throw new ProjectGroupCloudError((error as Error).message) }
+}
+
+/**
+ * 建一个只有群主的项目群,答它建完之后的样子:建成 = 'active';这个 id 刚被别处建出来(第一个会话抢先)= 按云端读到的
+ * 答(当前账号在里面就是 'active',别人的群照 RLS 读成 'missing')。
+ */
+async function createOwnerOnlyGroup(chat: ChatClient, chatId: string, name: string, ownerUserId: string): Promise<GroupState> {
+  const { error } = await chat.rpc('create_gugu_group', {
+    p_chat_id: chatId,
+    p_name: name,
+    p_owner_user_id: ownerUserId,
+    p_initial_members: [],
+    p_default_agent_type: null,
+    p_group_prompt: null,
+  })
+  if (!error) return 'active'
+  if (!isUniqueViolation(error)) throw new ProjectGroupCloudError(`create project group ${chatId}: ${error.message}`)
+  return readGroupState(chat, chatId, ownerUserId)
 }
 
 /** The trusted caller binding supplies the owner's acting agent. Membership lets it announce a
@@ -185,24 +202,29 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
     if (!owner.success) return owner
     const { accessToken, userId } = owner.data
     const { projectId } = subject
+    const chat = makeChatClient(accessToken)
+    const name = projectGroupDisplayName(subject.projectName, projectId)
     return cloudFailedOr(() => withSessionpageProvisionLock(`project-group ensure ${projectId}`, async () => {
       const recorded = await readProjectGroupId(projectId, userId, env())
       const roster = await listAgents(env(), { includeGuests: true })
       const mapped = recorded || findGroupIdForProject(roster, projectId, userId) || ''
       if (mapped) {
-        const state = await readGroupState(makeChatClient(accessToken), mapped, userId)
-        // 'missing' = 预留的、云端还没建出来的群(或第一个会话的那一发还没落地):它就是这个项目的群。
-        if (state === 'active' || state === 'missing') {
+        let state = await readGroupState(chat, mapped, userId)
+        // 'missing' = 老版本预留的、云端还没建出来的群:就按这个 id 建。
+        if (state === 'missing') state = await createOwnerOnlyGroup(chat, mapped, name, userId)
+        if (state === 'active') {
           await rememberProjectGroupId(projectId, mapped, userId, env())
           return ok({ chatId: mapped, changed: recorded !== mapped })
         }
         // 归档了 / 不是群 / 这个账号已不在里面:与第一个会话遇到同样情形时一样,忘掉它、另起一个。
-        log.info({ projectId, chatId: mapped, state }, '#7341 mapped project group is unusable — reserving a fresh group id')
+        log.info({ projectId, chatId: mapped, state }, '#7341 mapped project group is unusable — creating a fresh one')
         await forgetProjectGroupId(projectId, userId, env())
       }
       const chatId = randomUUID()
+      const state = await createOwnerOnlyGroup(chat, chatId, name, userId)
+      if (state !== 'active') throw new ProjectGroupCloudError(`new project group ${chatId} is ${state} right after creation`)
       await rememberProjectGroupId(projectId, chatId, userId, env())
-      log.info({ projectId, chatId }, '#7341 reserved a project group id — the first agent that joins creates the group')
+      log.info({ projectId, chatId }, '#181 created the project group (owner only)')
       return ok({ chatId, changed: true })
     }))
   }
@@ -239,7 +261,7 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
           return err(unavailable('项目的设备关联已更改，不能用旧的撤销操作覆盖。请重新读取项目。'))
         }
 
-        let state = await readGroupState(chat, chatId, userId)
+        let state: GroupState = await readGroupState(chat, chatId, userId)
         if (state === 'archived') return err(unavailable('那个群已经归档了'))
         if (state === 'not-a-group') return err(unavailable('那不是一个群'))
         if (state === 'not-member') return err(unavailable('当前账号不在那个群里'))
@@ -252,28 +274,10 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
         // 名册里给它钉上这个群,它的身份那一发落地时就带着这个群进来(provision_taskpage_agent 收的就是钉着的群)。
         const landed = agents.filter((agent) => sessionpageCloudIdentityState(agent) === 'ready')
         const joined = new Set<string>()
-        if (state === 'missing' && landed.length) {
-          // 预留的群(另一台机器上那个项目还没开过会话):这个项目里的 agent 就是它的第一批成员 —— 与第一个会话同一个 RPC。
-          const { error } = await chat.rpc('create_gugu_group', {
-            p_chat_id: chatId,
-            p_name: projectGroupDisplayName(subject.projectName, projectId),
-            p_owner_user_id: userId,
-            p_initial_members: landed.map((agent) => ({ user_id: agent.gugu_user_id, role: 'member' })),
-            p_default_agent_type: null,
-            p_group_prompt: null,
-          })
-          if (!error) {
-            for (const agent of landed) {
-              await listenActively(chat, chatId, agent.gugu_user_id, userId)
-              joined.add(agent.gugu_user_id)
-            }
-          } else if (isUniqueViolation(error)) {
-            // 这个 id 刚被建出来(那台机器的第一个会话抢先了)⇒ 按已有的群加人;否则它是这个账号看不见的群。
-            state = await readGroupState(chat, chatId, userId)
-            if (state !== 'active') return err(unavailable('这个群当前账号看不见'))
-          } else {
-            throw new ProjectGroupCloudError(`create project group ${chatId}: ${error.message}`)
-          }
+        if (state === 'missing') {
+          // 老版本预留、云端还没建出来的群(另一台机器上那个项目还没开过会话):现在建出来,再和已有的群一样加人。
+          state = await createOwnerOnlyGroup(chat, chatId, projectGroupDisplayName(subject.projectName, projectId), userId)
+          if (state !== 'active') return err(unavailable('这个群当前账号看不见'))
         }
         let pendingApproval = 0
         if (state === 'active') {
@@ -285,7 +289,7 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
               pendingApproval++
               continue
             }
-            await listenActively(chat, chatId, agent.gugu_user_id, userId)
+            await listenPassively(chat, chatId, agent.gugu_user_id, userId)
             joined.add(agent.gugu_user_id)
           }
         }
