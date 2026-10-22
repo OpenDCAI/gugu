@@ -368,7 +368,7 @@
 
   /* ── Shape:assistant-ui design.md 的 8 档语义表(owner 2026-09-22 裁决,Refs #6104) ──────
      全仓圆角**只有这一份定义**。会话页 index.css 的 @theme、tailwind.config.cjs 的 borderRadius、
-     packages/session-ui、packages/session-chat-ui(及已拆出的中台 nmhjklnm/gugu-console、顾客面板 nmhjklnm/gugu-website 的 dashboard/)一律逐字等值,
+     packages/session-ui、packages/session-chat-ui(及已拆出本仓的中台、顾客面板)一律逐字等值,
      ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
      三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
      ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mjs 的
