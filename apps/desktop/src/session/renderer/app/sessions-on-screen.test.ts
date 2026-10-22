@@ -63,14 +63,20 @@ describe('sessions on screen', () => {
     expect(sessionsOnScreen()).toEqual(['e']);
   });
 
-  it('reports the set to main whenever it changes', () => {
+  it('reports the set to main whenever it changes, and only then', () => {
     setup({ currentViewId: 'session', sessionId: 'b' });
     const stop = wireSessionsOnScreenReport();
     expect(report).toHaveBeenLastCalledWith(['b']);
     const id = auxWindows.add({ kind: 'tab', projectId: 'p', sessionId: 'a', paneId: 'pane-1', home });
-    expect(report).toHaveBeenLastCalledWith(['b', 'a']);
+    expect(report).toHaveBeenLastCalledWith(['a', 'b']);
+    // 同一条会话再多一枚页签窗:屏上的会话没变,不再报。
+    auxWindows.add({ kind: 'tab', projectId: 'p', sessionId: 'a', paneId: 'pane-2', home });
+    expect(report).toHaveBeenCalledTimes(2);
     runInAction(() => auxWindows.remove(id));
+    expect(report).toHaveBeenCalledTimes(2);
+    for (const other of [...auxWindows.windows.keys()]) runInAction(() => auxWindows.remove(other));
     expect(report).toHaveBeenLastCalledWith(['b']);
+    expect(report).toHaveBeenCalledTimes(3);
     stop();
   });
 });

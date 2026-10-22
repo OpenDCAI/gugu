@@ -58,6 +58,13 @@ describe('machine routing (one workbench seam)', () => {
     expect(r.route('workspace.files.readChunk', [P, 'ws', { path: 'a', offset: 0, length: 1 }])).toBe('dev-a');
   });
 
+  it('keeps the on-screen report on this computer, whichever machines the sessions on screen are on', () => {
+    const r = registry();
+    r.register('dev-b', [C]);
+    // 屏上同时摆着两台机器上的会话:报给的是这台电脑自己的闲置回收,❌ 发去那台机器、❌ 当成「指向几台机器」报错。
+    expect(r.route('sessions.reportSessionsOnScreen', [[P, C, LOCAL_P]])).toBeNull();
+  });
+
   it('learns session ids from what the machine returns', () => {
     const r = registry();
     r.absorb('dev-a', [{ id: C, projectId: P, title: 'c' }]);

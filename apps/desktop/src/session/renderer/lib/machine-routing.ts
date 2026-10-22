@@ -31,13 +31,15 @@ const LOCAL_ONLY_NAMESPACES = new Set([
 ]);
 
 /**
- * 带着项目 id、却属于这台电脑的几条:`gugu-preview://` 的登记表在看界面的这台电脑的主进程里
- * (别的机器上的页面由这台电脑按块取来渲染,见 preview-protocol.ts)。
+ * 带着项目 / 会话 id、却属于这台电脑的几条:
+ *  · `gugu-preview://` 的登记表在看界面的这台电脑的主进程里(别的机器上的页面由这台电脑按块取来渲染,见 preview-protocol.ts);
+ *  · 屏上有哪些会话,报给这台电脑自己的闲置回收(app/sessions-on-screen.ts)—— 屏上摆着别的机器上的会话也一样。
  */
 const LOCAL_ONLY_CHANNELS = new Set([
   'workspace.files.createRemotePreview',
   'workspace.files.setPreviewDocument',
   'workspace.files.releasePreview',
+  'sessions.reportSessionsOnScreen',
 ]);
 
 /** 值是实体 id 的键(会话页宿主自己的实体;❌ 咕咕云身份那类跨机器的 id,那会把本机调用错发出去)。 */

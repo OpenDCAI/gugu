@@ -1,4 +1,4 @@
-import { autorun } from 'mobx';
+import { comparer, reaction } from 'mobx';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
@@ -42,12 +42,18 @@ export function sessionsOnScreen(): string[] {
   return [...ids];
 }
 
-/** 开机时装一次:屏上的会话一变就报给主进程(闲置回收读它)。主进程看不见界面,只能由这里报。 */
+/**
+ * 开机时装一次:屏上的会话一变就报给这台电脑的主进程(闲置回收读它)。主进程看不见界面,只能由这里报。
+ * 屏上摆着别的机器上的会话也报给本机 —— 这条通道永不外发(lib/machine-routing.ts LOCAL_ONLY_CHANNELS)。
+ */
 export function wireSessionsOnScreenReport(): () => void {
-  return autorun(() => {
-    const sessionIds = sessionsOnScreen();
-    void rpc.sessions.reportSessionsOnScreen(sessionIds).catch((error: unknown) => {
-      log.warn('Failed to report the sessions on screen:', error);
-    });
-  });
+  return reaction(
+    () => sessionsOnScreen().sort(),
+    (sessionIds) => {
+      void rpc.sessions.reportSessionsOnScreen(sessionIds).catch((error: unknown) => {
+        log.warn('Failed to report the sessions on screen:', error);
+      });
+    },
+    { fireImmediately: true, equals: comparer.structural }
+  );
 }

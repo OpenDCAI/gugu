@@ -1,6 +1,7 @@
 /**
- * 桌面此刻在屏上的会话(渲染层报来的,定义在 renderer/app/sessions-on-screen.ts):主窗那页、会话页上每一块、
- * 单独的窗、开在窗里的页签所属的会话。主进程看不见界面,只能由渲染层报;闲置回收据此不停人正看着的会话。
+ * 这台电脑此刻在屏上的会话(它自己的渲染层报来的,定义在 renderer/app/sessions-on-screen.ts):主窗那页、会话页上
+ * 每一块、单独的窗、开在窗里的页签所属的会话。主进程看不见界面,只能由渲染层报;闲置回收据此不停人正看着的会话。
+ * 别的桌面经设备连接报不进来(device-session-host.ts):那是它们的屏,它们看着的会话由订阅算(remote-pane watching)。
  */
 let onScreen: ReadonlySet<string> = new Set();
 
