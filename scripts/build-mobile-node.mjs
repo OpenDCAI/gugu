@@ -38,8 +38,9 @@ for (const pkg of lock.packages) {
   let bytes
   try { bytes = await readFile(archive) } catch { /* first build */ }
   if (!bytes || createHash('sha256').update(bytes).digest('hex') !== pkg.sha256) {
-    const response = await fetch(`${lock.repository}/${pkg.path}`)
-    if (!response.ok) throw new Error(`${pkg.name}: HTTP ${response.status}`)
+    // From our mirror, not upstream: Termux deletes a build once it is superseded (see mirror-mobile-node.mjs).
+    const response = await fetch(`${lock.mirror}/${pkg.sha256}.deb`)
+    if (!response.ok) throw new Error(`${pkg.name}@${pkg.version}: mirror answered HTTP ${response.status}; run node scripts/mirror-mobile-node.mjs`)
     bytes = Buffer.from(await response.arrayBuffer())
     if (createHash('sha256').update(bytes).digest('hex') !== pkg.sha256) throw new Error(`${pkg.name}: checksum mismatch`)
     await writeFile(archive, bytes)
