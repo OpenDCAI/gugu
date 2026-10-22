@@ -416,7 +416,7 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
       entry.timeline.settle({ itemId: restored.request.itemId, optionId: settlement.optionId, by: settlement.resolvedBy ?? 'owner' });
     }
     const answer = restored.answer ? Promise.resolve(restored.answer) : askHost(entry.conversationId, restored.request,
-      { signal: new AbortController().signal, background: true });
+      { signal: new AbortController().signal });
     deliverAgentQuestionAnswer(entry.conversationId, projectId, restored.request, restored.answerMessageId, answer);
   }
 }
@@ -438,7 +438,7 @@ function withdrawOrphanHostAsks(entry: TimelineEntry): void {
 export function askHost(
   conversationId: string,
   request: HostAskEntry['request'],
-  options: { signal: AbortSignal; refuse?: HostAskEntry['refuse']; background?: boolean }
+  options: { signal: AbortSignal; refuse?: HostAskEntry['refuse'] }
 ): Promise<HostAnswer | 'withdrawn' | 'unavailable'> {
   if (!readSessionRow(conversationId)) return Promise.resolve('unavailable');
   if (options.signal.aborted) return Promise.resolve('withdrawn');
@@ -456,13 +456,13 @@ export function askHost(
       if (!asks.delete(request.itemId)) return;
       options.signal.removeEventListener('abort', aborted);
       if (asks.size === 0) hostAsks.delete(conversationId);
-      if (!options.background) reportHostWait(conversationId, wait, false);
+      reportHostWait(conversationId, wait, false);
       const entry = entries.get(conversationId);
       if (entry && publish) syncPending(entry);
       resolve(answer);
     };
     asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: aborted, detach: () => end('withdrawn', false) });
-    if (!options.background) reportHostWait(conversationId, wait, true);
+    reportHostWait(conversationId, wait, true);
     const entry = entries.get(conversationId);
     if (entry) syncPending(entry);
     options.signal.addEventListener('abort', aborted, { once: true });
