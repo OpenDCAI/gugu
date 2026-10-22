@@ -5,7 +5,7 @@
  * 看着 = 经会话页宿主那条连接订上。订阅的寿命就是连接的寿命:连接断了(关窗、合盖、网断)当场作废 ——
  * ❌ 另设保活与清扫;连回来之后那台电脑重订,攒着的请求随订阅应答一起送到。
  */
-import type { SessionpagePaneFailure } from '@gugu/session-core/session-record/contract';
+import { isSessionPaneTabs, type SessionpagePaneFailure } from '@gugu/session-core/session-record/contract';
 import { SESSION_HOST_PANE, type SessionHostPaneSubscribe } from '@shared/lib/ipc/session-host-device-frames';
 import type { RemotePaneRoute } from '@main/core/session-timeline/remote-pane';
 import type { FrameSessionHost } from './frame-host';
@@ -43,6 +43,7 @@ export function installDevicePaneRelay(host: FrameSessionHost, route: Pick<Remot
         browser: body.browser === true,
         pages: body.pages === true,
         external: body.external === true,
+        tabs: body.tabs === true,
       },
       (open) => {
         host.sendTo(sender, SESSION_HOST_PANE.open, open);
@@ -66,7 +67,11 @@ export function installDevicePaneRelay(host: FrameSessionHost, route: Pick<Remot
     if (!subscriptionId || !requestId || !owned.get(sender)?.has(subscriptionId)) return { accepted: false };
     const failure: SessionpagePaneFailure | undefined =
       body.failure === 'no_browser' || body.failure === 'open_failed' ? body.failure : undefined;
-    return { accepted: route.ack({ requestId, subscriptionId, ok: body.ok === true, failure }) };
+    return { accepted: route.ack({ requestId, subscriptionId, ok: body.ok === true, failure,
+      ...(isSessionPaneTabs(body.tabs) ? { tabs: body.tabs } : {}),
+      ...(typeof body.closed === 'boolean' ? { closed: body.closed } : {}),
+      ...(typeof body.error === 'string' ? { error: body.error } : {}),
+    }) };
   });
 
   const offClose = host.onConnectionClosed((sender) => {
