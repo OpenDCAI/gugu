@@ -13,7 +13,7 @@ import { createScope, type Scope } from '../scope';
 
 const RUNTIME_SIGNAL_KIND = 'wire-runtime-signal';
 /** Shared child-runtime readiness budget; ACP initialize uses the same no-ready-signal semantics. */
-export const DEFAULT_READY_TIMEOUT_MS = 10_000;
+export const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_SHUTDOWN_GRACE_MS = 1_000;
 
 type RuntimeSignal = {
