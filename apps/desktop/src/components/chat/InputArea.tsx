@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'
+import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -719,6 +719,7 @@ export function InputArea({
     {/* @@@1322 composer 外层 = 纯布局列容器（附件/悄悄话/引用条堆叠在 .box 上方）。
         边框/药丸/focus 态移到内层单行 .box（见下）。 */}
     <div
+      className={inBar ? sessionComposerDockedWidthClassName : undefined} // 格子里与新任务框同宽(同一个常量)
       style={{ flexShrink: 0, display: verbTakesOver ? 'none' : 'flex', flexDirection: 'column', gap: '6px' }}
     >
       <input
@@ -857,9 +858,8 @@ export function InputArea({
         </div>
       )}
 
-      {/* @@@1697 三分离(owner override 单-pill，对齐已合设计 SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：
-          外层 row align-items:flex-end + 左右 dock(h=42 固定)夹中间只裹 textarea 的 box(--r-lg 12px)；多行时
-          box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动。逆转 #933 单-pill 回退、复原 #1459 结构。 */}
+      {/* @@@1697 三分离(SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：外层 row align-items:flex-end + 左右 dock(h=42 固定)
+          夹中间只裹 textarea 的 box；多行时 box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动(复原 #1459 结构)。 */}
       <div data-chat-composer-row="" className="@container" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
         {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152)。@@@4292 mobile:命中框 44×44，dock 高与之匹配。 */}
         {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>{attachButton}</div>}
