@@ -134,7 +134,7 @@ afterEach(() => {
 })
 
 describe('只画会变的帧、按变了多少决定什么时候画,看不见就停(Chole 上咕咕入口那只鸟 60 fps 一直画;mac1 上 24 只闲鸟半个核)', () => {
-  it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器隔 33ms 看一眼)', async () => {
+  it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器:共用时钟的下一格或下一次眨眼,哪个先到那时看)', async () => {
     fakeClock()
     await boot()
     step()
@@ -145,7 +145,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     expect(fake.draws, '差 0.4 个像素:同一张,不画').toHaveLength(1)
     expect(frames, '没画就不排 rAF(排着就算不画,Chromium 每帧也要出一遍帧)').toHaveLength(0)
     await vi.advanceTimersByTimeAsync(330)
-    expect(fake.draws, '计时器看了十次,都还是同一张').toHaveLength(1)
+    expect(fake.draws, '计时器看了几次,都还是同一张').toHaveLength(1)
     expect(frames).toHaveLength(0)
   })
 
@@ -156,8 +156,8 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     expect(frames).toHaveLength(0)
     fake.look = [2]
-    await vi.advanceTimersByTimeAsync(33)
-    expect(fake.draws, '变了 2 个像素:马上画').toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(fake.draws, '变了 2 个像素:计时器最迟下一格醒来就画').toHaveLength(2)
     expect(frames, '画了快动作回到 rAF').toHaveLength(1)
   })
 
@@ -167,7 +167,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     step()
     const drawn = fake.draws.length
-    // 落在共用时钟一格的中段(这一格的第一趟已经过了,计时器 33ms 一趟):第一只先变,33ms 后第二只再变,都还在这一格里
+    // 落在共用时钟一格的中段(这一格的第一趟已经过了,计时器要等到下一格):第一只先变,33ms 后第二只再变,都还在这一格里
     while (performance.now() % 100 < 40 || performance.now() % 100 > 50) await vi.advanceTimersByTimeAsync(1)
     fake.look = [1]
     await vi.advanceTimersByTimeAsync(33)
@@ -189,8 +189,9 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     const drawn = fake.draws.length
     fake.look = [0.8]
-    await vi.advanceTimersByTimeAsync(33)
-    expect(fake.draws.length, '差 0.8 个像素:跟光标时不等共用时钟').toBe(drawn + 1)
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 12, clientY: 10 }))
+    step()
+    expect(fake.draws.length, '差 0.8 个像素:光标一动就醒,跟光标时不等共用时钟').toBe(drawn + 1)
     expect(frames, '接着排 rAF').toHaveLength(1)
   })
 
@@ -269,7 +270,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     expect(updates, 'IO 仍相交,但隐藏面板里的引擎不再计算').not.toHaveBeenCalled()
     expect(fake.draws, '上一次内容保留,不重画').toHaveLength(1)
     panel.removeAttribute('inert')
-    await vi.advanceTimersByTimeAsync(33)
+    await vi.advanceTimersByTimeAsync(100)
     expect(updates).toHaveBeenCalledTimes(1)
     expect(fake.draws, '没有 IO 事件也能恢复').toHaveLength(2)
   })

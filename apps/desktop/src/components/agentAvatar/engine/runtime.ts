@@ -4,7 +4,8 @@
  * 只画会变的帧,按变了多少决定什么时候画(CPU 跟重画次数成正比,mac1 实测一次约 2.4ms):
  * 和上一张差不到半个 CSS 像素就不画;慢慢在变的(呼吸、左右摆、视线游走)攒到共用的 SLOW_TICK_MS 时钟上,所有鸟同一帧一起画;
  * 一下变得多的(眨眼、跳视、蹦、表情轮换、变形、拍一拍)、以及眼睛正跟着光标的,下一帧就画,并接着排 rAF 全帧率跟着。
- * 没有快动作就不排 rAF,改用计时器隔 IDLE_CHECK_MS 再看(排着 rAF 本身就要出帧);
+ * 没有快动作就不排 rAF,改用一个计时器:到共用时钟的下一格,或者哪只鸟下一次眨眼的时刻,哪个先到就那时醒(排着 rAF 本身就要出帧);
+ * 光标一动、窗口露出来就当场醒,不等计时器;
  * 窗口藏起来(document.hidden,或主进程报窗口最小化、收进托盘)、或一只头像都不在视口里,整个循环停下,回来再接着
  * (Chole 上咕咕入口那只鸟 60 fps 一直画,吃满一个核)。
  * 没焦点不停:没焦点照样看得见(副屏、并排放着、人点进了咕咕自己的浏览器页签)。
@@ -17,7 +18,7 @@ import { UI_EVENTS } from '@/lib/uiEvents'
 import { clamp } from './geometry'
 import { GuguEngine } from './engine'
 import { drawAvatar, drawnLook, glPasses, lookDiff, paintGL, Crop, DrawOpts, FrameShape, Slots } from './draw'
-import { GuguGL, loadCharacter, spriteUrl } from './gl'
+import { GuguGL, loadCharacter } from './gl'
 import { CHARACTER_BY_ID, Character, CharacterId, DEFAULT_CHARACTER } from './characters'
 import { OutfitDraw } from './outfits'
 import type { WearItem } from './outfitCatalog'
@@ -35,11 +36,10 @@ const GL_REBUILD_DELAYS_MS = [500, 2_000, 10_000, 30_000, 60_000]
 /** 重建出来的 GL 活过这么久才算稳住:之前又丢,下一次重建按下一档等,❌ 每 500ms 建一个新上下文空转 */
 const GL_STABLE_MS = 60_000
 /**
- * 一帧什么都没画(画面没变):下一次不排 rAF,隔这么久用计时器再看一眼。排着 rAF 就算不画,Chromium 每帧也要走一遍出帧流程,
- * 渲染进程 + GPU 进程每分钟要吃掉十来个 CPU 秒(mac1 实测);计时器只跑引擎这几行 JS。一看到变了就画,并回到 rAF 跟着刷新走。
- * 33ms:眨眼这种快动作最多晚一拍开始,不会整个漏掉。
+ * 一帧什么都没画(画面没变):下一次不排 rAF,用计时器在「共用时钟的下一格」与「最早的一次眨眼」里先到的那一刻再看。
+ * 排着 rAF 就算不画,Chromium 每帧也要走一遍出帧流程,渲染进程 + GPU 进程每分钟要吃掉十来个 CPU 秒(mac1 实测);
+ * 计时器只跑引擎这几行 JS。眨眼是快动作,准点醒才不会漏掉它合上的那几帧;慢变化本来就攒到时钟格上一起画。
  */
-const IDLE_CHECK_MS = 33
 /** 和上一张差不到这么多 CSS 像素(色阶按同样的倍数)= 同一张,不画 */
 const SAME_CSS_PX = 0.5
 /** 差不到这么多 CSS 像素的变化是「慢慢在变」:不急着画,等共用时钟的下一格,所有鸟一起画 */
@@ -171,10 +171,14 @@ class Runtime {
     this.wake()
   }
 
-  /** 循环停着就接着跑(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
+  /** 循环停着或在等计时器时马上跑一帧(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
   private wake = () => {
-    if (this.raf || this.idle || !this.ready) return
-    this.last = 0
+    if (this.raf || !this.ready) return
+    if (this.idle) {
+      // 循环还活着,只是在等计时器:提前醒,时间接着记
+      clearTimeout(this.idle)
+      this.idle = null
+    } else this.last = 0
     this.raf = requestAnimationFrame(this.loop)
   }
 
@@ -242,11 +246,11 @@ class Runtime {
     })
   }
 
-  /** 首次用到某个角色时才取它的素材（GL 纹理；无 WebGL 时退路用一张 <img>，只要本体） */
+  /** 首次用到某个角色时才取它的素材（GL 纹理；无 WebGL 时退路用一张 <img>：拼好的定格图） */
   private ensureSprite(ch: Character) {
     if (this.sprites.has(ch.id)) return
     const img = new Image()
-    img.src = spriteUrl(ch)
+    img.src = ch.flat // 无 WebGL 的定格:身体与部件拼好的一整张
     this.sprites.set(ch.id, img)
     this.loadTextures(ch)
   }
@@ -336,6 +340,7 @@ class Runtime {
       const step = dt + h.pendingDt
       h.pendingDt = 0
       h.engine.crop = h.opts.crop
+      h.engine.spinOK = h.outfit.spins
       const look = this.lookFor(h, ms)
       h.engine.update(step, look)
       h.outfit.update(step, h.engine.frame)
@@ -372,7 +377,11 @@ class Runtime {
     this.flush(batch)
     this.workEma = this.workEma * 0.9 + (performance.now() - w0) * 0.1
     if (fast) this.raf = requestAnimationFrame(this.loop)
-    else this.idle = setTimeout(() => this.loop(performance.now()), IDLE_CHECK_MS)
+    else {
+      let wait = SLOW_TICK_MS - (ms % SLOW_TICK_MS)
+      for (const h of this.handles) if (h.visible) wait = Math.min(wait, h.engine.wakeIn() * 1000)
+      this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, wait))
+    }
   }
 
   /** 这一批画好的格子抄到各自的画布上,共用 GL 画布从头排 */
