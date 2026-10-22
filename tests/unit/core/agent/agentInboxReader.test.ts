@@ -867,17 +867,15 @@ describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
     // 第一轮:注入受理后、游标推进前进程死(markRead 永远没跑到 —— 模拟为抛 SimulatedKill,
     // advanceCursor 收到即停,云端游标保持原位)。
     const kill = new Error('SIGKILL between inject and advance')
-    const disclosures: Array<{ chatId: string; key: string; text: string }> = []
+    const disclosures: Array<{ chatId: string; key: string; reason: string }> = []
     const { deps: crashDeps, injections: firstInjections, outcomes } = makeDeps(cloud, {
       markRead: async () => { throw kill },
-      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, key: input.key, text: input.text }) },
+      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, key: input.key, reason: input.reason }) },
     })
     await expect(pullAgentInbox(AGENT, crashDeps)).rejects.toThrow('SIGKILL between inject and advance')
     expect(firstInjections).toHaveLength(1)
     expect(cloud.watermark('chat-a', AGENT)).toBe(0)
     expect(disclosures).toHaveLength(1)
-    // 稳定 id 只在去重键里,❌ 写进给对话里所有人看的那一行(#7103)。
-    expect(disclosures[0]!.text).not.toContain('msg:')
     expect(disclosures[0]!.key).toMatch(/^turn-failure:batch:[0-9a-f]{32}$/)
     expect(outcomes).toEqual([{ ok: false }])
     // 重启 → 重拉 → 重注入:同一稳定 id 第二次出现(重是显形的),消息没有丢。
@@ -1052,19 +1050,17 @@ describe('三态判决与失败面', () => {
   it('批注入真失败:游标不动、按来源 chat 落批粒度披露(只说原因,❌ 内部编号)、灯记异常、错误上抛', async () => {
     const cloud = seed()
     cloud.post({ chatId: 'chat-a', id: 'm2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'boom' })
-    const disclosures: Array<{ chatId: string; key: string; text: string }> = []
+    const disclosures: Array<{ chatId: string; key: string; reason: string }> = []
     const { deps, outcomes } = makeDeps(cloud, {
       inject: async () => { throw new Error('provider exploded') },
-      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, key: input.key, text: input.text }) },
+      postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, key: input.key, reason: input.reason }) },
     })
     await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('provider exploded')
     expect(cloud.markReadCalls).toEqual([])
     expect(disclosures).toHaveLength(1)
     expect(disclosures[0]!.chatId).toBe('chat-a')
-    // #7103 owner 10-11:这一行给对话里所有人看 ⇒ 说原因那一句,❌ 内部编号;稳定 id 只进去重键与日志。
-    expect(disclosures[0]!.text).toBe('Agent 回合执行失败:这批 2 条消息未处理成功。咕咕这边出错了，请稍后重试。')
-    expect(disclosures[0]!.text).not.toContain('msg:')
-    expect(disclosures[0]!.text).not.toContain('provider exploded') // 披露保持脱敏投影
+    // #7103 owner 10-11:这一行给对话里所有人看 ⇒ 只带原因,❌ 内部编号、❌ 上游原文;没受理是咕咕这边的错。
+    expect(disclosures[0]!.reason).toBe('notAdmitted')
     expect(outcomes).toEqual([{ ok: false }])
   })
 
@@ -1109,7 +1105,7 @@ describe('三态判决与失败面', () => {
     const cloud = seed()
     let fail!: (error: Error) => void
     const completion = new Promise<void>((_, reject) => { fail = reject })
-    const notices: Array<{ text: string; chatId: string }> = []
+    const notices: Array<{ reason: string; chatId: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion }),
       postDisclosure: async (input) => { notices.push(input) },
@@ -1121,8 +1117,7 @@ describe('三态判决与失败面', () => {
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
     fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
     expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: 'chat-a', text: '周限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。' })])
-    expect(notices[0]!.text).not.toContain('private trace')
+    expect(notices).toEqual([expect.objectContaining({ chatId: 'chat-a', reason: 'weeklyQuota' })])
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
@@ -1131,14 +1126,14 @@ describe('三态判决与失败面', () => {
     'Selected model is at capacity. Please try a different model.',
   ])('discloses an unavailable model without leaking its upstream route or request trace: %s', async (reason) => {
     const cloud = seed()
-    const notices: Array<{ text: string }> = []
+    const notices: Array<{ reason: string }> = []
     const { deps } = makeDeps(cloud, {
       inject: async () => ({ verdict: 'accepted', completion: Promise.reject(new Error(reason)) }),
       postDisclosure: async (input) => { notices.push(input) },
     })
     const admitted = await pullAgentInbox(AGENT, deps)
     await admitted.completion!.catch(() => {})
-    expect(notices).toEqual([expect.objectContaining({ text: '当前模型暂时不可用或已满载，请稍后重发，或切换模型后重发。' })])
+    expect(notices).toEqual([expect.objectContaining({ reason: 'modelUnavailable' })])
   })
 
   it('keeps a completion failure unsaid if its durable notice could not be written', async () => {

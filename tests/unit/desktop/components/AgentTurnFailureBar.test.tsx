@@ -125,14 +125,30 @@ describe('model account quota', () => {
 
 
 describe('durable provider failure notice', () => {
-  it('names the actual sender and opens its model settings from a persisted quota notification', async () => {
-    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: { id: 'turn-failure:batch:fixture', content: '周限额度不足，当前模型账号暂时无法回复。', sender_user_id: 'agent-1' } }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toContain('Codex 1: 周限额度不足')
+  const failureRow = (reason: string, content = 'English line for agents and old clients') => ({
+    id: 'turn-failure:batch:fixture', content, content_type: 'system' as const, sender_user_id: 'agent-1',
+    client_message_id: `turn-failure:turn-failure:batch:fixture:${reason}`,
+  })
+  it('says the recorded reason in the viewer language, names the sender and opens its model settings', async () => {
+    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('weeklyQuota') }))
+    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 周限额度不足，当前账号暂时无法回复。切换模型')
     await clickElement(harness.container.querySelector<HTMLButtonElement>('button')!)
     expect(harness.container.querySelector('[data-model-settings="agent-1"]')?.getAttribute('data-model-tab')).toBe('aimodel')
   })
+  it('offers no model change for a reason another model would not get past', async () => {
+    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: failureRow('rateLimited') }))
+    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 请求过于频繁，请稍后重试。')
+    expect(harness.container.querySelector('button')).toBeNull()
+  })
+  it('shows a row whose reason it cannot read (an old Chinese row, an unknown reason) as its plain content', async () => {
+    for (const message of [{ ...failureRow('x', '周限额度不足'), client_message_id: 'turn-failure:batch:fixture' }, failureRow('notYetKnown')]) {
+      await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message }))
+      expect(harness.container.textContent).toBe(message.content)
+      expect(harness.container.querySelector('button')).toBeNull()
+    }
+  })
   it('keeps ordinary system messages in their existing presentation without model controls', async () => {
-    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: { id: 'ordinary-system', content: '群成员已加入', sender_user_id: null } }))
+    await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message: { id: 'ordinary-system', content: '群成员已加入', content_type: 'system', sender_user_id: null, client_message_id: null } }))
     expect(harness.container.textContent).toBe('群成员已加入')
     expect(harness.container.querySelector('button')).toBeNull()
     expect(harness.container.querySelector('[role="status"]')).toBeNull()
