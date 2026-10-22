@@ -36,7 +36,8 @@ async function render(inSlot: boolean, projectName: string | null = null) {
   })
   const textarea = container.querySelector('textarea') as HTMLTextAreaElement
   const box = textarea.parentElement as HTMLElement
-  return { sendInBox: !!box.querySelector('button[aria-label="Send"]'), sendInPage: !!container.querySelector('button[aria-label="Send"]'), placeholder: textarea.placeholder }
+  return { sendInBox: !!box.querySelector('button[aria-label="Send"]'), sendInPage: !!container.querySelector('button[aria-label="Send"]'), placeholder: textarea.placeholder,
+    boxPadding: box.style.padding, wordsPadding: textarea.style.padding }
 }
 
 describe('InputArea in a chat slot', () => {
@@ -48,7 +49,19 @@ describe('InputArea in a chat slot', () => {
   })
   it('keeps the phone layout unchanged even inside a slot', async () => {
     shell.mobile = true
-    expect(await render(true, 'website')).toEqual({ sendInBox: false, sendInPage: true, placeholder: 'Write a message… Type / for commands' })
+    expect(await render(true, 'website')).toEqual({ sendInBox: false, sendInPage: true, placeholder: 'Write a message… Type / for commands', boxPadding: '7px 15px', wordsPadding: '5px 0px' })
+  })
+  // 原型里三处是同一个框:格子里的群框,文字和底排照会话框的位置(sessionComposerBox,真组件由浏览器测试量)。
+  it('in a slot, starts the words and lays the bottom row where the session composer does', async () => {
+    const slot = await render(true)
+    expect(slot.boxPadding).toBe('0px')
+    expect(slot.wordsPadding).toBe('14px 22px 8px')
+    const row = (container.querySelector('textarea') as HTMLElement).parentElement!.lastElementChild as HTMLElement
+    expect(row.style.gap).toBe('6px')
+    expect(row.style.padding).toBe('0px 10px 10px')
+  })
+  it('positive control: outside a slot the chat page box is as it was', async () => {
+    expect(await render(false)).toMatchObject({ boxPadding: '5px 10px', wordsPadding: '5px 0px' })
   })
   it('names the project in a project group\'s box', async () => {
     expect((await render(true, 'website')).placeholder).toBe('Message website… @ an agent to call it')

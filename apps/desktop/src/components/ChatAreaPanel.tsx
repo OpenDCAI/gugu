@@ -80,7 +80,7 @@ import {
   COLOR_ON_ACCENT,
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
-import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { GroupPanelTabs } from './appSlot/GroupPanelTabs'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
+import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'; import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { GroupPanelTabs } from './appSlot/GroupPanelTabs'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -1467,7 +1467,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
         // @@@1323-m4 item4 多选态批量条与 composer「同槽位+同外壳」→ padding 同步对标 SSOT `.comp`(12/22/18),否则切多选态槽位抖。
-        <div style={{ background: 'var(--bg-primary)', padding: mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
+        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1498,7 +1498,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
       ) : (
         // @@@1323-m4 item4 composer 外层 padding 对标 SSOT `.comp{padding:12px 22px 18px}`（#1330 deferred 此项,#1327 合后补）。
         // 桌面左右 22 给输入区呼吸感;mobile 保窄边+安全区,顶部 hairline 与消息区分界(@@@1787 视觉验收:原先浮空无边界)。
-        <div data-chat-composer="" style={{ background: 'var(--bg-primary)', padding: mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        // 画在会话页一块里时用会话输入框那条带(左右 16、离底 8):群框和会话框、新建会话页的框落在同一个位置(gugu-dev#181 核对 21)。
+        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}

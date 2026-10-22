@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
+import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerBox, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -68,6 +68,14 @@ interface InputAreaProps {
 }
 
 // @@@1459 框外按钮 dock：高度=单行框外高（border 2 + box pad 10 + 行高 20 + textarea pad 10 = 42），居中放 30px 按钮 → 单行时按钮与文本行居中对齐；框多行增高时 dock 不长高、按钮贴底，y 坐标稳定。
+
+// 格子里那一框的底排,位置和间距同会话框(sessionComposerBox)。
+const SLOT_TOOLBAR_STYLE = {
+  gap: sessionComposerBox.toolbarGapPx,
+  height: sessionComposerBox.toolbarControlPx,
+  padding: `0 ${sessionComposerBox.toolbarInsetPx}px ${sessionComposerBox.toolbarInsetPx}px`,
+  boxSizing: 'content-box',
+} as const
 
 export function InputArea({
   onSend,
@@ -870,14 +878,14 @@ export function InputArea({
           style={{
             flex: 1,
             minWidth: 0,
-            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? 96 : undefined, // 格子里是一个大框:上面输入、下面一排按钮
+            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? sessionComposerEmptyHeightPx : undefined, // 格子里是一个大框:上面输入、下面一排按钮,空着时和会话框同高
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。
             border: '1px solid transparent', boxShadow: composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
             borderRadius: 'var(--radius-thread)',
             background: 'var(--card)',
-            padding: mobileShell ? '7px 15px' : '5px 10px',
+            padding: mobileShell ? '7px 15px' : inBar ? 0 : '5px 10px', // 格子里的内距在文字和底排身上,同会话框
           }}
         >
           {/* SSOT `.box textarea` L150：flex:1 / border:none / 13.5px / lineHeight 1.5 / padding 5px 0 / max-height 110。 */}
@@ -929,16 +937,21 @@ export function InputArea({
               fontSize: 'var(--font-prose)', // #7333 输入与消息正文同一档 16(行高 1.5 = 24)
               // @@@1697 SSOT `.box textarea` L150: line-height 1.5 / max-height 110。
               lineHeight: 1.5,
-              padding: '5px 0',
+              padding: inBar ? `${sessionComposerBox.textTopPx}px ${sessionComposerBox.textInsetPx}px ${sessionComposerBox.textBottomPx}px` : '5px 0',
               fontFamily: 'inherit',
               color: 'var(--text-primary)',
               opacity: disabled ? 0.55 : 1,
               overflow: 'hidden',
-              maxHeight: '110px',
+              ...(inBar ? { minHeight: sessionComposerBox.editorMinHeightPx, maxHeight: sessionComposerBox.editorMaxHeightPx } : { maxHeight: '110px' }),
               boxSizing: 'border-box',
             }}
           />
-          {inBar && <div className="flex items-center gap-1 pt-1">{attachButton}{verbs}<span className="flex-1" />{sendButton}</div>}
+          {/* 格子里的底排:和会话框的底排同一套位置和间距(sessionComposerBox)。 */}
+          {inBar && (
+            <div className="flex items-center" style={SLOT_TOOLBAR_STYLE}>
+              {attachButton}{verbs}<span className="flex-1" />{sendButton}
+            </div>
+          )}
         </div>
 
         {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154)。常驻：空态不卸载(防布局抖、移动端可 tap)。 */}
