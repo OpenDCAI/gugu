@@ -161,8 +161,6 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       sendMessageToChat: mocks.sendMessageToChat,
       sendAttachmentsToChat: mocks.sendAttachmentsToChat,
       openAgentChat: mocks.openAgentChat,
-      openTopic: () => { throw new Error('not used here'); },
-      openTopics: () => { throw new Error('not used here'); },
       sendCardToChat: () => { throw new Error('not used here'); },
       rememberedTaskProject: () => { throw new Error('not used here'); },
       rememberTaskProject: () => { throw new Error('not used here'); },

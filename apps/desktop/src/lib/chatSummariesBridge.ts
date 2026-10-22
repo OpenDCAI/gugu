@@ -1,12 +1,13 @@
 // 会话页需要知道的对话摘要(gugu-dev#181):每个对话 id → { 有没有过消息, 叫什么 }。
 //   · 有没有过消息:项目群里还没有消息时,项目块正中是文件夹卡和输入框;有了才是消息流。
 //   · 叫什么:会话里「来自 X」那一句 —— 投递信封里只有群号(给 agent 寻址),人读群名。
+//   · 是群还是私聊:块页签的右键菜单(私聊没有群公告)。
 //
 // 壳那棵树知道每个对话(聊天列表那一份),会话页不知道:壳写、会话页读,同一个 window 对象 +
 // 一个 window 事件(谁先起来都接得上)。两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 
-export type ChatSummary = { readonly hasMessages: boolean; readonly name: string | null }
+export type ChatSummary = { readonly hasMessages: boolean; readonly name: string | null; readonly kind: string | null }
 
 const KEY = '__GUGU_CHAT_SUMMARIES__'
 const EVENT = 'gugu:chat-summaries'
@@ -14,12 +15,12 @@ const EVENT = 'gugu:chat-summaries'
 type Summaries = ReadonlyMap<string, ChatSummary>
 
 /** 壳:聊天列表那一份(整份替换;没变不通知)。 */
-export function publishChatSummaries(chats: readonly { id: string; name?: string | null; last_message_at?: string | null }[]): void {
-  const next: Summaries = new Map(chats.map((chat) => [chat.id, { hasMessages: Boolean(chat.last_message_at), name: chat.name || null }]))
+export function publishChatSummaries(chats: readonly { id: string; kind: string; name?: string | null; last_message_at?: string | null }[]): void {
+  const next: Summaries = new Map(chats.map((chat) => [chat.id, { hasMessages: Boolean(chat.last_message_at), name: chat.name || null, kind: chat.kind }]))
   const current = read()
   if (current && current.size === next.size && [...next].every(([id, summary]) => {
     const was = current.get(id)
-    return was?.hasMessages === summary.hasMessages && was.name === summary.name
+    return was?.hasMessages === summary.hasMessages && was.name === summary.name && was.kind === summary.kind
   })) return
   ;(window as unknown as Record<string, unknown>)[KEY] = next
   window.dispatchEvent(new Event(EVENT))
@@ -38,7 +39,7 @@ export function subscribeChatSummaries(listener: () => void): () => void {
 /** 会话页(不在渲染里):这个对话的摘要;壳还没告诉过 = null,壳的列表里没有它 = 没有过消息、不知道名字。 */
 export function readChatSummary(chatId: string): ChatSummary | null {
   const summaries = read()
-  return summaries ? (summaries.get(chatId) ?? { hasMessages: false, name: null }) : null
+  return summaries ? (summaries.get(chatId) ?? { hasMessages: false, name: null, kind: null }) : null
 }
 
 /** 会话页:这个对话有没有过消息;壳还没告诉过 = null(还不知道,❌ 当成没有)。 */

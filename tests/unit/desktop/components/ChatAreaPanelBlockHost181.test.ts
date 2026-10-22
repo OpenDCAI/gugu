@@ -2,6 +2,8 @@
 // gugu-dev#181 群聊画在会话页一块里(blockHost):块的页签条就是头 —— 这里不画群聊头,头上那排图标画进页签条右端那一格,
 // 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { chat, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
@@ -37,6 +39,8 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
     markMessageRead: vi.fn(async () => {}),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getThreadMessages: vi.fn(async () => []),
+    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
+    listGroupJoinRequests: vi.fn(async () => []),
   },
 }))
 
@@ -61,7 +65,7 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null }) {
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }) {
   await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost }), {
     chat: {
       getImRepository: getImRepositoryMock,
@@ -86,15 +90,31 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
   })
 
   it('in a block draws no header; the icons go to the tab strip slot and the name to the tab slot', async () => {
-    await renderPanel({ actions, title })
+    await renderPanel({ actions, title, tabs: null })
     expect(header(), 'the block tab strip is the header').toBeNull()
     expect(membersButtonIn(actions), 'the action icons are painted into the tab strip').not.toBeNull()
     expect(actions.querySelector('[data-member-count]')?.textContent).toBe('2')
     expect(title.textContent).toContain('设计评审')
   })
 
+  it('in a block the ⋯ is not on the strip (its items are in the tab\'s context menu); on the chat page it is', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).toBeNull()
+    await renderPanel()
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
+  })
+
+  it('a tab menu asks one chat for its settings: only that chat\'s panel opens them', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    const before = harness.container.textContent?.length ?? 0
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'another-group', page: 'settings' } })) })
+    expect(harness.container.textContent?.length, 'another chat was named: this panel stays as it was').toBe(before)
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'group-1', page: 'settings' } })) })
+    expect(harness.container.textContent?.length ?? 0, 'its own chat was named: the settings open').toBeGreaterThan(before)
+  })
+
   it('in a block whose slots are not mounted yet still draws no header', async () => {
-    await renderPanel({ actions: null, title: null })
+    await renderPanel({ actions: null, title: null, tabs: null })
     expect(header()).toBeNull()
     expect(membersButtonIn(harness.container)).toBeNull()
   })

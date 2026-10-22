@@ -33,6 +33,8 @@ interface ChatHeaderActionsProps {
   modeButton?: boolean
   /** 画在会话页一块的页签条上时(没有标题后面的「(N)」):人数挂在成员按钮上。 */
   memberCount?: number
+  /** 画在会话页一块的页签条上时:⋯ 里那几样(公告、设置、在本群打开 App)在这一块页签的右键菜单里,这里不画 ⋯。 */
+  moreInTabMenu?: boolean
   moreButtonRef: RefObject<HTMLButtonElement | null>
   onEnterSearchMode: () => void
   onOpenWorkspacePanel: () => void
@@ -58,6 +60,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   mobile,
   modeButton,
   memberCount,
+  moreInTabMenu,
   moreButtonRef,
   onEnterSearchMode,
   onOpenWorkspacePanel,
@@ -159,6 +162,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
           群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
           契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
+      {!moreInTabMenu && (
       <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
@@ -237,6 +241,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           </DropdownMenu.Content>
         )}
       </DropdownMenu.Root>
+      )}
     </>
   )
 })

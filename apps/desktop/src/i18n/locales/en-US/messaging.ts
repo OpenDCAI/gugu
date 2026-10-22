@@ -402,6 +402,7 @@ export default {
     "title": "Forward"
   },
   "group": {
+    "projectGroupNoInvite": "A project group holds only you and your agents. To work with others, start a group chat in Chats.",
     "addMember": "Add member",
     "agentFlood": {
       "ledgerLoadFailed": "Could not read the ledger for this automatic change, so undo is unavailable. Reopen this line in a moment and try again.",

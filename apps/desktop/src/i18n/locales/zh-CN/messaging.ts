@@ -402,6 +402,7 @@ export default {
     "title": "转发"
   },
   "group": {
+    "projectGroupNoInvite": "项目群只有你和你的 agent。要与其他人协作，请在对话中新建群聊。",
     "addMember": "添加成员",
     "agentFlood": {
       "ledgerLoadFailed": "读不到这条自动调档的台账，撤回入口暂时给不出来。过一会儿重开这条线再试。",

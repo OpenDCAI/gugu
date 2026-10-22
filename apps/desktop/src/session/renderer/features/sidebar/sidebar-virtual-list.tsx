@@ -39,7 +39,6 @@ import { navNodeKey } from './sidebar-store';
 import { SidebarProjectItem } from './project-item';
 import { SidebarSessionItem } from './sidebar-session-item';
 import { SidebarMoreRow } from './sidebar-more-row';
-import { SidebarTopicRow, SidebarTopicsMoreRow } from './sidebar-topic-row';
 import { SidebarStateHeader } from './sidebar-state-header';
 
 // @@@sidebar-row-height — 必须与行自己写的 h-8 (32px) 相等。虚拟滚动用它算每行的偏移,
@@ -319,20 +318,6 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                   </div>
                 );
               }
-              if (row.kind === 'topic') {
-                return (
-                  <div key={`${row.projectId}:topic:${row.topic.id}`} style={vStyle}>
-                    <SidebarTopicRow topic={row.topic} />
-                  </div>
-                );
-              }
-              if (row.kind === 'topics-more') {
-                return (
-                  <div key={`${row.projectId}:topics-more`} style={vStyle}>
-                    <SidebarTopicsMoreRow projectId={row.projectId} count={row.count} />
-                  </div>
-                );
-              }
               return (
                 <div key={`${row.projectId}:more`} style={vStyle}>
                   <SidebarMoreRow
@@ -368,8 +353,6 @@ function rowToDndId(row: SidebarRow): string {
   if (row.kind === 'conversation') {
     return `conv::${row.projectId}::${row.sessionId}::${row.sessionId}`;
   }
-  if (row.kind === 'topic') return `topic::${row.projectId}::${row.topic.id}`;
-  if (row.kind === 'topics-more') return `topics-more::${row.projectId}`;
   return `more::${row.projectId}`;
 }
 

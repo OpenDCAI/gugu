@@ -1027,30 +1027,6 @@ describe('SidebarStore keeps what the user folded folded', () => {
     expect([legacy.pinnedCollapsed, legacy.projectsCollapsed, legacy.chatsCollapsed]).toEqual([false, false, false]);
   });
 
-  it('hangs a project group\'s topics under its project row, folded like a chat group (gugu-dev#181)', () => {
-    const store = twoProjects();
-    store.setProjectTopics(new Map([['project-a', { live: [{ id: 't1', name: 'Release notes', unread: 2 }, { id: 't2', name: 'Bug bash', unread: 0 }], more: 3 }]]));
-    const topicRows = () =>
-      store.sidebarRows.flatMap((row) =>
-        row.kind === 'topic' ? [`${row.projectId}:${row.topic.id}`] : row.kind === 'topics-more' ? [`${row.projectId}:more:${row.count}`] : []
-      );
-
-    // A folded project shows none of its children, topics included.
-    if (store.expandedProjectIds.has('project-a')) store.toggleProjectExpanded('project-a');
-    expect(topicRows()).toEqual([]);
-
-    // Expanded: right under the project row, the open topics and then one "More · N" row.
-    store.toggleProjectExpanded('project-a');
-    const kinds = store.sidebarRows.map((row) => row.kind);
-    const at = store.sidebarRows.findIndex((row) => row.kind === 'project' && row.projectId === 'project-a');
-    expect(kinds.slice(at, at + 4)).toEqual(['project', 'topic', 'topic', 'topics-more']);
-    expect(topicRows()).toEqual(['project-a:t1', 'project-a:t2', 'project-a:more:3']);
-
-    // Searching keeps only the topics whose name matches, and no "More" row.
-    store.setSearchQuery('bug');
-    expect(topicRows()).toEqual(['project-a:t2']);
-  });
-
   it('keeps the sidebar layout and the open tab across a restart (gugu-dev#181)', () => {
     const source = twoProjects();
     source.setListLayout('merged');

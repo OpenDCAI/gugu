@@ -6,7 +6,7 @@ import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
-import { canInviteHumansToGroup, isGroupManagerRole } from '../../lib/groupMemberPermissions'
+import { canInviteHumansToGroup, isGroupManagerRole, isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import type { DisplayIdentity } from '../../lib/displayIdentity'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
@@ -141,7 +141,9 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   }, [activeProfile, profileOf])
   const menuProfile = menu ? profileOf(menu.memberId) : null
 
-  const canInvite = enabled && canInviteHumansToGroup({ viewerRole, allowMemberInvite })
+  // 项目群不拉人类进来:「邀请」还在(加自己的 agent),人类那一页换成原因。
+  const projectGroup = isProjectGroupChat(chatId)
+  const canInvite = enabled && !projectGroup && canInviteHumansToGroup({ viewerRole, allowMemberInvite })
   // 普通成员在不许邀人的群里仍能加自己的 Agent(picker 的 Agent 页签);所以只要是群成员就给入口。
   const showInvite = enabled && Boolean(viewerRole)
 
@@ -221,6 +223,7 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
           snapshot={snapshot}
           currentUserId={currentUserId}
           canInviteHumans={canInvite}
+          humanDeniedHint={projectGroup ? t('group.projectGroupNoInvite') : undefined}
           onClose={() => setPickerOpen(false)}
           onReload={onReload}
         />

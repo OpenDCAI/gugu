@@ -13,7 +13,7 @@ import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { SharePosterDialog } from '../SharePosterDialog'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { chatService } from '../../lib/chat'
-import { isGroupManagerRole } from '../../lib/groupMemberPermissions'
+import { isGroupManagerRole, isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { useToast } from '../toastContext'
 import { useChatStore } from '../../store/chatContext'
 import { ChatManagementActions } from './ChatManagementActions'
@@ -27,6 +27,7 @@ import {
   settingsErrorStyle,
   settingsMobileBodyStyle,
   settingsReadOnlyBoxStyle,
+  settingsRowSubtitleStyle,
   settingsSectionLabelStyle,
   settingsTextareaStyle,
 } from './groupSettingsStyles'
@@ -304,8 +305,10 @@ export function GroupMembersSection({
           <SettingsNavRow title={t('header.announcement')} testId="group-settings-announcement" onClick={() => push('announcement')} />
           <SettingsNavRow title={t('group.settings.rules')} testId="group-settings-rules" value={settings ? firstLine(settings.group_prompt) ?? t('group.settings.rulesUnset') : undefined} onClick={() => openTextPage('rules')} />
           <SettingsNavRow title={t('group.settings.description')} testId="group-settings-description" value={settings ? firstLine(settings.description) ?? t('group.settings.descriptionUnset') : undefined} onClick={() => openTextPage('description')} />
-          {/* 邀请链接本身所有成员都能分享;管理者在「群管理」里看到同一块(连同开关)。 */}
-          {!viewerIsManager && settings?.invite_link_enabled && inviteLink ? (
+          {/* 邀请链接本身所有成员都能分享;管理者在「群管理」里看到同一块(连同开关)。项目群不拉人:只说原因。 */}
+          {isProjectGroupChat(chatId) ? (
+            <div data-testid="project-group-no-invite" style={settingsRowSubtitleStyle}>{t('group.projectGroupNoInvite')}</div>
+          ) : !viewerIsManager && settings?.invite_link_enabled && inviteLink ? (
             <>
               <div style={settingsSectionLabelStyle}>{t('group.settings.inviteLink')}</div>
               <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={() => setShowSharePoster(true)} />

@@ -27,6 +27,7 @@ import {
   type MentionDrop,
 } from './screen-layout-actions';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
+import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
@@ -155,7 +156,8 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
 
 /**
  * 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):和项目块同一条页签条,第一枚是这个对话(头像 + 名字,关不掉);
- * 对话由壳画进格子,头像和名字、右端那排图标(搜索、群文件夹、成员、历史、⋯)也由壳画进页签条留的两格。
+ * 对话由壳画进格子,头像和名字、右端那排图标(搜索、群文件夹、成员、历史)也由壳画进页签条留的几格。
+ * 公告、设置、在本群打开 App 在这枚页签的右键菜单里(右端没有 ⋯)。
  * 屏上不止一块时右端一枚「关闭这一块」。
  */
 const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: string; chatId: string }) {
@@ -174,12 +176,19 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
         }
       >
         <TabSlot data-chat-block-tab={chatId}>
-          <TabChip
-            isActive
-            isFocusedPane={screenLayout.focusedBlockId === blockId}
-            label={translate('sidebar.chats')}
-            labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
-          />
+          <ContextMenu>
+            <ContextMenuTrigger className="flex h-full w-full min-w-0">
+              <TabChip
+                isActive
+                isFocusedPane={screenLayout.focusedBlockId === blockId}
+                label={translate('sidebar.chats')}
+                labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
+              />
+            </ContextMenuTrigger>
+            <ContextMenuContent finalFocus={false} className="min-w-40">
+              <ChatTabMenuItems chatId={chatId} />
+            </ContextMenuContent>
+          </ContextMenu>
         </TabSlot>
         <ChatPartSlot chatId={chatId} part="tabs" className="contents" />
       </TabStripShell>
