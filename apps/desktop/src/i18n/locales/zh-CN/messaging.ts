@@ -430,6 +430,7 @@ export default {
       "notParticipant": "你还不是这条话题的参与者，所以看不到成员名单。在里面说一句就进来了。",
       "sectionAgents": "Agent",
       "sectionPeople": "人",
+      "myAgents": "我的 agent · {{count}}",
       "title": "群成员",
       "titleTopic": "话题成员"
     },

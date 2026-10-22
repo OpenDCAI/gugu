@@ -430,6 +430,7 @@ export default {
       "notParticipant": "You are not in this topic yet, so its member list is not visible. Say something in it to join.",
       "sectionAgents": "Agents",
       "sectionPeople": "People",
+      "myAgents": "My agents · {{count}}",
       "title": "Group members",
       "titleTopic": "Topic members"
     },

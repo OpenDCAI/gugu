@@ -55,6 +55,7 @@ import { agentOwnerDisplayName, toAgentProfile } from '../memberProfileModels'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { useListenModeEditControls } from './useListenModeEditControls'
 import { rendererLogger } from '../../lib/log'
+import { ChevronRight } from '../../lib/icons'
 import { readRevisionResourceKey } from '../../lib/accountRevisionCoordinator'
 
 const memberListLog = rendererLogger('chat/member-list')
@@ -66,6 +67,16 @@ const sectionHeaderStyle = {
   padding: '12px 14px 4px', color: 'var(--text-tertiary)',
   fontSize: 'var(--font-caption)', fontWeight: 600, letterSpacing: '.02em',
 } as const
+
+// gugu-dev#181「我的 agent · N」那一行:和段头同一种灰、同一档字,整行可点。
+const MY_AGENTS_ROW_STYLE = {
+  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+  padding: '6px 14px', color: 'var(--text-secondary)', fontSize: 'var(--font-caption)',
+  background: 'none', border: 0, cursor: 'pointer', textAlign: 'left',
+} as const
+const myAgentsChevronStyle = (open: boolean): React.CSSProperties => ({
+  width: 14, height: 14, flexShrink: 0, transform: open ? 'rotate(90deg)' : undefined,
+})
 
 const metaCellStyle = {
   fontSize: 'var(--font-caption)', color: 'var(--text-tertiary)',
@@ -316,6 +327,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
 
   // @@@6418 搜索:名字、主人、引擎、模型、设备,与行上看得见的字一致(看不见的字段不参与匹配)。
   const [query, setQuery] = useState('')
+  const [myAgentsExpanded, setMyAgentsExpanded] = useState(false)
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
 
@@ -376,6 +388,59 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
     ])
   })
   const nothingMatches = Boolean(needle) && shownPeople.length === 0 && shownAgents.length === 0
+  // gugu-dev#181:一个任务一个 agent,群里我的 agent 越开越多 ⇒ 收成一组「我的 agent · N」,点开再看;搜索时摊开。
+  const myAgents = shownAgents.filter((member) => identities[member.id]?.owner_user_id === user?.id)
+  const otherAgents = shownAgents.filter((member) => identities[member.id]?.owner_user_id !== user?.id)
+  const myAgentsOpen = myAgentsExpanded || Boolean(needle)
+  const setMyAgentsOpen = setMyAgentsExpanded
+  const renderAgentRow = (member: (typeof shownAgents)[number]) => {
+    const agent = member.raw as GroupAgentItem
+    const identity = identities[agent.id]
+    const device = deviceLabel(identity)
+    const engine = engineLabel(agent)
+    const controls = identity
+      ? resolveEditControls(toAgentProfile(
+          agent,
+          identity,
+          shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses)),
+          agentOwnerDisplayName(identity, identities),
+        ))
+      : undefined
+    return (
+      <MemberRow
+        key={agent.id}
+        memberId={agent.id}
+        identity={identity}
+        isAgent
+        roleLabel={roleLabel(agent.role)}
+        statusBadge={shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses))}
+        onOpen={chatKind === 'group' ? (anchor) => group.openProfile(agent.id, anchor) : undefined}
+        actions={chatKind === 'group' ? group.rowActions(agent.id) : undefined}
+        selected={group.activeMemberId === agent.id}
+        metaCells={(
+          <>
+            <span data-agent-meta="owner" style={metaCellStyle}><AgentOwnerLabel ownerUserId={identity?.owner_user_id} ownerDisplayName={identity ? agentOwnerDisplayName(identity, identities) : null} /></span>
+            {/* 取不到就整格不渲染 —— 空得看得出来,❌ 没有「未知引擎」这种占位。 */}
+            {engine ? <span data-agent-meta="engine" style={metaCellStyle}>{engine}</span> : null}
+            {agent.model_source ? <span data-agent-meta="model" style={metaCellStyle}>{agent.model_source}</span> : null}
+            {device ? <span data-agent-meta="device" style={metaCellStyle}>{device}</span> : null}
+          </>
+        )}
+        trailing={(
+          <>
+            <ListenModeToggle
+              value={agent.listen_mode}
+              onChange={controls?.onChangeListenMode
+                ? (mode) => { void controls.onChangeListenMode?.(mode) }
+                : undefined}
+              busy={controls?.busy}
+            />
+            {controls?.editError ? <div role="alert" data-listen-mode-error={agent.id} style={MEMBER_ROW_ERROR_STYLE}>{controls.editError}</div> : null}
+          </>
+        )}
+      />
+    )
+  }
 
   return (
     <>
@@ -483,54 +548,23 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
               <span aria-hidden="true">{shownAgents.length}</span>
             </div>
             <div data-member-section-rows="agent">
-              {shownAgents.map((member) => {
-                const agent = member.raw as GroupAgentItem
-                const identity = identities[agent.id]
-                const device = deviceLabel(identity)
-                const engine = engineLabel(agent)
-                const controls = identity
-                  ? resolveEditControls(toAgentProfile(
-                      agent,
-                      identity,
-                      shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses)),
-                      agentOwnerDisplayName(identity, identities),
-                    ))
-                  : undefined
-                return (
-                  <MemberRow
-                    key={agent.id}
-                    memberId={agent.id}
-                    identity={identity}
-                    isAgent
-                    roleLabel={roleLabel(agent.role)}
-                    statusBadge={shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses))}
-                    onOpen={chatKind === 'group' ? (anchor) => group.openProfile(agent.id, anchor) : undefined}
-                    actions={chatKind === 'group' ? group.rowActions(agent.id) : undefined}
-                    selected={group.activeMemberId === agent.id}
-                    metaCells={(
-                      <>
-                        <span data-agent-meta="owner" style={metaCellStyle}><AgentOwnerLabel ownerUserId={identity?.owner_user_id} ownerDisplayName={identity ? agentOwnerDisplayName(identity, identities) : null} /></span>
-                        {/* 取不到就整格不渲染 —— 空得看得出来,❌ 没有「未知引擎」这种占位。 */}
-                        {engine ? <span data-agent-meta="engine" style={metaCellStyle}>{engine}</span> : null}
-                        {agent.model_source ? <span data-agent-meta="model" style={metaCellStyle}>{agent.model_source}</span> : null}
-                        {device ? <span data-agent-meta="device" style={metaCellStyle}>{device}</span> : null}
-                      </>
-                    )}
-                    trailing={(
-                      <>
-                        <ListenModeToggle
-                          value={agent.listen_mode}
-                          onChange={controls?.onChangeListenMode
-                            ? (mode) => { void controls.onChangeListenMode?.(mode) }
-                            : undefined}
-                          busy={controls?.busy}
-                        />
-                        {controls?.editError ? <div role="alert" data-listen-mode-error={agent.id} style={MEMBER_ROW_ERROR_STYLE}>{controls.editError}</div> : null}
-                      </>
-                    )}
-                  />
-                )
-              })}
+              {myAgents.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className="gg-row"
+                    data-member-group="mine"
+                    aria-expanded={myAgentsOpen}
+                    onClick={() => setMyAgentsOpen((open) => !open)}
+                    style={MY_AGENTS_ROW_STYLE}
+                  >
+                    <ChevronRight aria-hidden="true" style={myAgentsChevronStyle(myAgentsOpen)} />
+                    <span>{t('group.memberList.myAgents', { count: myAgents.length })}</span>
+                  </button>
+                  {myAgentsOpen ? myAgents.map(renderAgentRow) : null}
+                </>
+              ) : null}
+              {otherAgents.map(renderAgentRow)}
             </div>
           </section>
           )}
