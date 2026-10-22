@@ -24,7 +24,7 @@ export function readSessionpageViewRequestBridge(
   const candidate = (target as unknown as Record<string, unknown>)[SESSIONPAGE_VIEW_REQUEST_BRIDGE_KEY]
   if (!candidate || typeof candidate !== 'object') return undefined
   const shape = candidate as Partial<SessionpageViewRequestBridge>
-  if (typeof shape.request !== 'function' || typeof shape.openChat !== 'function') {
+  if (typeof shape.request !== 'function' || typeof shape.openChat !== 'function' || typeof shape.openSession !== 'function') {
     throw new Error('sessionpage view request bridge is present but malformed')
   }
   return candidate as SessionpageViewRequestBridge

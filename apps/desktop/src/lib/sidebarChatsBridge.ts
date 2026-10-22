@@ -27,15 +27,31 @@ export type SidebarChatSignals = {
 export type SidebarTopicLine = { readonly id: string; readonly name: string; readonly unread: number }
 export type SidebarProjectTopics = { readonly live: readonly SidebarTopicLine[]; readonly more: number }
 
+/** gugu-dev#181 没有项目的会话(它就是和 agent 私聊):会话页发给壳,和对话一起排进「对话」。 */
+export type SidebarSessionLine = {
+  readonly projectId: string
+  readonly sessionId: string
+  readonly title: string
+  /** 最后活动时刻(毫秒),和对话的最后一条消息时刻一起排序。 */
+  readonly time: number
+  /** 要你处理 / 在跑;都不是 = null(行尾不挂状态)。 */
+  readonly group: 'needs-you' | 'working' | null
+}
+
 export type SidebarChatView = {
   readonly query: string
   readonly focusedChatId: string | null
+  /** 正看着的那条会话(没有项目的会话排在「对话」里,那一行高亮)。 */
+  readonly focusedSessionId: string | null
 }
 
 const SIGNALS_KEY = '__GUGU_SIDEBAR_CHAT_SIGNALS__'
 const SIGNALS_EVENT = 'gugu:sidebar-chat-signals'
 const VIEW_KEY = '__GUGU_SIDEBAR_CHAT_VIEW__'
 const VIEW_EVENT = 'gugu:sidebar-chat-view'
+const SESSIONS_KEY = '__GUGU_SIDEBAR_SESSIONS__'
+const SESSIONS_EVENT = 'gugu:sidebar-sessions'
+const NO_SESSIONS: readonly SidebarSessionLine[] = []
 
 /**
  * 壳:从聊天列表那一份算出两枚页签和项目行上的数。项目群(及从它开出来的话题)的未读记在那个群名下,其余记进「对话」;免打扰的不算(gugu-dev#181:
@@ -64,7 +80,7 @@ export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats
   return { chatsUnread, groupUnread, projectTopics }
 }
 
-const NO_VIEW: SidebarChatView = { query: '', focusedChatId: null }
+const NO_VIEW: SidebarChatView = { query: '', focusedChatId: null, focusedSessionId: null }
 
 function read<T>(key: string): T | null {
   return ((window as unknown as Record<string, unknown>)[key] as T | undefined) ?? null
@@ -82,6 +98,7 @@ const subscribeTo = (event: string) => (listener: () => void) => {
 }
 const subscribeSignals = subscribeTo(SIGNALS_EVENT)
 const subscribeView = subscribeTo(VIEW_EVENT)
+const subscribeSessions = subscribeTo(SESSIONS_EVENT)
 
 /** 壳:整份替换;没变不通知。 */
 export function publishSidebarChatSignals(next: SidebarChatSignals): void {
@@ -104,11 +121,23 @@ export function useSidebarChatSignals(): SidebarChatSignals | null {
 /** 会话页:侧栏在看什么;没变不通知。 */
 export function publishSidebarChatView(next: SidebarChatView): void {
   const current = read<SidebarChatView>(VIEW_KEY)
-  if (current && current.query === next.query && current.focusedChatId === next.focusedChatId) return
+  if (current && current.query === next.query && current.focusedChatId === next.focusedChatId && current.focusedSessionId === next.focusedSessionId) return
   write(VIEW_KEY, VIEW_EVENT, next)
 }
 
 /** 壳:会话页还没说过 = 没在搜、没看着哪条对话。 */
 export function useSidebarChatView(): SidebarChatView {
   return useSyncExternalStore(subscribeView, () => read<SidebarChatView>(VIEW_KEY) ?? NO_VIEW, () => NO_VIEW)
+}
+
+/** 会话页:没有项目的会话(整份替换;没变不通知)。 */
+export function publishSidebarSessions(next: readonly SidebarSessionLine[]): void {
+  const current = read<readonly SidebarSessionLine[]>(SESSIONS_KEY)
+  if (current && JSON.stringify(current) === JSON.stringify(next)) return
+  write(SESSIONS_KEY, SESSIONS_EVENT, next)
+}
+
+/** 壳:会话页还没发过 = 一条也没有。 */
+export function useSidebarSessions(): readonly SidebarSessionLine[] {
+  return useSyncExternalStore(subscribeSessions, () => read<readonly SidebarSessionLine[]>(SESSIONS_KEY) ?? NO_SESSIONS, () => NO_SESSIONS)
 }

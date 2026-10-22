@@ -33,9 +33,8 @@ import { SidebarSearchInput } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
-import { publishSidebarChatView, useSidebarChatSignals, type SidebarProjectTopics } from '@/lib/sidebarChatsBridge';
+import { publishSidebarChatView, publishSidebarSessions, useSidebarChatSignals, type SidebarProjectTopics } from '@/lib/sidebarChatsBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -145,7 +144,17 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
     appState.navigation.currentViewId === 'chat'
       ? ((appState.navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId ?? null)
       : null;
-  React.useEffect(() => publishSidebarChatView({ query: searchQuery, focusedChatId }), [searchQuery, focusedChatId]);
+  const focusedSessionId =
+    appState.navigation.currentViewId === 'session'
+      ? ((appState.navigation.viewParamsStore.session as { sessionId?: string } | undefined)?.sessionId ?? null)
+      : null;
+  React.useEffect(
+    () => publishSidebarChatView({ query: searchQuery, focusedChatId, focusedSessionId }),
+    [searchQuery, focusedChatId, focusedSessionId]
+  );
+  // 没有项目的会话就是和它的 agent 私聊(gugu-dev#181):不在这边单列一个分区,交给壳和对话一起排进「对话」。
+  const standaloneLines = sidebarStore.standaloneLines;
+  React.useEffect(() => publishSidebarSessions(standaloneLines), [standaloneLines]);
   // 项目群的话题挂在项目行底下:壳按群发过来,这里按侧栏那一行对上(几台机器上的同一个项目绑同一个群)。
   const projectTopics = chatSignals?.projectTopics;
   const rowProjects = sidebarStore.sidebarProjects;
@@ -289,7 +298,6 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                         </SidebarGroupContent>
                       )}
                     </SidebarGroup>
-                    <SidebarSessionsSection />
                   </>
                 )}
                 {showChats && <SidebarChatsSection merged={merged} unread={chatsUnread} />}

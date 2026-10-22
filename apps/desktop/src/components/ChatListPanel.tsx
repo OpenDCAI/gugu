@@ -25,7 +25,8 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { useSidebarChatView } from '../lib/sidebarChatsBridge'
+import { useSidebarChatView, useSidebarSessions, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
+import { SidebarSessionLineRow } from './SidebarSessionLineRow'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { requestTopicsPanel } from '../lib/topicsPanelRequest'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
@@ -515,6 +516,7 @@ export function ChatListPanel({
 }: ChatListPanelProps) {
   const inSidebar = placement === 'sidebar'
   const sidebarView = useSidebarChatView()
+  const sidebarSessions = useSidebarSessions()
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
   const assistantShell = useAssistantShell()
@@ -697,6 +699,31 @@ export function ChatListPanel({
     )
   }
 
+  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排;搜索按会话名。
+  const sessionQuery = listQuery.trim().toLocaleLowerCase()
+  const sessionLines = inSidebar
+    ? sidebarSessions.filter((line) => !sessionQuery || line.title.toLocaleLowerCase().includes(sessionQuery))
+    : []
+  const openSessionLine = (line: SidebarSessionLine, beside: boolean) => {
+    const sessionPage = readSessionpageViewRequestBridge()
+    if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
+    sessionPage.openSession({ projectId: line.projectId, sessionId: line.sessionId }, beside)
+  }
+  const normalRows = [
+    ...normalChats.map((chat) => ({ at: new Date(chatActivityAt(chat)).getTime(), row: renderChatRow(chat) })),
+    ...sessionLines.map((line) => ({
+      at: line.time,
+      row: (
+        <SidebarSessionLineRow
+          key={`session:${line.sessionId}`}
+          line={line}
+          isActive={line.sessionId === sidebarView.focusedSessionId}
+          onClick={(event) => openSessionLine(line, event.metaKey || event.ctrlKey)}
+        />
+      ),
+    })),
+  ].sort((a, b) => b.at - a.at).map(({ row }) => row)
+
   const focusChatRow = (chatId: string | null) => {
     if (!chatId) return
     setFocusedChatId(chatId)
@@ -853,7 +880,7 @@ export function ChatListPanel({
           />
         </div>
       )}
-      {!loadingChats && hasSearchQuery && pinnedChats.length === 0 && normalChats.length === 0 && (
+      {!loadingChats && hasSearchQuery && pinnedChats.length === 0 && normalRows.length === 0 && (
         <div style={NO_RESULTS_STYLE}>
           {t('chatList.noResults')}
         </div>
@@ -869,7 +896,7 @@ export function ChatListPanel({
       )}
 
       {/* Normal chats */}
-      {!loadingChats && normalChats.map(renderChatRow)}
+      {!loadingChats && normalRows}
 
     </div>
   )
