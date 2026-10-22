@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { afterEach, expect, it, vi } from 'vitest'
 import { hideChild, showChildAbove } from '../../../../apps/desktop/electron/child-window'
 
@@ -8,8 +9,15 @@ import { hideChild, showChildAbove } from '../../../../apps/desktop/electron/chi
  * macOS 上 showInactive 会把整个 App 提到别的 App 前面(electron#49393)⇒ 只在父窗就是前台窗口时露出,不是就等人回来。
  */
 
-const { app } = await vi.hoisted(async () => ({ app: new (await import('node:events')).EventEmitter() }))
-vi.mock('electron', () => ({ app }))
+vi.mock('electron', async () => ({ app: new (await import('node:events')).EventEmitter() }))
+
+/** 等着露出的子窗挂在父窗 / App 上的监听都放掉了。 */
+function released(parent: EventEmitter, child: EventEmitter) {
+  expect(parent.listenerCount('focus')).toBe(0)
+  expect(parent.listenerCount('sheet-end')).toBe(0)
+  expect(app.listenerCount('did-become-active')).toBe(0)
+  expect(child.listenerCount('closed')).toBe(0)
+}
 
 const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
 const onPlatform = (platform: string) => Object.defineProperty(process, 'platform', { ...descriptor, value: platform })
@@ -65,8 +73,7 @@ it('macOS, the app is in the background: shows nothing (showInactive would raise
   expect(child.showInactive).not.toHaveBeenCalled()
   comeBack()
   expect(child.showInactive).toHaveBeenCalledOnce()
-  expect(parent.listenerCount('focus')).toBe(0)
-  expect(app.listenerCount('did-become-active')).toBe(0)
+  released(parent, child)
 })
 
 it('macOS: the app becoming active with this window in front also shows it', () => {
@@ -76,15 +83,37 @@ it('macOS: the app becoming active with this window in front also shows it', () 
   parent.focused = true
   app.emit('did-become-active')
   expect(child.showInactive).toHaveBeenCalledOnce()
+  released(parent, child)
+})
+
+it('macOS: a dialog sheet on the parent held the focus; when it closes the child shows (the parent reports no new focus)', () => {
+  onPlatform('darwin')
+  const { parent, child, show } = windows(false)
+  show()
+  parent.focused = true
+  parent.emit('sheet-end')
+  expect(child.showInactive).toHaveBeenCalledOnce()
+  released(parent, child)
+})
+
+it('macOS: asked again once the parent is in front: shows at once and drops the wait', () => {
+  onPlatform('darwin')
+  const { parent, child, show } = windows(false)
+  show()
+  parent.focused = true
+  show()
+  expect(child.showInactive).toHaveBeenCalledOnce()
+  released(parent, child)
 })
 
 it('macOS: not wanted any more by the time the person comes back (tab switched away) — stays hidden', () => {
   onPlatform('darwin')
-  const { child, show, setWanted, comeBack } = windows(false)
+  const { parent, child, show, setWanted, comeBack } = windows(false)
   show()
   setWanted(false)
   comeBack()
   expect(child.showInactive).not.toHaveBeenCalled()
+  released(parent, child)
 })
 
 it('macOS: hiding while waiting cancels the wait; asking again does not stack listeners; closing releases them', () => {
@@ -100,8 +129,7 @@ it('macOS: hiding while waiting cancels the wait; asking again does not stack li
   parent.focused = false
   show()
   child.emit('closed')
-  expect(parent.listenerCount('focus')).toBe(0)
-  expect(app.listenerCount('did-become-active')).toBe(0)
+  released(parent, child)
 })
 
 it('hiding always hides (a minimised parent orders the child out but it would come back on restore)', () => {
