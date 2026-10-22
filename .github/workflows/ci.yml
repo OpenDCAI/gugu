@@ -311,9 +311,10 @@ jobs:
     env:
       GUGU_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
       GUGU_INSTALL_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
-      # Supabase CLI default registry public.ecr.aws runs out of anonymous quota on hosted runners;
-      # the same images are mirrored to GHCR.
-      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+      # Supabase CLI default registry public.ecr.aws runs out of anonymous quota on hosted runners,
+      # and GHCR limits supabase/* per image owner ("allowed: 44000/minute", not lifted by logging in).
+      # Docker Hub serves the same images.
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: docker.io
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
