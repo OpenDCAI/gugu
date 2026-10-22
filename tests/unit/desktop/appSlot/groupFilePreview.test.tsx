@@ -173,7 +173,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
       }))
     }
     await harness.render(createElement(Preview))
-    await until('HTML is ready before expanding', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('lane report') === true)
+    await until('HTML is ready before expanding', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     const page = harness.container.querySelector('iframe')
     const expand = harness.container.querySelector<HTMLButtonElement>('button[aria-label="面板全屏"]')
     expect(expand).not.toBeNull()
