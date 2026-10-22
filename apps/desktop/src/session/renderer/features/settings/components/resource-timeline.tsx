@@ -141,9 +141,10 @@ const peakOf = (points: ResourcePoint[] | undefined, key: 'cpu' | 'memory') => {
 };
 const cpuText = (cpu: number | undefined) => (cpu === undefined ? '–' : `${cpu.toFixed(1)}%`);
 const memoryText = (memory: number | undefined) => (memory === undefined ? '–' : formatBytes(memory));
-const axisLabel = (metric: 'cpu' | 'memory', v: number) => (metric === 'cpu' ? `${Math.round(v)}%` : v >= 1000 ? `${Number((v / 1024).toFixed(1))} GB` : `${Math.round(v)} MB`);
+// Memory ticks switch to GB at the same 1024 MB boundary as formatBytes, so an axis and the readout beside it agree.
+const axisLabel = (metric: 'cpu' | 'memory', v: number) => (metric === 'cpu' ? `${Math.round(v)}%` : v >= 1024 ? `${Number((v / 1024).toFixed(1))} GB` : `${Math.round(v)} MB`);
 // A fixed label column keeps the two plot areas the same width, so one time lines up across both charts.
-const AXIS_WIDTH = 60;
+const AXIS_WIDTH = 68;
 
 function TimelineChart({ data, metric, compact, select, labels }: { data: ChartData; metric: 'cpu' | 'memory'; compact: boolean; select: (id: number) => void; labels: { cpu: string; memory: string } }) {
   const theme = useChartTheme();
