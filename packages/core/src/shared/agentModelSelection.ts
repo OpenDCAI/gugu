@@ -55,7 +55,7 @@ export const MODEL_ACCESS_PROTOCOL_CREDENTIAL_ENV: Record<ModelAccessProtocol, s
  *
  * 两边必须逐条对得上:网关没声明的路径 = 该协议**一条渠道都选不出来**,请求直接 503
  * `No available channel`。⚠️ 渠道不在本仓里(2026-09-20 起它只住在网关自己的库),所以这条
- * 对账**不是**静态的,分两段盯:部署时 nmhjklnm/gugu-newapi 的 `configure-gateway-settings.report_channels` 读网关
+ * 对账**不是**静态的,分两段盯:部署时网关部署仓的 `configure-gateway-settings.report_channels` 读网关
  * 点名缺哪条路径;平时中台「定价管理」那张矩阵把「某家 harness 一个模型都用不上」显形。
  * ❌ 别只改一边。
  */

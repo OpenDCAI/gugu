@@ -77,7 +77,7 @@ export const STABLE_UPDATE_FEED_URL: string = feeds.stable
  * 传到下载站。那是**传输格式**,不是内容的家:它没有网址,搜不到、分享不出去、别人没法直接翻,
  * 改一个错字还要过一遍 CI。owner 2026-09-18:「本来应该从一开始就这样做」。
  *
- * 现在内容住在 nmhjklnm/gugu-website 的 content/release-notes/ 下,每条都有自己的网址;
+ * 现在内容住在官网仓的 content/release-notes/ 下,每条都有自己的网址;
  * 应用读的那份 JSON 是那个站的构建产物,应用只是它的读者之一。
  *
  * **按端取**:站上每个端一条自己的版本线(owner:「本来应该是 不同端不同的发布版本来着」),
