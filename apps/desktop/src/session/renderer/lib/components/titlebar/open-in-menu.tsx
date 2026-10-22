@@ -234,14 +234,18 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
   );
 };
 
-/** 「在 X 中打开」那几行,摆进一个右键菜单里(项目页签,gugu-dev#181):和上面那颗分裂按钮同一份 app、同一下打开。 */
-export function OpenInMenuItems({ path }: { path: string }) {
+/**
+ * 「在 X 中打开」那几行,摆进一个右键菜单里(项目页签,gugu-dev#181):和上面那颗分裂按钮同一份 app、同一下打开。
+ * `targets` 由菜单的主人(一直挂着的页签)读:菜单打开时这台机器装了哪些 app 已经知道,❌ 先铺一排灰的再缩回去。
+ */
+export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpenInTargets> }) {
   const { translate } = useSessionMessages();
-  const { icons, labels, availability, loading, menuApps, selectAndOpenApp } = useOpenInTargets(path);
+  const { icons, labels, availability, loading, menuApps, selectAndOpenApp } = targets;
+  if (loading) return null;
   return (
     <>
       {menuApps.map((app) => {
-        const isAvailable = loading ? availability[app.id] === true : availability[app.id] !== false;
+        const isAvailable = availability[app.id] !== false;
         const label = labels[app.id] || app.label;
         return (
           <ContextMenuItem key={app.id} className="flex items-center gap-2" disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
