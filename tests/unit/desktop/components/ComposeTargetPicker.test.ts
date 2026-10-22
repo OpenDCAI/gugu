@@ -85,6 +85,7 @@ describe('ComposeTargetPicker', () => {
     expect(button('放入输入框')?.disabled).toBe(true)
     // One at a time: the foot counts nothing (the forward sheet's 「已选 N 个」 is for several).
     expect(document.body.textContent).not.toContain('已选')
+    expect((document.body.querySelector('input') as HTMLInputElement).placeholder).toBe('搜索对话')
     await click(button('取消'))
     await expect(picked).resolves.toBeNull()
   })

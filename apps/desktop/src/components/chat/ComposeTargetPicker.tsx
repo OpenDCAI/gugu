@@ -74,7 +74,7 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
       onToggle={(id) => setSelected(new Set([id]))}
       query={query}
       onQuery={setQuery}
-      placeholder={t('composePick.search')}
+      placeholder={tasks ? t('composePick.search') : t('forward.searchChats')}
       empty={t('composePick.empty')}
       actionLabel={t('composePick.action')}
       actionDisabled={!picked}
