@@ -83,3 +83,37 @@ export const transcriptSessionNoticeSchema = z.object({
   at: z.number(),
 });
 export type TranscriptSessionNotice = z.infer<typeof transcriptSessionNoticeSchema>;
+
+/**
+ * 钩子说话的那一层格式:逐行 `<Hook> says: `(`Stop says: ` / `SessionStart:compact says: `)。
+ * ❌ 不写白名单:hook 事件名是上游的、会加。按**形状**认:一个或几个大驼峰词,可带 `:来源` 限定。
+ */
+const HOOK_SPEAKER = /^((?:[A-Z][A-Za-z]*)(?: [A-Z][A-Za-z]*)*(?::\S+)?) says: /;
+
+/** 这一行是哪个 hook 说的;不是这种形状就 null。 */
+export function hookSpeakerOfLine(line: string): string | null {
+  return HOOK_SPEAKER.exec(line)?.[1] ?? null;
+}
+
+/**
+ * 这条 `provider-notice` 其实是钩子说的话吗 —— 是就返回说话的 hook(#55)。
+ *
+ * 桥声明了 `session.notices`(#6596)之后,Claude 的 informational(钩子的输出)以 ACP `notice` 来:
+ * `title` = 第一行,`detail` = 其余几行;第一行太长时 `title` 是桥的通用标题、整段进 `detail`
+ * (`claude-agent-acp` `splitNoticeText`)。桥没给钩子单独的 code,所以只能照钩子那一层的编码读回来:
+ * **每一行**都是同一个说话人才算 —— 只看第一行,任何以「X says:」开头的提示都会被认成钩子。
+ *
+ * ⚠️ 这是上面「❌ 不去匹配 detail 里的文字」的唯一例外,而且只在这里:界面要知道「这是不是钩子」
+ * 就问这个函数,❌ 自己再写一遍。存下来的旧转录不带别的标记,所以判定只能在读的时候做,不在解码时打标。
+ */
+export function hookSpeakerOfNotice(notice: Pick<TranscriptSessionNotice, 'code' | 'title' | 'detail'>): string | null {
+  if (notice.code !== 'provider-notice') return null;
+  const title = notice.title ?? '';
+  // detail 与 title 相同 = 只有一行;title 认不出 = 桥换了通用标题,整段都在 detail 里。
+  const lines = hookSpeakerOfLine(title) === null
+    ? notice.detail.split('\n')
+    : notice.detail === title ? [title] : [title, ...notice.detail.split('\n')];
+  const speaker = hookSpeakerOfLine(lines[0] ?? '');
+  if (speaker === null) return null;
+  return lines.every((line) => line.trim() === '' || hookSpeakerOfLine(line) === speaker) ? speaker : null;
+}
