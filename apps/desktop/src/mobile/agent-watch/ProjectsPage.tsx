@@ -17,7 +17,7 @@ import { OfflineNote } from './OfflineNote'
 import { SessionActionsSheet, SessionRow } from './SessionsPage'
 import { assistantGroupIds, locateSession, sessionSections, type SessionNode, type SessionSection } from './session-sections'
 import { useMachineLabel } from './useMachineLabel'
-import { directoryMachines } from './machine-list'
+import { directoryMachines, visibleMachines } from './machine-list'
 import '@/i18n/registerMobileWorkspaceCatalog'
 import { DeviceDirectoryRetry } from './DeviceDirectoryRetry'
 import { PhoneHostSetupEntry } from './PhoneHostSetupEntry'
@@ -110,6 +110,8 @@ export function ProjectsPage({
   const { label: machineLabel, isHome } = useMachineLabel()
 
   const machines = useMemo(() => directoryMachines(devices, isHome), [devices, isHome])
+  // The empty state offers creation only where an agent can run; an action-only phone keeps its directory row but is not a target.
+  const hostCount = useMemo(() => visibleMachines(devices, isHome).length, [devices, isHome])
   const homeIds = useMemo(() => new Set(devices.filter((device) => isHome(device)).map((device) => device.device_id)), [devices, isHome])
   const deviceOf = useMemo(() => new Map(devices.map((device) => [device.device_id, device])), [devices])
   const rows = useMemo(() => directoryRows(devices, live), [devices, live])
@@ -312,8 +314,8 @@ export function ProjectsPage({
       {nothingYet && !waitingForMachines && !refreshing && !devicesError && failures.length === 0 ? (
         <div className="gg-aw-placeholder" data-testid="agent-watch-projects-empty">
           <div>{t('agentWatch.projects.empty')}</div>
-          <div>{machines.length === 0 ? phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
-          {machines.length === 0 ? <PhoneHostSetupEntry /> : onCreate ? (
+          <div>{hostCount === 0 ? phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
+          {hostCount === 0 ? <PhoneHostSetupEntry /> : onCreate ? (
             <Button variant="secondary" size="lg" onClick={onCreate} data-testid="agent-watch-empty-create">{tFlow('createTask')}</Button>
           ) : null}
         </div>
