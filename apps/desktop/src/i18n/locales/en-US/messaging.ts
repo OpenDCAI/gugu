@@ -31,7 +31,6 @@ export default {
       "openFailed": "Could not open in Tasks: {{reason}}",
       "mode": {
         "menu": "Mode: {{mode}}",
-        "chat": "Chat",
         "code": "Code",
         "general": "Work",
         "switchToCode": "Switch to Code mode",

@@ -31,7 +31,6 @@ export default {
       "openFailed": "无法在任务中打开：{{reason}}",
       "mode": {
         "menu": "模式：{{mode}}",
-        "chat": "聊天",
         "code": "编程",
         "general": "通用",
         "switchToCode": "切换为编程模式",
