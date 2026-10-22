@@ -116,7 +116,8 @@ export const ScheduleDispatchComposer = observer(function ScheduleDispatchCompos
         >
           <SessionField
             placeholder={translate('taskDispatch.schedulePlaceholder')}
-            verb={composerVerbLook('schedule', { label: translate('taskDispatch.schedule'), onCancel: close, testId: 'schedule-dispatch' })}
+            // 点 × = 框还原,写了的话交回发消息的框(同 cancelComposerVerb;这一框的话在表单里,不在草稿格里)。
+            verb={composerVerbLook('schedule', { label: translate('taskDispatch.schedule'), onCancel: () => setComposerVerb(verbKey, null, form.prompt), testId: 'schedule-dispatch' })}
             enableMentions={false}
             showAutoApproveToggle={false}
             enableAttachments={false}

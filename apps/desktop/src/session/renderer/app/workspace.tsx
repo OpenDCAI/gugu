@@ -5,6 +5,7 @@ import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-b
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
 import { MonacoKeyboardBridge } from '@renderer/lib/components/monaco-keyboard-bridge';
+import { DefaultTaskAgentPublisher } from '@renderer/features/sessions/session-verb-dock';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import {
   useWorkspaceSlots,
@@ -58,6 +59,7 @@ export function Workspace() {
           a hidden task frame must not answer arrow keys aimed at the chat tab. */}
       {embedVisible && <SessionKeyboardNavListener />}
       <MonacoKeyboardBridge />
+      <DefaultTaskAgentPublisher />
       <WorkspaceLayout
         sidebarHidden={withoutSessionSidebar}
         leftSidebar={<LeftSidebar />}

@@ -1,14 +1,17 @@
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
-import { Clock, Sparkles } from '@/lib/icons';
-import { setComposerVerb, takeComposerCarry, type ComposerVerb } from '@/lib/composerVerbBridge';
+import { useEffect, useState } from 'react';
+import { Clock } from '@/lib/icons';
+import { PluginIcon } from '@renderer/lib/components/plugin-icon';
+import { useAgentIcon } from '@renderer/lib/stores/use-agents';
+import { useDefaultTaskProvider } from './use-default-task-provider';
+import { publishDefaultTaskAgent, setComposerVerb, takeComposerCarry, useDefaultTaskAgent, type ComposerVerb } from '@/lib/composerVerbBridge';
 import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { composerDrafts, projectDraftKey } from './composer-drafts';
-import { composerVerbLook } from './composer-verb-tag';
+import { cancelComposerVerb, composerVerbLook } from './composer-verb-tag';
 import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
 
 /** 会话输入框上「新任务 / 定时任务」记在哪一格(composerVerbBridge 按字符串记;对话用对话 id)。 */
@@ -31,13 +34,29 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
   return (
     <>
       <Button variant="ghost" size="sm" data-testid="session-verb-task" title={translate('taskDispatch.task')} onClick={() => pick('task')}>
-        <Sparkles className="size-3.5" />{translate('taskDispatch.task')}
+        <DefaultTaskAgentMark />{translate('taskDispatch.task')}
       </Button>
       <Button variant="ghost" size="sm" data-testid="session-verb-schedule" title={translate('taskDispatch.schedule')} onClick={() => pick('schedule')}>
         <Clock className="size-3.5" />{translate('taskDispatch.schedule')}
       </Button>
     </>
   );
+}
+
+/** 「新任务」按钮上那枚标:新任务的框会默认选中的那个 agent 的标(没有就不画)。 */
+export function DefaultTaskAgentMark() {
+  const agent = useDefaultTaskAgent();
+  return agent ? <PluginIcon id={agent.id} icon={agent.icon} size={14} /> : null;
+}
+
+/** 把新任务的框会默认选中的那个 agent 和它的标交给壳:群输入框上的「新任务」按钮画它(composerVerbBridge)。 */
+export function DefaultTaskAgentPublisher() {
+  const id = useDefaultTaskProvider();
+  const icon = useAgentIcon(id ?? '');
+  useEffect(() => {
+    publishDefaultTaskAgent(id && icon ? { id, icon } : null);
+  }, [id, icon]);
+  return null;
 }
 
 /**
@@ -52,15 +71,13 @@ export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, ve
   chatId: string;
 }) {
   const key = sessionVerbKey(sessionId);
-  const close = () => setComposerVerb(key, null);
   if (verb === 'schedule') return <ScheduleDispatchComposer chatId={chatId} projectId={projectId} verbKey={key} />;
-  return <SessionTaskDock projectId={projectId} verbKey={key} onClose={close} />;
+  return <SessionTaskDock projectId={projectId} verbKey={key} />;
 });
 
-const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey, onClose }: {
+const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey }: {
   projectId: string;
   verbKey: string;
-  onClose: () => void;
 }) {
   const { translate } = useSessionMessages();
   const stage = useProjectFolderStage(projectId);
@@ -74,11 +91,11 @@ const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey, 
     <ProjectTaskComposer
       projectId={projectId}
       stage={stage}
-      verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: onClose, testId: 'task-dispatch' })}
+      verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(verbKey, projectDraftKey(projectId)), testId: 'task-dispatch' })}
       // 在一条会话里派:说清是交给一个新的 agent,❌ 眼前这一个。
       placeholder={(agent) => translate('taskDispatch.placeholderNew', { agent })}
       onSessionCreated={(result) => {
-        onClose();
+        setComposerVerb(verbKey, null);
         showBesideOnScreen({ kind: 'session', projectId: result.projectId, sessionId: result.sessionId });
       }}
       focusOnOpen

@@ -1484,10 +1484,10 @@ function promptHasIssueMention(text: string, token: string): boolean {
   return extractIssueMentionTargets(text).some((target) => target.token === token);
 }
 
-/** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag)。 */
+/** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag);标签上画所选 agent 的标,所以给成 agent 的函数。 */
 export interface ComposerVerbLook {
   tone: 'task' | 'schedule';
-  tag: ReactNode;
+  tag: (agentId: string | undefined) => ReactNode;
 }
 
 interface InitialSessionFieldProps {
@@ -1989,7 +1989,7 @@ export function InitialSessionField({
             'Describe what the agent should do, or use / to select a prompt...'
           }
           tone={verb?.tone}
-          leading={verb?.tag}
+          leading={verb?.tag(state.providerError ? undefined : (state.provider ?? undefined))}
           onSubmit={() => onSubmit?.()}
           onInputChange={handleComposerInputChange}
           editorApiRef={editorApiRef}

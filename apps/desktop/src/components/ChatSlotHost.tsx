@@ -6,6 +6,7 @@ import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
 import { publishChatSummaries } from '../lib/chatSummariesBridge'
 import { useChatStore } from '../store/chatContext'
+import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
 
 installShellSlots()
 
@@ -23,6 +24,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
   useEffect(() => {
     if (chatsRead) publishChatSummaries(chats)
   }, [chats, chatsRead])
+  const projectGroupChats = useProjectGroupChats()
   const slots = readShellSlots()
   const entries = useSyncExternalStore(
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
@@ -34,7 +36,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
         if (!key.startsWith(CHAT_SLOT_PREFIX)) return []
         const chatId = key.slice(CHAT_SLOT_PREFIX.length)
         return [createPortal(
-          <InChatSlot.Provider value>
+          <InChatSlot.Provider value={{ projectName: projectGroupChats.has(chatId) ? chats.find((chat) => chat.id === chatId)?.name ?? null : null }}>
             <TaskChatScope chatId={chatId}>
               <ChatAreaPanel
                 chatId={chatId}
