@@ -14,6 +14,9 @@ import {
   type SessionNavFocusLayer,
 } from './session-navigation-focus';
 
+/** 主区是一个站点(新建任务那一屏、项目首页、会话)的那几种页面;`home` 和 `new-session` 是同一屏(app/home-view.tsx)。 */
+const STATION_VIEWS: ReadonlySet<string> = new Set(['home', 'new-session', 'project', 'session']);
+
 /**
  * behavior session-page「键盘导航」 — the controller behind the two focus layers.
  *
@@ -114,6 +117,9 @@ class SessionKeyboardNavStore {
    * cursor is only honoured while it still exists in the chain; otherwise we fall back to the view.
    */
   get cursor(): SidebarNavNode | null {
+    // 主区在一个不是站点的页面上(会话历史、已安排……):没有哪个站点正被看着,光标也就不在任何一行上 ——
+    // 点过「新建任务」再点「会话历史」,❌ 让「新建任务」那一行留着光标的底色(和「会话历史」同时亮)。
+    if (!STATION_VIEWS.has(appState.navigation.currentViewId)) return null;
     const chain = sidebarStore.navChain;
     if (this._cursor) {
       const key = navNodeKey(this._cursor);

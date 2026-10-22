@@ -154,7 +154,7 @@
 }
 
 .gg-sidebar-item[data-on] {
-  background: var(--selected);
+  background: var(--rail-selected);
   color: var(--fg);
 }
 
@@ -177,7 +177,7 @@
   color: var(--muted-fg);
 }
 .gg-sidebar-item[data-on][data-menu-open] {
-  background: var(--selected);
+  background: var(--rail-selected);
   background-image: linear-gradient(var(--hover), var(--hover));
   color: var(--fg);
 }

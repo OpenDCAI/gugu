@@ -286,8 +286,8 @@ describe('delivery card contract (#4874)', () => {
     expect((await mount(SINGLE, false, idOnly)).sender).toBe(fromId);
   });
 
-  // #5048 自己发的消息:发信人来自本地 profile,不来自信封;别人的照旧只信信封。
-  it('names the signed-in user from the local profile, and never guesses for anyone else', async () => {
+  // #5048 自己发的消息:认得出是我(本地 profile)就写「我」(gugu-dev#181「我 来自 官网」),不来自信封;别人的照旧只信信封。
+  it('names the signed-in user as You, and never guesses for anyone else', async () => {
     const OWN = `<gugu_delivery route="chat" from_id="user:daa3f9cd-504b-46fc-8d19-6211d23c9585" chat="7" chat_kind="dm" msg="msg:m-9" at="2026-09-05 12:00">
   <![CDATA[帮我看下登录页]]>
 </gugu_delivery>`;
@@ -295,16 +295,14 @@ describe('delivery card contract (#4874)', () => {
     // A:没有本地 profile(独立打开的会话页)⇒ 信封没带 from,只能显示 from_id —— owner 看到的那一格。
     const withoutSelf = await mount(SINGLE, false, OWN);
     expect(withoutSelf.sender).toBe('user:daa3f9cd-504b-46fc-8d19-6211d23c9585');
-    // B:本地 profile 在 ⇒ 昵称 + 咕咕号。
+    // B:本地 profile 在 ⇒ 是我。
     const withSelf = await mount(SINGLE, false, OWN, (item) => item, me);
-    expect(withSelf.sender).toBe('老板 (咕咕号 7)');
+    expect(withSelf.sender).toBe('You');
     // 阴性对照:别人的信封(from_id 不是我)不受本地 profile 影响。
     const other = await mount(SINGLE, false, ENVELOPE, (item) => item, me);
     expect(other.sender).toBe('Alice');
-    // 只有号没有名字的 profile 也能命名;两样都缺则退回信封事实。
-    expect((await mount(SINGLE, false, OWN, (item) => item, { ...me, displayName: null })).sender).toBe('咕咕号 7');
-    expect((await mount(SINGLE, false, OWN, (item) => item, { ...me, displayName: null, guguNumber: null })).sender)
-      .toBe('user:daa3f9cd-504b-46fc-8d19-6211d23c9585');
+    // 认得出是我就够了,profile 里有没有名字、号都一样。
+    expect((await mount(SINGLE, false, OWN, (item) => item, { ...me, displayName: null, guguNumber: null })).sender).toBe('You');
   });
 
   // #6822 08-25 那种嵌套写法没有结构化事实:照样成卡,没有「详情」。

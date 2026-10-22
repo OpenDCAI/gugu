@@ -181,6 +181,7 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
             labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
           />
         </TabSlot>
+        <ChatPartSlot chatId={chatId} part="tabs" className="contents" />
       </TabStripShell>
       <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
       {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}

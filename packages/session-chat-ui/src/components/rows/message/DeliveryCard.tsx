@@ -7,7 +7,7 @@
 import type { DeliveryReadFacts, DeliverySegment } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import { useChatTranslator, type ChatTranslator } from '@session-chat/localization';
-import { shownSender, useSelfIdentity } from '@session-chat/lib/self-identity';
+import { isSelfAddress, shownSender, useSelfIdentity } from '@session-chat/lib/self-identity';
 import { useSenderAvatar } from '@session-chat/lib/sender-avatar';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
@@ -261,10 +261,14 @@ function SingleDelivery(props: {
     return url && url !== failedAvatar() ? url : null;
   };
 
-  /** The named sender, or null when the envelope names nobody (the nested legacy spelling). */
+  /**
+   * The named sender, or null when the envelope names nobody (the nested legacy spelling). The signed-in user's own
+   * words read 「我」 (gugu-dev#181「我 来自 官网」): they are reading their own session; who that is, the details say.
+   */
   const namedSender = () => {
     const f = facts();
-    return f ? shownSender(f.from, f.fromId, self()) : null;
+    if (!f) return null;
+    return isSelfAddress(f.fromId, self()) ? translate('transcript.deliveryFromMe') : shownSender(f.from, f.fromId, self());
   };
 
   const sender = () => {

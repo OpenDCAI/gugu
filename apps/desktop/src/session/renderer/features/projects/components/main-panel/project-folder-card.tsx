@@ -177,6 +177,24 @@ export type FolderCardMachine = { id?: string | null; label: string; online: boo
 /** 「+」菜单里的一台机器;id null = 这台电脑。 */
 export type AttachMachine = FolderCardMachine & { id: string | null };
 
+/**
+ * 项目页签上那枚彩色小文件夹(gugu-dev#181 第 39、40 条):这张卡后片的缩影 —— 同一张按项目固定的封面、同一个
+ * 「在跑的越多越鲜,没人在跑褪成灰」,一眼认得出是哪个项目、动没动。
+ */
+export const ProjectMiniFolder = observer(function ProjectMiniFolder({ projectId }: { projectId: string }) {
+  const uid = `mini${projectId.replace(/[^a-z0-9]/gi, '').slice(0, 12)}`;
+  const running = (sidebarStore.placement.entries.get(projectId) ?? []).filter((entry) => entry.group === 'working').length;
+  const d = backPath(G.W, G.backH, G.TW, G.TH);
+  return (
+    // size-auto:按钮会把没写 size-* 的 svg 压成 12px 见方(button.tsx),这一枚按自己的 30×18 画。
+    <svg width={30} height={18} viewBox={`-6 -6 ${G.W + 12} ${G.backH + 12}`} aria-hidden className="size-auto shrink-0">
+      <clipPath id={`fc-mini-${uid}`}><path d={d} /></clipPath>
+      <g clipPath={`url(#fc-mini-${uid})`}><Cover projectId={projectId} running={running} width={G.W} height={G.backH} uid={uid} /></g>
+      <path d={d} fill="none" stroke="rgba(30,40,60,.35)" strokeWidth={12} />
+    </svg>
+  );
+});
+
 export const ProjectFolderCard = observer(function ProjectFolderCard({
   projectId,
   projectName,

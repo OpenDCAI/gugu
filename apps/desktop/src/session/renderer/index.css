@@ -1513,6 +1513,12 @@
     pointer-events: none;
   }
 
+  /* ④ 块里开着话题(gugu-dev#181 第 ⑤ 步):话题那一枚由壳画进第一枚后面那一格(它自己是 pairRole="end"),
+        这一枚的右上角在这里收直,两枚连成一对。 */
+  .session-tab-slot:has(+ [data-chat-part='tabs'] > .session-tab-slot) [data-tab-active] {
+    border-top-right-radius: 0;
+  }
+
   .session-tab-slot:hover::before,
   .session-tab-slot:hover + .session-tab-slot::before,
   .session-tab-slot:has([data-tab-active])::before,

@@ -58,11 +58,12 @@ export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
 
 /**
- * 同一个对话在块的页签条上的两格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
- * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字。
+ * 同一个对话在块的页签条上的几格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
+ * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字,
+ * `tabs` = 第一枚页签后面那几枚(开着的话题,和群对话并排成一对)。
  * 和 `chat:` 那格一起由 ChatSlotHost 交给同一个群聊组件,❌ 单独画。
  */
-export type ChatPart = 'actions' | 'title'
+export type ChatPart = 'actions' | 'title' | 'tabs'
 export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`
 
 /**
