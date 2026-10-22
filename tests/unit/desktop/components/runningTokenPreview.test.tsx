@@ -100,6 +100,22 @@ describe('手机:短按 @ 它,长按看详情', () => {
   beforeEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }) })
   afterEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth }) })
 
+  it('手机把 cap 以后的 agent 也放在运行栏里,可直接 @', async () => {
+    const onTokenClick = vi.fn()
+    await harness.render(
+      <RunningTokenBar cap={3} previewChatId="chat-1" onTokenClick={onTokenClick} tokens={[1, 2, 3, 4, 5].map((n) => ({
+        id: `agent-${n}`, name: `Agent ${n}`, avatarUrl: null, avatarSeed: `agent-${n}`,
+        stateKey: 'running', toolCount: 2, lastActiveAt: null,
+      }))} />,
+    )
+    expect(document.body.querySelectorAll('.rtb-bar > [data-message-preview-trigger]')).toHaveLength(5)
+    expect(document.body.querySelector('.rtb-more')).toBeNull()
+    const last = document.body.querySelector<HTMLElement>('[data-message-preview-trigger="agent-5"]')!
+    await act(async () => { last.click() })
+    expect(onTokenClick).toHaveBeenCalledExactlyOnceWith('agent-5')
+    expect(card()).toBeNull()
+  })
+
   it('短按:@ 它,不弹卡', async () => {
     const onTokenClick = vi.fn()
     await renderBar(onTokenClick)
