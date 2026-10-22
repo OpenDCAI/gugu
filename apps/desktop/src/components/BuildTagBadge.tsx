@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { BUILD_TAG_WINDOW_NAME } from '../session/shared/aux-window'
+import { buildTagWindowName } from '../session/shared/aux-window'
 
 declare const __GUGU_BUILD_TAG__: string
 declare const __GUGU_TEST_NOTES__: string
@@ -67,7 +67,7 @@ export function BuildTagBadge() {
     const lifecycle = lease.current
     const generation = ++lifecycle.generation
     if (!owned.current || owned.current.popup.closed) {
-      const popup = window.open('about:blank', BUILD_TAG_WINDOW_NAME)
+      const popup = window.open('about:blank', buildTagWindowName())
       if (!popup) throw new Error('The native build tag window could not be opened')
       const mount = popup.document.createElement('div')
       popup.document.body.append(mount)

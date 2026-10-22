@@ -59,6 +59,10 @@ vi.mock('electron', async () => {
       this.destroyed = true;
       this.emit('destroyed');
     }
+    focused = 0;
+    focus() {
+      this.focused += 1;
+    }
   }
   class WebContentsView {
     webContents: FakeWebContents;
@@ -146,6 +150,7 @@ function fakeWindow(name = '', zoom = 1) {
       mainFrame: { name },
       getZoomFactor: () => zoom,
       focus: vi.fn(),
+      isDestroyed: () => false,
     }),
     getContentSize: () => [1200, 800],
     getContentBounds: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
@@ -181,6 +186,7 @@ import {
   visibleHostOfPage,
 } from './browser-page-views';
 import { windowLayerResponse } from '../../../../window-layers';
+import { agentOverlayOfFrame, agentOverlayWindowName, buildTagWindowName, isBuildTagWindowName } from '@shared/aux-window';
 
 const PARTITION = 'persist:gugu-browser-profile';
 const RECT = { x: 804, y: 81, width: 476, height: 819 };
@@ -511,6 +517,8 @@ describe('#77 盖在网页上的 agent 鼠标与小条:窗口里的两层', () =
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     const cursor = await openLayer('gugu-agent-overlay:cursor:4:b1');
+    // 收着时也先摆好大小:露出来的头一帧,鼠标就画在网页正中(❌ 0×0 时落到左上角)。
+    expect(cursor.bounds).toEqual(PAGE);
     expect(cursor.visible).toBe(false);
     setAgentCursorShown('b1', true);
     expect(cursor.bounds).toEqual(PAGE);
@@ -524,35 +532,104 @@ describe('#77 盖在网页上的 agent 鼠标与小条:窗口里的两层', () =
     expect(cursor.visible).toBe(false);
   });
 
-  it('层的内容关了(页签那边收起)就从窗口上摘下;网页关了 / 换窗了,两层一并关掉', async () => {
+  it('层的内容关了(页签那边收起)就从窗口上摘下;网页关了,它的层一并关掉', async () => {
     mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     const badge = await openLayer('gugu-agent-overlay:badge:5:b1');
     badge.webContents.close();
     expect(mainWindow.children).not.toContain(badge);
     const cursor = await openLayer('gugu-agent-overlay:cursor:6:b1');
-    const again = await openLayer('gugu-agent-overlay:badge:7:b1');
+    destroyBrowserPage('b1');
+    expect(cursor.webContents.destroyed).toBe(true);
+    expect(mainWindow.children).not.toContain(cursor);
+  });
+
+  it('网页换了窗:旧窗的层收着、❌ 关(两边的布局请求会来回交错);网页在哪扇窗,哪扇窗的层露', async () => {
+    mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    setAgentCursorShown('b1', true);
+    const cursor = await openLayer('gugu-agent-overlay:cursor:6:b1');
+    const badge = await openLayer('gugu-agent-overlay:badge:7:b1');
+    badge.webContents.emit('preferred-size-changed', {}, { width: 180, height: 40 });
+    expect([cursor.visible, badge.visible]).toEqual([true, true]);
     const aux = fakeWindow('gugu-aux:s1');
     state.windows = [mainWindow, aux];
     layoutBrowserPage({ browserId: 'b1', windowName: 'gugu-aux:s1', rect: RECT, mode: 'shown' });
-    expect(cursor.webContents.destroyed).toBe(true);
-    expect(again.webContents.destroyed).toBe(true);
-    expect(mainWindow.children).not.toContain(cursor);
+    expect([cursor.visible, badge.visible]).toEqual([false, false]);
     const moved = await openLayer('gugu-agent-overlay:cursor:8:b1', aux);
     expect(aux.children.at(-1)).toBe(moved);
-    destroyBrowserPage('b1');
-    expect(moved.webContents.destroyed).toBe(true);
-    expect(aux.children).not.toContain(moved);
+    expect(moved.visible).toBe(true);
+    // 旧窗那边晚到的一下布局:网页回到旧窗,新窗的层收着、留着;再回新窗又露。
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect([cursor.visible, moved.visible, moved.webContents.destroyed]).toEqual([true, false, false]);
+    layoutBrowserPage({ browserId: 'b1', windowName: 'gugu-aux:s1', rect: RECT, mode: 'shown' });
+    expect([cursor.visible, moved.visible]).toEqual([false, true]);
+    // 页签卸下(旧窗那边的占位走了):只收起,层由页签那边按名字关。
+    releaseBrowserPage('b1');
+    expect([moved.visible, moved.webContents.destroyed]).toEqual([false, false]);
+    closeAgentOverlayLayers(['gugu-agent-overlay:cursor:6:b1', 'gugu-agent-overlay:badge:7:b1']);
+    expect([cursor.webContents.destroyed, badge.webContents.destroyed]).toEqual([true, true]);
+    expect(mainWindow.children).not.toContain(cursor);
   });
 
-  it('没有对应网页、或网页不在开它的那扇窗上:那层关掉', async () => {
+  it('没有对应网页:那层关掉;网页还不在开它的那扇窗上:先收着,网页挂过来就露', async () => {
     mount('b2');
+    layoutBrowserPage({ browserId: 'b2', windowName: '', rect: RECT, mode: 'shown' });
     const stray = await openLayer('gugu-agent-overlay:cursor:9:missing');
-    const elsewhere = await openLayer('gugu-agent-overlay:badge:10:b2', fakeWindow('gugu-aux:s9'));
+    const aux = fakeWindow('gugu-aux:s9');
+    state.windows = [mainWindow, aux];
+    const early = await openLayer('gugu-agent-overlay:badge:10:b2', aux);
+    early.webContents.emit('preferred-size-changed', {}, { width: 180, height: 40 });
     await new Promise((resolve) => setImmediate(resolve));
     expect(stray.webContents.destroyed).toBe(true);
-    expect(elsewhere.webContents.destroyed).toBe(true);
     expect(mainWindow.children).not.toContain(stray);
+    expect([early.webContents.destroyed, early.visible]).toEqual([false, false]);
+    layoutBrowserPage({ browserId: 'b2', windowName: 'gugu-aux:s9', rect: RECT, mode: 'shown' });
+    expect(early.visible).toBe(true);
+  });
+
+  it('同一扇窗同一种只留一层(新开的换掉旧的);别的窗里的那层不受影响', async () => {
+    mount('b3');
+    layoutBrowserPage({ browserId: 'b3', windowName: '', rect: RECT, mode: 'shown' });
+    const aux = fakeWindow('gugu-aux:s3');
+    state.windows = [mainWindow, aux];
+    const there = await openLayer('gugu-agent-overlay:badge:30:b3', aux);
+    const old = await openLayer('gugu-agent-overlay:badge:31:b3');
+    const fresh = await openLayer('gugu-agent-overlay:badge:32:b3');
+    expect([old.webContents.destroyed, fresh.webContents.destroyed, there.webContents.destroyed]).toEqual([true, false, false]);
+  });
+
+  it('层不留键盘焦点:点到小条交回界面;点到鼠标那层(人接管)交给网页', async () => {
+    const { view } = mount('b4');
+    layoutBrowserPage({ browserId: 'b4', windowName: '', rect: RECT, mode: 'shown' });
+    const badge = await openLayer('gugu-agent-overlay:badge:40:b4');
+    const cursor = await openLayer('gugu-agent-overlay:cursor:41:b4');
+    badge.webContents.emit('focus');
+    expect(mainWindow.webContents.focus).toHaveBeenCalledTimes(1);
+    expect(view.webContents.focused).toBe(0);
+    cursor.webContents.emit('focus');
+    expect(view.webContents.focused).toBe(1);
+    expect(mainWindow.webContents.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('界面整页重载、渲染进程没了、窗口关了:这扇窗的层一并关掉(❌ 留着旧页画的东西挡着网页)', async () => {
+    mount('b5');
+    layoutBrowserPage({ browserId: 'b5', windowName: '', rect: RECT, mode: 'shown' });
+    const kept = await openLayer('gugu-agent-overlay:cursor:50:b5');
+    mainWindow.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true });
+    mainWindow.webContents.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+    expect(kept.webContents.destroyed).toBe(false);
+    for (const close of [
+      () => mainWindow.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false }),
+      () => mainWindow.webContents.emit('render-process-gone', {}, { reason: 'crashed' }),
+      () => mainWindow.emit('closed'),
+    ]) {
+      mount('b6');
+      const layer = await openLayer('gugu-agent-overlay:badge:51:b6');
+      close();
+      expect(layer.webContents.destroyed).toBe(true);
+      expect(mainWindow.children).not.toContain(layer);
+    }
   });
 
   it('页签那边不要了:按名字关那一层,紧接着新开的(名字不同)不受影响', async () => {
@@ -566,6 +643,16 @@ describe('#77 盖在网页上的 agent 鼠标与小条:窗口里的两层', () =
     closeAgentOverlayLayers(['gugu-agent-overlay:cursor:21:b1']);
     expect(fresh.webContents.destroyed).toBe(true);
     expect(mainWindow.children).not.toContain(fresh);
+  });
+
+  it('每次开的名字都不一样(界面重载后 ❌ 撞上还开着的旧层),主进程读得出是哪个页签的哪一层', () => {
+    const first = agentOverlayWindowName('b1:tab', 'cursor');
+    const second = agentOverlayWindowName('b1:tab', 'cursor');
+    expect(first).not.toBe(second);
+    expect(agentOverlayOfFrame(first)).toEqual({ browserId: 'b1:tab', part: 'cursor' });
+    expect(buildTagWindowName()).not.toBe(buildTagWindowName());
+    expect(isBuildTagWindowName(buildTagWindowName())).toBe(true);
+    expect(isBuildTagWindowName('gugu-aux:build-tag')).toBe(false);
   });
 
   it('不是 agent 浮层、也不是空白页的 window.open:不当层开', () => {

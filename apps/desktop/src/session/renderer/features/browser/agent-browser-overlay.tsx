@@ -14,9 +14,6 @@ type Layer = { name: string; root: HTMLElement; release: () => void };
 /** 小条那层四周留给阴影的透明边(主进程摆小条时扣掉同样的量,browser-page-views.ts BADGE_BOTTOM_GAP)。 */
 const BADGE_LAYER_PADDING = 8;
 
-/** 每开一层名字都不一样(请主进程关的是哪一层,说得清)。 */
-let layerSequence = 0;
-
 /**
  * 开一层(同源空白页,主进程把它装进那扇窗里叠在网页上面的一层 view)、把主窗的样式抄过去、整层透明,交回画东西的根节点。
  * 小条那层的大小跟着内容走(主进程读 preferred size):文档写成内容那么大,否则 preferred size 会把旧视口当成下限、缩不回去。
@@ -24,7 +21,7 @@ let layerSequence = 0;
  * 也就是整扇咕咕窗口(electron/window-layers.ts)。
  */
 function openLayer(opener: Window, browserId: string, part: AgentOverlayPart): Layer | null {
-  const name = agentOverlayWindowName(browserId, part, ++layerSequence);
+  const name = agentOverlayWindowName(browserId, part);
   const win = opener.open('about:blank', name);
   if (!win) {
     log.warn('[agent-browser-overlay] the overlay layer could not be opened', { browserId, part });

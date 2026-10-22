@@ -40,6 +40,7 @@ function layer() {
   const parent = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
     getContentSize: () => [1200, 800],
+    webContents: Object.assign(new EventEmitter(), { focus: vi.fn(), isDestroyed: () => false }),
     contentView: {
       children,
       addChildView(view: FakeView) {
@@ -91,4 +92,13 @@ it('follows the window size and leaves the window when its content closes', () =
   webContents.close()
   expect(parent.contentView.children).toHaveLength(0)
   expect(parent.listenerCount('resize')).toBe(0)
+})
+
+it('does not keep keyboard focus: a click on it hands focus back to the window, and a page reload closes it', () => {
+  const { parent, webContents } = layer()
+  webContents.emit('focus')
+  expect(parent.webContents.focus).toHaveBeenCalledTimes(1)
+  parent.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+  expect(webContents.destroyed).toBe(true)
+  expect(parent.contentView.children).toHaveLength(0)
 })

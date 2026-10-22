@@ -59,6 +59,9 @@ type Rect = { x: number; y: number; width: number; height: number };
 
 type PagePlace = 'host' | 'parked' | null;
 
+/** 一层 agent 浮层:开在哪扇窗上(网页不在那扇窗上时它收着)、小条那层内容的大小(preferred size)。 */
+type AgentLayer = { part: AgentOverlayPart; view: WebContentsView; contents: WebContents; host: BrowserWindow; size: Size | null };
+
 type BrowserPage = {
   browserId: string;
   partition: string;
@@ -75,10 +78,9 @@ type BrowserPage = {
   place: PagePlace;
   ready: boolean;
   releaseTimer: ReturnType<typeof setTimeout> | null;
-  /** 盖在网页上的 agent 鼠标、小条两层(页签那边开出来;不在用就是 null)。 */
-  layers: Record<AgentOverlayPart, WebContentsView | null>;
-  /** 小条那层内容的大小(preferred size);鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
-  badgeSize: Size | null;
+  /** 盖在网页上的 agent 鼠标、小条那几层(页签那边开出来、开在哪扇窗上记着;每扇窗每种最多一层)。 */
+  layers: AgentLayer[];
+  /** 鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
   cursorShown: boolean;
   dialogs: PageDialogs | null;
 };
@@ -295,8 +297,7 @@ export function mountBrowserPage(args: {
     place: null,
     ready: false,
     releaseTimer: null,
-    layers: { cursor: null, badge: null },
-    badgeSize: null,
+    layers: [],
     cursorShown: false,
     dialogs: null,
   };
@@ -321,8 +322,8 @@ function moveToHost(page: BrowserPage, windowName: string): void {
     unplace(page);
     page.host = host;
     if (host) wireHost(host);
-    // 换了窗:旧窗里的那两层关掉,新窗那边页签会重新开。
-    closeAgentLayers(page);
+    // 换了窗:旧窗里的那几层收着(applyLayout),由旧窗那边的页签按名字关;新窗那边页签会在新窗里开 ——
+    // ❌ 这里关:挪窗时两边的布局请求会来回交错几下,关了就把新窗刚开的也关了。
   }
   page.windowName = windowName;
   applyLayout(page);
@@ -448,7 +449,6 @@ export function releaseBrowserPage(browserId: string): void {
   if (!page) return;
   page.mode = 'background';
   applyLayout(page);
-  closeAgentLayers(page);
   if (page.releaseTimer) clearTimeout(page.releaseTimer);
   page.releaseTimer = setTimeout(() => destroyBrowserPage(browserId), RELEASE_GRACE_MS);
 }
@@ -585,69 +585,74 @@ function openAgentLayer(host: BrowserWindow, frameName: string, content: WindowL
   const { webContents } = content;
   const overlay = agentOverlayOfFrame(frameName);
   const page = overlay ? livePage(overlay.browserId) : null;
-  const view = openWindowLayer(host, content, overlay?.part === 'badge' ? WINDOW_LAYER_RANK.agentBadge : WINDOW_LAYER_RANK.agentCursor);
+  const view = openWindowLayer(host, content, overlay?.part === 'badge' ? WINDOW_LAYER_RANK.agentBadge : WINDOW_LAYER_RANK.agentCursor, {
+    // 点到鼠标那层 = 人接管、要用网页:键盘焦点给网页。小条那层交回界面(默认)。
+    focusTarget: () => (overlay?.part === 'cursor' && page && page.host === host && !page.webContents.isDestroyed() ? page.webContents : null),
+  });
   agentLayersByName.set(frameName, view);
   webContents.once('destroyed', () => {
     if (agentLayersByName.get(frameName) === view) agentLayersByName.delete(frameName);
   });
-  // 没有这张网页 / 网页不在开它的那扇窗上(正挪窗):关掉,页签在新位置会重新开。
-  if (!overlay || !page || page.host !== host) {
+  // 没有这张网页:关掉(页签那边只在网页建好之后才开层)。
+  if (!overlay || !page) {
     setImmediate(() => {
       if (!webContents.isDestroyed()) webContents.close();
     });
     return;
   }
-  const { part } = overlay;
-  const previous = page.layers[part];
-  if (previous && previous !== view && !previous.webContents.isDestroyed()) previous.webContents.close();
-  page.layers[part] = view;
-  if (part === 'badge') {
-    page.badgeSize = null;
+  const layer: AgentLayer = { part: overlay.part, view, contents: webContents, host, size: null };
+  // 同一扇窗同一种只留一层:页签那边重开时,旧的那层由新的换掉(请主进程关旧层的那一下可能晚到)。
+  for (const previous of page.layers.filter((entry) => entry.part === layer.part && entry.host === host)) {
+    removeAgentLayer(page, previous);
+    if (!previous.contents.isDestroyed()) previous.contents.close();
+  }
+  page.layers.push(layer);
+  if (layer.part === 'badge') {
     webContents.on('preferred-size-changed', (_event, preferred) => {
-      if (page.layers.badge !== view) return;
       const sized = Number.isFinite(preferred.width) && Number.isFinite(preferred.height) && preferred.width > 0 && preferred.height > 0;
-      page.badgeSize = sized ? { width: Math.ceil(preferred.width), height: Math.ceil(preferred.height) } : null;
+      layer.size = sized ? { width: Math.ceil(preferred.width), height: Math.ceil(preferred.height) } : null;
       placeAgentLayers(page);
     });
   }
-  webContents.once('destroyed', () => {
-    if (page.layers[part] !== view) return;
-    page.layers[part] = null;
-    if (part === 'badge') page.badgeSize = null;
-  });
+  webContents.once('destroyed', () => removeAgentLayer(page, layer));
   placeAgentLayers(page);
 }
 
-/** 两层只在网页露着(挂在窗口上、页签那一块看得见、不是全屏)时露:小条摆在网页底部正中,鼠标那层铺满网页、agent 操作时才露。 */
+function removeAgentLayer(page: BrowserPage, layer: AgentLayer): void {
+  const at = page.layers.indexOf(layer);
+  if (at !== -1) page.layers.splice(at, 1);
+}
+
+/**
+ * 层只在网页露在开它的那扇窗上(挂在窗口上、页签那一块看得见、不是全屏)时露:小条摆在网页底部正中;鼠标那层铺满网页,
+ * agent 操作时才露 —— 收着时也先摆好大小,露出来的头一帧鼠标就画在对的地方。
+ */
 function placeAgentLayers(page: BrowserPage): void {
-  const { cursor, badge } = page.layers;
-  if (!cursor && !badge) return;
   const rect = page.rect;
   const shown = page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
-  if (cursor && !cursor.webContents.isDestroyed()) {
-    if (shown && rect && page.cursorShown) cursor.setBounds(rect);
-    cursor.setVisible(shown && page.cursorShown);
-  }
-  if (badge && !badge.webContents.isDestroyed()) {
-    const size = page.badgeSize;
-    if (shown && rect && size) {
-      badge.setBounds({
+  for (const layer of page.layers) {
+    if (layer.contents.isDestroyed()) continue;
+    const here = shown && layer.host === page.host;
+    if (layer.part === 'cursor') {
+      if (here && rect) layer.view.setBounds(rect);
+      layer.view.setVisible(here && page.cursorShown);
+      continue;
+    }
+    const size = layer.size;
+    if (here && rect && size) {
+      layer.view.setBounds({
         x: rect.x + Math.round((rect.width - size.width) / 2),
         y: rect.y + rect.height - size.height - BADGE_BOTTOM_GAP,
         ...size,
       });
     }
-    badge.setVisible(shown && !!size);
+    layer.view.setVisible(here && !!size);
   }
 }
 
 function closeAgentLayers(page: BrowserPage): void {
-  for (const part of ['cursor', 'badge'] as const) {
-    const view = page.layers[part];
-    page.layers[part] = null;
-    if (view && !view.webContents.isDestroyed()) view.webContents.close();
-  }
-  page.badgeSize = null;
+  const layers = page.layers.splice(0);
+  for (const layer of layers) if (!layer.contents.isDestroyed()) layer.contents.close();
 }
 
 /**

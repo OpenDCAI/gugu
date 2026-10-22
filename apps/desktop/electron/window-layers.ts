@@ -10,7 +10,11 @@ import { hardenWebPreferences } from './devtools-lock'
  * 不动窗口的层级、露出来不拿焦点(mac1 实测)。
  *
  * 代价是点不穿:层盖着的那块,人的点击落在层上。所以小条、角标的层只有它们自己那么大;铺满网页的那层(agent 的鼠标)
- * 只在 agent 操作时露出。点一层会把键盘焦点交给它,和点网页一样。
+ * 只在 agent 操作时露出。层只接点击、不留键盘焦点:被点到时焦点当场交回窗口界面(或用它的人指定的那份内容)——
+ * 层是另一份内容,界面的按键处理收不到它里面的按键,留在层里就成了打字没反应、快捷键失灵。
+ *
+ * 层是界面开出来、界面画的:界面整页重载、渲染进程没了、窗口关了,这扇窗的层一并关掉 —— ❌ 留着上一页画的东西
+ * (铺满网页的那层还会一直挡着点击)。
  *
  * 界面照旧 `window.open('about:blank', 名字)` 开一份同源空白页、直接画进去(同一个渲染进程,createPortal);
  * 主进程在 setWindowOpenHandler 的 createWindow 里把这份内容装进一层。网页 view 后挂上去会压在层上 ⇒ 挂网页的地方
@@ -30,6 +34,7 @@ export const WINDOW_LAYER_RANK = { agentCursor: 0, agentBadge: 1, buildTag: 2 } 
 type Layer = { view: WebContentsView; rank: number }
 
 const layersByHost = new WeakMap<BrowserWindow, Layer[]>()
+const hostsWired = new WeakSet<BrowserWindow>()
 
 /** 装进层里的那份内容:和主窗同进程(sandbox 要一样,否则分进程、window.open 拿到 null),界面全由主窗画进去。 */
 export function windowLayerOptions(extra: { enablePreferredSizeMode?: boolean } = {}): BrowserWindowConstructorOptions {
@@ -49,11 +54,25 @@ export function windowLayerOptions(extra: { enablePreferredSizeMode?: boolean } 
  * 网页设置要原样带上:WebContentsView 接手一份现成内容时,会拿构造参数里的 webPreferences 整个覆盖它原来的
  * (electron_api_web_contents.cc CreateFromWebPreferences → SetFromDictionary),不带就成了默认值(preferred size 关了)。
  */
-export function openWindowLayer(host: BrowserWindow, content: WindowLayerContent, rank: number): WebContentsView {
+export function openWindowLayer(
+  host: BrowserWindow,
+  content: WindowLayerContent,
+  rank: number,
+  options: {
+    /** 层被点到时键盘焦点交给谁(没有就交回窗口界面)。 */
+    focusTarget?: () => WebContents | null
+  } = {},
+): WebContentsView {
   const { webContents } = content
   const view = new WebContentsView({ webContents, webPreferences: content.webPreferences })
   view.setBackgroundColor('#00000000')
   view.setVisible(false)
+  wireHost(host)
+  webContents.on('focus', () => {
+    if (host.isDestroyed()) return
+    const target = options.focusTarget?.() ?? host.webContents
+    if (target !== webContents && !target.isDestroyed()) target.focus()
+  })
   let layers = layersByHost.get(host)
   if (!layers) {
     layers = []
@@ -70,6 +89,22 @@ export function openWindowLayer(host: BrowserWindow, content: WindowLayerContent
     if (!host.isDestroyed()) host.contentView.removeChildView(view)
   })
   return view
+}
+
+function wireHost(host: BrowserWindow): void {
+  if (hostsWired.has(host)) return
+  hostsWired.add(host)
+  const closeAll = () => {
+    for (const { view } of [...(layersByHost.get(host) ?? [])]) {
+      const contents = view.webContents
+      if (contents && !contents.isDestroyed()) contents.close()
+    }
+  }
+  host.webContents.on('did-start-navigation', (event) => {
+    if (event.isMainFrame && !event.isSameDocument) closeAll()
+  })
+  host.webContents.on('render-process-gone', closeAll)
+  host.once('closed', closeAll)
 }
 
 /** 往窗口上挂了网页之后:把层重新叠回最上面(再挂一次就到最上层,按 rank 从下往上)。 */

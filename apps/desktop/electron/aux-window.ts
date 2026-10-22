@@ -1,5 +1,5 @@
 import { BrowserWindow, shell, type BrowserWindowConstructorOptions } from 'electron'
-import { BUILD_TAG_WINDOW_NAME, isAgentOverlayWindowRequest, isAuxWindowRequest } from '@shared/aux-window'
+import { BUILD_TAG_WINDOW_NAME, isAgentOverlayWindowRequest, isAuxWindowRequest, isBuildTagWindowName } from '@shared/aux-window'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
 import { hardenWebPreferences } from './devtools-lock'
 import { openBuildTagLayer } from './build-tag-window'
@@ -70,7 +70,7 @@ export function attachAuxWindows(main: BrowserWindow, backgroundColor: () => str
   const children = new Set<BrowserWindow>()
   const specialChildren = new WeakSet<BrowserWindow>()
   serveWindowLayers(BUILD_TAG_WINDOW_NAME, {
-    accepts: (frameName) => frameName === BUILD_TAG_WINDOW_NAME,
+    accepts: isBuildTagWindowName,
     options: () => windowLayerOptions({ enablePreferredSizeMode: true }),
     open: (host, _frameName, content) => openBuildTagLayer(host, content),
   })
