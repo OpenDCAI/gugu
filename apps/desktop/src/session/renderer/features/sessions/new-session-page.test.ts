@@ -201,7 +201,8 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {
     navigation: {
       currentViewId: 'home',
-      viewParamsStore: {}
+      viewParamsStore: {},
+      revalidate: vi.fn()
     }
   }
 }));
