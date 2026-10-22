@@ -328,6 +328,7 @@ export function flattenTier(
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
+            withBody: true,
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
             ...(header.endedAt !== undefined ? { endedAt: header.endedAt } : {}),
           });

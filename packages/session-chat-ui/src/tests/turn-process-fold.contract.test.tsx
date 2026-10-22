@@ -383,9 +383,22 @@ describe('#4981 #12 活动层的过程也折', () => {
       // 这里读墙钟的话,CI 一忙、时钟一跳就偶尔红(❌ 测试里写墙钟断言)。
       expect(h!.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
       expect(h!.textContent).not.toMatch(/steps/);
-      // 微光只在跑着的时候上身：`CollapseHeader` 把 textShimmer 挂在标签那个 span 上。
+      // 底下摊着内容时「在动」由那些行负责,头只数秒、不带微光(同屏两处一起扫就是闪);
+      // 微光回到头上只在它是这一轮唯一动静的时候(见下面「一轮开始了、还什么都没有」)。
       const label = h!.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
-      expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
+      expect(label.querySelector('[data-shimmer-text]')).toBeNull();
+      // 点头:跑着也要收得起来、再点又摊开,箭头跟着转(owner 2026-10-22「怎么点都保持向下」)。
+      const chevron = () => h!.querySelector('[data-slot="collapse-header"] > span:last-child') as HTMLElement;
+      (h!.querySelector('[data-collapse-id]') as HTMLElement).click();
+      await until('live header collapses on click', () => header()?.dataset.expanded, (v) => v === 'false');
+      await settled(host);
+      expect(canvas().textContent ?? '').not.toContain('Checking the latest numbers first.');
+      // 箭头有 150ms 的转动过渡:等它转到「向右」(收起时不带 rotate)。
+      await until('chevron turns right', () => getComputedStyle(chevron()).transform, (t) => t === 'none');
+      (header()!.querySelector('[data-collapse-id]') as HTMLElement).click();
+      await until('live header re-expands on click', () => header()?.dataset.expanded, (v) => v === 'true');
+      await settled(host);
+      expect(canvas().textContent ?? '').toContain('Checking the latest numbers first.');
       // 高度契约与静息态同源：同一个 def、同一个 measure()。
       const caches = createChatCaches();
       const mctx: MeasureCtx = {

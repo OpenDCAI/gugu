@@ -11,6 +11,9 @@
  *
  * 一轮开始了、还什么都没有时,它也是这一行(`pendingTurnHeader`):发出就在数秒,第一样内容到了就落在它下面。
  *
+ * 同屏只让一处在动:底下有内容(`withBody`)时头只数秒、不带微光 —— 底下活着的那些行自己带着;头再一起扫,
+ * 两三处同时亮暗就是「不断闪烁」(owner 2026-10-22)。数秒时数字等宽(见 `turnProcessHeaderSlot`),头上的字与箭头不挪窝。
+ *
  * 计时的起点是 `TranscriptTurn.startedAt`(事件到达时刻,存在数据里):虚拟列表把行滚出
  * 视窗就卸载,拿挂载时刻当起点的话滚回来会从 0 重数;拿会话级「首次见到」当起点,打开一个
  * 已经跑了五分钟的会话时会说 3 秒。回放来的一轮没有时刻,那就不写时间
@@ -74,7 +77,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
               id={props.data.id}
               collapsible
               expanded={expanded()}
-              active={props.data.live}
+              active={props.data.live && !props.data.withBody}
               height={height()}
             >
               {label()}
