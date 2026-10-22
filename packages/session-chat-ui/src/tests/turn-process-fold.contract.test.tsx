@@ -518,7 +518,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
   });
 
   // owner 10-23 真机:agent 先说一句再去干活,头被撤掉,第二句话到了又冒出来(消失 13.7 s)。
-  it('先开口再干活:头一直在原处,第二句话之前占位、不带微光,之后数秒', async () => {
+  it('先开口再干活:头一直在原处,只说了话时占位、不带微光,一开始干活就数秒', async () => {
     const ctx = createChatContext({ layout: { preset: 'double', userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
@@ -540,15 +540,18 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
       expect(header()!.textContent).not.toMatch(/\d/);
       expect(shimmering(), '那句话就在头下面,头不再带微光').toBe(false);
 
+      // 一开始干活(思考到了),头就从这一轮的起点数秒,位置不动
       step(first, thinking);
       await until('work arrives under the sentence', () => host.querySelector('[data-row-kind="thinking"]') != null);
+      await until('the header counts once work starts', () => header()?.textContent ?? '', (text) => /Worked for (?:\d+m)?\d+s/.test(text));
       await settled(host);
       expect(header()?.getBoundingClientRect().top).toBe(top);
-      expect(header()!.textContent).toContain('Thinking…');
+      expect(header()?.querySelector('[data-collapse-id]')).not.toBeNull();
 
       step(first, thinking, msg('pa2', 2, 'assistant', 'The answer is 5696.') as Item);
-      await until('second sentence folds the first', () => header()?.textContent ?? '', (text) => /Worked for (?:\d+m)?\d+s/.test(text));
+      await until('second sentence on screen', () => host.textContent?.includes('The answer is 5696.') ?? false);
       await settled(host);
+      expect(header()!.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
       expect(header()?.getBoundingClientRect().top).toBe(top);
       expect(header()?.dataset.turnId).toBe(ONLY_PROMPT.id);
     } finally {

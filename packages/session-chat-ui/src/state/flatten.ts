@@ -269,7 +269,8 @@ export function flattenTier(
   const { folds: foldPlans, runs: foldRuns, absorbed } = planTurnFoldRuns(
     turns.map((turn, i) => ({ ...turn, items: turnItems[i] }) as TranscriptTurn),
     prevDayKey,
-    ctx.foldTurnProcess === true
+    ctx.foldTurnProcess === true,
+    ctx.active
   );
 
   for (let turnIndex = 0; turnIndex < turns.length; turnIndex++) {
@@ -320,7 +321,7 @@ export function flattenTier(
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
-          // 跑着的那一段例外:agent 先说了一句、正去干活,过程还空着 —— 头占着位置等过程,❌ 撤掉再冒出来
+          // 跑着的那一段例外:agent 先说了一句、还没开始干活,过程还空着 —— 头占着位置等过程,❌ 撤掉再冒出来
           // (`placeholderTurnHeader`)。那句话就在它下面,头不带微光(见 `withBody`)。这一段还什么都没有
           // (在等人答提问、刚插了话)就不占:那时 agent 没在想(#124 review)。
           if (header?.live && segment.tail.length > 0) {

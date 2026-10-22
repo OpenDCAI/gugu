@@ -263,7 +263,8 @@ describe('思考与过程折叠(同桌面)', () => {
   })
 
   // owner 10-23 真机:先开口再去跑命令时头被撤掉,第二句话到了又冒出来。
-  it('先开口再干活:头一直在、同一条消息;第二句话之前占位,之后数秒', () => {
+  // owner 10-23 真机:先开口、再连跑一分钟命令,头一直写「正在思考…」—— 命令一开始跑,头就数秒(同桌面)。
+  it('先开口再干活:头一直在、同一条消息;只说了话时占位,一开始干活就数秒', () => {
     const at = (items: TranscriptTurn['items']) => toThreadMessages([timed(turn('t1', items), 3_000)], { liveTurnId: 't1' })
     const talking = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条')])
     expect(talking.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant'])
@@ -272,7 +273,10 @@ describe('思考与过程折叠(同桌面)', () => {
     expect(talking[2].content).toEqual([{ type: 'text', text: '先跑第一条' }])
     const working = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条'), toolItem('c1', 'Bash')])
     expect(working[1].id).toBe(talking[1].id)
-    expect(header(working[1])).toEqual({ id: 't1:process', live: true, placeholder: true })
+    expect(header(working[1])).toEqual({ id: 't1:process', live: true, startedAt: 3_000 })
+    // 那句话和命令都进了头里(收起头时一起收)
+    expect(working).toHaveLength(2)
+    expect((working[1].content as unknown as Array<{ type: string }>).map((part) => part.type)).toEqual(['text', 'tool-call'])
     const folded = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条'), toolItem('c1', 'Bash'), agentItem('a2', '再跑第二条')])
     expect(folded[1].id).toBe(talking[1].id)
     expect(header(folded[1])).toEqual({ id: 't1:process', live: true, startedAt: 3_000 })

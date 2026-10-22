@@ -705,7 +705,8 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
   });
 
   // owner 10-23 真机:agent 先说一句再去跑命令,过程是空的,头被撤掉,第二句话到了又冒出来(消失 13.7 s)。
-  it('先开口再干活:头从发出到落定一直在、id 不变;第二句话之前占位,之后数秒', () => {
+  // owner 10-23 真机:先开口、再连跑一分钟命令,头一直写「正在思考…」—— 命令一开始跑,头就写「已处理 Ns」。
+  it('先开口再干活:头从发出到落定一直在、id 不变;只说了话时占位,一开始干活就数秒', () => {
     const at = (items: ChatItem[]) =>
       flattenTier([turn('t16', items, undefined, { startedAt: 7_000 })], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
     const steps = [
@@ -718,16 +719,42 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
       expect(units.filter((u) => u.kind === 'turn-process').map((u) => u.itemId)).toEqual([turnProcessId('t16')]);
       expect(ids(units).slice(0, 2)).toEqual(['u16', turnProcessId('t16')]);
     }
-    // 第一句话在、过程还空:头占位(不数秒),那句话在它下面,头不带微光
+    // 只说了话、还没干活:头占位(不数秒),那句话在它下面,头不带微光
     expect(ids(steps[1])).toEqual(['u16', turnProcessId('t16'), 'a1']);
     expect(header(steps[1])).toMatchObject({ live: true, placeholder: true, withBody: true });
     expect(header(steps[1])).not.toHaveProperty('startedAt');
-    expect(header(steps[2])).toMatchObject({ placeholder: true });
-    expect(header(steps[2])).not.toHaveProperty('startedAt');
-    // 第二句话一到,第一句与那条命令折进头里,头开始写「已处理 Ns」
+    // 命令一到:那句话和命令都算过程,头从这一轮的起点数秒
+    expect(ids(steps[2])).toEqual(['u16', turnProcessId('t16'), 'a1', 'c1']);
+    expect(header(steps[2])).toMatchObject({ live: true, withBody: true, startedAt: 7_000 });
+    expect(header(steps[2])).not.toHaveProperty('placeholder');
+    // 第二句话:它在头外面,头照旧在数
     expect(header(steps[3])).toMatchObject({ live: true, withBody: true, startedAt: 7_000 });
-    expect(header(steps[3])).not.toHaveProperty('placeholder');
     expect(ids(steps[3]).at(-1)).toBe('a2');
+  });
+
+  it('一开始干活,头就收得起来:收起时那句话和命令都在头里', () => {
+    const live = turn('t21', [user('u21'), reply('a1', '先跑第一条'), bash('c1')], undefined, { startedAt: 7_000 });
+    const toggled = new Set([turnProcessId('t21')]);
+    const closed = flattenTier([live], ctxWith({ foldTurnProcess: true, active: true, isTurnProcessExpanded: (id) => toggled.has(id) }), SEGMENTERS);
+    expect(ids(closed)).toEqual(['u21', turnProcessId('t21')]);
+  });
+
+  it('那句话之后的提问 / 人说的话 / 边界线留在头外面,收起来也看得见', () => {
+    const ask = { kind: 'unknown-tool-call', id: 't:tool:q1', seq: 0, toolCallId: 'q1', title: 'AskUserQuestion', name: 'AskUserQuestion', status: 'done', parentToolCallId: null } as unknown as ChatItem;
+    const notice = { kind: 'session-notice', id: 'n22', seq: 0, code: 'effort-unavailable', detail: 'x', effectiveValue: 'low', at: 9_000 } as unknown as ChatItem;
+    const toggled = new Set([turnProcessId('t22')]);
+    const closed = (items: ChatItem[]) =>
+      flattenTier([turn('t22', items, undefined, { startedAt: 7_000 })], ctxWith({ foldTurnProcess: true, active: true, isTurnProcessExpanded: (id) => toggled.has(id) }), SEGMENTERS);
+    expect(ids(closed([user('u22'), reply('a1'), bash('c1'), user('steer')]))).toEqual(['u22', turnProcessId('t22'), 'steer']);
+    expect(ids(closed([user('u22'), reply('a1'), bash('c1'), notice]))).toEqual(['u22', turnProcessId('t22'), 'n22']);
+    // 提问紧跟那句话(还没干活)⇒ 不算过程,头照旧占位
+    const asked = flattenTier([turn('t22', [user('u22'), reply('a1'), ask], undefined, { startedAt: 7_000 })], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
+    expect(header(asked)).toMatchObject({ placeholder: true });
+  });
+
+  it('❌ 落定的轮不这么判:说了一句、跑了一条命令就收尾的,照旧不折', () => {
+    const settled = turn('t23', [user('u23'), reply('a1', '打开给你看'), bash('c1')], DONE, { startedAt: 7_000, endedAt: 9_000 });
+    expect(kinds(flattenTier([settled], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
   });
 
   // #124 review:前面有边界线时,过程到了接手的是线后面那一段的头 —— 占位就得在那儿、用那一段的 id。
