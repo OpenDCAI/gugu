@@ -69,7 +69,9 @@ async function world(): Promise<World> {
     VALUES ($1,'agent','Workspace Agent',$2,$3)`, [agent, owner, `dev-${owner}`])
   const group = randomUUID()
   await asUser(owner)
-  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', owner, JSON.stringify([{ user_id: peer, role: 'member' }])])
+  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', owner, '[]'])
+  await db.query('RESET role')
+  await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [group,peer])
   await db.query('RESET role')
   return { owner, peer, agent, group }
 }

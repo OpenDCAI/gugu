@@ -16,7 +16,8 @@ import { workspaceUploadKind } from '../../../../packages/core/src/shared/worksp
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
 import { createAttachmentResolver } from '../../../../packages/core/src/shared/attachmentUrls'
 import { AttachmentsError, commitAttachment, fetchAttachmentUrls, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
-import { createGroupChat } from '../../../../packages/core/src/cloud/groupChat'
+import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
+import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
 import { FORUM_TOOL_DEFS } from './gugu-forum-tools.mjs'
 import {
@@ -50,7 +51,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 // 本就接受可读的 public_id。编解码只在这一处，双向强制。
 const USER_ID_FIELDS = new Set([
   'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'friend_user_id', 'source_sender_user_id', 'agent_user_id',
-  'creator_user_id', 'inviter_agent_user_id', 'invitee_user_id', 'decision_user_id',
+  'creator_user_id', 'author_id', 'inviter_user_id', 'inviter_account_user_id', 'invitee_user_id', 'decision_user_id',
   'userId', 'agentUserId',
 ])
 const USER_ID_LIST_FIELDS = new Set(['to_user_ids', 'member_user_ids'])
@@ -452,6 +453,16 @@ function createDeps(context, injected = {}, state = createSessionState()) {
     restPatch: (path, body, profile) => restPatch(context, path, body, profile, fetchImpl),
     restPatchReturning: (path, body, profile) => restPatch(context, path, body, profile, fetchImpl, true),
     restRpc: (name, body, profile) => restRpc(context, name, body, profile, fetchImpl),
+    uploadGroupAvatar: async (path, file) => {
+      const token = await context.getAccessToken()
+      const storagePath = path.split('/').map(encodeURIComponent).join('/')
+      const base = context.supabaseUrl.replace(/\/$/, '')
+      const res = await fetchImpl(`${base}/storage/v1/object/chat-media/${storagePath}`, {
+        method: 'POST', headers: restHeaders(context, token, null, { 'Content-Type': file.type, 'x-upsert': 'false' }), body: file,
+      })
+      if (!res.ok) throw new Error(`Group avatar upload failed: ${res.status} ${await res.text()}`)
+      return `${base}/storage/v1/object/public/chat-media/${storagePath}`
+    },
     // 新式附件的签名链接:默认以这个 agent 的身份(attachments/urls 的 `as`,按 agent 是不是成员判);
     // 主人与好友私聊里的附件按主人要(#84,见 downloadAttachment)。
     attachmentsEndpoint: () => attachmentsEndpoint(context, fetchImpl),
@@ -1828,6 +1839,10 @@ async function ownerGroupsAs(deps, agentUserId, toolName) {
   return rows
 }
 
+function groupAdmin(deps) {
+  return createGroupAdmin({ rpc: async (name, body) => ({ data: await deps.restRpc(name, body), error: null }) }, deps.context.agentId)
+}
+
 async function handleGroup(args, deps) {
   if (args.action === 'create') {
     const name = typeof args.name === 'string' ? args.name.trim() : ''
@@ -1840,82 +1855,48 @@ async function handleGroup(args, deps) {
     const users = await restGetInBatches(ids, (batch) => deps.restGet(
       `users?id=in.(${batch.map(enc).join(',')})&select=id,type,owner_user_id`, 'identity',
     ))
-    const direct = []
-    const invitees = []
-    for (const id of ids) {
-      const user = users.find((row) => row.id === id)
-      if (!user || !['human', 'agent'].includes(user.type)) throw new Error(`group_create: no visible person or agent at user:${id}`)
-      const ownedAgent = user.type === 'agent' && user.owner_user_id === ownerId
-      if (id === deps.context.agentId && !ownedAgent) throw new Error('group_create: the calling agent must belong to the authenticated owner')
-      if (ownedAgent) direct.push(id)
-      else invitees.push(id)
-    }
-    const chatId = await createGroupChat({
-      rpc: async (rpc, body) => ({ data: await deps.restRpc(rpc, body), error: null }),
-    }, name, ownerId, direct)
-    const invitations = []
-    const invitationErrors = []
-    for (const invitee of invitees) {
-      try {
-        invitations.push(await requestGroupInvitation(chatId, invitee, `邀请你加入群聊「${name}」。`, deps))
-      } catch (error) {
-        // Creation has committed. Keep its id and each failed invite so retrying does not create another group.
-        invitationErrors.push({ invitee_user_id: invitee, error: error instanceof Error ? error.message : String(error) })
-      }
-    }
-    return JSON.stringify({ chat_id: chatId, name, member_user_ids: [ownerId, ...direct], invitations, invitation_errors: invitationErrors })
+    if (ids.some((id) => !users.some((row) => row.id === id))) throw new Error('group_create: selected person or agent was not found')
+    return JSON.stringify(await createGroupWithInvitations({
+      rpc: async (name, body) => ({ data: await deps.restRpc(name, body), error: null }),
+    }, name, ownerId, deps.context.agentId, users))
   }
   if (args.action === 'list') {
-    const [groups, pinned] = await Promise.all([
-      ownerGroupsAs(deps, deps.context.agentId, 'group_list'),
-      ownerPinnedChatIds(deps),
-    ])
+    const [groups, pinned] = await Promise.all([ownerGroupsAs(deps, deps.context.agentId, 'group_list'), ownerPinnedChatIds(deps)])
     return groups.map((group) => ({ ...group, pinned: pinned.has(group.chat_id) }))
   }
+  const admin = groupAdmin(deps)
+  if (args.action === 'join-decide') return JSON.stringify(await admin.decideJoin(args.request_id, args.accept))
+  if (args.action === 'announcement-update') return JSON.stringify(await admin.updateAnnouncement(args.announcement_id, {
+    ...(args.changes.text !== undefined ? { content: args.changes.text } : {}),
+    ...(args.changes.pinned !== undefined ? { pinned: args.changes.pinned } : {}),
+  }))
+  if (args.action === 'announcement-delete') return JSON.stringify(await admin.deleteAnnouncement(args.announcement_id))
+  if (args.action === 'flood-undo') return JSON.stringify(await admin.undoFlood(args.adjustment_id))
+  const chatId = await requireChat(args, deps)
   if (args.action === 'add-agent') {
-    const chatId = await requireChat(args, deps)
     const requested = typeof args.agent === 'string' ? args.agent.trim() : ''
-    const [agentUserId] = requested
-      ? await resolveRecipientAddresses(decodeRecipientList([requested], 'agent'), deps, 'agent')
-      : [deps.context.agentId]
-    // 「已是成员」在这里判,❌ 不让 add_group_agent 多返回一个状态:已经发出去的客户端只认 joined / pending_approval,
-    // 库一返回新状态它们就当场报错(groupAgentJoin.ts 的 parseGroupAgentJoinOutcome)。
-    // 以目标 agent 的身份列一次:joined 就是它在不在;这一读同时核了「它是主人名下的 agent」与「主人在这个群里」。
-    const group = (await ownerGroupsAs(deps, agentUserId, 'group_add_agent')).find((row) => row?.chat_id === chatId)
-    if (!group) {
-      throw new Error(
-        `group_add_agent: ${chatId} is not an active group your owner is in. group_list lists the groups you can use; `
-        + 'a group your owner is not in can only be reached through its members (message_invite).'
-      )
-    }
-    if (group.joined === true) {
-      return JSON.stringify({ status: 'already_member', chat_id: chatId, agent_user_id: agentUserId })
-    }
-    const result = await deps.restRpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agentUserId, p_message: null })
-    if (!result || result.chat_id !== chatId || (result.status !== 'joined' && result.status !== 'pending_approval')) {
-      throw new Error(`group_add_agent: add_group_agent returned an unexpected result ${JSON.stringify(result)}`)
-    }
-    return JSON.stringify({ ...result, agent_user_id: agentUserId })
+    const [agent] = requested ? await resolveRecipientAddresses(decodeRecipientList([requested], 'agent'), deps, 'agent') : [deps.context.agentId]
+    return JSON.stringify({ ...await admin.addAgent(chatId, agent), agent_user_id: agent })
   }
+  if (await chatKindOf(deps, chatId) !== 'group') throw new Error(`group_${args.action}: chat_id must identify a group`)
+  if (args.action === 'info') return JSON.stringify(await admin.info(chatId))
+  if (args.action === 'leave') return JSON.stringify(await admin.remove(chatId, deps.context.agentId))
+  if (args.action === 'remove' || args.action === 'role') {
+    const [member] = await resolveRecipientAddresses(decodeRecipientList([args.member], 'member'), deps, 'member')
+    return JSON.stringify(args.action === 'remove' ? await admin.remove(chatId, member) : await admin.setRole(chatId, member, args.role))
+  }
+  if (args.action === 'join-requests') return admin.joinRequests(chatId)
   if (args.action === 'update') {
-    const chatId = await requireChat(args, deps)
-    const patch = {}
-    if (args.name !== undefined) {
-      patch.name = String(args.name).trim()
-      if (!patch.name) throw new Error('group_update: name cannot be empty')
-    }
-    if (args.description !== undefined) patch.description = String(args.description).trim() || null
-    if (!Object.keys(patch).length) throw new Error('group_update: pass name, description, or both')
-    // 与人在群设置里改群资料同一个写口:判权是 chats_update_owner(主人是群主或管理员)+ 列级 GRANT。
-    // 判不过时 PostgREST 不报错、只改 0 行 ⇒ 必须带回行来数。
-    const rows = await deps.restPatchReturning(`chats?id=eq.${enc(chatId)}&kind=eq.group&select=id,name,description`, patch)
-    if (!Array.isArray(rows) || rows.length !== 1) {
-      throw new Error(
-        `group_update: your owner is not the owner or an admin of group ${chatId}, so its name and description cannot be changed. `
-        + 'Only a group\'s owner and admins can change them; ask one of them instead.'
-      )
-    }
-    return JSON.stringify({ chat_id: rows[0].id, name: rows[0].name, description: rows[0].description })
+    const changes = { ...args.changes }
+    if (changes.rules !== undefined) { changes.group_prompt = changes.rules; delete changes.rules }
+    return JSON.stringify(await admin.update(chatId, changes))
+  }
+  if (args.action === 'announcement-post') return JSON.stringify(await admin.postAnnouncement(chatId, args.text))
+  if (args.action === 'avatar') {
+    const bytes = await readUploadBytes('group_avatar_set', args, 5 * 1024 * 1024)
+    const file = new File([bytes], basename(args.file_path), { type: resolveAttachmentMimeType(args.file_path) })
+    const url = await setGroupAvatar(admin, chatId, await currentAuthUserId(deps), file, deps.uploadGroupAvatar)
+    return JSON.stringify({ chat_id: chatId, avatar_url: url })
   }
   throw new Error(`gugu_group: unknown action ${args.action}`)
 }
@@ -1924,13 +1905,7 @@ async function handleGroup(args, deps) {
 async function requestGroupInvitation(chatId, invitee, text, deps) {
   assertAgentMessageText(text, 'message_invite')
   if (!text?.trim()) throw new Error('message_invite: text is required')
-  const result = await deps.restRpc('request_agent_group_invitation', {
-    p_chat_id: chatId, p_agent_user_id: deps.context.agentId, p_invitee_user_id: invitee, p_message: text,
-  })
-  if (!result || result.chat_id !== chatId || !['pending', 'accepted', 'already_member', 'pending_approval'].includes(result.status)) {
-    throw new Error('message_invite: invitation result was not confirmed')
-  }
-  return result
+  return groupAdmin(deps).invite(chatId, invitee, text)
 }
 
 /**
@@ -2248,7 +2223,7 @@ export const TOOL_DEFS = [
     schema: z.object({ ...listWindowShape }),
     list: { namesOf: (row) => [row.group_name, row.invitee_name] },
     handler: async (_args, deps) => {
-      const result = await deps.restRpc('list_agent_group_invitations', { p_agent_user_id: deps.context.agentId })
+      const result = await groupAdmin(deps).invitations(true)
       if (!Array.isArray(result)) throw new Error('message_invitations: expected an invitation list')
       return result
     },
@@ -2423,7 +2398,7 @@ export const TOOL_DEFS = [
   {
     name: 'group_add_agent',
     writer: true,
-    description: 'Add yourself, or another agent your owner owns, to a group your owner is in — the same path as your owner adding their agent in the app. Omit agent to join yourself. Returns status joined, pending_approval (the group requires approval for Agents: a group owner or admin decides, and until then the agent is not a member and receives nothing), or already_member. People and other owners\' agents cannot be added this way; use message_invite, which they must accept. Members see a notice that the agent joined; the notice wakes no one.',
+    description: 'Add yourself or one of your owner’s Agents to a group. Omit agent to add yourself. Uses your own group role; agent approval still applies. Returns joined, pending_approval or already_member. Other identities use message_invite.',
     schema: z.object({
       chat_id: chatIdSchema.describe(`The group to join, from group_list.`),
       agent: z.string().trim().min(1).optional().describe('Optional: the agent to add when it is not you — one of your owner\'s agents as "aid:<Agent ID>" (or its older spelling "user:<uuid>"), "gugu:<number>", or "session:<id>" for a session on this machine (from session_spawn / session_children / session_peers). Omit it to add yourself.'),
@@ -2433,7 +2408,7 @@ export const TOOL_DEFS = [
   {
     name: 'group_create',
     writer: true,
-    description: 'Create a group with your owner as its owner and you as a member, using the app\'s group-creation path. Your owner\'s agents join directly; people and other owners\' agents receive invitations and join only after acceptance. Returns chat_id, direct member_user_ids, invitations and invitation_errors. If an invitation fails, the group still exists: use its chat_id to retry with message_invite.',
+    description: 'Create a group with your human owner as its sole owner and you as an admin, using the app\'s group-creation path. Your owner\'s agents join directly; people and other owners\' agents receive invitations and join only after acceptance. Returns chat_id, direct member_user_ids, invitations and invitation_errors. If an invitation fails, the group still exists: use its chat_id to retry with message_invite.',
     schema: z.object({
       name: z.string().trim().min(1).describe('Group name.'),
       members: z.array(z.string().trim().min(1)).optional().describe('Optional members as user:<uuid> / aid:<Agent ID>, gugu:<number>, or session:<id> on this machine. Your owner and you are always included. Invitations say: 邀请你加入群聊「<name>」。'),
@@ -2441,15 +2416,71 @@ export const TOOL_DEFS = [
     handler: (args, deps) => handleGroup({ ...args, action: 'create' }, deps),
   },
   {
-    name: 'group_update',
-    writer: true,
-    description: 'Change a group\'s name and/or description — the same edit your owner makes in the app\'s group settings, and it acts with your owner\'s rights: it works only in groups where your owner is the owner or an admin. Pass name, description, or both; an empty description clears it. Topics are not groups and are not renamed here. Returns chat_id, name and description as saved.',
-    schema: z.object({
-      chat_id: chatIdSchema.describe(`The group to change.`),
-      name: z.string().optional().describe('The new group name.'),
-      description: z.string().optional().describe('The new group description; an empty string clears it.'),
-    }),
+    name: 'group_update', writer: true,
+    description: 'Change group settings as yourself. Requires your own group admin role. Pass only the changes you intend; rules is the group rules text. Empty rules or description clears it.',
+    schema: z.object({ chat_id: chatIdSchema, changes: z.object({
+      name: z.string().trim().min(1).optional(), description: z.string().optional(), rules: z.string().optional(),
+      join_mode: z.enum(['open', 'approval', 'invite_only']).optional(), allow_member_invite: z.boolean().optional(),
+      agent_join_approval: z.boolean().optional(), invite_link_enabled: z.boolean().optional(),
+      max_members: z.number().int().min(1).optional(), hide_history: z.boolean().optional(),
+      agent_flood_threshold: z.number().int().min(1).nullable().optional(),
+    }).strict().refine((value) => Object.keys(value).length > 0, 'Pass at least one change') }),
     handler: (args, deps) => handleGroup({ ...args, action: 'update' }, deps),
+  },
+  {
+    name: 'group_leave', writer: true,
+    description: 'Leave one group yourself. No approval is needed. Your session keeps running; you stop receiving this group. You cannot use it to remove another member.',
+    schema: z.object({ chat_id: chatIdSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'leave' }, deps),
+  },
+  {
+    name: 'group_remove_member', writer: true,
+    description: 'Remove one group member as an admin. People, Agents and other admins can be removed; the human group owner cannot.',
+    schema: z.object({ chat_id: chatIdSchema, member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine.') }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'remove' }, deps),
+  },
+  {
+    name: 'group_set_role', writer: true,
+    description: 'Set one group member to admin or member, as an admin yourself. The group owner cannot be changed or demoted.',
+    schema: z.object({ chat_id: chatIdSchema, member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine.'), role: z.enum(['admin', 'member']) }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'role' }, deps),
+  },
+  {
+    name: 'group_join_requests',
+    description: 'List group join requests as an admin. Pending by default; status all includes accepted and rejected requests. This is separate from invitations you sent.',
+    schema: z.object({ chat_id: chatIdSchema, ...listWindowShape, status: z.enum(['pending', 'accepted', 'rejected', 'all']).default('pending') }),
+    list: { namesOf: (row) => [row.requester_name], keep: (row, args) => args.status === 'all' || row.status === (args.status ?? 'pending') },
+    handler: (args, deps) => handleGroup({ ...args, action: 'join-requests' }, deps),
+  },
+  {
+    name: 'group_join_decide', writer: true,
+    description: 'Accept or reject one group join request as an admin. The request determines its group; approval does not substitute for an invited person or Agent owner consenting.',
+    schema: z.object({ request_id: z.string().min(1).describe('The existing join request returned by group_join_requests.'), accept: z.boolean() }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'join-decide' }, deps),
+  },
+  {
+    name: 'group_info', description: 'Read group settings, your role and whether you may manage it. Management uses your own role, not your owner’s.',
+    schema: z.object({ chat_id: chatIdSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'info' }, deps),
+  },
+  {
+    name: 'group_avatar_set', writer: true, description: 'Upload and set a group avatar as an admin. Use an absolute image path, at most 5 MB.',
+    schema: z.object({ chat_id: chatIdSchema, file_path: uploadFilePathSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'avatar' }, deps),
+  },
+  {
+    name: 'group_announcement_post', writer: true, description: 'Post a group announcement as an admin. A normal chat message is not an announcement.',
+    schema: z.object({ chat_id: chatIdSchema, text: chatMessageTextSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'announcement-post' }, deps),
+  },
+  {
+    name: 'group_announcement_update', writer: true, description: 'Edit or pin a group announcement as an admin. Pass text, pinned, or both.',
+    schema: z.object({ announcement_id: z.string().min(1), changes: z.object({ text: z.string().trim().min(1).optional(), pinned: z.boolean().optional() }).strict().refine((value) => Object.keys(value).length > 0) }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'announcement-update' }, deps),
+  },
+  {
+    name: 'group_announcement_delete', writer: true, description: 'Delete one group announcement as an admin.',
+    schema: z.object({ announcement_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'announcement-delete' }, deps),
+  },
+  {
+    name: 'group_flood_undo', writer: true, description: 'Undo one system automatic passive adjustment as a group member. Restores only that recorded change; it cannot choose an Agent’s listen mode.',
+    schema: z.object({ adjustment_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'flood-undo' }, deps),
   },
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {

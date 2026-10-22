@@ -1,3 +1,4 @@
+import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — AUTO-PROVISIONING (Part C, the real thing). Turns a session-page session
 // whose exact provider/surface declares addressable identity into a gugu agent at session start, so agents can
 // message each other in the shipped product with NO test hook. Two delivery transports feed the SAME
@@ -58,7 +59,6 @@ import {
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
 import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
-import { parseGroupAgentJoinOutcome } from '../../src/lib/groupAgentJoin'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -399,12 +399,11 @@ export function assertSessionpageIdentityForReattach(sessionId: string): void {
  * (cap, approval queue). Nothing here fails the identity: what happened is logged, and a pending approval is the
  * group's to settle.
  */
-async function joinBirthGroup(accessToken: string, chatId: string | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
+async function joinBirthGroup(accessToken: string, ownerUserId: string, chatId: string | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
   if (!chatId) return
   try {
-    const { data, error } = await makeChatClient(accessToken).rpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agentUserId })
-    if (error) throw new Error(error.message)
-    log.info({ agentUserId, chatId, status: parseGroupAgentJoinOutcome(data) }, 'agent born in a chat: asked to join it, the group answered')
+    const data = await createGroupAdmin(makeChatClient(accessToken), ownerUserId).addAgent(chatId, agentUserId)
+    log.info({ agentUserId, chatId, status: data.status }, 'agent born in a chat: asked to join it, the group answered')
   } catch (error) {
     log.warn({ agentUserId, chatId, error: error instanceof Error ? error.message : String(error) }, 'agent born in a chat could not join it')
   }
@@ -1204,7 +1203,7 @@ function startCloudProvision(job: {
     }
     // Born in a chat — joined now, once, while the identity is new: what reads this agent's groups waits for this
     // work (awaitSessionpageCloudIdentity), so its first session already counts that group.
-    if (job.birthChatId) await joinBirthGroup(job.ownerAuth.accessToken, await job.birthChatId(), job.guguAgentUserId, log)
+    if (job.birthChatId) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthChatId(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
       ...patch,
@@ -1589,13 +1588,10 @@ async function joinProjectGroup(
     await forgetProjectGroupId(projectId, ownerUserId, env)
   }
   const takeSeat = async (groupId: string): Promise<string> => {
-    const { error } = await chat
-      .from('chat_members')
-      .insert({ chat_id: groupId, user_id: guguAgentUserId, role: 'member', listen_mode: 'active' })
-    // A brand-new agent can't already be a member; only a genuine duplicate is benign.
-    if (error && !/duplicate|conflict|unique/i.test(error.message)) {
-      throw new Error(`add session-page agent to project group failed: ${error.message}`)
-    }
+    const admin = createGroupAdmin(chat, ownerUserId)
+    const result = await admin.addAgent(groupId, guguAgentUserId)
+    if (result.status === 'pending_approval') throw new Error('Project Agent join requires approval')
+    await admin.setListenMode(groupId, guguAgentUserId, 'active')
     await rememberProjectGroupId(projectId, groupId, ownerUserId, env)
     return groupId
   }
@@ -1623,12 +1619,7 @@ async function joinProjectGroup(
     ;({ error } = await createGroup(chatId))
   }
   if (error) throw new Error(`create project group failed: ${error.message}`)
-  const { error: modeError } = await chat
-    .from('chat_members')
-    .update({ listen_mode: 'active' })
-    .eq('chat_id', chatId)
-    .eq('user_id', guguAgentUserId)
-  if (modeError) throw new Error(`set session agent listen_mode failed: ${modeError.message}`)
+  await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, guguAgentUserId, 'active')
   await rememberProjectGroupId(projectId, chatId, ownerUserId, env)
   return chatId
 }

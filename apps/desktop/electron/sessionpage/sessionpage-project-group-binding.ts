@@ -1,3 +1,4 @@
+import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // #7341 第二步 —— 项目跨设备(product spec「挂文件夹」,session-page-comm「项目 = 群」)。
 //
 // 项目的跨设备身份就是它的项目群:每台机器各有自己的本地项目(id 各不相同),绑在同一个群上的本地项目 = 同一个项目。
@@ -24,7 +25,6 @@ import type {
 import type { ProjectGroupHost, ProjectGroupSubject } from '../session/main/core/projects/project-group-host'
 import { createLogger } from '../lib/logger'
 import { makeChatClient } from '../supabase'
-import { parseGroupAgentJoinOutcome } from '../../src/lib/groupAgentJoin'
 import {
   GROUP_CACHE_KEY,
   OWNER_CACHE_KEY,
@@ -109,13 +109,9 @@ function projectAgents(roster: LocalAgentRecord[], subject: ProjectGroupSubject,
 }
 
 /** 项目里的 agent 在群里要听全部消息(与第一个会话进群时同一个设定)。 */
-async function listenActively(chat: ChatClient, chatId: string, agentUserId: string): Promise<void> {
-  const { error } = await chat
-    .from('chat_members')
-    .update({ listen_mode: 'active' })
-    .eq('chat_id', chatId)
-    .eq('user_id', agentUserId)
-  if (error) throw new ProjectGroupCloudError(`set listen_mode of ${agentUserId} in ${chatId}: ${error.message}`)
+async function listenActively(chat: ChatClient, chatId: string, agentUserId: string, ownerUserId: string): Promise<void> {
+  try { await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, agentUserId, 'active') }
+  catch (error) { throw new ProjectGroupCloudError((error as Error).message) }
 }
 
 /** The trusted caller binding supplies the owner's acting agent. Membership lets it announce a
@@ -141,19 +137,9 @@ export async function ensureProjectNoticeAccess(
     state = await readGroupState(chat, chatId, auth.userId)
   }
   if (state !== 'active') throw new ProjectGroupCloudError(`项目群不可用: ${state}`)
-  const membership = () => chat.from('chat_members').select('user_id').eq('chat_id', chatId).eq('user_id', agentUserId).maybeSingle()
-  let member = await membership()
+  const member = await chat.from('chat_members').select('user_id').eq('chat_id', chatId).eq('user_id', agentUserId).maybeSingle()
   if (member.error) throw new ProjectGroupCloudError(member.error.message)
-  if (!member.data) {
-    const { data, error } = await chat.rpc('add_group_agent', {
-      p_chat_id: chatId, p_agent_user_id: agentUserId, p_message: null,
-    })
-    if (error) throw new ProjectGroupCloudError(error.message)
-    if (parseGroupAgentJoinOutcome(data) === 'pending_approval') throw new ProjectGroupCloudError('操作 agent 加入项目群正在等待审批')
-    member = await membership()
-    if (member.error) throw new ProjectGroupCloudError(member.error.message)
-    if (!member.data) throw new ProjectGroupCloudError('操作 agent 尚未成为项目群成员')
-  }
+  if (!member.data) throw new ProjectGroupCloudError('操作 agent 已不在项目群中；明确重新加入后才能发布群通知')
 }
 
 export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupHostDeps): ProjectGroupHost {
@@ -278,7 +264,7 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
           })
           if (!error) {
             for (const agent of landed) {
-              await listenActively(chat, chatId, agent.gugu_user_id)
+              await listenActively(chat, chatId, agent.gugu_user_id, userId)
               joined.add(agent.gugu_user_id)
             }
           } else if (isUniqueViolation(error)) {
@@ -292,18 +278,14 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
         let pendingApproval = 0
         if (state === 'active') {
           for (const agent of landed) {
-            const { data, error } = await chat.rpc('add_group_agent', {
-              p_chat_id: chatId,
-              p_agent_user_id: agent.gugu_user_id,
-              p_message: null,
-            })
-            if (error) throw new ProjectGroupCloudError(`add ${agent.gugu_user_id} to group ${chatId}: ${error.message}`)
+            const data = await createGroupAdmin(chat, userId).addAgent(chatId, agent.gugu_user_id)
+              .catch((error: Error) => { throw new ProjectGroupCloudError(error.message) })
             // 群开了「Agent 加入需审批」、而当前账号不是管理员 ⇒ 进了待审,这次不算进群;名册照旧钉着原来的群。
-            if (parseGroupAgentJoinOutcome(data) === 'pending_approval') {
+            if (data.status === 'pending_approval') {
               pendingApproval++
               continue
             }
-            await listenActively(chat, chatId, agent.gugu_user_id)
+            await listenActively(chat, chatId, agent.gugu_user_id, userId)
             joined.add(agent.gugu_user_id)
           }
         }

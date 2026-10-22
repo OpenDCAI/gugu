@@ -64,9 +64,10 @@ async function group(creator: string, name: string, members: Array<[string, stri
   const id = randomUUID()
   await asUser(creator)
   await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [
-    id, name, creator, JSON.stringify(members.map(([user_id, role]) => ({ user_id, role }))),
+    id, name, creator, '[]',
   ])
   await db.query('RESET role')
+  for (const [userId, role] of members) await db.query('INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,$3)', [id,userId,role])
   return id
 }
 /** 界面点开私聊走的那条函数(chat.open_dm),以发起人身份。 */
