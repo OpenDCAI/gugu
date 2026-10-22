@@ -845,7 +845,8 @@ function InnerLayout({
         }
       }
       if (bringUp(detail.chatId, placed)) {
-        focusComposerForUserEntry('quote-attached')
+        const chat = chatsRef.current.find((candidate) => candidate.id === detail.chatId)
+        focusComposerForUserEntry('quote-attached', chat?.kind === 'topic' ? chat.source_chat_id ?? undefined : detail.chatId)
       }
     }
     // gugu.showMessage: a message of the chat on screen is its list's to show (useSourceMessageReveal), and an App slot over it
