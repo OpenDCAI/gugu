@@ -24,6 +24,12 @@ export const activityEventSchema = z.object({
   detail: z.enum(AGENT_STATUS_DETAILS).nullable().optional(),
 }).strict();
 export type ActivityEvent = z.infer<typeof activityEventSchema>;
+/**
+ * What a producer reports. It never names a project: the journal derives `project_id` from the event's subject (its
+ * session, or the automation of its run), in one place, so no producer can omit or contradict it.
+ */
+export const activityObservationSchema = activityEventSchema.omit({ project_id: true });
+export type ActivityObservation = z.infer<typeof activityObservationSchema>;
 
 export const activityQuerySchema = z.object({
   since: z.string().datetime({ offset: true }),

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { activityEventSchema, activityQuerySchema, type ActivityEvent, type ActivityQuery } from '@shared/core/activity';
+import { activityEventSchema, activityObservationSchema, activityQuerySchema, type ActivityEvent, type ActivityObservation,
+  type ActivityQuery } from '@shared/core/activity';
 
 type Row = { seq: number; data: string };
 type Coverage = { started_at: number; last_seen_at: number; ended_at: number | null };
@@ -37,11 +38,34 @@ export class ActivityJournal {
   }
   failed(): void { this.fault = true; }
 
-  append(input: ActivityEvent): void {
-    const event = activityEventSchema.parse(input);
+  append(input: ActivityObservation): void {
+    const observed = activityObservationSchema.parse(input);
+    const projectId = this.projectOf(observed);
+    const event: ActivityEvent = projectId === null ? observed : { ...observed, project_id: projectId };
     this.sql.prepare(`INSERT INTO activity_events (event_id, occurred_at, observed_at, kind, session_id, project_id, data)
       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING`).run(event.event_id, event.occurred_at,
-      event.observed_at, event.kind, event.session_id ?? null, event.project_id ?? null, JSON.stringify(event));
+      event.observed_at, event.kind, event.session_id ?? null, projectId, JSON.stringify(event));
+  }
+  /**
+   * The project an event belongs to, derived here from its subject; producers cannot supply it. A session's project
+   * never changes (no path moves a session to another project; deleting a project deletes its sessions), so the
+   * record the database writes with every session row (activity_session_projects, migration 0038) gives the same
+   * answer before and after the session is deleted. An automation run belongs to its automation's project at the
+   * time of the run. A subject this machine never had belongs to no project.
+   */
+  private projectOf(event: ActivityObservation): string | null {
+    if (event.session_id !== undefined) {
+      const row = this.sql.prepare('SELECT project_id FROM activity_session_projects WHERE session_id = ?')
+        .get(event.session_id) as { project_id: string } | undefined;
+      return row ? row.project_id : null;
+    }
+    if (event.kind === 'automation.run' && event.object_id !== undefined) {
+      const row = this.sql.prepare(`SELECT automations.project_id FROM automation_runs
+        JOIN automations ON automations.id = automation_runs.automation_id WHERE automation_runs.id = ?`)
+        .get(event.object_id) as { project_id: string | null } | undefined;
+      return row ? row.project_id : null;
+    }
+    return null;
   }
   get(eventId: string): ActivityEvent {
     const row = this.sql.prepare('SELECT data FROM activity_events WHERE event_id = ?').get(eventId) as { data: string } | undefined;

@@ -41,6 +41,12 @@ export const activityCoverage = sqliteTable('activity_coverage', {
   endedAt: integer('ended_at'),
 });
 
+/** Written by a trigger on `sessions` (migration 0038); the activity journal reads it to place events in projects. */
+export const activitySessionProjects = sqliteTable('activity_session_projects', {
+  sessionId: text('session_id').primaryKey(),
+  projectId: text('project_id').notNull(),
+});
+
 /**
  * SSH 远程已下架(#6264):表与引用它的列只为保留旧行而留在库里,产品代码不再读写。
  */
