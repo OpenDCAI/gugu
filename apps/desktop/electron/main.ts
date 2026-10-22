@@ -459,7 +459,7 @@ import type {
   SessionPromptDelivery,
 } from './session/main/core/acp/emdash-mcp-injector'
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
-import { createUpdateQuit, updateInstallFlags } from './update-quit'
+import { createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import {
   hardenWebPreferences,
@@ -2757,10 +2757,9 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => {
-    const { isSilent, isForceRunAfter } = updateInstallFlags()
-    autoUpdater.quitAndInstall(isSilent, isForceRunAfter)
-  },
+  // @@@win-silent-update - NSIS: /S skips the assisted wizard, --force-run relaunches after it.
+  // macOS ignores both arguments; AppImage reads only isForceRunAfter (already true via autoRunAppAfterInstall).
+  handOff: () => autoUpdater.quitAndInstall(true, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
