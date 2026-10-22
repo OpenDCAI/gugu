@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttachProjectFolderError, ProjectFolder } from '@shared/core/projects/project-folders';
 import { projectFoldersChangedChannel, projectGroupBindingChangedChannel } from '@shared/core/projects/projectEvents';
-import { events, rpc } from '@renderer/lib/ipc';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
 
 /**
@@ -193,17 +194,17 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
     };
   }, [rowId, membersKey, generation]);
 
-  // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:那台机器推一声就重读。
+  // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:在各成员项目所在的机器上订,那台推一声就重读。
   useEffect(() => {
     const ids = new Set(membersKey.split('\u0000'));
-    const offFolders = events.on(projectFoldersChangedChannel, ({ projectId: changed }) => {
-      if (ids.has(changed)) bump();
-    });
-    const offGroups = events.on(projectGroupBindingChangedChannel, () => bump());
-    return () => {
-      offFolders();
-      offGroups();
-    };
+    const machines = new Set([...ids].map((id) => machineRegistry.machineOf(id)));
+    const offs = [...machines].flatMap((machine) => [
+      onMachineEvent(machine, projectFoldersChangedChannel, ({ projectId: changed }) => {
+        if (ids.has(changed)) bump();
+      }),
+      onMachineEvent(machine, projectGroupBindingChangedChannel, () => bump()),
+    ]);
+    return () => offs.forEach((off) => off());
   }, [membersKey, bump]);
 
   const choose = useCallback(

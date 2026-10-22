@@ -47,16 +47,16 @@ beforeEach(() => {
 
 describe('joinGroupAgent 走 add_group_agent,需审批 ⇒ 已提交审批', () => {
   it('pending_approval:不直插 chat_members、不写 agent 状态,返回 pending_approval', async () => {
-    mocks.rpc.mockResolvedValueOnce({ data: { status: 'pending_approval', request_id: 'r1' }, error: null })
+    mocks.rpc.mockResolvedValueOnce({ data: { chat_id: 'g1', status: 'pending_approval', request_id: 'r1' }, error: null })
     await expect(chatService.joinGroupAgent('g1', 'agent-1', 'member')).resolves.toBe('pending_approval')
-    expect(mocks.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'g1', p_agent_user_id: 'agent-1', p_message: null })
+    expect(mocks.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'g1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1' })
     expect(mocks.writes).toEqual([])
   })
 
-  it('joined(正对照):入群后照旧写 agent 状态', async () => {
-    mocks.rpc.mockResolvedValueOnce({ data: { status: 'joined' }, error: null })
+  it('joined: agent 状态由同一个 RPC 写,客户端不再单独 upsert', async () => {
+    mocks.rpc.mockResolvedValueOnce({ data: { chat_id: 'g1', status: 'joined' }, error: null })
     await expect(chatService.joinGroupAgent('g1', 'agent-1', 'member')).resolves.toBe('joined')
-    expect(mocks.writes.map((w) => `${w.table}:${w.op}`)).toEqual(['group_agent_states:upsert'])
+    expect(mocks.writes.map((w) => `${w.table}:${w.op}`)).toEqual([])
     expect(mocks.writes.some((w) => w.table === 'chat_members' && w.op === 'insert')).toBe(false)
   })
 

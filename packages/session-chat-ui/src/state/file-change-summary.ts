@@ -1,5 +1,5 @@
 import type { ChatDiff, ChatItem, FileChangeSummaryItem } from '@session-chat/model'
-import { computeDiffRows, countChanges } from '@session-chat/components/rows/tools/diff/diff-lines'
+import { countChanges, type DiffRow } from '@session-chat/components/rows/tools/diff/diff-lines'
 
 /** Only acknowledged edits count. Reads, proposed edits, failures and subagent work stay in the process. */
 export function successfulFileDiff(item: ChatItem): ChatDiff | null {
@@ -36,9 +36,11 @@ export function successfulFileDiff(item: ChatItem): ChatDiff | null {
   return null
 }
 
+/** `computeDiff` is the chat's cached diff (`ChatCaches.computeDiff`): every reseed of the page asks again for the same diffs. */
 export function fileChangeSummary(
   turns: readonly { items: readonly ChatItem[] }[],
-  turnId: string
+  turnId: string,
+  computeDiff: (oldText: string | null, newText: string) => DiffRow[]
 ): FileChangeSummaryItem | null {
   const byPath = new Map<string, ChatDiff[]>()
   for (const turn of turns) {
@@ -58,7 +60,7 @@ export function fileChangeSummary(
   const files = [...byPath].map(([path, diffs]) => {
     const stats = diffs.reduce(
       (sum, diff) => {
-        const next = countChanges(computeDiffRows(diff.oldText, diff.newText))
+        const next = countChanges(computeDiff(diff.oldText, diff.newText))
         return { adds: sum.adds + next.adds, dels: sum.dels + next.dels }
       },
       { adds: 0, dels: 0 }

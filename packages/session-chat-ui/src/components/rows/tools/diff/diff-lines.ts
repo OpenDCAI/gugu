@@ -28,104 +28,85 @@ export type DiffRow = {
 // ── Myers diff ────────────────────────────────────────────────────────────────
 
 /**
- * Classic Myers shortest-edit-script over two string arrays.
- * Returns the sequence of operations to transform `a` into `b`:
+ * Myers shortest edit script over two string arrays, in linear space (the
+ * paper's "middle snake" divide and conquer, §4b). Returns the operations that
+ * turn `a` into `b`:
  *   'keep'   — line is equal (context)
  *   'insert' — line exists in `b` only (add)
  *   'delete' — line exists in `a` only (remove)
+ *
+ * @@@linear-space-myers — keeping a copy of the frontier for every edit step
+ * (the textbook backtrack) costs edit-distance × total-lines memory: one
+ * 4,000-line rewrite allocated ~1 GB and blocked the renderer ~4 s, and every
+ * reseed of a transcript page recomputed it. Here only two frontiers live.
  */
 type EditOp = { op: 'keep' | 'insert' | 'delete'; aIdx: number; bIdx: number };
 
 function myersDiff(a: string[], b: string[]): EditOp[] {
-  const n = a.length;
-  const m = b.length;
-  const max = n + m;
-
-  if (max === 0) return [];
-  if (n === 0) return b.map((_, i) => ({ op: 'insert' as const, aIdx: 0, bIdx: i }));
-  if (m === 0) return a.map((_, i) => ({ op: 'delete' as const, aIdx: i, bIdx: 0 }));
-
-  // v[k] = furthest x reached on diagonal k
-  const v: number[] = new Array(2 * max + 1).fill(0);
-  // trace[d] = snapshot of v taken BEFORE computing d-step edits.
-  //   trace[0] = initial (all zeros)
-  //   trace[1] = state after d=0
-  //   trace[d+1] = state after d
-  // So during backtracking at step d, trace[d] gives us the "came-from" x values.
-  const trace: number[][] = [];
-
-  outer: for (let d = 0; d <= max; d++) {
-    trace.push(v.slice());
-    for (let k = -d; k <= d; k += 2) {
-      const ki = k + max;
-      let x: number;
-      // Choose whether to come from k+1 diagonal (insert) or k-1 diagonal (delete).
-      if (k === -d || (k !== d && v[ki - 1]! < v[ki + 1]!)) {
-        x = v[ki + 1]!; // insert: move down in b
-      } else {
-        x = v[ki - 1]! + 1; // delete: move right in a
-      }
-      let y = x - k;
-      // Extend along the snake as far as equal lines allow.
-      while (x < n && y < m && a[x] === b[y]) {
-        x++;
-        y++;
-      }
-      v[ki] = x;
-      if (x >= n && y >= m) break outer;
-    }
-  }
-
-  // Backtrack to reconstruct the edit script.
-  // For each d-step (d > 0): determine whether an insert or delete was taken,
-  // emit the snake (context lines) from current (x,y) back to just after the edit,
-  // then emit the edit and step back to the previous (x,y).
-  // After the loop, emit any remaining context from d=0's snake.
   const ops: EditOp[] = [];
-  let x = n;
-  let y = m;
+  const size = 2 * (a.length + b.length) + 4;
+  const forward = new Int32Array(size);
+  const backward = new Int32Array(size);
 
-  for (let d = trace.length - 1; d > 0; d--) {
-    const vd = trace[d]!;
-    const k = x - y;
-    const ki = k + max;
-
-    // Was this d-step taken via an insert (came from diagonal k+1)?
-    const insertStep = k === -d || (k !== d && vd[ki - 1]! < vd[ki + 1]!);
-    const prevK = insertStep ? k + 1 : k - 1;
-    const prevX = vd[prevK + max]!;
-    const prevY = prevX - prevK;
-
-    // The snake for this d-step starts just after the edit:
-    //   insert: (prevX, prevY+1)  delete: (prevX+1, prevY)
-    const snakeX = insertStep ? prevX : prevX + 1;
-    const snakeY = insertStep ? prevY + 1 : prevY;
-
-    // Emit keeps (snake) from (x,y) back to (snakeX, snakeY).
-    while (x > snakeX && y > snakeY) {
-      ops.push({ op: 'keep', aIdx: x - 1, bIdx: y - 1 });
-      x--;
-      y--;
+  // The furthest-reaching paths from both corners meet on one snake of a
+  // shortest script; split there and solve each side the same way.
+  const middleSnake = (aLo: number, aHi: number, bLo: number, bHi: number) => {
+    const n = aHi - aLo;
+    const m = bHi - bLo;
+    const delta = n - m;
+    const odd = (delta & 1) !== 0;
+    const off = n + m + 1;
+    forward[off + 1] = 0;
+    backward[off + 1] = 0;
+    for (let d = 0; d <= Math.ceil((n + m) / 2); d++) {
+      for (let k = -d; k <= d; k += 2) {
+        let x = k === -d || (k !== d && forward[off + k - 1]! < forward[off + k + 1]!) ? forward[off + k + 1]! : forward[off + k - 1]! + 1;
+        let y = x - k;
+        const x0 = x;
+        const y0 = y;
+        while (x < n && y < m && a[aLo + x] === b[bLo + y]) { x++; y++; }
+        forward[off + k] = x;
+        const c = delta - k;
+        if (odd && c >= -(d - 1) && c <= d - 1 && x + backward[off + c]! >= n) return { x: x0, y: y0, u: x, v: y, d: 2 * d - 1 };
+      }
+      for (let c = -d; c <= d; c += 2) {
+        let x = c === -d || (c !== d && backward[off + c - 1]! < backward[off + c + 1]!) ? backward[off + c + 1]! : backward[off + c - 1]! + 1;
+        let y = x - c;
+        const x0 = x;
+        const y0 = y;
+        while (x < n && y < m && a[aHi - 1 - x] === b[bHi - 1 - y]) { x++; y++; }
+        backward[off + c] = x;
+        const k = delta - c;
+        if (!odd && k >= -d && k <= d && x + forward[off + k]! >= n) return { x: n - x, y: m - y, u: n - x0, v: m - y0, d: 2 * d };
+      }
     }
+    throw new Error('myersDiff: paths never met');
+  };
 
-    // Emit the edit, then step back to (prevX, prevY).
-    if (insertStep) {
-      ops.push({ op: 'insert', aIdx: x, bIdx: y - 1 });
-      y--;
-    } else {
-      ops.push({ op: 'delete', aIdx: x - 1, bIdx: y });
-      x--;
+  const solve = (aLo: number, aHi: number, bLo: number, bHi: number): void => {
+    // Equal ends are kept as they are; after trimming them, one side empty
+    // means the rest is pure insertion or deletion.
+    let head = 0;
+    while (aLo + head < aHi && bLo + head < bHi && a[aLo + head] === b[bLo + head]) head++;
+    let tail = 0;
+    while (aHi - tail > aLo + head && bHi - tail > bLo + head && a[aHi - 1 - tail] === b[bHi - 1 - tail]) tail++;
+    for (let i = 0; i < head; i++) ops.push({ op: 'keep', aIdx: aLo + i, bIdx: bLo + i });
+    const aMid = aLo + head;
+    const bMid = bLo + head;
+    const aEnd = aHi - tail;
+    const bEnd = bHi - tail;
+    if (aMid === aEnd) for (let j = bMid; j < bEnd; j++) ops.push({ op: 'insert', aIdx: aMid, bIdx: j });
+    else if (bMid === bEnd) for (let i = aMid; i < aEnd; i++) ops.push({ op: 'delete', aIdx: i, bIdx: bMid });
+    else {
+      const snake = middleSnake(aMid, aEnd, bMid, bEnd);
+      solve(aMid, aMid + snake.x, bMid, bMid + snake.y);
+      for (let i = snake.x; i < snake.u; i++) ops.push({ op: 'keep', aIdx: aMid + i, bIdx: bMid + snake.y + (i - snake.x) });
+      solve(aMid + snake.u, aEnd, bMid + snake.v, bEnd);
     }
-  }
+    for (let i = tail; i > 0; i--) ops.push({ op: 'keep', aIdx: aHi - i, bIdx: bHi - i });
+  };
 
-  // Remaining snake from d=0 (context lines from (x,y) back to (0,0)).
-  while (x > 0 && y > 0) {
-    ops.push({ op: 'keep', aIdx: x - 1, bIdx: y - 1 });
-    x--;
-    y--;
-  }
-
-  ops.reverse();
+  solve(0, a.length, 0, b.length);
   return ops;
 }
 

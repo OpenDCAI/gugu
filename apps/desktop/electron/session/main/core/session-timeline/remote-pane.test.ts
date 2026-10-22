@@ -112,6 +112,19 @@ describe('remote pane route', () => {
     expect(view('ssh-desktop', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
   });
 
+  it('updates a subscription subscribed again in place: watched throughout, and a page kept for a browser tab is handed over', async () => {
+    const { route, view } = setup();
+    await route.open('conv-1', page('http://localhost:3000/'), 'pinned');
+    expect(view('sub-a', 'conv-1', false).pending).toEqual([]);
+    expect(route.watching('conv-1')).toBe(true);
+    // The tunnel came up on that desktop: the same subscription, now with a browser tab.
+    expect(view('sub-a', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
+    expect(route.watching('conv-1')).toBe(true);
+    // Still one viewer, not two: one unsubscribe and nobody watches.
+    expect(route.unsubscribe('sub-a')).toBe(true);
+    expect(route.watching('conv-1')).toBe(false);
+  });
+
   it('fails a page at once when the only viewers have no browser tab — no push, no wait', async () => {
     const { route, view, published } = setup();
     view('sub-a', 'conv-1', false);

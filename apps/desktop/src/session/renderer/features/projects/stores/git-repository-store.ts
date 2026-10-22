@@ -9,7 +9,8 @@ import type {
 } from '@gugu/session-core/git';
 import { Result, type Result as ResultType } from '@gugu/session-shared/result';
 import { computed, makeObservable, reaction } from 'mobx';
-import { events, rpc } from '@renderer/lib/ipc';
+import { rpc } from '@renderer/lib/ipc';
+import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { bindMirror, coalesce, ModelMirror, type MirrorBinding } from '@renderer/lib/stores/live';
 import { Resource } from '@renderer/lib/stores/resource';
 import { gitRepoUpdateChannel } from '@shared/core/git/events';
@@ -49,7 +50,7 @@ export class GitRepositoryStore {
       bindMirror<GitRefsModel, GitRepositorySnapshotError>({
         mirror: this.refs,
         subscribe: (push) =>
-          events.on(gitRepoUpdateChannel, (payload) => {
+          workspaceEvents.on(gitRepoUpdateChannel, (payload) => {
             if (payload.projectId === this.projectId && payload.update.kind === 'refs') {
               push({
                 value: payload.update.model,
@@ -63,7 +64,7 @@ export class GitRepositoryStore {
       bindMirror<GitRemotesModel, GitRepositorySnapshotError>({
         mirror: this.remotesModel,
         subscribe: (push) =>
-          events.on(gitRepoUpdateChannel, (payload) => {
+          workspaceEvents.on(gitRepoUpdateChannel, (payload) => {
             if (payload.projectId === this.projectId && payload.update.kind === 'remotes') {
               push({
                 value: payload.update.model,

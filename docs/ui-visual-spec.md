@@ -50,9 +50,9 @@
 | 投影 | `--shadow-lift` 菜单/popover/tooltip/toast;`--shadow-dialog` Sheet/Dialog 外壳;`--shadow-composer` 其他主输入入口 | 使用投影的入口不另叠 border;会话页及新建会话输入框只留一条轻边框,无外投影(维护者 2026-10-19,#7528);非浮层不给阴影 |
 | 动效 | 150 / 200 / 300ms 三档 | 用途见 product spec |
 | 焦点 | 键盘 `:focus-visible` 画 2px live 色环(外偏 2px);鼠标点击不留环;文字输入以光标为指示 | 取代 §8 条 6 的「全局 outline:none 是待偿债务」 |
-| 窗口材质 | `<html data-window-material>` 由主进程按系统信号写:只有 mac 主窗、系统没开「减弱透明度」「增强对比度」时是 native | 最左图标栏保留系统材质;Mac 浅色 native 模式的中间列表、右侧文件导航、页签底条和正文上下留边共用同一份接近白色的 C 档背景(维护者 2026-10-20 选色、10-21 明确整块关系,#7610),不能只给列表单独铺色。正文和文档阅读面保持白色;暗色保留原材质关系 |
+| 窗口材质 | `<html data-window-material>` 由主进程按系统信号写:只有 mac 主窗、系统没开「减弱透明度」「增强对比度」时是 native | 最左图标栏保留系统材质(不透明窗口是 --muted 实色);桌面主窗浅色模式(不分材质,Windows / Linux 同 Mac)的中间列表、右侧文件导航、页签底条和正文上下留边共用同一份接近白色的 C 档背景(维护者 2026-10-20 选色、10-21 明确整块关系,#7610),不能只给列表单独铺色。正文和文档阅读面保持白色;暗色保留原材质关系 |
 | 列表附属图形(2026-10-19,#7528) | 中性附属标签和群成员角色默认透明无边框,联系人状态文字/色点不套底板;群成员组合头像、群/联系人资料头像外壳、成员叠放头像无底板/白圈;引擎角标、联系人与导航状态点、助手角标、形象页兄弟头像不套底圈;模板角色、联系人查号与空状态图标不垫实色;任务行尾图标及操作区透明 | 上传的头像图片保持原样;状态色、计数、行的选中/悬浮层和键盘焦点环保留;输入控件、菜单浮层和二维码的背景由各自功能决定 |
-| 会话页工作区表面 | Mac 浅色 native 模式的圆角和轻轮廓归整个列表+工作区,白色阅读面在其中保留上下/右侧 5px 的共同背景 | 中间列表、右侧文件导航、页签底条与阅读面上下边缘颜色连续;固定窗口动作与局部标题消费同一内缩。侧栏保留用户宽度。原生画面对照验收与 token/契约检查分开记录 |
+| 会话页工作区表面 | 桌面主窗浅色模式的圆角和轻轮廓归整个列表+工作区,白色阅读面在其中保留上下/右侧 5px 的共同背景 | 中间列表、右侧文件导航、页签底条与阅读面上下边缘颜色连续;固定窗口动作与局部标题消费同一内缩。侧栏保留用户宽度。原生画面对照验收与 token/契约检查分开记录 |
 
 **旧字阶的写死字号**(11/13/15/17)按范围记账、只减不增(`offLadderFontSizeLiterals`,baseline 见
 `scripts/ui-visual-spec-baseline.json`)。守卫通过 ≠ 全部组件已适配:记账里剩下的每一处都还是旧字号,清单与进度见 #7333。
@@ -921,7 +921,7 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
    - 会话页 `.emlight` / `.emdark` 自带的 Radix display-p3 原始色阶(`--neutral-1..12` 等):
      在咕咕宿主里它们**被皮肤桥整族接到 `--tint` 族**(`EmdashSessionFrame.tsx` 的 `--neutral-*` 映射),
      所以产品里不成立;**脱开宿主**(独立会话页 / storybook)时仍是 Radix 自己的色相。
-   - 顾客面板(现 nmhjklnm/gugu-website 的 dashboard/)与中台(现 nmhjklnm/gugu-console)的 shadcn oklch 色板(H 247–265,`--tint` 是 268):
+   - 顾客面板与中台(现均在本仓之外)的 shadcn oklch 色板(H 247–265,`--tint` 是 268):
      本轮只统一了它们的圆角与 reduced-motion,颜色没动。
    - `packages/session-chat-ui` 的 transcript 色板:本轮只并了 mention chip 的 per-kind 分色。
    这三块要不要一起进 `--tint`,是维护者的一格(它们分别涉及 Radix 阶梯的整族重算、
@@ -1114,7 +1114,7 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
 
 | 判据 | 它看得见什么 | ❌ 它看不见什么 |
 |---|---|---|
-| `check-ui-visual-spec.mjs` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓(nmhjklnm/gugu-console、nmhjklnm/gugu-website 的 dashboard/),不在本仓任何一个根里 |
+| `check-ui-visual-spec.mjs` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓,不在本仓任何一个根里 |
 | 同文件的**棘轮**(半步间距 / 内联字号 / 内联圆角 / 裸 button / 内联 style) | 前四个根,各自一档独立基线 | **`packages/session-chat-ui/src` 不在棘轮里** —— 硬闸接了它,棘轮没接 ⇒ 本包里「不在字阶上但不犯硬闸」的值(9px / 10px / 一批 11px)没有东西判 |
 | `check-session-chat-ui-geometry.mjs` | `packages/session-chat-ui/src` 里 JSX 的 `class` / `className` / `classList` **字符串**与 CSS `@apply` | **vanilla-extract 的对象字面量**(`style({ fontSize: '12px' })`)——本包几乎全是这种写法,结构上抓不到 |
 | `radiusScaleParity` | 两张 Tailwind 表的**七档数字别名** + `tokens.css` 的九档语义表 | 两张 Tailwind 表里的 `surface` 档(见 §5.2) |
@@ -1250,8 +1250,8 @@ and any new keyframe must be too.**」
 |---|---|---|
 | `apps/desktop/src/styles/tokens.css` | 已有(**定义处**) | — |
 | `apps/desktop/src/session/renderer/index.css` | 只有 3 处点名降级 | 4 个 `--animate-*` + 5 个 keyframes + 整套 tw-animate-css |
-| 中台 `src/styles/index.css`(现 nmhjklnm/gugu-console) | `prefers-reduced-motion` 命中 **0** | `animate-in/-out` + `animate-spin`(infinite) |
-| 顾客面板 `src/styles/index.css`(现 nmhjklnm/gugu-website 的 dashboard/) | 同上(全 app 只有 `LoginPage.tsx` 一处内联块) | 同上 + `animate-pulse`(infinite) |
+| 中台 `src/styles/index.css`(现已拆出本仓) | `prefers-reduced-motion` 命中 **0** | `animate-in/-out` + `animate-spin`(infinite) |
+| 顾客面板 `src/styles/index.css`(现已拆出本仓) | 同上(全 app 只有 `LoginPage.tsx` 一处内联块) | 同上 + `animate-pulse`(infinite) |
 | `packages/session-ui/src/styles/effects/animations.css.ts` | 无 | 12 个 keyframes |
 
 五处同选择器同内容,所以同时在场是**幂等**的,不是「两套值」。

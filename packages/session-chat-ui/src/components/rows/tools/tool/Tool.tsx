@@ -36,6 +36,7 @@
  * component only describes inner content.
  */
 
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconError, IconShieldAlert } from '@session-chat/components/primitives/icons';
 import { applySoftWraps } from '@session-chat/core/measure/soft-wrap';
@@ -46,7 +47,6 @@ import { chevron, chevronExpanded } from '@session-chat/components/primitives/co
 import type { ToolPayloadGeometry } from './tool.layout';
 import type { ToolThumbStrip } from './tool-images';
 import {
-  textShimmer,
   toolChevronSlot,
   toolErrorIcon,
   toolName,
@@ -142,9 +142,9 @@ export function Tool(props: ToolProps) {
             </span>
           </span>
         </Show>
-        <span class={toolName} classList={{ [textShimmer]: isRunning() }}>
+        <ShimmerText class={toolName} active={isRunning()}>
           {props.item.name}
-        </span>
+        </ShimmerText>
         <Show when={props.item.inputSummary}>
           <span class={toolSummary} data-slot="tool-call-query">
             {props.item.inputSummary}

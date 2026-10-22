@@ -37,19 +37,14 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
   pages: Partial<Record<SidebarTab, ReactNode>>
 }) {
   const pagerRef = useRef<HTMLDivElement>(null)
-  const previousTab = useRef(activeTab)
-  const targetLeft = useRef<number | null>(null)
-  // 首屏即时落位;点击与手势共用原生滚动,程序滚动经过中间页时不触发那些页的路由。
+  // 点击 tab 即时落位;只有手势横滑才走原生跟手、惯性和吸附。
   useLayoutEffect(() => {
     const pager = pagerRef.current
     if (!mobile || !pager) return
     const index = tabs.indexOf(activeTab)
     const left = index * pager.getBoundingClientRect().width
-    const smooth = previousTab.current !== activeTab && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    previousTab.current = activeTab
-    targetLeft.current = smooth ? left : null
-    pager.scrollTo({ left, behavior: smooth ? 'smooth' : 'instant' })
-    if (!smooth) tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(index))
+    pager.scrollTo({ left, behavior: 'instant' })
+    tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(index))
   }, [mobile, tabs, activeTab, tabBarRef])
 
   // 选中态在页面吸附到位时才切:activeTab 连着 inert、已读门控、返回键路由,拖到一半来回晃时它不该跟着翻。
@@ -60,10 +55,6 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
     const width = pager.getBoundingClientRect().width
     const position = tabPosition(pager.scrollLeft, width, tabs.length)
     if (position !== null) tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(position))
-    if (targetLeft.current !== null) {
-      if (Math.abs(pager.scrollLeft - targetLeft.current) > 1) return
-      targetLeft.current = null
-    }
     const tab = settledTab(pager.scrollLeft, width, tabs)
     if (tab && tab !== activeTab) onSettle(tab)
   }
@@ -73,7 +64,6 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
       ref={pagerRef}
       data-mobile-tab-pager={mobile || undefined}
       onScroll={mobile ? handleScroll : undefined}
-      onPointerDown={() => { targetLeft.current = null }}
       style={mobile ? {
         flex: 1,
         minHeight: 0,

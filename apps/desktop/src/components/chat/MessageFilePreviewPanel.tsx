@@ -1,4 +1,4 @@
-import { ChevronLeft, ExternalLink, FileText, X } from '@/lib/icons'
+import { ChevronLeft, ExternalLink, FileText, Maximize2, Minimize2, X } from '@/lib/icons'
 import { formatAttachmentSize, type AttachmentMeta } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
@@ -26,13 +26,15 @@ export interface MessageFilePreviewPanelProps {
   onOpenExternal?: () => void
   /** 回到打开文件的 App/列表;关闭整栏仍由 onClose 处理。 */
   onBack?: () => void
+  full?: boolean
+  onToggleFull?: () => void
   onClose: () => void
   mobile?: boolean
   /** Fills the box it is put in (beside an App, AppPeek) instead of taking a side panel's width. */
   fill?: boolean
 }
 
-export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, onClose, mobile = false, fill = false }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
@@ -55,10 +57,11 @@ export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading
         />
       ) : (
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '16px 18px 12px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
             {onBack ? <IconButton size="md" aria-label={t('common.back')} onClick={onBack}><ChevronLeft size={18} /></IconButton> : <FileText size={18} color="var(--text-link)" />}
             <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 'var(--font-title)' }}>{file.fileName}</strong>
           </div>
+          {onToggleFull ? <IconButton size="md" aria-pressed={full === true} aria-label={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} onClick={onToggleFull}>{full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</IconButton> : null}
           <IconButton size="md" aria-label={onBack ? t('common.close') : t('chatArea.filePreview.close')} title={onBack ? t('common.close') : t('chatArea.filePreview.close')} onClick={onClose}><X size={18} /></IconButton>
         </header>
       )}

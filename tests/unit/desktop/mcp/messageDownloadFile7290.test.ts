@@ -27,6 +27,8 @@ async function setup(message: Record<string, unknown> | null, opts: { agentSees?
       return message ? [message] : []
     },
     restRpc: async (name: string, body: Record<string, unknown>) => {
+      // #84 agent 看不见时,会再问一句这条线是不是主人与好友的私聊(这里是群,不是 → 照旧拒)。
+      if (name === 'chat_facts') return [{ id: body.p_chat_id, kind: 'group', source_chat_id: null, group_prompt: null }]
       expect([name, body]).toEqual(['can_read_message', { p_message_id: 'm1', p_user_id: AGENT }])
       return opts.agentSees ?? true
     },

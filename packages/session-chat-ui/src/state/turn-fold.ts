@@ -4,6 +4,7 @@
  * 桌面会话页(`flatten.ts` / `turn-process.def.tsx`)与手机会话页(`thread-messages.ts`)读的都是
  * 这一份 —— 两端对「一轮怎么折、头写什么」给出同一个答案。纯函数,不碰 Solid / React。
  */
+import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import type { TranscriptCompaction, TranscriptContextReset, TranscriptSessionNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
@@ -25,8 +26,14 @@ export function itemIsUser(item: ChatItem): boolean {
  * ⚠️ 判定要在**这一层**做，而不是读 `item.hookNotice`：那个字段由消息单元在切段时才填
  * （见 `message.def.tsx` 的 `normalizeMessage`），而 flatten 跑在切段之前 —— 读它永远是
  * undefined，于是这两处会静静地退回旧行为。
+ *
+ * 两种来路都要认（#55）：桥没声明 `session.notices` 时，它是一条带等级前缀的助手消息；声明了之后
+ * （gugu #6596 起），它是一条 `provider-notice`（认法在 session-core `hookSpeakerOfNotice`，只那一处）。
+ * 只认前一种，钩子通知就被当成「运行条件出了事」的边界线留在外面，它前面那条真回复反被折进头里
+ * —— #5350 原样回来了。
  */
 function isHookNotice(item: ChatItem): boolean {
+  if (item.kind === 'session-notice') return hookSpeakerOfNotice(item as TranscriptSessionNotice) !== null;
   return (
     item.kind === 'message' &&
     (item as ChatMessage).role === 'assistant' &&
@@ -50,9 +57,28 @@ function isAssistantMessage(item: ChatItem): boolean {
   return true;
 }
 
-/** 这条消息什么时候到的。非消息、或回放来的没有时刻的消息 → undefined。 */
-function messageAt(item: ChatItem): number | undefined {
-  return item.kind === 'message' ? (item as ChatMessage).at : undefined;
+/**
+ * 这一条什么时候发生的 —— 段的起点只从这里读。不知道 → undefined。
+ *
+ * `clocked` = 这一轮自己有没有时刻(`turn.startedAt`)。回放来的轮没有:消息那时不写 `at`,
+ * 会话通知却照样带一个 `at` —— 那是**回放的钟**(item-fold 的 `stampAt ?? at`),拿它当段的起点
+ * 就会写出编出来的用时(#55 review)。所以通知的时刻只在有钟的轮里算数。
+ */
+function itemAt(item: ChatItem, clocked: boolean): number | undefined {
+  if (item.kind === 'message') return (item as ChatMessage).at;
+  if (item.kind === 'session-notice') return clocked ? (item as TranscriptSessionNotice).at : undefined;
+  if (item.kind === 'compaction') return (item as TranscriptCompaction).startedAt;
+  if (item.kind === 'context-reset') return (item as TranscriptContextReset).at;
+  return undefined;
+}
+
+/**
+ * 结束语与钩子之间可以夹的东西:别的通知、「后台命令 / 子智能体做完了」这类事件、`[NO_REPLY]`。
+ * 它们不是 agent 又去干活了,所以不打断「钩子紧跟在结束语后面」(#55 review)。
+ */
+function isPassingEvent(item: ChatItem): boolean {
+  if (item.kind === 'session-notice' || item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call') return true;
+  return item.kind === 'message' && isGuguSilence((item as ChatMessage).text);
 }
 
 // ── Turn process fold (#4874) ─────────────────────────────────────────────────
@@ -76,6 +102,11 @@ export type TurnFoldPlan = {
   leading: ChatItem[];
   /** 段:一轮至少一段;钩子每把一轮劈开一次就多一段(#5350,判据见 `planTurnFold`)。 */
   segments: TurnFoldSegment[];
+  /**
+   * agent 在这一轮里自己说过一句有字的话(段的收尾里有一条不空的回复)。钩子的话、提问、`[NO_REPLY]`、
+   * 空白都不算。agent 自己开头的一轮折不折看它(#69)—— ❌ 别从尾巴的形状再推一遍。
+   */
+  spoke: boolean;
 };
 
 /**
@@ -140,22 +171,26 @@ export function turnProcessId(turnId: string, segment = 0): string {
 export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   if (turn.outcome && turn.outcome.kind !== 'done') return null;
   const items = turn.items as readonly ChatItem[];
+  const clocked = turn.startedAt !== undefined;
   let leadEnd = 0;
   while (leadEnd < items.length && itemIsUser(items[leadEnd])) leadEnd++;
 
-  // 切点 = 每条钩子通知之前 agent 说的最后一句话（= 那一段的「结束语」）。
+  // 切点 = 紧跟在 agent 一句话后面的钩子通知（那句话 = 这一段的「结束语」）。
   // 通知本身不是回复（`isAssistantMessage` 已经把它排除），所以它落进下一段的过程里，
   // 而它的到达时刻正是两段的边界 —— 下一段的头拿它当起点（#5350）。
+  // ⚠️ 只认「紧跟」：说完那句话 agent 又去干活了（思考、工具、压缩……），钩子就不是在它收尾之后响的
+  // （#55：自动压缩之后的 `SessionStart:compact`）—— 在那里切，夹在中间的那几步会落进一段起点比它们
+  // 还晚的头里。夹着的只是事件（`isPassingEvent`）不算干活。
   const cuts: { reply: number; notice: number }[] = [];
   let pendingReply = -1;
   for (let i = leadEnd; i < items.length; i++) {
     const item = items[i] as ChatItem;
     if (isAssistantMessage(item)) {
       pendingReply = i;
-      continue;
-    }
-    if (isHookNotice(item) && pendingReply !== -1) {
-      cuts.push({ reply: pendingReply, notice: i });
+    } else if (isHookNotice(item)) {
+      if (pendingReply !== -1) cuts.push({ reply: pendingReply, notice: i });
+      pendingReply = -1;
+    } else if (!isPassingEvent(item)) {
       pendingReply = -1;
     }
   }
@@ -171,7 +206,7 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
       ...(openedAt !== undefined ? { startedAt: openedAt } : {}),
     });
     start = cut.reply + 1;
-    openedAt = messageAt(items[cut.notice] as ChatItem);
+    openedAt = itemAt(items[cut.notice] as ChatItem, clocked);
   }
   // 「最后一条回复」= 最后一条 agent **自己**说的话（末段之内）。
   let lastReply = -1;
@@ -181,9 +216,17 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
       break;
     }
   }
+  // 整轮一句话都没说、却以钩子的话收尾：那往往就是「为什么停在这里」的唯一说明（`preventContinuation`），
+  // 留在外面（#55 review：钩子通知不再是边界线之后，它本会跟着过程一起折没）。
+  let tailStart = lastReply;
+  if (tailStart === -1 && cuts.length === 0) {
+    let k = items.length;
+    while (k > start && isHookNotice(items[k - 1] as ChatItem)) k--;
+    if (k < items.length) tailStart = k;
+  }
   segments.push({
-    process: lastReply === -1 ? items.slice(start) : items.slice(start, lastReply),
-    tail: lastReply === -1 ? [] : items.slice(lastReply),
+    process: tailStart === -1 ? items.slice(start) : items.slice(start, tailStart),
+    tail: tailStart === -1 ? [] : items.slice(tailStart),
     ...(openedAt !== undefined ? { startedAt: openedAt } : {}),
   });
 
@@ -199,9 +242,12 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
 
   // Keep context boundaries, later user inputs and questions to the user outside
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
-  const visible = segments.flatMap(splitAtContextBoundaries);
+  const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   if (visible.every((segment) => segment.process.length === 0)) return null;
-  return { leading: items.slice(0, leadEnd), segments: visible };
+  const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
+    (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
+  );
+  return { leading: items.slice(0, leadEnd), segments: visible, spoke };
 }
 
 /**
@@ -210,9 +256,11 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
  * - session-notice —— 这条会话的运行条件出了事（spec `session-always-openable`：它是消息列表里看得见的一行）。
  *   ⚠️ 它常落在**用户那一轮里**(启动期的降级在首句之后才落成转录),一轮成功收尾时,
  *   用户句与回复之间的全部条目会被折进「Took Ns」—— 通知跟着被折没了(#6199 B2 实测)。
+ *   钩子说的话也走这条来路(`provider-notice`),但它不是运行条件:按钩子切段,❌ 当边界线(#55)。
  */
 function isContextBoundary(item: ChatItem): boolean {
-  return item.kind === 'compaction' || item.kind === 'context-reset' || item.kind === 'session-notice';
+  if (item.kind === 'session-notice') return !isHookNotice(item);
+  return item.kind === 'compaction' || item.kind === 'context-reset';
 }
 
 /**
@@ -224,20 +272,12 @@ function isQuestionCall(item: ChatItem): boolean {
   return 'toolCallId' in item && isQuestionOrPlanToolName(toolCallName(item as { title: string; toolName?: string }));
 }
 
-/** 边界线的时刻。三种线都自带，所以线之后那一段的起点总写得出来。 */
-function contextBoundaryAt(item: ChatItem): number | undefined {
-  if (item.kind === 'compaction') return (item as TranscriptCompaction).startedAt;
-  if (item.kind === 'context-reset') return (item as TranscriptContextReset).at;
-  if (item.kind === 'session-notice') return (item as TranscriptSessionNotice).at;
-  return undefined;
-}
-
 /**
  * 在一段的过程里按边界线切开（#5381）：线当前一片的尾巴留在外面，线之后另起一片。
  * 最后一片接回原段的尾巴 —— 哪怕它的过程和尾巴都空着也要留：跨轮合并接的是末段，
  * 删了它，后面 agent 自发的 cycle 就接不到线的这一侧来了。
  */
-function splitAtContextBoundaries(segment: TurnFoldSegment): TurnFoldSegment[] {
+function splitAtContextBoundaries(segment: TurnFoldSegment, clocked: boolean): TurnFoldSegment[] {
   const pieces: TurnFoldSegment[] = [];
   let process: ChatItem[] = [];
   let startedAt = segment.startedAt;
@@ -248,7 +288,7 @@ function splitAtContextBoundaries(segment: TurnFoldSegment): TurnFoldSegment[] {
     }
     pieces.push({ process, tail: [item], ...(startedAt !== undefined ? { startedAt } : {}) });
     process = [];
-    startedAt = isContextBoundary(item) ? contextBoundaryAt(item) : messageAt(item);
+    startedAt = itemAt(item, clocked);
   }
   pieces.push({ process, tail: segment.tail, ...(startedAt !== undefined ? { startedAt } : {}) });
   return pieces;
@@ -331,6 +371,13 @@ export function planTurnFoldRuns(
         absorbed[i] = true;
         continue;
       }
+      // agent 自己开头、一句话没说的一轮(只有完成通知、`[NO_REPLY]`)不折,也不当锚(#69):折起来外面
+      // 只剩一个空头;当锚的话,下一次被叫醒的那一轮会并进来,头上的用时就把两次之间的空闲也算进去了。
+      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke) {
+        foldPlans[i] = null;
+        anchor = -1;
+        continue;
+      }
       anchor = i;
       foldRuns.set(i, {
         segments: copySegments(fold.segments),
@@ -341,6 +388,30 @@ export function planTurnFoldRuns(
     }
   }
   return { folds: foldPlans, runs: foldRuns, absorbed };
+}
+
+/**
+ * 一轮一轮往后追加时,`turns[index]` 会不会并进它前面那条还没收尾的折叠(上面的合并)。会的话,只 flatten
+ * 新来的那几轮画不出这次合并 —— 调用方得整条重建;不然要等下次整条重建(切 tab、重进)那几行才跳进头里,
+ * 「在聊天里找」(整条一次 flatten)打开的头也和画出来的对不上(#70 review)。
+ */
+export function joinsFoldRunAt(turns: readonly TranscriptTurn[], index: number, enabled: boolean): boolean {
+  const first = turns[index];
+  if (!enabled || !first || index === 0) return false;
+  const opens = (turn: TranscriptTurn) => {
+    const head = (turn.items as readonly ChatItem[])[0];
+    return head !== undefined && itemIsUser(head);
+  };
+  // 带人话开头的一轮不会并进别人(并进来要求没有开场白),它自己起一条 —— 往回找到最近的那一轮就够了。
+  if (opens(first)) return false;
+  let start = index - 1;
+  while (start > 0 && !opens(turns[start] as TranscriptTurn)) start--;
+  let prevDayKey: string | undefined;
+  for (let i = start - 1; i >= 0 && prevDayKey === undefined; i--) {
+    const startedAt = turns[i]?.startedAt;
+    if (startedAt !== undefined) prevDayKey = localDayKey(startedAt);
+  }
+  return planTurnFoldRuns(turns.slice(start, index + 1), prevDayKey, true).absorbed[index - start] === true;
 }
 
 /** 一段过程的时间头:和桌面 `turn-process` 行同一组事实。 */
@@ -386,14 +457,17 @@ export function turnFoldView(
 ): { leading: ChatItem[]; segments: { process: ChatItem[]; tail: ChatItem[]; header: TurnProcessHeader | null }[] } {
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
-  // 时间头只给**人问的那一轮**(含并进来的后续 cycle):「整体可以有个时间」说的是
-  // 回答这一问花了多久。agent 自发的一轮(完成通知、后续 cycle)没有头,平铺,
-  // 语义折叠就是它的折叠(「这就已经算折叠了」)。
+  // 人问的那一轮(含并进来的后续 cycle)有时间头。agent 自己开头的一轮(后台命令跑完、完成通知把它
+  // 叫醒)跑完了同样折、只留最后一句话(#69,owner 2026-10-22,推翻 09-06「自发轮平铺,语义折叠就是它的
+  // 折叠」:读的人分不出哪段是谁开的头,跑完了还摊着过程,看着就是同一问没折)。
+  // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
+  // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
+  const headed = userRun || (!active && fold.spoke);
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {
-      if (!userRun) return { process: segment.process, tail: segment.tail, header: null };
+      if (!headed) return { process: segment.process, tail: segment.tail, header: null };
       // 时间头(owner 2026-09-06:「时间头本身算是过程的折叠,只不过是运行完成后,
       // 时间头是对过程的折叠」):跑着「已处理 16s」在数、内容摊开;跑完写总时长、把过程收起来。
       // 跑着的只有**最后一段** —— 前面那些已经被钩子封口了(#5350),所以按段判,不按轮判。

@@ -55,7 +55,10 @@ describe('@@@6112 线程配置搬去进程级 -c', () => {
    */
   it('权限映到 TUI 自己的 -a / -s', () => {
     expect(codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'danger-full-access' }))
-      .toEqual(['-a', 'never', '-s', 'danger-full-access'])
+      .toEqual(['-a', 'never', '-s', 'danger-full-access', '--dangerously-bypass-hook-trust'])
+    // 只读档的 approvalPolicy 也是 never:hook 审阅照旧留给人。
+    expect(codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'read-only' }))
+      .toEqual(['-a', 'never', '-s', 'read-only'])
     expect(codexTuiPermissionArgs({ approvalPolicy: 'on-request', sandbox: undefined }))
       .toEqual(['-a', 'on-request'])
     expect(codexTuiPermissionArgs(undefined)).toEqual([])
@@ -473,8 +476,9 @@ describe('@@@6112 新会话的权限由建 thread 的 TUI 带', () => {
       tuiPermissionArgs: codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'danger-full-access' }),
     })
     const args = session.remoteTuiArgs()
-    expect(args).toEqual(expect.arrayContaining(['-a', 'never', '-s', 'danger-full-access']))
+    expect(args).toEqual(expect.arrayContaining(['-a', 'never', '-s', 'danger-full-access', '--dangerously-bypass-hook-trust']))
     expect(args.indexOf('-a')).toBeLessThan(args.indexOf('--remote'))
+    expect(args.indexOf('--dangerously-bypass-hook-trust')).toBeLessThan(args.indexOf('--remote'))
     expect(args).not.toContain('resume')
   })
 })

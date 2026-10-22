@@ -23,7 +23,8 @@ export function agentBrowserState(browserId: string): BrowserAgentState {
 }
 
 /**
- * 浮在网页底部中间的一枚小条:agent 在操作时「停止」,人接管后「让 agent 继续」。
+ * 浮在网页底部中间的一枚小条:agent 在操作时「停止」,人接管后「让 agent 继续」。画在窗口里叠在网页上面的那层里,
+ * 那层只有小条那么大、由主进程摆到网页底部正中(agent-browser-overlay.tsx)。
  * ❌ 占一行的横条:它一出现网页就变矮,agent 刚截的图和接下来点的坐标就对不上了。
  */
 export const AgentBrowserBadge = observer(function AgentBrowserBadge({ browserId }: { browserId: string }) {
@@ -32,30 +33,26 @@ export const AgentBrowserBadge = observer(function AgentBrowserBadge({ browserId
   if (state === 'idle') return null;
   const driving = state === 'driving';
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-      <div
-        role="status"
-        data-testid="agent-browser-badge"
-        data-state={state}
-        // 指着这一块时浮窗接住点击(按钮能按),移开就让点击穿过去落到网页上。
-        data-agent-overlay-interactive=""
-        className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background-1 py-1 pl-3 pr-1 text-xs text-foreground shadow-md"
+    <div
+      role="status"
+      data-testid="agent-browser-badge"
+      data-state={state}
+      className="flex items-center gap-2 rounded-full border border-border bg-background-1 py-1 pl-3 pr-1 text-xs text-foreground shadow-md"
+    >
+      <span
+        aria-hidden
+        className={driving ? 'size-2 animate-pulse rounded-full bg-primary' : 'size-2 rounded-full bg-foreground-muted'}
+      />
+      <span>{translate(driving ? 'browser.agentDriving' : 'browser.agentPaused')}</span>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-6 rounded-full px-2 text-xs"
+        onClick={() => void (driving ? rpc.browser.pauseAgent(browserId) : rpc.browser.resumeAgent(browserId))}
       >
-        <span
-          aria-hidden
-          className={driving ? 'size-2 animate-pulse rounded-full bg-primary' : 'size-2 rounded-full bg-foreground-muted'}
-        />
-        <span>{translate(driving ? 'browser.agentDriving' : 'browser.agentPaused')}</span>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-6 rounded-full px-2 text-xs"
-          onClick={() => void (driving ? rpc.browser.pauseAgent(browserId) : rpc.browser.resumeAgent(browserId))}
-        >
-          {translate(driving ? 'browser.agentStop' : 'browser.agentResume')}
-        </Button>
-      </div>
+        {translate(driving ? 'browser.agentStop' : 'browser.agentResume')}
+      </Button>
     </div>
   );
 });

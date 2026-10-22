@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 function harness(opts: {
   live?: LiveSession[];
   facts?: Record<string, SessionFacts | null>;
-  displayed?: string | null;
+  onScreen?: string[];
   terminals?: string[];
   watched?: string[];
   stopFails?: boolean;
@@ -25,7 +25,7 @@ function harness(opts: {
   const state = {
     live: opts.live ?? [],
     facts: opts.facts ?? {},
-    displayed: opts.displayed ?? null,
+    onScreen: new Set(opts.onScreen ?? []),
     terminals: new Set(opts.terminals ?? []),
     watched: new Set(opts.watched ?? []),
     stopFails: opts.stopFails ?? false,
@@ -34,7 +34,7 @@ function harness(opts: {
     now: () => now,
     listLive: () => state.live,
     facts: (id) => (id in state.facts ? state.facts[id] ?? null : { status: 'idle', resumable: true }),
-    displayedSessionId: () => state.displayed,
+    onScreen: (id) => state.onScreen.has(id),
     watchedRemotely: (id) => state.watched.has(id),
     sessionsWithLiveTerminals: () => state.terminals,
     stop: async (target) => {
@@ -101,7 +101,7 @@ describe('IdleReclaimer', () => {
     ['no status source', { facts: { a: { status: null, resumable: true } } }],
     ['row gone', { facts: { a: null } }],
     ['cannot come back as the same conversation', { facts: { a: { status: 'idle', resumable: false } } }],
-    ['it is on screen', { displayed: 'a' }],
+    ['it is on screen', { onScreen: ['a'] }],
     ['it has a live terminal shell', { terminals: ['a'] }],
     ['a remote desktop is watching it', { watched: ['a'] }],
   ] as const)('keeps a session running when %s', async (_why, opts) => {

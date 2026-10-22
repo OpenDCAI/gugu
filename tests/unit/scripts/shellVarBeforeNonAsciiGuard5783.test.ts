@@ -34,7 +34,7 @@ function trackedShellSources() {
 }
 
 describe('shell $VAR 顶在非 ASCII 字符前(#5783)', () => {
-  // 阳控用**真实例**:这一行在 deploy/newapi/test_dev_mode_gate.sh(现属 nmhjklnm/gugu-newapi)里真的存在过,
+  // 阳控用**真实例**:这一行在 deploy/newapi/test_dev_mode_gate.sh(现已移出本仓)里真的存在过,
   // 而它所在的脚本正是 `set -uo pipefail`。❌ 别拿自造的 `$a中` 充数 —— 判据长得对、
   // 结论是空的,这种事在 #5019 那道闸上发生过一次。
   it('detects the real line this guard was born from', () => {

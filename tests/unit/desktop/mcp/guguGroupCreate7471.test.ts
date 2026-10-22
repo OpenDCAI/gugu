@@ -32,7 +32,7 @@ function harness(options: { users?: ReturnType<typeof user>[]; failInvite?: stri
         if (options.createError) throw new Error(options.createError)
         return { id: body.p_chat_id }
       }
-      if (name === 'request_agent_group_invitation') {
+      if (name === 'request_group_invitation_as') {
         if (body.p_invitee_user_id === options.failInvite) throw new Error('Group does not allow this member to invite')
         return { status: 'pending', chat_id: body.p_chat_id, invitee_user_id: body.p_invitee_user_id, invitation_id: `inv-${body.p_invitee_user_id}` }
       }
@@ -50,7 +50,7 @@ describe('group_create (#7471)', () => {
     expect(out).toEqual({ chat_id: expect.any(String), name: '海龟汤', member_user_ids: [`user:${OWNER}`, `user:${SELF}`], invitations: [], invitation_errors: [] })
     expect(h.rpcs).toEqual([{ name: 'create_gugu_group', body: {
       p_chat_id: out.chat_id, p_name: '海龟汤', p_owner_user_id: OWNER,
-      p_initial_members: [{ user_id: SELF, role: 'member' }], p_default_agent_type: null, p_group_prompt: null,
+      p_initial_members: [{ user_id: SELF, role: 'admin' }], p_default_agent_type: null, p_group_prompt: null,
     } }])
   })
 
@@ -62,9 +62,9 @@ describe('group_create (#7471)', () => {
     expect(out.member_user_ids).toEqual([OWNER, SELF, SIBLING].map((id) => `user:${id}`))
     expect(out.invitations).toEqual([HUMAN, EXTERNAL].map((id) => ({ status: 'pending', chat_id: out.chat_id, invitee_user_id: `user:${id}`, invitation_id: `inv-${id}` })))
     const created = h.rpcs.find((call) => call.name === 'create_gugu_group')!
-    expect(created.body.p_initial_members).toEqual([SELF, SIBLING].map((id) => ({ user_id: id, role: 'member' })))
-    expect(h.rpcs.filter((call) => call.name === 'request_agent_group_invitation')).toEqual([HUMAN, EXTERNAL].map((id) => ({
-      name: 'request_agent_group_invitation', body: { p_chat_id: out.chat_id, p_agent_user_id: SELF, p_invitee_user_id: id, p_message: '邀请你加入群聊「汤局」。' },
+    expect(created.body.p_initial_members).toEqual([{ user_id: SELF, role: 'admin' }, { user_id: SIBLING, role: 'member' }])
+    expect(h.rpcs.filter((call) => call.name === 'request_group_invitation_as')).toEqual([HUMAN, EXTERNAL].map((id) => ({
+      name: 'request_group_invitation_as', body: { p_chat_id: out.chat_id, p_as_user_id: SELF, p_invitee_user_id: id, p_message: '邀请你加入群聊「汤局」。' },
     })))
   })
 
@@ -84,10 +84,10 @@ describe('group_create (#7471)', () => {
     expect(h.rpcs.some((call) => call.name === 'create_gugu_group')).toBe(false)
   })
 
-  test('missing identities and a caller belonging to a different owner fail before writing', async () => {
-    for (const users of [[user(SELF)], [user(SELF, 'agent', OTHER_OWNER), user(SIBLING)]]) {
+  test('missing selected identities fail before writing', async () => {
+    for (const users of [[user(SELF)]]) {
       const h = harness({ users })
-      await expect(h.call({ name: '汤局', members: [`user:${SIBLING}`] })).rejects.toThrow(/no visible person|calling agent must belong/)
+      await expect(h.call({ name: '汤局', members: [`user:${SIBLING}`] })).rejects.toThrow(/selected person or agent was not found/)
       expect(h.rpcs).toEqual([])
     }
   })
@@ -124,6 +124,6 @@ test('shared ordinary group creation trims name/prompt, removes duplicates/owner
     p_default_agent_type: null, p_group_prompt: '章程',
   }])
   await expect(createGroupChat(client, ' ', OWNER, [SELF])).rejects.toThrow('Group name is required')
-  await expect(createGroupChat(client, '汤局', OWNER, [OWNER])).rejects.toThrow('at least 1 invited member')
+  expect(await createGroupChat(client, '汤局', OWNER, [OWNER])).toBe('saved-chat')
   await expect(createGroupChat({ rpc: async () => ({ data: null, error: { message: 'cannot create group' } }) }, '汤局', OWNER, [SELF])).rejects.toThrow('cannot create group')
 })

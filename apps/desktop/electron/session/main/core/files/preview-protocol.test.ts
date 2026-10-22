@@ -16,7 +16,7 @@ const bus = vi.hoisted(() => {
 
 vi.mock('electron', () => ({ protocol: { isProtocolHandled: () => false, handle: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('../projects/utils', () => ({ resolveWorkspace: () => null }));
+vi.mock('../projects/utils', () => ({ resolveWorkspace: vi.fn(() => null) }));
 vi.mock('@main/lib/events', () => ({
   events: {
     on: (channel: { name: string }, cb: (data: unknown) => void) => {
@@ -30,7 +30,9 @@ vi.mock('@main/lib/events', () => ({
 }));
 
 import { remotePreviewReadChannel, remotePreviewReadResultChannel } from '@shared/events/appEvents';
-import { REMOTE_CHUNK_TIMEOUT_MS, createRemotePreview, handlePreviewRequest, releasePreview } from './preview-protocol';
+import { REMOTE_CHUNK_TIMEOUT_MS, createDocumentPreview, createRemotePreview, handlePreviewRequest, releasePreview, setPreviewDocument } from './preview-protocol';
+import { resolveWorkspace } from '../projects/utils';
+import { previewDocumentHtml } from '@shared/preview/preview-link-script';
 
 const ROOT = '/root/.config/咕咕/task-home';
 const COPY = { unavailable: '没能打开 d22 上的这个网页。', outside: '这里只能打开 d22 上这条会话文件夹里的网页。' };
@@ -68,6 +70,27 @@ function register() {
 
 beforeEach(() => bus.reset());
 afterEach(() => vi.useRealTimers());
+
+describe('document-only group HTML transport', () => {
+  it('serves and updates only the supplied document, then revokes access', async () => {
+    vi.mocked(resolveWorkspace).mockClear();
+    const preview = createDocumentPreview('<h1>group</h1>');
+    const response = await handlePreviewRequest(new Request(preview.url), 'pane');
+    expect(await response.text()).toBe(previewDocumentHtml('<h1>group</h1>', true));
+    expect(response.headers.get('Content-Security-Policy')).toBeNull();
+    setPreviewDocument(preview.previewId, '<h1>updated</h1>');
+    const updated = await handlePreviewRequest(new Request(preview.url + '?r=1#target'), 'pane');
+    expect(await updated.text()).toBe(previewDocumentHtml('<h1>updated</h1>', true));
+    for (const path of ['/probe.css', '/etc/passwd', '/%2fetc%2fpasswd', '/C:/Users/private.txt', '/']) {
+      expect((await handlePreviewRequest(new Request(new URL(path, preview.url)), 'pane')).status).toBe(404);
+    }
+    expect((await handlePreviewRequest(new Request(preview.url), 'browser')).status).toBe(404);
+    expect(resolveWorkspace).not.toHaveBeenCalled();
+    expect(bus.emitted).toEqual([]);
+    releasePreview(preview.previewId);
+    expect((await handlePreviewRequest(new Request(preview.url), 'pane')).status).toBe(404);
+  });
+});
 
 describe('gugu-preview handler for a page on another machine (#6264)', () => {
   it('serves a page from a non-ASCII session folder (d22: /root/.config/咕咕/task-home)', async () => {

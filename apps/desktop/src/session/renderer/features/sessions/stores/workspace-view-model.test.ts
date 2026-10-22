@@ -60,7 +60,8 @@ vi.mock('@renderer/utils/logger', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: { on: vi.fn(() => () => {}) },
   rpc: {
     ssh: {
@@ -93,7 +94,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       },
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 type FakeTerminalManager = TerminalManagerStore & {
   isLoaded: boolean;

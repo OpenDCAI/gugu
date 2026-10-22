@@ -82,4 +82,18 @@ describe('native Codex child-thread consumption', () => {
     expect(items.filter((item) => item.kind === 'spawn-subagent-tool-call')).toHaveLength(1);
     expect(items[0]).toMatchObject({ model: 'worker-model', children: [expect.objectContaining({ toolCallId: 'grandchild' })] });
   });
+
+  it('names a child by its nickname, not by its task prompt or internal path', () => {
+    const r = rig();
+    const longPrompt = 'Audit every permission prompt in the settings pages and report the ones that block\nsecond line';
+    r.send('item/completed', { threadId: 'root', item: { type: 'collabAgentToolCall', id: 'call', tool: 'spawnAgent',
+      senderThreadId: 'root', receiverThreadIds: ['child'], prompt: longPrompt, agentsStates: {} } });
+    const drafts = () => r.updates.map((u) => Object.values((u as { _meta?: Record<string, { sessionUpdate?: string; name?: string; task?: string }> })._meta ?? {})[0]);
+    const spawned = () => drafts().filter((d) => d?.sessionUpdate === 'subagent_spawned').at(-1);
+    // Before thread/started the list shows the first line of the task, shortened; the full prompt stays the task.
+    expect(spawned()).toMatchObject({ name: 'Audit every permission prompt …', task: longPrompt });
+    r.send('thread/started', { thread: { id: 'child', agentNickname: 'Ada', agentRole: 'worker',
+      source: { subAgent: { thread_spawn: { parent_thread_id: 'root', agent_path: '/root/audit', agent_nickname: 'Ada' } } } } });
+    expect(spawned()).toMatchObject({ name: 'Ada', task: longPrompt });
+  });
 });

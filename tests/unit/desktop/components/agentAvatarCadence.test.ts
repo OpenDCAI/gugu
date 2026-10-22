@@ -151,6 +151,22 @@ describe('agent avatar expression pools & cadence(本位脸 + 短暂走神,引�
     expect(n).toBeLessThanOrEqual((300 / 4) * 1.25)
   })
 
+  it('空闲时下一次醒来的时刻不会卡在 0(轮换走了的表情不再挂着它的重复动作;❌ 定时器以 1ms 空转)', () => {
+    for (const rest of ['sleepy', 'happy', 'excited', 'neutral'] as const) {
+      const engine = new GuguEngine(9)
+      engine.setExpression(rest)
+      engine.setState('idle')
+      let run = 0
+      let worst = 0
+      for (let i = 0; i < 60 * 90; i++) {
+        engine.update(STEP, null)
+        run = engine.wakeIn() === 0 ? run + 1 : 0
+        worst = Math.max(worst, run)
+      }
+      expect(worst, rest).toBeLessThanOrEqual(1)
+    }
+  })
+
   it('等你批准 / 后台运行 60 秒一次都不眨', () => {
     expect(countBlinks('needsApproval', 60)).toBe(0)
     expect(countBlinks('parked', 60)).toBe(0)

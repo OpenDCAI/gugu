@@ -17,6 +17,7 @@ import {
   type LiveSession,
 } from './idle-reclaim';
 import { stopExactSessionpageSession } from './session-orchestration';
+import { sessionOnScreen } from './sessions-on-screen';
 import { tuiResumesExactly } from './tui-resume-exactness';
 import { mapSessionRowToSession } from './utils';
 
@@ -100,8 +101,9 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
       return read.live;
     },
     facts: readFacts,
-    // 扩展桥报的「此刻在看的那一格」仍叫 sessionId(App 层那一刀改名);值就是那条会话的 id。
-    displayedSessionId: () => currentOrLastSession()?.sessionId ?? null,
+    // 屏上的每一条(主窗那页、会话页上每一块、单独的窗、开在窗里的页签,渲染层报来的),加上最后显示的那条
+    // (人离开了会话页,刚才看的那条仍留着,#6387)。❌ 只认主窗那一页:页签开在新窗口里审阅的会话会被当成没人看停掉。
+    onScreen: (sessionId) => sessionOnScreen(sessionId) || currentOrLastSession()?.sessionId === sessionId,
     watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
     stop: async (target) => {

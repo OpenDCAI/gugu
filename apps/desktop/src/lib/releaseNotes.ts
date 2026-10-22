@@ -4,7 +4,7 @@
 // ❌ 不在升级前给:那等于给「按一下就更新」那条路又加了一次点击。
 //
 // ❗ 应用里**没有**更新说明的内容,也没有画它的那套东西(owner 2026-09-18:「之前硬编码一拖还不改吗」)。
-// 内容的家是 nmhjklnm/gugu-website 的 content/release-notes/,渲染成
+// 内容的家是官网仓的 content/release-notes/,渲染成
 // gugu.nextmind.space/help/release-notes/<端>/ 那一页 —— 有配图、有目录、能搜能分享。
 // 应用要做的只有一件事:把人带到那一页上他这一版的那一条。
 //

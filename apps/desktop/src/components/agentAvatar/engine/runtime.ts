@@ -4,7 +4,8 @@
  * 只画会变的帧,按变了多少决定什么时候画(CPU 跟重画次数成正比,mac1 实测一次约 2.4ms):
  * 和上一张差不到半个 CSS 像素就不画;慢慢在变的(呼吸、左右摆、视线游走)攒到共用的 SLOW_TICK_MS 时钟上,所有鸟同一帧一起画;
  * 一下变得多的(眨眼、跳视、蹦、表情轮换、变形、拍一拍)、以及眼睛正跟着光标的,下一帧就画,并接着排 rAF 全帧率跟着。
- * 没有快动作就不排 rAF,改用计时器隔 IDLE_CHECK_MS 再看(排着 rAF 本身就要出帧);
+ * 没有快动作就不排 rAF,改用一个计时器:到共用时钟的下一格,或者哪只鸟下一次眨眼的时刻,哪个先到就那时醒(排着 rAF 本身就要出帧);
+ * 光标一动、窗口露出来就当场醒,不等计时器;
  * 窗口藏起来(document.hidden,或主进程报窗口最小化、收进托盘)、或一只头像都不在视口里,整个循环停下,回来再接着
  * (Chole 上咕咕入口那只鸟 60 fps 一直画,吃满一个核)。
  * 没焦点不停:没焦点照样看得见(副屏、并排放着、人点进了咕咕自己的浏览器页签)。
@@ -13,11 +14,11 @@
  * 定格(still):给只能放 <img> 的地方,用同一个引擎、同一份 GL 画一帧静止的样子,转成一张图。
  */
 import { rendererLogger } from '@/lib/log'
-import { UI_EVENTS } from '@/lib/uiEvents'
+import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
 import { clamp } from './geometry'
 import { GuguEngine } from './engine'
 import { drawAvatar, drawnLook, glPasses, lookDiff, paintGL, Crop, DrawOpts, FrameShape, Slots } from './draw'
-import { GuguGL, loadCharacter, spriteUrl } from './gl'
+import { GuguGL, loadCharacter } from './gl'
 import { CHARACTER_BY_ID, Character, CharacterId, DEFAULT_CHARACTER } from './characters'
 import { OutfitDraw } from './outfits'
 import type { WearItem } from './outfitCatalog'
@@ -35,11 +36,10 @@ const GL_REBUILD_DELAYS_MS = [500, 2_000, 10_000, 30_000, 60_000]
 /** 重建出来的 GL 活过这么久才算稳住:之前又丢,下一次重建按下一档等,❌ 每 500ms 建一个新上下文空转 */
 const GL_STABLE_MS = 60_000
 /**
- * 一帧什么都没画(画面没变):下一次不排 rAF,隔这么久用计时器再看一眼。排着 rAF 就算不画,Chromium 每帧也要走一遍出帧流程,
- * 渲染进程 + GPU 进程每分钟要吃掉十来个 CPU 秒(mac1 实测);计时器只跑引擎这几行 JS。一看到变了就画,并回到 rAF 跟着刷新走。
- * 33ms:眨眼这种快动作最多晚一拍开始,不会整个漏掉。
+ * 一帧什么都没画(画面没变):下一次不排 rAF,用计时器在「共用时钟的下一格」与「最早的一次眨眼」里先到的那一刻再看。
+ * 排着 rAF 就算不画,Chromium 每帧也要走一遍出帧流程,渲染进程 + GPU 进程每分钟要吃掉十来个 CPU 秒(mac1 实测);
+ * 计时器只跑引擎这几行 JS。眨眼是快动作,准点醒才不会漏掉它合上的那几帧;慢变化本来就攒到时钟格上一起画。
  */
-const IDLE_CHECK_MS = 33
 /** 和上一张差不到这么多 CSS 像素(色阶按同样的倍数)= 同一张,不画 */
 const SAME_CSS_PX = 0.5
 /** 差不到这么多 CSS 像素的变化是「慢慢在变」:不急着画,等共用时钟的下一格,所有鸟一起画 */
@@ -76,6 +76,7 @@ export interface AvatarHandle {
   opts: AvatarOpts
   dpr: number
   visible: boolean
+  stopVisibility: () => void
   rect: DOMRect | null
   rectAt: number
   pendingDt: number
@@ -97,10 +98,11 @@ interface Pending {
 
 class Runtime {
   private handles = new Set<AvatarHandle>()
-  private byCanvas = new Map<Element, AvatarHandle>()
-  private io: IntersectionObserver | null = null
   private gl: GuguGL | null = null
-  private sprites = new Map<CharacterId, HTMLImageElement>()
+  /** 用到过的角色(GL 重建时按它重载素材) */
+  private chars = new Set<CharacterId>()
+  /** 无 WebGL 时整张贴的定格图:只在真走 2D 退路时才去取(有 WebGL 时不多载这一张) */
+  private flats = new Map<CharacterId, HTMLImageElement>()
   /** GL 素材这次没载下来的角色:先走 2D 定格(❌ 整只空白),过一会儿再试 */
   private texFailed = new Set<CharacterId>()
   private ready = false
@@ -114,8 +116,6 @@ class Runtime {
   private frameNo = 0
   /** 共用时钟上一次画慢变化的那一格(SLOW_TICK_MS 为一格) */
   private slowTick = -1
-  /** 主进程报的窗口看不看得见(最小化、收进托盘 = false);没有主进程的环境(web / 手机)一直是 true */
-  private windowSeen = true
   private glRebuild: ReturnType<typeof setTimeout> | null = null
   private glRebuildTier = 0
   private glInstalledAt = 0
@@ -138,43 +138,33 @@ class Runtime {
       'pointermove',
       (e) => {
         this.cursor = { x: e.clientX, y: e.clientY }
-        this.wake()
+        // 只有正跟着光标看的头像要马上醒;别的头像不因为光标在窗里动就出帧
+        for (const h of this.handles)
+          if (h.visible && h.opts.tracking) {
+            this.wake()
+            break
+          }
       },
       { passive: true }
     )
-    document.addEventListener('visibilitychange', this.wake)
-    // 主窗关了节流(main.ts backgroundThrottling:false,令牌刷新要它):最小化、收进托盘时 document.hidden 照样是 false、
-    // rAF 照跑(mac1 实测最小化时每秒还画 184 次),只能听主进程报
-    window.addEventListener(UI_EVENTS.windowSeen, (e) => {
-      this.windowSeen = (e as CustomEvent<boolean>).detail
-      this.wake()
-    })
+    subscribeAnimationWindowVisibility(this.wake)
     document.addEventListener('pointerleave', () => {
       this.cursor = null
     })
     window.addEventListener('blur', () => {
       this.cursor = null
     })
-    // 没有 IntersectionObserver 的环境(极老的 WebView / 单测的 jsdom):不做屏外剔除,全部当可见画 —— 只是多画几块。
-    if (typeof IntersectionObserver !== 'undefined') {
-      this.io = new IntersectionObserver(
-        (entries) => {
-          for (const en of entries) {
-            const h = this.byCanvas.get(en.target)
-            if (h) h.visible = en.isIntersecting
-          }
-          this.wake()
-        },
-        { rootMargin: '80px' }
-      )
-    }
     this.wake()
   }
 
-  /** 循环停着就接着跑(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
+  /** 循环停着或在等计时器时马上跑一帧(窗口露出来、头像进了视口、指针在动、来了新头像):停的时候不记时间,接上时不补那一段 */
   private wake = () => {
-    if (this.raf || this.idle || !this.ready) return
-    this.last = 0
+    if (this.raf || !this.ready) return
+    if (this.idle) {
+      // 循环还活着,只是在等计时器:提前醒,时间接着记
+      clearTimeout(this.idle)
+      this.idle = null
+    } else this.last = 0
     this.raf = requestAnimationFrame(this.loop)
   }
 
@@ -185,7 +175,7 @@ class Runtime {
     this.glInstalledAt = performance.now()
     this.texFailed.clear()
     this.watchContext(gl)
-    for (const id of this.sprites.keys()) this.loadTextures(CHARACTER_BY_ID[id])
+    for (const id of this.chars) this.loadTextures(CHARACTER_BY_ID[id])
   }
 
   /**
@@ -242,13 +232,22 @@ class Runtime {
     })
   }
 
-  /** 首次用到某个角色时才取它的素材（GL 纹理；无 WebGL 时退路用一张 <img>，只要本体） */
+  /** 首次用到某个角色时才取它的 GL 素材 */
   private ensureSprite(ch: Character) {
-    if (this.sprites.has(ch.id)) return
-    const img = new Image()
-    img.src = spriteUrl(ch)
-    this.sprites.set(ch.id, img)
+    if (this.chars.has(ch.id)) return
+    this.chars.add(ch.id)
     this.loadTextures(ch)
+  }
+
+  /** 2D 退路要画的那张定格图(身体与部件拼好的一整张):第一次用到才取 */
+  private flatOf(ch: Character): HTMLImageElement {
+    let img = this.flats.get(ch.id)
+    if (!img) {
+      img = new Image()
+      img.src = ch.flat
+      this.flats.set(ch.id, img)
+    }
+    return img
   }
 
   /** 画布拿不到 2D 上下文（无 canvas 的环境）⇒ 返回 null，由调用方决定怎么说；❌ 不在这里吞掉 */
@@ -273,6 +272,7 @@ class Runtime {
       opts,
       dpr,
       visible: true,
+      stopVisibility: () => {},
       rect: null,
       rectAt: 0,
       pendingDt: 0,
@@ -281,16 +281,17 @@ class Runtime {
       next: []
     }
     this.handles.add(h)
-    this.byCanvas.set(canvas, h)
-    this.io?.observe(canvas)
+    h.stopVisibility = observeAnimationViewport(canvas, (visible) => {
+      h.visible = visible
+      this.wake()
+    }, '80px')
     this.wake()
     return h
   }
 
   unregister(h: AvatarHandle) {
     this.handles.delete(h)
-    this.byCanvas.delete(h.canvas)
-    this.io?.unobserve(h.canvas)
+    h.stopVisibility()
   }
 
   private lookFor(h: AvatarHandle, now: number): { x: number; y: number } | null {
@@ -311,7 +312,7 @@ class Runtime {
     // 没人看得见就停:窗口藏起来、一只都不在视口里
     this.raf = 0
     this.idle = null
-    if (!this.ready || document.hidden || !this.windowSeen || ![...this.handles].some((h) => h.visible)) return
+    if (!this.ready || !isAnimationWindowVisible() || ![...this.handles].some((h) => h.visible)) return
     let fast = false
     const dt = this.last ? (ms - this.last) / 1000 : 1 / 60
     this.last = ms
@@ -324,6 +325,7 @@ class Runtime {
     if (slowDue) this.slowTick = tick
     const w0 = performance.now()
     const batch: Pending[] = []
+    let nextWake = Infinity
     for (const h of this.handles) {
       if (!h.visible || h.canvas.closest('[inert]')) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
@@ -336,12 +338,14 @@ class Runtime {
       const step = dt + h.pendingDt
       h.pendingDt = 0
       h.engine.crop = h.opts.crop
+      h.engine.spinOK = h.outfit.spins
       const look = this.lookFor(h, ms)
       h.engine.update(step, look)
+      nextWake = Math.min(nextWake, h.engine.wakeIn() * 1000) // 只看这一趟真跑过的引擎(在 inert 面板里、还在等素材的不算)
       h.outfit.update(step, h.engine.frame)
       // 这一身还有素材在路上:先不画(画布上留着上一张);载不下来的那片 ensure 记过错,不再等
       if ((gl ? h.outfit.ensure(gl) : h.outfit.ensureFlat()) > 0) continue
-      const sprite = this.sprites.get(h.ch.id) ?? null
+      const sprite = gl ? null : this.flatOf(h.ch)
       const o = {
         w: h.canvas.width,
         h: h.canvas.height,
@@ -372,7 +376,7 @@ class Runtime {
     this.flush(batch)
     this.workEma = this.workEma * 0.9 + (performance.now() - w0) * 0.1
     if (fast) this.raf = requestAnimationFrame(this.loop)
-    else this.idle = setTimeout(() => this.loop(performance.now()), IDLE_CHECK_MS)
+    else this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, Math.min(nextWake, SLOW_TICK_MS - (ms % SLOW_TICK_MS))))
   }
 
   /** 这一批画好的格子抄到各自的画布上,共用 GL 画布从头排 */
@@ -402,8 +406,8 @@ class Runtime {
     const pathFor = () => {
       const gl = this.gl && this.gl.has(ch.id) ? this.gl : null
       const glLoading = !!this.gl && !gl && !this.texFailed.has(ch.id)
-      const sprite = this.sprites.get(ch.id)
-      const body = gl ? true : !glLoading && !!sprite?.complete && sprite.naturalWidth > 0
+      const sprite = gl || glLoading ? null : this.flatOf(ch)
+      const body = gl ? true : !!sprite?.complete && sprite.naturalWidth > 0
       return { gl, body, pending: gl ? outfit.ensure(gl) : outfit.ensureFlat() }
     }
     let path = pathFor()
@@ -422,7 +426,7 @@ class Runtime {
     // 共用 GL 画布在两趟 loop 之间总是空的(每趟末尾都抄走、reset),room() 必然放得下
     const gl = path.gl
     if (gl && !gl.room(px, px, glPasses(engine.frame, outfit))) throw new Error('shared GL canvas not empty between frames')
-    drawAvatar(ctx, gl, this.sprites.get(ch.id) ?? null, engine.frame, o, outfit, gl ? paintGL(gl, engine.frame, o, outfit) : { at: [], next: 0 })
+    drawAvatar(ctx, gl, gl ? null : this.flatOf(ch), engine.frame, o, outfit, gl ? paintGL(gl, engine.frame, o, outfit) : { at: [], next: 0 })
     gl?.reset()
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.9))
     if (!blob) throw new Error('still encode failed')

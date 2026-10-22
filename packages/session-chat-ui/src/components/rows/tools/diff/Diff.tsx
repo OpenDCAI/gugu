@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { useCaches } from '@session-chat/components/contexts/CachesContext';
 import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
@@ -28,7 +29,6 @@ import {
   diffPushRight,
   pdiffBody,
   pdiffLine,
-  textShimmer,
 } from './diff.css';
 
 // ── DiffHeader ────────────────────────────────────────────────────────────────
@@ -76,9 +76,9 @@ export function DiffHeader(props: DiffHeaderProps) {
       ) : (
         <GenericFileIcon />
       )}
-      <span class={diffFileName} classList={{ [textShimmer]: running() }} title={props.item.path}>
+      <ShimmerText class={diffFileName} active={running()} title={props.item.path}>
         {name()}
-      </span>
+      </ShimmerText>
       <Show when={showStats()}>
         <span class={diffAddsCount}>+{props.adds}</span>
         <span class={diffDelsCount}>−{props.dels}</span>

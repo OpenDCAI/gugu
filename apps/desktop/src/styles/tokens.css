@@ -368,7 +368,7 @@
 
   /* ── Shape:assistant-ui design.md 的 8 档语义表(owner 2026-09-22 裁决,Refs #6104) ──────
      全仓圆角**只有这一份定义**。会话页 index.css 的 @theme、tailwind.config.cjs 的 borderRadius、
-     packages/session-ui、packages/session-chat-ui(及已拆出的中台 nmhjklnm/gugu-console、顾客面板 nmhjklnm/gugu-website 的 dashboard/)一律逐字等值,
+     packages/session-ui、packages/session-chat-ui(及已拆出本仓的中台、顾客面板)一律逐字等值,
      ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
      三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
      ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mjs 的
@@ -913,16 +913,11 @@
   --shell-bg: transparent;
   --nav-rail: transparent;
 }
-/* 不透明窗口(Windows / Linux / mac 减弱透明度)的浅色:底层若是 --page(#f9f9f9),就比会话页签条 --muted(#ededed)
-   还浅,层次倒成「壳 > 条 < 内容」,一屏几块时每块顶上一条深带压在浅壳上。底层与页签条同取 --muted:
-   条与底层连成一片、内容面是唯一的亮面 —— 与 mac 原生材质下的关系一致。暗色本来就是 --page #121212 < 条 #181818,不动。
-   ❌ 再深一档(gray-fixed-150 #dfdfdf):标题栏菜单与列表次级文字 --muted-fg 在它上面只有 4.12,不过 AA 4.5。
-   --sidebar 只在壳里改:设置弹窗挂在 body 上,它的左栏不是窗口底层;「侧栏渐进底色」打开时照旧由它定列表那一档。 */
+/* 不透明窗口(Windows / Linux / mac 减弱透明度)的浅色:rail(与 Windows 标题栏行)取 --muted,对应 mac 上透出材质的那一圈;
+   rail 右边是 #7610 的 C 档工作区(desktop-shell.css),与 mac 同一份 --desktop-workspace-bg。
+   ❌ 再深一档(gray-fixed-150 #dfdfdf):标题栏菜单文字 --muted-fg 在它上面只有 4.12,不过 AA 4.5。 */
 :root[data-window-material='opaque'][data-theme='light'] {
   --nav-rail: var(--muted);
-}
-:root[data-window-material='opaque'][data-theme='light']:not([data-sidebar-tint='on']) [data-gugu-shell-phase] {
-  --sidebar: var(--muted);
 }
 /* 只管壳里的导航列;设置弹窗(挂在 body 上,不在壳里)的左栏照旧是 --sidebar 实色。 */
 :root[data-window-material='native'] [data-gugu-shell-phase] .gg-pane[data-role='nav'] {
@@ -951,7 +946,7 @@
 /* #7610 owner 选 C:列表、工作区上下留边与右侧导航共用接近白色的整块底。
    外层圆角归这块工作区,不再只圈右侧正文;布局处方见 desktop-shell.css。
    从既有 sidebar 档取色,渐进底色开关也只改这一份真值。 */
-:root[data-window-material='native'][data-theme='light'] {
+:root[data-window-material][data-theme='light'] {
   --desktop-workspace-bg: var(--sidebar);
 }
 

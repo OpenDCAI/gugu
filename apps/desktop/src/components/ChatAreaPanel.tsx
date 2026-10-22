@@ -1471,7 +1471,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           onQuoteConsumed={() => setQuoteText(null)}
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
-          chatId={activeChatId}
+          chatId={activeChatId} hidden={!surfaceVisible}
           isGroupChat={isRoomChatSurface}
           groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses}
           disabled={agentComposerDisabled}

@@ -19,6 +19,7 @@ import { ensurePlatformSessionReady } from './platform-recovery-gate';
 import { recordLiveSessionSetting } from './record-live-session-setting';
 import { recordLiveModelSwitch } from './live-model-switch';
 import { getRuntimeUpgradeRequirement, startupFailureForUser } from './spawn-failure';
+import { setSessionsOnScreen } from './sessions-on-screen';
 
 /**
  * ❌ 这里**没有** createConversation —— 对外只有一个创建动词 `sessionCreate.createSession`
@@ -61,4 +62,8 @@ export const sessionController = createRPCController({
   recordLiveModelSwitch,
   // #6341 hydrate 被拒之后,renderer 按会话 id 取「是不是 harness 版本太低」—— 有就给出升级出口。
   getRuntimeUpgradeRequirement,
+  // 屏上的会话由渲染层报(主进程看不见界面),闲置回收据此不停人正看着的会话(renderer/app/sessions-on-screen.ts)。
+  reportSessionsOnScreen: async (sessionIds: string[]) => {
+    setSessionsOnScreen(sessionIds);
+  },
 });

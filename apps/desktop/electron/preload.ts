@@ -167,6 +167,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     window.addEventListener('gugu:app-foreground', listener)
     return () => window.removeEventListener('gugu:app-foreground', listener)
   },
+  // App 在不在前台(main.ts @@@app-active):先答一次当下,之后每次变化再答。
+  subscribeAppActive: (callback: (active: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, active: boolean): void => callback(active)
+    ipcRenderer.on('app:active-changed', listener)
+    void ipcRenderer.invoke('app:is-active').then(callback)
+    return () => ipcRenderer.removeListener('app:active-changed', listener)
+  },
   getLocalDeviceSelfSnapshot: (): Promise<unknown> => ipcRenderer.invoke('device:get-self-snapshot'),
   // @@@4526 owner 删除自己的 agent 后释放它在本机的足迹(花名册 / runtime session / 投递注册)。
   releaseOwnedAgentLocalFootprint: (agentUserId: string): Promise<unknown> =>
