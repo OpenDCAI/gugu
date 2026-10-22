@@ -1067,10 +1067,12 @@ describe('SidebarStore keeps what the user folded folded', () => {
     source.togglePinnedCollapsed();
     source.toggleProjectsCollapsed();
     source.toggleSessionsCollapsed();
+    source.toggleChatsCollapsed();
 
     const restored = twoProjects();
     restored.restoreSnapshot(source.snapshot);
-    expect([restored.pinnedCollapsed, restored.projectsCollapsed, restored.sessionsCollapsed]).toEqual([
+    expect([restored.pinnedCollapsed, restored.projectsCollapsed, restored.sessionsCollapsed, restored.chatsCollapsed]).toEqual([
+      true,
       true,
       true,
       true,
@@ -1079,11 +1081,27 @@ describe('SidebarStore keeps what the user folded folded', () => {
     // A blob written before these fields existed leaves the sections open.
     const legacy = twoProjects();
     legacy.restoreSnapshot({ expandedProjectIds: [] });
-    expect([legacy.pinnedCollapsed, legacy.projectsCollapsed, legacy.sessionsCollapsed]).toEqual([
+    expect([legacy.pinnedCollapsed, legacy.projectsCollapsed, legacy.sessionsCollapsed, legacy.chatsCollapsed]).toEqual([
+      false,
       false,
       false,
       false,
     ]);
+  });
+
+  it('keeps the sidebar layout and the open tab across a restart (gugu-dev#181)', () => {
+    const source = twoProjects();
+    source.setListLayout('merged');
+    source.setListPage('chats');
+
+    const restored = twoProjects();
+    restored.restoreSnapshot(source.snapshot);
+    expect([restored.listLayout, restored.listPage]).toEqual(['merged', 'chats']);
+
+    // Older blobs (and unknown values) land on the default: Projects and Chats as two tabs, Projects open.
+    const legacy = twoProjects();
+    legacy.restoreSnapshot({ expandedProjectIds: [] });
+    expect([legacy.listLayout, legacy.listPage]).toEqual(['split', 'projects']);
   });
 });
 

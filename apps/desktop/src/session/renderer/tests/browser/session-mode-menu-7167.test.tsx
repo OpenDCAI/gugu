@@ -45,7 +45,7 @@ describe('SessionModeMenuView (#7167)', () => {
   /** 菜单里从上到下:单选的那行记 `place:<模式>`,动作记 `action:<模式>`,分隔线记 'sep'。 */
   const popup = () => document.querySelector<HTMLElement>('[data-slot="dropdown-menu-content"]');
   const layout = () => {
-    const menu = popup()!<HTMLElement>('[data-slot="dropdown-menu-content"]')!;
+    const menu = popup()!;
     return [...menu.querySelectorAll<HTMLElement>('[data-testid^="session-mode-"], [data-slot="dropdown-menu-separator"]')].map((el) =>
       el.dataset.slot === 'dropdown-menu-separator'
         ? 'sep'
