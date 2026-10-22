@@ -238,7 +238,7 @@ export function SidePanelSplit({
             板还在滑 —— 线先没了、板还在动,那一下就是"发虚";也❌ 别用 border-l,border-box
             有 1px 地板,收到 0 还会剩一道贴边的线。盖满了就没有分隔对象:线随盖的进度淡出,掀开时淡回。 */}
         <motion.div
-          className="absolute inset-y-0 left-0 z-10 w-px bg-border"
+          className="absolute inset-y-0 left-0 z-10 w-px bg-[var(--border-subtle)]"
           style={{ opacity: uncovered }}
           aria-hidden="true"
         />
