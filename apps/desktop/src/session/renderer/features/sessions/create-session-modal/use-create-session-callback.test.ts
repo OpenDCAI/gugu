@@ -104,9 +104,11 @@ let attachmentEditSeq = 0;
 function Probe({
   creationSurface = 'chat-page',
   birthChatId,
+  taskChatId,
 }: {
   creationSurface?: 'chat-page' | 'session-page'
   birthChatId?: string
+  taskChatId?: string
 }) {
   latest = useCreateSessionCallback({
     selectedProjectId: 'project-1',
@@ -117,6 +119,7 @@ function Probe({
     onCreated: mocks.onCreated,
     creationSurface,
     birthChatId,
+    taskChatId,
   });
   return null;
 }
@@ -247,18 +250,26 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   });
 
   // 群成员里「新建 Agent」:托盘上那个群原样进建会话的参数(主进程据此在身份建出来时进群);没群就没有这一格。
-  it('从群里建:birthChatId 进落库参数;不从群里建就不出现', async () => {
+  it('从群里建:birthGroup 进落库参数,群成员里建的是普通座位;不从群里建就不出现', async () => {
     await act(async () => root.render(React.createElement(Probe, { birthChatId: 'chat-group-1' })));
     act(() => latest?.handleCreateSession());
     await act(async () => {});
-    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthChatId: 'chat-group-1' }));
+    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthGroup: { chatId: 'chat-group-1', asTask: false } }));
   });
 
-  it('不从群里建:落库参数里没有 birthChatId', async () => {
+  // gugu-dev#181 任务 agent 进群一律被动:对话里派的新任务(带着任务卡的落点)坐任务座位。
+  it('对话里派的新任务:birthGroup 是任务座位', async () => {
+    await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page', birthChatId: 'chat-group-1', taskChatId: 'chat-group-1' })));
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthGroup: { chatId: 'chat-group-1', asTask: true } }));
+  });
+
+  it('不从群里建:落库参数里没有 birthGroup', async () => {
     await act(async () => root.render(React.createElement(Probe)));
     act(() => latest?.handleCreateSession());
     await act(async () => {});
-    expect(mocks.createSession.mock.calls[0]?.[0]).not.toHaveProperty('birthChatId');
+    expect(mocks.createSession.mock.calls[0]?.[0]).not.toHaveProperty('birthGroup');
   });
 
   it('startup-capable session-page provider puts the first text in the create payload and skips post-create delivery', async () => {

@@ -491,7 +491,8 @@ describe('session orchestration', () => {
       const row = await spawnSessionForApp({ extensionId: 'board', envelope, prompt: 'x', harness: 'codex', transport: 'pty', project: 'project-2', chat: 'chat-7' });
       expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: 'project-2', projectPath: '' });
       expect(appRow(row.id)).toMatchObject({ provider: 'codex', runtime: 'pty', project_id: 'project-2' });
-      expect(takeBirthGroup(row.id)).toBe('chat-7');
+      // An App's agent is pulled into its chat on purpose: an ordinary seat, not a task seat.
+      expect(takeBirthGroup(row.id)).toEqual({ chatId: 'chat-7', asTask: false });
     });
 
     // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child unless a

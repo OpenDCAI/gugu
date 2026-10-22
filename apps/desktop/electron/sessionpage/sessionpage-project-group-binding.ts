@@ -107,12 +107,6 @@ function projectAgents(roster: LocalAgentRecord[], subject: ProjectGroupSubject,
   })
 }
 
-/** 项目里的 agent 是任务 agent:在群里只接 @ 它的话(gugu-dev#181,与第一个会话进群时同一个设定)。 */
-async function listenPassively(chat: ChatClient, chatId: string, agentUserId: string, ownerUserId: string): Promise<void> {
-  try { await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, agentUserId, 'passive') }
-  catch (error) { throw new ProjectGroupCloudError((error as Error).message) }
-}
-
 /**
  * 建一个只有群主的项目群,答它建完之后的样子:建成 = 'active';这个 id 刚被别处建出来(第一个会话抢先)= 按云端读到的
  * 答(当前账号在里面就是 'active',别人的群照 RLS 读成 'missing')。
@@ -161,7 +155,7 @@ export async function ensureProjectNoticeAccess(
   if (member.error) throw new ProjectGroupCloudError(member.error.message)
   if (member.data) return
   if (!founding) throw new ProjectGroupCloudError('操作 agent 已不在项目群中；明确重新加入后才能发布群通知')
-  const joined = await createGroupAdmin(chat, auth.userId).addAgent(chatId, agentUserId)
+  const joined = await createGroupAdmin(chat, auth.userId).addAgent(chatId, agentUserId, { asTask: true })
     .catch((error: Error) => { throw new ProjectGroupCloudError(error.message) })
   if (joined.status === 'pending_approval') throw new ProjectGroupCloudError('项目群开了「Agent 加入需审批」,创建项目的 agent 等群主同意后才能发布群通知')
 }
@@ -289,14 +283,14 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
         let pendingApproval = 0
         if (state === 'active') {
           for (const agent of landed) {
-            const data = await createGroupAdmin(chat, userId).addAgent(chatId, agent.gugu_user_id)
+            // 项目里的 agent 都是任务 agent:补进项目群也坐任务座位(被动、不发入群提示)。
+            const data = await createGroupAdmin(chat, userId).addAgent(chatId, agent.gugu_user_id, { asTask: true })
               .catch((error: Error) => { throw new ProjectGroupCloudError(error.message) })
             // 群开了「Agent 加入需审批」、而当前账号不是管理员 ⇒ 进了待审,这次不算进群;名册照旧钉着原来的群。
             if (data.status === 'pending_approval') {
               pendingApproval++
               continue
             }
-            await listenPassively(chat, chatId, agent.gugu_user_id, userId)
             joined.add(agent.gugu_user_id)
           }
         }

@@ -15,6 +15,7 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
+import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
@@ -2048,7 +2049,7 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   return project?.name ?? null
 }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
-export async function emdashTakeBirthGroup(sessionId: string): Promise<string | null> {
+export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
 }
 
