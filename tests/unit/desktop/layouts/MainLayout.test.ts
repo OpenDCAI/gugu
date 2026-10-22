@@ -207,7 +207,7 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
   }
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
-const sessionPageViewRequests = { request: vi.fn(), openChat: vi.fn() }
+const sessionPageViewRequests = { request: vi.fn(), openChat: vi.fn(), openSession: vi.fn() }
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',

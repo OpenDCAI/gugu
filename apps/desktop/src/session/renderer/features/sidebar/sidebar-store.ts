@@ -987,12 +987,13 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * 新的在前。壳的对话列表拿它和对话一起按最近活动排。
    */
   get standaloneLines(): SidebarSessionLine[] {
+    // 行的 id 是会话本身(导航 'session' 认它);entry.sessionId 是装它的那一页。
     const entries = this.placement.entries.get(SESSIONS_SECTION) ?? [];
-    const here = new Set(entries.map((entry) => entry.sessionId));
+    const here = new Set(entries.map((entry) => entry.id));
     return entries
       // 置顶的那几条在「置顶」里,❌ 再排一遍。
       .filter((entry) => !entry.isPinned && (!entry.parentSessionId || !here.has(entry.parentSessionId)))
-      .map(({ projectId, sessionId, title, time, group }) => ({ projectId, sessionId, title, time, group }))
+      .map(({ projectId, id, title, time, group }) => ({ projectId, sessionId: id, title, time, group }))
       .sort((a, b) => b.time - a.time);
   }
 

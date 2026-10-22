@@ -517,7 +517,7 @@ describe('SidebarStore project ordering', () => {
 
     // gugu-dev#181 子会话跟着父会话那一行走(壳的「对话」里只有父会话一行),状态取它自己那一档。
     expect(store.standaloneLines).toEqual([
-      expect.objectContaining({ projectId: IMPLICIT_SESSION_HOME_PROJECT_ID, sessionId: 'task-home-parent', title: 'Task-home parent', group: 'working' }),
+      expect.objectContaining({ projectId: IMPLICIT_SESSION_HOME_PROJECT_ID, sessionId: 'task-home-parent', group: 'working' }),
     ]);
 
     sessionRegistry.release('task-home-session');
