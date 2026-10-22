@@ -42,7 +42,8 @@ import {
   permissionSide,
   type DeclaredPermission,
 } from '@shared/extensions/catalog';
-import { claimedSuffixes, compareExtensionVersions, ownPageTab, type ExtensionManifest } from '@shared/extensions/manifest';
+import { claimedSuffixes, compareExtensionVersions, drawnPageTab, type ExtensionManifest } from '@shared/extensions/manifest';
+import { OFFICE_KINDS } from '@renderer/lib/editor/fileKind';
 import { appOpens, appSurfaces } from '@shared/extensions/app-search';
 import { pinsAutoUpdate } from '@shared/extensions/market-entries';
 import {
@@ -78,10 +79,15 @@ export interface ExtensionDetailSubject {
   cloud?: CloudMarketEntryMeta | null;
 }
 
-/** 群里打开的文件,用人话说是什么(「在群组中打开 PDF」);不在这张表里的后缀是它自己的文件格式。 */
-type FileKind = 'pdf' | 'slides' | 'sheets';
-const FILE_KINDS: Record<string, FileKind> = { '.pdf': 'pdf', '.pptx': 'slides', '.xlsx': 'sheets', '.xlsm': 'sheets' };
-const fileKindOf = (suffix: string): FileKind | undefined => FILE_KINDS[suffix.toLowerCase()];
+/**
+ * 群里打开的文件,用人话说是什么(「在群组中打开：PDF」):PDF 和 Office 那几种(编辑器认的同一张表 `OFFICE_KINDS`);
+ * 别的后缀是它自己的文件格式。
+ */
+type FileKind = 'pdf' | (typeof OFFICE_KINDS)[keyof typeof OFFICE_KINDS];
+function fileKindOf(suffix: string): FileKind | undefined {
+  const ext = suffix.replace(/^\./, '').toLowerCase();
+  return ext === 'pdf' ? 'pdf' : Object.hasOwn(OFFICE_KINDS, ext) ? OFFICE_KINDS[ext as keyof typeof OFFICE_KINDS] : undefined;
+}
 
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
@@ -401,25 +407,8 @@ export function AppProductPage({
   }
 
   // ── 装上后多了什么 ──
-  // 同名的几个页签(会话页一个、群里一个)是用的人眼里的同一个页签:一行,各说各的。
-  const tabsByTitle = new Map<string, string[]>();
-  for (const tab of manifest.contributes.tabs) {
-    const toolbar = (tab.toolbar ?? []).map((command) => command.title);
-    const suffixes = [...new Set([...claimedSuffixes(tab, 'session'), ...claimedSuffixes(tab, 'chat')])];
-    const line = toolbar.length
-      ? translate('extensions.addsTabToolbar', { commands: listOf(toolbar, locale) })
-      : suffixes.length
-        ? translate('extensions.addsTabOpens', { suffixes: listOf(suffixes, locale) })
-        : translate('extensions.addsTabPlain');
-    tabsByTitle.set(tab.title, [...(tabsByTitle.get(tab.title) ?? []), line]);
-  }
-  const adds: ReactNode[] = [...tabsByTitle].map(([title, lines]) => (
-    <AddsEntry key={`tab:${title}`} icon={<LayoutGrid className="size-4" />} label={translate('extensions.addsTabTitle', { title })}>
-      {[...new Set(lines)].map((line) => (
-        <i key={line}>{line}</i>
-      ))}
-    </AddsEntry>
-  ));
+  // 页签那几行不在这里:装上以后在哪用,头上「用在哪」那一排已经说了,能打开的文件在信息表里。
+  const adds: ReactNode[] = [];
   // 给 agent 东西的(带程序,或只带技能说明)都有这一行:「给哪些 agent」和那个开关在这里,❌ 只带技能说明的就够不着。
   if (givesAgentTools(declaring)) {
     adds.push(
@@ -487,7 +476,7 @@ export function AppProductPage({
       </AddsEntry>
     );
   }
-  const addsSection = (
+  const addsSection = adds.length === 0 ? null : (
     <section className="mk-dsec" key="adds" data-testid="app-product-adds">
       <h3>{translate('extensions.whatItAdds')}</h3>
       {/* 一项一行,左边图标,右边名目和一句话;不套框 —— 整页唯一的框留给权限。 */}
@@ -559,7 +548,7 @@ export function AppProductPage({
   );
 
   // ── 用在哪:一项一句(任务侧栏 → Agent 工具 → 群组),判据只有 `appSurfaces` ──
-  const page = ownPageTab(manifest);
+  const page = drawnPageTab(manifest);
   const perSessionTab = manifest.contributes.tabs.find((tab) => tab.perSession === true);
   const chatKinds = [...new Set(manifest.contributes.tabs.flatMap((tab) => claimedSuffixes(tab, 'chat')).map(fileKindOf).filter((kind): kind is FileKind => Boolean(kind)))];
   const hasChatFiles = manifest.contributes.tabs.some((tab) => claimedSuffixes(tab, 'chat').length > 0);
@@ -568,7 +557,7 @@ export function AppProductPage({
     text:
       surface === 'task'
         ? page
-          ? translate('extensions.useTaskTab', { title: page.hostPage ? text.name : page.title })
+          ? translate('extensions.useTaskTab', { title: page.title })
           : translate('extensions.useTaskPerSession', { title: perSessionTab?.title ?? text.name })
         : surface === 'agent'
           ? translate(manifest.contributes.mcpServers?.length ? (manifest.contributes.skills ? 'extensions.useAgentToolsSkills' : 'extensions.useAgentTools') : 'extensions.useAgentSkills')

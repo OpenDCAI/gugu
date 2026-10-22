@@ -214,7 +214,7 @@ describe('产品页的语言与去重', () => {
     expect(single).toBe(0);
   });
 
-  it('同名的几个页签一行;带程序又带技能说明的,说明跟在工具那一行里,❌ 单起一行', async () => {
+  it('页签不在「安装后提供的功能」里重复(头上「用在哪」说了);带程序又带技能说明的,说明跟在工具那一行里,❌ 单起一行', async () => {
     const tabs = {
       ...(pomodoro as object),
       contributes: {
@@ -227,9 +227,9 @@ describe('产品页的语言与去重', () => {
       },
     } as never;
     const { text } = await render(subject(tabs));
-    expect(text.split('extensions.addsTabTitle(Office)').length - 1).toBe(1);
-    expect(text).toContain('extensions.addsTabOpens(.pptx)');
-    expect(text).toContain('extensions.addsTabPlain');
+    expect(text).not.toContain('extensions.addsTabTitle');
+    expect(text.split('extensions.useTaskTab(Office)').length - 1).toBe(1);
+    expect(text).toContain('extensions.useGroupFiles(extensions.fileKind.pptx)');
     // 技能说明只出现那一句(从前还单起一行,名目 extensions.addsSkills)。
     expect(text.split('extensions.addsSkills').length - 1).toBe(1);
     expect(text).toContain('extensions.addsSkillsText');

@@ -26,7 +26,7 @@ import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type EnablePlace, type InstallAlsoOnMa
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { AppFeaturedCard } from '@renderer/features/extensions/panel/app-featured';
 import { AppShelfRow } from '@renderer/features/extensions/panel/app-shelf';
-import { MarketCategoryCards, MarketSectionShelf } from '@renderer/features/extensions/panel/market-browse';
+import { MarketCategoryCards } from '@renderer/features/extensions/panel/market-browse';
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { TOO_OLD_CODES } from '@renderer/features/remote-hosts/connection-status';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
@@ -1068,8 +1068,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           entry.dirName.toLowerCase().includes(query.trim().toLowerCase())
         );
 
-  // 市场那一侧的筛选、次序都在服务端(`searchApps`),这里拿到的已经是结果。
-  const marketRows = shelf.status === 'ready' ? shelf.items : [];
+  // 市场那一侧的筛选、次序都在服务端(`searchApps`),这里拿到的已经是结果(`shelf.items`)。
   const installs = shelf.status === 'ready' ? shelf.installs : null;
   const installsText = (extensionId: string) => {
     const count = installs?.[extensionId];
@@ -1328,7 +1327,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   );
   const mine = (
     // 「我的 App」(照 Google Play「管理应用和设备」):装着的那些;有更新时一个红点。
-    <Button type="button" variant={view === 'mine' ? 'secondary' : 'outline'} size="sm" onClick={() => setView(view === 'mine' ? 'home' : 'mine')} data-testid="extensions-tab-installed">
+    <Button type="button" variant={view === 'mine' ? 'secondary' : 'outline'} size="sm" onClick={() => setView('mine')} data-testid="extensions-tab-installed">
       {translate('extensions.myApps')}
       <span className="mk-seg-count">{installedCount}</span>
       {store.updateCount > 0 ? <span className="mk-seg-dot" aria-hidden /> : null}
@@ -1352,7 +1351,11 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             date: new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(item.cloud.publishedAt)),
             version: item.cloud.version,
           });
-  const rowsSection = (testId: string, title: string, subtitle: string | null, rows: ReactNode) => (
+  /**
+   * 一节:标题、下面一句为什么是这几个、一组 App 行。`shelf` = 首页那种一排横着滑(一列 1–3 行,一屏三列);否则平铺成格子。
+   * 格子照旧是 App 行(64px 图标):owner 10-10 嫌 Google Play 那种 140px 大图标过大。
+   */
+  const rowsSection = (testId: string, title: string, subtitle: string | null, rows: ReactNode[], shelf = false) => (
     <section className="mk-sec" data-testid={testId}>
       <h3>
         {title}
@@ -1364,9 +1367,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           </span>
         ) : null}
       </h3>
-      <div className="mk-lockups" role="list" aria-label={title}>
-        {rows}
-      </div>
+      {shelf ? (
+        <AppShelfRow label={title} prevLabel={prevLabel} nextLabel={nextLabel} className={`mk-lockup-shelf is-rows-${Math.min(3, Math.ceil(rows.length / 3))}`}>
+          {rows}
+        </AppShelfRow>
+      ) : (
+        <div className="mk-lockups" role="list" aria-label={title}>
+          {rows}
+        </div>
+      )}
     </section>
   );
   // 翻页:滚到这一行就自动取下一页。还有下一页时写着取到第几条,取的时候换成骨架,取完接在后面,❌ 不整页重画。
@@ -1414,17 +1423,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         ) : null}
         {/* 精选下面每排一个推荐理由(Agent 工具 → 群组协作 → 更多 App),大卡以外每个 App 只出现一次(`marketHome`)。 */}
         {ready.home.map(({ kind, items }) => (
-          <MarketSectionShelf
-            key={kind}
-            testId={`extensions-market-${kind}`}
-            title={translate(kind === 'more' && ready.home.length === 1 ? 'extensions.sectionLatest' : HOME_SECTION_TEXT[kind][0])}
-            subtitle={translate(HOME_SECTION_TEXT[kind][1])}
-            prevLabel={prevLabel}
-            nextLabel={nextLabel}
-            count={items.length}
-          >
-            {items.map((item) => marketRowOf(item))}
-          </MarketSectionShelf>
+          <span className="contents" key={kind}>
+            {rowsSection(
+              `extensions-market-${kind}`,
+              translate(kind === 'more' && ready.home.length === 1 ? 'extensions.sectionLatest' : HOME_SECTION_TEXT[kind][0]),
+              translate(HOME_SECTION_TEXT[kind][1]),
+              items.map((item) => marketRowOf(item)),
+              true
+            )}
+          </span>
         ))}
         {ready.featured.length === 0 && ready.home.length === 0 ? <div className="mk-empty">{translate('extensions.marketEmpty')}</div> : null}
         <div className="mk-foot-links">
@@ -1462,8 +1469,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        {latestSort === 'popular' && !ready.installs ? <p className="mk-note">{translate('extensions.installsUnavailable')}</p> : null}
-        {ready.items.length === 0 ? (
+        {latestSort === 'popular' && !ready.installs ? (
+          <div className="mk-status" role="alert" data-testid="extensions-market-popular-unavailable">
+            <CircleAlert className="size-4 shrink-0" />
+            <span className="min-w-0">{translate('extensions.installsUnavailable')}</span>
+            <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(request)}>
+              {translate('extensions.retry')}
+            </Button>
+          </div>
+        ) : ready.items.length === 0 ? (
           <div className="mk-empty">{translate('extensions.marketEmpty')}</div>
         ) : (
           rowsSection(
@@ -1500,12 +1514,16 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           {translate('extensions.tabCategories')}
         </button>
         {ready.items.length === 0 ? (
-          <div className="mk-empty">
-            {translate('extensions.categoryEmpty', { surface: surface === 'all' ? '' : translate(`extensions.surface.${surface}`) })}
-            <Button type="button" variant="outline" size="sm" onClick={() => setSurface('all')}>
-              {translate('extensions.surface.all')}
-            </Button>
-          </div>
+          surface === 'all' ? (
+            <div className="mk-empty">{translate('extensions.marketEmpty')}</div>
+          ) : (
+            <div className="mk-empty">
+              {translate('extensions.categoryEmpty', { surface: translate(`extensions.surface.${surface}`) })}
+              <Button type="button" variant="outline" size="sm" onClick={() => setSurface('all')}>
+                {translate('extensions.surface.all')}
+              </Button>
+            </div>
+          )
         ) : few ? (
           <section className="mk-sec" data-testid={`extensions-market-category-${category}-list`}>
             <h3>

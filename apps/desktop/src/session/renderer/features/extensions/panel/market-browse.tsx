@@ -1,44 +1,4 @@
-import type { ReactNode } from 'react';
 import type { MarketCategory } from '@shared/extensions/catalog';
-import { AppShelfRow } from './app-shelf';
-import { ExtensionMonogram } from './extension-monogram';
-
-/**
- * 市场首页一排(照 Google Play:一排一个推荐理由):标题、下面一句为什么是这几个、一排 App 行横着滑。
- * 格子照旧是 App 行(64px 图标):owner 10-10 嫌 Google Play 那种 140px 大图标过大。
- */
-export function MarketSectionShelf({
-  testId,
-  title,
-  subtitle,
-  prevLabel,
-  nextLabel,
-  children,
-  count,
-}: {
-  testId: string;
-  title: string;
-  subtitle: string;
-  prevLabel: string;
-  nextLabel: string;
-  /** 几个 App:决定一列放几行(1–3),一屏三列。 */
-  count: number;
-  children: ReactNode;
-}) {
-  return (
-    <section className="mk-sec" data-testid={testId}>
-      <div className="mk-sec-bar">
-        <h3>
-          {title}
-          <span className="mk-sec-sub">{subtitle}</span>
-        </h3>
-      </div>
-      <AppShelfRow label={title} prevLabel={prevLabel} nextLabel={nextLabel} className={`mk-lockup-shelf is-rows-${Math.min(3, Math.ceil(count / 3))}`}>
-        {children}
-      </AppShelfRow>
-    </section>
-  );
-}
 
 /** 「类别」页:一类一张卡,写这一类几个、前三个的图标(照 Google Play 的类别页)。点一张 = 那一类的列表。 */
 export function MarketCategoryCards({
@@ -61,11 +21,14 @@ export function MarketCategoryCards({
             <span>{countOf(card.count)}</span>
           </span>
           <span className="mk-cat-icons" aria-hidden>
-            {card.icons.map((icon, index) => (
-              <span className="mk-icon is-28" key={index}>
-                <ExtensionMonogram name={labelOf(card.category)} iconDataUrl={icon} />
-              </span>
-            ))}
+            {/* 没有图标的 App 不画占位(画的会是类别名的首字,不是那个 App)。 */}
+            {card.icons
+              .filter((icon): icon is string => Boolean(icon))
+              .map((icon) => (
+                <span className="mk-icon is-28" key={icon}>
+                  <img src={icon} alt="" loading="lazy" decoding="async" />
+                </span>
+              ))}
           </span>
         </button>
       ))}

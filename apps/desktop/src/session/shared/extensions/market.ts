@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { appSurfaces } from './app-search';
+import { searchApps, type AppSearchRequest } from './app-search';
 import {
   compareExtensionVersions,
   EXTENSION_API_VERSION,
   EXTENSION_API_VERSION_MIN_SUPPORTED,
-  ownPageTab,
+  drawnPageTab,
   type ExtensionManifest,
 } from './manifest';
 
@@ -118,12 +118,15 @@ export function featuredOf<T extends Pick<CloudMarketEntry, 'manifest' | 'featur
  * - `group`:群组协作 —— 打开群文件、读或转发群消息的 App;
  * - `more`:剩下的,按最近更新排。
  * 次序照 owner:Agent 在群组前。精选大卡以外,每个 App 在这几排里只出现一次;一排凑不够两个就不成排,它的 App 留给后面。
- * 只放这台机器装得了、没停维的。「用在哪」的判据只有 `appSurfaces` 一份。
+ * 只放这台机器装得了、没停维的。「用在哪」和次序都是 `searchApps`(和 agent 的 app_search 同一份),❌ 这里另写。
  */
 export type MarketHomeSection = 'agent' | 'group' | 'more';
 
 export function marketHome<T extends CloudMarketEntry>(entries: readonly T[]): { kind: MarketHomeSection; entries: T[] }[] {
-  const live = entries.filter((entry) => !entry.deprecated && !entry.compat);
+  const records = entries
+    .filter((entry) => !entry.deprecated && !entry.compat)
+    .map((entry) => ({ manifest: entry.manifest, state: 'market' as const, version: entry.version, publishedAt: entry.publishedAt, entry }));
+  const ranked = (request: AppSearchRequest) => searchApps(records, { ...request, sort: 'updated' }).items.map((item) => (item as (typeof records)[number]).entry);
   const shown = new Set<string>();
   const take = (kind: MarketHomeSection, picked: T[], min: number) => {
     const fresh = picked.filter((entry) => !shown.has(entry.manifest.id));
@@ -131,15 +134,11 @@ export function marketHome<T extends CloudMarketEntry>(entries: readonly T[]): {
     for (const entry of fresh) shown.add(entry.manifest.id);
     return [{ kind, entries: fresh }];
   };
-  const agentFirst = (entry: T) => {
-    const page = ownPageTab(entry.manifest);
-    return appSurfaces(entry.manifest).includes('agent') && (!page || page.hostPage === 'settings');
-  };
-  const byUpdated = (a: T, b: T) => b.publishedAt.localeCompare(a.publishedAt) || a.manifest.id.localeCompare(b.manifest.id);
   return [
-    ...take('agent', live.filter(agentFirst), 2),
-    ...take('group', live.filter((entry) => appSurfaces(entry.manifest).includes('group')), 2),
-    ...take('more', live.slice().sort(byUpdated), 1),
+    // Agent 工具:给 agent 的,而且自己不画页面(只有宿主的设置页,或者没有)。
+    ...take('agent', ranked({ surface: 'agent' }).filter((entry) => !drawnPageTab(entry.manifest)), 2),
+    ...take('group', ranked({ surface: 'group' }), 2),
+    ...take('more', ranked({}), 1),
   ];
 }
 

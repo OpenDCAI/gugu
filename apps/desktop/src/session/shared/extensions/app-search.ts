@@ -1,5 +1,5 @@
 import { appSearchText, CAPABILITY_RISK, NETWORK_RISK, type PermissionRisk } from './catalog';
-import { ownPageTab, type ExtensionManifest } from './manifest';
+import { drawnPageTab, type ExtensionManifest } from './manifest';
 import { queryScore, queryWords } from './query-score';
 
 /*
@@ -74,7 +74,7 @@ export function appOpens(manifest: ExtensionManifest): string[] {
 
 /**
  * Where an App is used once installed, in the market's order (owner 10-22: agents before groups):
- * - `task`: a tab beside tasks — a page of its own (`ownPageTab`, not a settings page the host draws) or one per task;
+ * - `task`: a tab beside tasks — a page the App draws itself (`drawnPageTab`) or one per task;
  * - `agent`: tools or skills for agents (`mcpServers`, `skills`);
  * - `group`: work with a group — it opens the group's files, or reads or relays its messages.
  * Read from what the manifest declares, never from what an author says about it.
@@ -85,8 +85,7 @@ export type AppSurface = (typeof APP_SURFACES)[number];
 export function appSurfaces(manifest: ExtensionManifest): AppSurface[] {
   const { tabs, mcpServers, skills } = manifest.contributes;
   const used: Record<AppSurface, boolean> = {
-    // A settings page the host draws (an App that only gives agents tools gets one by default) is not a tab of its own.
-    task: Boolean(ownPageTab(manifest) && !ownPageTab(manifest)?.hostPage) || tabs.some((tab) => tab.perSession === true),
+    task: Boolean(drawnPageTab(manifest)) || tabs.some((tab) => tab.perSession === true),
     agent: Boolean(mcpServers?.length) || Boolean(skills),
     group:
       tabs.some((tab) => (tab.opensFiles?.chat?.length ?? 0) > 0) ||

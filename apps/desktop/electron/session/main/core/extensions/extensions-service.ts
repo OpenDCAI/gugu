@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  declaredContexts,
+  ownPageTab,
   isValidExtensionId,
   parseExtensionManifest,
   safeParseExtensionManifest,
@@ -341,9 +341,10 @@ export class ExtensionsService {
       if (manifest.contributes.toolsListed && !firstInstall.full.includes(manifest.id)) {
         this.fullDisclosureFile.write([...firstInstall.full, manifest.id]);
       }
-      // Owner 10-06「装之后应该自动 pin 吧」: an App with a page of its own goes on the rail (`setDock`'s rule), whoever
-      // installed it — a preinstalled one too. The workspace only opens files, so the same rule leaves it off.
-      const ownPage = manifest.contributes.tabs.some((tab) => declaredContexts(tab).length === 0);
+      // Owner 10-06「装之后应该自动 pin 吧」: an App with a page of its own goes on the rail (`ownPageTab`, the rule the rail
+      // opens by), whoever installed it — a preinstalled one too. The workspace only opens files; a page per task is in many
+      // places at once and has no one place for the rail to go to — the same rule leaves both off.
+      const ownPage = ownPageTab(manifest) !== null;
       if (ownPage && !firstInstall.dock.includes(manifest.id)) {
         this.dockFile.write([...firstInstall.dock, manifest.id]);
       }
@@ -509,12 +510,12 @@ export class ExtensionsService {
 
   /**
    * The whole dock at once: pinning, taking off and reordering are one write of the list. Only installed Apps with a
-   * page of their own — a tab that opens no file; an App that only opens files has nothing to show from the rail.
+   * page of their own (`ownPageTab`): an App that only opens files, or only has a page per task, has nothing to show from the rail.
    */
   setDock(ids: readonly string[]): string[] {
     const dock = [...new Set(ids)];
     for (const id of dock) {
-      if (!this.get(id).manifest.contributes.tabs.some((tab) => declaredContexts(tab).length === 0)) {
+      if (!ownPageTab(this.get(id).manifest)) {
         throw new Error(`"${id}" only opens files; it has no page of its own to pin`);
       }
     }

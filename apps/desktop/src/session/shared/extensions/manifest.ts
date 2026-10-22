@@ -840,6 +840,15 @@ export function ownPageTab<Tab extends ExtensionTabContribution>(manifest: { con
   return manifest.contributes.tabs.find((tab) => declaredContexts(tab).length === 0 && tab.perSession !== true) ?? null;
 }
 
+/**
+ * The page an App draws itself: its own page (`ownPageTab`) unless that is the settings page the host draws for it (an App
+ * that only gives agents tools gets one by default). The market says 「在任务侧栏添加」 only for this one.
+ */
+export function drawnPageTab<Tab extends ExtensionTabContribution>(manifest: { contributes: { tabs: readonly Tab[] } }): Tab | null {
+  const page = ownPageTab(manifest);
+  return page && !page.hostPage ? page : null;
+}
+
 /** Whether the App has something to open in a chat: a page of its own (it opens in any chat), or a tab of chat files. */
 export function opensInChats(manifest: ExtensionManifest): boolean {
   return manifest.contributes.tabs.some((tab) => {

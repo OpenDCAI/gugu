@@ -372,13 +372,13 @@ describe('CloudExtensionMarket.list', () => {
       appOf(id, [versionFor(bytes, id, version, { manifest: { ...manifestOf(id, version), name: id, ...extra } })], more);
     const agentOnly = { contributes: { mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } };
     const site = siteOf([
-      app('browser', '1.0.1', agentOnly),
+      app('browser', '1.0.1', agentOnly, { featured: true }),
       app('computer', '1.0.2', { contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
       // 给 agent 工具、自己有一页、又打开群文件:不算「Agent 工具」那种(它有自己的页),归群组协作。
       app('papers', '1.0.3', { contributes: { tabs: [{ name: 'shelf', title: 'Papers' }, { name: 'reader', title: 'Papers', opensFiles: { chat: ['.pdf'] } }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
       // 只给 agent 工具、没有自己的页(只有宿主画的设置页),又打开群文件:在 Agent 工具那一排出现过,群组那一排不再列它。
       app('scanner', '1.0.8', { contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }, { name: 'view', title: 'Scan', opensFiles: { chat: ['.scan'] } }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
-      app('slides', '1.0.4', { contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] } }),
+      app('slides', '1.0.4', { contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] } }, { featured: true }),
       app('soup', '1.0.5', { contributes: { tabs: [{ name: 'main', title: 'Soup' }] }, permissions: { capabilities: ['chat:read'] } }),
       app('calendar', '1.0.6', {}),
       app('board', '1.0.7', {}),
@@ -388,10 +388,16 @@ describe('CloudExtensionMarket.list', () => {
     const { home } = await market.list({ page: 0 });
     const ids = (entries: { manifest: { id: string } }[]) => entries.map((entry) => entry.manifest.id);
     expect(home.map((section) => [section.kind, ids(section.entries)])).toEqual([
-      ['agent', ['browser', 'computer', 'scanner']],
-      ['group', ['papers', 'slides', 'soup']],
+      ['agent', ['scanner', 'computer', 'browser']],
+      ['group', ['soup', 'slides', 'papers']],
       ['more', ['board', 'calendar']],
     ]);
+    // 推荐页也照「用在哪」筛:选了群组,精选和那几排都只从群组那几个里排(❌ 拿整份目录排)。
+    const grouped = await market.list({ page: 0, surface: 'group' });
+    expect(grouped.home.map((section) => [section.kind, ids(section.entries)])).toEqual([['group', ['soup', 'slides', 'papers']]]);
+    expect(grouped.extensions.map((entry) => entry.manifest.id).sort()).toEqual(['papers', 'slides', 'soup']);
+    expect(ids((await market.list({ page: 0 })).featured)).toEqual(['browser', 'slides']);
+    expect(ids(grouped.featured)).toEqual(['slides']);
     expect((await market.list({ page: 0, search: 'board' })).home).toEqual([]);
     expect((await market.list({ page: 1 })).home).toEqual([]);
   });

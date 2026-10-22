@@ -14,7 +14,7 @@ import type {
 import { compatOf, featuredOf, MARKET_PAGE_SIZE, marketHome, type MarketHomeSection } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 import { MARKET_CATEGORIES, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
-import { searchApps, type AppSearchRecord, type AppSurface } from '@shared/extensions/app-search';
+import { appSurfaces, searchApps, type AppSearchRecord, type AppSearchSort, type AppSurface } from '@shared/extensions/app-search';
 import { queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom, type InvalidMarketRow } from '@shared/extensions/market-entries';
@@ -83,8 +83,8 @@ export interface CloudMarketListing {
   fetchedAt: string;
 }
 
-/** 「最新」页那几种排法:`popular` = 安装数从高到低(读不到安装数时退成按名字,不编一个次序)。 */
-export type MarketListSort = 'relevance' | 'name' | 'newest' | 'updated' | 'popular';
+/** 「最新」页那几种排法:`searchApps` 的几种,加上 `popular` = 安装数从高到低。 */
+export type MarketListSort = AppSearchSort | 'popular';
 
 export interface CloudMarketListOptions {
   /** 第几页,从 0 起。 */
@@ -226,14 +226,16 @@ export class CloudExtensionMarket {
       .filter((record) => !options.category || marketCategoryOf(record.manifest) === options.category)
       .map((record) => (record as (typeof records)[number]).entry);
     const firstPage = page === 0 && queryWords(needle).length === 0;
+    // 推荐页照样只看这样用的:精选、那几排都从筛过「用在哪」的那些里排。
+    const surfaced = options.surface ? extensions.filter((entry) => appSurfaces(entry.manifest).includes(options.surface!)) : extensions;
     return {
       extensions: matched.slice(page * MARKET_PAGE_SIZE, (page + 1) * MARKET_PAGE_SIZE),
       invalid: firstPage ? invalid : [],
       total: matched.length,
       page,
       hasMore: (page + 1) * MARKET_PAGE_SIZE < matched.length,
-      featured: firstPage ? featuredOf(extensions, options.scores ?? new Map()) : [],
-      home: firstPage ? marketHome(extensions) : [],
+      featured: firstPage ? featuredOf(surfaced, options.scores ?? new Map()) : [],
+      home: firstPage ? marketHome(surfaced) : [],
       categories: page === 0 ? categoryCards(items.map((record) => (record as (typeof records)[number]).entry)) : [],
       fetchedAt: new Date(fetchedAt).toISOString(),
     };

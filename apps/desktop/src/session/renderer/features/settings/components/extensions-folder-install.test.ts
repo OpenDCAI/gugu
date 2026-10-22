@@ -67,7 +67,7 @@ const { ExtensionsSettingsCard } = await import('./ExtensionsSettingsCard');
 // How this build refuses an App written for apiVersion 2, as list() hands it over (#6934).
 const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 4 as app_create writes Apps.';
 
-/** The page opens on the market (#7059); these rows live on 已安装. */
+/** The page opens on 推荐 (#7059); these rows live on 我的 App. */
 async function showInstalled(dom: JSDOM) {
   const tab = dom.window.document.querySelector('[data-testid="extensions-tab-installed"]') as HTMLButtonElement;
   await act(async () => void tab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
@@ -89,8 +89,10 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
       root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
     });
     await settle();
+    // 「从文件夹安装」在「我的 App」里(装着的那些在那儿,从文件夹装的也是装到那儿去)。
+    await showInstalled(dom);
     const button = [...dom.window.document.querySelectorAll('button')].find((node) =>
-      /Install from folder|装本地文件夹/.test(node.textContent ?? '')
+      /Install from folder|从文件夹安装/.test(node.textContent ?? '')
     );
     expect(button, 'the Install from folder button').toBeDefined();
     await act(async () => void button!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));

@@ -123,6 +123,16 @@ function readBundleReadme(rootDir: string): string | null {
  * what an extension declares *before* the user consents — installing is never
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
+/** 安装数一分钟读一次:它按天变,而翻页、搜索、产品页每一下都要问一次市场。读不到也记下(一分钟里只记一条 error)。 */
+const INSTALLS_FRESH_MS = 60_000;
+let installsRead: { at: number; value: Map<string, number> | undefined } | null = null;
+async function marketInstalls(onError: (error: unknown) => undefined): Promise<Map<string, number> | undefined> {
+  if (installsRead && Date.now() - installsRead.at < INSTALLS_FRESH_MS) return installsRead.value;
+  const value = await readMarketInstallCounts().catch(onError);
+  installsRead = { at: Date.now(), value };
+  return value;
+}
+
 export const extensionsController = createRPCController({
   list: async () => {
     try {
@@ -497,8 +507,8 @@ export const extensionsController = createRPCController({
    * ❌ 画「这里还没有 App」—— 空清单和读不到清单是两件事。`error` 是原话、只进日志。
    *
    * `page` / `query` / `category` / `surface` / `sort`:一页一页给界面(翻页要看得见),筛、排都是同一份目录上的 `searchApps`。
-   * 安装数(`installs`,档位的下沿)每一问都随着读:卡片、产品页、「最新」页的「热门」都用它。读不到 = `null`、记一条 error,
-   * 界面就不画安装数(❌ 画成 0)。
+   * 安装数(`installs`,档位的下沿):卡片、产品页、「最新」页的「热门」都用它。一分钟读一次(`marketInstalls`),翻页、搜索、
+   * 产品页的同类 App 都用手上那份;读不到 = `null`(一分钟里只记一条 error),界面就不画安装数(❌ 画成 0)。
    *
    * 叫 `marketBrowse`(协议 11):回答的形状(首页按推荐理由分排、类别卡片、安装数)和协议 10 的 `market` 不兼容,旧机器上
    * 没有这个动词,问它回 `unknown_method`,页面据此说「那台机器上的咕咕太旧」。
@@ -514,7 +524,7 @@ export const extensionsController = createRPCController({
       // 首页精选按近期安装量排(只随第一页、不带搜索词):分数读不到时精选只按索引上的 `featured`,市场照常打开(owner 10-19)。
       const [scores, installs] = await Promise.all([
         page === 0 && !query ? readMarketRanking().catch(unreadable('install ranking')) : undefined,
-        readMarketInstallCounts().catch(unreadable('install counts')),
+        marketInstalls(unreadable('install counts')),
       ]);
       const listing = await cloudExtensionMarket().list({ page, search: query, category: args.category, surface: args.surface, sort: args.sort, scores, installs });
       const asItem = ({ manifest, ...cloud }: CloudMarketEntry): MarketListItem => ({
