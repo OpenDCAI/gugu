@@ -3,7 +3,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 let onStatus: ((status: string) => void) | null = null;
-vi.mock('../../../../apps/desktop/electron/realtime-channel', () => ({
+vi.mock('../../../../apps/desktop/electron/realtime-channel', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../apps/desktop/electron/realtime-channel')>()),
   subscribeAuthenticatedElectronRealtimeChannel: async (_client: unknown, _channel: unknown, options: { onStatus: (status: string) => void }) => {
     onStatus = options.onStatus;
     return () => undefined;
@@ -20,6 +21,7 @@ function fakeSupabase() {
     subscribe: () => channel,
     send: async (message: { payload: unknown }) => {
       sent.push(message.payload);
+      return 'ok';
     },
   };
   return { sent, supabase: { realtime: { setAuth: () => undefined }, channel: () => channel, removeChannel: () => undefined } };

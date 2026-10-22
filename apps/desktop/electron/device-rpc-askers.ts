@@ -27,7 +27,7 @@ import {
 import type { DeviceRpcAskerContext, PublishDeviceRpcEvent, PublishDeviceRpcReply } from '@gugu/core/cloud/deviceRpcResponder'
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { ElectronManagedRealtimeChannel } from './realtime-channel'
-import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
+import { sendBroadcast, subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 
 type RpcChannel = {
   on: (kind: 'broadcast', filter: { event: string }, callback: (payload: unknown) => void) => RpcChannel
@@ -132,8 +132,11 @@ export function createDeviceRpcAskers<TChannel>(input: {
   }
 
   const send = (asker: Asker, payload: unknown) => {
-    void asker.channel?.send({ type: 'broadcast', event: 'broadcast', payload }).catch((error: unknown) => {
+    if (!asker.channel) return
+    sendBroadcast(asker.channel, 'broadcast', payload).catch((error: unknown) => {
       warn(`[device-rpc] send failed on ${asker.id.slice(0, 8)}: ${(error as Error)?.message ?? String(error)}`)
+      // 这一帧没送到,发问端那边按 seq 会一直等它:离开这条(经它开的窗口一并关掉),发问端下一问重新报到、窗口重开。
+      leave(asker, 'send_failed')
     })
   }
 
@@ -182,7 +185,7 @@ export function createDeviceRpcAskers<TChannel>(input: {
     }
     const channel = asker.channel
     if (!asker.joined || !channel) return gone()
-    const said = channel.send({ type: 'broadcast', event: 'broadcast', payload: { type: DEVICE_RPC_DETACHED, reason } })
+    const said = sendBroadcast(channel, 'broadcast', { type: DEVICE_RPC_DETACHED, reason })
     void Promise.race([said, new Promise((resolve) => setTimeout(resolve, detachGraceMs))]).then(gone, gone)
   }
 
