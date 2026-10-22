@@ -315,19 +315,17 @@ function onPart(ps: PiecePose, at: RigPiece['at'], x: number, y: number, out: [n
   out[1] = J[1] + J[3] * mx + J[5] * my
 }
 
-/** 部件的网格:挂点跟身体的软网格走,部件本身不被扭(rig.ts) */
-function rigMesh(gl: GuguGL, v: View, p: Part, box: RigPiece['box'], at: RigPiece['at'], ps: PiecePose) {
+/** 部件:挂点跟身体的软网格走,部件本身不被扭(rig.ts),落到画布上是个仿射 —— 四个角就够,画成一格 */
+function rigQuad(gl: GuguGL, v: View, p: Part, box: RigPiece['box'], at: RigPiece['at'], ps: PiecePose) {
   hang(p, at)
   const verts = gl.verts
   let k = 0
-  for (let j = 0; j <= GRID_Y; j++) {
-    const y = box.y + (j / GRID_Y) * box.h
-    for (let i = 0; i <= GRID_X; i++) {
-      onPart(ps, at, box.x + (i / GRID_X) * box.w, y, tmp)
+  for (const y of [box.y, box.y + box.h])
+    for (const x of [box.x, box.x + box.w]) {
+      onPart(ps, at, x, y, tmp)
       verts[k++] = v.ox + tmp[0] * v.s
       verts[k++] = v.oy + tmp[1] * v.s
     }
-  }
 }
 
 /** 一个部件:身后的刚体部件 → 底图(软网格)→ 压在身上的接触阴影 → 身前的刚体部件(形态素材没有 rig,只有底图) */
@@ -340,8 +338,8 @@ function paintPart(gl: GuguGL, f: GuguFrame, p: Part, v: View, alpha: number) {
       const pc = pieces[i],
         ps = poses[i]
       if (ps.depth >= 0 !== front || ps.alpha < 0.004) continue
-      rigMesh(gl, v, p, pc.box, pc.at, ps)
-      gl.drawSprite(pc.id, f.desat, f.dim, alpha * ps.alpha, f.tint)
+      rigQuad(gl, v, p, pc.box, pc.at, ps)
+      gl.drawSprite(pc.id, f.desat, f.dim, alpha * ps.alpha, f.tint, 1, 1)
     }
   }
   piece(false)
@@ -361,8 +359,8 @@ function paintPart(gl: GuguGL, f: GuguFrame, p: Part, v: View, alpha: number) {
     const pc = pieces[i],
       ps = poses[i]
     if (!pc.shade || ps.shade < 0.01) continue
-    rigMesh(gl, v, p, pc.shade.box, pc.at, ps)
-    gl.drawSprite(pc.shade.id, f.desat, f.dim, alpha * ps.shade * ps.alpha, null)
+    rigQuad(gl, v, p, pc.shade.box, pc.at, ps)
+    gl.drawSprite(pc.shade.id, f.desat, f.dim, alpha * ps.shade * ps.alpha, null, 1, 1)
   }
   piece(true)
 }
@@ -388,6 +386,7 @@ export function paintGL(gl: GuguGL, f: GuguFrame, o: DrawOpts, outfit: OutfitDra
       outfit.mesh(gl, f, L, v, o, 'top')
     }
   }
+  gl.flush()
   return { at, next: 0 }
 }
 
