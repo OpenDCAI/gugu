@@ -102,6 +102,11 @@ export type TurnFoldPlan = {
   leading: ChatItem[];
   /** 段:一轮至少一段;钩子每把一轮劈开一次就多一段(#5350,判据见 `planTurnFold`)。 */
   segments: TurnFoldSegment[];
+  /**
+   * agent 在这一轮里自己说过一句有字的话(段的收尾里有一条不空的回复)。钩子的话、提问、`[NO_REPLY]`、
+   * 空白都不算。agent 自己开头的一轮折不折看它(#69)—— ❌ 别从尾巴的形状再推一遍。
+   */
+  spoke: boolean;
 };
 
 /**
@@ -239,7 +244,10 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
   const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   if (visible.every((segment) => segment.process.length === 0)) return null;
-  return { leading: items.slice(0, leadEnd), segments: visible };
+  const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
+    (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
+  );
+  return { leading: items.slice(0, leadEnd), segments: visible, spoke };
 }
 
 /**
@@ -363,6 +371,13 @@ export function planTurnFoldRuns(
         absorbed[i] = true;
         continue;
       }
+      // agent 自己开头、一句话没说的一轮(只有完成通知、`[NO_REPLY]`)不折,也不当锚(#69):折起来外面
+      // 只剩一个空头;当锚的话,下一次被叫醒的那一轮会并进来,头上的用时就把两次之间的空闲也算进去了。
+      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke) {
+        foldPlans[i] = null;
+        anchor = -1;
+        continue;
+      }
       anchor = i;
       foldRuns.set(i, {
         segments: copySegments(fold.segments),
@@ -419,13 +434,12 @@ export function turnFoldView(
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
   // 人问的那一轮(含并进来的后续 cycle)有时间头。agent 自己开头的一轮(后台命令跑完、完成通知把它
-  // 叫醒)同样折、只留最后一句话(#69,owner 2026-10-22,推翻 09-06「自发轮平铺,语义折叠就是它的
+  // 叫醒)跑完了同样折、只留最后一句话(#69,owner 2026-10-22,推翻 09-06「自发轮平铺,语义折叠就是它的
   // 折叠」:读的人分不出哪段是谁开的头,跑完了还摊着过程,看着就是同一问没折)。
-  // 例外:跑完了却一句话都没留下(只有完成通知、`[NO_REPLY]`)—— 折起来外面只剩一个空头,照旧平铺。
-  // 跑着的时候还不知道它会不会开口,先给头(在数、默认摊开,与人问的那一轮一样)。
+  // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
+  // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
-  const leftWords = merged.segments.some((segment) => segment.tail.some((item) => !isContextBoundary(item)));
-  const headed = userRun || active || leftWords;
+  const headed = userRun || (!active && fold.spoke);
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {

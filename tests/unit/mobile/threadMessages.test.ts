@@ -219,10 +219,19 @@ describe('思考与过程折叠(同桌面)', () => {
     ])
   })
 
-  it('agent 自己发起的一轮不画头,平铺(同桌面:时间头只给人问的那一轮)', () => {
-    const agentTurn = { ...turn('t1', [toolItem('c1', 'Bash'), agentItem('a1', '后台跑完了')]), initiator: 'agent' } as TranscriptTurn
+  // owner 2026-10-22(#69):agent 自己开头的一轮跑完了也折,只留最后一句话;一句没说的照旧平铺(同桌面)。
+  it('agent 自己发起、说了话的一轮:跑完折成一个头,那句话在外面', () => {
+    const agentTurn = { ...timed(turn('t1', [toolItem('c1', 'Bash'), agentItem('a1', '后台跑完了')]), 1_000, 5_000), initiator: 'agent' } as TranscriptTurn
     const out = toThreadMessages([agentTurn])
-    expect(out.every((m) => header(m) === undefined)).toBe(true)
+    expect(out.map(header).filter(Boolean)).toEqual([{ id: 't1:process', live: false, startedAt: 1_000, endedAt: 5_000 }])
+    expect(out.at(-1)?.content).toEqual([{ type: 'text', text: '后台跑完了' }])
+  })
+
+  it('agent 自己发起、一句没说的一轮,或还在跑的那一轮:不画头,平铺', () => {
+    const silent = { ...timed(turn('t1', [toolItem('c1', 'Bash')]), 1_000, 2_000), initiator: 'agent' } as TranscriptTurn
+    expect(toThreadMessages([silent]).every((m) => header(m) === undefined)).toBe(true)
+    const running = { ...timed(turn('t2', [toolItem('c2', 'Bash'), agentItem('a2', '在查')]), 3_000), initiator: 'agent' } as TranscriptTurn
+    expect(toThreadMessages([running], { liveTurnId: 't2' }).every((m) => header(m) === undefined)).toBe(true)
   })
 
   it('人问的那一轮没收尾、下一轮 agent 接着干完 ⇒ 并成一个头,回复在外面(同桌面 #4981 合并)', () => {

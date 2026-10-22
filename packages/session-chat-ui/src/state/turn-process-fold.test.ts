@@ -581,19 +581,48 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect([header(units)?.startedAt, header(units)?.endedAt]).toEqual([1_000, 66_000]);
   });
 
-  it('#69 一句话没说的那一轮与紧跟着开口的那一轮并成一个头,只留那句话', () => {
+  it('#69 一句话没说的那一轮不当锚:紧跟着开口的那一轮自己一个头,用时只算它自己', () => {
+    // 两次被叫醒之间可能隔了很久;并成一个头,头上的用时就把这段空闲也算进去了(#70 review)。
     const silent = turn('t12', [row('background-command-done-tool-call', 'bd1'), bash('x1')], DONE, { startedAt: 1_000, endedAt: 2_000 });
-    const spoke = turn('t13', [row('background-command-done-tool-call', 'bd2'), bash('x2'), reply('a13', '验证完了')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    const spoke = turn('t13', [row('background-command-done-tool-call', 'bd2'), bash('x2'), reply('a13', '验证完了')], DONE, { startedAt: 600_000, endedAt: 604_000 });
     const units = flattenTier([silent, spoke], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
-    expect(ids(units)).toEqual([turnProcessId('t12'), 'a13']);
+    const headers = units.filter((u) => u.kind === 'turn-process');
+    expect(headers.map((u) => u.itemId)).toEqual([turnProcessId('t13')]);
+    // 没开口的那一轮平铺(两行语义折成一句),开口的那一轮自己一个头。
+    expect(ids(units)).toEqual([toolRunId('t12', 'bd1'), turnProcessId('t13'), 'a13']);
+    const h = headers[0]?.data as { startedAt?: number; endedAt?: number };
+    expect([h.startedAt, h.endedAt]).toEqual([600_000, 604_000]);
   });
 
-  it('#69 agent 自己开头、正在跑的一轮也有头:在数、默认摊开', () => {
-    const running = turn('t14', [row('background-command-done-tool-call', 'bd'), bash('x1'), bash('x2')], undefined, { startedAt: 5_000 });
+  it('#69 只说了 `[NO_REPLY]` 或空白不算开口:照旧平铺', () => {
+    const quiet = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('nr', '[NO_REPLY]')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const blank = turn('t16', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('ws', '  \n')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    for (const t of [quiet, blank]) {
+      expect(kinds(flattenTier([t], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
+    }
+  });
+
+  it('#69 agent 自己开头、只以钩子的话收尾的一轮:没开口,平铺,钩子的话看得见', () => {
+    const t = turn('t17', [row('background-command-done-tool-call', 'bd'), bash('x1'), hookNotice('hk')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const units = flattenTier([t], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect(ids(units)).toContain('hk');
+  });
+
+  it('#69 一句话没说的自发轮照旧并进前面那一问(那一问还没收尾)', () => {
+    const asked = turn('t18', [user('u18'), bash('x1')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const silent = turn('t19', [row('background-command-done-tool-call', 'bd'), bash('x2')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    const units = flattenTier([asked, silent], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(units.filter((u) => u.kind === 'turn-process').map((u) => u.itemId)).toEqual([turnProcessId('t18')]);
+    expect(ids(units).slice(0, 2)).toEqual(['u18', turnProcessId('t18')]);
+    expect(ids(units)).not.toContain('bd');
+  });
+
+  it('#69 agent 自己开头、正在跑的一轮不套头:开不开口还不知道,跑完再折', () => {
+    const running = turn('t14', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('a14', '在查'), bash('x2')], undefined, { startedAt: 5_000 });
     const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
-    expect(header(units)?.live).toBe(true);
-    expect(ids(units)[0]).toBe(turnProcessId('t14'));
-    expect(ids(units).length).toBeGreaterThan(1);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect(ids(units)).toContain('a14');
   });
 
   it('活动层:时间头带 live 在数,内容**默认摊开**(Codex:跑着的时候看得见在干嘛)', () => {
