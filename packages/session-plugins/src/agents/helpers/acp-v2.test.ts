@@ -169,6 +169,32 @@ describe('connectStdioAcpV2', () => {
     expect(decodeSessionUpdate(pair.updates[1]!.update)).toEqual({ kind: 'ignored' });
   });
 
+  it('takes a whole message as its chunks, and fails the turn loudly when one replaces content already shown', async () => {
+    const taken = Promise.withResolvers<void>();
+    const pair = agentPair({
+      prompt: async () => {
+        await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hi' }] });
+        taken.resolve();
+        return { messageId: 'u1' };
+      },
+    });
+    await initialize(pair.api);
+    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hi' }] });
+    await taken.promise;
+    // A new message's content is appended as chunks; later chunks append to it; a metadata-only
+    // upsert shows nothing.
+    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'one' }] });
+    await pair.send({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: ' two' } });
+    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', _meta: { x: 1 } });
+    await settle();
+    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
+
+    // Replacing content the host already appended is not something the host can show.
+    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'other' }] });
+    await expect(outcome).rejects.toThrow(/agent_message a1 replaces content the host already shows/);
+    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
+  });
+
   it('ends a prompt that the agent took in while an earlier one ran with that work, and waits for a later one', async () => {
     let n = 0;
     const pair = agentPair({

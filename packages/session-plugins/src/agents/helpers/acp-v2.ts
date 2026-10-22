@@ -42,13 +42,22 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
   );
   const turns = new PromptTurns();
   const terminals = new DisplayTerminals();
+  const messages = new MessageContents();
   const deliver = (notification: SessionNotification) => client.sessionUpdate(notification);
 
   const app = v2
     .client({ name: 'gugu' })
     .onNotification(v2.methods.client.session.update, ({ params }) => {
       const { sessionId, update } = params;
-      for (const v1Update of v1Updates(update, terminals)) {
+      let v1: SessionUpdate[];
+      try {
+        v1 = v1Updates(update, terminals, messages);
+      } catch (error) {
+        // An update the host cannot show ends the session's turns with that error, loudly.
+        turns.failed(sessionId, error);
+        throw error;
+      }
+      for (const v1Update of v1) {
         void deliver({ sessionId, update: v1Update });
       }
       // After the update went to the client: the host reads the idle before the prompt's outcome.
@@ -186,6 +195,11 @@ class PromptTurns {
     }
   }
 
+  failed(sessionId: string, error: unknown): void {
+    for (const turn of this.bySession.get(sessionId) ?? []) turn.reject(error);
+    this.bySession.delete(sessionId);
+  }
+
   closed(): void {
     for (const turns of this.bySession.values()) for (const turn of turns) turn.reject(new Error('ACP connection closed'));
     this.bySession.clear();
@@ -200,6 +214,22 @@ function pendingTurn(): PendingTurn {
   // request's own, so this one must not surface as unhandled.
   turn.promise.catch(() => {});
   return turn;
+}
+
+/** The messages of a connection the host already shows content of (message ids are unique). */
+class MessageContents {
+  private readonly shown = new Set<string>();
+
+  append(messageId: string | null | undefined): void {
+    if (messageId) this.shown.add(messageId);
+  }
+
+  replace(kind: string, messageId: string): void {
+    if (this.shown.has(messageId)) {
+      throw new Error(`ACP v2 ${kind} ${messageId} replaces content the host already shows; the host only appends`);
+    }
+    this.shown.add(messageId);
+  }
 }
 
 /**
@@ -255,7 +285,7 @@ function decodeBase64(data: string): string {
 }
 
 /** The v1 updates the host reads for one v2 update (none, one, or a terminal report too). */
-function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): SessionUpdate[] {
+function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messages: MessageContents): SessionUpdate[] {
   switch (update.sessionUpdate) {
     case 'config_option_update': {
       const { configOptions } = update as v2.ConfigOptionUpdate;
@@ -270,13 +300,21 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): Sessi
     }
     case 'agent_message':
     case 'agent_thought': {
-      // A whole message, in place of its chunks: the host appends chunks, so it takes it as one.
+      // An upsert: its content replaces the message's content so far (v2 schema, AgentMessage). The
+      // host only appends chunks, so a message's first content is taken as chunks, and replacing
+      // content the host already shows is refused. Without content it patches only `_meta`.
       const chunk = update.sessionUpdate === 'agent_message' ? 'agent_message_chunk' : 'agent_thought_chunk';
       const message = update as v2.AgentMessage;
+      if (message.content === undefined) return [];
+      messages.replace(update.sessionUpdate, message.messageId);
       return (message.content ?? []).map(
         (content) => ({ sessionUpdate: chunk, messageId: message.messageId, content }) as SessionUpdate,
       );
     }
+    case 'agent_message_chunk':
+    case 'agent_thought_chunk':
+      messages.append((update as { messageId?: string | null }).messageId);
+      return [update as unknown as SessionUpdate];
     case 'tool_call_update': {
       const { content, ...fields } = update as v2.ToolCallUpdate;
       const reports: SessionUpdate[] = [];
