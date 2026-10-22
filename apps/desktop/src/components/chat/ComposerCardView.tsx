@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { labelOfDisplayStatus } from '@gugu/core/shared/ui/agentConversationStatusModels'
-import type { ComposerCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
+import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
+import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 import { Check, Clock, Sparkles } from '@/lib/icons'
 import { useChatStore } from '../../store/chatContext'
@@ -11,10 +12,7 @@ import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import type { AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
 import { platform } from '../../platform'
-import { isScreenView, showSessionBeside } from '../../session/renderer/app/screen-layout-actions'
-import { openSessionInSessionWhenReady } from '../../session/renderer/features/sessions/open-session-in-session'
-import { appState } from '../../session/renderer/lib/stores/app-state'
-import { openSessionInFull } from '../appSlot/peekFullSession'
+import { openTaskCardSession } from './openTaskCardSession'
 
 /**
  * 卡的记号:任务卡画接手那个 agent 的引擎字形(和侧栏会话行同一枚),已安排卡画一枚钟。
@@ -31,7 +29,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
   return (
     <span className="inline-flex items-center gap-1 align-middle">
       <ComposerCardMark type={type} agentUserId={agentUserId} size={12} />
-      {t(type === 'task' ? 'message.taskCard.task' : 'message.taskCard.schedule')}
+      {t(composerCardCopy[type].head)}
     </span>
   )
 }
@@ -41,7 +39,7 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
 export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time }: {
-  card: ComposerCard
+  card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
   chatId: string
@@ -156,15 +154,4 @@ function useMyAgentJoin(chatId: string | null, agentUserId: string | null): 'pen
     return () => { live = false }
   }, [chatId, agentUserId])
   return state
-}
-
-/** 点卡 = 在这一屏上(会话、项目、对话块)就拼在正看着那块右边(与侧栏 ⌘ 点同一条);在聊天页就整页打开它。 */
-function openTaskCardSession(task: TaskCard): void {
-  const target = { projectId: task.projectId, sessionId: task.sessionId }
-  if (isScreenView(appState.navigation.currentViewId)) {
-    showSessionBeside(target)
-    openSessionInSessionWhenReady(target)
-    return
-  }
-  openSessionInFull(target)
 }

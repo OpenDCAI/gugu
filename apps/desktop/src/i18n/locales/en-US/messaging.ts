@@ -694,7 +694,11 @@ export default {
       "rejected": "Not let into the group; its result is in its session",
       "open": "Open this session",
       "line": "New task: {{text}}",
-      "scheduleLine": "Scheduled: {{text}}"
+      "scheduleLine": "Scheduled: {{text}}",
+      "question": "Your input",
+      "questionLine": "Your input: {{text}}",
+      "questionAnswered": "Answered: {{answer}}",
+      "questionInSession": "Answer in the task"
     },
     "unread": "Unread",
     "aiSent": "AI sent",

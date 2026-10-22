@@ -21,7 +21,7 @@ import {
 } from '@renderer/lib/ui/context-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items'
-import { OpenInMenuItems } from '@renderer/lib/components/titlebar/open-in-menu'
+import { OpenInMenuItems, useOpenInTargets } from '@renderer/lib/components/titlebar/open-in-menu'
 import { isGitHubDotComHost, parseRepositoryRef } from '@shared/repository-ref'
 
 const MountedProjectMenu = observer(function MountedProjectMenu({
@@ -38,6 +38,7 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
   const path = asMounted(getProjectStore(projectId))?.data.path ?? null
   const displayName = projectDisplayName(getProjectStore(projectId)) ?? translate('projects.fallbackName')
   const confirmDeleteProject = useConfirmDeleteProject()
+  const openIn = useOpenInTargets(path ?? '')
 
   const repo = getGitRepositoryStore(projectId)
   const remoteUrl = repo?.baseRemote?.url
@@ -55,7 +56,7 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
             <ContextMenuSeparator />
           </>
         ) : null}
-        {path ? <OpenInMenuItems path={path} /> : null}
+        {path ? <OpenInMenuItems targets={openIn} /> : null}
         {remoteUrl && (
           <>
             {path ? <ContextMenuSeparator /> : null}

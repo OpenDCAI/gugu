@@ -3,6 +3,7 @@ import {
   composerCardPreview,
   parseComposerCard,
   serializeComposerCard,
+  type QuestionCard,
   type TaskCard,
 } from '../../../../packages/core/src/shared/ui/taskCardModels'
 
@@ -45,5 +46,32 @@ describe('task card (gugu-dev#181)', () => {
   test('ordinary text is left alone', () => {
     expect(composerCardPreview('hello')).toBeNull()
     expect(composerCardPreview('{"v":1,"type":"widget"}')).toBeNull()
+  })
+})
+
+const question: QuestionCard = {
+  v: 1,
+  type: 'question',
+  text: '要把初始化提前到登录之前吗？会动到 3 个文件。',
+  options: ['提前', '先不动'],
+  ownerUserId: 'owner-1',
+  questionId: 'agent-question:3f1c7a52-0d55-4e0b-9a36-4f2f0a4c9a11',
+  sessionId: 'session-1',
+  projectId: 'project-1',
+  deviceId: 'device-1',
+  machineLabel: 'ThinkPad',
+}
+
+describe('question card (gugu-dev#181 ⑨)', () => {
+  test('round-trips, and its cut reads as a question', () => {
+    const raw = serializeComposerCard(question)
+    expect(parseComposerCard(raw)).toEqual(question)
+    expect(composerCardPreview(raw.slice(0, 100))).toEqual({ type: 'question', text: question.text })
+  })
+
+  test('one that does not say whom it asks, or which question, is not a card', () => {
+    expect(parseComposerCard(JSON.stringify({ ...question, ownerUserId: '' }))).toBeNull()
+    expect(parseComposerCard(JSON.stringify({ ...question, questionId: undefined }))).toBeNull()
+    expect(parseComposerCard(JSON.stringify({ ...question, options: [1] }))).toBeNull()
   })
 })

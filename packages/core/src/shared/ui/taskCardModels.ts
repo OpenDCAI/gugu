@@ -33,7 +33,30 @@ export interface ScheduleCard {
   machineLabel: string
 }
 
-export type ComposerCard = TaskCard | ScheduleCard
+/**
+ * 「需要你」(gugu-dev#181 ⑨): a question an agent asks its owner, posted by the agent into the group the turn came from,
+ * quoting the message it answers. Whether it is still waiting, and what was answered, is read from the session's
+ * settlement — never from this message, which nobody edits after it is sent.
+ */
+export interface QuestionCard {
+  v: 1
+  type: 'question'
+  /** The question, verbatim. */
+  text: string
+  /** The choices, when one pick answers it (one question, single choice); otherwise empty and it is answered in the session. */
+  options: string[]
+  /** The person asked (the agent's owner): only their reply answers it. */
+  ownerUserId: string
+  /** The settlement's item id in that session. */
+  questionId: string
+  sessionId: string
+  /** The session's project on that machine (it opens the session there). */
+  projectId: string
+  deviceId: string
+  machineLabel: string
+}
+
+export type ComposerCard = TaskCard | ScheduleCard | QuestionCard
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value.length > 0
 
@@ -51,6 +74,10 @@ export function parseComposerCard(content: string | null | undefined): ComposerC
   if (card.type === 'schedule' && isText(card.automationId) && isText(card.scheduleLabel)) {
     return card as unknown as ScheduleCard
   }
+  if (card.type === 'question' && Array.isArray(card.options) && card.options.every(isText) && isText(card.ownerUserId)
+    && isText(card.questionId) && isText(card.sessionId) && isText(card.projectId)) {
+    return card as unknown as QuestionCard
+  }
   return null
 }
 
@@ -64,7 +91,7 @@ export function serializeComposerCard(card: ComposerCard): string {
 }
 
 // Whole escapes only: a cut that lands inside one (`\`, `\u12`) ends the words just before it.
-const PREVIEW_HEAD = /^\{"v":1,"type":"(task|schedule)","text":"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\[^u])*)/
+const PREVIEW_HEAD = /^\{"v":1,"type":"(task|schedule|question)","text":"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\[^u])*)/
 
 /** A card's words from a cut-down preview of it (see `serializeComposerCard`), or null when it is not one. */
 export function composerCardPreview(preview: string | null | undefined): { type: ComposerCard['type']; text: string } | null {

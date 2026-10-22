@@ -694,7 +694,11 @@ export default {
       "rejected": "群主没有同意它进群，结果在它的会话里",
       "open": "打开这个会话",
       "line": "新任务：{{text}}",
-      "scheduleLine": "已安排：{{text}}"
+      "scheduleLine": "已安排：{{text}}",
+      "question": "需要你确认",
+      "questionLine": "需要你确认：{{text}}",
+      "questionAnswered": "已回答：{{answer}}",
+      "questionInSession": "到任务里回答"
     },
     "unread": "未读",
     "aiSent": "AI 发送",
