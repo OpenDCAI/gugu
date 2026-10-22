@@ -43,21 +43,12 @@ interface SidebarProps {
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
-// Solar dual-variant: linear (unselected) + bold/solid (selected). Paths per design SSOT.
+// Solar 线框字形;选中只靠格子的底色(gugu-dev#181 原型:线框气泡、选中浅底),❌ 换成实心。Paths per design SSOT.
 // @@@ui-ruler 手写 svg 的 width/height 是 DOM 属性,不是 style,CSS var() 在那个位置不会被解析
 // (只有 CSS 属性会解析 var())。这些图标本就落在 --icon-rail(22px)上,保留字面量 22,不为了引用
 // token 改成 style 覆盖 —— 那样才是新增一处几何。
 
-function ChatIcon({ active }: { active: boolean }) {
-  if (active) {
-    // Solar Chat Round Bold (filled)
-    return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-        <path fill="currentColor" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.592l2.226-.596a1.63 1.63 0 0 1 1.149.133A9.96 9.96 0 0 0 12 22"/>
-      </svg>
-    )
-  }
-  // Solar Chat Round Linear (unselected)
+function ChatIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.592l2.226-.596a1.63 1.63 0 0 1 1.149.133A9.96 9.96 0 0 0 12 22Z"/>
@@ -65,18 +56,7 @@ function ChatIcon({ active }: { active: boolean }) {
   )
 }
 
-function ContactsIcon({ active }: { active: boolean }) {
-  if (active) {
-    // Solar Users Group Two Rounded Bold (filled)
-    return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="9.001" cy="6" r="4" fill="currentColor"/>
-        <ellipse cx="9.001" cy="17.001" fill="currentColor" rx="7" ry="4"/>
-        <path className="gg-rail-back" fill="currentColor" d="M21 17c0 1.657-2.036 3-4.521 3c.732-.8 1.236-1.805 1.236-2.998c0-1.195-.505-2.2-1.239-3.001C18.962 14 21 15.344 21 17M18 6a3 3 0 0 1-4.029 2.82A5.7 5.7 0 0 0 14.714 6c0-1.025-.27-1.987-.742-2.819A3 3 0 0 1 18 6.001"/>
-      </svg>
-    )
-  }
-  // Solar Users Group Two Rounded Linear (unselected)
+function ContactsIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
       <g fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -419,7 +399,7 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
               两边都在会话页侧栏里(顶上「项目 | 对话」两枚页签)。「咕咕」= 栏顶那一格(它自己的头像)。
               对话还没做成会话页的块之前,打开一条对话仍落在聊天页上,那里这一格照样亮着。 */}
           <RailItem
-            icon={<ChatIcon active={messagesActive} />}
+            icon={<ChatIcon />}
             active={messagesActive}
             onClick={() => {
               onTabChange('tasks')
@@ -441,7 +421,7 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
               页里三块(工作台 / 广场 / 找群)同进同出:找群也没有入口 —— owner 追加「现在没有公开群
               的概念,别有公开群」,群设置里的「公开到广场」开关同批撤掉(见 chat/GroupMembersSection)。 */}
           <RailItem
-            icon={<ContactsIcon active={activeTab === 'contacts'} />}
+            icon={<ContactsIcon />}
             active={activeTab === 'contacts'}
             onClick={() => onTabChange('contacts')}
             title={t('shell.contacts')}
