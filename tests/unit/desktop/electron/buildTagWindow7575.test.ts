@@ -11,6 +11,7 @@ function windows() {
     visible: true,
     isVisible() { return this.visible },
     isMinimized: () => false,
+    isFocused: () => false,
     getContentBounds: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     getMediaSourceId: () => 'window:7575:0',
   })

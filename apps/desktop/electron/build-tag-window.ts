@@ -1,6 +1,7 @@
 import type { BrowserWindow, Size } from 'electron'
 import { BUILD_TAG_WINDOW_NAME } from '@shared/aux-window'
 import type { SpecialAuxWindow } from './aux-window'
+import { showChildAbove } from './child-window'
 import { hardenWebPreferences } from './devtools-lock'
 
 /**
@@ -49,11 +50,8 @@ export function createBuildTagAuxWindow(parent: BrowserWindow): SpecialAuxWindow
         if (!parent.isVisible() || parent.isMinimized()) {
           if (child.isVisible()) child.hide()
         } else if (!child.isVisible()) {
-          // 与 agent 原生浮层同样处理:macOS 的 showInactive 会把父窗也提到其他 App 前面。
-          if (process.platform === 'darwin') {
-            child.moveAbove(parent.getMediaSourceId())
-            child.setParentWindow(parent)
-          } else child.showInactive()
+          // 与 agent 原生浮层同样处理(child-window.ts)。
+          showChildAbove(child, parent)
         }
       }
       child.webContents.on('preferred-size-changed', (_event, preferred) => {

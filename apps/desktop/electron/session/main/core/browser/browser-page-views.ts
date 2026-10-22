@@ -12,6 +12,7 @@ import {
   type BrowserPageState,
 } from '@shared/events/browserEvents';
 import { BROWSER_PINCH_MAX_LEVEL } from '@shared/preview/pinch-zoom';
+import { showChildAbove } from '../../../../child-window';
 import { hardenWebPreferences } from '../../../../devtools-lock';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
@@ -550,16 +551,8 @@ function placeOverlay(page: BrowserPage): void {
   }
   const content = host.getContentBounds();
   overlay.setBounds({ x: content.x + rect.x, y: content.y + rect.y, width: rect.width, height: rect.height });
-  if (!overlay.isVisible()) {
-    if (process.platform === 'darwin') {
-      // showInactive 在 macOS 仍会 orderFrontRegardless,把浮窗连同父窗提到别的 App 前面(electron#49393)。
-      // moveAbove 会按父窗现有的位置露出浮窗,不改父窗的层级;露出后再接回原生父子关系,跟着父窗移动、隐藏。
-      overlay.moveAbove(host.getMediaSourceId());
-      overlay.setParentWindow(host);
-    } else {
-      overlay.showInactive();
-    }
-  }
+  // 露出来、挂成真正的子窗:不把父窗提到别的 App 前面,父窗被提前时也不沉下去(child-window.ts)。
+  if (!overlay.isVisible()) showChildAbove(overlay, host);
 }
 
 /** 人的鼠标指到 / 离开小条:指着时子窗接住点击(按「停止」「让 agent 继续」),否则点击穿过去。 */
