@@ -26,7 +26,7 @@ const USER_ID = 'user-1'
 const DEVICE_ID = deterministicDeviceId(MACHINE_ID, USER_ID)
 const FETCH = 'fetch_fair_pending_device_commands'
 
-/** 在线巡检的那一发 RPC 可以被扣住,模拟巡检单程拖到几十秒。 */
+/** 维护那一路的云端读可以被扣住,模拟维护单程拖到几十秒。 */
 class GatedSweepClient extends MemoryRuntimeIdentityClient {
   readonly calls = new Map<string, number>()
   sweepGate: Promise<void> | null = null
@@ -37,7 +37,7 @@ class GatedSweepClient extends MemoryRuntimeIdentityClient {
 
   async rpc(fn: string, args: Record<string, unknown>): ReturnType<MemoryRuntimeIdentityClient['rpc']> {
     this.calls.set(fn, this.count(fn) + 1)
-    if (fn === 'set_agent_runtime_state' && this.sweepGate) await this.sweepGate
+    if (fn === 'get_agent_presence_batch' && this.sweepGate) await this.sweepGate
     return super.rpc(fn, args)
   }
 }
@@ -76,7 +76,7 @@ async function sessionTokenOnDisk(env: NodeJS.ProcessEnv): Promise<string | null
 }
 
 describe('认领命令不排在逐 agent 的维护后面', () => {
-  test('在线巡检卡住时,wake 叫来的命令照样被认领', async () => {
+  test('维护(presence 对账)卡住时,wake 叫来的命令照样被认领', async () => {
     const env = await isolatedGuguEnv('gugu-claim-not-behind-sweep-')
     await createTestLocalAgent(env, {}, { cache: { acp_engine_id: 'codex' }, status: 'active' })
     const client = new GatedSweepClient([], { insertError: 'unused', singleError: 'unused' })
@@ -85,16 +85,16 @@ describe('认领命令不排在逐 agent 的维护后面', () => {
     const { host, wake } = startedHost(env, client, () => 'token')
     host.start()
     try {
-      await until('巡检的那一发已经发出并被扣住', () => client.count('set_agent_runtime_state') >= 1)
+      await until('对账的那一读已经发出并被扣住', () => client.count('get_agent_presence_batch') >= 1)
       await until('wake 已订上', () => wake() !== null)
       client.add(deviceCommandRow({
         id: 'cmd-stop', deviceId: DEVICE_ID, type: 'agent.stop',
         payload: { agent_user_id: TEST_AGENT_USER_ID }, createdAt: new Date().toISOString(),
       }))
       const fetchesBefore = client.count(FETCH)
-      // 不 await:agent.stop 自己也要写 presence,在扣着的闸后面落不了终态;判的是「认领了」。
+      // 不 await:判的是「对账还卡着,命令已认领」。
       void wake()!('cmd-stop')
-      await until('巡检还卡着,命令已被认领', () => client.row('cmd-stop').status !== 'pending')
+      await until('对账还卡着,命令已被认领', () => client.row('cmd-stop').status !== 'pending')
       expect(client.count(FETCH)).toBeGreaterThan(fetchesBefore)
     } finally {
       releaseSweep()
@@ -115,7 +115,7 @@ describe('认领命令不排在逐 agent 的维护后面', () => {
     host.start()
     try {
       await until('首轮 tick 已拿到鉴权', () => client.count(FETCH) >= 1)
-      await until('巡检跑过(阳控:维护的 flight 在转)', () => client.count('set_agent_runtime_state') >= 1)
+      await until('对账读过(阳控:维护的 flight 在转)', () => client.count('get_agent_presence_batch') >= 1)
       await rm(blocker, { recursive: true })
       await awaitFact('没写成的那一档在下一轮补上,令牌不变也补', async () => ((await sessionTokenOnDisk(env)) === 'token-1' ? true : undefined))
       const written = await readFile(blocker, 'utf8')
