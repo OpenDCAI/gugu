@@ -1,30 +1,13 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
-import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { installShellSlots, readShellSlots } from '../lib/shellSlots'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
-import { CHAT_LIST_SLOT_KEY, publishSidebarChatSignals, type SidebarChatSignals } from '../lib/sidebarChatsBridge'
+import { CHAT_LIST_SLOT_KEY, publishSidebarChatSignals, sidebarChatSignals } from '../lib/sidebarChatsBridge'
 import { useChatStore } from '../store/chatContext'
 import { ChatListPanel } from './ChatListPanel'
 
 installShellSlots()
-
-/**
- * 项目群(及从它开出来的话题)的未读记在那个群名下,其余记进「对话」;免打扰的不算(gugu-dev#181:
- * 「对话」页签挂对话那边的未读总数,项目行与「项目」页签挂项目群的未读)。只读未读数,真读了它自己会减。
- */
-export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats: ReadonlySet<string>): SidebarChatSignals {
-  let chatsUnread = 0
-  const groupUnread = new Map<string, number>()
-  for (const chat of chats) {
-    if (chat.unread_count <= 0 || chat.is_muted) continue
-    const line = chat.kind === 'topic' ? (chat.source_chat_id ?? chat.id) : chat.id
-    if (projectGroupChats.has(line)) groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
-    else chatsUnread += chat.unread_count
-  }
-  return { chatsUnread, groupUnread }
-}
 
 const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 

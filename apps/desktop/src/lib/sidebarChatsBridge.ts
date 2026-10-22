@@ -5,6 +5,7 @@
 //   · 会话页 → 壳:侧栏此刻在看什么 —— 搜索框里的字(一个框搜两边)、正看着的那块对话(那一行高亮)。
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
+import type { ChatItem } from '@gugu/core/shared/types/chat'
 
 /** 会话页侧栏「对话」那一格在 lib/shellSlots 里的键:会话页登记,壳的 components/ChatListSlotHost.tsx 往里画。 */
 export const CHAT_LIST_SLOT_KEY = 'chat-list'
@@ -26,6 +27,22 @@ const SIGNALS_EVENT = 'gugu:sidebar-chat-signals'
 const VIEW_KEY = '__GUGU_SIDEBAR_CHAT_VIEW__'
 const VIEW_EVENT = 'gugu:sidebar-chat-view'
 
+/**
+ * 壳:从聊天列表那一份算出两枚页签和项目行上的数。项目群(及从它开出来的话题)的未读记在那个群名下,其余记进「对话」;免打扰的不算(gugu-dev#181:
+ * 「对话」页签挂对话那边的未读总数,项目行与「项目」页签挂项目群的未读)。只读未读数,真读了它自己会减。
+ */
+export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats: ReadonlySet<string>): SidebarChatSignals {
+  let chatsUnread = 0
+  const groupUnread = new Map<string, number>()
+  for (const chat of chats) {
+    if (chat.unread_count <= 0 || chat.is_muted) continue
+    const line = chat.kind === 'topic' ? (chat.source_chat_id ?? chat.id) : chat.id
+    if (projectGroupChats.has(line)) groupUnread.set(line, (groupUnread.get(line) ?? 0) + chat.unread_count)
+    else chatsUnread += chat.unread_count
+  }
+  return { chatsUnread, groupUnread }
+}
+
 const NO_VIEW: SidebarChatView = { query: '', focusedChatId: null }
 
 function read<T>(key: string): T | null {
@@ -33,7 +50,8 @@ function read<T>(key: string): T | null {
 }
 
 function write(key: string, event: string, value: unknown): void {
-  ;(window as unknown as Record<string, unknown>)[key] = value
+  const target = window as unknown as Record<string, unknown>
+  target[key] = value
   window.dispatchEvent(new Event(event))
 }
 
