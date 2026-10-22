@@ -46,6 +46,7 @@ import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { sessionListFromDigest, startSessionListSync, type SessionListSync } from '@/session/shared/remote-sessions/session-list-sync';
 import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
 import {
+  remoteHostReachable,
   cloudComputerWakeFailureOf,
   findRemoteHostsBridge,
   onRemoteHostsBridgeChange,
@@ -572,7 +573,7 @@ export class RemoteHostsStore {
     for (const device of devices) {
       seen.add(device.id);
       const current = this.hosts.get(device.id);
-      const cameBack = current !== undefined && !reachable(current.device) && reachable(device);
+      const cameBack = current !== undefined && !remoteHostReachable(current.device) && remoteHostReachable(device);
       runInAction(() => {
         if (current) current.device = device;
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
@@ -581,7 +582,7 @@ export class RemoteHostsStore {
       });
       if (!current) this.watch(device.id);
       // 心跳说它在(远程 SSH:设备连接没报问题)就连;刚从离线回来的不等退避。
-      if (reachable(device)) {
+      if (remoteHostReachable(device)) {
         const client = machineClient(device.id);
         if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id);
       }
@@ -679,12 +680,6 @@ export class RemoteHostsStore {
       saveHomeDirs(rest);
     }
   }
-}
-
-/** 心跳说它在;远程 SSH 的机器只看 SSH 这一条(要先登录 / 正在替它升级都不去连,升完那一刻再连)。 */
-function reachable(device: RemoteHostDevice): boolean {
-  if (device.sshLink === 'signInRequired' || device.sshLink === 'updating') return false;
-  return device.isOnline || device.directTerminal;
 }
 
 /**

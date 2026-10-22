@@ -1,6 +1,7 @@
-import { markStreamRead } from './chatMemberReadState'
+import { markMemberRead, markStreamRead } from './chatMemberReadState'
+import { chatDb } from './supabase'
 import { UI_EVENTS } from './uiEvents'
-import type { ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
+import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
 import { persistManualUnread } from '../store/chatRealtimeMutations'
 import { rendererLogger } from './log'
 import type { UnreadLocatorCommit } from './chatUnreadLocatorWindow'
@@ -27,6 +28,34 @@ export function markManualUnreadAndRefresh(
   },
 ): Promise<void> {
   return persistManualUnread(deps.chats, chatId, deps.patchChat, deps.toast).then(() => deps.refresh({ acceptEmpty: true }))
+}
+
+// @@@mark-all-read — 每条未读流(主线 + 每个话题)各发一次现成的已读 RPC。seq 取点击时 store 里的
+// next_message_seq-1:seq 是整个会话共用的计数(话题回复也占号),点击之后到的消息都比它大,留作未读;
+// 第一条未读已经比它大的流(store 还没跟上)跳过。部分失败不回滚,返回失败的会话数。
+export async function markAllChatsReadAndRefresh(deps: {
+  chats: readonly ChatItem[]
+  refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
+}): Promise<{ failedChats: number }> {
+  const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
+  if (error) throw new Error(error.message)
+  const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
+  const failedChatIds = new Set<string>()
+  await Promise.all(((data ?? []) as Array<Record<string, unknown>>).map(async (row) => {
+    const chatId = String(row.chat_id)
+    const seq = seenSeq.get(chatId)
+    if (seq === undefined || Number(row.message_seq) > seq) return
+    const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
+    try {
+      if (rootId) await markStreamRead(chatId, String(row.stream_id), seq, rootId)
+      else await markMemberRead(chatId, seq)
+    } catch (err) {
+      failedChatIds.add(chatId)
+      unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
+    }
+  }))
+  await deps.refresh({ acceptEmpty: true })
+  return { failedChats: failedChatIds.size }
 }
 
 export type OpenableUnreadTarget = {

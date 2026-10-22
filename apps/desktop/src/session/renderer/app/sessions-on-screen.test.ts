@@ -23,7 +23,7 @@ vi.mock('@renderer/lib/ipc', () => ({ rpc: { sessions: { reportSessionsOnScreen:
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
 
 const { auxWindows } = await import('./aux-windows');
-const { sessionPageOnScreen, sessionsOnScreen, wireSessionsOnScreenReport } = await import('./sessions-on-screen');
+const { sessionPageOnScreen, sessionPagesOnScreen, sessionsOnScreen, wireSessionsOnScreenReport } = await import('./sessions-on-screen');
 
 const home = { windowPanes: new Map(), returnFromWindow: () => {} };
 
@@ -55,6 +55,17 @@ describe('sessions on screen', () => {
     auxWindows.add({ kind: 'session', projectId: 'p', sessionId: 'd' });
     expect(sessionsOnScreen().sort()).toEqual(['a', 'c', 'd']);
     expect(['a', 'c', 'd'].every(sessionPageOnScreen)).toBe(true);
+  });
+
+  it('names the project of every session on screen, once per session', () => {
+    setup({ currentViewId: 'session', sessionId: 'a' }, ['a', 'c']);
+    auxWindows.add({ kind: 'tab', projectId: 'q', sessionId: 'e', paneId: 'pane-2', home });
+    auxWindows.add({ kind: 'tab', projectId: 'p', sessionId: 'a', paneId: 'pane-3', home });
+    expect(sessionPagesOnScreen()).toEqual([
+      { projectId: 'p', sessionId: 'a' },
+      { projectId: 'p', sessionId: 'c' },
+      { projectId: 'q', sessionId: 'e' },
+    ]);
   });
 
   it('off the session view, the blocks are not on screen; windows still are', () => {

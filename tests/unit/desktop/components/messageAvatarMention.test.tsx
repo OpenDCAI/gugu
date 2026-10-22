@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from '../../../../apps/desktop/src/components/chat/MessageList'
+import { TopicSplitPane } from '../../../../apps/desktop/src/components/chat/TopicSplitPane'
 import { createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
@@ -38,6 +39,8 @@ async function renderList(overrides: Partial<MessageListRowProps> = {}) {
   const rowProps: MessageListRowProps = {
     rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles,
     onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember,
+    highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+    agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
     selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, ...overrides,
   }
   await renderWithAppProviders(harness, createElement(MessageList, { rows, rowProps, resetKey: 'chat-1' }))
@@ -89,5 +92,18 @@ describe('右键群聊消息头像 → @ 他', () => {
     harness = createReactHarness()
     await renderList({ onMentionMember: undefined })
     expect(rightClick(avatarOf('m-alice'))).toBe(false)
+  })
+
+  // owner 10-22:「在话题中右键 agent 头像没有那个 @ 的功能 …… 说明链路不统一」。分栏手拼的 rowProps 漏了
+  // onMentionMember;现在每个键都是必填,漏接是编译错。这一格从分栏真的组件走一遍:@ 进的是话题自己的输入框。
+  it('话题分栏:右键头像,@ 进话题自己的输入框', async () => {
+    await renderWithAppProviders(harness, createElement(TopicSplitPane, {
+      topic: { chatId: 'topic-1', name: '分片下载失败' }, messages, loading: false, memberProfiles, memberReadSeqs: {}, visibleChats: [],
+      sourceMessagePreview: 'pending', onOpenFile: noop, onDownloadFile: noop, onSend: async () => {}, onSendAttachments: async () => {},
+      onClose: noop, currentUserId: 'user-1', onRevealOlder: noop, mentionMembers: [], onOpenMemberProfile: noop,
+    }))
+    expect(rightClick(avatarOf('m-claude'))).toBe(true)
+    const composer = harness.container.querySelector('[data-topic-split-composer] textarea') as HTMLTextAreaElement
+    expect(composer.value).toBe('@Claude 5 ')
   })
 })

@@ -401,6 +401,9 @@ export class MemoryRuntimeIdentityClient
   cleanupCalls: Record<string, unknown>[] = []
   runtimeStateCalls: Record<string, unknown>[] = []
   markReadCalls: Record<string, unknown>[] = []
+  /** `get_agent_presence_batch` 的次数与云端那一行:没登记的 id 回一行「在、空闲、没有读数」。 */
+  presenceBatchCalls = 0
+  presence = new Map<string, Record<string, unknown>>()
   /** @@@5912 identity lookup(`GET gugu_devices`)的次数 —— 三刀之二判的就是这个账本。 */
   deviceIdentityLookups = 0
   /** @@@5912 假库里那个清扫者有多久没跑了;用例把它调大来测宿主会不会响亮报故障。 */
@@ -469,11 +472,35 @@ export class MemoryRuntimeIdentityClient
         ),
         error: null,
       }
+    } else if (fn === 'get_agent_presence_batch') {
+      this.presenceBatchCalls += 1
+      const ids = args.p_agent_user_ids as string[]
+      return { data: { results: Object.fromEntries(ids.map((id) => [id, this.presence.get(id) ?? presenceRow(id)])) }, error: null }
     } else {
       expect(fn).toBe('set_agent_runtime_state')
       this.runtimeStateCalls.push(args)
     }
     return { data: null, error: null }
+  }
+}
+
+/** `get_agent_presence_batch` 的一条 `presence` 结果(与 identity.build_agent_presence_payload 同形),按需覆盖字段。 */
+export function presenceRow(agentUserId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    status: 'presence',
+    presence: {
+      agent_user_id: agentUserId,
+      account_status: 'active',
+      desired_status: 'online',
+      runtime_status: 'online',
+      activity_status: 'idle',
+      agent_status: null,
+      agent_status_detail: null,
+      recent_actions: [],
+      last_action_at: null,
+      updated_at: '2026-10-22T00:00:00.000Z',
+      ...overrides,
+    },
   }
 }
 

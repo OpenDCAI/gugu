@@ -375,9 +375,13 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
           generation += 1
           opening = null
           setState('closed')
-          warn('会话页宿主连不上', { error: String(error) })
-          options.onOpenFailed?.(error)
-          scheduleRetry()
+          // 开线器说那台机器此刻够不着(离线):这就是离线,❌ 记成「连不上」、❌ 退避空转 —— 停在 closed,
+          // 它回来时由调用方 reconnectNow;有人要用它时再 connect 一次(当场又说够不着,不出网)。
+          if (code !== 'unreachable') {
+            warn('会话页宿主连不上', { error: String(error) })
+            options.onOpenFailed?.(error)
+            scheduleRetry()
+          }
         }
         // 开线失败的原因码(那台机器的咕咕 server 太旧 / SSH 要先登录……)带给调用方,界面按码说人话;原文只进日志。
         // 版本错位说清是哪一边旧(两边各报协议,见 taskhost.open);别的失败一律「连不上」。
