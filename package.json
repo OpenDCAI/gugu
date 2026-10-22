@@ -73,10 +73,10 @@
     "build:frpc": "node scripts/build-frpc-bundle.mjs"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.4.1",
+    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.5.0",
     "@agentclientprotocol/sdk": "1.9.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.293",
-    "@gugu-acp/compat": "1.0.11",
+    "@gugu-acp/compat": "1.0.12",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@parcel/watcher": "^2.5.6",
     "@playwright/mcp": "0.0.83",
