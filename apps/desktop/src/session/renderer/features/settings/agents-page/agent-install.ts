@@ -90,6 +90,7 @@ function commandFailurePresentation(
     stage?: string;
     artifacts?: Array<{ path: string; bytes: number | null }>;
   },
+  translate?: Translate,
 ): AgentInstallErrorPresentation {
   const diagnosticParts = output ? [sanitizeCommandOutput(output)] : [];
   if (facts?.stage) diagnosticParts.unshift(`Failed at stage: ${facts.stage}`);
@@ -106,6 +107,11 @@ function commandFailurePresentation(
   );
   const genericCause = lines.find((line) => /failed|error/i.test(line));
   const cause = specificCause ?? genericCause ?? lines[0];
+  const networkFailure = /tls handshake[^\n]*(?:eof|timeout|timed out)|\b(?:ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN)\b|connection (?:timed out|refused|reset)|tcp connect error|dns error|failed to lookup address|could not resolve host/i.test(output ?? '');
+  const hosts = new Set([...sanitizeCommandOutput(output ?? '').matchAll(/https?:\/\/([a-z0-9][a-z0-9.-]*)(?=[:/?#\s)'"\]]|$)/gi)].map((m) => m[1].toLowerCase()));
+  if (networkFailure && hosts.size === 1) {
+    return { message: copy(translate, 'agentsPage.errDownloadHostUnreachable', { host: [...hosts][0] }), diagnostic };
+  }
   return { message: cause ? `${message}: ${cause}` : message, diagnostic };
 }
 
@@ -125,6 +131,7 @@ export type InstallFailureContext = {
 const FALLBACK_COPY: Partial<Record<MessageKey, string>> = {
   'agentsPage.errPermissionDenied': 'Not enough permission to run that command.',
   'agentsPage.errCommandFailed': 'The command failed',
+  'agentsPage.errDownloadHostUnreachable': 'Cannot reach the download source {host}. Check that your network can access this address, then try again.',
   'agentsPage.errPtyOpenFailed': 'Could not open a terminal to run the command: {detail}',
   'agentsPage.errUnsupportedHost':
     'Gugu cannot install this one here. Install it yourself, then pick that copy above.',
@@ -174,7 +181,7 @@ export function getAgentInstallErrorPresentation(
       const blocked = npmBlockedBinPath(e.output);
       return blocked
         ? occupiedBinPathPresentation(blocked, e.output, context)
-        : commandFailurePresentation(copy(t, 'agentsPage.errCommandFailed'), e.output, e);
+        : commandFailurePresentation(copy(t, 'agentsPage.errCommandFailed'), e.output, e, t);
     })
     .with({ type: 'cancelled' }, (e) =>
       commandFailurePresentation(copy(t, 'agentsPage.errInstallCancelled'), e.output, e),
@@ -319,7 +326,7 @@ export function getAgentUpdateErrorPresentation(
       const blocked = npmBlockedBinPath(e.output);
       return blocked
         ? occupiedBinPathPresentation(blocked, e.output, context)
-        : commandFailurePresentation(copy(t, 'agentsPage.errCommandFailed'), e.output, e);
+        : commandFailurePresentation(copy(t, 'agentsPage.errCommandFailed'), e.output, e, t);
     })
     .with({ type: 'cancelled' }, (e) =>
       commandFailurePresentation(copy(t, 'agentsPage.errInstallCancelled'), e.output, e),

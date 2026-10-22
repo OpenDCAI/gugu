@@ -17,6 +17,10 @@ export class AcpChatTabResource implements TabResource {
     this.store = store;
   }
 
+  get title(): string | undefined {
+    return sessionRegistry.get(this.store.sessionId)?.sessions.get(this.store.sessionId)?.data.title;
+  }
+
   dispose(): void {
     // AcpChatResourceManager owns the store lifetime.
     // The manager disposes the store after grace when the last tab is closed.

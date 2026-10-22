@@ -2,8 +2,10 @@ import { accessTokenExpirySeconds, userIdFromSupabaseAccessToken } from '@gugu/c
 import type { ExtensionCapability } from './manifest';
 import {
   FRAME_TYPE,
+  SYNC_STEP_2,
   encodeAuthFrame,
   encodeCloseFrame,
+  encodeReadOnlySyncReply,
   encodeSyncUpdateFrame,
   isBareFrame,
   readAuthAnswer,
@@ -490,6 +492,9 @@ export class FileSyncRelay {
     const { docName } = splitRoutingKey(head.key);
     const grant = page.grants.get(docName);
     if (!grant) {
+      // Said in the log as well as to the page: which page, which file, what frame — a refusal an App reports is only
+      // its own sentence, and this is the one place that knows why.
+      this.platform.warn('File sync: refused a frame, the page holds no grant for its file', { page: page.id, extensionId: page.extensionId, docName, frame: head.type });
       this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
       return;
     }
@@ -499,9 +504,14 @@ export class FileSyncRelay {
       this.revoke(page.id, 'capability', (g) => g.docName === docName);
       return;
     }
-    if (grant.access === 'ro' && head.carriesUpdate) {
-      this.post(page, { t: 'denied', key: head.key, reason: 'read-only' });
-      return;
+    if (grant.access === 'ro' && head.type === FRAME_TYPE.Sync) {
+      // Yjs Step 2 repeats the whole delete set even when this replica only read the service's content.
+      // A reader sends no content back, but must finish the handshake so the provider gets its confirmation.
+      if (head.syncStep === SYNC_STEP_2) frame = encodeReadOnlySyncReply(head.key);
+      else if (head.carriesUpdate) {
+        this.post(page, { t: 'denied', key: head.key, reason: 'read-only' });
+        return;
+      }
     }
     let socket = page.keys.get(head.key);
     // A Close for a key this page does not hold on the service has nothing to close — and the
@@ -510,6 +520,7 @@ export class FileSyncRelay {
     if (!socket) {
       // Let go of (F106): the connections the page has may finish, no new one opens.
       if (grant.lettingGo) {
+        this.platform.warn('File sync: refused a new connection, its grant is being let go of', { page: page.id, extensionId: page.extensionId, docName, asAgent: grant.asAgent ?? null, frame: head.type });
         this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
         return;
       }

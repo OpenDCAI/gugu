@@ -5,6 +5,8 @@ import { PREFERRED_SESSION_PROVIDERS } from '@shared/core/sessions/new-session-d
 import { AppIcon } from '@renderer/lib/components/app-icon'
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key'
 import { Button } from '../ui/Button'
+import { Chip } from '../ui/Chip'
+import { Check } from '@/lib/icons'
 import { writeFirstRunHarness } from '../../lib/firstRun'
 import { useFirstRunInstaller } from './first-run-install-context'
 import './first-run-harness.css'
@@ -61,7 +63,7 @@ export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: ()
       ) : null}
       {error ? <p className="ta-onb-error" role="alert">{error}</p> : null}
       <div className="ta-onb-actions first-run-harness-actions">
-        <Button variant="primary" size="lg" disabled={!canContinue} onClick={() => void proceed()} data-testid="first-run-harness-continue">
+        <Button variant="primary" size="lg" className="rounded-full" disabled={!canContinue} onClick={() => void proceed()} data-testid="first-run-harness-continue">
           {saving ? t('firstRun.saving') : t('firstRun.continue')}
         </Button>
       </div>
@@ -73,15 +75,15 @@ function HarnessChoice({ id, selected, disabled, onToggle }: {
   id: string; selected: boolean; disabled: boolean; onToggle: () => void
 }) {
   const { t } = useTranslation('main')
+  const name = id === 'codex' ? 'Codex' : 'Claude'
   return (
     <label className="first-run-harness-choice" data-selected={selected} data-testid={`first-run-harness-${id}`}>
-      <div className="first-run-harness-heading">
-        <AppIcon id={id} size={36} />
-        <h2>{id === 'codex' ? 'Codex' : 'Claude'}</h2>
-        <input type="checkbox" checked={selected} disabled={disabled} onChange={onToggle}
-          aria-label={t('firstRun.harnessSelect', { name: id === 'codex' ? 'Codex' : 'Claude' })} />
-      </div>
-      {id === 'codex' ? <p className="first-run-harness-status">{t('firstRun.harnessRecommended')}</p> : null}
+      <input type="checkbox" className="first-run-harness-input" checked={selected} disabled={disabled} onChange={onToggle}
+        aria-label={t('firstRun.harnessSelect', { name })} />
+      {id === 'codex' ? <Chip appearance="filled" className="first-run-harness-badge">{t('firstRun.harnessRecommended')}</Chip> : null}
+      <span className="first-run-harness-check" aria-hidden>{selected ? <Check size={12} /> : null}</span>
+      <AppIcon id={id} size={52} />
+      <h2>{name}</h2>
     </label>
   )
 }

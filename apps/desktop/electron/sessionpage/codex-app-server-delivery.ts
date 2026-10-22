@@ -112,6 +112,7 @@ export interface CodexAppServerRuntimeOptions {
 
 const trackedCodexAppServerSessions = new Set<CodexAppServerSession>()
 const deliveryLog = createLogger('sessionpage/codex-delivery')
+const CODEX_LIVE_WAIT_TIMEOUT_MS = 15_000
 
 // Long-running Codex turns stay valid, but a lost completion must not retain reply routing forever.
 export const CODEX_TURN_COMPLETION_TIMEOUT_MS = 15 * 60_000
@@ -1549,6 +1550,26 @@ export class CodexAppServerSession {
     this.threadLiveListeners.push(listener)
   }
 
+  /** Wait for the same live edge that promotes this session into the delivery registry. */
+  waitUntilLive(timeoutMs = CODEX_LIVE_WAIT_TIMEOUT_MS): Promise<void> {
+    if (this.isLive()) return Promise.resolve()
+    if (this.terminalError) return Promise.reject(this.terminalError)
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error(`codex app-server session ${this.sessionId} did not become live within ${timeoutMs}ms`))
+      }, timeoutMs)
+      this.onThreadLive(() => {
+        if (settled || !this.isLive()) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
+
   private notifyThreadLive(): void {
     const listeners = this.threadLiveListeners
     this.threadLiveListeners = []
@@ -2500,9 +2521,10 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     const session = [...this.byAgent.values()]
       .map((entry) => entry.session)
       .find((candidate) => candidate.belongsToSession(sessionId))
-    if (!session?.threadId || !session.isLive()) {
+    if (!session) {
       throw new Error(`codex app-server session ${sessionId} is not live after reopen`)
     }
+    await session.waitUntilLive()
   }
 
   async tryInjectSessionMessage(

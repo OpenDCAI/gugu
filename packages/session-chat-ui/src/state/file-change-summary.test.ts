@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fileChangeSummary } from './file-change-summary'
+import { computeDiffRows } from '../components/rows/tools/diff/diff-lines'
 import type { ChatItem } from '../model'
 const turn = (items: ChatItem[]) => ({ items })
 const diff = (id: string, path: string, oldText: string | null, newText: string) =>
@@ -11,7 +12,8 @@ describe('settled turn file changes', () => {
     )
     const result = fileChangeSummary(
       [turn([...items, diff('next', '/r/file-0.txt', 'one', 'two')])],
-      't1'
+      't1',
+      computeDiffRows
     )
     expect(result?.files).toHaveLength(5)
     expect(result?.files[0]).toMatchObject({
@@ -29,7 +31,8 @@ describe('settled turn file changes', () => {
           diff('c', '/a/index.ts', 'other', 'next')
         ])
       ],
-      't1'
+      't1',
+      computeDiffRows
     )
     expect(result?.files.map((f) => f.path)).toEqual(['/a/index.ts', '/b/index.ts'])
     expect(result?.files[0]).toMatchObject({ adds: 2, dels: 2 })
@@ -48,7 +51,8 @@ describe('settled turn file changes', () => {
             { ...base, parentToolCallId: 'child' } as ChatItem
           ])
         ],
-        't1'
+        't1',
+        computeDiffRows
       )
     ).toBeNull()
   })
@@ -57,7 +61,8 @@ describe('settled turn file changes', () => {
 it('equal fragment bytes at different positions do not prove a full-file chain', () => {
   const result = fileChangeSummary(
     [turn([diff('a', '/r/file', 'A', 'B'), diff('b', '/r/file', 'B', 'C')])],
-    't1'
+    't1',
+    computeDiffRows
   )
   expect(result?.files[0].diffs).toHaveLength(2)
   expect(result?.files[0]).toMatchObject({ adds: 2, dels: 2 })

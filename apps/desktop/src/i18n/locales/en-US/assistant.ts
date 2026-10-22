@@ -88,7 +88,9 @@ export default {
   "setup": {
     "nameTitle": "Give your assistant a name",
     "membershipUnreadable": "Could not read your membership. Please retry.",
-    "cloudNotOpen": "Cloud hosting is not enabled in this environment yet.",
+    "cloudNotOpen": "Cloud hosting is not enabled and cannot be selected yet.",
+    "cloudStillUnavailable": "Check complete: cloud hosting is still not enabled and cannot be selected.",
+    "chooseComputer": "You can choose “Set up on this computer” to continue.",
     "introStart": "Set up my Gugu",
     "ownerOccupation": "- Occupation: {{occupation}}",
     "back": "Back",

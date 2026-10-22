@@ -73,19 +73,26 @@ export async function resolveLocalAgentRunContext(
 
   const connection: Partial<AgentRunContext> = providerId === 'claude' || providerId === 'codex'
     ? await import('./harness-connections').then(({ resolveHarnessConnection }) =>
-        resolveHarnessConnection(providerId, options))
+        resolveHarnessConnection(providerId, {
+          connectionId: options.connectionId,
+          sessionId: options.sessionId,
+          sourceSessionId: options.sourceSessionId,
+          // 用户在 shell 里导出的 CLAUDE_CONFIG_DIR / CODEX_HOME 就在这份 env 里:「用户自己的配置根」按它算。
+          nativeEnv: env,
+        }))
     : {};
   return {
     cli,
     env,
     selfUpdateEnv: selfUpdate,
-    // 同一格的另一半:用户填的额外参数。判据见 `composeAgentSpawnEnv` 的叠放顺序说明。
-    extraArgs: parseExtraArgs(settings?.extraArgs),
     // 这一家要不要另一个 node 跑(打包机上的 electron 不带 import attributes 时用它)。
     // worker 从前读自己那份 `process.env.GUGU_NODE_BIN` —— 快照,且模型探针那条路压根没读。
     runtimeExecutable: process.env.GUGU_NODE_BIN?.trim() || undefined,
     ...(acpAdapterEntry ? { acpAdapterEntry } : {}),
     ...connection,
+    // 同一格的另一半:用户填的额外参数,后面接所选连接要的参数(Codex API 连接的 `-c` provider)。
+    // 判据见 `composeAgentSpawnEnv` 的叠放顺序说明。
+    extraArgs: [...parseExtraArgs(settings?.extraArgs), ...(connection.extraArgs ?? [])],
     configRootEnv: { ...configRootEnv, ...connection.configRootEnv },
   };
 }

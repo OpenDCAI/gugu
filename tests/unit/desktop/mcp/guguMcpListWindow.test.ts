@@ -105,7 +105,7 @@ describe('windowList', () => {
 
 describe('agent status filter words come from the one core vocabulary', () => {
   it('is exactly the base statuses plus the details, which do not overlap', () => {
-    expect(AGENT_STATUS_FILTER_WORDS).toEqual([...AGENT_STATUSES, ...AGENT_STATUS_DETAILS])
+    expect(AGENT_STATUS_FILTER_WORDS).toEqual([...AGENT_STATUSES, ...AGENT_STATUS_DETAILS, 'archived'])
     expect(new Set(AGENT_STATUS_FILTER_WORDS).size).toBe(AGENT_STATUS_FILTER_WORDS.length)
   })
 
@@ -116,6 +116,7 @@ describe('agent status filter words come from the one core vocabulary', () => {
     expect(matchesAgentStatus(waiting, 'working')).toBe(false)
     expect(matchesAgentStatus({ status: null, detail: null }, 'idle')).toBe(false)
     expect(matchesAgentStatus({ status: null, detail: null }, undefined)).toBe(true)
+    expect(matchesAgentStatus({ status: 'archived', detail: null }, 'archived')).toBe(true)
   })
 
   it('refuses a word outside the vocabulary instead of silently matching nothing', () => {

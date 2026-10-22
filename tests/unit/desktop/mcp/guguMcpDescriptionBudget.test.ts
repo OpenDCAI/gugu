@@ -31,8 +31,9 @@ describe('gugu MCP tool descriptions stay within the Claude Code budget', () => 
     // #7471 adds catalog-only group_create.
     // 10-19 app_list moved into app_search; #7520 adds the catalog-only session_ask_user.
     // 论坛 (10-20) adds the catalog-only forum_reply and forum_read.
-    // #7676 adds eleven catalog-only group administration tools.
-    expect(readings).toHaveLength(57)
+    // Group administration adds eleven catalog-only tools.
+    // Tab management adds catalog-only session_list_tabs / session_close_tab.
+    expect(readings).toHaveLength(59)
     const over = readings.filter(({ chars }) => chars > CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET)
     expect(over, `${readings.length - over.length} of ${readings.length} tools fit ${CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET} chars`).toEqual([])
   })

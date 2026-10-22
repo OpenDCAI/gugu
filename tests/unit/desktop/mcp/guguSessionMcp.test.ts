@@ -20,7 +20,7 @@ import { EXTENSION_TOOL_DEFS, setExtensionCheckAvailable } from '../../../../app
 
 const SESSION_TOOL_NAMES = [
   'session_devices', 'device_actions', 'device_call', 'session_list_harnesses', 'session_list_models',
-  'session_spawn', 'session_ask_user', 'session_children', 'session_message', 'session_open_in_tab',
+  'session_spawn', 'session_ask_user', 'session_children', 'session_message', 'session_open_in_tab', 'session_list_tabs', 'session_close_tab',
   'session_get', 'session_stop', 'session_archive', 'session_set_parent',
 ] as const
 const PROJECT_TOOL_NAMES = PROJECT_TOOL_DEFS.map((def) => def.name)
@@ -85,7 +85,7 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
-  it('注册清单:两份 DEF 恰好 15 个原子工具,名字→分派动作一一对应(前缀在注册机剥掉)', () => {
+  it('注册清单:两份 DEF 的原子工具名字→分派动作一一对应(前缀在注册机剥掉)', () => {
     expect(SESSION_TOOL_DEFS.map((def) => def.name)).toEqual([...SESSION_TOOL_NAMES])
     expect(EXTENSION_TOOL_DEFS.map((def) => def.name)).toEqual([...EXTENSION_TOOL_NAMES])
     // 工具面与分派器不许各写一份动作名清单:动作名 = 工具名剥掉域前缀。
@@ -101,6 +101,8 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       session_children: 'children',
       session_message: 'message',
       session_open_in_tab: 'open_in_tab',
+      session_list_tabs: 'list_tabs',
+      session_close_tab: 'close_tab',
       session_get: 'get',
       session_stop: 'stop',
       session_archive: 'archive',
@@ -139,6 +141,20 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     const names = (await reachableTools(client)).map((tool) => tool.name)
     expect(names).toContain('message_send')
     for (const name of [...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES]) expect(names).toContain(name)
+  })
+
+  it('tab tools stay in catalog, dispatch there, and reject a different session or device', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo(socialContext(async (action) => { seen.push(action); return { tabs: [], tab_count: 0 } }))
+    const listed = (await client.listTools()).tools.map((tool) => tool.name)
+    for (const name of ['session_list_tabs', 'session_close_tab']) expect(listed).not.toContain(name)
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_list_tabs', args: {} } })
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_close_tab', args: { tab_id: 'tab-1' } } })
+    expect(seen).toEqual([{ action: 'list_tabs' }, { action: 'close_tab', tab_id: 'tab-1' }])
+    for (const args of [{ tab_id: 't', session_id: 'session:other' }, { tab_id: 't', device: 'device:other' }, { tab_id: '' }]) {
+      expect((await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_close_tab', args } })).isError).toBe(true)
+    }
+    expect(seen).toHaveLength(2)
   })
 
   // F14 (L7-b) 列出来就得能用:跑不了隐藏页的宿主(咕咕 server)不列 app_check,其余四个照列。与上一条互为对照。
@@ -247,6 +263,8 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
         args: { path: 'src/a.ts', intent: 'preview' },
         dispatched: { action: 'open_in_tab', path: 'src/a.ts', intent: 'preview' },
       },
+      { tool: 'session_list_tabs', args: {}, dispatched: { action: 'list_tabs' } },
+      { tool: 'session_close_tab', args: { tab_id: 'tab-1' }, dispatched: { action: 'close_tab', tab_id: 'tab-1' } },
       { tool: 'session_get', args: {}, dispatched: { action: 'get' } },
       {
         tool: 'session_stop',
@@ -403,7 +421,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
         seen.push(a)
         if (a.action !== 'get') return children
         if (a.session_id === 'c5') throw new Error('machine "B" (device:b) did not answer')
-        return { session_id: a.session_id, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
+        return { session_id: a.session_id, status: children.find((row) => row.session_id === a.session_id)?.status, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
       },
     })
     const call = async (args: Record<string, unknown>) => {
@@ -413,16 +431,32 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     }
 
     const first = await call({ rows: '1' })
-    expect(first.total).toBe(5)
+    expect(first.total).toBe(4)
     expect(first.items[0]!.preview?.ended).toEqual({ kind: 'done', reason: 'refusal' })
     expect(seen.filter((a) => a.action === 'get')).toEqual([{ action: 'get', session_id: 'c1' }])
 
     seen.length = 0
     const rest = await call({ rows: '2-5' })
-    // 窗内 4 行:归档的 c3 不走 get、不带 preview;c5 那台没答,原因落在它自己那一行。
+    // 先筛掉归档再切窗；c5 那台没答,原因落在它自己那一行。
     expect(seen.filter((a) => a.action === 'get').map((a) => a.session_id)).toEqual(['c2', 'c4', 'c5'])
-    expect(rest.items.find((row) => row.session_id === 'session:c3')).not.toHaveProperty('preview')
+    expect(rest.items.map((row) => row.session_id)).toEqual(['session:c2', 'session:c4', 'session:c5'])
     expect(rest.items.find((row) => row.session_id === 'session:c5')?.preview?.error?.message).toContain('did not answer')
+
+    seen.length = 0
+    const archived = await call({ status: 'archived' })
+    expect(archived.total).toBe(1)
+    expect(archived.items).toEqual([expect.objectContaining({ session_id: 'session:c3', status: 'archived' })])
+    expect(archived.items[0]).not.toHaveProperty('preview')
+    expect(seen).toEqual([{ action: 'children' }])
+
+    for (const status of ['', 'idle', 'done']) {
+      const filtered = await call({ status })
+      expect(filtered.items.map((row) => row.session_id)).not.toContain('session:c3')
+    }
+
+    const direct = await client.callTool({ name: 'session_get', arguments: { session_id: 'session:c3' } })
+    expect(direct.isError ?? false, responseText(direct)).toBe(false)
+    expect(JSON.parse(responseText(direct))).toMatchObject({ session_id: 'session:c3', status: 'archived' })
   })
 
   // spec im-mcp 列表约定:rows / name / 工具自己的筛选在注册机判,❌ 进分派器;结果按宿主给的顺序切窗。

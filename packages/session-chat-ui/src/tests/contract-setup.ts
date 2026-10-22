@@ -4,6 +4,7 @@
  */
 import { beforeAll } from 'vitest';
 import '../styles/global.css';
+import '@gugu/session-shared/animation-visibility.css';
 import { clearMathMeasure } from '../components/rows/markdown/math/layout';
 import { fontLoadSpecs } from '../core/measure/pretext-cache';
 import { DEFAULT_THEME } from '../core/theme';

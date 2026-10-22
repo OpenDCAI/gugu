@@ -13,7 +13,7 @@
  * 定格(still):给只能放 <img> 的地方,用同一个引擎、同一份 GL 画一帧静止的样子,转成一张图。
  */
 import { rendererLogger } from '@/lib/log'
-import { UI_EVENTS } from '@/lib/uiEvents'
+import { isAnimationWindowVisible, observeAnimationViewport, subscribeAnimationWindowVisibility } from '@gugu/session-shared/animation-visibility'
 import { clamp } from './geometry'
 import { GuguEngine } from './engine'
 import { drawAvatar, drawnLook, glPasses, lookDiff, paintGL, Crop, DrawOpts, FrameShape, Slots } from './draw'
@@ -76,6 +76,7 @@ export interface AvatarHandle {
   opts: AvatarOpts
   dpr: number
   visible: boolean
+  stopVisibility: () => void
   rect: DOMRect | null
   rectAt: number
   pendingDt: number
@@ -97,8 +98,6 @@ interface Pending {
 
 class Runtime {
   private handles = new Set<AvatarHandle>()
-  private byCanvas = new Map<Element, AvatarHandle>()
-  private io: IntersectionObserver | null = null
   private gl: GuguGL | null = null
   private sprites = new Map<CharacterId, HTMLImageElement>()
   /** GL 素材这次没载下来的角色:先走 2D 定格(❌ 整只空白),过一会儿再试 */
@@ -114,8 +113,6 @@ class Runtime {
   private frameNo = 0
   /** 共用时钟上一次画慢变化的那一格(SLOW_TICK_MS 为一格) */
   private slowTick = -1
-  /** 主进程报的窗口看不看得见(最小化、收进托盘 = false);没有主进程的环境(web / 手机)一直是 true */
-  private windowSeen = true
   private glRebuild: ReturnType<typeof setTimeout> | null = null
   private glRebuildTier = 0
   private glInstalledAt = 0
@@ -142,32 +139,13 @@ class Runtime {
       },
       { passive: true }
     )
-    document.addEventListener('visibilitychange', this.wake)
-    // 主窗关了节流(main.ts backgroundThrottling:false,令牌刷新要它):最小化、收进托盘时 document.hidden 照样是 false、
-    // rAF 照跑(mac1 实测最小化时每秒还画 184 次),只能听主进程报
-    window.addEventListener(UI_EVENTS.windowSeen, (e) => {
-      this.windowSeen = (e as CustomEvent<boolean>).detail
-      this.wake()
-    })
+    subscribeAnimationWindowVisibility(this.wake)
     document.addEventListener('pointerleave', () => {
       this.cursor = null
     })
     window.addEventListener('blur', () => {
       this.cursor = null
     })
-    // 没有 IntersectionObserver 的环境(极老的 WebView / 单测的 jsdom):不做屏外剔除,全部当可见画 —— 只是多画几块。
-    if (typeof IntersectionObserver !== 'undefined') {
-      this.io = new IntersectionObserver(
-        (entries) => {
-          for (const en of entries) {
-            const h = this.byCanvas.get(en.target)
-            if (h) h.visible = en.isIntersecting
-          }
-          this.wake()
-        },
-        { rootMargin: '80px' }
-      )
-    }
     this.wake()
   }
 
@@ -273,6 +251,7 @@ class Runtime {
       opts,
       dpr,
       visible: true,
+      stopVisibility: () => {},
       rect: null,
       rectAt: 0,
       pendingDt: 0,
@@ -281,16 +260,17 @@ class Runtime {
       next: []
     }
     this.handles.add(h)
-    this.byCanvas.set(canvas, h)
-    this.io?.observe(canvas)
+    h.stopVisibility = observeAnimationViewport(canvas, (visible) => {
+      h.visible = visible
+      this.wake()
+    }, '80px')
     this.wake()
     return h
   }
 
   unregister(h: AvatarHandle) {
     this.handles.delete(h)
-    this.byCanvas.delete(h.canvas)
-    this.io?.unobserve(h.canvas)
+    h.stopVisibility()
   }
 
   private lookFor(h: AvatarHandle, now: number): { x: number; y: number } | null {
@@ -311,7 +291,7 @@ class Runtime {
     // 没人看得见就停:窗口藏起来、一只都不在视口里
     this.raf = 0
     this.idle = null
-    if (!this.ready || document.hidden || !this.windowSeen || ![...this.handles].some((h) => h.visible)) return
+    if (!this.ready || !isAnimationWindowVisible() || ![...this.handles].some((h) => h.visible)) return
     let fast = false
     const dt = this.last ? (ms - this.last) / 1000 : 1 / 60
     this.last = ms

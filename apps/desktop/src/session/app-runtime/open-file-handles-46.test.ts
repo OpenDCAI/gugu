@@ -106,13 +106,23 @@ describe('a file that stops moving is said out loud (摩擦单 F46)', () => {
     await expect(refused).rejects.not.toMatchObject({ message: expect.stringContaining('did not answer within') });
   });
 
-  it('main refusing an open file: gone, and reported — never still `online`', async () => {
+  it.each(['read-only', 'key-in-use'])('main refusing an open file (%s): the pending replica ends and is reported once', async (reason) => {
     const { service, host, open } = await page();
     const file = await open();
+    await until(() => file.saved);
+    service.silent = true;
+    file.insert(0, 'refused');
+    expect(file.saved).toBe(false);
     const key = [...service.keys][0]!;
-    service.toPage?.({ data: { t: 'denied', key, reason: 'key-in-use' } });
+    service.toPage?.({ data: { t: 'denied', key, reason } });
     await until(() => file.status === 'gone');
-    expect(host.reportError).toHaveBeenCalledWith(expect.stringContaining('key-in-use'));
+    await until(() => service.keys.size === 0);
+    service.toPage?.({ data: { t: 'denied', key, reason } });
+    expect(host.reportError).toHaveBeenCalledTimes(1);
+    expect(host.reportError).toHaveBeenCalledWith(expect.stringContaining(reason));
+    expect(service.text('item-1@1')).toBe('');
+    expect(() => file.insert(0, 'again')).toThrow(expect.objectContaining({ code: 'failed' }));
+    file.close();
   });
 });
 

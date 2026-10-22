@@ -3,6 +3,7 @@ import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding'
 import { Button } from '@/components/ui/Button'
 import { PaneHeader } from '@/components/ui/Pane'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
+import { canSetUpCloudAssistant } from '@/lib/assistantHome'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { reloadMyAssistant } from '@/lib/myAssistant'
 import { useAuth } from '@/store/auth'
@@ -72,7 +73,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       <div className="ta-phone" data-testid="mobile-assistant-gate-onboarding">
         <PaneHeader mobile title={who} />
         <main className="ta-phone-gate ta-phone-onboarding">
-          <AssistantOnboarding ownerUserId={user.id} ownerName={ownerName} snapshot={snapshot} device={device} cloudAvailable={!!cloudComputer?.available} localDeviceId={null} />
+          <AssistantOnboarding ownerUserId={user.id} ownerName={ownerName} snapshot={snapshot} device={device} cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)} localDeviceId={null} />
         </main>
       </div>
     )
