@@ -14,7 +14,6 @@ import { platform } from '../../platform'
 import { showSessionBeside } from '../../session/renderer/app/screen-layout-actions'
 import { openSessionInSessionWhenReady } from '../../session/renderer/features/sessions/open-session-in-session'
 import { appState } from '../../session/renderer/lib/stores/app-state'
-import { AgentNeedsUserGlyph } from '../AgentNeedsUserGlyph'
 import { openSessionInFull } from '../appSlot/peekFullSession'
 
 /**
@@ -94,14 +93,17 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   )
 }
 
-/** 行尾那一格:在跑 = 跳动的点、需要你 = 叹号、出错 = 红点、做完(空闲 / 后台静止)= 勾;归档 / 离线不画。 */
+/**
+ * 行尾那一格,和侧栏会话行同一套点(AgentStatusGlyph 的色调):在跑 = 跳动的点、需要你 = 琥珀点、出错 = 红点、
+ * 做完(空闲 / 后台静止)= 勾;归档 / 离线不画。
+ */
 function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
   if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
   const label = t(`agentStatus.${labelOfDisplayStatus(status)}`)
-  if (status === 'needs_user') return <span role="img" aria-label={label} title={label}><AgentNeedsUserGlyph size={12} /></span>
   if (status === 'idle' || status === 'parked') return <Check role="img" aria-label={label} size={14} className="text-[var(--muted-fg)]" />
-  const tone = status === 'working' ? 'bg-[var(--agent-tone-running)] animate-pulse motion-reduce:animate-none' : 'bg-[var(--agent-tone-error)]'
+  const tone = status === 'working' ? 'bg-[var(--agent-tone-running)] animate-pulse motion-reduce:animate-none'
+    : status === 'needs_user' ? 'bg-[var(--agent-tone-needs-user)]' : 'bg-[var(--agent-tone-error)]'
   return <span role="img" aria-label={label} title={label} className={`mx-[3px] size-2 rounded-full ${tone}`} />
 }
 
