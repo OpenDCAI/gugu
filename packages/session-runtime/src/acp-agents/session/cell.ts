@@ -177,7 +177,6 @@ export class SessionCell {
   private reportsState = false;
   /** 自报状态的家:请求先答复了、agent 还在干活 ⇒ 记下怎么停的,等它报 idle 时落定。 */
   private pendingWorkEnd: { outcome: TranscriptTurnOutcome; dequeueQueuedPrompt?: boolean } | null = null;
-  private recordedWorkTurnId: string | null = null;
   /** 自报状态的家:agent 报了 idle、可还有请求没答复 ⇒ 等那条答复带着结局来落定。 */
   private idleReported = false;
   /** 发出去的句数(含回放):转录行 id 与回合信封的序号用它,❌ 不是状态。 */
@@ -263,11 +262,6 @@ export class SessionCell {
   get sessionState(): SessionState {
     const state = this.machine.sessionState(this.transcript.activeTurn?.id ?? null);
     return this.reverting ? { ...state, canSubmit: false } : state;
-  }
-
-  /** Group settled at the latest work boundary; an empty autonomous cycle has no group. */
-  get lastRecordedTurnId(): string | null {
-    return this.recordedWorkTurnId;
   }
 
   get promptDraft(): PromptDraft | null {
@@ -1262,7 +1256,8 @@ export class SessionCell {
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
-    this.recordedWorkTurnId = this.transcript.activeTurn?.id ?? null;
+    // The group this ending settles; the machine records it with the outcome (null: an empty cycle had no group).
+    const turnId = this.transcript.activeTurn?.id ?? null;
     this.transcript.settleTurn(outcome);
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
@@ -1270,6 +1265,7 @@ export class SessionCell {
       this.applyEvent({
         type: 'WorkEnded',
         outcome: machineOutcome(outcome),
+        turnId,
         ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}),
       });
     }

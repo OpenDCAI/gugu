@@ -88,8 +88,8 @@ function summary(lifecycle: 'working' | 'ready', outcome: { lastTurnOutcome: str
     ...outcome,
   };
 }
-const working = () => ({ ...summary('working', { lastTurnOutcome: null, lastStopReason: null }), activeTurnId: 'original-turn' });
-const done = () => summary('ready', { lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' });
+const working = () => summary('working', { lastTurnOutcome: null, lastStopReason: null });
+const done = () => ({ ...summary('ready', { lastTurnOutcome: 'stopped', lastStopReason: 'end_turn' }), lastTurnId: 'original-turn' });
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -123,13 +123,10 @@ describe('ACP 状态桥:运行时晚起来也接得上', () => {
     expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.type)).toEqual(['start']);
 
     const live = replicas.filter((r) => !r.disposed).at(-1)!;
-    // endWork commits the transcript first, while lifecycle is still working; the active ID is already cleared.
-    live.value = { [SESSION]: { ...working(), activeTurnId: null, lastRecordedTurnId: 'original-turn' } };
-    live.onChange?.(live.value);
-    live.value = { [SESSION]: { ...done(), activeTurnId: null, lastRecordedTurnId: 'original-turn' } };
+    live.value = { [SESSION]: done() };
     live.onChange?.(live.value);
     expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.type)).toEqual(['start', 'stop']);
-    expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.payload.turnId)).toEqual(['original-turn', 'original-turn']);
+    expect(emitted.filter((e) => e.sessionId === SESSION).map((e) => e.payload.turnId)).toEqual([undefined, 'original-turn']);
     bridge.dispose();
   });
 

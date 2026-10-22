@@ -321,3 +321,75 @@ describe('ACP status projection: how the agent stopped (#6448)', () => {
     expect(() => deriveAcpAgentStatusActions(working(), summary())).toThrow(/without a recorded outcome/);
   });
 });
+
+/**
+ * A stop or error reports the group the runtime recorded with that ending, read from the summary that carries the
+ * ending. The runtime settles the transcript group before it records the ending, so the summary in between shows
+ * work still running with no open group; a turn read from the open group or from neighbouring summaries is lost or
+ * wrong there.
+ */
+describe('ACP status projection: the turn an ending reports', () => {
+  function events(steps: ReadonlyArray<SessionSummary | undefined>): Array<{ type: string; turnId?: string }> {
+    const out: Array<{ type: string; turnId?: string }> = [];
+    let previous: SessionSummary | undefined;
+    for (const next of steps) {
+      for (const action of deriveAcpAgentStatusActions(previous, next)) {
+        if (action.kind === 'event') out.push({ type: action.event.type, ...(action.event.payload.turnId ? { turnId: action.event.payload.turnId } : {}) });
+      }
+      previous = next;
+    }
+    return out;
+  }
+  const settledButNotEnded = () => working({ lastTurnId: null });
+
+  it('a stop and an error carry the group recorded with them, even after a summary with no open group', () => {
+    expect(events([
+      summary(),
+      working(),
+      settledButNotEnded(),
+      summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', lastTurnId: 'c1:turn:0' }),
+      working(),
+      settledButNotEnded(),
+      summary({ lastTurnOutcome: 'errored', lastTurnId: 'c1:turn:1' }),
+    ])).toEqual([
+      { type: 'start' },
+      { type: 'stop', turnId: 'c1:turn:0' },
+      { type: 'start' },
+      { type: 'error', turnId: 'c1:turn:1' },
+    ]);
+  });
+
+  it('an ending that settled no group carries no turn, never an older one', () => {
+    expect(events([
+      summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', lastTurnId: 'c1:turn:0' }),
+      working({ lastTurnId: null }),
+      summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', lastTurnId: null }),
+    ])).toEqual([{ type: 'start' }, { type: 'stop' }]);
+  });
+
+  it('a provider lost mid-turn reports the turn it settled; lost while idle reports none', () => {
+    expect(events([
+      working(),
+      summary({ lifecycle: 'lost', lastTurnOutcome: 'errored', lastTurnId: 'c1:turn:2' }),
+    ])).toEqual([{ type: 'start' }, { type: 'error', turnId: 'c1:turn:2' }]);
+    expect(events([
+      summary({ lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', lastTurnId: 'c1:turn:0' }),
+      summary({ lifecycle: 'lost', lastTurnOutcome: 'stopped', lastStopReason: 'end_turn', lastTurnId: 'c1:turn:0' }),
+    ])).toEqual([{ type: 'error' }]);
+  });
+
+  it('the error kept across process close and summary removal still carries its turn', () => {
+    expect(events([
+      working(),
+      summary({ lifecycle: 'closed', lastTurnOutcome: 'errored', lastTurnId: 'c1:turn:3' }),
+    ])).toEqual([{ type: 'start' }, { type: 'error', turnId: 'c1:turn:3' }]);
+    expect(events([
+      summary({ lastTurnOutcome: 'errored', lastTurnId: 'c1:turn:4' }),
+      undefined,
+    ])).toEqual([{ type: 'error', turnId: 'c1:turn:4' }]);
+  });
+
+  it('starts and waits carry no turn', () => {
+    expect(events([summary(), working({ ...waits(['r1', 'approval']) })])).toEqual([{ type: 'start' }, { type: 'wait' }]);
+  });
+});

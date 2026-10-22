@@ -2213,19 +2213,46 @@ function reportingCell() {
 }
 
 describe('SessionCell idle turns and queue commands', () => {
-  it('does not reuse a previous turn locator when an agent reports a work cycle without a transcript group', async () => {
+  it('publishes a failed ending together with the group it settled, in every state a reader can observe', async () => {
+    const seen: Array<{ lifecycle: string; lastTurnOutcome: string; lastTurnId: string | null | undefined; open: boolean }> = [];
+    let cell: SessionCell | undefined;
+    const observe = () => {
+      if (!cell) return;
+      const state = cell.sessionState;
+      seen.push({ lifecycle: state.lifecycle, lastTurnOutcome: state.lastTurnOutcome, lastTurnId: state.lastTurnId,
+        open: cell.history().active !== null });
+    };
+    const made = makeCell(new FakeAcpAgent(), { callbacks: { onSessionStateChanged: observe, onTranscriptChanged: observe } });
+    cell = made.cell;
+    made.agent.prompt = vi.fn().mockRejectedValue(new Error('provider cause'));
+
+    await made.cell.prompt({ text: 'fails' });
+
+    const failed = made.cell.history().committed.at(-1)!;
+    expect(failed.outcome?.kind).toBe('error');
+    // The transcript settles the group before the machine records the ending, so some observation shows working
+    // with no open group: the turn cannot be recovered from the open group there, only from the ending itself.
+    expect(seen).toContainEqual(expect.objectContaining({ lifecycle: 'working', open: false, lastTurnId: null }));
+    for (const state of seen) {
+      if (state.lastTurnOutcome === 'none') expect(state.lastTurnId).toBeNull();
+      else expect(state).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'errored', lastTurnId: failed.id });
+    }
+    expect(seen.at(-1)).toMatchObject({ lastTurnOutcome: 'errored', lastTurnId: failed.id });
+  });
+
+  it('records the group an ending settled with that ending, and no group for a cycle that opened none', async () => {
     const { cell } = makeCell();
     expect(isOk(await cell.prompt({ text: 'previous input', origin: 'typed' }))).toBe(true);
     const previous = cell.history().committed.at(-1)!;
-    expect(cell.lastRecordedTurnId).toBe(previous.id);
+    expect(cell.sessionState).toMatchObject({ lastTurnOutcome: 'stopped', lastTurnId: previous.id });
 
     cell.setReportsState(true);
     cell.push({ kind: 'agent_state', state: 'running' });
     expect(cell.history().active).toBeNull();
+    expect(cell.sessionState).toMatchObject({ lifecycle: 'working', lastTurnOutcome: 'none', lastTurnId: null });
     cell.push({ kind: 'agent_state', state: 'idle' });
-    expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.sessionState).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: null });
     expect(cell.history().committed.at(-1)?.id).toBe(previous.id);
-    expect(cell.lastRecordedTurnId).toBeNull();
   });
   /**
    * #6191 —— 没声明自发轮的家(copilot 那种:usage 从不带 cost),取消之后补来的一句

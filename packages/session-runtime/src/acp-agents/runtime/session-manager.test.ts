@@ -52,7 +52,7 @@ function platformInjection() {
 }
 
 describe('AcpRuntime session manager', () => {
-  it('keeps a committed turn locator after activeTurnId is cleared, without adding its content to the summary', async () => {
+  it('publishes the ended group with the ending in the session summary, without adding its content', async () => {
     const { rt, sessionId } = await startHarness('conv-activity-anchor');
     expect(isOk(await rt.sendPrompt(sessionId, { text: 'ACTIVITY PRIVATE INPUT' }))).toBe(true);
     const history = rt.getHistory(sessionId);
@@ -61,19 +61,19 @@ describe('AcpRuntime session manager', () => {
     const last = history.data.turns.at(-1);
     expect(last?.id).toBeTruthy();
     const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
-    expect(summary).toMatchObject({ activeTurnId: null, lastRecordedTurnId: last!.id, lifecycle: 'ready' });
+    expect(summary).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: last!.id });
     expect(JSON.stringify(summary)).not.toContain('ACTIVITY PRIVATE INPUT');
   });
-  it('leaves an empty autonomous work cycle unanchored instead of pointing at an older committed turn', async () => {
+  it('leaves an empty autonomous work cycle unanchored instead of pointing at an older group', async () => {
     const { rt, sessionId, client, providerSessionId } = await startHarness('conv-activity-no-body', { reportsState: true });
     expect(isOk(await rt.sendPrompt(sessionId, { text: 'previous input' }))).toBe(true);
-    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId].lastRecordedTurnId;
+    const previous = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId].lastTurnId;
     expect(previous).toBeTruthy();
     for (const state of ['running', 'idle'] as const) {
       await client.sessionUpdate({ sessionId: providerSessionId, update: { sessionUpdate: 'state_update', state } as unknown as SessionUpdate });
     }
     const summary = rt.sessionsListLiveModel().states.list.snapshot().data[sessionId];
-    expect(summary).toMatchObject({ lifecycle: 'ready', activeTurnId: null, lastRecordedTurnId: null });
+    expect(summary).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'stopped', lastTurnId: null });
   });
   /**
    * 插件清单漏了 liveSettings 声明是**本仓自己的 bug**,日志要响亮(error 档)——

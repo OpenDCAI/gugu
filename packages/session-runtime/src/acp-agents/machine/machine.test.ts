@@ -22,7 +22,7 @@ function parkedMachine(): SessionMachine {
   const machine = readyMachine();
   machine.apply({ type: 'WorkStarted' });
   machine.apply({ type: 'AgentsChanged', runningCount: 1 });
-  machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } });
+  machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' }, turnId: null });
   return machine;
 }
 
@@ -86,7 +86,7 @@ describe('SessionMachine park accepts deliveries (#6448)', () => {
     machine.dispatch({ type: 'Prompt', prompt: prompt('next') });
     expect(machine.queuedPrompts.map((p) => p.id)).toEqual(['next']);
 
-    const effects = machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } });
+    const effects = machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' }, turnId: null });
 
     expect(sent(effects)).toEqual([['next']]);
     expect(machine.queuedPrompts).toEqual([]);
@@ -144,18 +144,33 @@ describe('SessionMachine records how the agent stopped (#6448)', () => {
   it('writes stopped + cancelled when the user cancels work the agent started itself', () => {
     const machine = readyMachine();
     machine.apply({ type: 'WorkStarted' });
-    machine.apply({ type: 'WorkEnded', outcome: { kind: 'errored' } });
+    machine.apply({ type: 'WorkEnded', outcome: { kind: 'errored' }, turnId: null });
     machine.apply({ type: 'WorkStarted' });
     expect(machine.sessionState(null).lastTurnOutcome).toBe('none');
 
     machine.dispatch({ type: 'Cancel' });
     expect(machine.phase.kind).toBe('cancelling');
-    machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'cancelled' } });
+    machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'cancelled' }, turnId: null });
 
     const state = machine.sessionState(null);
     expect(state.lifecycle).toBe('ready');
     expect(state.lastTurnOutcome).toBe('stopped');
     expect(state.lastStopReason).toBe('cancelled');
+  });
+
+  it('records the ended group in the same transition as the outcome, and forgets it when new work starts', () => {
+    const machine = readyMachine();
+    machine.apply({ type: 'WorkStarted' });
+    expect(machine.sessionState(null)).toMatchObject({ lifecycle: 'working', lastTurnOutcome: 'none', lastTurnId: null });
+
+    machine.apply({ type: 'WorkEnded', outcome: { kind: 'errored' }, turnId: 'conv-1:turn:0' });
+    expect(machine.sessionState(null)).toMatchObject({ lifecycle: 'ready', lastTurnOutcome: 'errored', lastTurnId: 'conv-1:turn:0' });
+
+    machine.apply({ type: 'WorkStarted' });
+    expect(machine.sessionState(null)).toMatchObject({ lastTurnOutcome: 'none', lastTurnId: null });
+    // An ending without a group (an empty autonomous cycle) never inherits the previous group.
+    machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' }, turnId: null });
+    expect(machine.sessionState(null)).toMatchObject({ lastTurnOutcome: 'stopped', lastTurnId: null });
   });
 
   it('does not record an outcome when only background agents are cancelled', () => {
@@ -176,7 +191,7 @@ describe('main-composer queue edit reservation (#7324)', () => {
     machine.dispatch({ type: 'QueuePrompt', prompt: prompt('b', 'typed') });
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'a', input: { text: 'a' }, updatedAt: 2,
       queueEdit: { draftText: 'unfinished', originalDraftText: 'my draft' } });
-    expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } }))).toEqual([]);
+    expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' }, turnId: null }))).toEqual([]);
     expect(machine.queuedPrompts.map((p) => p.id)).toEqual(['a', 'b']);
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'a', input: { text: 'edited' }, updatedAt: 3, queueEdit: null });
     expect(sent(machine.apply({ type: 'SettingsReady' }))).toEqual([['a', 'b']]);
@@ -187,7 +202,7 @@ describe('main-composer queue edit reservation (#7324)', () => {
     for (const id of ['a', 'b', 'c']) machine.dispatch({ type: 'QueuePrompt', prompt: prompt(id, 'typed') });
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'b', input: { text: 'b' }, updatedAt: 2,
       queueEdit: { draftText: 'not committed', originalDraftText: '' } });
-    expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' } }))).toEqual([['a']]);
+    expect(sent(machine.apply({ type: 'WorkEnded', outcome: { kind: 'stopped', stopReason: 'end_turn' }, turnId: null }))).toEqual([['a']]);
     expect(machine.queuedPrompts[0]).toMatchObject({ id: 'b', text: 'b', createdAt: 1 });
     expect(sent(machine.apply({ type: 'SettingsReady' }))).toEqual([]);
     machine.dispatch({ type: 'EditQueuedPrompt', id: 'b', input: { text: 'b' }, updatedAt: 3, queueEdit: null });

@@ -2462,8 +2462,7 @@ export class SessionManager implements InboundRouter {
     const recent = this.recentActionsForSummary(input.sessionId, cell, state.lifecycle);
     const summary: SessionSummary = {
       sessionId: input.sessionId,
-      activeTurnId: cell?.sessionState.activeTurnId ?? null,
-      lastRecordedTurnId: cell?.lastRecordedTurnId ?? null,
+      lastTurnId: cell?.sessionState.lastTurnId ?? null,
       projectId: input.projectId,
       providerId: input.providerId,
       lifecycle: state.lifecycle,
