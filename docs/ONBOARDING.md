@@ -26,6 +26,6 @@ GUGU_DB_TARGET=local pnpm build:app
 
 客户端与基础库契约测试使用社区后端的独立测试数据库。具体测试项目和条件见 [开发工具](development-tools.md) 与 CI 工作流。不要让测试连接官方生产库。
 
-打安装包可运行 `pnpm build:mac`、`pnpm build:win` 或 `pnpm build:linux`；Android 调试包用 `pnpm android:build`。发布给其他用户前需自行配置相应平台的签名、应用标识和更新源。官方发布与私有 runner 操作由个人私有 gugu-dev 仓维护。
+打安装包可运行 `pnpm build:mac`、`pnpm build:win` 或 `pnpm build:linux`；Android 调试包用 `pnpm android:build`。发布给其他用户前需自行配置相应平台的签名、应用标识和更新源。官方发布与私有 runner 操作不在本仓维护。
 
 本目录仍为未发布候选；真实 Supabase Cloud 授权安装与完整用户试用尚未完成，许可证另待审核。

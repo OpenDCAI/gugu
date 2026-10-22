@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import * as encoding from 'lib0/encoding';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
+import * as syncProtocol from 'y-protocols/sync';
 import * as Y from 'yjs';
 import {
   FRAME_TYPE,
@@ -9,6 +11,7 @@ import {
   encodeCloseFrame,
   encodeSyncUpdateFrame,
   readFrameHead,
+  readFrameUpdate,
   type SyncToPage,
 } from '@shared/extensions/app-runtime-protocol';
 
@@ -186,6 +189,44 @@ describe('app file sync relay', () => {
     p.port.postMessage(buffer(frame));
     await until(() => received.length === 2);
     expect(readFrameHead(received[1]!)).toMatchObject({ type: FRAME_TYPE.Sync, carriesUpdate: false });
+  });
+
+  it('read-only: Step 2 finishes the handshake without sending content or deletion history', async () => {
+    const p = openPage();
+    const grant = { docName: 'reader@0', itemId: 'reader', access: 'ro' as 'ro' | 'rw', needs: null };
+    fileSync.grant(p.page, grant);
+    p.port.postMessage({ t: 'hello' });
+    await until(() => p.told.some((m) => m.t === 'up'));
+    const key = 'reader@0\u0000s1';
+    p.port.postMessage(buffer(encodeAuthFrame(key, '')));
+    await until(() => received.length === 1);
+    const doc = new Y.Doc();
+    doc.getMap('root').set('status', 'old');
+    doc.getMap('root').set('status', 'current');
+    // Even an up-to-date reader sends the service's delete set back; a state vector omits deletions.
+    for (const vector of [Y.encodeStateVector(doc), Y.encodeStateVector(new Y.Doc())]) {
+      const e = encoding.createEncoder();
+      encoding.writeVarString(e, key);
+      encoding.writeVarUint(e, FRAME_TYPE.Sync);
+      syncProtocol.writeSyncStep2(e, doc, vector);
+      const step2 = encoding.toUint8Array(e);
+      expect(readFrameHead(step2)?.carriesUpdate).toBe(true);
+      const before = received.length;
+      p.port.postMessage(buffer(step2));
+      await until(() => received.length === before + 1);
+      expect(readFrameHead(received.at(-1)!)).toMatchObject({ syncStep: syncProtocol.messageYjsSyncStep2, carriesUpdate: false });
+      expect(readFrameUpdate(received.at(-1)!)).toEqual(Uint8Array.of(0, 0));
+      expect(p.told.filter((m) => m.t === 'denied')).toEqual([]);
+      // Control: the identical frame on a writable grant keeps all its content.
+      grant.access = 'rw';
+      p.port.postMessage(buffer(step2));
+      await until(() => received.length === before + 2);
+      expect(received.at(-1)).toEqual(step2);
+      grant.access = 'ro';
+    }
+    fileSync.pageGone(p.id);
+    await until(() => readFrameHead(received.at(-1)!)?.type === FRAME_TYPE.Close);
+    expect(received.at(-1)).toEqual(encodeCloseFrame(key));
   });
 
   it('a page that goes away: what it handed over lands first, then a Close for each of its keys', async () => {

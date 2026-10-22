@@ -32,6 +32,8 @@
  * （斜杠命令输出之类）不被认出、照旧当正文渲染 —— 那正是保守的那一边。
  */
 
+import { hookSpeakerOfLine } from '@gugu/session-core/acp';
+
 /** 桥会折进正文的三档。`info` 不折（本就该素面），所以这里读不到、也不该读到。 */
 export type HookNoticeLevel = 'notice' | 'suggestion' | 'warning';
 
@@ -53,16 +55,10 @@ export interface HookNotice {
 const LEVEL_PREFIX = /^\*\*([A-Z][a-z]+):\*\* /;
 
 /**
- * `Stop says: ` / `PostToolUse says: `。
- *
- * ❌ 不写白名单：hook 事件名是上游的、会加（护栏常量会过期）。按**形状**认：
- * 一个或几个大驼峰词 + ` says: `。
+ * `Stop says: ` / `SessionStart:compact says: ` —— 说话人那一层的形状只有一份，在 session-core
+ * （`hookSpeakerOfLine`）：同一句钩子输出走另一条来路（`provider-notice`）时也是它来认（#55）。
  */
-const SPEAKER = /^((?:[A-Z][A-Za-z]*)(?: [A-Z][A-Za-z]*)*) says: /;
-
-function speakerOf(line: string): string | null {
-  return SPEAKER.exec(line)?.[1] ?? null;
-}
+const speakerOf = hookSpeakerOfLine;
 
 export function parseHookNotice(text: string): HookNotice | null {
   const levelMatch = LEVEL_PREFIX.exec(text);

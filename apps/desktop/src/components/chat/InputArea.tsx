@@ -65,7 +65,7 @@ interface InputAreaProps {
   // @@@whisper (#820) — 悄悄话模式：设置后显示 banner + 发送带 isWhisper/toUserIds。
   whisperTarget?: { userId: string; displayName: string } | null
   onExitWhisper?: () => void
-  surface?: 'main' | 'aside'   // @@@5856 主输入框还是副栏(话题分栏);只有主的登记全局聚焦落点,因果见 lib/focusComposer.ts
+  surface?: 'main' | 'aside'; hidden?: boolean // @@@5856 主输入框还是副栏(话题分栏);只有主的登记全局聚焦落点,因果见 lib/focusComposer.ts
 }
 
 // @@@1459 框外按钮 dock：高度=单行框外高（border 2 + box pad 10 + 行高 20 + textarea pad 10 = 42），居中放 30px 按钮 → 单行时按钮与文本行居中对齐；框多行增高时 dock 不长高、按钮贴底，y 坐标稳定。
@@ -86,7 +86,7 @@ export function InputArea({
   disabledReason,
   placeholder, attachGlyph, attachMenu,
   whisperTarget,
-  onExitWhisper, surface = 'main',
+  onExitWhisper, surface = 'main', hidden = false,
 }: InputAreaProps) {
   const { t } = useTranslation('messaging')
   // @@@1787 移动 shell 下 composer 正文放大(与移动气泡 14px 同档,13.5px 在手机上偏小)。
@@ -293,11 +293,11 @@ export function InputArea({
   // Grow with the content, then scroll only after the composer reaches its height cap.
   useEffect(() => {
     const ta = textareaRef.current
-    if (!ta) return
+    if (!ta || hidden) return
     ta.style.height = 'auto'
     ta.style.height = `${Math.min(ta.scrollHeight, 110)}px`
     ta.style.overflowY = ta.scrollHeight > ta.clientHeight ? 'auto' : 'hidden'
-  }, [text])
+  }, [text, hidden])
 
   useEffect(() => {
     if (quoteContent) scheduleComposerFocus('quote-attached', { target: () => textareaRef.current })
