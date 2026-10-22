@@ -686,7 +686,6 @@ export default {
       "task": "New task",
       "schedule": "Scheduled",
       "handedTo": "Assigned to",
-      "inProject": "in {{project}}",
       "onMachine": "on {{machine}}",
       "onColleagueComputer": "on {{name}}’s computer",
       "awaitingApproval": "Waiting for the group owner to let it in",

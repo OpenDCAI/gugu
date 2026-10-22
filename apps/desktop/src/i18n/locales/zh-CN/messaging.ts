@@ -686,7 +686,6 @@ export default {
       "task": "新任务",
       "schedule": "已安排",
       "handedTo": "交给",
-      "inProject": "在 {{project}}",
       "onMachine": "在 {{machine}} 上",
       "onColleagueComputer": "在 {{name}} 的电脑上",
       "awaitingApproval": "等群主同意它进群",
