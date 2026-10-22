@@ -17,10 +17,12 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
 const { AgentThread } = await import('../../../apps/desktop/src/mobile/agent-watch/AgentThread')
 const { emptyAgentWatchTimeline } = await import('../../../apps/desktop/src/mobile/agent-watch/agent-watch-store')
 
+// 都是落定的轮:这里测的是往前补页,❌ 掺进在跑那一轮的占位头(那一行在提问与回复之间,见 thread-messages)。
 const turn = (n: number): TranscriptTurn => ({
   id: `t${n}`,
   seq: n,
   initiator: 'user',
+  outcome: { kind: 'done' },
   items: [
     { kind: 'message', id: `u${n}`, seq: 0, role: 'user', text: `Question ${n}` },
     { kind: 'message', id: `a${n}`, seq: 1, role: 'assistant', text: `Answer ${n}` },

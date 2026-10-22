@@ -311,9 +311,11 @@ jobs:
     env:
       GUGU_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
       GUGU_INSTALL_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
-      # Supabase CLI default registry public.ecr.aws runs out of anonymous quota on hosted runners;
-      # the same images are mirrored to GHCR.
-      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+      # Neither Supabase mirror holds up from hosted runners: public.ecr.aws runs out of the anonymous
+      # quota those runner IPs share, and GHCR caps pulls per publishing organization, so every pull
+      # of a Supabase image anywhere draws on one budget ("allowed: 44000/minute"). Take the Docker
+      # Hub originals through Google's Docker Hub cache; the daemon falls back to Docker Hub.
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: docker.io
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
@@ -343,6 +345,13 @@ jobs:
           path: .gugu-supabase
           persist-credentials: false
       - run: pnpm --dir .gugu-supabase install --frozen-lockfile
+      - name: Pull Docker Hub images through mirror.gcr.io
+        run: |
+          config=/etc/docker/daemon.json
+          current=$(sudo cat "$config" 2>/dev/null || echo '{}')
+          echo "$current" | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee "$config"
+          sudo systemctl restart docker
+          docker info --format '{{.RegistryConfig.Mirrors}}'
       - run: pnpm --dir .gugu-supabase test:db:start
       - run: pnpm --dir .gugu-supabase test:installation
       - run: pnpm exec vitest run --project supabase-contract

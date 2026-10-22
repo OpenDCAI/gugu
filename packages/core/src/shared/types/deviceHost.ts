@@ -49,6 +49,11 @@ export interface DeviceHostInfo {
   host_kind: DeviceHostKind
   os_name?: string
   arch?: string
+  /**
+   * #113 这台机器的主目录($HOME)。别的端据此认出它上面的「~」项目(路径就是主目录的那个),这台机器离线、
+   * 那一端又从没连上过它时也认得出。老宿主不报 = 缺席。
+   */
+  home_dir?: string
   server_update?: DeviceServerUpdate
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true

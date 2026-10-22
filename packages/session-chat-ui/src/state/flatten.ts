@@ -60,7 +60,7 @@ import type { ChatItem, ChatMessage, SyntheticItem, TranscriptTurn } from '@sess
 import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
 import { tallyToolRun, toolRunCategory, toolRunLabel } from '@session-chat/state/tool-run';
-import { completedTurnResult, itemIsUser, pendingTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
+import { completedTurnResult, itemIsUser, pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, turnProcessExpanded } from '@session-chat/state/turn-fold';
 
 export { planTurnFold, turnProcessId } from '@session-chat/state/turn-fold';
 export type { TurnFoldPlan, TurnFoldSegment } from '@session-chat/state/turn-fold';
@@ -320,6 +320,17 @@ export function flattenTier(
         const ops = planRows(header ? segment.process : outsideProcess(segment.process));
         if (ops.length === 0 || !header) {
           // 一条都不剩就连头都不画 —— ❌ 别留一个点开是空的壳。
+          // 跑着的那一段例外:agent 先说了一句、正去干活,过程还空着 —— 头占着位置等过程,❌ 撤掉再冒出来
+          // (`placeholderTurnHeader`)。那句话就在它下面,头不带微光(见 `withBody`)。这一段还什么都没有
+          // (在等人答提问、刚插了话)就不占:那时 agent 没在想(#124 review)。
+          if (header?.live && segment.tail.length > 0) {
+            processItem({
+              kind: 'turn-process',
+              ...placeholderTurnHeader(header.id),
+              turnId: turn.id,
+              withBody: true,
+            });
+          }
           emitOps(ops, turn.id);
         } else {
           const expanded = ctx.revealAllFolds || turnProcessExpanded(header.live, ctx.isTurnProcessExpanded?.(header.id) ?? false);
@@ -328,6 +339,8 @@ export function flattenTier(
             id: header.id,
             turnId: turn.id,
             ...(header.live ? { live: true as const } : {}),
+            // 收起来时下面什么都看不见,头又是这一轮唯一的动静(#124 review)
+            ...(expanded ? { withBody: true } : {}),
             ...(header.startedAt !== undefined ? { startedAt: header.startedAt } : {}),
             ...(header.endedAt !== undefined ? { endedAt: header.endedAt } : {}),
           });
@@ -339,18 +352,20 @@ export function flattenTier(
         emitOps(planRows(outsideProcess(segment.tail)), turn.id);
       }
     } else {
-      emitOps(planRows(outsideProcess(items)), turn.id);
-      // 一轮开始了、还什么都没有:这一轮的时间头已经在数秒(判断与手机会话页同一份,见 `pendingTurnHeader`)。
-      // 不折叠的视图(单栏)也画:那时它是这一轮唯一的动静,第一行内容一到就让位。
-      const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active);
+      // 跑着、还没有可折的过程:头占位,插在人那句话之后(判断与手机会话页同一份,见 `pendingTurnHeader`)。
+      // 不折叠的视图(单栏)只在一轮还什么都没有时画:那时它是这一轮唯一的动静,第一行内容一到就让位。
+      const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
+        emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
         processItem({
           kind: 'turn-process',
-          id: pending.id,
+          ...pending.header,
           turnId: turn.id,
-          live: true,
-          ...(pending.startedAt !== undefined ? { startedAt: pending.startedAt } : {}),
+          ...(pending.at < items.length ? { withBody: true } : {}),
         });
+        emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
+      } else {
+        emitOps(planRows(outsideProcess(items)), turn.id);
       }
     }
 

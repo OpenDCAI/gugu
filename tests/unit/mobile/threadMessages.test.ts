@@ -186,7 +186,7 @@ describe('思考与过程折叠(同桌面)', () => {
   const thinkingItem = (id: string, status: 'thinking' | 'done', text: string) =>
     ({ kind: 'thinking', id, seq: 1, status, text, startedAt: 1_000 }) as TranscriptTurn['items'][number]
   const timed = (t: TranscriptTurn, startedAt: number, endedAt?: number) => ({ ...t, startedAt, ...(endedAt !== undefined ? { endedAt } : {}) }) as TranscriptTurn
-  type Meta = { custom?: { turnProcess?: { id: string; live: boolean; startedAt?: number; endedAt?: number } } }
+  type Meta = { custom?: { turnProcess?: { id: string; live: boolean; placeholder?: boolean; startedAt?: number; endedAt?: number } } }
   const header = (m: { metadata?: unknown }) => (m.metadata as Meta | undefined)?.custom?.turnProcess
 
   it('思考整条原样交出去(正文、状态都在),❌ 不再压成一个「…」', () => {
@@ -250,23 +250,62 @@ describe('思考与过程折叠(同桌面)', () => {
     expect(out[2].content).toEqual([{ type: 'text', text: '做完了' }])
   })
 
-  // owner 10-07:手机上发完一句,上游首字节要几十秒,那段时间消息下面什么都没有,像是没发出去。桌面有一行在数秒。
-  it('在跑的那一轮还什么都没有:时间头已经在数秒(空的过程消息),id 与思考到了之后那一条相同', () => {
+  // owner 10-07:手机上发完一句,上游首字节要几十秒,那段时间消息下面什么都没有,像是没发出去。
+  // owner 10-23:还没有可折的过程时头是占位(「正在思考…」、不数秒),同桌面。
+  it('在跑的那一轮还什么都没有:头占位(空的过程消息、不数秒),id 与思考到了之后那一条相同', () => {
     const before = toThreadMessages([timed(turn('t1', [userItem('u1', '算一下')]), 3_000)], { liveTurnId: 't1' })
     expect(before.map((m) => m.role)).toEqual(['user', 'assistant'])
-    expect(header(before[1])).toEqual({ id: 't1:process', live: true, startedAt: 3_000 })
+    expect(header(before[1])).toEqual({ id: 't1:process', live: true, placeholder: true })
     expect(before[1].content).toEqual([])
     const after = toThreadMessages([timed(turn('t1', [userItem('u1', '算一下'), thinkingItem('th1', 'thinking', '先乘')]), 3_000)], { liveTurnId: 't1' })
     expect(after[1].id).toBe(before[1].id)
-    expect(header(after[1])).toEqual(header(before[1]))
+    expect(header(after[1])).toEqual({ id: 't1:process', live: true, startedAt: 3_000 })
   })
 
-  it('❌ 不在跑的轮、或已经开口的轮不画这个空头', () => {
-    // 阴控 1:同一轮没在跑(落定 / 机器没说它在跑)⇒ 只有那一句
+  // owner 10-23 真机:先开口再去跑命令时头被撤掉,第二句话到了又冒出来。
+  it('先开口再干活:头一直在、同一条消息;第二句话之前占位,之后数秒', () => {
+    const at = (items: TranscriptTurn['items']) => toThreadMessages([timed(turn('t1', items), 3_000)], { liveTurnId: 't1' })
+    const talking = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条')])
+    expect(talking.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant'])
+    expect(header(talking[1])).toEqual({ id: 't1:process', live: true, placeholder: true })
+    expect(talking[1].content).toEqual([])
+    expect(talking[2].content).toEqual([{ type: 'text', text: '先跑第一条' }])
+    const working = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条'), toolItem('c1', 'Bash')])
+    expect(working[1].id).toBe(talking[1].id)
+    expect(header(working[1])).toEqual({ id: 't1:process', live: true, placeholder: true })
+    const folded = at([userItem('u1', '跑两条'), agentItem('a1', '先跑第一条'), toolItem('c1', 'Bash'), agentItem('a2', '再跑第二条')])
+    expect(folded[1].id).toBe(talking[1].id)
+    expect(header(folded[1])).toEqual({ id: 't1:process', live: true, startedAt: 3_000 })
+    expect(folded.at(-1)?.content).toEqual([{ type: 'text', text: '再跑第二条' }])
+  })
+
+  // #124 review:折叠视图那一路(前面已有过程、问过人)同一条规矩;最后一段还什么都没有就不占。
+  it('问过人之后 agent 先说一句:占位在那句话之前、用那一段的 id;等人答时不占', () => {
+    const at = (items: TranscriptTurn['items']) => toThreadMessages([timed(turn('t1', items), 3_000)], { liveTurnId: 't1' })
+    const ask = toolItem('t1:tool:q1', 'AskUserQuestion', { toolCallId: 'q1' })
+    const waiting = at([userItem('u1', '做吧'), toolItem('c1', 'Bash'), ask])
+    expect(waiting.filter((m) => header(m)?.placeholder)).toEqual([])
+    const talking = at([userItem('u1', '做吧'), toolItem('c1', 'Bash'), ask, agentItem('a1', '好,照这个来')])
+    const placeholders = talking.filter((m) => header(m)?.placeholder)
+    expect(placeholders.map((m) => header(m))).toEqual([{ id: 't1:process#1', live: true, placeholder: true }])
+    expect(placeholders[0].content).toEqual([])
+    expect(talking.at(-1)?.content).toEqual([{ type: 'text', text: '好,照这个来' }])
+    const folded = at([userItem('u1', '做吧'), toolItem('c1', 'Bash'), ask, agentItem('a1', '好,照这个来'), toolItem('c2', 'Bash'), agentItem('a2', '做完了')])
+    const second = folded.find((m) => header(m)?.id === 't1:process#1')
+    expect(second?.id).toBe(placeholders[0].id)
+    // 过程到了:同一条消息,头不再是占位(这一段从提问之后算,合成的提问没带时刻,所以这里没有起点)
+    expect(header(second!)).toEqual({ id: 't1:process#1', live: true })
+  })
+
+  it('❌ 不在跑的轮不画这个空头', () => {
+    // 同一轮没在跑(落定 / 机器没说它在跑)⇒ 只有那一句
     expect(toThreadMessages([timed(turn('t1', [userItem('u1', '算一下')]), 3_000)]).map((m) => m.role)).toEqual(['user'])
-    // 阴控 2:在跑但已经有回复在写 ⇒ 回复本身就是动静,不再挂空头
-    const talking = toThreadMessages([timed(turn('t1', [userItem('u1', '在吗'), agentItem('a1', '在')]), 3_000)], { liveTurnId: 't1' })
-    expect(talking.every((m) => header(m) === undefined)).toBe(true)
+    // 一句话就答完、落定了 ⇒ 没有可折的过程,不留头
+    const answered = toThreadMessages([timed(turn('t1', [userItem('u1', '在吗'), agentItem('a1', '在')]), 3_000, 4_000)])
+    expect(answered.every((m) => header(m) === undefined)).toBe(true)
+    // agent 自己开的一轮(没人问)先说一句 ⇒ 不占位
+    const own = toThreadMessages([timed({ ...turn('t2', [agentItem('a2', '定时任务到了')]), initiator: 'agent' } as TranscriptTurn, 3_000)], { liveTurnId: 't2' })
+    expect(own.every((m) => header(m) === undefined)).toBe(true)
   })
 })
 

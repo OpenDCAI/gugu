@@ -94,6 +94,33 @@ it('keeps reduced-motion labels flat and readable with no running sweep', async 
   expect(getComputedStyle(host).backgroundImage).toBe('none');
 });
 
+// 真机 10-23:时间头扫完第一遍就再也不扫 —— 行的数据在停顿那 1 秒里换了一个对象(转录一更新就重建),
+// `active` 仍为真,可效果因此重跑、清掉了待重扫的计时器,扫完的动画再没有人倒回去。
+it('keeps replaying when the row data is rebuilt during the hold while it stays active', async () => {
+  surface = document.createElement('div');
+  surface.style.cssText = 'position:fixed;left:20px;top:20px;width:180px;display:flex;line-height:24px';
+  document.body.append(surface);
+  const [item, setItem] = createSignal({ status: 'running' });
+  dispose = render(() => <ShimmerText active={item().status === 'running'}>Worked for 19s</ShimmerText>, surface);
+  const host = surface.firstElementChild as HTMLElement;
+  await until('the shimmer animations are ready', () => ({
+    visible: host.dataset.shimmerVisible,
+    animations: host.getAnimations({ subtree: true }).length,
+  }), (state) => state.visible === 'true' && state.animations === 4);
+  const animations = host.getAnimations({ subtree: true });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    for (const animation of animations) animation.finish();
+    await until('the finished sweep schedules its replay', () => vi.getTimerCount() === 1);
+    setItem({ status: 'running' });
+    expect(vi.getTimerCount(), 'a rebuilt row that is still running keeps its pending replay').toBe(1);
+    vi.advanceTimersByTime(1000);
+    expect(animations.every((animation) => animation.currentTime === 0 && animation.playState === 'running')).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('finishes each sweep, holds without running animations, and rewinds without overriding CSS pauses', async () => {
   const { host, setActive } = mount();
   await until('the shimmer animations are ready after motion emulation resets', () => ({
