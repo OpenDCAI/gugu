@@ -15,7 +15,8 @@ import { projectGroupsStore } from '@renderer/features/projects/stores/project-g
 import { ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { useChatHasMessages } from '@/lib/chatActivityBridge';
-import { useComposerVerb } from '@/lib/composerVerbBridge';
+import { setComposerVerb, useComposerVerb } from '@/lib/composerVerbBridge';
+import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
 import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -66,7 +67,31 @@ export const ProjectBlock = observer(function ProjectBlock({
         }
       >
         <TabSlot data-project-block-tab={projectId}>
-          <TabChip isActive isFocusedPane={focused} label={label} preSlot={<FolderClosed className="size-3.5 shrink-0" />} />
+          <TabChip
+            isActive
+            isFocusedPane={focused}
+            label={label}
+            preSlot={
+              // gugu-dev#181:页签上那枚小文件夹 = 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
+              // 群里还没有消息时这一块本来就是项目首页,不用它。
+              chatId && hasMessages ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={translate('taskDispatch.task')}
+                  title={translate('taskDispatch.task')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setComposerVerb(chatId, 'task');
+                  }}
+                >
+                  <FolderClosed className="size-3.5 shrink-0" />
+                </Button>
+              ) : (
+                <FolderClosed className="size-3.5 shrink-0" />
+              )
+            }
+          />
         </TabSlot>
       </TabStripShell>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
