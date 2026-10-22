@@ -403,8 +403,6 @@ export const provider = registerPluginBehavior(plugin, {
         // 以 root 跑咕咕时,桥会把「完全访问」这一档整个不报 —— 取证与 A/B 见 ./root-bypass.ts。
         // 非 root 上返回 {},这一行什么都不加。
         ...claudeAcpRootBypassEnv(),
-        // 桥只讲 v2:讲 v1 的客户端在握手处就被拒(-32022),❌ 不会悄悄退回 v1。
-        CLAUDE_AGENT_ACP_PROTOCOL: 'v2',
       },
     }),
     // ACP v2:一轮在前台 idle 处结束,后台子智能体不再扣住这一轮的结局(子智能体在跑时下一句不进队列)。
