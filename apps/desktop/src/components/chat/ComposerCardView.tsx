@@ -9,8 +9,10 @@ import { AgentHarnessIcon, EngineIcon } from '../AgentHarnessIdentity'
 import { Avatar } from '../Avatar'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
 import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
-import type { AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
+import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
+import { useChatStore } from '../../store/chatContext'
+import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { openTaskCardSession } from './openTaskCardSession'
 
 /**
@@ -37,19 +39,22 @@ export function ComposerCardHead({ type, agentUserId }: { type: ComposerCard['ty
  * gugu-dev#181 任务卡 / 已安排卡:一个面、三行 —— 是什么(右上时刻)、原话、交给谁(行尾一个状态标记,与侧栏同一套读数)。
  * 量值照聊天里的兄弟卡(App 安装包卡:12px 圆角、1px 边、12px 内边距、行距 8px);❌ 上下两截、❌ 另起状态条。
  */
-export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time }: {
+export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, time, memberProfiles }: {
   card: Exclude<ComposerCard, QuestionCard>
   isMine: boolean
   isGroup: boolean
   chatId: string
   senderName: string
+  /** 这个群现在的成员(随 chat_members_changed 更新):接手的 agent 坐进来了,卡上就没有「等待」。 */
+  memberProfiles?: Record<string, MemberProfileCardModel>
   /** 发出的时刻(卡头右上;群里自己发的那条没有名字时刻那一行)。 */
   time: string
 }) {
   const { t } = useTranslation('messaging')
   const task = card.type === 'task' ? card : null
   const place = useTaskCardPlace(task, isMine, senderName)
-  const join = useMyAgentJoin(isMine && isGroup ? chatId : null, task?.agentUserId ?? null)
+  const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
+  const join = useMyAgentJoin(isMine && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
   const openable = task && place.local
   const Root = openable ? 'button' : 'div'
@@ -129,28 +134,28 @@ function useTaskCardPlace(task: TaskCard | null, isMine: boolean, senderName: st
   return { local: true, label: null }
 }
 
-/** 一个群里我名下 agent 的入群请求,同一个群的几张卡共用一次读。 */
-const joinReads = new Map<string, { at: number; read: Promise<Map<string, AgentJoinRequestStatus>> }>()
-const JOIN_READ_TTL_MS = 15_000
+const joinLog = rendererLogger('chat/task-card-join')
 
+/**
+ * 我的卡、agent 还没坐进这个群时:它的入群请求是待审还是被拒。请求一变,库给发起人发 friend_requests_changed,
+ * 卡就跟着重读 —— 同意(它也随之坐进来)、拒绝都不用刷新页面。坐进来了就不读。
+ */
 function useMyAgentJoin(chatId: string | null, agentUserId: string | null): 'pending' | 'rejected' | null {
+  const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
   const [state, setState] = useState<'pending' | 'rejected' | null>(null)
   useEffect(() => {
     if (!chatId || !agentUserId) return
     let live = true
-    let entry = joinReads.get(chatId)
-    if (!entry || Date.now() - entry.at > JOIN_READ_TTL_MS) {
-      entry = { at: Date.now(), read: listMyAgentJoinRequests(chatId) }
-      joinReads.set(chatId, entry)
-    }
-    void entry.read.then(
+    const read = () => listMyAgentJoinRequests(chatId).then(
       (byAgent) => {
         const status = byAgent.get(agentUserId)
         if (live) setState(status === 'pending' || status === 'rejected' ? status : null)
       },
-      () => { joinReads.delete(chatId) },
+      (error: unknown) => joinLog.error({ chatId, agentUserId, error: String(error) }, 'reading the agent join request for a task card failed'),
     )
-    return () => { live = false }
-  }, [chatId, agentUserId])
-  return state
+    void read()
+    const unsubscribe = subscribeAccountRevision('friend_requests_changed', read)
+    return () => { live = false; unsubscribe() }
+  }, [chatId, agentUserId, subscribeAccountRevision])
+  return chatId && agentUserId ? state : null
 }

@@ -1,14 +1,21 @@
 // @vitest-environment jsdom
 // gugu-dev#181 任务卡在群里的样子:卡头带时刻,「交给」带头像,我自己这台电脑上的卡不写在哪个项目,不挂已读环;
 // agent 回群引用那张卡时,引用块是卡头「新任务」+ 原话,不是「发卡的人 / 新任务：原话」。
+import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { serializeComposerCard, type TaskCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
 import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import type { ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
 
 // What this viewer can look up about the agent: for a colleague's agent still waiting to be let in, nothing (80e).
 let lookedUp = 'codex'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => lookedUp }))
+// 我替 agent 发起的入群请求(库里的 list_my_agent_join_requests),和读了几次。
+const joins = vi.hoisted(() => ({ status: new Map<string, string>(), reads: 0 }))
+vi.mock('../../../../apps/desktop/src/lib/groupAgentJoinService', () => ({
+  listMyAgentJoinRequests: async () => { joins.reads += 1; return new Map(joins.status) },
+}))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness(); lookedUp = 'codex' })
@@ -71,5 +78,42 @@ describe('task card in a chat (gugu-dev#181)', () => {
     expect(quote.textContent).toContain('新任务')
     expect(quote.textContent).toContain('用一句话介绍你自己')
     expect(quote.textContent).not.toContain('新任务：')
+  })
+})
+
+// 审批群里我派的卡:等群主同意时写「等群主同意它进群」。同意 / 拒绝时库给发起人发 friend_requests_changed,
+// 卡跟着变,不用刷新页面;agent 已经坐进群里(成员表随 chat_members_changed 更新)就不读请求、不等。
+describe('a task card waiting for the group owner (gugu-dev#181)', () => {
+  type Subscribe = ChatContextValue['subscribeAccountRevision']
+  let changed: Array<Parameters<Subscribe>[1]> = []
+  const chat = { subscribeAccountRevision: ((_events, listener) => { changed.push(listener); return () => {} }) as Subscribe }
+  const groupCard = (memberProfiles?: Record<string, unknown>) => createNode(MessageBubble, {
+    msg: message({ id: 'card-9', is_mine: true, content_type: 'card', content: serializeComposerCard(CARD) }),
+    isGroup: true, memberProfiles, onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
+  })
+  const cardText = () => harness.container.querySelector('[data-testid="composer-card"]')!.textContent
+  const requestChanged = (status: string) => act(async () => {
+    joins.status.set('agent-1', status)
+    for (const listener of changed) await listener([])
+  })
+  beforeEach(() => { changed = []; joins.status = new Map([['agent-1', 'pending']]); joins.reads = 0 })
+
+  it('turns when the owner lets it in, without a reload', async () => {
+    await renderWithAppProviders(harness, groupCard(), { chat })
+    expect(cardText()).toContain('等群主同意它进群')
+    await requestChanged('accepted')
+    expect(cardText()).not.toContain('等群主同意它进群')
+  })
+
+  it('turns when the owner turns it down, without a reload', async () => {
+    await renderWithAppProviders(harness, groupCard(), { chat })
+    await requestChanged('rejected')
+    expect(cardText()).toContain('群主没有同意它进群')
+  })
+
+  it('an agent already seated in the group: no request read, no waiting', async () => {
+    await renderWithAppProviders(harness, groupCard({ 'agent-1': { displayName: 'Codex 1' } }), { chat })
+    expect(joins.reads).toBe(0)
+    expect(cardText()).not.toContain('等群主同意它进群')
   })
 })
