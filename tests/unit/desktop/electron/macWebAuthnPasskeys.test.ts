@@ -2,7 +2,8 @@
  * 内置浏览器的 Touch ID 通行密钥。契约:
  *  - 只认包里嵌着的描述文件:读出本包的应用 ID(`<团队>.<标识>`),钥匙串组 = 它 + `.webauthn`;读不出就不开;
  *  - 运行期推出的钥匙串组 = 打包期写进主程序 `keychain-access-groups` 的那一项(对不上,系统第一次用就拒);
- *  - 同一网站存着多把时让人选:选中回凭据 ID,取消 / 关掉 / 越界一律 null(调用方据此恰好回调一次)。
+ *  - 同一网站存着多把时让人选:选中回凭据 ID,取消 / 关掉 / 越界一律 null;
+ *  - 接了选账号事件就恰好回调一次:发起的那页看不见就不问、直接按取消回;对话框或文案出错也按取消回。
  */
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -11,6 +12,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   chooseWebAuthnAccount,
+  createSelectAccountHandler,
   webAuthnAccountLabel,
   webAuthnKeychainGroup,
 } from '../../../../apps/desktop/electron/macWebAuthn'
@@ -37,6 +39,10 @@ describe('钥匙串组只从嵌着的描述文件来', () => {
     expect(webAuthnKeychainGroup(null)).toBeNull()
     expect(webAuthnKeychainGroup('<plist><dict></dict></plist>')).toBeNull()
     expect(webAuthnKeychainGroup(profileText('nextmind.gugu'))).toBeNull()
+  })
+  it('通配的应用 ID(团队通用描述文件)→ null:它没点名这个应用,推出的组系统不认', () => {
+    expect(webAuthnKeychainGroup(profileText('ABCDE12345.*'))).toBeNull()
+    expect(webAuthnKeychainGroup(profileText('ABCDE12345.nextmind.*'))).toBeNull()
   })
 })
 
@@ -115,5 +121,69 @@ describe('同一网站存着多把:让人选一把', () => {
     expect(webAuthnAccountLabel({ credentialId: 'abcdefghijkl', displayName: 'Nick' })).toBe('Nick')
     expect(webAuthnAccountLabel({ credentialId: 'abcdefghijkl', name: 'n', displayName: 'n' })).toBe('n')
     expect(webAuthnAccountLabel({ credentialId: 'abcdefghijkl' })).toBe('abcdefgh…')
+  })
+})
+
+describe('选账号事件:恰好回调一次', () => {
+  const copy = { message: '用哪个账号登录 {site}?', detail: '', cancel: '取消' }
+  const details = (frame: string | null) => ({
+    relyingPartyId: 'accounts.google.com',
+    accounts: [{ credentialId: 'cred-a', name: 'a@gmail.com' }, { credentialId: 'cred-b', name: 'b@gmail.com' }],
+    frame,
+  })
+  // 回调发生后再等一拍,确认不会有第二次。
+  const run = async (deps: Partial<Parameters<typeof createSelectAccountHandler<string, string>>[0]>, frame: string | null = 'frame') => {
+    const warn = vi.fn()
+    const callback = vi.fn()
+    const handle = createSelectAccountHandler<string, string>({
+      parentFor: () => 'window',
+      copy: () => copy,
+      ask: async () => 0,
+      warn,
+      ...deps,
+    })
+    handle(details(frame), callback)
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(callback).toHaveBeenCalledTimes(1)
+    return { picked: callback.mock.calls[0][0] as string | null, warn }
+  }
+
+  it('选中 → 回那把的凭据 ID;对话框挂在发起那页所在的窗上', async () => {
+    const ask = vi.fn(async () => 1)
+    const parentFor = vi.fn(() => 'window-of-page')
+    expect((await run({ ask, parentFor })).picked).toBe('cred-b')
+    expect(parentFor).toHaveBeenCalledWith('frame')
+    expect(ask).toHaveBeenCalledWith('window-of-page', expect.objectContaining({ buttons: ['a@gmail.com', 'b@gmail.com', '取消'] }))
+  })
+
+  it('点取消 → null', async () => {
+    expect((await run({ ask: async () => 2 })).picked).toBeNull()
+  })
+
+  it('发起那页看不见(停放 / 窗收起 / 网页已走)→ 不问,直接 null', async () => {
+    const ask = vi.fn(async () => 0)
+    const { picked, warn } = await run({ ask, parentFor: () => null })
+    expect(picked).toBeNull()
+    expect(ask).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('没有发起的框架 → 同样不问', async () => {
+    const ask = vi.fn(async () => 0)
+    expect((await run({ ask, parentFor: (frame) => (frame ? 'window' : null) }, null)).picked).toBeNull()
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('对话框出错 / 取文案出错 / 找窗出错 → null,记一笔', async () => {
+    for (const deps of [
+      { ask: async () => { throw new Error('dialog failed') } },
+      { copy: () => { throw new Error('catalog failed') } },
+      { parentFor: () => { throw new Error('lookup failed') } },
+    ]) {
+      const { picked, warn } = await run(deps)
+      expect(picked).toBeNull()
+      expect(warn).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+    }
   })
 })

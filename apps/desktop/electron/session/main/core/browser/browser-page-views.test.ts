@@ -158,6 +158,7 @@ import {
   setAgentOverlayInteractive,
   snapshotBrowserPage,
   toDip,
+  visibleHostOfPage,
 } from './browser-page-views';
 
 const PARTITION = 'persist:gugu-browser-profile';
@@ -251,6 +252,21 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     expect(mainWindow.children).toContain(view);
     expect(parking().children).not.toContain(view);
+  });
+
+  it('要当面问人一句(选通行密钥)时它露在哪扇窗:露着 → 那扇窗;停放 / 窗收起 / 最小化 → null;不是页签的网页 → undefined', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(visibleHostOfPage(view.webContents)).toBe(mainWindow);
+    mainWindow.minimized = true;
+    expect(visibleHostOfPage(view.webContents)).toBeNull();
+    mainWindow.minimized = false;
+    mainWindow.visible = false;
+    expect(visibleHostOfPage(view.webContents)).toBeNull();
+    mainWindow.visible = true;
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'occluded' });
+    expect(visibleHostOfPage(view.webContents)).toBeNull();
+    expect(visibleHostOfPage({} as never)).toBeUndefined();
   });
 
   it('切到后台:停进停放窗;大小仍跟着页签(窗口改了大小,后台的网页也跟着)', () => {

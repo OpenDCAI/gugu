@@ -168,6 +168,8 @@ export { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 export { agentSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-agent-context'
 // #7191 会话的 agent 操作它会话页里的浏览器页签:宿主的 MCP 层(Playwright 工具)经它拿到连那个页签的 transport。
 export { agentBrowserBridge as emdashAgentBrowser } from '@main/core/browser/agent-browser'
+// @@@touchid-passkey 网页要选通行密钥时,对话框挂在那张网页此刻所在、看得见的咕咕窗口上(停放着 / 窗口收起 ⇒ 无)。
+export { visibleHostOfPage as emdashVisibleHostOfPage } from '@main/core/browser/browser-page-views'
 // #7317 Computer Use 的「电脑」页签:宿主告诉 App 的页面「有新的一步」,任务第一次用电脑时把那一页开到任务里。
 export { notifyFromNativeProgram as emdashNotifyFromNativeProgram } from '@main/core/extensions/extension-programs'
 export { openTaskPagesOfApp as emdashOpenTaskPagesOfApp } from '@main/core/sessions/session-orchestration'

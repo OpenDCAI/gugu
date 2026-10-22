@@ -21,6 +21,7 @@ import {
   safeStorage,
   screen,
   desktopCapturer,
+  webContents,
   type OpenDialogOptions
 } from 'electron'
 import { listAgents, listDevices, listReapedAgents, provisionSessionpageAgentOneTrip, resolveMachineHardwareId, type DeviceTableClient, type RuntimeAuthProvider } from '@gugu/core'
@@ -77,7 +78,7 @@ import { isWindowMenuCommand } from '../shared/window-menu-commands'
 import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
-import { chooseWebAuthnAccount, webAuthnKeychainGroup } from './macWebAuthn'
+import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -1350,33 +1351,28 @@ function enableMacTouchIdPasskeys(): void {
   app.configureWebAuthn({ touchID: { keychainAccessGroup, promptReason: currentHostCatalog().webAuthn.touchIdReason } })
   logger.info({ keychainAccessGroup }, 'Touch ID 通行密钥已开')
 
-  // 同一网站存着多把:不接这个事件,请求就被当成取消;接了就必须恰好回调一次,否则网页一直挂着。
+  // 同一网站存着多把:不接这个事件,请求就被当成取消(恰好回调一次、看不见就不问,见 createSelectAccountHandler)。
   // 事件挂在 session 上,而内置浏览器每个档案一个 session、用到才建 ⇒ 默认那个现在挂,之后建的在 session-created 里挂。
+  const handle = createSelectAccountHandler<BrowserWindow, Electron.WebFrameMain>({
+    parentFor: (frame) => {
+      const contents = frame ? webContents.fromFrame(frame) : undefined
+      if (!contents || contents.isDestroyed()) return null
+      // 内置浏览器的网页是摆在咕咕窗口上(或停在看不见的停放窗里)的 view ⇒ 由会话页说它此刻露在哪扇窗上;
+      // 其余网页(咕咕自己的窗口)就是拥有它的那扇窗。
+      const page = loadEmdashBridge()?.emdashVisibleHostOfPage(contents)
+      if (page !== undefined) return page
+      const owner = BrowserWindow.fromWebContents(contents)
+      return owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() ? owner : null
+    },
+    copy: () => currentHostCatalog().webAuthn.chooseAccount,
+    ask: async (parent, options) => (await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })).response,
+    warn: (message, error) => logger.warn({ err: error }, message),
+  })
   const onSelectAccount = (
     _event: Electron.Event,
     details: Electron.SelectWebauthnAccountDetails,
     callback: (credentialId?: string | null) => void,
-  ): void => {
-    let picked: string | null = null
-    const parent = BrowserWindow.getFocusedWindow() ?? (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
-    // 文案每次现取(跟得上改过的界面语言);放进链里:取的时候抛了也走下面的 finally,回调照样恰好一次。
-    void Promise.resolve()
-      .then(() =>
-        chooseWebAuthnAccount(details.relyingPartyId, details.accounts, currentHostCatalog().webAuthn.chooseAccount, async (options) => {
-          const { response } = parent
-            ? await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })
-            : await dialog.showMessageBox({ type: 'question', ...options, defaultId: 0 })
-          return response
-        }),
-      )
-      .then((credentialId) => {
-        picked = credentialId
-      })
-      .catch((error) => {
-        logger.warn({ err: error }, '选通行密钥的对话框出错,这次请求按取消处理')
-      })
-      .finally(() => callback(picked))
-  }
+  ): void => handle(details, callback)
   session.defaultSession.on('select-webauthn-account', onSelectAccount)
   app.on('session-created', (created) => created.on('select-webauthn-account', onSelectAccount))
 }

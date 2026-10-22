@@ -19,7 +19,7 @@ export interface WebAuthnAccountLike {
 /** 描述文件(CMS 包着的 plist,正文是明文)里的应用 ID → 通行密钥用的钥匙串组。读不出返回 null。 */
 export function webAuthnKeychainGroup(profile: string | null): string | null {
   if (!profile) return null
-  const match = /<key>com\.apple\.application-identifier<\/key>\s*<string>([A-Z0-9]{10}\.[^<\s]+)<\/string>/.exec(profile)
+  const match = /<key>com\.apple\.application-identifier<\/key>\s*<string>([A-Z0-9]{10}\.[^<\s*]+)<\/string>/.exec(profile)
   return match ? `${match[1]}.webauthn` : null
 }
 
@@ -56,4 +56,43 @@ export async function chooseWebAuthnAccount(
     cancelId: buttons.length - 1,
   })
   return picked >= 0 && picked < accounts.length ? accounts[picked].credentialId : null
+}
+
+export interface SelectAccountHandlerDeps<Parent, Frame> {
+  /** 发起这次请求的网页此刻在哪扇看得见的窗上;看不见(停放、收进托盘、最小化、网页已走)回 null。 */
+  parentFor: (frame: Frame | null) => Parent | null
+  /** 每次现取(跟得上改过的界面语言)。 */
+  copy: () => AccountChoiceCopy
+  ask: (parent: Parent, options: { message: string; detail: string; buttons: string[]; cancelId: number }) => Promise<number>
+  warn: (message: string, error?: unknown) => void
+}
+
+/**
+ * Session 的 `select-webauthn-account`:接了就必须恰好回调一次,否则网页一直挂着。看不见发起的那一页时不问、
+ * 直接按取消回 —— 网站当场换别的登录方式;❌ 把对话框挂在看不见的窗上(没人答,网页卡死),
+ * ❌ 为了问把窗抢到前面。取消、关掉、出错同样按取消回。
+ */
+export function createSelectAccountHandler<Parent, Frame>(deps: SelectAccountHandlerDeps<Parent, Frame>) {
+  return (
+    details: { relyingPartyId: string; accounts: readonly WebAuthnAccountLike[]; frame: Frame | null },
+    callback: (credentialId: string | null) => void,
+  ): void => {
+    let picked: string | null = null
+    void Promise.resolve()
+      .then(() => {
+        const parent = deps.parentFor(details.frame)
+        if (!parent) {
+          deps.warn('发起选通行密钥的网页此刻看不见,这次请求按取消处理')
+          return null
+        }
+        return chooseWebAuthnAccount(details.relyingPartyId, details.accounts, deps.copy(), (options) => deps.ask(parent, options))
+      })
+      .then((credentialId) => {
+        picked = credentialId
+      })
+      .catch((error) => {
+        deps.warn('选通行密钥的对话框出错,这次请求按取消处理', error)
+      })
+      .finally(() => callback(picked))
+  }
 }
