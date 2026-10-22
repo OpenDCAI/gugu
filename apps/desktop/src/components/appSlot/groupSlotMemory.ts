@@ -46,9 +46,14 @@ export interface FileToOpen extends AskedFile {
  * is the folder. Going elsewhere and coming back shows it as it was — the page itself is made again (F17 lets it go
  * while unseen). The panel draws the active one only; the chat page and the phone, which have no tab strip, look the
  * same as when the panel kept one thing.
+ *
+ * The right side shows one thing at a time (#1312): the panel, or the topic opened beside the group. The other one
+ * stays open as a tab, not shown — so the panel's things are listed while the panel is closed, and `topic` is the
+ * topic open beside the group, `shown` while its pane is up. Only a tab's × closes it.
  */
 type PanelItem = OpenedWith | null
-const remembered = new Map<string, { form: PanelForm; open: PanelItem[]; active: PanelItem }>()
+export interface OpenTopicTab { chatId: string; name: string; shown: boolean }
+const remembered = new Map<string, { form: PanelForm; open: PanelItem[]; active: PanelItem; topic?: OpenTopicTab | null }>()
 /** The same thing opened again (the same App's page, the same file in the same App) is the same tab. */
 const sameItem = (a: PanelItem, b: PanelItem) => (a === null || b === null ? a === b : a.kind === b.kind && a.itemId === b.itemId)
 const listeners = new Set<() => void>()
@@ -89,6 +94,13 @@ export const groupSlotMemory = {
     askedApps.delete(chatId)
     return extensionId
   },
+  /** The panel came up: what it shows is open — the folder too, when nothing else was — a tab until its ×. */
+  noteShown(chatId: string) {
+    const entry = entryOf(chatId)
+    if (entry.open.length > 0) return
+    remembered.set(chatId, { ...entry, open: [entry.active] })
+    changed()
+  },
   /** What the panel shows: the active one (`null` = the folder). */
   opened: (chatId: string) => remembered.get(chatId)?.active ?? null,
   /**
@@ -101,14 +113,32 @@ export const groupSlotMemory = {
     let open = entry ? [...entry.open] : []
     if (!open.some((item) => sameItem(item, shown))) open.push(shown)
     open = open.some((item) => sameItem(item, opened)) ? open.map((item) => (sameItem(item, opened) ? opened : item)) : [...open, opened]
-    remembered.set(chatId, { form: entry?.form ?? 'side', open, active: opened })
+    remembered.set(chatId, { ...entry, form: entry?.form ?? 'side', open, active: opened })
     changed()
   },
-  /** The tabs, in the order they were opened; none while the panel is closed. Nothing opened yet = the folder alone. */
+  /** The tabs, in the order they were opened; shown or not. Nothing opened yet = the folder alone while the panel is up. */
   tabs(chatId: string): readonly PanelItem[] {
     const entry = remembered.get(chatId)
-    if (!entry || entry.form === 'closed') return NO_TABS
-    return entry.open.length > 0 ? entry.open : FOLDER_ONLY
+    if (!entry) return NO_TABS
+    return entry.open.length > 0 ? entry.open : entry.form === 'closed' ? NO_TABS : FOLDER_ONLY
+  },
+  topic: (chatId: string): OpenTopicTab | null => remembered.get(chatId)?.topic ?? null,
+  /** The topic pane beside the group now shows this one; `null`: it is down (the topic stays a tab until its ×). */
+  showTopic(chatId: string | null | undefined, topic: { chatId: string; name: string } | null) {
+    if (!chatId) return
+    const entry = entryOf(chatId)
+    const was = entry.topic ?? null
+    const next = topic ? { chatId: topic.chatId, name: topic.name, shown: true } : was && { ...was, shown: false }
+    if (was?.chatId === next?.chatId && was?.name === next?.name && was?.shown === next?.shown) return
+    remembered.set(chatId, { ...entry, topic: next })
+    changed()
+  },
+  /** A topic tab's ×: the topic leaves its group's tabs. */
+  closeTopic(topicChatId: string) {
+    for (const [chatId, entry] of remembered) {
+      if (entry.topic?.chatId === topicChatId) remembered.set(chatId, { ...entry, topic: null })
+    }
+    changed()
   },
   /** A tab clicked, or the folder picked from the strip's「+」: the panel shows it (the folder joins the tabs if it was closed). */
   activate(chatId: string, item: PanelItem) {
@@ -131,7 +161,7 @@ export const groupSlotMemory = {
     if (at < 0) return
     const rest = open.filter((_, index) => index !== at)
     const active = sameItem(entry.active, item) ? (rest[at] ?? rest[at - 1] ?? null) : entry.active
-    remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { form: 'closed', open: [], active: null })
+    remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { ...entry, form: 'closed', open: [], active: null })
     changed()
   },
   subscribe(listener: () => void): () => void {

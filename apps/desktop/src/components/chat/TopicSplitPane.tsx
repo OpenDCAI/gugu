@@ -45,6 +45,7 @@ import { ResizablePane } from '@/layouts/ResizablePane'
 import { prioritizeTopicParticipants } from './topicMentionModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
+import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -647,21 +648,26 @@ export function TopicSplitPane({
 }
 
 /**
- * 块里的话题页签(gugu-dev#181 第 ⑤ 步):和群对话那一枚并排连成一对(排右),× = 收起分栏(话题不会关闭)。
+ * 块里的话题页签(gugu-dev#181 第 ⑤⑥ 步):和群对话那一枚并排连成一对(排右),× = 收起分栏、页签也拿掉(话题不会关闭)。
+ * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
  * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
  */
-function TopicTab({ name, chatId, onClose, items }: { name: string; chatId: string; onClose: () => void; items: React.ReactNode }) {
+export function TopicTab({ name, chatId, onClose, onPick, items }: { name: string; chatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
   const { t } = useTranslation('messaging')
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   return (
     <TabSlot data-topic-tab={chatId}>
       <TabChip
-        isActive
+        isActive={!onPick}
         pairRole="end"
         label={name}
         preSlot={<MessageSquare size={14} />}
         closeLabel={t('topic.pane.collapseSplitHint')}
-        onClose={onClose}
+        onClick={onPick}
+        onClose={() => {
+          groupSlotMemory.closeTopic(chatId)
+          onClose?.()
+        }}
         onContextMenu={(event) => {
           event.preventDefault()
           setMenuAt({ x: event.clientX, y: event.clientY })

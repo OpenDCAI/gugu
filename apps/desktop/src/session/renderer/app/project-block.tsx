@@ -17,6 +17,7 @@ import { cancelComposerVerb, composerVerbLook } from '@renderer/features/session
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useChatHasMessages } from '@/lib/chatSummariesBridge';
+import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
@@ -75,6 +76,8 @@ export const ProjectBlock = observer(function ProjectBlock({
               isActive
               isFocusedPane={focused}
               label={label}
+              // 点群这一枚 = 右边让开、群占满(右边开着的照旧是页签,gugu-dev#181 第 ⑥ 步)。
+              onClick={chatId && hasMessages !== false ? () => requestShellChatAction({ kind: 'show-chat-alone', chatId }) : undefined}
               preSlot={
                 // gugu-dev#181:页签上那枚彩色小文件夹(项目文件夹卡的缩影)= 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
                 // 群里还没有消息时这一块本来就是项目首页,不用它。

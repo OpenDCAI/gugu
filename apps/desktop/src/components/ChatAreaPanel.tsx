@@ -406,11 +406,10 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // opens and follows changes itself (gugu.files.*), so nothing about the files is held here.
   const handleOpenWorkspacePanel = useCallback(() => {
     if (!activeChatId) return
-    closeRightSurfaces() // 同槽位互斥（#1312），含 群公告（#1485 review）
+    closeRightSurfaces(); groupSlotMemory.noteShown(activeChatId) // 同槽位互斥（#1312），含 群公告（#1485 review）;它让开时这一枚还在页签上
     setWorkspaceForm(workspaceForm === 'closed' ? 'side' : workspaceForm) // full stays full (a link opening a file in it)
   }, [activeChatId, closeRightSurfaces, workspaceForm])
   const handleCloseWorkspacePanel = useCallback(() => setWorkspaceForm('closed'), [])
-  useEffect(() => groupSlotMemory.setForm(activeChatId, workspaceForm), [activeChatId, workspaceForm]) // 摩擦单 F29
   // 摩擦单 F10: a file of this chat asked for by a link (MainLayout brought the chat up): its panel opens on that file —
   // now, or as soon as this chat is the one shown.
   const [fileToOpen, setFileToOpen] = useState<FileToOpen | null>(null)
@@ -428,7 +427,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
 
   // 「在本群打开」(app-redesign §5): an App opened from this chat opens in its panel here — a private chat's too (主人 10-05).
   const appToOpen = useOpenApp(activeChat?.id ?? null, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
 
   // @@@history (#957) — 历史面板：开启时加载消息附件；「线程」复用 store 的 threadSummaries。
   const loadHistoryFiles = useCallback(async (chatId: string) => {
@@ -486,6 +485,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     onCreateFailed: () => toast(t('topic.openFailed'), 'error'),
   })
   topicSurfaceRef.current = topicSurface
+  useEffect(() => { groupSlotMemory.setForm(activeChatId, workspaceForm); groupSlotMemory.showTopic(activeChatId, topicSurface.splitTopic) }, [activeChatId, workspaceForm, topicSurface.splitTopic]) // 摩擦单 F29;⑥ 右边正显示哪样
   // 渲染期收口:分栏开没开以 surface 为准(它自己是 subject-scoped 的),❌ 不靠副作用补一刀。
   if (topicSplitOpen !== Boolean(topicSurface.splitTopic)) setTopicSplitOpen(Boolean(topicSurface.splitTopic))
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
@@ -1078,7 +1078,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const blockTabs = blockHost?.tabs && activeChatId ? createPortal(
     <>
       <span ref={setTopicTabHost} className="contents" data-topic-tab-host="" />
-      <GroupPanelTabs chatId={activeChatId} onShowPanel={handleOpenWorkspacePanel} onClosePanel={handleCloseWorkspacePanel} />
+      <GroupPanelTabs chatId={activeChatId} onShowPanel={(form) => { closeRightSurfaces(); setWorkspaceForm(form) }} onClosePanel={handleCloseWorkspacePanel} onShowTopic={topicSurface.openSplit} onShowChatAlone={closeRightSurfaces} />
     </>,
     blockHost.tabs,
   ) : null

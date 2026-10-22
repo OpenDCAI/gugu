@@ -1,6 +1,6 @@
 import { Plus, UserPlus, Users } from '@/lib/icons';
 import { readShellSlots } from '@/lib/shellSlots';
-import { CHAT_LIST_SLOT_KEY, requestShellChatAction, type ShellChatAction } from '@/lib/sidebarChatsBridge';
+import { CHAT_LIST_SLOT_KEY, requestShellChatAction, type ShellChatDialog } from '@/lib/sidebarChatsBridge';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useRef, type MouseEvent } from 'react';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
@@ -22,7 +22,7 @@ import { SidebarGroup, sidebarGroupHeaderClass, sidebarHeaderIconButtonClass } f
 // 新建群聊、添加联系人的弹窗也是聊天列表那一套 —— 会话页只转达这两个动作,❌ 在这边另写一份。
 
 /** 新建群聊 / 添加联系人:弹窗在「对话」那份列表里 —— 人在「项目」页先翻到「对话」,「对话」分区收着就展开。 */
-export function openShellChatAction(action: ShellChatAction): void {
+export function openShellChatAction(action: ShellChatDialog): void {
   if (sidebarStore.listLayout !== 'merged') sidebarStore.setListPage('chats');
   if (sidebarStore.chatsCollapsed) sidebarStore.toggleChatsCollapsed();
   requestShellChatAction(action);

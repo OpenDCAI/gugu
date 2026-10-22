@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { sessionComposerDockBandClassName } from '../../../../apps/desktop/src/session/renderer/features/sessions/session-composer-styles'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { chat, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
@@ -134,6 +135,27 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     const page = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
     expect(page.className).toBe('')
     expect(page.style.padding).toBe('12px 22px 18px')
+  })
+
+  it('in a block the group tab gives the chat the room: the panel goes, its tab stays and brings it back (第 ⑥ 步)', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    await renderPanel({ actions, title, tabs })
+    await act(async () => { tabs.querySelector<HTMLButtonElement>('[data-testid="block-panel-plus"]')!.click() })
+    await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click() })
+    // 右栏收起时要等动画放完才卸下(SidePanelSplit),jsdom 里不放动画 ⇒ 判「正显示」看那一枚亮不亮(读的是同一份右栏样子)。
+    const folderTab = () => tabs.querySelector<HTMLElement>('[data-panel-tab="folder"] [data-tab-label]')
+    const shown = () => folderTab()?.hasAttribute('data-tab-active')
+    expect(harness.container.querySelector('[data-testid="group-app-slot"]'), 'the folder picked from「+」is up').not.toBeNull()
+    expect(shown()).toBe(true)
+    expect(harness.container.querySelector('[data-testid="group-app-slot-close"]'), 'in a block the tab is its title and its ×').toBeNull()
+    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'another-group' }) })
+    expect(shown(), 'another chat\'s tab: this panel stays').toBe(true)
+    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'group-1' }) })
+    expect(folderTab(), 'its own group tab: the right side gives way, the folder stays open').not.toBeNull()
+    expect(shown(), 'not shown').toBe(false)
+    await act(async () => { folderTab()!.click() })
+    expect(shown(), 'its tab brings it back').toBe(true)
+    tabs.remove()
   })
 
   it('in a block whose slots are not mounted yet still draws no header', async () => {

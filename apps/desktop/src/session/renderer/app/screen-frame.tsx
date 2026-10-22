@@ -28,6 +28,7 @@ import {
 } from './screen-layout-actions';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
+import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
@@ -183,6 +184,7 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
                 isFocusedPane={screenLayout.focusedBlockId === blockId}
                 label={translate('sidebar.chats')}
                 labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
+                onClick={() => requestShellChatAction({ kind: 'show-chat-alone', chatId })}
               />
             </ContextMenuTrigger>
             <ContextMenuContent finalFocus={false} className="min-w-40">

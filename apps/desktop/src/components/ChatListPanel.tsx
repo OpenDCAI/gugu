@@ -27,7 +27,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarSessions, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
+import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarSessions, type ShellChatDialog, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
 import { SidebarSessionLineRow } from './SidebarSessionLineRow'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { requestTopicsPanel } from '../lib/topicsPanelRequest'
@@ -558,7 +558,7 @@ export function ChatListPanel({
   useEffect(() => {
     if (!inSidebar) return
     const take = () => {
-      const action = takeShellChatAction()
+      const action = takeShellChatAction((asked): asked is ShellChatDialog => typeof asked === 'string')
       if (action === 'create-group') setShowGroupModal(true)
       if (action === 'add-contact') setShowAddFriendModal(true)
     }

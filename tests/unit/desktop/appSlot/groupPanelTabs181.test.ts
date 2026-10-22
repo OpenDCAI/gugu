@@ -54,11 +54,43 @@ describe('the group panel keeps what is open and shows one of it', () => {
     expect(groupSlotMemory.opened('tabs-4')).toBeNull()
   })
 
-  it('a closed panel lists no tabs; the folder picked from「+」opens it again', () => {
+  it('a panel that never came up lists no tabs; the folder picked from「+」opens it and stays a tab', () => {
+    expect(groupSlotMemory.tabs('tabs-5')).toEqual([])
     groupSlotMemory.activate('tabs-5', null)
     expect(groupSlotMemory.form('tabs-5')).toBe('side')
     expect(groupSlotMemory.tabs('tabs-5')).toEqual([null])
     groupSlotMemory.setForm('tabs-5', 'closed')
-    expect(groupSlotMemory.tabs('tabs-5')).toEqual([])
+    expect(groupSlotMemory.tabs('tabs-5')).toEqual([null])
+  })
+
+  it('a panel that came up on the folder alone keeps the folder as a tab when it gives way', () => {
+    groupSlotMemory.setForm('tabs-8', 'side')
+    groupSlotMemory.noteShown('tabs-8')
+    groupSlotMemory.setForm('tabs-8', 'closed')
+    expect(groupSlotMemory.tabs('tabs-8')).toEqual([null])
+    groupSlotMemory.close('tabs-8', null)
+    expect(groupSlotMemory.tabs('tabs-8'), 'its × lets it go').toEqual([])
+  })
+
+  it('the right side giving way (#1312: a topic, the chat alone) keeps what the panel has open as tabs', () => {
+    groupSlotMemory.setForm('tabs-6', 'side')
+    groupSlotMemory.setOpened('tabs-6', board)
+    groupSlotMemory.setForm('tabs-6', 'closed')
+    expect(groupSlotMemory.tabs('tabs-6'), 'not shown, still open').toEqual([null, board])
+    expect(groupSlotMemory.opened('tabs-6'), 'and it comes back on the one it showed').toBe(board)
+  })
+
+  it('the topic beside the group stays a tab while the panel has the right side; only its × lets it go', () => {
+    groupSlotMemory.showTopic('tabs-7', { chatId: 'topic-a', name: 'A' })
+    expect(groupSlotMemory.topic('tabs-7')).toEqual({ chatId: 'topic-a', name: 'A', shown: true })
+    groupSlotMemory.setOpened('tabs-7', board)
+    groupSlotMemory.showTopic('tabs-7', null)
+    expect(groupSlotMemory.topic('tabs-7'), 'the panel came up: the topic is a tab, not shown').toEqual({ chatId: 'topic-a', name: 'A', shown: false })
+    expect(groupSlotMemory.tabs('tabs-7'), 'its things too').toEqual([null, board])
+    groupSlotMemory.showTopic('tabs-7', { chatId: 'topic-b', name: 'B' })
+    expect(groupSlotMemory.topic('tabs-7'), 'another topic opened beside the group takes its place').toEqual({ chatId: 'topic-b', name: 'B', shown: true })
+    groupSlotMemory.closeTopic('topic-b')
+    expect(groupSlotMemory.topic('tabs-7')).toBeNull()
+    expect(groupSlotMemory.tabs('tabs-7'), 'the panel\'s tabs stay').toEqual([null, board])
   })
 })
