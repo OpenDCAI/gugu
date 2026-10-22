@@ -421,8 +421,20 @@ function InnerLayout({
     appState.navigation.navigate('assistant')
   }, [effectsActive, mobile, phoneAssistant.available, sessionHostAvailable, user.id])
   const assistantUnread = phoneAssistant.chatId ? chats.find((chat) => chat.id === phoneAssistant.chatId)?.unread_count ?? 0 : 0
+  // gugu-dev#181 桌面上没有单独的聊天页:对话是会话页这屏的一块,打开一条对话 = 请会话页把它那块摆出来(项目群摆项目块,
+  // 那边判)。true = 已经交给会话页;手机、没有会话页宿主的形态(网页)返回 false,照旧落在聊天页。
+  const chatsAreBlocks = !mobile && sessionHostAvailable
+  const openChatBlock = useCallback((chatId: string): boolean => {
+    if (!chatsAreBlocks) return false
+    const sessionPage = readSessionpageViewRequestBridge()
+    if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
+    setSettingsModalOpen(false)
+    setActiveTab('tasks')
+    sessionPage.openChat(chatId, false)
+    return true
+  }, [chatsAreBlocks, t])
   useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
-    openChat: (chatId) => { setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
+    openChat: (chatId) => { if (openChatBlock(chatId)) return; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
     openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}) },
   })
   // 手机底栏的格子:开得了个人助理时它排第一(owner 10-16);桌面壳不变。
@@ -730,6 +742,7 @@ function InnerLayout({
     const handler = (event: Event) => {
       const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
       if (typeof chatId !== 'string' || chatId.length === 0) return
+      if (openChatBlock(chatId)) return
       setActiveChatId(chatId)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -738,7 +751,7 @@ function InnerLayout({
     }
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
     return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
-  }, [focusComposerForUserEntry, setActiveChatId])
+  }, [focusComposerForUserEntry, openChatBlock, setActiveChatId])
 
   // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
   // line with the topic as the split), and what was asked of it is left with the view that shows it (`UI_EVENTS.chatAsked`):
@@ -776,15 +789,14 @@ function InnerLayout({
         return false
       }
       ask(chat.id)
-      setAgentCreateDraftOpen(false)
-      setActiveTab('chats')
-      setMobilePane('chat')
-      if (chat.kind === 'topic' && chat.source_chat_id) {
-        setActiveChatId(chat.source_chat_id)
-        requestTopicSplit({ chatId: chat.id, name: chat.name ?? '', sourceChatId: chat.source_chat_id })
-      } else {
-        setActiveChatId(chat.id)
+      const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
+      if (!openChatBlock(topic?.source_chat_id ?? chat.id)) {
+        setAgentCreateDraftOpen(false)
+        setActiveTab('chats')
+        setMobilePane('chat')
+        setActiveChatId(topic?.source_chat_id ?? chat.id)
       }
+      if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
@@ -845,7 +857,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
+  }, [focusComposerForUserEntry, openChatBlock, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
   // 从前靠 agent 运行态广播代劳;各入口内联的同名调用保留,免掉一帧闪烁。
@@ -966,6 +978,10 @@ function InnerLayout({
     ))
     if (existing) {
       if (draft) setDraft(existing.id, () => draft)
+      if (openChatBlock(existing.id)) {
+        void refreshChats()
+        return
+      }
       setActiveChatId(existing.id)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -990,6 +1006,10 @@ function InnerLayout({
       const chatId = await chatService.getOrCreateDM(user.id, target.id)
       upsertChat(createOptimisticDmChat(chatId, target.id))
       if (draft) setDraft(chatId, () => draft)
+      if (openChatBlock(chatId)) {
+        void refreshChats()
+        return
+      }
       setActiveChatId(chatId)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -1031,6 +1051,7 @@ function InnerLayout({
 
   // 手机上从群成员里建好 agent:回到那个群(与桌面 openAgentChat 的落点同一条规则)。
   const handleReturnToGroup = (chatId: string) => {
+    if (openChatBlock(chatId)) return
     setActiveChatId(chatId)
     setActiveTab('chats')
     setMobilePane('chat')
@@ -1039,6 +1060,10 @@ function InnerLayout({
 
   const handleOpenGroupChat = (group: ContactGroupChat) => {
     upsertChat(createOptimisticGroupChat(group.id, group.name))
+    if (openChatBlock(group.id)) {
+      void refreshChats()
+      return
+    }
     setActiveChatId(group.id)
     setAgentCreateDraftOpen(false)
     setActiveTab('chats')
@@ -1104,9 +1129,13 @@ function InnerLayout({
         upsertChat(createOptimisticAgentChat(chatId, agentUserId))
         // 从群成员里建的:人回到那个群(agent 一出生就进群),第一句话和它的回答留在私聊里(owner 10-15 定)。
         const birthGroup = agentCreateBirthGroupRef.current
-        setActiveChatId(birthGroup?.chatId ?? chatId)
         setAgentCreateDraftOpen(false)
         setAgentCreateDraftRetained(false)
+        if (openChatBlock(birthGroup?.chatId ?? chatId)) {
+          void refreshChats()
+          return
+        }
+        setActiveChatId(birthGroup?.chatId ?? chatId)
         setActiveTab('chats')
         setMobilePane('chat')
         // 新建 agent 落地就是一次「用户主动进入可输入语境」——他刚打完第一句话,下一句该能直接接着打。
@@ -1199,10 +1228,10 @@ function InnerLayout({
   // 「我的」tab 只存在于移动 shell;resize 跨到桌面时回落会话页、以设置弹窗承接
   useEffect(() => {
     if (!mobile && activeTab === 'settings') {
-      setActiveTab('chats')
+      setActiveTab(sessionHostAvailable ? 'tasks' : 'chats')
       setSettingsModalOpen(true)
     }
-  }, [mobile, activeTab])
+  }, [mobile, activeTab, sessionHostAvailable])
 
   return (
     <div
@@ -1468,7 +1497,7 @@ function InnerLayout({
           WM_NCHITTEST 回 HTCAPTION,系统当标题栏吃掉点击,按钮**完全按不动**。
           实测(chole/Windows 11,真鼠标点击 + WM_NCHITTEST):挂最前 ht=2、点最小化窗口不动;
           挂最后 ht=1、点最小化窗口收起。❌ 别把它移回上面去。 */}
-      <WindowControls activeTab={activeTab} mobile={mobile} activeChatId={activeChatId} chats={chats} sessionHostAvailable={sessionHostAvailable} onSelectTab={selectTab} onOpenChat={setActiveChatId} onNewAgent={openAgentCreateDraftFromContacts} onOpenSettings={openSettingsSection} />
+      <WindowControls activeTab={activeTab} mobile={mobile} activeChatId={activeChatId} chats={chats} sessionHostAvailable={sessionHostAvailable} onSelectTab={selectTab} onOpenChat={(chatId) => { if (!chatId || !openChatBlock(chatId)) setActiveChatId(chatId) }} onNewAgent={openAgentCreateDraftFromContacts} onOpenSettings={openSettingsSection} />
       {/* #7199 「助理」App 在壳这一侧的那一半:发布云电脑 / 个人助理,把壳的组件画进 App 留的格子(lib/assistantShellBridge.ts)。 */}
       <AssistantTaskChatOpener visible={mobile ? activeTab === 'assistant' : activeTab === 'tasks'} onOpenUserChat={handleOpenProfileChat} onOpenSessionpageAgent={handleOpenSessionpageAgent} onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile} />
       <FeedbackHost />

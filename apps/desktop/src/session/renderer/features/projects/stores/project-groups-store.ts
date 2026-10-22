@@ -47,6 +47,12 @@ export class ProjectGroupsStore {
     return this.byProject.get(projectId);
   }
 
+  /** 绑在这个群上的一个本地项目(几台机器上的同一个项目绑同一个群,任取一个;认侧栏那一行用 rowProjectIdOf)。不是项目群 = undefined。 */
+  projectOfChat(chatId: string): string | undefined {
+    for (const [projectId, bound] of this.byProject) if (bound === chatId) return projectId;
+    return undefined;
+  }
+
   isRepresentative(projectId: string): boolean {
     return this.representativeProjects.has(projectId);
   }
