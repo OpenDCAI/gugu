@@ -648,7 +648,7 @@ export const BRIDGE_VERBS = {
   broadcastToViews: { needs: null, only: 'background' },
   /**
    * Put text in the composer of the conversation open here — the group's, or the agent's in a session — and show
-   * it. Nothing is sent: the person @s whom they like and sends it, as their own message, or not at all. Handed to the
+   * it; naming none, the person picks where in the host's sheet (`ComposeTargetPicker`). Nothing is sent: the person @s whom they like and sends it, as their own message, or not at all. Handed to the
    * host's own composer, never drawn in the App. No capability: the last step is the person's; the
    * gesture is what keeps a page from filling the composer on its own.
    */

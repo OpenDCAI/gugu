@@ -78,6 +78,13 @@ export const EXTENSION_MEMBER_FACES_METHOD = 'extensions.memberFaces';
 export const EXTENSION_LISTED_SESSION_METHOD = 'extensions.listedSession';
 
 /**
+ * `gugu.compose(text)` naming no place: main asks the window that draws the page to let the person pick one
+ * (`ComposeTargetPicker`): `ComposePickAsk` → a `ComposePlace`, or null when they cancel. It waits on a person, so it
+ * closes by itself after `INSTALL_CONSENT_HUMAN_WINDOW_MS`, as an install's consent does (ipc-bridge's clock is longer).
+ */
+export const EXTENSION_PICK_COMPOSE_TARGET_METHOD = 'extensions.pickComposeTarget';
+
+/**
  * 留给**人**读完权限再决定的时间,谁发起的安装都是这一个。
  *
  * 产品决定:owner 定约 5 分钟(原先 30 秒,「30 秒太短了」)。取 280 秒是要比 harness 自己的工具调用上限

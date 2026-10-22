@@ -331,6 +331,14 @@ export default {
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
   },
+  "composePick": {
+    "title": "选择发送位置",
+    "search": "搜索对话或任务",
+    "chats": "对话",
+    "tasks": "我的任务",
+    "empty": "没有可选的对话或任务",
+    "action": "放入输入框"
+  },
   "composer": {
     "agent": {
       "disabledReason": {
@@ -765,6 +773,7 @@ export default {
       "assignTitle": "指派 agent",
       "assignBody": "选一个你名下的 agent 来回答这个帖子。它会收到帖子正文，之后楼主和你在帖子里的交代也会送给它。",
       "assignConfirm": "指派",
+      "searchAgents": "搜索 agent",
       "noAgents": "你还没有 agent。",
       "failed": "操作未完成，请重试。",
       "error": {

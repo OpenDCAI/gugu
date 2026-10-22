@@ -2,8 +2,8 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
 import { forwardPreview, forwardableChats } from './forwardMessageUtils'
-import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
-import { ChatPickSheet, type ChatPickRow } from './ChatPickSheet'
+import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
+import { ChatPickSheet, chatPickRow } from './ChatPickSheet'
 import { useChatStore } from '../../store/chatContext'
 import { ShareToAppsRow } from '../share/ShareToAppsRow'
 
@@ -87,23 +87,7 @@ export function ForwardMessageDialog({ messages = [], preview: subject, topRow, 
       title={t('forward.title')}
       onClose={onClose}
       testId="forward-message-dialog"
-      rows={visibleChats.map((chat): ChatPickRow => {
-        const identity = identitiesById[chat.peer_user_id ?? '']
-        return {
-          id: chat.id,
-          name: forwardTargetName(chat),
-          // @@@2470 群没有 peer_user_id：不标 variant='group' 会被判成「缺身份 key 的人」，
-          // 每次渲染刷一条诊断（agent e2e 的 console 守卫会当场失败）。口径同 ChatListPanel。
-          avatar: {
-            name: forwardTargetName(chat),
-            avatarUrl: isRoomChat(chat.kind) ? chat.avatar : identity?.avatar,
-            seed: chat.peer_user_id ?? undefined,
-            isAgent: identity?.type === 'agent',
-            variant: isRoomChat(chat.kind) ? 'group' : 'default',
-            memberAvatars: chat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : []),
-          },
-        }
-      })}
+      rows={visibleChats.map((chat) => chatPickRow(chat, forwardTargetName(chat), identitiesById))}
       selected={selected}
       onToggle={toggle}
       query={query}
