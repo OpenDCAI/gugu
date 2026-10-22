@@ -35,7 +35,33 @@ beforeEach(() => {
   harness = createReactHarness();
 });
 afterEach(() => { harness.cleanup(); delete document.documentElement.dataset.theme; });
-const render = async () => { await harness.render(<ResourceTimeline />); await act(async () => { await vi.dynamicImportSettled(); }); };
+const render = async (compact = false) => { await harness.render(<ResourceTimeline compact={compact} />); await act(async () => { await vi.dynamicImportSettled(); }); };
+
+it('coalesces compact history refreshes while retaining live full-page updates and chart data', async () => {
+  await render(true);
+  const before = cpu();
+  expect(rig.history).toHaveBeenCalledTimes(1);
+  for (const timestamp of [1501, 3001, 4999]) {
+    rig.snapshot = snapshot(timestamp);
+    await render(true);
+    expect(rig.history).toHaveBeenCalledTimes(1);
+    expect(cpu().data).toBe(before.data);
+  }
+  rig.history.mockResolvedValueOnce(history([...points, { ...points[1], id: 3, timestamp: 5000 }]));
+  rig.snapshot = snapshot(5000);
+  await render(true);
+  expect(rig.history).toHaveBeenCalledTimes(2);
+  expect(cpu().spec).toBe(before.spec);
+  expect(cpu().data?.[0].values.map((p) => p.id)).toEqual([1, 2, 3]);
+  rig.snapshot = snapshot(6500);
+  await render(true);
+  expect(rig.history).toHaveBeenCalledTimes(2);
+  await render();
+  expect(rig.history).toHaveBeenCalledTimes(3);
+  rig.snapshot = snapshot(6501);
+  await render();
+  expect(rig.history).toHaveBeenCalledTimes(4);
+});
 
 it('keeps chart configuration and data unchanged while awaiting history, then updates only data', async () => {
   await render();

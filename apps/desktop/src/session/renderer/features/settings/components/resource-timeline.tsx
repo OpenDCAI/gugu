@@ -18,7 +18,7 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
   const [selected, setSelected] = useState<ResourceSnapshot | null>(null);
   const [range, setRange] = useState(0);
   const [process, setProcess] = useState<{ pid?: number; runId?: string; until?: number; creationTime?: number }>({});
-  const live = process.pid === undefined ? snapshot : null;
+  const live = process.pid === undefined ? (compact && snapshot ? Math.floor(snapshot.timestamp / 5000) : snapshot) : null;
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const last = history?.points.at(-1);
