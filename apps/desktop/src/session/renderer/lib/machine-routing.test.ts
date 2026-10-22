@@ -1,4 +1,4 @@
-import { reaction } from 'mobx';
+import { computed, reaction, runInAction } from 'mobx';
 import { describe, expect, it } from 'vitest';
 import {
   MachineRegistry,
@@ -109,6 +109,20 @@ describe('machine routing (one workbench seam)', () => {
     r.forgetMachine('dev-a');
     dispose();
     expect(seen).toEqual(['|', 'dev-a|', 'dev-a|dev-b', '|dev-b']);
+  });
+
+  it('tells a computed first read inside an action, and a whole registration is one change', () => {
+    const r = new MachineRegistry();
+    const machines = computed(() => [r.machineOf(P), r.machineOf(LOCAL_P)].join('|'));
+    const runs: string[] = [];
+    let dispose = () => {};
+    runInAction(() => {
+      expect(machines.get()).toBe('|');
+      dispose = reaction(() => machines.get(), (value) => runs.push(value));
+    });
+    r.register('dev-a', [C, P, LOCAL_P]);
+    dispose();
+    expect(runs).toEqual(['dev-a|dev-a']);
   });
 
   it('renames the fixed task-home id at the machine boundary, both ways', () => {

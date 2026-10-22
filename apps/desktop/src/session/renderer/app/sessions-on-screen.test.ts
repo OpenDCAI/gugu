@@ -23,7 +23,6 @@ vi.mock('@renderer/lib/ipc', () => ({ rpc: { sessions: { reportSessionsOnScreen:
 vi.mock('@renderer/utils/logger', () => ({ log: { warn: vi.fn() } }));
 
 const { auxWindows } = await import('./aux-windows');
-const { sessionPeek } = await import('./session-peek');
 const { sessionPageOnScreen, sessionPagesOnScreen, sessionsOnScreen, wireSessionsOnScreenReport } = await import('./sessions-on-screen');
 
 const home = { windowPanes: new Map(), returnFromWindow: () => {} };
@@ -38,7 +37,6 @@ function setup(view: { currentViewId: string; sessionId?: string }, onBlocks: st
 
 afterEach(() => {
   for (const id of [...auxWindows.windows.keys()]) auxWindows.remove(id);
-  sessionPeek.close();
   report.mockClear();
 });
 
@@ -57,15 +55,6 @@ describe('sessions on screen', () => {
     auxWindows.add({ kind: 'session', projectId: 'p', sessionId: 'd' });
     expect(sessionsOnScreen().sort()).toEqual(['a', 'c', 'd']);
     expect(['a', 'c', 'd'].every(sessionPageOnScreen)).toBe(true);
-  });
-
-  it('a session beside an App is on screen, page and all, on whichever view the App is', () => {
-    setup({ currentViewId: 'home' });
-    sessionPeek.open({ projectId: 'q', sessionId: 'f', box: {} as HTMLElement });
-    expect(sessionPageOnScreen('f')).toBe(true);
-    expect(sessionPagesOnScreen()).toEqual([{ projectId: 'q', sessionId: 'f' }]);
-    sessionPeek.close('f');
-    expect(sessionsOnScreen()).toEqual([]);
   });
 
   it('names the project of every session on screen, once per session', () => {

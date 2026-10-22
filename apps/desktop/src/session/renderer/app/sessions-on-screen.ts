@@ -5,13 +5,11 @@ import { log } from '@renderer/utils/logger';
 import type { SessionParams } from './recent-session-pages';
 import { auxWindows } from './aux-windows';
 import { screenLayout } from './screen-layout';
-import { sessionPeek } from './session-peek';
 
 /**
  * 「这条会话在屏上」只在这里定义(spec session-page「一屏几块」)。两种问法:
  *
- *  · 它的**页**在屏上 —— 主窗正显示的那页、会话页上摆在某一块里的、整页开在单独窗里的、摆在一个 App 旁边的
- *    (session-peek.ts,哪个页签上都画着)。会话页据此判
+ *  · 它的**页**在屏上 —— 主窗正显示的那页、会话页上摆在某一块里的、整页开在单独窗里的。会话页据此判
  *    「我看得见」(workspace-view-model:页签的激活、可见)。
  *  · 它在屏上 —— 页在屏上,或它的某一枚页签开在单独的窗里(那一格自己就算看得见,见 pane-layout-store
  *    detachToWindow)。闲置回收据此判「人在看,不停」(spec idle-reclaim「不在屏上」):本机的会话报给本机主进程,
@@ -27,8 +25,7 @@ export function sessionPageOnScreen(sessionId: string): boolean {
   return (
     (onSessionView && routed === sessionId) ||
     (onSessionView && screenLayout.blockOfSession(sessionId) !== undefined) ||
-    auxWindows.windowOfSession(sessionId) !== undefined ||
-    sessionPeek.current?.sessionId === sessionId
+    auxWindows.windowOfSession(sessionId) !== undefined
   );
 }
 
@@ -47,7 +44,6 @@ export function sessionPagesOnScreen(): SessionParams[] {
   for (const window of auxWindows.windows.values()) {
     if (window.content.kind === 'session' || window.content.kind === 'tab') add(window.content.projectId, window.content.sessionId);
   }
-  add(sessionPeek.current?.projectId, sessionPeek.current?.sessionId);
   return [...pages.values()];
 }
 
