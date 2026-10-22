@@ -8,7 +8,6 @@ import type { AcpAgentApi, AcpClientFactory, AcpProcessIo } from '@gugu/session-
 /** The shared wire-v2 boundary. The runtime consumes the same domain vocabulary
  * for every harness, while prompt admission retains its distinct response. */
 export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi {
-  let peer!: v2.ClientContext
   const modeIds = new Map<string, string>()
   const updates = new V2Updates()
   const ownedMessages = new Set<string>()
@@ -179,7 +178,7 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
       Readable.toWeb(io.stdout) as ReadableStream<Uint8Array>
     )
   )
-  peer = connection.agent
+  const peer = connection.agent
   // A failed handshake is already returned by initialize; consume the SDK's
   // parallel lifecycle promise so it does not become an unhandled rejection.
   void connection.initialized.catch(() => {})
