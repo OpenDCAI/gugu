@@ -57,7 +57,7 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
       id: `session:${session.conversationId}`,
       name: session.title || session.conversationId,
       avatar: { name: session.title || session.conversationId, seed: session.conversationId, isAgent: true },
-      hint: <span className="gg-list-row-meta">{getProjectStore(session.projectId)?.name ?? session.projectId}</span>,
+      hint: <span className="text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{getProjectStore(session.projectId)?.name ?? session.projectId}</span>,
     }))
   // 「我的任务」 first: where it is offered, the App is on this computer, about its work here.
   const taskSection: ChatPickSection = { id: 'tasks', title: t('composePick.tasks'), rows: taskRows }
