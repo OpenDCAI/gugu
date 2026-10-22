@@ -67,7 +67,7 @@ const { ExtensionsSettingsCard } = await import('./ExtensionsSettingsCard');
 // How this build refuses an App written for apiVersion 2, as list() hands it over (#6934).
 const REFUSED = 'Invalid manifest:\n- apiVersion: apiVersion 2 is an older App interface; ask an agent to rewrite the App for apiVersion 4 as app_create writes Apps.';
 
-/** The page opens on 推荐 (#7059); these rows live on 我的 App. */
+/** The page opens on the market (#7059); these rows live on 已安装. */
 async function showInstalled(dom: JSDOM) {
   const tab = dom.window.document.querySelector('[data-testid="extensions-tab-installed"]') as HTMLButtonElement;
   await act(async () => void tab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
@@ -89,10 +89,8 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
       root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
     });
     await settle();
-    // 「从文件夹安装」在「我的 App」里(装着的那些在那儿,从文件夹装的也是装到那儿去)。
-    await showInstalled(dom);
     const button = [...dom.window.document.querySelectorAll('button')].find((node) =>
-      /Install from folder|从文件夹安装/.test(node.textContent ?? '')
+      /Install from folder|装本地文件夹/.test(node.textContent ?? '')
     );
     expect(button, 'the Install from folder button').toBeDefined();
     await act(async () => void button!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
@@ -256,7 +254,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
     ref: { extensionId: 'notes', version },
     cloud: cloudOf(version, releaseNotes),
   });
-  const saved = { market: h.api.marketBrowse.getMockImplementation(), marketEntry: h.api.marketEntry.getMockImplementation(), marketUpdates: h.api.marketUpdates.getMockImplementation() };
+  const saved = { marketBrowse: h.api.marketBrowse.getMockImplementation(), marketEntry: h.api.marketEntry.getMockImplementation(), marketUpdates: h.api.marketUpdates.getMockImplementation() };
 
   beforeEach(() => {
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
@@ -267,7 +265,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     h.api.marketBrowse.mockResolvedValue({
       success: true,
-      data: { extensions: [entryOf('1.0.0', 'the old notes')], featured: [], home: [], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: [entryOf('1.0.0', 'the old notes')], featured: [], installs: null, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     h.api.marketEntry.mockResolvedValue({ success: true, data: entryOf('3.0.0', 'what 3.0.0 changed') } as never);
     h.api.marketUpdates.mockResolvedValue({
@@ -290,7 +288,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
     act(() => root.unmount());
     vi.unstubAllGlobals();
     vi.clearAllMocks();
-    h.api.marketBrowse.mockImplementation(saved.market!);
+    h.api.marketBrowse.mockImplementation(saved.marketBrowse!);
     h.api.marketEntry.mockImplementation(saved.marketEntry!);
     h.api.marketUpdates.mockImplementation(saved.marketUpdates!);
     dom.window.close();
@@ -336,7 +334,7 @@ describe('市场页 (#7059)', () => {
     },
   });
   const listing = [app('arxiv', ['research'], ['export.arxiv.org']), app('pomo', ['productivity']), app('trace', ['developer'])];
-  const saved = { market: h.api.marketBrowse.getMockImplementation() };
+  const saved = { marketBrowse: h.api.marketBrowse.getMockImplementation() };
 
   beforeEach(() => {
     dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
@@ -346,18 +344,10 @@ describe('市场页 (#7059)', () => {
     vi.stubGlobal('Event', dom.window.Event);
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // 主进程按这一问答(`marketBrowse`):推荐那一问带首页那几排和类别卡片;一类那一问只给那一类。
-    h.api.marketBrowse.mockImplementation((async (ask: { category?: string; surface?: string } = {}) => {
-      const extensions = listing.filter((item) => !ask.category || item.manifest.categories[0] === ask.category);
-      return {
-        success: true,
-        data: {
-          extensions, featured: [listing[1]], home: [{ kind: 'more', items: listing }],
-          categories: [{ category: 'research', count: 1, icons: [null] }, { category: 'productivity', count: 1, icons: [null] }, { category: 'developer', count: 1, icons: [null] }],
-          installs: { pomo: 50 }, invalid: [], errorKind: null, error: null, total: extensions.length, page: 0, hasMore: false, fetchedAt: null,
-        },
-      };
-    }) as never);
+    h.api.marketBrowse.mockResolvedValue({
+      success: true,
+      data: { extensions: listing, featured: [listing[1]], installs: null, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+    } as never);
     (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: null } }));
     (h.api as Record<string, unknown>).marketHistory = vi.fn(async () => ({ success: true, data: [] }));
     // Main reads the unpacked package and hands back what it would ask (`return`); `given` installs it.
@@ -379,7 +369,7 @@ describe('市场页 (#7059)', () => {
     act(() => root.unmount());
     vi.unstubAllGlobals();
     vi.clearAllMocks();
-    h.api.marketBrowse.mockImplementation(saved.market!);
+    h.api.marketBrowse.mockImplementation(saved.marketBrowse!);
     dom.window.close();
   });
 
@@ -402,44 +392,22 @@ describe('市场页 (#7059)', () => {
     await settle();
   };
 
-  it('进来先是推荐:精选在顶上,下面每排一个推荐理由;「用在哪」那一排照 任务侧栏 → Agent 工具 → 群组,选一个就那样问主进程', async () => {
+  it('进来先是市场:精选在顶上,类别那排照清单的次序(全部 → 研究 → 效率 → 开发),选一类只剩那一类', async () => {
     await render();
     const document = dom.window.document;
     expect(document.querySelector('[data-testid="app-featured-pomo"]')).not.toBeNull();
-    const surfaces = [...document.querySelectorAll('[data-testid^="extensions-market-surface-"]')].map((node) =>
-      node.getAttribute('data-testid')!.replace('extensions-market-surface-', '')
+    const chips = [...document.querySelectorAll('[data-testid^="extensions-market-chip-"]')].map((node) =>
+      node.getAttribute('data-testid')!.replace('extensions-market-chip-', '')
     );
-    expect(surfaces).toEqual(['all', 'task', 'agent', 'group']);
-    const tiles = () => [...document.querySelectorAll('[data-testid="extensions-market-more"] [data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid'));
+    expect(chips).toEqual(['all', 'research', 'productivity', 'developer']);
+    // 「已安装」是同一排最后一项。
+    expect(document.querySelector('.mk-chipbar [data-testid="extensions-market-chip-developer"] ~ [data-testid="extensions-tab-installed"]')).not.toBeNull();
+    const tiles = () => [...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid'));
     expect(tiles()).toEqual(['extension-card-arxiv', 'extension-card-pomo', 'extension-card-trace']);
-    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0 });
-    await press('[data-testid="extensions-market-surface-agent"]');
-    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0, surface: 'agent' });
-  });
-
-  it('类别:一类一张卡(照主进程给的次序和个数),点一张 = 只问那一类;返回回到卡片', async () => {
-    await render();
-    const document = dom.window.document;
-    await press('[data-testid="extensions-tab-categories"]');
-    const cards = [...document.querySelectorAll('[data-testid^="extensions-market-category-"]')].map((node) => node.getAttribute('data-testid'));
-    expect(cards).toEqual(['extensions-market-category-research', 'extensions-market-category-productivity', 'extensions-market-category-developer']);
-    await press('[data-testid="extensions-market-category-developer"]');
-    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0, category: 'developer', sort: 'updated' });
-    expect([...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid'))).toEqual(['extension-card-trace']);
-    await press('[data-testid="extensions-market-category-back"]');
-    expect(document.querySelector('[data-testid="extensions-market-categories"]')).not.toBeNull();
-  });
-
-  it('最新:热门一行写安装数(主进程给的档位),读不到安装数时说一句、❌ 画 0', async () => {
-    await render();
-    const document = dom.window.document;
-    await press('[data-testid="extensions-tab-latest"]');
-    await press('[data-testid="extensions-market-sort-popular"]');
-    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0, sort: 'popular' });
-    const line = (id: string) => document.querySelector(`[data-testid="extension-card-${id}"] .mk-lockup-sub`)?.textContent;
-    expect(line('pomo')).toBe(translateSessionMessage('extensions.installsCount', { count: '50' }));
-    // 没有安装数的那一行:照旧写副标题,❌「0 次安装」。
-    expect(line('arxiv')).not.toContain('0');
+    await press('[data-testid="extensions-market-chip-developer"]');
+    expect(tiles()).toEqual(['extension-card-trace']);
+    // 选了一类,精选那张不再画(它不一定是这一类的)。
+    expect(document.querySelector('[data-testid="app-featured-pomo"]')).toBeNull();
   });
 
   // owner 10-20「每次点进去 apps 页面里面整个 banner image 都是要变一下」:从项目页回来这一页是重新挂上的,精选卡先画图标版、
@@ -460,23 +428,28 @@ describe('市场页 (#7059)', () => {
     expect(readme).toHaveBeenCalledTimes(1);
   });
 
-  it('精选下面那几排照主进程给的次序画(Agent 工具 → 群组协作 → 更多 App),每排写为什么是这几个', async () => {
-    h.api.marketBrowse.mockResolvedValue({
-      success: true,
-      data: {
-        extensions: listing, featured: [listing[1]],
-        home: [{ kind: 'agent', items: [listing[2], listing[0]] }, { kind: 'group', items: [listing[1], listing[0]] }, { kind: 'more', items: [listing[2]] }],
-        categories: [], installs: null, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null,
-      },
-    } as never);
+  it('次序:默认最近更新;「热门」问主进程按安装数排,行上写安装数;安装数读不到时照实说、给重试', async () => {
     await render();
     const document = dom.window.document;
-    const rowsIn = (section: string) =>
-      [...document.querySelectorAll(`[data-testid="${section}"] [data-testid^="extension-card-"]`)].map((node) => node.getAttribute('data-testid'));
-    const sections = [...document.querySelectorAll('[data-testid="extensions-market-agent"], [data-testid="extensions-market-group"], [data-testid="extensions-market-more"]')].map((node) => node.getAttribute('data-testid'));
-    expect(sections).toEqual(['extensions-market-agent', 'extensions-market-group', 'extensions-market-more']);
-    expect(rowsIn('extensions-market-agent')).toEqual(['extension-card-trace', 'extension-card-arxiv']);
-    expect(document.querySelector('[data-testid="extensions-market-group"] h3')?.textContent).toContain(translateSessionMessage('extensions.sectionGroup'));
+    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0, query: '', sort: 'updated' });
+    h.api.marketBrowse.mockResolvedValue({
+      success: true,
+      data: { extensions: [listing[2], listing[0], listing[1]], featured: [], installs: { trace: 50, arxiv: 5 }, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+    } as never);
+    await press('[data-testid="extensions-market-sort-popular"]');
+    expect(h.api.marketBrowse).toHaveBeenLastCalledWith({ page: 0, query: '', sort: 'popular' });
+    const line = (id: string) => document.querySelector(`[data-testid="extension-card-${id}"]`)?.textContent ?? '';
+    expect(line('trace')).toContain(translateSessionMessage('extensions.installsCount', { count: '50' }));
+    // 没人装过的不写数(❌ 写 0):副标题照旧。
+    expect(line('pomo')).not.toMatch(/\d\+/);
+    h.api.marketBrowse.mockResolvedValue({
+      success: true,
+      data: { extensions: listing, featured: [], installs: null, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+    } as never);
+    await press('[data-testid="extensions-market-sort-updated"]');
+    await press('[data-testid="extensions-market-sort-popular"]');
+    expect(document.querySelector('[data-testid="extensions-market-popular-unavailable"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid^="extension-card-"]')).toBeNull();
   });
 
   it('第一次装、什么权限都不要的:产品页头上点「安装」就装,不弹框', async () => {
@@ -510,7 +483,7 @@ describe('市场页 (#7059)', () => {
     ];
     h.api.marketBrowse.mockResolvedValue({
       success: true,
-      data: { extensions: entries, featured: [], home: [{ kind: 'more', items: entries }], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: entries, featured: [], installs: null, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     await render();
     const document = dom.window.document;
@@ -536,7 +509,7 @@ describe('市场页 (#7059)', () => {
       const newer = { ...here, manifest: { ...here.manifest, version: '1.1.0' }, ref: { extensionId: 'pomo', version: '1.1.0' }, cloud: { ...here.cloud, version: '1.1.0' } };
       h.api.marketBrowse.mockResolvedValue({
         success: true,
-        data: { extensions: [newer], featured: [], home: [{ kind: 'more', items: [newer] }], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+        data: { extensions: [newer], featured: [], installs: null, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
       } as never);
       h.api.list.mockResolvedValueOnce({ success: true, data: { extensions: [here.manifest], invalid: [], icons: {}, disabled: [], origins } } as never);
       await render();
@@ -548,14 +521,12 @@ describe('市场页 (#7059)', () => {
     });
   }
 
-  it('点「同类 App」换到它的产品页', async () => {
+  it('点「类似 App」换到它的产品页', async () => {
     const twin = app('focus', ['productivity']);
-    const all = [...listing, twin];
-    // 产品页打开时按它的类别问一次整份目录(❌ 只在已经取到的那几页里找)。
-    h.api.marketBrowse.mockImplementation((async (ask: { category?: string } = {}) => {
-      const extensions = all.filter((item) => !ask.category || item.manifest.categories[0] === ask.category);
-      return { success: true, data: { extensions, featured: [], home: [{ kind: 'more', items: all }], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: extensions.length, page: 0, hasMore: false, fetchedAt: null } };
-    }) as never);
+    h.api.marketBrowse.mockResolvedValue({
+      success: true,
+      data: { extensions: [...listing, twin], featured: [], installs: null, invalid: [], errorKind: null, error: null, total: 4, page: 0, hasMore: false, fetchedAt: null },
+    } as never);
     await render();
     const document = dom.window.document;
     await press('[data-testid="extension-card-pomo"]');

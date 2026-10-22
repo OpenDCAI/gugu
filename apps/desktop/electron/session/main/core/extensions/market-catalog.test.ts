@@ -288,60 +288,35 @@ describe('CloudExtensionMarket.list', () => {
     expect(site.indexReads).toBe(1);
   });
 
-  // owner 10-22「多借鉴 google play」:类别是一页卡片,一类一页;筛、排都是 `searchApps`(和 agent 的 app_search 同一份)。
-  it('类别:按市场类别表筛一类;卡片照表的次序、「其他」最后,带个数和前三个图标;没有搜索词时按名字排', async () => {
+  // 市场是一个列表(owner 10-22「页面太多了」):不搜时默认按最近更新,「热门」按安装数;类别 chip 在界面上筛。
+  it('默认按最近更新(最近一版的日期,新的在前),同一天按名字', async () => {
     const bytes = await zipOf({ 'manifest.json': '{}' });
-    const withCategory = (id: string, categories?: string[]) =>
-      appOf(id, [versionFor(bytes, id, '1.0.0', { manifest: { ...manifestOf(id), ...(categories ? { categories } : {}) } })]);
     const site = siteOf([
-      withCategory('a-game', ['games']),
-      withCategory('b-dev', ['developer']),
-      withCategory('c-none'),
-      withCategory('d-notes', ['productivity']),
-      withCategory('e-papers', ['games', 'research']),
-      withCategory('f-arxiv', ['research']),
-      withCategory('g-chat', ['social']),
+      appOf('old', [versionFor(bytes, 'old', '1.0.1')]),
+      appOf('fresh', [versionFor(bytes, 'fresh', '1.0.1'), versionFor(bytes, 'fresh', '1.0.9')]),
+      appOf('mid', [versionFor(bytes, 'mid', '1.0.5')]),
+      appOf('also-old', [versionFor(bytes, 'also-old', '1.0.1')]),
     ]);
-    const market = marketOf(site);
-    const all = await market.list({ page: 0 });
-    expect(all.extensions.map((entry) => entry.manifest.id)).toEqual(['a-game', 'b-dev', 'c-none', 'd-notes', 'e-papers', 'f-arxiv', 'g-chat']);
-    // 第一个写在表里的类别算数:e-papers 写的是 games、research → 游戏。
-    expect(all.categories.map((card) => [card.category, card.count])).toEqual([
-      ['research', 1],
-      ['productivity', 1],
-      ['developer', 1],
-      ['games', 2],
-      ['social', 1],
-      ['other', 1],
-    ]);
-    expect((await market.list({ page: 0, category: 'games' })).extensions.map((entry) => entry.manifest.id)).toEqual(['a-game', 'e-papers']);
-    expect((await market.list({ page: 0, category: 'other' })).extensions.map((entry) => entry.manifest.id)).toEqual(['c-none']);
-    expect((await market.list({ page: 1 })).categories).toEqual([]);
+    const { extensions } = await marketOf(site).list({ page: 0 });
+    expect(extensions.map((entry) => entry.manifest.id)).toEqual(['fresh', 'mid', 'also-old', 'old']);
   });
 
-  it('「用在哪」:任务侧栏 / Agent 工具 / 群组照 manifest 的声明筛', async () => {
-    const bytes = await zipOf({ 'manifest.json': '{}' });
-    const declaring = (id: string, extra: Record<string, unknown>) =>
-      appOf(id, [versionFor(bytes, id, '1.0.0', { manifest: { ...manifestOf(id), ...extra } })]);
-    const site = siteOf([
-      declaring('page', {}),
-      declaring('tools', { contributes: { mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
-      declaring('group-files', { contributes: { tabs: [{ name: 'main', title: 'Main', opensFiles: { chat: ['.pdf'] } }] } }),
-    ]);
-    const market = marketOf(site);
-    const ids = async (surface: 'task' | 'agent' | 'group') => (await market.list({ page: 0, surface })).extensions.map((entry) => entry.manifest.id);
-    expect(await ids('task')).toEqual(['page']);
-    expect(await ids('agent')).toEqual(['tools']);
-    expect(await ids('group')).toEqual(['group-files']);
-  });
-
-  it('热门:按安装数从高到低,同数按名字;没有安装数的排在后面;读不到安装数时按名字', async () => {
+  it('热门:按安装数从高到低,同数按名字;没有安装数的排在后面', async () => {
     const bytes = await zipOf({ 'manifest.json': '{}' });
     const site = siteOf(['app-a', 'app-b', 'app-c', 'app-d'].map((id) => appOf(id, [versionFor(bytes, id)])));
-    const market = marketOf(site);
     const installs = new Map([['app-c', 50], ['app-a', 5], ['app-d', 50]]);
-    expect((await market.list({ page: 0, sort: 'popular', installs })).extensions.map((entry) => entry.manifest.id)).toEqual(['app-c', 'app-d', 'app-a', 'app-b']);
-    expect((await market.list({ page: 0, sort: 'popular' })).extensions.map((entry) => entry.manifest.id)).toEqual(['app-a', 'app-b', 'app-c', 'app-d']);
+    const { extensions } = await marketOf(site).list({ page: 0, sort: 'popular', installs });
+    expect(extensions.map((entry) => entry.manifest.id)).toEqual(['app-c', 'app-d', 'app-a', 'app-b']);
+  });
+
+  it('搜索按相关度排(和 agent 的 app_search 同一条规矩):命中词多的在前,❌ 按名字', async () => {
+    const bytes = await zipOf({ 'manifest.json': '{}' });
+    const site = siteOf([
+      appOf('alpha', [versionFor(bytes, 'alpha', '1.0.0', { manifest: { ...manifestOf('alpha'), name: 'Alpha notes' } })]),
+      appOf('zulu', [versionFor(bytes, 'zulu', '1.0.0', { manifest: { ...manifestOf('zulu'), name: 'Zulu board', description: 'notes on a board' } })]),
+    ]);
+    const hits = await marketOf(site).list({ search: 'board notes', sort: 'popular', installs: new Map([['alpha', 100]]) });
+    expect(hits.extensions.map((entry) => entry.manifest.id)).toEqual(['zulu', 'alpha']);
   });
 
   it('首页精选:近期安装分数高的在前,不够 3 张用标了 featured 的按索引次序补;停止维护的、首启组的不进;只随不带搜索词的第一页', async () => {
@@ -364,63 +339,6 @@ describe('CloudExtensionMarket.list', () => {
     expect((await market.list({ page: 0, scores })).extensions.find((entry) => entry.manifest.id === 'plain')?.featured).toBe(false);
     expect((await market.list({ page: 0, search: 'notes', scores })).featured).toEqual([]);
     expect((await market.list({ page: 1, scores })).featured).toEqual([]);
-  });
-
-  it('首页那几排:Agent 工具 → 群组协作 → 更多 App(按最近更新);每个 App 只出现一次,凑不够两个的不成排;停维的不进;只随不带搜索词的第一页', async () => {
-    const bytes = await zipOf({ 'manifest.json': '{}' });
-    const app = (id: string, version: string, extra: Record<string, unknown>, more: Partial<MarketIndexApp> = {}) =>
-      appOf(id, [versionFor(bytes, id, version, { manifest: { ...manifestOf(id, version), name: id, ...extra } })], more);
-    const agentOnly = { contributes: { mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } };
-    const site = siteOf([
-      app('browser', '1.0.1', agentOnly, { featured: true }),
-      app('computer', '1.0.2', { contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
-      // 给 agent 工具、自己有一页、又打开群文件:不算「Agent 工具」那种(它有自己的页),归群组协作。
-      app('papers', '1.0.3', { contributes: { tabs: [{ name: 'shelf', title: 'Papers' }, { name: 'reader', title: 'Papers', opensFiles: { chat: ['.pdf'] } }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
-      // 只给 agent 工具、没有自己的页(只有宿主画的设置页),又打开群文件:在 Agent 工具那一排出现过,群组那一排不再列它。
-      app('scanner', '1.0.8', { contributes: { tabs: [{ name: 'settings', title: 'Settings', hostPage: 'settings' }, { name: 'view', title: 'Scan', opensFiles: { chat: ['.scan'] } }], mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } }),
-      app('slides', '1.0.4', { contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] } }, { featured: true }),
-      app('soup', '1.0.5', { contributes: { tabs: [{ name: 'main', title: 'Soup' }] }, permissions: { capabilities: ['chat:read'] } }),
-      app('calendar', '1.0.6', {}),
-      app('board', '1.0.7', {}),
-      app('retired', '1.0.9', agentOnly, { deprecated: { note: null, replacedBy: null } }),
-    ]);
-    const market = marketOf(site);
-    const { home } = await market.list({ page: 0 });
-    const ids = (entries: { manifest: { id: string } }[]) => entries.map((entry) => entry.manifest.id);
-    expect(home.map((section) => [section.kind, ids(section.entries)])).toEqual([
-      ['agent', ['scanner', 'computer', 'browser']],
-      ['group', ['soup', 'slides', 'papers']],
-      ['more', ['board', 'calendar']],
-    ]);
-    // 推荐页也照「用在哪」筛:选了群组,精选和那几排都只从群组那几个里排(❌ 拿整份目录排)。scanner 也打开群文件:
-    // 筛过以后 Agent 工具那一排只剩它一个、不成排,它落进群组那一排。
-    const grouped = await market.list({ page: 0, surface: 'group' });
-    expect(grouped.home.map((section) => [section.kind, ids(section.entries)])).toEqual([['group', ['scanner', 'soup', 'slides', 'papers']]]);
-    expect(grouped.extensions.map((entry) => entry.manifest.id).sort()).toEqual(['papers', 'scanner', 'slides', 'soup']);
-    expect(ids((await market.list({ page: 0 })).featured)).toEqual(['browser', 'slides']);
-    expect(ids(grouped.featured)).toEqual(['slides']);
-    expect((await market.list({ page: 0, search: 'board' })).home).toEqual([]);
-    expect((await market.list({ page: 1 })).home).toEqual([]);
-  });
-
-  it('首页:凑不够两个的一排不成排,它的 App 留给后面那一排', async () => {
-    const bytes = await zipOf({ 'manifest.json': '{}' });
-    const site = siteOf([
-      appOf('tools', [versionFor(bytes, 'tools', '1.0.1', { manifest: { ...manifestOf('tools', '1.0.1'), contributes: { mcpServers: [{ tools: 'tools.js' }] }, permissions: { capabilities: ['agents:tools'] } } })]),
-      appOf('plain', [versionFor(bytes, 'plain', '1.0.2')]),
-    ]);
-    const { home } = await marketOf(site).list({ page: 0 });
-    expect(home.map((section) => [section.kind, section.entries.map((entry) => entry.manifest.id)])).toEqual([['more', ['plain', 'tools']]]);
-  });
-
-  it('搜索按相关度排(和 agent 的 app_search 同一条规矩):命中词多的在前,❌ 按名字', async () => {
-    const bytes = await zipOf({ 'manifest.json': '{}' });
-    const site = siteOf([
-      appOf('alpha', [versionFor(bytes, 'alpha', '1.0.0', { manifest: { ...manifestOf('alpha'), name: 'Alpha notes' } })]),
-      appOf('zulu', [versionFor(bytes, 'zulu', '1.0.0', { manifest: { ...manifestOf('zulu'), name: 'Zulu board', description: 'notes on a board' } })]),
-    ]);
-    const hits = await marketOf(site).list({ search: 'board notes' });
-    expect(hits.extensions.map((entry) => entry.manifest.id)).toEqual(['zulu', 'alpha']);
   });
 
   it('搜索按名字 / 简介 / id 筛同一份目录,不区分大小写', async () => {

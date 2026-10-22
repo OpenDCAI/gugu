@@ -52,8 +52,8 @@ export const REMOTE_PROTOCOL_VERSION = 11
  * 跨机器的数据文件随之是一次调用的上限 1 MB(owner 10-17「更优雅的话就去做吧」)。窗口一字未变,两个下沿留在 9(同 7):
  * 只有这一问对协议 9 的机器说「太旧」(那台的路由表答 No handler)。
  *
- * 11(App 市场照 Google Play 重排,owner 10-22):App 页读市场的动词 `market` 换成 `marketBrowse` —— 回答的形状变了(首页
- * 按推荐理由分排、类别卡片、安装数),旧动词删掉、❌ 留垫片。窗口一字未变,两个下沿留在 9(同 7、10):新桌面看协议 10 的
+ * 11(App 市场并成一个列表,owner 10-22):App 页读市场的动词 `market` 换成 `marketBrowse` —— 回答的形状变了(首页那几排
+ * 没了,多了次序和安装数),旧动词删掉、❌ 留垫片。窗口一字未变,两个下沿留在 9(同 7、10):新桌面看协议 10 的
  * 机器,只有 App 市场那一问答 `unknown_method`,页面据此说「那台机器上的咕咕太旧」(`deviceScopeNotice`);协议 10 的桌面
  * 看新机器,它的 `market` 答 `unknown_method`,它自己那页说「App 市场加载失败」。两种都由「server 跟着桌面换版」消掉。
  */

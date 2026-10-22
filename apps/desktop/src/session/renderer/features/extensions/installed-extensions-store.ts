@@ -5,7 +5,6 @@ import { getLocaleSnapshot, subscribeLocale } from '@/i18n';
 import {
   declaredContexts,
   extensionTabKind,
-  ownPageTab,
   type ExtensionManifest,
   type ExtensionTabKind
 } from '@shared/extensions/manifest';
@@ -151,9 +150,7 @@ export class InstalledExtensionsStore {
    * it can be pinned. A page per task is in many places at once, so it has no one place for the rail to go to.
    */
   mainTabOf(extensionId: string): ExtensionTabContributionEntry | null {
-    const manifest = this.manifests.find((entry) => entry.id === extensionId);
-    const tab = manifest ? ownPageTab(manifest) : null;
-    return tab ? (this.allTabContributions.find((entry) => entry.kind === extensionTabKind(extensionId, tab.name)) ?? null) : null;
+    return this.allTabContributions.find((entry) => entry.extensionId === extensionId && !entry.forFiles && !entry.perSession) ?? null;
   }
 
   /** What the rail shows: the pinned Apps that are installed, on, and have a page of their own, in the person's order. */

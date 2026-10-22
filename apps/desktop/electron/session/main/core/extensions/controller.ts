@@ -47,8 +47,6 @@ import { autoUpdateApps } from '@main/core/extensions/auto-update-apps';
 import { appService } from '@main/core/app/service';
 import { cloudExtensionMarket } from '@main/core/extensions/market-catalog-root';
 import { readMarketInstallCounts, readMarketRanking } from '@main/core/extensions/market-ranking';
-import type { MarketCategory } from '@shared/extensions/catalog';
-import type { AppSurface } from '@shared/extensions/app-search';
 import type { MarketListSort } from '@main/core/extensions/market-catalog';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
@@ -60,7 +58,7 @@ import {
   parseExtensionTabKind,
   type ExtensionManifest,
 } from '@shared/extensions/manifest';
-import type { CloudMarketEntry, MarketHomeSection, MarketListItem } from '@shared/extensions/market';
+import type { CloudMarketEntry, MarketListItem } from '@shared/extensions/market';
 import {
   extensionsInventoryChangedChannel,
   extensionsQuitChangedChannel,
@@ -118,12 +116,7 @@ function readBundleReadme(rootDir: string): string | null {
   return name ? fs.readFileSync(path.join(rootDir, name), 'utf8') : null;
 }
 
-/**
- * Extension inventory over IPC. `inspect` exists so the install flow can show
- * what an extension declares *before* the user consents — installing is never
- * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
- */
-/** 安装数一分钟读一次:它按天变,而翻页、搜索、产品页每一下都要问一次市场。读不到也记下(一分钟里只记一条 error)。 */
+/** 安装数一分钟读一次:它按天变,而翻页、搜索每一下都要问一次市场。读不到也记下(一分钟里只记一条 error)。 */
 const INSTALLS_FRESH_MS = 60_000;
 let installsRead: { at: number; value: Map<string, number> | undefined } | null = null;
 async function marketInstalls(onError: (error: unknown) => undefined): Promise<Map<string, number> | undefined> {
@@ -133,6 +126,11 @@ async function marketInstalls(onError: (error: unknown) => undefined): Promise<M
   return value;
 }
 
+/**
+ * Extension inventory over IPC. `inspect` exists so the install flow can show
+ * what an extension declares *before* the user consents — installing is never
+ * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
+ */
 export const extensionsController = createRPCController({
   list: async () => {
     try {
@@ -506,14 +504,14 @@ export const extensionsController = createRPCController({
    * 连不上时回的仍是这个形状:一页空清单 + `errorKind`,界面据此只画那一句话和「重试」,
    * ❌ 画「这里还没有 App」—— 空清单和读不到清单是两件事。`error` 是原话、只进日志。
    *
-   * `page` / `query` / `category` / `surface` / `sort`:一页一页给界面(翻页要看得见),筛、排都是同一份目录上的 `searchApps`。
-   * 安装数(`installs`,档位的下沿):卡片、产品页、「最新」页的「热门」都用它。一分钟读一次(`marketInstalls`),翻页、搜索、
-   * 产品页的同类 App 都用手上那份;读不到 = `null`(一分钟里只记一条 error),界面就不画安装数(❌ 画成 0)。
+   * `page` / `query` / `sort`:一页一页给界面(翻页要看得见),搜、排都是同一份目录上的 `searchApps`。
+   * 安装数(`installs`,档位的下沿):「热门」的次序、行上和产品页的安装数都用它。一分钟读一次(`marketInstalls`),翻页、搜索
+   * 都用手上那份;读不到 = `null`(一分钟里只记一条 error),界面就不画安装数(❌ 画成 0)。
    *
-   * 叫 `marketBrowse`(协议 11):回答的形状(首页按推荐理由分排、类别卡片、安装数)和协议 10 的 `market` 不兼容,旧机器上
+   * 叫 `marketBrowse`(协议 11):回答的形状(没有首页那几排、多了安装数)和协议 10 的 `market` 不兼容,旧机器上
    * 没有这个动词,问它回 `unknown_method`,页面据此说「那台机器上的咕咕太旧」。
    */
-  marketBrowse: async (args: { page?: number; query?: string; category?: MarketCategory; surface?: AppSurface; sort?: MarketListSort } = {}) => {
+  marketBrowse: async (args: { page?: number; query?: string; sort?: MarketListSort } = {}) => {
     const page = Math.max(0, args.page ?? 0);
     const query = (args.query ?? '').trim();
     const unreadable = (what: string) => (error: unknown) => {
@@ -526,7 +524,7 @@ export const extensionsController = createRPCController({
         page === 0 && !query ? readMarketRanking().catch(unreadable('install ranking')) : undefined,
         marketInstalls(unreadable('install counts')),
       ]);
-      const listing = await cloudExtensionMarket().list({ page, search: query, category: args.category, surface: args.surface, sort: args.sort, scores, installs });
+      const listing = await cloudExtensionMarket().list({ page, search: query, sort: args.sort, scores, installs });
       const asItem = ({ manifest, ...cloud }: CloudMarketEntry): MarketListItem => ({
         manifest,
         ref: { extensionId: manifest.id, version: cloud.version },
@@ -536,10 +534,8 @@ export const extensionsController = createRPCController({
         success: true,
         data: {
           extensions: listing.extensions.map(asItem),
-          // 首页精选那一排和下面那几排、类别卡片(只随第一页、不带搜索词)。
+          // 首页精选那一排(只随第一页、不带搜索词)。
           featured: listing.featured.map(asItem),
-          home: listing.home.map((section) => ({ kind: section.kind, items: section.entries.map(asItem) })),
-          categories: listing.categories,
           installs: installs ? Object.fromEntries(installs) : null,
           invalid: listing.invalid.map((entry) => ({ dirName: entry.extensionId, reason: entry.reason })),
           // `errorKind` 是给界面看的(它决定文案),`error` 是原话、只进日志 ——
@@ -561,8 +557,6 @@ export const extensionsController = createRPCController({
         data: {
           extensions: [] as MarketListItem[],
           featured: [] as MarketListItem[],
-          home: [] as { kind: MarketHomeSection; items: MarketListItem[] }[],
-          categories: [] as { category: MarketCategory; count: number; icons: (string | null)[] }[],
           installs: null as Record<string, number> | null,
           invalid: [] as { dirName: string; reason: string }[],
           errorKind,

@@ -32,7 +32,7 @@ const h = vi.hoisted(() => {
   });
   const listing = (ids: string[], fetchedAt: string) => ({
     success: true,
-    data: { extensions: ids.map((id) => item(id)), featured: [], home: [{ kind: 'more', items: ids.map((id) => item(id)) }], categories: [], installs: null, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
+    data: { extensions: ids.map((id) => item(id)), featured: [], installs: null, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
   });
   const answer = (data: unknown) => async () => ({ success: true, data });
   const api = {

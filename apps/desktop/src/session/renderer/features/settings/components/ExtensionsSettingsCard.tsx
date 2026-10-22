@@ -1,4 +1,4 @@
-import { ChevronLeft, CircleAlert, Trash2Icon } from '@/lib/icons';
+import { CircleAlert, Trash2Icon } from '@/lib/icons';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -26,8 +26,6 @@ import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type EnablePlace, type InstallAlsoOnMa
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
 import { AppFeaturedCard } from '@renderer/features/extensions/panel/app-featured';
 import { AppShelfRow } from '@renderer/features/extensions/panel/app-shelf';
-import { MarketCategoryCards } from '@renderer/features/extensions/panel/market-browse';
-import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { TOO_OLD_CODES } from '@renderer/features/remote-hosts/connection-status';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
@@ -66,21 +64,18 @@ import {
 } from '@shared/extensions/catalog';
 import type {
   MarketCompat,
-  MarketHomeSection,
   MarketListItem,
   MarketSourceRef,
 } from '@shared/extensions/market';
-import { APP_SURFACES, type AppSurface } from '@shared/extensions/app-search';
 import { marketDownloadProgressChannel, marketRefreshedChannel } from '@shared/extensions/marketEvents';
 import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
 /**
- * 左栏「App」那一页 = App 市场(#7059;owner 10-22「多借鉴下 google play」,第 4 轮设计稿):顶上「App」、搜索和「我的 App」,
- * 下面「推荐 / 最新 / 类别」三页,再下面一排「用在哪」筛选(照 Google Play 的设备那一排)。推荐 = 官方精选 + 每排一个推荐理由;
- * 最新 = 热门(安装数)/ 新上架 / 最近更新;类别 = 一类一张卡。点一行 = 它的产品页(就在这一栏里铺开,❌ 弹框)。
- * 我的 App 按「需要处理 / 有更新 / 已启用 / 未启用」分组,每行按钮 + 开关 + ⋯。
+ * 左栏「App」那一页 = App 市场(#7059,照改版原型):整页居中一栏,顶上「App」+ 一句话 + 搜索,下面「市场 / 已安装」。
+ * 市场 = 官方精选 + 按类别两列平铺,每行就地一颗按钮;点一行 = 它的产品页(就在这一栏里铺开,❌ 弹框)。
+ * 已安装按「需要处理 / 有更新 / 已启用 / 未启用」分组,每行按钮 + 开关 + ⋯。
  * 从市场装走的是与手选文件夹**完全相同**的 `inspect → consent → install`。Refs #2374, #5265, #5410.
  */
 
@@ -96,7 +91,7 @@ type ShelfState =
   | { status: 'loading' }
   | {
       status: 'ready';
-      /** 这是哪一问的结果(`requestKey`):同一问再读一遍时,画着的这份留着,读回来原地换上。 */
+      /** 这是哪一问的结果(`askKey`:搜索词 + 次序):同一问再读一遍时,画着的这份留着,读回来原地换上。 */
       key: string;
       /** 云端连不上时,用户该做什么这一类。原话只进日志,❌ 不进文案。 */
       errorKind: 'unreachable' | null;
@@ -107,10 +102,6 @@ type ShelfState =
       hasMore: boolean;
       /** 首页精选那一排(只随不带搜索词的第一页;近期安装量排出来,不够用官方标的补齐)。 */
       featured: ShelfItem[];
-      /** 精选下面那几排(每排一个推荐理由,同精选只随不带搜索词的第一页)。 */
-      home: { kind: MarketHomeSection; items: ShelfItem[] }[];
-      /** 「类别」页那几张卡(只随第一页)。 */
-      categories: { category: MarketCategory; count: number; icons: (string | null)[] }[];
       /** 安装数的档位,按 App id;`null` = 读不到(不画安装数,❌ 画 0)。 */
       installs: Record<string, number> | null;
       /** 正在取下一页:底部画骨架、哨兵不再触发。 */
@@ -147,18 +138,11 @@ const GROUP_LABEL = {
   disabled: 'extensions.groupDisabled',
 } as const satisfies Record<InstalledGroup, string>;
 
-/** 这一页上的几处:推荐、最新、类别,和右上角「我的 App」(装着的那些)。 */
-type MarketView = 'home' | 'latest' | 'categories' | 'mine';
-type LatestSort = 'popular' | 'newest' | 'updated';
-
-/** 这一页此刻要市场答的那一问:搜索词、「用在哪」、类别、次序。同一问的结果才原地换上。 */
-type MarketRequest = { query?: string; surface?: AppSurface; category?: MarketCategory; sort?: LatestSort | 'name' };
-
-const HOME_SECTION_TEXT = {
-  agent: ['extensions.sectionAgent', 'extensions.sectionAgentSub'],
-  group: ['extensions.sectionGroup', 'extensions.sectionGroupSub'],
-  more: ['extensions.sectionMore', 'extensions.sectionMoreSub'],
-} as const satisfies Record<MarketHomeSection, readonly [string, string]>;
+type StoreTab = 'market' | 'installed';
+/** 市场列表的次序(不搜的时候):最近更新、热门(安装数从高到低)。搜的时候按相关度。 */
+type MarketSort = 'updated' | 'popular';
+type MarketAsk = { query: string; sort: MarketSort };
+const askKey = (ask: MarketAsk) => `${ask.sort}:${ask.query}`;
 
 export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard() {
   const { translate, locale } = useSessionMessages();
@@ -184,13 +168,11 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   const showConfirm = useShowModal('confirmActionModal');
   const [isBusy, setIsBusy] = useState(false);
   const { navigate } = useNavigate();
-  // 进来先是推荐;有更新时「我的 App」上一个红点。
-  const [view, setView] = useState<MarketView>('home');
-  // 「类别」页里点开的那一类;没点 = 类别卡片。
-  const [category, setCategory] = useState<MarketCategory | null>(null);
-  // 「用在哪」那一排(照 Google Play 的设备那一排):选一个,推荐、最新、类别、搜索都只看这样用的。
-  const [surface, setSurface] = useState<'all' | AppSurface>('all');
-  const [latestSort, setLatestSort] = useState<LatestSort>('updated');
+  // 进来先是市场;「已安装」是类别那一排最后一项,有更新时上面一个红点。
+  const [tab, setTab] = useState<StoreTab>('market');
+  // 市场顶上那排类别(照 Google Play「手机 / 平板电脑…」那排):选一个只看那一类。
+  const [chip, setChip] = useState<'all' | MarketCategory>('all');
+  const [sort, setSort] = useState<MarketSort>('updated');
   // 刚在产品页里装好的那一个:那一页头下面说一句「装好了」和去哪找它。
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
   // 进产品页从顶上看起;回清单回到刚才滚到的地方(照 Mac App Store 的返回)。滚的是外面那一层页面。
@@ -205,17 +187,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   const [query, setQuery] = useState('');
   // 搜索词打到服务端去,所以敲字要缓一拍 —— 每个字符一趟请求是在替用户刷自己的清单接口。
   const debouncedQuery = useDebounce(query.trim(), 250);
-  const request: MarketRequest = {
-    ...(surface === 'all' ? {} : { surface }),
-    ...(debouncedQuery
-      ? { query: debouncedQuery }
-      : view === 'latest'
-        ? { sort: latestSort }
-        : view === 'categories' && category
-          ? { category, sort: 'updated' as const }
-          : {}),
-  };
-  const requestKey = JSON.stringify(request);
+  const ask: MarketAsk = { query: debouncedQuery, sort };
+  const shownAsk = askKey(ask);
   const [shelf, setShelf] = useState<ShelfState>(() => lastShelf.get(host.key) ?? { status: 'loading' });
   const shelfRef = useRef(shelf);
   shelfRef.current = shelf;
@@ -341,14 +314,14 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   // 读的是那台机器手上的目录(market-snapshot.ts),❌ 等下载站。同一个搜索词再读一遍(打开时、目录变了、重试)时
   // 画着的那份留着、读回来原地换上 —— ❌ 骨架、❌ 回到顶上;`pages` = 已经翻到的那几页一起重读,下面的不会少掉一截。
   const shelfRequest = useRef(0);
-  const readShelf = useCallback(async (ask: MarketRequest = {}, pages = 1) => {
+  const readShelf = useCallback(async (request: MarketAsk, pages = 1) => {
     const ticket = (shelfRequest.current += 1);
-    const key = JSON.stringify(ask);
+    const key = askKey(request);
     setShelf((current) =>
       current.status === 'ready' && current.key === key && !current.errorKind ? current : { status: 'loading' }
     );
     try {
-      const result = await api.marketBrowse({ page: 0, ...ask });
+      const result = await api.marketBrowse({ page: 0, ...request });
       if (ticket !== shelfRequest.current) return;
       // The market answers every call (unreachable is `errorKind`); only a call that did not get there lands here.
       if (!result.success || !result.data) throw new Error('market unreadable');
@@ -364,7 +337,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       let items = result.data.extensions;
       let last = result.data;
       for (let page = 1; page < pages && last.hasMore; page += 1) {
-        const next = await api.marketBrowse({ page, ...ask });
+        const next = await api.marketBrowse({ page, ...request });
         if (ticket !== shelfRequest.current) return;
         // 后面那几页没读到:前面的照样换上,底部的「加载更多」还在。
         if (!next.success || !next.data || next.data.errorKind) break;
@@ -384,14 +357,12 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         page: last.page,
         hasMore: last.hasMore,
         featured: result.data.featured,
-        home: result.data.home,
-        categories: result.data.categories,
         installs: result.data.installs,
         loadingMore: false,
       };
       setShelf(ready);
-      // 下次打开先画的那份:推荐那一问的第 0 页(翻到的那几页下次再翻)。
-      if (key === '{}' && !ready.errorKind) {
+      // 下次打开先画的那份:不搜、最近更新的第 0 页(翻到的那几页下次再翻)。
+      if (key === askKey({ query: '', sort: 'updated' }) && !ready.errorKind) {
         lastShelf.set(host.key, { ...ready, page: 0, items: result.data.extensions, hasMore: result.data.hasMore });
       }
     } catch (error) {
@@ -413,7 +384,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     const nextPage = shelf.page + 1;
     setShelf({ ...shelf, loadingMore: true });
     try {
-      const result = await api.marketBrowse({ page: nextPage, ...request });
+      const result = await api.marketBrowse({ page: nextPage, ...ask });
       if (ticket !== shelfRequest.current) return;
       // The market answers every call (unreachable is `errorKind`); only a call that did not get there lands here.
       if (!result.success || !result.data) throw new Error('market unreadable');
@@ -437,7 +408,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       log.warn('extension catalog next page unreadable:', error);
       setShelf((current) => (current.status === 'ready' ? { ...current, loadingMore: false } : current));
     }
-  }, [shelf, requestKey]);
+  }, [shelf, shownAsk]);
 
   // 底部哨兵:滚到它就取下一页 —— 往下滚本身就是「我还要看」,❌ 不再要一次点击
   // (owner 2026-09-14:「我不要手动点才能加载更多,下滚不就可以加载更多了吗」)。
@@ -455,7 +426,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     observer.observe(sentinel);
     return () => observer.disconnect();
   // 产品页铺开时整个清单卸掉、页脚那一行跟着没了;回来以后是新的一行,要重新盯上(`detail` 进依赖)。
-  }, [canLoadMore, view, detail]);
+  }, [canLoadMore, tab, detail]);
 
   const detailId = detail?.manifest.id ?? null;
   useLayoutEffect(() => {
@@ -480,8 +451,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
 
   // 下载站那一趟回来了(打开这一页时去的那趟,或者别处 —— 启动、安装 —— 去的):变了,市场这一块和「有新版 / 被撤回」
   // 一起从新的那份重读(两边永远是同一刻,10-08 的一致性);没变什么都不重画;没取到,照旧画手上那份、页头写「上次更新于 …」。
-  const requestRef = useRef(request);
-  requestRef.current = request;
+  const askRef = useRef(ask);
+  askRef.current = ask;
   const onMarketRefreshed = (refreshed: MarketRefreshed) => {
     if (refreshed.outcome === 'failed') {
       setMarketStale(refreshed.fetchedAt);
@@ -491,7 +462,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     if (refreshed.outcome !== 'changed' || refreshed.fetchedAt === shelfFetchedAt.current) return;
     shelfFetchedAt.current = refreshed.fetchedAt;
     const current = shelfRef.current;
-    void readShelf(requestRef.current, current.status === 'ready' ? current.page + 1 : 1);
+    void readShelf(askRef.current, current.status === 'ready' ? current.page + 1 : 1);
     // 本机那份「有新版」由 wireMarketRefresh 跟着推送重查;别的机器的推送未必转得过来,这里查。
     if (!host.local) void store.checkUpdates();
   };
@@ -516,13 +487,13 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       .catch((error: unknown) => log.warn('App market refresh not asked:', error));
   }, [refresh]);
 
-  // 首次与每次换一问(搜索词、「用在哪」、哪一页、哪一类、次序):从第 0 页重来。读的是手上那份目录,和上面那趟更新检查同一份;
+  // 首次与每次换搜索词或次序:从第 0 页重来。读的是手上那份目录,和上面那趟更新检查同一份;
   // 下载站那趟取回来变了,两边由 onMarketRefreshed 一起重读。
   useEffect(() => {
     if (remote && !remote.online) return;
-    void readShelf(request);
+    void readShelf(ask);
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [readShelf, requestKey, remote?.online]);
+  }, [readShelf, shownAsk, remote?.online]);
 
   /**
    * 从市场装:装法只有一条 —— main 的 installExtensionFromMarket(群里的「用 X 打开」、首启那一页、agent 的 app_install 走的
@@ -1068,28 +1039,41 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           entry.dirName.toLowerCase().includes(query.trim().toLowerCase())
         );
 
-  // 市场那一侧的筛选、次序都在服务端(`searchApps`),这里拿到的已经是结果(`shelf.items`)。
+  // 市场那一侧的筛选在服务端,这里拿到的已经是结果;次序也是那边排好的(先按类别,再按名字)。
+  const marketRows = shelf.status === 'ready' ? shelf.items : [];
+  // 类别那一排只列取到的清单里有的类(次序同清单:先按类别再按名字);选中的那类没了(搜别的了)就当「全部」。
+  const chipKeys: ('all' | MarketCategory)[] = ['all'];
+  for (const item of marketRows) {
+    const category = marketCategoryOf(item.manifest);
+    if (!chipKeys.includes(category)) chipKeys.push(category);
+  }
+  const activeChip = chipKeys.includes(chip) ? chip : 'all';
+  const shownRows = activeChip === 'all' ? marketRows : marketRows.filter((item) => marketCategoryOf(item.manifest) === activeChip);
+  const chipLabel = (key: 'all' | MarketCategory) => translate(key === 'all' ? 'extensions.chipAll' : `extensions.category.${key}`);
+  const gridTitle =
+    debouncedQuery !== '' ? translate('extensions.searchResults') : activeChip === 'all' ? translate('extensions.allApps') : chipLabel(activeChip);
+  // 「热门」按安装数排:行上写安装数(档位的下沿),产品页数据带里也写;读不到 = 不画(❌ 画 0)。
   const installs = shelf.status === 'ready' ? shelf.installs : null;
   const installsText = (extensionId: string) => {
     const count = installs?.[extensionId];
     return count ? translate('extensions.installsCount', { count: count.toLocaleString(locale) }) : null;
   };
-  const categoryLabel = (key: MarketCategory) => translate(`extensions.category.${key}`);
+  const byInstalls = sort === 'popular' && debouncedQuery === '';
 
-  /** 精选大卡 / 搜索第一个结果那张卡:同一个组件,同一张底图(README 第一张截图,没有就用图标)。 */
-  const featuredCardOf = (item: ShelfItem, variant: 'hero' | 'card') => {
+  /** 精选大卡:底图是 README 第一张截图,没有就用图标。 */
+  const featuredCardOf = (item: ShelfItem) => {
     const text = localizedManifestText(item.manifest, locale);
     return (
       <AppFeaturedCard
         key={item.manifest.id}
-        variant={variant}
+        variant="hero"
         hostKey={host.key}
         id={item.manifest.id}
         version={item.manifest.version}
         name={text.name}
         subtitle={text.subtitle}
         body={featuredBody(text.description ?? '', text.subtitle)}
-        meta={variant === 'card' ? text.subtitle : `${categoryLabel(marketCategoryOf(item.manifest))} · ${item.manifest.author ?? translate('extensions.publisherLocal')}`}
+        meta={`${translate(`extensions.category.${marketCategoryOf(item.manifest)}`)} · ${translate('extensions.official')}`}
         iconUrl={item.cloud.iconUrl}
         lifecycle={lifecycleOf(item.manifest.id, item)}
         pending={pending[item.manifest.id]}
@@ -1106,7 +1090,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
    * 市场里的一行。状态只在按钮那一格(❌ 写进副标题):没装的里,停止维护了的写「已停止维护」,这台咕咕装不了的写短的
    * 那一句(行上放不下版本号,整句在悬停提示里;产品页照旧写整句)。
    */
-  const marketRowOf = (item: ShelfItem, line?: string) => {
+  const marketRowOf = (item: ShelfItem) => {
     const id = item.manifest.id;
     const text = localizedManifestText(item.manifest, locale);
     const here = installedById.has(id);
@@ -1127,7 +1111,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         key={id}
         id={id}
         name={text.name}
-        subtitle={line ?? text.subtitle}
+        subtitle={(byInstalls ? installsText(id) : null) ?? text.subtitle}
         iconUrl={item.cloud.iconUrl}
         deprecated={Boolean(item.cloud.deprecated)}
         lifecycle={word ?? lifecycleOf(id, item)}
@@ -1172,40 +1156,28 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     setJustInstalled(null);
     setDetail({ manifest: item.manifest, installed: installedById.get(item.manifest.id), installRef: item.ref, cloud: item.cloud });
   };
-  /** 产品页右栏「同类 App」:市场里同一类的别的 App(整份目录里的,问一次),最多五个;「其他」不算一类。 */
-  const [similarItems, setSimilarItems] = useState<ShelfItem[]>([]);
-  const detailCategory = detail ? marketCategoryOf(detail.manifest) : null;
-  useEffect(() => {
-    setSimilarItems([]);
-    if (!detailId || !detailCategory || detailCategory === 'other' || (remote && !remote.online)) return;
-    let cancelled = false;
-    void api
-      .marketBrowse({ page: 0, category: detailCategory, sort: 'updated' })
-      .then((result) => {
-        if (cancelled || !result.success || !result.data) return;
-        setSimilarItems(result.data.extensions.filter((item) => item.manifest.id !== detailId && !item.cloud.deprecated).slice(0, 5));
-      })
-      .catch((error: unknown) => log.warn('similar Apps unreadable:', error));
-    return () => {
-      cancelled = true;
-    };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailId, detailCategory, remote?.online]);
-  const similar = similarItems.map((item) => {
-    const text = localizedManifestText(item.manifest, locale);
-    return {
-      id: item.manifest.id,
-      name: text.name,
-      publisher: item.manifest.author ?? translate('extensions.publisherLocal'),
-      line: text.subtitle,
-      iconUrl: item.cloud.iconUrl,
-      onOpen: () => openSimilar(item),
-    };
-  });
+  /** 市场里同一类的别的 App(取到的那几页里有的),最多五个。 */
+  const similarOf = (manifest: ExtensionManifest) => {
+    const category = marketCategoryOf(manifest);
+    return marketRows
+      .filter((item) => item.manifest.id !== manifest.id && marketCategoryOf(item.manifest) === category && !item.cloud.deprecated)
+      .slice(0, 5)
+      .map((item) => {
+        const text = localizedManifestText(item.manifest, locale);
+        return {
+          id: item.manifest.id,
+          name: text.name,
+          publisher: translate('extensions.official'),
+          line: localizedManifestText(item.manifest, locale).subtitle,
+          iconUrl: item.cloud.iconUrl,
+          onOpen: () => openSimilar(item),
+        };
+      });
+  };
   /** 「已停止维护 · 改用 X」按钮:回市场,把搜索框填成那个替代扩展的 id。 */
   const browseReplacement = (replacementId: string) => {
     setDetail(null);
-    setView('home');
+    setTab('market');
     setQuery(replacementId);
   };
 
@@ -1306,7 +1278,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             onDisclosureChange={installed ? (level) => void setDisclosure(installed, level) : undefined}
             onAsk={askAgent}
             onBrowseReplacement={browseReplacement}
-            similar={similar}
+            similar={similarOf(detail.manifest)}
             installs={installsText(detail.manifest.id)}
             menu={installed ? { ...menuOf(installed), onToggleEnabled: toggleOf(installed) } : {}}
           />
@@ -1318,327 +1290,186 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   const search = (
     <SearchInput
       type="search"
-      containerClassName="mk-search"
+      containerClassName="w-56"
       placeholder={searchPlaceholder}
       aria-label={searchPlaceholder}
       value={query}
       onChange={(event) => setQuery(event.target.value)}
     />
   );
-  const mine = (
-    // 「我的 App」(照 Google Play「管理应用和设备」):装着的那些;有更新时一个红点。
-    <Button type="button" variant={view === 'mine' ? 'secondary' : 'outline'} size="sm" onClick={() => setView('mine')} data-testid="extensions-tab-installed">
-      {translate('extensions.myApps')}
-      <span className="mk-seg-count">{installedCount}</span>
-      {store.updateCount > 0 ? <span className="mk-seg-dot" aria-hidden /> : null}
-    </Button>
-  );
-  const pickView = (next: MarketView) => {
-    setView(next);
-    setCategory(null);
-    setQuery('');
-  };
-  const prevLabel = translate('extensions.shelfPrev');
-  const nextLabel = translate('extensions.shelfNext');
-  const searching = debouncedQuery !== '';
-  const ready = shelf.status === 'ready' && !shelf.errorKind ? shelf : null;
-  const latestLine = (item: ShelfItem) =>
-    latestSort === 'popular'
-      ? (installsText(item.manifest.id) ?? localizedManifestText(item.manifest, locale).subtitle)
-      : latestSort === 'newest'
-        ? localizedManifestText(item.manifest, locale).subtitle
-        : translate('extensions.updatedOnVersion', {
-            date: new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(item.cloud.publishedAt)),
-            version: item.cloud.version,
-          });
-  /**
-   * 一节:标题、下面一句为什么是这几个、一组 App 行。`shelf` = 首页那种一排横着滑(一列 1–3 行,一屏三列);否则平铺成格子。
-   * 格子照旧是 App 行(64px 图标):owner 10-10 嫌 Google Play 那种 140px 大图标过大。
-   */
-  const rowsSection = (testId: string, title: string, subtitle: string | null, rows: ReactNode[], shelf = false) => (
-    <section className="mk-sec" data-testid={testId}>
-      <h3>
-        {title}
-        {subtitle ? <span className="mk-sec-sub">{subtitle}</span> : null}
-        {/* 后台那趟没取到:画的是手上那份,安静说它是几点的;❌ 弹错、❌ 错误面板。写在标题这一行里,出现、消失都不挪格子。 */}
-        {marketStale ? (
-          <span className="mk-stale" data-testid="extension-market-stale">
-            {translate('extensions.marketStale', { time: marketStaleTime(marketStale, locale) })}
-          </span>
-        ) : null}
-      </h3>
-      {shelf ? (
-        <AppShelfRow label={title} prevLabel={prevLabel} nextLabel={nextLabel} className={`mk-lockup-shelf is-rows-${Math.min(3, Math.ceil(rows.length / 3))}`}>
-          {rows}
-        </AppShelfRow>
-      ) : (
-        <div className="mk-lockups" role="list" aria-label={title}>
-          {rows}
-        </div>
-      )}
-    </section>
-  );
-  // 翻页:滚到这一行就自动取下一页。还有下一页时写着取到第几条,取的时候换成骨架,取完接在后面,❌ 不整页重画。
-  const moreFoot =
-    ready && ready.items.length > 0 && ready.hasMore ? (
-      <div className="mk-foot" ref={sentinelRef} data-testid="extension-market-more">
-        {ready.loadingMore ? <ShelfMoreSkeleton label={translate('extensions.loading')} /> : translate('extensions.marketShown', { shown: ready.items.length, total: ready.total })}
-      </div>
-    ) : null;
-  const toLatest = () => {
-    pickView('latest');
-    setLatestSort('updated');
-  };
-
-  let body: ReactNode = null;
-  if (ready && searching) {
-    // 搜索:第一个结果给一张带截图的卡(照 Google Play 手机端),其余是行;按相关度排(`searchApps`)。
-    const [top, ...rest] = ready.items;
-    body = !top ? (
-      <div className="mk-empty">
-        {translate('extensions.noMatch', { query: debouncedQuery })}
-        <Button type="button" variant="outline" size="sm" onClick={() => pickView('categories')}>
-          {translate('extensions.browseCategories')}
-        </Button>
-      </div>
-    ) : (
-      <>
-        <section className="mk-sec mk-top-result" data-testid="extensions-market-section-results">
-          <AppShelfRow label={translate('extensions.searchResults')} prevLabel={prevLabel} nextLabel={nextLabel} className="mk-card-shelf">
-            {featuredCardOf(top, 'card')}
-          </AppShelfRow>
-        </section>
-        {rest.length > 0 ? rowsSection('extensions-market-results-rest', translate('extensions.otherResults'), null, rest.map((item) => marketRowOf(item))) : null}
-        {moreFoot}
-      </>
-    );
-  } else if (ready && view === 'home') {
-    body = (
-      <>
-        {ready.featured.length > 0 ? (
-          // 精选那一排(Google Play「活动进行中」那种大卡):几张就横着翻几张、下面一排页码点,一张时铺满。
-          <AppShelfRow label={translate('extensions.featured')} prevLabel={prevLabel} nextLabel={nextLabel} className={cn('mk-hero', ready.featured.length > 1 && 'is-multi')} dots>
-            {ready.featured.map((item) => featuredCardOf(item, 'hero'))}
-          </AppShelfRow>
-        ) : null}
-        {/* 精选下面每排一个推荐理由(Agent 工具 → 群组协作 → 更多 App),大卡以外每个 App 只出现一次(`marketHome`)。 */}
-        {ready.home.map(({ kind, items }) => (
-          <span className="contents" key={kind}>
-            {rowsSection(
-              `extensions-market-${kind}`,
-              translate(kind === 'more' && ready.home.length === 1 ? 'extensions.sectionLatest' : HOME_SECTION_TEXT[kind][0]),
-              translate(HOME_SECTION_TEXT[kind][1]),
-              items.map((item) => marketRowOf(item)),
-              true
-            )}
-          </span>
-        ))}
-        {ready.featured.length === 0 && ready.home.length === 0 ? <div className="mk-empty">{translate('extensions.marketEmpty')}</div> : null}
-        <div className="mk-foot-links">
-          <Button type="button" variant="outline" size="sm" onClick={toLatest}>
-            {translate('extensions.viewAll', { count: ready.total })}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => pickView('categories')}>
-            {translate('extensions.browseCategories')}
-          </Button>
-        </div>
-      </>
-    );
-  } else if (ready && view === 'latest') {
-    const sorts = [
-      ['popular', 'extensions.sortPopular'],
-      ['newest', 'extensions.sortNewest'],
-      ['updated', 'extensions.sortUpdated'],
-    ] as const;
-    body = (
-      <>
-        <ToggleGroup
-          size="sm"
-          spacing={2}
-          variant="outline"
-          className="mk-chipbar"
-          aria-label={translate('extensions.tabLatest')}
-          value={[latestSort]}
-          onValueChange={([value]) => {
-            if (value) setLatestSort(value as LatestSort);
-          }}
-        >
-          {sorts.map(([key, label]) => (
-            <ToggleGroupItem key={key} value={key} data-testid={`extensions-market-sort-${key}`}>
-              {translate(label)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        {latestSort === 'popular' && !ready.installs ? (
-          <div className="mk-status" role="alert" data-testid="extensions-market-popular-unavailable">
-            <CircleAlert className="size-4 shrink-0" />
-            <span className="min-w-0">{translate('extensions.installsUnavailable')}</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(request)}>
-              {translate('extensions.retry')}
-            </Button>
-          </div>
-        ) : ready.items.length === 0 ? (
-          <div className="mk-empty">{translate('extensions.marketEmpty')}</div>
-        ) : (
-          rowsSection(
-            `extensions-market-latest-${latestSort}`,
-            translate(sorts.find(([key]) => key === latestSort)![1]),
-            translate(latestSort === 'popular' ? 'extensions.sortPopularSub' : latestSort === 'newest' ? 'extensions.sortNewestSub' : 'extensions.sortUpdatedSub'),
-            ready.items.map((item) => marketRowOf(item, latestLine(item)))
-          )
-        )}
-        {moreFoot}
-      </>
-    );
-  } else if (ready && view === 'categories' && !category) {
-    body =
-      ready.categories.length > 0 ? (
-        <section className="mk-sec" data-testid="extensions-market-categories">
-          <MarketCategoryCards
-            cards={ready.categories}
-            labelOf={categoryLabel}
-            countOf={(count) => translate('extensions.categoryCount', { count })}
-            onPick={(picked) => setCategory(picked)}
-          />
-        </section>
-      ) : (
-        <div className="mk-empty">{translate('extensions.marketEmpty')}</div>
-      );
-  } else if (ready && view === 'categories' && category) {
-    // 一类一页,按最近更新排;App 不多(≤ 3)时用带截图的卡,❌ 一行加一大片空白。
-    const few = ready.total <= 3;
-    body = (
-      <>
-        <button type="button" className="mk-back" onClick={() => setCategory(null)} data-testid="extensions-market-category-back">
-          <ChevronLeft className="size-3.5" />
-          {translate('extensions.tabCategories')}
-        </button>
-        {ready.items.length === 0 ? (
-          surface === 'all' ? (
-            <div className="mk-empty">{translate('extensions.marketEmpty')}</div>
-          ) : (
-            <div className="mk-empty">
-              {translate('extensions.categoryEmpty', { surface: translate(`extensions.surface.${surface}`) })}
-              <Button type="button" variant="outline" size="sm" onClick={() => setSurface('all')}>
-                {translate('extensions.surface.all')}
-              </Button>
-            </div>
-          )
-        ) : few ? (
-          <section className="mk-sec" data-testid={`extensions-market-category-${category}-list`}>
-            <h3>
-              {categoryLabel(category)}
-              <span className="mk-sec-sub">{translate('extensions.categoryTotal', { count: ready.total })}</span>
-            </h3>
-            <AppShelfRow label={categoryLabel(category)} prevLabel={prevLabel} nextLabel={nextLabel} className="mk-card-shelf">
-              {ready.items.map((item) => featuredCardOf(item, 'card'))}
-            </AppShelfRow>
-          </section>
-        ) : (
-          rowsSection(`extensions-market-category-${category}-list`, categoryLabel(category), translate('extensions.categoryTotal', { count: ready.total }), ready.items.map((item) => marketRowOf(item)))
-        )}
-        {moreFoot}
-      </>
-    );
-  }
 
   return (
     <div className="mk" data-testid="extensions-store" ref={rootRef}>
-      {header(
-        <span className="mk-head-aside">
-          {search}
-          {mine}
-        </span>
-      )}
+      {header(search)}
       {notice && <DeviceScopeNoticeLine notice={notice} onRetry={() => void refresh()} />}
       {/* 离线 / server 太旧:照旧画上次读到的那份,所有按钮、开关一起灰(fieldset 的 disabled 传给里面每个控件)。 */}
       <fieldset disabled={!!notice?.readOnly} className="contents">
-        {view !== 'mine' ? (
-          <>
-            {/* 推荐 / 最新 / 类别:切的是页(照 Google Play 2026-07 改版,排行榜和类别各自成页);下面那排「用在哪」是筛选。 */}
-            <div className="mk-bar">
-              <SegmentedTabs
-                variant="underline"
-                ariaLabel={translate('extensions.title')}
-                value={view}
-                onChange={pickView}
-                items={[
-                  { value: 'home', label: translate('extensions.tabHome'), testId: 'extensions-tab-market' },
-                  { value: 'latest', label: translate('extensions.tabLatest'), testId: 'extensions-tab-latest' },
-                  { value: 'categories', label: translate('extensions.tabCategories'), testId: 'extensions-tab-categories' },
-                ]}
-              />
-            </div>
-            <ToggleGroup
-              size="sm"
-              spacing={2}
-              variant="outline"
-              className="mk-chipbar"
-              aria-label={translate('extensions.surfaceLabel')}
-              value={[surface]}
-              onValueChange={([value]) => {
-                if (value) setSurface(value as 'all' | AppSurface);
-              }}
-            >
-              {(['all', ...APP_SURFACES] as const).map((key) => (
-                <ToggleGroupItem key={key} value={key} data-testid={`extensions-market-surface-${key}`}>
-                  {translate(`extensions.surface.${key}`)}
-                </ToggleGroupItem>
+        {/* 一排单选:全部、各类别,最后是「已安装」(照 Google Play「手机 / 平板电脑…」那排)。市场连不上时「已安装」照样点得到。 */}
+        <div className="mk-bar">
+          <ToggleGroup
+            size="sm"
+            spacing={2}
+            variant="outline"
+            className="mk-chipbar"
+            aria-label={translate('extensions.infoCategory')}
+            value={[tab === 'installed' ? 'installed' : activeChip]}
+            onValueChange={([value]) => {
+              if (!value) return;
+              if (value === 'installed') {
+                setTab('installed');
+                return;
+              }
+              setTab('market');
+              setChip(value as 'all' | MarketCategory);
+            }}
+          >
+            {chipKeys.map((key) => (
+              <ToggleGroupItem key={key} value={key} data-testid={`extensions-market-chip-${key}`}>
+                {chipLabel(key)}
+              </ToggleGroupItem>
+            ))}
+            <ToggleGroupItem value="installed" className="gap-1" data-testid="extensions-tab-installed">
+              {translate('extensions.tabInstalled')}
+              <span className="mk-seg-count">{installedCount}</span>
+              {store.updateCount > 0 ? <span className="mk-seg-dot" aria-hidden /> : null}
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Button type="button" variant="ghost" size="sm" disabled={isBusy} onClick={() => void install()}>
+            {translate('extensions.installLocal')}
+          </Button>
+        </div>
+
+        {tab === 'market' && (
+          <div className="pb-14" data-testid="extensions-market-panel">
+            {/* 那台机器此刻连不上:清单问不了(问了只会挂满超时),照实说,❌ 一直转骨架。 */}
+            {/* 那台机器连不上时只有这一句:下面读清单的几种结果(转圈、出错、连不上下载站)都不画,❌ 两条「连不上」叠在一起。 */}
+            {machineOffline ? (
+              <div className="mk-status" role="status" data-testid="extension-market-offline">
+                <span>{translate('extensions.marketOfflineUnreachable')}</span>
+              </div>
+            ) : null}
+            {!machineOffline && shelf.status === 'loading' && (
+              <div className="mk-sec">
+                <ShelfSkeleton label={translate('extensions.loading')} />
+              </div>
+            )}
+
+            {!machineOffline && shelf.status === 'error' && (
+              <div className="mk-status" role="alert">
+                <CircleAlert className="size-4 shrink-0" />
+                <span className="min-w-0">{translate('extensions.marketUnavailable')}</span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(ask)}>
+                  {translate('extensions.retry')}
+                </Button>
+              </div>
+            )}
+
+            {!machineOffline &&
+              shelf.status === 'ready' &&
+              (shelf.errorKind ? (
+                // 连不上下载站:只说这一句和「重试」—— 市场只有这一个来源,已装的 App 照常能用(App 市场方案 10-07);
+                // ❌ 再画「这里还没有 App」:读不到清单和清单是空的是两件事。
+                <div className="mk-status" role="status" data-testid="extension-market-offline">
+                  <span>{translate('extensions.marketOfflineUnreachable')}</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(ask)}>
+                    {translate('extensions.retry')}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {shelf.featured.length > 0 && debouncedQuery === '' && activeChip === 'all' ? (
+                    // 精选那一排(App Store 首页顶上那排大卡):几张就横着翻几张、下面一排页码点,一张时铺满。
+                    <AppShelfRow
+                      label={translate('extensions.featured')}
+                      prevLabel={translate('extensions.shelfPrev')}
+                      nextLabel={translate('extensions.shelfNext')}
+                      className={cn('mk-hero', shelf.featured.length > 1 && 'is-multi')}
+                      dots
+                    >
+                      {shelf.featured.map((item) => featuredCardOf(item))}
+                    </AppShelfRow>
+                  ) : null}
+
+                  {/* 次序:最近更新、热门(安装数)。搜索时按相关度,这一排不画。 */}
+                  {debouncedQuery === '' ? (
+                    <ToggleGroup
+                      size="sm"
+                      spacing={2}
+                      variant="outline"
+                      className="mk-chipbar"
+                      aria-label={translate('extensions.sortLabel')}
+                      value={[sort]}
+                      onValueChange={([value]) => {
+                        if (value) setSort(value as MarketSort);
+                      }}
+                    >
+                      {(['updated', 'popular'] as const).map((key) => (
+                        <ToggleGroupItem key={key} value={key} data-testid={`extensions-market-sort-${key}`}>
+                          {translate(key === 'updated' ? 'extensions.sortUpdated' : 'extensions.popular')}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  ) : null}
+
+                  {/* 「热门」读不到安装数:照实说、给重试,❌ 拿一份按名字排的冒充热门。 */}
+                  {byInstalls && !shelf.installs ? (
+                    <div className="mk-status" role="alert" data-testid="extensions-market-popular-unavailable">
+                      <CircleAlert className="size-4 shrink-0" />
+                      <span className="min-w-0">{translate('extensions.installsUnavailable')}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(ask)}>
+                        {translate('extensions.retry')}
+                      </Button>
+                    </div>
+                  ) : marketRows.length === 0 ? (
+                    <div className="mk-empty">
+                      {debouncedQuery === ''
+                        ? translate('extensions.marketEmpty')
+                        : translate('extensions.noMatch', { query: debouncedQuery })}
+                    </div>
+                  ) : (
+                    // 一行一个 App(App Store 的 App 行),桌面三列、窄了两列、再窄一列(app-store.css 的容器查询)。
+                    <section className="mk-sec" data-testid={`extensions-market-section-${debouncedQuery !== '' ? 'results' : activeChip}`}>
+                      <h3>
+                        {gridTitle}
+                        <span className="mk-count">{shownRows.length}</span>
+                        {/* 后台那趟没取到:画的是手上那份,安静说它是几点的;❌ 弹错、❌ 错误面板。写在标题这一行里,出现、消失都不挪格子。 */}
+                        {marketStale ? (
+                          <span className="mk-stale" data-testid="extension-market-stale">
+                            {translate('extensions.marketStale', { time: marketStaleTime(marketStale, locale) })}
+                          </span>
+                        ) : null}
+                      </h3>
+                      <div className="mk-lockups" role="list" aria-label={gridTitle}>
+                        {shownRows.map(marketRowOf)}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* 翻页:滚到这一行就自动取下一页。还有下一页时写着取到第几条,取的时候换成骨架,取完接在最后一区后面,
+                      ❌ 不整页重画 —— 翻页要看得见,但不要他动手。全取完了这一行就不在:❌ 页脚再报一遍「共几个」。 */}
+                  {marketRows.length > 0 && shelf.hasMore && !(byInstalls && !shelf.installs) ? (
+                    <div className="mk-foot" ref={sentinelRef} data-testid="extension-market-more">
+                      {shelf.loadingMore ? (
+                        <ShelfMoreSkeleton label={translate('extensions.loading')} />
+                      ) : (
+                        translate('extensions.marketShown', { shown: shelf.items.length, total: shelf.total })
+                      )}
+                    </div>
+                  ) : null}
+
+                  {shelf.invalid.length > 0 && (
+                    <ul className="xp-note-list">
+                      {shelf.invalid.map((entry) => (
+                        <li key={entry.dirName}>{translate('extensions.marketInvalid', { name: entry.dirName })}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               ))}
-            </ToggleGroup>
-            <div className="pb-14" data-testid="extensions-market-panel">
-              {/* 那台机器此刻连不上:清单问不了(问了只会挂满超时),照实说,❌ 一直转骨架。这一句在,下面那几种结果都不画。 */}
-              {machineOffline ? (
-                <div className="mk-status" role="status" data-testid="extension-market-offline">
-                  <span>{translate('extensions.marketOfflineUnreachable')}</span>
-                </div>
-              ) : null}
-              {!machineOffline && shelf.status === 'loading' && (
-                <div className="mk-sec">
-                  <ShelfSkeleton label={translate('extensions.loading')} />
-                </div>
-              )}
-              {!machineOffline && shelf.status === 'error' && (
-                <div className="mk-status" role="alert">
-                  <CircleAlert className="size-4 shrink-0" />
-                  <span className="min-w-0">{translate('extensions.marketUnavailable')}</span>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(request)}>
-                    {translate('extensions.retry')}
-                  </Button>
-                </div>
-              )}
-              {!machineOffline && shelf.status === 'ready' && shelf.errorKind ? (
-                // 连不上下载站:只说这一句和「重试」—— 已装的 App 照常能用;❌ 画「这里还没有 App」:读不到和空是两件事。
-                <div className="mk-status" role="status" data-testid="extension-market-offline">
-                  <span>{translate('extensions.marketOfflineUnreachable')}</span>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void readShelf(request)}>
-                    {translate('extensions.retry')}
-                  </Button>
-                </div>
-              ) : null}
-              {!machineOffline ? body : null}
-              {ready && ready.invalid.length > 0 && (
-                <ul className="xp-note-list">
-                  {ready.invalid.map((entry) => (
-                    <li key={entry.dirName}>{translate('extensions.marketInvalid', { name: entry.dirName })}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="mk-bar">
-            <button type="button" className="mk-back" onClick={() => setView('home')} data-testid="extensions-mine-back">
-              <ChevronLeft className="size-3.5" />
-              {translate('extensions.title')}
-            </button>
-            <Button type="button" variant="ghost" size="sm" disabled={isBusy} onClick={() => void install()}>
-              {translate('extensions.installLocal')}
-            </Button>
           </div>
         )}
 
-        {view === 'mine' && (
+        {tab === 'installed' && (
           <div className="pb-14" data-testid="extensions-installed-panel">
             {inventory === 'error' && !notice && (
               <div className="mk-status" role="alert">
@@ -1731,7 +1562,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
               <div className="mk-empty">
                 {query.trim() === '' ? translate('extensions.empty') : translate('extensions.noMatch', { query: query.trim() })}
                 {query.trim() === '' && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setView('home')}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setTab('market')}>
                     {translate('extensions.browseMarket')}
                   </Button>
                 )}

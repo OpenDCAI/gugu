@@ -1,10 +1,8 @@
 import { z } from 'zod';
-import { searchApps, type AppSearchRequest } from './app-search';
 import {
   compareExtensionVersions,
   EXTENSION_API_VERSION,
   EXTENSION_API_VERSION_MIN_SUPPORTED,
-  drawnPageTab,
   type ExtensionManifest,
 } from './manifest';
 
@@ -110,36 +108,6 @@ export function featuredOf<T extends Pick<CloudMarketEntry, 'manifest' | 'featur
     if (entry.featured && !picked.includes(entry)) picked.push(entry);
   }
   return picked;
-}
-
-/**
- * 首页精选下面那几排(owner 10-22「多借鉴 google play」,第 4 轮设计稿):每一排一个推荐理由,❌ 按类别「够几个就成一排」。
- * - `agent`:Agent 工具 —— 给 agent 工具或技能、自己没有页面(或只有宿主画的设置页)的 App;
- * - `group`:群组协作 —— 打开群文件、读或转发群消息的 App;
- * - `more`:剩下的,按最近更新排。
- * 次序照 owner:Agent 在群组前。精选大卡以外,每个 App 在这几排里只出现一次;一排凑不够两个就不成排,它的 App 留给后面。
- * 只放这台机器装得了、没停维的。「用在哪」和次序都是 `searchApps`(和 agent 的 app_search 同一份),❌ 这里另写。
- */
-export type MarketHomeSection = 'agent' | 'group' | 'more';
-
-export function marketHome<T extends CloudMarketEntry>(entries: readonly T[]): { kind: MarketHomeSection; entries: T[] }[] {
-  const records = entries
-    .filter((entry) => !entry.deprecated && !entry.compat)
-    .map((entry) => ({ manifest: entry.manifest, state: 'market' as const, version: entry.version, publishedAt: entry.publishedAt, entry }));
-  const ranked = (request: AppSearchRequest) => searchApps(records, { ...request, sort: 'updated' }).items.map((item) => (item as (typeof records)[number]).entry);
-  const shown = new Set<string>();
-  const take = (kind: MarketHomeSection, picked: T[], min: number) => {
-    const fresh = picked.filter((entry) => !shown.has(entry.manifest.id));
-    if (fresh.length < min) return [];
-    for (const entry of fresh) shown.add(entry.manifest.id);
-    return [{ kind, entries: fresh }];
-  };
-  return [
-    // Agent 工具:给 agent 的,而且自己不画页面(只有宿主的设置页,或者没有)。
-    ...take('agent', ranked({ surface: 'agent' }).filter((entry) => !drawnPageTab(entry.manifest)), 2),
-    ...take('group', ranked({ surface: 'group' }), 2),
-    ...take('more', ranked({}), 1),
-  ];
 }
 
 /** 下载站上 `market/` 根里的一个文件:相对路径,❌ `..`、❌ 绝对地址 —— 只能落在 market 根下面。 */
