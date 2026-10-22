@@ -30,24 +30,29 @@ afterEach(() => {
   shell.mobile = false
 })
 
-async function render(inSlot: boolean) {
+async function render(inSlot: boolean, projectName: string | null = null) {
   await act(async () => {
-    root.render(createElement(InChatSlot.Provider, { value: inSlot }, createElement(InputArea, { onSend: vi.fn(async () => {}) })))
+    root.render(createElement(InChatSlot.Provider, { value: inSlot ? { projectName } : null }, createElement(InputArea, { onSend: vi.fn(async () => {}) })))
   })
-  const box = (container.querySelector('textarea') as HTMLTextAreaElement).parentElement as HTMLElement
-  return { sendInBox: !!box.querySelector('button[aria-label="Send"]'), sendInPage: !!container.querySelector('button[aria-label="Send"]') }
+  const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+  const box = textarea.parentElement as HTMLElement
+  return { sendInBox: !!box.querySelector('button[aria-label="Send"]'), sendInPage: !!container.querySelector('button[aria-label="Send"]'), placeholder: textarea.placeholder }
 }
 
 describe('InputArea in a chat slot', () => {
   it('puts send (with + and the verbs) on the bottom row inside the box', async () => {
-    expect(await render(true)).toEqual({ sendInBox: true, sendInPage: true })
+    expect(await render(true)).toMatchObject({ sendInBox: true, sendInPage: true })
   })
   it('keeps the docks outside the box outside a slot', async () => {
-    expect(await render(false)).toEqual({ sendInBox: false, sendInPage: true })
+    expect(await render(false)).toMatchObject({ sendInBox: false, sendInPage: true })
   })
   it('keeps the phone layout unchanged even inside a slot', async () => {
     shell.mobile = true
-    expect(await render(true)).toEqual({ sendInBox: false, sendInPage: true })
+    expect(await render(true, 'website')).toEqual({ sendInBox: false, sendInPage: true, placeholder: 'Write a message… Type / for commands' })
+  })
+  it('names the project in a project group\'s box', async () => {
+    expect((await render(true, 'website')).placeholder).toBe('Message website… @ an agent to call it')
+    expect((await render(true)).placeholder, 'any other chat in a block').toBe('Write a message… Type / for commands')
   })
 })
 
@@ -58,7 +63,7 @@ function DraftHost({ chatId }: { chatId: string }) {
     ...p, [id]: typeof update === 'function' ? update(p[id] ?? '') : update,
   })), [])
   const value = useMemo(() => ({ ...chatStore(), drafts, setDraft }), [drafts, setDraft])
-  return createElement(ChatStoreProvider, { value }, createElement(InChatSlot.Provider, { value: true },
+  return createElement(ChatStoreProvider, { value }, createElement(InChatSlot.Provider, { value: { projectName: null } },
     createElement(InputArea, { onSend: vi.fn(async () => {}), chatId, isGroupChat: true })))
 }
 

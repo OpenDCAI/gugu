@@ -1,6 +1,10 @@
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
-import { Clock, Sparkles } from '@/lib/icons';
+import { useEffect, useState } from 'react';
+import { Clock } from '@/lib/icons';
+import { publishDefaultTaskAgent, useDefaultTaskAgent } from '@/lib/defaultTaskAgentBridge';
+import { PluginIcon } from '@renderer/lib/components/plugin-icon';
+import { useAgentIcon } from '@renderer/lib/stores/use-agents';
+import { useDefaultTaskProvider } from './use-default-task-provider';
 import { setComposerVerb, takeComposerCarry, type ComposerVerb } from '@/lib/composerVerbBridge';
 import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
@@ -31,13 +35,29 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
   return (
     <>
       <Button variant="ghost" size="sm" data-testid="session-verb-task" title={translate('taskDispatch.task')} onClick={() => pick('task')}>
-        <Sparkles className="size-3.5" />{translate('taskDispatch.task')}
+        <DefaultTaskAgentMark />{translate('taskDispatch.task')}
       </Button>
       <Button variant="ghost" size="sm" data-testid="session-verb-schedule" title={translate('taskDispatch.schedule')} onClick={() => pick('schedule')}>
         <Clock className="size-3.5" />{translate('taskDispatch.schedule')}
       </Button>
     </>
   );
+}
+
+/** 「新任务」按钮上那枚标:新任务的框会默认选中的那个 agent 的标(没有就不画)。 */
+export function DefaultTaskAgentMark() {
+  const agent = useDefaultTaskAgent();
+  return agent ? <PluginIcon id={agent.id} icon={agent.icon} size={14} /> : null;
+}
+
+/** 把新任务的框会默认选中的那个 agent 和它的标交给壳:群输入框上的「新任务」按钮画它(defaultTaskAgentBridge)。 */
+export function DefaultTaskAgentPublisher() {
+  const id = useDefaultTaskProvider();
+  const icon = useAgentIcon(id ?? '');
+  useEffect(() => {
+    publishDefaultTaskAgent(id && icon ? { id, icon } : null);
+  }, [id, icon]);
+  return null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, FileText, X } from '@/lib/icons'
+import { ArrowUp, FileText, Plus, X } from '@/lib/icons'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'; export type { ComposerAttachAction } from './ComposerAttachButton'
@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
+import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -110,7 +110,7 @@ export function InputArea({
   // 三个 300ms 防抖存 / ref 镜像 / currentChatRef 追踪）全部收进 useChatDraft，塌成一条同步 effect——切换
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
-  const inChatSlot = useInChatSlot(); const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
+  const inChatSlot = useInChatSlot(); const slotProjectName = useChatSlotProjectName(); const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
   useEffect(() => { const back = verbTakesOver || !chatId ? '' : takeComposerCarry(chatId); if (back) setText(back) }, [verbTakesOver, chatId, setText]) // 点了那个框标签上的 ×:写的话交回这里
   const activeChatIdRef = useRef<string | null>(chatId ?? null) // 发失败回滚判「是否还在发送时那个会话」用(异步 send 期间可能切走,#1872)
   activeChatIdRef.current = chatId ?? null
@@ -542,12 +542,12 @@ export function InputArea({
     ? (placeholder || disabledReason || t('composer.disabled'))
     : whisperTarget
       ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName })
-      : (placeholder || t('composer.placeholder'))
+      : (placeholder || (slotProjectName && !mobileShell ? t('composer.projectGroupPlaceholder', { name: slotProjectName }) : t('composer.placeholder')))
   const disabledHint = disabledReason || (disabled ? t('composer.disabled') : undefined)
 
-  const attachButton = <ComposerAttachButton glyph={attachGlyph} actions={attachMenu} disabled={disabled} mobile={mobileShell} onPickFile={() => fileInputRef.current?.click()} />
   // gugu-dev#181 格子里(项目块、对话块)的排法:「+ 新任务 定时任务 … 发送」进框内底排(手机、格子外照旧:两坞在框外)。
   const inBar = inChatSlot && !mobileShell
+  const attachButton = <ComposerAttachButton glyph={attachGlyph ?? (inBar ? <Plus /> : undefined)} actions={attachMenu} disabled={disabled} mobile={mobileShell} onPickFile={() => fileInputRef.current?.click()} />
   const verbs = surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />
   const sendable = canSend && !disabled && !sending
   // @@@ui-ruler 发送钮 = ui/Button 的 primary 实底 + 药丸半径(--primary 与旧的 --accent 同值,
@@ -860,7 +860,7 @@ export function InputArea({
 
       {/* @@@1697 三分离(SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：外层 row align-items:flex-end + 左右 dock(h=42 固定)
           夹中间只裹 textarea 的 box；多行时 box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动(复原 #1459 结构)。 */}
-      <div data-chat-composer-row="" className="@container" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
+      <div data-chat-composer-row="" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
         {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152)。@@@4292 mobile:命中框 44×44，dock 高与之匹配。 */}
         {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>{attachButton}</div>}
         {!inBar && verbs}
@@ -938,7 +938,7 @@ export function InputArea({
               boxSizing: 'border-box',
             }}
           />
-          {inBar && <div className="@container flex items-center gap-1 pt-1">{attachButton}{verbs}<span className="flex-1" />{sendButton}</div>}
+          {inBar && <div className="flex items-center gap-1 pt-1">{attachButton}{verbs}<span className="flex-1" />{sendButton}</div>}
         </div>
 
         {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154)。常驻：空态不卸载(防布局抖、移动端可 tap)。 */}

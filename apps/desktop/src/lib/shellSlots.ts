@@ -66,8 +66,10 @@ export type ChatPart = 'actions' | 'title'
 export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`
 
 /**
- * 这个对话是不是画在会话页的格子里(项目块、对话块,gugu-dev#181):ChatSlotHost 给它包上 true。
+ * 这个对话是不是画在会话页的格子里(项目块、对话块,gugu-dev#181):ChatSlotHost 给它包上;不在格子里 = null。
  * 输入框据此换成格子里的排法(「新任务 / 定时任务」在框内底排,能换成会话页那一侧的框);❌ 去 DOM 里找格子猜。
+ * `projectName`:它是项目群时,那个项目的名字(输入框提示「发消息给 X…」);别的对话 = null。
  */
-export const InChatSlot = createContext(false)
-export const useInChatSlot = () => useContext(InChatSlot)
+export const InChatSlot = createContext<{ projectName: string | null } | null>(null)
+export const useInChatSlot = () => useContext(InChatSlot) !== null
+export const useChatSlotProjectName = () => useContext(InChatSlot)?.projectName ?? null
