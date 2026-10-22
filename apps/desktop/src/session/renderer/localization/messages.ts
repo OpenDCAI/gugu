@@ -897,6 +897,7 @@ const enUSCoreMessages = {
   'taskDispatch.schedule': 'Scheduled task',
   'taskDispatch.cancel': 'Back to messages',
   'taskDispatch.placeholder': 'What should {agent} do?',
+  'taskDispatch.placeholderNew': 'What should a new {agent} do?',
   'taskDispatch.schedulePlaceholder': 'What should run each time',
 } as const;
 
@@ -1725,6 +1726,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'taskDispatch.schedule': '定时任务',
   'taskDispatch.cancel': '回到发消息',
   'taskDispatch.placeholder': '想让 {agent} 做点什么？',
+  'taskDispatch.placeholderNew': '想让一个新的 {agent} 做点什么？',
   'taskDispatch.schedulePlaceholder': '每次到点要做什么',
 };
 

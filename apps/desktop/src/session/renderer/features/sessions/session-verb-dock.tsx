@@ -75,7 +75,8 @@ const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey, 
       projectId={projectId}
       stage={stage}
       verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: onClose, testId: 'task-dispatch' })}
-      placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
+      // 在一条会话里派:说清是交给一个新的 agent,❌ 眼前这一个。
+      placeholder={(agent) => translate('taskDispatch.placeholderNew', { agent })}
       onSessionCreated={(result) => {
         onClose();
         showBesideOnScreen({ kind: 'session', projectId: result.projectId, sessionId: result.sessionId });
