@@ -4,6 +4,7 @@ import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type Trans
 import { pendingTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
 import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened-outputs'
+import { replyReturn } from '@gugu/session-core/session-record/reply-process'
 
 /**
  * 时间线（`TranscriptTurn[]`）→ assistant-ui 的消息模型（`ThreadMessageLike[]`）。
@@ -37,6 +38,10 @@ export const OUTPUTS_DATA_PART = 'opened-outputs'
 
 /** 一轮挂的附件卡:记下它们的那几条调用,手机拿它们去画桌面同一张卡(opened-outputs-part)。 */
 export type OpenedOutputsData = { turnId: string; items: TranscriptItem[] }
+
+/** 这一轮的结果回到了它来的那个群(gugu-dev#181「已回到 X」),判据同桌面(`replyReturn`)。 */
+export const TURN_RETURN_DATA_PART = 'turn-return'
+export type TurnReturnData = { turnId: string; chatId: string; messageId: string | null }
 
 /**
  * 一张工具交回来的图在手机上的样子:时间线里只有它的字数(`imageRefs`),图本身按 (条目, 第几张) 去机器上取,
@@ -335,6 +340,8 @@ export function toThreadMessages(
           data: { turnId: turn.id, items: outputs.map(({ item }) => item as TranscriptItem) } satisfies OpenedOutputsData,
         })
       }
+      const back = tier.live ? null : replyReturn(turn)
+      if (back) assistantParts.push({ type: 'data', name: TURN_RETURN_DATA_PART, data: { turnId: turn.id, ...back } satisfies TurnReturnData })
       flushAssistant()
     })
   }

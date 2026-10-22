@@ -32,6 +32,7 @@ import { QUESTION_DATA_PART, runningToolIds, THINKING_DATA_PART, TOOL_RUNNING, t
 import { useLoadOlderOnTop } from './load-older-on-top'
 import { ThinkingDataUI } from './thinking-part'
 import { OpenedOutputsDataUI } from './opened-outputs-part'
+import { TurnReturnDataUI } from './turn-return-part'
 import { OpenedOutputHandlersContext } from './opened-output-handlers'
 import { useOpenedOutputOpener } from './opened-output-opener'
 import { LiveTail } from './live-tail'
@@ -358,6 +359,7 @@ export function AgentThread({
       <ThinkingDataUI />
       <QuestionDataUI />
       <OpenedOutputsDataUI />
+      <TurnReturnDataUI />
       <div ref={hostRef} className="gg-aw-thread-host" data-testid="agent-watch-timeline">
         {/* 选项摆在输入框那一行(orca 同款位置),❌ 不在页头右上角:
             改模型/权限档是「说这句话之前先定个调」,和输入框是一件事。 */}
