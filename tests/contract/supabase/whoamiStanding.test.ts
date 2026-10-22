@@ -135,9 +135,9 @@ function tools(owner: string, self: string) {
       if (pinned && profile === 'chat') {
         return (await asOwnerQuery(owner, 'SELECT chat_id FROM chat.chat_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])).rows
       }
-      const rosters = /^chat_members\?chat_id=(?:in\.\(([^)]+)\)&select=chat_id,user_id|eq\.([^&]+)&select=user_id)$/.exec(path)
+      const rosters = /^chat_members\?chat_id=in\.\(([^)]+)\)&select=chat_id,user_id$/.exec(path)
       if (rosters && profile === 'chat') {
-        return (await asOwnerQuery(owner, 'SELECT chat_id, user_id FROM chat.chat_members WHERE chat_id = ANY($1)', [ids(rosters[1] ?? rosters[2]!)])).rows
+        return (await asOwnerQuery(owner, 'SELECT chat_id, user_id FROM chat.chat_members WHERE chat_id = ANY($1)', [ids(rosters[1]!)])).rows
       }
       const friendships = /^friendships\?or=\(user_a_id\.eq\.([^,]+),user_b_id\.eq\.([^)]+)\)&select=user_a_id,user_b_id$/.exec(path)
       if (friendships && profile === 'identity' && decodeURIComponent(friendships[1]!) === owner && decodeURIComponent(friendships[2]!) === owner) {

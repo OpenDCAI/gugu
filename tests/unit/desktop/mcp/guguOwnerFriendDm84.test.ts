@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error — MCP implementation is an untyped ESM module.
-import { callTool, RpcHttpError } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { callTool, callToolWithState, createSessionState, RpcHttpError } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
 // #84 主人与好友的私聊:message_conversations 列出来,message_history / message_search 按主人本人读,
 // message_send / message_send_file 指去代发工具。agent 不是这些私聊的成员,读的是主人的可见域。
 const OWNER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const FRIEND = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const EX_FRIEND = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const STRANGER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const AGENT = 'agent-1'
 const token = `x.${Buffer.from(JSON.stringify({ sub: OWNER })).toString('base64url')}.x`
 const context = { agentId: AGENT, threadRootId: null, getAccessToken: async () => token }
@@ -29,8 +30,10 @@ const members: Record<string, string[]> = {
   'friend-dm': [OWNER, FRIEND],
   'ex-friend-dm': [OWNER, EX_FRIEND],
   'agent-dm': [OWNER, AGENT],
+  // 别人直接和本 agent 开的私聊,主人不在里面(主人令牌直读这条线的成员行是空的)。
+  'stranger-agent-dm': [STRANGER, AGENT],
 }
-const kinds: Record<string, string> = { 'friend-dm': 'dm', 'ex-friend-dm': 'dm', 'agent-dm': 'dm', 'group-1': 'group' }
+const kinds: Record<string, string> = { 'friend-dm': 'dm', 'ex-friend-dm': 'dm', 'agent-dm': 'dm', 'stranger-agent-dm': 'dm', 'group-1': 'group' }
 // 每条线里各一条附件消息(新式:指向会话「附件」里的某一版)。
 const attachmentMessages: Record<string, { chat_id: string }> = {
   '00000000-0000-4000-8000-0000000000f1': { chat_id: 'friend-dm' },
@@ -70,10 +73,6 @@ function fakeDb({ staleOnce }: { staleOnce?: string } = {}) {
     if (path.startsWith('chat_members?chat_id=in.(')) {
       const ids = decodeURIComponent(path.slice('chat_members?chat_id=in.('.length, path.indexOf(')'))).split(',')
       return ids.flatMap((chat_id) => (members[chat_id] ?? []).map((user_id) => ({ chat_id, user_id })))
-    }
-    if (path.startsWith('chat_members?chat_id=eq.')) {
-      const chatId = decodeURIComponent(path.slice('chat_members?chat_id=eq.'.length).split('&')[0])
-      return (members[chatId] ?? []).map((user_id) => ({ user_id }))
     }
     if (path.startsWith('chat_members?user_id=eq.')) return [{ chat_id: 'friend-dm' }] // 主人置顶了和这位好友的私聊
     if (path.startsWith(`users?id=in.(`)) return [{ id: FRIEND, display_name: 'shuxue', type: 'human' }]
@@ -138,6 +137,17 @@ describe('owner DMs with friends (#84)', () => {
     ])
     // 不是私聊的会话不为此多读一行。
     expect(db.reads.filter((path) => path.includes('group-1'))).toEqual([])
+  })
+
+  it('a DM the agent is in, even one the owner is not in, is checked once per session and never against the owner\'s friends', async () => {
+    const db = fakeDb()
+    const state = createSessionState()
+    for (const chatId of ['stranger-agent-dm', 'stranger-agent-dm', 'agent-dm', 'agent-dm']) {
+      await callToolWithState(context, 'message_history', { chat_id: chatId }, db.deps, state)
+    }
+    expect(db.rpcs.filter(([name]) => name === 'message_history_as').map(([, body]) => body.p_as_user_id)).toEqual([AGENT, AGENT, AGENT, AGENT])
+    expect(db.rpcs.filter(([name]) => name === 'list_member_ids').map(([, body]) => body.p_chat_id)).toEqual(['stranger-agent-dm', 'agent-dm'])
+    expect(db.reads.filter((path) => path.startsWith('chat_members?chat_id') || path.startsWith('friendships'))).toEqual([])
   })
 
   it('message_send to a friend DM points to message_send_as_owner and writes nothing', async () => {

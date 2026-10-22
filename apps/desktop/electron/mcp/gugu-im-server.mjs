@@ -1514,7 +1514,9 @@ async function ownerFriendOfDm(deps, chatId) {
   // ❌ 记「是主人的好友私聊」—— 好友会被删,那一半每次现判。
   if (!deps.state.agentDms) deps.state.agentDms = new Set()
   if (deps.state.agentDms.has(chatId)) return null
-  const rows = await deps.restGet(`chat_members?chat_id=eq.${enc(chatId)}&select=user_id`)
+  // 名单按 agent 判(list_member_ids:agent 在或主人在都给);❌ 主人令牌直读 chat_members —— agent 和别人的私聊
+  // 主人不在,读回空,这里就记不住,每次都白读一遍名单和好友表。两人都不在 ⇒ 空 ⇒ 不是。
+  const rows = await deps.restRpc('list_member_ids', { p_chat_id: chatId, p_as_user_id: deps.context.agentId })
   const memberIds = new Set((Array.isArray(rows) ? rows : []).map((row) => String(row.user_id)))
   if (memberIds.has(deps.context.agentId)) {
     deps.state.agentDms.add(chatId)
