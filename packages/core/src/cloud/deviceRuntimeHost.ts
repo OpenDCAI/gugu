@@ -48,11 +48,11 @@ import {
   publishAgentStatusTransitions,
   publishedStatusOf,
   samePublishedStatus,
-  sweepLocalAgentsOnline,
   type PublishedAgentStatus,
 } from './deviceRuntimeSweep'
 import type { AgentStatusReading } from '../shared/agentStatus'
 import type { AgentRuntimeStateWrite } from './agentRuntimeStateReporter'
+import { parseAgentPresencePayload } from './agentPresenceProtocol'
 import { isDeviceRemovedError } from './devices'
 import { MACHINE_LIMIT_NEXT_STEP, machineLimitMessage, machineLimitRefusalFromError } from './machineLimit'
 import {
@@ -67,7 +67,9 @@ import { atomicWriteText, stateDir } from '../local/state/paths'
 
 export type DeviceRuntimeIdentityClient = DeviceCommandTableClient &
   DeviceHeartbeatTableClient &
-  AgentRuntimeStateRpcClient
+  AgentRuntimeStateRpcClient & {
+    rpc(fn: 'get_agent_presence_batch', args: { p_agent_user_ids: string[] }): PromiseLike<{ data: unknown; error: { message: string } | null }>
+  }
 
 /**
  * 一轮 tick 被什么叫起来的。两种做的事相同,区别只在**归因**:`event` 有事件说「该取命令了」;`reconcile`
@@ -350,9 +352,8 @@ export function createDeviceRuntimeHostLoop(
   let authExpired = false
   let lastOrphanRecoveryAt: number | null = null
   let lastActivityReconcileAt: number | null = null
-  // @@@1528 - mark local agents online once per host lifecycle when the device runtime first
-  // becomes ready. Fixes 假离线.
-  let localAgentsOnlineSwept = false
+  // 本生命周期里有没有拿云端的行对上过一次账(见 reconcileWithCloud);没对上就按对账节拍重试。
+  let cloudReconciled = false
   // 本机 agent 的令牌档最近一次整批写成时用的 access token,与没写成时下一次重试的时刻(见 maintainLocalAgents)。
   let runtimeSessionsAccessToken: string | null = null
   let runtimeSessionsRetryAt = 0
@@ -440,7 +441,7 @@ export function createDeviceRuntimeHostLoop(
         onAgentRosterRemoved: options.onAgentRosterRemoved,
         ownerUserId,
       })
-      localAgentsOnlineSwept = false
+      cloudReconciled = false
       runtimeSessionsAccessToken = null
       runtimeSessionsRetryAt = 0
       // 上一个身份的队列取空过,不说明下一个身份的队列是空的。
@@ -1174,15 +1175,12 @@ export function createDeviceRuntimeHostLoop(
       if (synced) runtimeSessionsAccessToken = auth.accessToken
       else runtimeSessionsRetryAt = nowMs() + superviseIntervalMs
     }
-    // @@@1528 - device runtime ready → proactively mark this device's local agents online so they don't
-    // show 假离线 until messaged. @@@1663 只在 sweep **干净全成功**后才 latch:没成就按对账节拍重扫
-    // (reportRuntimeState online 幂等,重扫已上线者无害),运行中的 host 自愈、无需重启。
-    // @@@activity-reconcile — latch 之后按 activityReconcileIntervalMs 周期对账,纠正卡死的 running 行。
-    const sweepEveryMs = localAgentsOnlineSwept ? activityReconcileIntervalMs : superviseIntervalMs
-    if (!gateOpen(lastActivityReconcileAt, sweepEveryMs, nowMs())) return
+    // @@@activity-reconcile — 开机与每 activityReconcileIntervalMs 一次,拿云端的行对一遍账;没对成按对账节拍重试。
+    const reconcileEveryMs = cloudReconciled ? activityReconcileIntervalMs : superviseIntervalMs
+    if (!gateOpen(lastActivityReconcileAt, reconcileEveryMs, nowMs())) return
     lastActivityReconcileAt = nowMs()
     await pruneStaleGuestRecords({ env })
-    if (await markLocalRuntimeAgentsOnline(auth, generation)) localAgentsOnlineSwept = true
+    cloudReconciled = await reconcileWithCloud(auth, generation)
   }
 
   async function publishAgentActivityOnce(generation: number): Promise<void> {
@@ -1227,63 +1225,56 @@ export function createDeviceRuntimeHostLoop(
     }) ?? null
   }
 
-  // @@@1528 - device-runtime-ready → proactively report this device's local agents online/idle.
-  // Presence was activity-driven (an agent only reported online when its ACP session lazily spawned
-  // on the first delivered message), so a logged-in device's existing agents showed 假离线 until messaged. Marking them
-  // online/idle at runtime-ready makes presence device-ready-driven. Online is still gated by the
-  // device heartbeat freshness (deriveAgentReachability.deviceOnline), so a disconnected device
-  // still shows its agents offline. Best-effort, per-agent isolated — never breaks the tick.
-  // Runs once per host lifecycle (login/restart). No engine spawn (idle), so no running-state clobber.
-  // @@@1663 返回「本次是否干净全成功」(所有本机 agent 都成功标 online、无 generation/stop race)。仅返回
-  // true 时调用方才 latch localAgentsOnlineSwept;失败/中途 race → false → 下个 authed tick 重扫,直到一次全成功。
-  // @@@2151 gone-agent(别处删/e2e cleanup 删/非本 owner)的 online 写会命中 migration 036
-  // `can_write_agent_runtime_state` 的「not writable」RAISE。守卫已**收口到 makeRuntimeStateReporter 单一
-  // choke point**(gone→本地 drop + swallow),故此处不再自查 DB 存量 / 不再自己 drop:只喂候选、报真错误。
-  // 纯逻辑(遍历/写/在飞跳过/bail)在 ./deviceRuntimeSweep(Node 可单测)。
-  async function markLocalRuntimeAgentsOnline(auth: RuntimeAuth, generation: number): Promise<boolean> {
+  // 云端的行就是「已发布过什么」:一次批量读(每 200 个一发)拿回本机每个 agent 的那一行,填进 publishedActivity /
+  // publishedRecentActions,随后的边沿发布只写与云端不一样的行。空闲且一致的 agent 一发写都没有 —— 一轮的代价不随
+  // 空闲会话数长。从前这里给每个 agent 都重写一遍 online(10-22 一台 82 个 agent 的机器,每小时 2 508 发里只有 308 发
+  // 是真变化):那是在给后端 180 s 的 derived_status 续命,而自 #2774(0.2.30)起没有读方再用它判在线 ——
+  // 在线只看设备行与 desired。
+  // 删了的 agent 由这一读显式认出:remove_owned_agent 留的墓碑让主人照样读得到它,account_status='removed' ⇒
+  // 收回名册行与发给它的卡(#2151/#6938 的 cloud-gone)。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
+  // ⇒ 只说一声、❌ 不删(写路径的 not writable 守卫照旧兜底)。
+  async function reconcileWithCloud(auth: RuntimeAuth, generation: number): Promise<boolean> {
     try {
       const client = options.makeIdentityClient(auth.accessToken)
-      const reportRuntimeState = makeRuntimeStateReporter(client)
-      // #4277 别家账号的行留在名册里(它的主人回来要用),但不归本账号巡扫。
-      const localAgents = agentsForOwner(await listAgents(env), auth.userId)
-      // 候选:有 gugu_user_id、非 cloud(cloud agent 跑在云 cage,不在本机标 online)。
-      const agentUserIds: string[] = []
-      for (const agent of localAgents) {
-        if (!agent.gugu_user_id) continue
-        if (agent.agent_type === CLOUD_AGENT_TYPE) continue
-        // #5331 公网身份还在飞 ⇒ 云端还没有这一行,这一发写必定被 RAISE 拒。跳过它省掉一发注定失败的
-        // 往返;真正的保命闸在 dropLocalAgentByGuguUserId 那里(任何写点漏跳都不许删到在飞的行)。
-        if (agentCloudIdentityPending(agent)) continue
-        agentUserIds.push(agent.gugu_user_id)
+      const agentUserIds = await localPresenceAgentIds(auth.userId)
+      for (let i = 0; i < agentUserIds.length; i += 200) {
+        const chunk = agentUserIds.slice(i, i + 200)
+        const { data, error } = await client.rpc('get_agent_presence_batch', { p_agent_user_ids: chunk })
+        if (error) throw new Error(error.message)
+        if (generation !== lifecycleGeneration || stopped) return false
+        const results = (data as { results?: Record<string, { status?: string; presence?: unknown }> } | null)?.results ?? {}
+        for (const agentUserId of chunk) {
+          const row = results[agentUserId]
+          // 契约:问了的每个 id 都有一条结果;少了 key 是契约坏了,❌ 猜成任何一种结局。
+          if (!row) throw new Error(`presence batch omitted ${agentUserId}`)
+          const presence = row.status === 'presence' ? parseAgentPresencePayload({ presence: row.presence }) : null
+          if (!presence) {
+            options.warn?.(`[device-runtime] presence of local agent ${agentUserId} is ${row.status}; left in the roster`)
+          } else if (presence.accountStatus === 'removed') {
+            publishedActivity.delete(agentUserId)
+            await dropLocalAgentByGuguUserId(agentUserId)
+          } else {
+            publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
+            publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))
+          }
+        }
       }
-      return await sweepLocalAgentsOnline({
-        agentUserIds,
-        reportOnline: async (agentUserId, published) => {
-          const recent = await recentActionsForAgent(agentUserId)
-          await reportRuntimeState({
-            agentUserId,
-            runtimeStatus: 'online',
-            ...presenceFields(published),
-            runtimeKind: 'gugu',
-            runtimeLabel: hostname(),
-            recentActions: recent?.actions ?? null,
-            lastActionAt: recent?.lastActionAt ?? null
-          })
-          publishedRecentActions.set(agentUserId, recentActionsKey(recent))
-        },
-        statusOf: agentStatusOf,
-        // Bail if a stop()/re-login raced mid-sweep — never leave an agent stale-online after stop.
-        shouldBail: () => generation !== lifecycleGeneration || stopped,
-        warn: options.warn
-      })
+      return true
     } catch (error) {
-      options.warn?.(`[device-runtime] startup online sweep failed: ${String((error as Error)?.message ?? error)}`)
+      if (error instanceof RuntimeAuthExpiredError) throw error
+      options.warn?.(`[device-runtime] presence reconcile failed: ${String((error as Error)?.message ?? error)}`)
       return false
     }
   }
 
-  // @@@activity-edge (#3961) — 与 markLocalRuntimeAgentsOnline 同源同口径,区别只在:它是全量对账,
-  // 这个是边沿触发。候选口径必须与那边一致(有 gugu_user_id、非 cloud),否则两者会互相写回对方的旧值。
+  // 本机要发布 presence 的 agent:有 gugu_user_id、非 cloud(cloud agent 跑在云 cage);#4277 别家账号的行留在名册里
+  // 但不归本账号;#5331 公网身份还在飞的行云端还没有,❌ 去读也 ❌ 去写。
+  async function localPresenceAgentIds(ownerUserId: string | null): Promise<string[]> {
+    return agentsForOwner(await listAgents(env), ownerUserId)
+      .filter((agent) => agent.gugu_user_id && agent.agent_type !== CLOUD_AGENT_TYPE && !agentCloudIdentityPending(agent))
+      .map((agent) => agent.gugu_user_id)
+  }
+
   /**
    * 这个 agent 在本机的读数 —— presence 发布的唯一依据(spec agent-status-writer:会话页状态写入者 → 宿主按
    * agent 的流 → 这里)。❌ 再取投递命令的执行区间或传输自己的回合追踪做「或」:两个事实源迟早给出两个答案。
@@ -1304,33 +1295,30 @@ export function createDeviceRuntimeHostLoop(
     return await options.runtimeBridge?.recentActionsForAgent?.(agentUserId) ?? null
   }
 
+  // 云端读回的时刻与本机的 ISO 串写法不同,按时刻比,❌ 按字面比(否则每轮对账都当成「变了」再写一遍)。
   function recentActionsKey(snapshot: { actions: string[]; lastActionAt: string | null } | null): string {
-    return snapshot ? JSON.stringify([snapshot.actions, snapshot.lastActionAt]) : ''
+    if (!snapshot) return ''
+    return JSON.stringify([snapshot.actions, snapshot.lastActionAt ? new Date(snapshot.lastActionAt).toISOString() : null])
   }
 
   async function publishLocalAgentActivity(generation: number): Promise<void> {
     try {
-      const localAgents = agentsForOwner(await listAgents(env), activeOwnerUserId)
-      const agentUserIds: string[] = []
-      for (const agent of localAgents) {
-        if (!agent.gugu_user_id) continue
-        if (agent.agent_type === CLOUD_AGENT_TYPE) continue
-        // 候选口径必须与 markLocalRuntimeAgentsOnline 一致,#5331 这条跳过也一样。
-        if (agentCloudIdentityPending(agent)) continue
-        agentUserIds.push(agent.gugu_user_id)
-      }
+      const agentUserIds = await localPresenceAgentIds(activeOwnerUserId)
       const recentSnapshots = new Map<string, { actions: string[]; lastActionAt: string | null } | null>(
         await Promise.all(agentUserIds.map(async (id) => [id, await recentActionsForAgent(id)] as const)),
       )
+      // 本机拿不到这个 agent 的近况(没有活会话)= 没有可说的,❌ 当成「变成空了」去写(那一写 SQL 侧 COALESCE 成原值)。
+      const recentActionsChanged = (id: string): boolean => {
+        const recent = recentSnapshots.get(id) ?? null
+        return recent !== null && publishedRecentActions.get(id) !== recentActionsKey(recent)
+      }
       // 这条路每 2 秒走一轮,而它真正要写的时刻一次回合只有两个。所以**先判有没有变化,
       // 再决定要不要造客户端** —— 无条件 makeIdentityClient 会在空闲期每 2 秒造一个,
       // 纯浪费(而且它正好落在 owner 抱怨资源负载的那条路上)。
       // #4008 鉴权也在这道闸之后才取:没有要写的东西就不该去碰鉴权,否则空闲期每 2 秒问一次令牌。
       const somethingChanged = agentUserIds.some(
         (id) => !samePublishedStatus(publishedActivity.get(id), publishedStatusOf(agentStatusOf(id))),
-      ) || agentUserIds.some(
-        (id) => publishedRecentActions.get(id) !== recentActionsKey(recentSnapshots.get(id) ?? null),
-      ) || [...publishedActivity.keys()].some((id) => !agentUserIds.includes(id))
+      ) || agentUserIds.some(recentActionsChanged) || [...publishedActivity.keys()].some((id) => !agentUserIds.includes(id))
       if (!somethingChanged) return
       const auth = await options.authProvider.getAuth()
       if (!auth?.accessToken || !auth.userId) return
@@ -1355,8 +1343,7 @@ export function createDeviceRuntimeHostLoop(
           })
           publishedRecentActions.set(agentUserId, recentActionsKey(recent))
         },
-        shouldPublish: (agentUserId) =>
-          publishedRecentActions.get(agentUserId) !== recentActionsKey(recentSnapshots.get(agentUserId) ?? null),
+        shouldPublish: recentActionsChanged,
         shouldBail: () => generation !== lifecycleGeneration || stopped,
         warn: options.warn
       })
