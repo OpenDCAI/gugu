@@ -109,16 +109,26 @@ export async function assertCodexFileCredentialStore(nativeRoot: string): Promis
 }
 
 /**
- * 用户根里此刻是哪个连接的账号。
+ * 用户根里此刻是哪个连接的账号。`selectedId` = 调用方认为当前选中的连接。
  *
- * `native` 还没有保管副本 = 还没换出过,用户根里的就是它 —— 先判这一条:用户又把同一个账号加成了账号连接时,
- * 按身份会先撞上那个连接,于是原生连接永远「不在用户根里」、又没有副本,再也选不回去。
- * 同一个账号既是原生又是某个连接时也归原生:两边的凭据本来就是同一个人的。
+ * 1. 选中的是账号连接,且它保管的账号和用户根里的一致 ⇒ 就是它。❌ 放到 2 之后:新用户原生没登录、
+ *    先加了账号 A,这时用户根里是 A,若判成 native,换出时 A 轮换过的 token 会被存到 native 名下。
+ * 2. `native` 还没有保管副本 = 还没换出过,用户根里的就是它:用户又把同一个账号加成了账号连接时,
+ *    按身份会先撞上那个连接,于是原生连接永远「不在用户根里」、又没有副本,再也选不回去。
+ *    同一个账号既是原生又是某个连接时也归原生:两边的凭据本来就是同一个人的。
+ * 3. 否则按身份在所有连接里找。
  */
-export async function codexLiveOwner(paths: CodexAuthSlotPaths, connectionIds: readonly string[]): Promise<string | null> {
+export async function codexLiveOwner(
+  paths: CodexAuthSlotPaths,
+  connectionIds: readonly string[],
+  selectedId: string | null
+): Promise<string | null> {
+  const live = await readAuth(paths.nativeRoot);
+  if (selectedId && selectedId !== 'native' && live?.identity) {
+    if ((await readAuth(paths.vaultRoot(selectedId)))?.identity === live.identity) return selectedId;
+  }
   const native = await readAuth(paths.vaultRoot('native'));
   if (!native) return 'native';
-  const live = await readAuth(paths.nativeRoot);
   if (!live?.identity) return null;
   if (native.identity === live.identity) return 'native';
   for (const id of connectionIds) {
@@ -131,23 +141,25 @@ export async function codexLiveOwner(paths: CodexAuthSlotPaths, connectionIds: r
 export async function codexCredentialRoot(
   paths: CodexAuthSlotPaths,
   connectionIds: readonly string[],
-  connectionId: string
+  connectionId: string,
+  selectedId: string | null
 ): Promise<'native' | 'vault'> {
-  return (await codexLiveOwner(paths, connectionIds)) === connectionId ? 'native' : 'vault';
+  return (await codexLiveOwner(paths, connectionIds, selectedId)) === connectionId ? 'native' : 'vault';
 }
 
 /**
- * 把用户根换成 `targetId` 的账号。`connectionIds` = 全部 OAuth 连接(含 `native`)。
+ * 把用户根换成 `targetId` 的账号。`connectionIds` = 全部 OAuth 连接(含 `native`),`currentId` = 换之前选中的连接。
  * 返回换之前用户根属于谁(`null` = 不认识的账号,已另存副本)。
  */
 export async function activateCodexAccount(
   paths: CodexAuthSlotPaths,
   connectionIds: readonly string[],
   targetId: string,
+  currentId: string | null,
   now: () => Date = () => new Date()
 ): Promise<string | null> {
   await assertCodexFileCredentialStore(paths.nativeRoot);
-  const owner = await codexLiveOwner(paths, connectionIds);
+  const owner = await codexLiveOwner(paths, connectionIds, currentId);
   // 已经在用户根里(含「用户从没登录过,原生连接就是空的」):什么都不用搬。
   if (owner === targetId) return owner;
   const incoming = await readAuth(paths.vaultRoot(targetId));

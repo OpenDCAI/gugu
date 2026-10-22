@@ -15,8 +15,8 @@ vi.mock('@main/lib/events', () => ({
   events: { emit: (_channel: unknown, target: { sessionId: string }) => mocks.calls.push(`reclaimed:${target.sessionId}`) },
 }));
 vi.mock('@main/core/agents/harness-connections', () => ({
-  selectHarnessConnection: vi.fn(async (_provider: string, connectionId: string) => {
-    mocks.calls.push(`select:${connectionId}`);
+  selectHarnessConnection: vi.fn(async (provider: string, connectionId: string) => {
+    mocks.calls.push(`select:${provider}:${connectionId}`);
   }),
 }));
 vi.mock('./session-orchestration', () => ({
@@ -26,7 +26,7 @@ vi.mock('./session-orchestration', () => ({
   }),
 }));
 
-const { switchCodexSubscription } = await import('./codex-subscription-switch');
+const { switchSubscription } = await import('./subscription-switch');
 
 function summary(sessionId: string, overrides: Record<string, unknown> = {}) {
   mocks.summaries.set(sessionId, {
@@ -52,14 +52,23 @@ it('stops idle Codex sessions before the credentials change and hands them back 
   summary('a');
   summary('b');
   summary('claude', { providerId: 'claude' });
-  await switchCodexSubscription('work', {});
-  expect(mocks.calls).toEqual(['stop:a', 'stop:b', 'select:work', 'reclaimed:a', 'reclaimed:b']);
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'stop:b', 'select:codex:work', 'reclaimed:a', 'reclaimed:b']);
 });
 
-it('refuses while a Codex session is mid-turn and touches nothing', async () => {
+it('does the same for Claude and leaves the other provider’s sessions running', async () => {
+  summary('a', { providerId: 'claude' });
+  summary('codex');
+  await switchSubscription('claude', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'select:claude:work', 'reclaimed:a']);
+});
+
+it('refuses while a session of that provider is mid-turn and touches nothing', async () => {
   summary('idle');
   summary('busy', { isGenerating: true });
-  await expect(switchCodexSubscription('work', {})).rejects.toThrow('1 Codex session is still working');
+  await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('1 Codex session is still working');
+  summary('claude-busy', { providerId: 'claude', pendingPermissionCount: 1 });
+  await expect(switchSubscription('claude', 'work', {})).rejects.toThrow('1 Claude session is still working');
   expect(mocks.calls).toEqual([]);
 });
 
@@ -67,6 +76,6 @@ it('still hands stopped sessions back when the credential switch fails', async (
   summary('a');
   const { selectHarnessConnection } = await import('@main/core/agents/harness-connections');
   vi.mocked(selectHarnessConnection).mockRejectedValueOnce(new Error('keyring'));
-  await expect(switchCodexSubscription('work', {})).rejects.toThrow('keyring');
+  await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('keyring');
   expect(mocks.calls).toEqual(['stop:a', 'reclaimed:a']);
 });
