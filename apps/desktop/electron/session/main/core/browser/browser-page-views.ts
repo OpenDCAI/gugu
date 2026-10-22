@@ -124,6 +124,7 @@ function wireHost(host: BrowserWindow): void {
       if (page.host !== host) continue;
       unplace(page);
       page.host = null;
+      page.dialogs?.hostChanged();
       releaseBrowserPage(page.browserId);
     }
     const parking = parkings.get(host);
@@ -303,7 +304,8 @@ export function mountBrowserPage(args: {
 
 function moveToHost(page: BrowserPage, windowName: string): void {
   const host = resolveHost(windowName);
-  if (page.host !== host) {
+  const moved = page.host !== host;
+  if (moved) {
     unplace(page);
     page.host = host;
     if (host) wireHost(host);
@@ -313,6 +315,7 @@ function moveToHost(page: BrowserPage, windowName: string): void {
   }
   page.windowName = windowName;
   applyLayout(page);
+  if (moved) page.dialogs?.hostChanged();
 }
 
 /** Browser Use can restore a saved tab without mounting its whole session UI or moving a live page to another window. */

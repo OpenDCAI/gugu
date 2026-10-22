@@ -255,6 +255,16 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
     expect(state.boxes[0]).toMatchObject({ parent: mainWindow, options: { message: 'saved' } });
   });
 
+  it('#72 停着的网页弹的 alert:切回这个页签(窗一直露着)就挂到那扇窗上', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });
+    view.webContents.emit('-run-dialog', { dialogType: 'alert', messageText: 'later' }, vi.fn());
+    expect(state.boxes).toHaveLength(0);
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(state.boxes).toHaveLength(1);
+    expect(state.boxes[0]).toMatchObject({ parent: mainWindow, options: { message: 'later' } });
+  });
+
   it('停放窗:从不显示、不能聚焦、不进任务栏,内容区和那扇窗一样大;窗挪动 / 改大小跟着', () => {
     mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });

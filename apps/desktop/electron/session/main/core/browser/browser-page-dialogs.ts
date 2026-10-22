@@ -12,9 +12,10 @@ import { log } from '@main/lib/logger';
  * - **对话框只出现在人正在看的页签上**,挂在那扇咕咕窗口上;网页不在屏上时什么窗都不出。谁先答算谁的,答完就关。
  * - **不在屏上、agent 没连着**:照 Chrome 对后台页签的做法(components/javascript_dialogs/tab_modal_dialog_manager.cc)——
  *   alert 当场放行、等页签露出来再给人看;confirm 当场取消。
- * - **agent 连着**:Chromium 把同一个对话框同时交给 DevTools 和 Electron,谁先答算谁的 ⇒ 交给 agent 经 CDP 答
- *   (Page.javascriptDialogOpening / handleJavaScriptDialog);网页在屏上时人也看得见、也能答。agent 先答了,人那边的随即关掉;
- *   agent 断开时还没答、网页又不在屏上 → 按上一条办。
+ * - **agent 收到了**:Chromium 先把对话框发给开着 Page 的 DevTools(Page.javascriptDialogOpening,同步、早于 Electron,
+ *   mac1 实测),再交给 Electron,谁先答算谁的 ⇒ 交给 agent 经 CDP 答;网页在屏上时人也看得见、也能答。agent 先答了,
+ *   人那边的随即关掉;agent 断开时还没答、网页又不在屏上 → 按上一条办。❌ 拿「调试器连着」当 agent 收到:没开 Page 时
+ *   没人能答,网页一直卡着(实测)。
  * - prompt:Electron 本来就不支持(当场取消),照旧。
  *
  * Electron 没有公开的对话框钩子,`-run-dialog` / `-cancel-dialogs` 是它的内部事件(v44)。认不出时(升级后改了)
@@ -32,11 +33,15 @@ type PageDialog = {
   answer: DialogCallback | null;
   /** 正在人眼前的那个对话框。 */
   showing: AbortController | null;
+  /** agent 经 CDP 收到了它、会来答。 */
+  agent: boolean;
 };
 
 export type PageDialogs = {
   /** 网页露到人眼前了:有攒着的对话框就挂到那扇窗上。 */
   pageShown(): void;
+  /** 网页换了窗 / 那扇窗关了:旧窗上的对话框收回来,在屏上就挂到新窗上,否则按后台的规矩办。 */
+  hostChanged(): void;
 };
 
 const RUN_DIALOG = '-run-dialog';
@@ -51,12 +56,14 @@ export function wirePageDialogs(
   if (emitter.listenerCount(RUN_DIALOG) !== 1 || emitter.listenerCount(CANCEL_DIALOGS) !== 1) {
     if (!warned) log.warn('Browser page dialogs: Electron dialog internals not recognised, using Electron defaults');
     warned = true;
-    return { pageShown() {} };
+    return { pageShown() {}, hostChanged() {} };
   }
   emitter.removeAllListeners(RUN_DIALOG);
   emitter.removeAllListeners(CANCEL_DIALOGS);
 
   let pending: PageDialog | null = null;
+  /** agent 经 CDP 收到了马上要来的这个对话框(Page.javascriptDialogOpening 先于 `-run-dialog` 到)。 */
+  let announcedToAgent = false;
 
   const close = (current: PageDialog) => {
     current.showing?.abort();
@@ -98,21 +105,25 @@ export function wirePageDialogs(
       })
       .catch((error: unknown) => {
         log.warn('Browser page dialogs: could not show a dialog', { error: String(error) });
+        if (controller.signal.aborted) return;
         close(current);
+        reply(current, false);
       });
   };
 
   emitter.on(RUN_DIALOG, (info: DialogInfo, callback: DialogCallback) => {
+    const agent = announcedToAgent;
+    announcedToAgent = false;
     if (info.dialogType === 'prompt') return callback(false, '');
     // 网页在等一个对话框时不会再弹下一个;顶替的只会是攒着给人看的后台 alert。保险起见没回过的先取消。
     if (pending) {
       reply(pending, false);
       close(pending);
     }
-    const current: PageDialog = { type: info.dialogType, message: info.messageText, answer: callback, showing: null };
+    const current: PageDialog = { type: info.dialogType, message: info.messageText, answer: callback, showing: null, agent };
     pending = current;
     if (page.onScreen()) show(current);
-    else if (!webContents.debugger.isAttached()) answerInBackground(current);
+    else if (!agent) answerInBackground(current);
   });
 
   // 网页换页 / 关掉时 Chromium 取消它的对话框:人眼前那个关掉,攒着的不再给人看。
@@ -121,20 +132,35 @@ export function wirePageDialogs(
   });
 
   // 网页的对话框已经被别人(agent 经 CDP)答掉了:人那边的随即关掉。我们自己回过的(answer 为 null)不算。
-  webContents.debugger.on('message', (_event, method) => {
-    if (method === 'Page.javascriptDialogClosed' && pending?.answer) {
+  webContents.debugger.on('message', (_event, method, params: { type?: string }) => {
+    // beforeunload 也会报,但它不走 `-run-dialog`:❌ 记下,否则下一个对话框会被当成 agent 收到了。
+    if (method === 'Page.javascriptDialogOpening') announcedToAgent = params?.type !== 'beforeunload';
+    if (method !== 'Page.javascriptDialogClosed') return;
+    announcedToAgent = false;
+    if (pending?.answer) {
       pending.answer = null;
       close(pending);
     }
   });
   // agent 断开时还没答:网页不在屏上就按后台的规矩办;在屏上的,人照常能答。
   webContents.debugger.on('detach', () => {
-    if (pending?.answer && !page.onScreen()) answerInBackground(pending);
+    announcedToAgent = false;
+    if (!pending) return;
+    pending.agent = false;
+    if (pending.answer && !page.onScreen()) answerInBackground(pending);
   });
 
   return {
     pageShown() {
       if (pending && page.onScreen()) show(pending);
+    },
+    hostChanged() {
+      if (!pending) return;
+      // 旧窗上那个收回来(窗被销毁时 Electron 的对话框永远不结束,不收就再也挂不上新窗)。
+      pending.showing?.abort();
+      pending.showing = null;
+      if (page.onScreen()) show(pending);
+      else if (pending.answer && !pending.agent) answerInBackground(pending);
     },
   };
 }
