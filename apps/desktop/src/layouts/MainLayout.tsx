@@ -552,6 +552,8 @@ function InnerLayout({
       frame.dataset.emdashSlot = dest === sessionSlotRef.current ? 'task' : 'composer'
       const shown = rect.width > 0 && rect.height > 0
       frame.style.visibility = shown ? 'visible' : 'hidden'
+      if (shown) frame.style.removeProperty('--gugu-animation-surface-paused')
+      else frame.style.setProperty('--gugu-animation-surface-paused', 'paused')
       frame.style.pointerEvents = shown ? 'auto' : 'none'
       raise()
     }

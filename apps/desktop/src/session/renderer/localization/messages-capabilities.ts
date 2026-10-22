@@ -819,6 +819,8 @@ export const enUSCapabilityMessages = {
   'harnessLogin.revert': 'Cancel, go back to {name}',
   'harnessCatalog.authRequiredWith': '{name} requires sign-in ({methods})',
   'harnessCatalog.unavailable': "Couldn't read {name}'s models",
+  'harnessCatalog.probeFailedDetail':
+    "Couldn't read {name}'s model catalog. Select a Gugu gateway model in this task, or check your {name} sign-in and retry.",
   'harnessCatalog.retry': 'Retry',
   // 咕咕那一组为什么不在(宿主报原因码,见 session-core `GuguCatalogReason`)。说出了什么事 + 接下来能做什么;
   // 服务端原文只在日志里。
@@ -1616,6 +1618,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'harnessLogin.revert': '取消，回到 {name}',
   'harnessCatalog.authRequiredWith': '{name} 需要先登录（{methods}）',
   'harnessCatalog.unavailable': '读取 {name} 的模型失败',
+  'harnessCatalog.probeFailedDetail':
+    '无法读取 {name} 的模型目录。可在任务里直接选择咕咕网关的模型，或检查 {name} 的登录状态后重试。',
   'harnessCatalog.retry': '重试',
   'guguCatalog.reason.not-routable': '咕咕模型尚未对这个 Agent 开通',
   'guguCatalog.reason.no-identity-chat': '咕咕模型在 Chat UI 会话里还用不了',

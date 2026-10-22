@@ -59,8 +59,13 @@ export class ExtensionTabResource implements TabResource {
   constructor(
     readonly extensionId: string,
     /** The claimed file this tab was opened for, if it was opened for one. */
-    readonly filePath: string | undefined = undefined
+    readonly filePath: string | undefined = undefined,
+    private readonly readTitle?: () => string,
   ) {}
+
+  get title(): string | undefined {
+    return this.readTitle?.();
+  }
 
   dispose(): void {
     // The surface unmounts with the tab. The extension's session outlives it and
@@ -200,7 +205,12 @@ export function createExtensionTabProvider(
     // `entry.state` is the only path a per-tab fact travels on, and until now it
     // was read by nobody — which is why a tab could not be told which file it was
     // opened for. Reading it here is what makes the file claim mean anything.
-    initialize: (entry) => new ExtensionTabResource(extensionId, entry.state?.filePath),
+    initialize: (entry, _handle, ctx) => new ExtensionTabResource(extensionId, entry.state?.filePath, () => {
+      if (entry.state?.filePath) return fileBaseName(entry.state.filePath);
+      const sessionId = (ctx as SessionTabContext).sessionId;
+      const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ sessionId, perSession: isPerSession(kind) })));
+      return surface.title ?? titleOf();
+    }),
     /**
      * 人关掉常驻的那一枚 = **它从这里拿走**(behavior tab-extensions):App 照常启用、照常在跑,
      * 再要它从左栏、「+」或右键左栏「App」里拿。❌ 不是停用(那只在「App」页做),也 ❌ 不留在别处。
