@@ -1,6 +1,6 @@
 // 生产 bug 的宿主那一半:一条命令执行期间 provider 换了令牌(旧令牌随即失效),落终态必须重新问 provider 要令牌,
 // ❌ 用这一拍开头的 client。判据读库里那一行最后是不是 done;阴控 = 同一条用例里旧令牌确实已被库拒收。
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
   createDeviceRuntimeHostLoop,
   deterministicDeviceId,
@@ -45,6 +45,57 @@ function viewFor(db: MemoryRuntimeIdentityClient, token: string, current: () => 
 }
 
 describe('落终态时向 provider 现要令牌', () => {
+  test('同账号续期保留订阅;换账号和登出仍拆掉旧订阅', async () => {
+    const env = await isolatedGuguEnv('gugu-realtime-owner-')
+    const db = new MemoryRuntimeIdentityClient([], { insertError: 'unused', singleError: 'unused' })
+    let token = 'token-1'
+    let userId = USER_ID
+    let signedIn = true
+    const seenTokens: string[] = []
+    const stopRpc = vi.fn()
+    const stopWake = vi.fn()
+    const subscribeRpc = vi.fn(async () => stopRpc)
+    const subscribeWake = vi.fn(({ onSubscribed }: { onSubscribed?: () => void }) => {
+      onSubscribed?.()
+      return stopWake
+    })
+    const host = createDeviceRuntimeHostLoop({
+      env,
+      intervalMs: 15,
+      superviseIntervalMs: 60_000,
+      machineIdentifier: () => MACHINE_ID,
+      capabilities: { terminals: [], runtimes: [] },
+      authProvider: { getAuth: async () => signedIn ? { accessToken: token, userId } : null },
+      makeIdentityClient: (value) => { seenTokens.push(value); return db as unknown as DeviceRuntimeIdentityClient },
+      runtimeBridge: { create: async () => {}, stop: async () => {}, injectAgentInbox: async () => 'accepted' as const },
+      subscribeCommandWake: subscribeWake,
+      subscribeDeviceRpc: subscribeRpc,
+    })
+    host.start()
+    try {
+      await until('订上且首轮已结束', () => subscribeRpc.mock.calls.length === 1 && subscribeWake.mock.calls.length === 1 && !host.getDebugSnapshot().ticking)
+      token = 'token-2'
+      await host.tickOnce()
+      expect(seenTokens).toContain('token-2') // 阳控:宿主这一轮确实已经看到新登录态。
+      expect(subscribeRpc).toHaveBeenCalledTimes(1)
+      expect(subscribeWake).toHaveBeenCalledTimes(1)
+      expect(stopRpc).not.toHaveBeenCalled()
+      expect(stopWake).not.toHaveBeenCalled()
+      userId = 'user-2'
+      await host.tickOnce()
+      expect(subscribeRpc).toHaveBeenCalledTimes(2)
+      expect(subscribeWake).toHaveBeenCalledTimes(2)
+      expect(stopRpc).toHaveBeenCalledTimes(1)
+      expect(stopWake).toHaveBeenCalledTimes(1)
+      signedIn = false
+      await host.tickOnce()
+      expect(stopRpc).toHaveBeenCalledTimes(2)
+      expect(stopWake).toHaveBeenCalledTimes(2)
+    } finally {
+      await host.stop()
+    }
+  })
+
   test('命令执行期间令牌被换掉:done 用新令牌写进去', async () => {
     const env = await isolatedGuguEnv('gugu-settle-token-')
     await createTestLocalAgent(env, {}, { cache: { acp_engine_id: 'codex' }, status: 'active' })

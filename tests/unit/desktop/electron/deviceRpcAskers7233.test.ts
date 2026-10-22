@@ -63,7 +63,6 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   const closedWindows: string[] = []
   const askers = createDeviceRpcAskers({
     supabase: supabase as never,
-    accessToken: 'token',
     deviceId: 'dev',
     handle: handle as never,
     replyShared: (reply) => { shared.push(reply) },

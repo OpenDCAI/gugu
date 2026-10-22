@@ -46,12 +46,11 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
       on(kind: 'broadcast', filter: { event: string }, fn: (message?: { payload?: Record<string, unknown> }) => void): ElectronManagedRealtimeChannel;
     }).on('broadcast', { event }, (message) => onPayload(message?.payload ?? {}));
   void (async () => {
-    const { token } = await account();
+    await account();
     const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(
       { realtime: supabase.realtime, removeChannel: (channel) => supabase.removeChannel(channel as never) },
       create(),
       {
-        accessToken: token,
         label: `forum:${topic}`,
         createChannel: create,
         onStatus: (status) => {

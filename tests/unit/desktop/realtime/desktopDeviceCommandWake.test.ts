@@ -81,7 +81,6 @@ describe('desktop device command wake subscription', () => {
 
       const unsubscribe = await createDesktopDeviceCommandWakeSubscription({ supabase, warn })({
         deviceId: 'device-reconnect',
-        accessToken: 'token-1',
         onCommand,
         onSubscribeFailure
       })
@@ -128,12 +127,11 @@ describe('desktop device command wake subscription', () => {
 
     const unsubscribe = await createDesktopDeviceCommandWakeSubscription({ supabase, warn })({
       deviceId: 'device-1',
-      accessToken: 'token-1',
       onCommand,
       onSubscribeFailure
     })
 
-    expect(supabase.realtime.setAuth).toHaveBeenCalledWith('token-1')
+    expect(supabase.realtime.setAuth).toHaveBeenCalledWith()
     expect(supabase.channel).toHaveBeenCalledWith('gugu:device-1:commands', {
       config: {
         private: true,
@@ -185,7 +183,6 @@ describe('desktop device command wake subscription', () => {
 
       const unsubscribe = await createDesktopDeviceCommandWakeSubscription({ supabase, warn })({
         deviceId: 'device-remove-fails',
-        accessToken: 'token-1',
         onCommand,
         onSubscribeFailure
       })
@@ -212,7 +209,6 @@ describe('desktop device command wake subscription', () => {
 
     const unsubscribe = await createDesktopDeviceCommandWakeSubscription({ supabase, warn })({
       deviceId: 'device-fail',
-      accessToken: 'token-1',
       onCommand,
       onSubscribeFailure
     })
@@ -239,7 +235,6 @@ describe('desktop device command wake subscription', () => {
 
     const unsubscribe = await createDesktopDeviceCommandWakeSubscription({ supabase, warn })({
       deviceId: 'device-sync-fail',
-      accessToken: 'token-1',
       onCommand,
       onSubscribeFailure
     })
