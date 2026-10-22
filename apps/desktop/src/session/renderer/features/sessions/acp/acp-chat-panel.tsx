@@ -85,6 +85,7 @@ import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessio
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
+import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -511,10 +512,8 @@ const ComposerForStore = observer(function ComposerForStore({
 
   // D-31 The host's ask for this agent (an App install) is the session timeline's, not the runtime's: shown first — read only
   // while the session waits on an approval.
-  const hostBand = useHostAskBand(
-    store.runtimeSessionId,
-    sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)
-  );
+  const hostSession = sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId);
+  const hostBand = useHostAskBand(store.runtimeSessionId, hostSession);
   const resolveHostAsk = hostBand?.resolve;
   const permissionRequest =
     hostBand?.request ?? toComposerPermission(store.permissionQueue[0], translate, (id) => store.hasActiveToolCall(id));
@@ -1616,6 +1615,7 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
