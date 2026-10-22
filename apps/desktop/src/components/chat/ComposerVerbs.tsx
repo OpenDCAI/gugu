@@ -36,16 +36,17 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
     }
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
   }
+  // 输入行窄(块并排、对话块)时两个词只留图标,❌ 把输入框挤没。
   return (
     <span ref={measure} data-composer-verbs="" className="flex h-[42px] shrink-0 items-center gap-1">
       {(inSlot || isGroupChat) && (
-        <Button variant="ghost" size="sm" data-testid="composer-verb-task" onClick={() => pick('task')}>
-          <Sparkles size={14} />{t('composer.verb.task')}
+        <Button variant="ghost" size="sm" data-testid="composer-verb-task" aria-label={t('composer.verb.task')} title={t('composer.verb.task')} onClick={() => pick('task')}>
+          <Sparkles size={14} /><span className="@max-[35rem]:hidden">{t('composer.verb.task')}</span>
         </Button>
       )}
       {inSlot && (
-        <Button variant="ghost" size="sm" data-testid="composer-verb-schedule" onClick={() => pick('schedule')}>
-          <Clock size={14} />{t('composer.verb.schedule')}
+        <Button variant="ghost" size="sm" data-testid="composer-verb-schedule" aria-label={t('composer.verb.schedule')} title={t('composer.verb.schedule')} onClick={() => pick('schedule')}>
+          <Clock size={14} /><span className="@max-[35rem]:hidden">{t('composer.verb.schedule')}</span>
         </Button>
       )}
     </span>

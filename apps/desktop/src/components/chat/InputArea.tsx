@@ -838,7 +838,7 @@ export function InputArea({
       {/* @@@1697 三分离(owner override 单-pill，对齐已合设计 SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：
           外层 row align-items:flex-end + 左右 dock(h=42 固定)夹中间只裹 textarea 的 box(--r-lg 12px)；多行时
           box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动。逆转 #933 单-pill 回退、复原 #1459 结构。 */}
-      <div data-chat-composer-row="" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
+      <div data-chat-composer-row="" className="@container" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
         {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152：30×30 透明、回形针、hover bg --hover)。
             @@@4292 mobile:回形针命中框为 44×44，dock 高与之匹配；桌面维持原尺寸。 */}
         <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>
