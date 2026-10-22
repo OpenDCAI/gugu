@@ -1104,7 +1104,7 @@ describe('SidebarStore keeps what the user folded folded', () => {
     // Expanded: right under the project row, the open topics and then one "More · N" row.
     store.toggleProjectExpanded('project-a');
     const kinds = store.sidebarRows.map((row) => row.kind);
-    const at = kinds.indexOf('project');
+    const at = store.sidebarRows.findIndex((row) => row.kind === 'project' && row.projectId === 'project-a');
     expect(kinds.slice(at, at + 4)).toEqual(['project', 'topic', 'topic', 'topics-more']);
     expect(topicRows()).toEqual(['project-a:t1', 'project-a:t2', 'project-a:more:3']);
 
