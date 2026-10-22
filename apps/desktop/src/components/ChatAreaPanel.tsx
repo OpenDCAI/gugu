@@ -43,7 +43,8 @@ import { deriveAgentRunningState } from '../lib/agentRunningVerb'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { latestRecentAction } from './agentRecentActionModel'
 import { useAgentDisplayStatuses, useAgentRecentActivity } from '../hooks/useAgentDisplayStatus'
-import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'; import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { composerCardCopy } from '../lib/composerCardCopy'
+import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'
+import { composerCardLine } from '../lib/composerCardCopy'
 import { useMessageFilePreview } from './chat/useMessageFilePreview'
 import { AgentComposerNotices } from './chat/AgentComposerNotices'
 import { useAgentSessionpagePresentation } from './chat/AgentSessionpagePresentation'
@@ -56,7 +57,7 @@ import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
 import { useMessageColumnMinWidth } from './chat/useMessageColumnMinWidth'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'; import { SettingsPageHead } from './chat/groupSettingsUi'; import { useBackLayer } from './ui/sheetStack'
+import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'; import { SettingsPageHead } from './chat/groupSettingsUi'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
@@ -80,7 +81,9 @@ import {
   COLOR_ON_ACCENT,
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
-import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'; import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { GroupPanelTabs } from './appSlot/GroupPanelTabs'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
+import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
+import { GroupPanelTabs } from './appSlot/GroupPanelTabs'
+import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -94,7 +97,8 @@ import { useToast } from './toastContext'
 import { rendererLogger } from '../lib/log'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { PaneHeader } from './ui/Pane'
-import { Avatar } from './Avatar'
+import { ChatBlockHead } from './chat/ChatBlockHead'
+import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { Button } from './ui/Button'
 import { SearchField } from './ui/SearchField'
@@ -189,9 +193,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
-  // @@@multi-select (#988) - 多选模式 + 选中消息 id 集。进多选预选触发消息，退出时清空。
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; InputArea
   // consumes it (insert "@name " + register the mention target) then clears via onMentionInserted.
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
@@ -611,13 +612,12 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     setQuoteText({
       messageId: msg.id,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
-      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : ((card) => card ? t(composerCardCopy[card.type].line, { text: card.text }) : (msg.content ?? ''))(msg.content_type === 'card' ? parseComposerCard(msg.content) : null),
+      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
   }, [identitiesById, t])
 
-  // @@@multi-select (#988) - 退出多选模式（清空选中）。批量动作完成后或点「取消」时调用。
-  const exitSelectMode = useCallback(() => { setSelectMode(false); setSelectedIds(new Set()) }, [])
-  useBackLayer(exitSelectMode, mobile && selectMode) // 手机多选态:安卓返回键先退出多选,❌ 直接退回会话列表
+  // @@@multi-select (#988) - 多选模式、选中集和批量动作。
+  const { selectMode, selectedIds, exitSelectMode, enterSelectMode, toggleSelect, handleBatchForward, handleBatchDelete } = useMessageSelectMode({ activeChatId, mobile, messages, deleteMessage, setForwardMessages })
 
   // @@@message-forward (#899) / @@@multi-select (#988) - fan out every pending message into every
   // selected target chat. On success (and if we were in batch select), leave select mode.
@@ -630,47 +630,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     }
     if (selectMode) exitSelectMode()
   }, [forwardMessages, user, selectMode, exitSelectMode])
-
-  // @@@multi-select (#988) - 进入多选模式：从 More 菜单「多选」触发，预选触发的那条消息。
-  const enterSelectMode = useCallback((msg: MessageItem) => {
-    setSelectMode(true)
-    setSelectedIds(new Set([msg.id]))
-  }, [])
-
-  const toggleSelect = useCallback((messageId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(messageId)) next.delete(messageId)
-      else next.add(messageId)
-      return next
-    })
-  }, [])
-
-  // @@@multi-select (#988) - 批量转发：把选中的消息送进 ForwardMessageDialog（onForward 走 handleForwardTo 扇出）。
-  const handleBatchForward = useCallback(() => {
-    const selected = messages.filter((m) => selectedIds.has(m.id))
-    if (selected.length === 0) return
-    setForwardMessages(selected)
-  }, [messages, selectedIds])
-
-  // @@@multi-select (#988) - 批量删除：循环复用单条 deleteMessage（无批量 RPC），与单条删除同语义（不加额外确认）。
-  const handleBatchDelete = useCallback(() => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    for (const id of ids) {
-      deleteMessage(id).catch((err) => {
-        console.error('[ChatAreaPanel] batch deleteMessage failed', id, err)
-      })
-    }
-    exitSelectMode()
-  }, [selectedIds, deleteMessage, exitSelectMode])
-
-  // @@@multi-select (#988) - 切换会话即退出多选 + 清空选中：否则上一个会话的选中集泄露到新会话，
-  // 批量删除会对旧会话的消息 id 调用 deleteMessage（误删非当前会话的消息）、批量转发也会扇出错对象。
-  useEffect(() => {
-    setSelectMode(false)
-    setSelectedIds(new Set())
-  }, [activeChatId])
 
   // Upload + insert each pending attachment as its own attachment-typed message,
   // in order. The realtime subscription picks up the inserts and merges them
@@ -1133,24 +1092,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           与会话列表/通讯录/发现/设置四个列头的 47/52/77 各不相同;现在四处同吃 --pane-header-h,标题坐在同一条基线上。
           @@@822 右侧窗控留白(Windows/Linux 138px、Mac/web 0)不再撑出一套自己的 padding,只加在 PaneHeader 的
           paddingRight 上。@@@1375 owner: header 与正文同色,只用 divider 一条线区分。 */}
-      {blockHost?.actions ? createPortal(headerActions, blockHost.actions) : null}
+      {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={activeChatName} avatar={activeChatAvatar} isAgent={isAgentChat} identitiesById={identitiesById} />}
       {blockTabs}
-      {blockHost?.title ? createPortal(
-        <span className="flex min-w-0 items-center gap-1" data-chat-block-title="">
-          <Avatar
-            name={activeChatName}
-            avatarUrl={activeChatAvatar}
-            seed={activeChat.peer_user_id ?? undefined}
-            isAgent={isAgentChat}
-            variant={isRoomChatSurface ? 'group' : 'default'}
-            memberAvatars={isRoomChatSurface ? activeChat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : []) : undefined}
-            size={16}
-            still
-          />
-          <span className="min-w-0 truncate">{activeChatName}</span>
-        </span>,
-        blockHost.title,
-      ) : null}
       {((!chrome && !blockHost) || searchMode) && <PaneHeader
         divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}

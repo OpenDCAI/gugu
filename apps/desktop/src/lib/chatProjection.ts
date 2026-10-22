@@ -47,15 +47,7 @@ import { readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
 import { chatDb, identityDb } from './supabase'
-import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
-import { composerCardCopy } from './composerCardCopy'
-import { i18n } from '../i18n/runtime'
-
-function composerCardPreviewLine(preview: string): string {
-  const card = composerCardPreview(preview)
-  if (!card) return preview
-  return i18n.t(composerCardCopy[card.type].line, { ns: 'messaging', text: card.text })
-}
+import { composerCardLine } from './composerCardCopy'
 
 const log = rendererLogger('chat/projection')
 
@@ -248,7 +240,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
           created_at: String(row.created_at),
           // 预览在库里算好(messages_view 的计算列 preview:附件给文件名、其它截 100 字),这里原样用;
           // 任务卡截出来是半截 JSON,读回成一行原话(gugu-dev#181,serializeComposerCard 让原话排在前面)。
-          preview: typeof row.preview === 'string' ? composerCardPreviewLine(row.preview) : null,
+          preview: typeof row.preview === 'string' ? composerCardLine(row.preview) : null,
         })
       }
       return indexExact(ids, byChat)
