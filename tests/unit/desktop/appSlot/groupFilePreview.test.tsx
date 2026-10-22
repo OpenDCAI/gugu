@@ -53,6 +53,7 @@ const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visib
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
+  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} })
   boundary.mobile = false
   vi.clearAllMocks()
   boundary.previewContents.clear()
@@ -70,6 +71,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  vi.unstubAllGlobals()
   HTMLElement.prototype.checkVisibility = checkVisibility
   act(() => installedExtensionsStore.applyList({ extensions: [], invalid: [] } as never))
 })
