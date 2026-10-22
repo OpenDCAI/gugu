@@ -1,3 +1,4 @@
+import { computed, reaction, runInAction } from 'mobx';
 import { describe, expect, it } from 'vitest';
 import {
   MachineRegistry,
@@ -93,6 +94,35 @@ describe('machine routing (one workbench seam)', () => {
     const r = registry();
     r.forgetMachine('dev-a');
     expect(r.route('sessions.getSessions', [P])).toBeNull();
+  });
+
+  it('tells a reaction when the machine of an id it read is learned or forgotten (the project list arrives after the screen)', () => {
+    const r = new MachineRegistry();
+    const seen: Array<string | null> = [];
+    const dispose = reaction(() => [r.machineOf(P), r.machineOf(`${C}:pty:1`)].join('|'), (value) => seen.push(value), {
+      fireImmediately: true,
+    });
+    r.register('dev-a', [P]);
+    r.register('dev-a', [P]);
+    r.register('dev-b', [C]);
+    r.register('dev-b', [LOCAL_P]);
+    r.forgetMachine('dev-a');
+    dispose();
+    expect(seen).toEqual(['|', 'dev-a|', 'dev-a|dev-b', '|dev-b']);
+  });
+
+  it('tells a computed first read inside an action, and a whole registration is one change', () => {
+    const r = new MachineRegistry();
+    const machines = computed(() => [r.machineOf(P), r.machineOf(LOCAL_P)].join('|'));
+    const runs: string[] = [];
+    let dispose = () => {};
+    runInAction(() => {
+      expect(machines.get()).toBe('|');
+      dispose = reaction(() => machines.get(), (value) => runs.push(value));
+    });
+    r.register('dev-a', [C, P, LOCAL_P]);
+    dispose();
+    expect(runs).toEqual(['dev-a|dev-a']);
   });
 
   it('renames the fixed task-home id at the machine boundary, both ways', () => {
