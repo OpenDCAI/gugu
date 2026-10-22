@@ -43,7 +43,7 @@ import { deriveAgentRunningState } from '../lib/agentRunningVerb'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { latestRecentAction } from './agentRecentActionModel'
 import { useAgentDisplayStatuses, useAgentRecentActivity } from '../hooks/useAgentDisplayStatus'
-import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'; import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'; import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { composerCardCopy } from '../lib/composerCardCopy'
 import { useMessageFilePreview } from './chat/useMessageFilePreview'
 import { AgentComposerNotices } from './chat/AgentComposerNotices'
 import { useAgentSessionpagePresentation } from './chat/AgentSessionpagePresentation'
@@ -610,7 +610,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     setQuoteText({
       messageId: msg.id,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
-      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : ((card) => card ? t(card.type === 'task' ? 'message.taskCard.line' : 'message.taskCard.scheduleLine', { text: card.text }) : (msg.content ?? ''))(msg.content_type === 'card' ? parseComposerCard(msg.content) : null),
+      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : ((card) => card ? t(composerCardCopy[card.type].line, { text: card.text }) : (msg.content ?? ''))(msg.content_type === 'card' ? parseComposerCard(msg.content) : null),
     })
   }, [identitiesById, t])
 

@@ -182,6 +182,7 @@ import {
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
 import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
+import { withQuestionCard } from './sessionpage/question-card'
 import {
   emdashAgentRegistry,
   type LocalSessionPeer,
@@ -4429,6 +4430,11 @@ app.whenReady().then(async () => {
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
+      // gugu-dev#181 ⑨ 问自群里的那一句,问题卡也进那个群(question-card.ts)。
+      if (record.action === 'ask_user') {
+        const asked = await emdash.runSessionAction(context, record as SessionAction, signal)
+        return withQuestionCard({ auth, caller: await remoteCaller(auth, context), projectId: context.projectId, asked, questions: record.questions })
+      }
       // #7199 第二步:列我的设备与它们的动作 / 调某台设备的某个动作(`device` 是目标,❌ 当成「在那台机器上做」转发)。
       if (record.action === 'device_actions') {
         const device = typeof record.device === 'string' ? record.device : undefined

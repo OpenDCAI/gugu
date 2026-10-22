@@ -18,7 +18,7 @@ import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'
 import { Markdown } from '../markdown/Markdown'; import { chatLinks } from '../markdown/fileLinks'
 import { buildBubbleStyle } from './messageBubbleStyle'
-import { WidgetCard, type Widget } from './WidgetCard'; import { ComposerCardHead, ComposerCardView } from './ComposerCardView'; import { composerCardPreview, parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { APP_SHOW_MESSAGE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
+import { WidgetCard, type Widget } from './WidgetCard'; import { ComposerCardHead, ComposerCardView } from './ComposerCardView'; import { QuestionCardView } from './QuestionCardView'; import { composerCardPreview, parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { APP_SHOW_MESSAGE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
 const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
@@ -533,7 +533,7 @@ export const MessageBubble = memo(function MessageBubble({
                     </div>
                   </div>
                 )}
-                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} /> : msg.content_type === 'widget' ? (() => {
+                {card?.type === 'question' ? <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} /> : card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} /> : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
                   try {

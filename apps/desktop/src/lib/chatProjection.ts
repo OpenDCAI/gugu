@@ -48,12 +48,13 @@ import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
 import { chatDb, identityDb } from './supabase'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
+import { composerCardCopy } from './composerCardCopy'
 import { i18n } from '../i18n/runtime'
 
 function composerCardPreviewLine(preview: string): string {
   const card = composerCardPreview(preview)
   if (!card) return preview
-  return i18n.t(card.type === 'task' ? 'message.taskCard.line' : 'message.taskCard.scheduleLine', { ns: 'messaging', text: card.text })
+  return i18n.t(composerCardCopy[card.type].line, { ns: 'messaging', text: card.text })
 }
 
 const log = rendererLogger('chat/projection')
