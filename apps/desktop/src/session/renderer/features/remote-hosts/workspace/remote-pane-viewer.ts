@@ -6,6 +6,8 @@
 //  · 订阅的寿命就是连接的寿命:断了那台机器当场撤掉,连回来这里重订 —— 断线期间攒下的随订阅应答送到。
 //  · 每一条开完都回话(成功 / 闭集原因),机器据此答 agent —— ❌ 不回,agent 就干等到超时。
 //  · 不看了(关掉会话 / 换一条)= 退订;之后的打开请求由那台机器攒着,下次再看时照开。
+//  · 看着的途中这台电脑有了 / 没了浏览器格(隧道连上、断开):同一条订阅原样再订一遍,那台机器原地换掉 ——
+//    ❌ 退订再订(两拍之间那台机器以为没人看着);攒着的、等浏览器格的请求随这次应答送到。
 import {
   isSessionpagePaneOpenEvent,
   type SessionPaneTabsResult,
@@ -29,7 +31,7 @@ export type RemotePaneViewerDeps = {
   link: PaneLink;
   deviceId: string;
   sessionId: string;
-  /** 这条会话在这台电脑上有没有浏览器格(只有远程 SSH 装上的机器有)。 */
+  /** 这条会话在这台电脑上有没有浏览器格(只有远程 SSH 装上的机器有;开始时的,之后经 setBrowser 跟着变)。 */
   browser: boolean;
   /** 真正在工作区里开这一格(群里的文件要先读出它在哪个群,开没开成晚一拍才知道 —— F112)。 */
   open: (request: SessionpagePaneOpenRequest) => PaneOpenResult | Promise<PaneOpenResult>;
@@ -37,12 +39,19 @@ export type RemotePaneViewerDeps = {
   log?: (message: string, fields: Record<string, unknown>) => void;
 };
 
-/** 开始「看着」;返回停止。 */
-export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
+export type RemotePaneViewer = {
+  /** 这台电脑此刻有没有这条会话的浏览器格;变了就以同一条订阅再订一遍。 */
+  setBrowser(browser: boolean): void;
+  stop(): void;
+};
+
+/** 开始「看着」。 */
+export function startRemotePaneViewer(deps: RemotePaneViewerDeps): RemotePaneViewer {
   const { link, deviceId, sessionId } = deps;
   const log = deps.log ?? (() => undefined);
   const newId = deps.newId ?? (() => crypto.randomUUID());
   let subscriptionId = newId();
+  let browser = deps.browser;
   let stopped = false;
   const handled = new Set<string>();
 
@@ -82,7 +91,7 @@ export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
     const id = subscriptionId;
     void link
       // pages:这台电脑的浏览器格渲染得了那台机器上的 `file:` 网页;external:接得住那台机器上的程序「打开网页」。
-      .invoke(SESSION_HOST_PANE.subscribe, { subscriptionId: id, sessionId, browser: deps.browser, pages: deps.browser, external: true, tabs: true } satisfies SessionHostPaneSubscribe)
+      .invoke(SESSION_HOST_PANE.subscribe, { subscriptionId: id, sessionId, browser, pages: browser, external: true, tabs: true } satisfies SessionHostPaneSubscribe)
       .then((result) => {
         if (stopped) return;
         const pending = (result as { pending?: SessionpagePaneOpenRequest[] } | null)?.pending ?? [];
@@ -101,27 +110,38 @@ export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
   });
   subscribe();
 
-  return () => {
-    if (stopped) return;
-    stopped = true;
-    offEvents();
-    offReconnect();
-    // 订阅应答还没回来也退一次:机器那边若已登记,不退就要等连接断了才拆。
-    void link.invoke(SESSION_HOST_PANE.unsubscribe, subscriptionId).catch(() => undefined);
+  return {
+    setBrowser(next) {
+      if (stopped || next === browser) return;
+      browser = next;
+      subscribe();
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      offEvents();
+      offReconnect();
+      // 订阅应答还没回来也退一次:机器那边若已登记,不退就要等连接断了才拆。
+      void link.invoke(SESSION_HOST_PANE.unsubscribe, subscriptionId).catch(() => undefined);
+    },
   };
 }
 
+export type WantedPaneViewer = { browser: boolean; start: () => RemotePaneViewer };
+
 /**
- * 让在跑的「看着」正好是想要的这些(键 → 开始):新出现的开始,不再要的停,还要的原样留着 ——
+ * 让在跑的「看着」正好是想要的这些:新出现的开始,不再要的停,还要的原样留着(浏览器格变了就地改) ——
  * ❌ 屏上每变一下就全部退订重订(那台机器在两拍之间会以为没人看着,攒着的请求也白绕一圈)。
  */
-export function syncRemotePaneViewers(running: Map<string, () => void>, wanted: ReadonlyMap<string, () => () => void>): void {
-  for (const [key, stop] of running) {
+export function syncRemotePaneViewers(running: Map<string, RemotePaneViewer>, wanted: ReadonlyMap<string, WantedPaneViewer>): void {
+  for (const [key, viewer] of running) {
     if (wanted.has(key)) continue;
-    stop();
+    viewer.stop();
     running.delete(key);
   }
-  for (const [key, start] of wanted) {
-    if (!running.has(key)) running.set(key, start());
+  for (const [key, want] of wanted) {
+    const viewer = running.get(key);
+    if (viewer) viewer.setBrowser(want.browser);
+    else running.set(key, want.start());
   }
 }

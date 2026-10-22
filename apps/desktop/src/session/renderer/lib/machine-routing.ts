@@ -8,6 +8,7 @@
 // 本机专属的命名空间(窗口、内置浏览器、界面布局记忆、SSH 直连 / 端口转发)永不外发;
 // 机器级的调用(那台机器的设置、资源库、模型目录……)由调用点经 `rpcOn(machine)` 指明。
 
+import { createAtom, type IAtom } from 'mobx';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
 
 /** 一次调用里认出的机器:null = 本机。 */
@@ -58,6 +59,13 @@ function looksLikeEntityId(value: unknown): value is string {
 
 export class MachineRegistry {
   private readonly owner = new Map<string, string>();
+  /**
+   * 界面 / reaction 正读着的那几个 id(见 machineOf):它们登记到某台机器、被忘掉时通知读的人。别的机器的项目清单
+   * 常在界面之后才到 —— 冷启动先恢复屏上的块,那台机器的项目后登记 —— 读的那一刻答的是「本机」,不通知就一直错着
+   * (屏上那条别的机器上的会话没人订,那台机器把它当没人看停掉,#92)。只给有人读着的 id 建,❌ 整张表做成 observable:
+   * 这里记着那台机器来的每一个实体 id。
+   */
+  private readonly observed = new Map<string, IAtom>();
 
   /** 每台机器都有、id 写死的实体(见文件末尾的换名);它们本身永不登记。 */
   constructor(readonly fixedIds: readonly string[] = []) {}
@@ -65,13 +73,25 @@ export class MachineRegistry {
   /** 记下这些 id 属于那台机器。 */
   register(deviceId: string, ids: Iterable<string>): void {
     for (const id of ids) {
-      if (looksLikeEntityId(id) && !this.fixedIds.includes(id)) this.owner.set(id, deviceId);
+      if (!looksLikeEntityId(id) || this.fixedIds.includes(id) || this.owner.get(id) === deviceId) continue;
+      this.owner.set(id, deviceId);
+      this.observed.get(id)?.reportChanged();
     }
   }
 
   /** 那台机器被移除 / 换了账号:忘掉它的 id。 */
   forgetMachine(deviceId: string): void {
-    for (const [id, owner] of this.owner) if (owner === deviceId) this.owner.delete(id);
+    for (const [id, owner] of this.owner) {
+      if (owner !== deviceId) continue;
+      this.owner.delete(id);
+      this.observed.get(id)?.reportChanged();
+    }
+  }
+
+  /** 在 reaction / observer 里读这个 id 的机器:记下谁在读,它变了就通知(读的人走了,MobX 回调把它拿掉)。 */
+  private track(id: string): void {
+    const atom = this.observed.get(id) ?? createAtom(`machine-of ${id}`, undefined, () => this.observed.delete(id));
+    if (atom.reportObserved()) this.observed.set(id, atom);
   }
 
   /** 从那台机器来的一份数据(应答 / 推送 / 发过去的参数):把里面的实体 id 记到它名下。 */
@@ -85,11 +105,14 @@ export class MachineRegistry {
   machineOf(id: string): RoutedMachine {
     const aliased = machineOfAlias(id, this.fixedIds);
     if (aliased) return aliased;
+    this.track(id);
     const direct = this.owner.get(id);
     if (direct) return direct;
     const colon = id.indexOf(':');
-    if (colon > 0) return this.owner.get(id.slice(0, colon)) ?? null;
-    return null;
+    if (colon <= 0) return null;
+    const prefix = id.slice(0, colon);
+    this.track(prefix);
+    return this.owner.get(prefix) ?? null;
   }
 
   /** 这次调用该走哪台机器。 */

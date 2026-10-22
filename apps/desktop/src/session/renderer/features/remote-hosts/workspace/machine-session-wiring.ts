@@ -26,7 +26,14 @@ import { remotePortDetectedChannel } from '@shared/remote-ports';
 import { remoteHostsStore } from '../remote-hosts-store';
 import { createMachinePortScanner } from './machine-port-scanner';
 import { openExternalFromMachine } from './remote-open-external';
-import { startRemotePaneViewer, syncRemotePaneViewers, type PaneLink, type PaneOpenResult } from './remote-pane-viewer';
+import {
+  startRemotePaneViewer,
+  syncRemotePaneViewers,
+  type PaneLink,
+  type PaneOpenResult,
+  type RemotePaneViewer,
+  type WantedPaneViewer,
+} from './remote-pane-viewer';
 import { remoteLoopbackPort, remoteWorkspaceTools } from './remote-workspace-routing';
 
 type ViewedMachineSession = { deviceId: string; projectId: string; sessionId: string };
@@ -139,25 +146,29 @@ export function ensureMachineSessionWiring(): void {
 
   // 看着 = 屏上每一条别的机器上的会话都订上它的 open_in_tab(一个任务一条会话);离开屏幕 = 退订。
   // 那台机器的闲置回收据此判「有人看着」(remote-pane watching)。
-  const viewers = new Map<string, () => void>();
+  // 浏览器格读在这里(跟着那台机器的直连变),订着的就地改,❌ 只在开始订的那一刻取一次。
+  const viewers = new Map<string, RemotePaneViewer>();
   reaction(
     () =>
-      machineSessionsOnScreen().flatMap((page) =>
-        [...(sessionRegistry.get(page.sessionId)?.sessions.keys() ?? [])].sort().map((sessionId) => ({ page, sessionId }))
-      ),
+      machineSessionsOnScreen().flatMap((page) => {
+        const browser = hasBrowser(page.deviceId);
+        return [...(sessionRegistry.get(page.sessionId)?.sessions.keys() ?? [])].sort().map((sessionId) => ({ page, sessionId, browser }));
+      }),
     (watched) => {
-      const wanted = new Map<string, () => () => void>();
-      for (const { page, sessionId } of watched) {
-        wanted.set(`${page.deviceId}\n${page.projectId}\n${page.sessionId}\n${sessionId}`, () =>
-          startRemotePaneViewer({
-            link: paneLink(page.deviceId),
-            deviceId: page.deviceId,
-            sessionId,
-            browser: hasBrowser(page.deviceId),
-            open: (request) => openRequested(page, request),
-            log: (message, fields) => log.warn(`[machine-pane] ${message}`, fields),
-          })
-        );
+      const wanted = new Map<string, WantedPaneViewer>();
+      for (const { page, sessionId, browser } of watched) {
+        wanted.set(`${page.deviceId}\n${page.projectId}\n${page.sessionId}\n${sessionId}`, {
+          browser,
+          start: () =>
+            startRemotePaneViewer({
+              link: paneLink(page.deviceId),
+              deviceId: page.deviceId,
+              sessionId,
+              browser,
+              open: (request) => openRequested(page, request),
+              log: (message, fields) => log.warn(`[machine-pane] ${message}`, fields),
+            }),
+        });
       }
       syncRemotePaneViewers(viewers, wanted);
     },
