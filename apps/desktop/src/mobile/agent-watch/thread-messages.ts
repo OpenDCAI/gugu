@@ -1,4 +1,5 @@
 import type { ThreadMessageLike } from '@assistant-ui/react'
+import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker'
 import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type TranscriptItem, type TranscriptTurn } from '@gugu/session-core/acp/client'
 import { pendingTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
@@ -274,7 +275,8 @@ export function toThreadMessages(
             continue
           }
           if (item.kind === 'message') {
-            if (item.text) assistantParts.push({ type: 'text', text: item.text })
+            // `[NO_REPLY]` 是 agent 的「不回」,桌面不画它(unit-registry),手机也不画(#70 review)。
+            if (item.text && !isGuguSilence(item.text)) assistantParts.push({ type: 'text', text: item.text })
             continue
           }
           if (item.kind === THINKING_DATA_PART) {

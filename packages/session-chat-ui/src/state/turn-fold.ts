@@ -102,6 +102,11 @@ export type TurnFoldPlan = {
   leading: ChatItem[];
   /** 段:一轮至少一段;钩子每把一轮劈开一次就多一段(#5350,判据见 `planTurnFold`)。 */
   segments: TurnFoldSegment[];
+  /**
+   * agent 在这一轮里自己说过一句有字的话(段的收尾里有一条不空的回复)。钩子的话、提问、`[NO_REPLY]`、
+   * 空白都不算。agent 自己开头的一轮折不折看它(#69)—— ❌ 别从尾巴的形状再推一遍。
+   */
+  spoke: boolean;
 };
 
 /**
@@ -239,7 +244,10 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
   const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   if (visible.every((segment) => segment.process.length === 0)) return null;
-  return { leading: items.slice(0, leadEnd), segments: visible };
+  const spoke = [...cuts.map((cut) => cut.reply), lastReply].some(
+    (i) => i !== -1 && ((items[i] as ChatMessage).text ?? '').trim().length > 0
+  );
+  return { leading: items.slice(0, leadEnd), segments: visible, spoke };
 }
 
 /**
@@ -363,6 +371,13 @@ export function planTurnFoldRuns(
         absorbed[i] = true;
         continue;
       }
+      // agent 自己开头、一句话没说的一轮(只有完成通知、`[NO_REPLY]`)不折,也不当锚(#69):折起来外面
+      // 只剩一个空头;当锚的话,下一次被叫醒的那一轮会并进来,头上的用时就把两次之间的空闲也算进去了。
+      if (fold.leading.length === 0 && turn.initiator !== 'user' && !fold.spoke) {
+        foldPlans[i] = null;
+        anchor = -1;
+        continue;
+      }
       anchor = i;
       foldRuns.set(i, {
         segments: copySegments(fold.segments),
@@ -373,6 +388,30 @@ export function planTurnFoldRuns(
     }
   }
   return { folds: foldPlans, runs: foldRuns, absorbed };
+}
+
+/**
+ * 一轮一轮往后追加时,`turns[index]` 会不会并进它前面那条还没收尾的折叠(上面的合并)。会的话,只 flatten
+ * 新来的那几轮画不出这次合并 —— 调用方得整条重建;不然要等下次整条重建(切 tab、重进)那几行才跳进头里,
+ * 「在聊天里找」(整条一次 flatten)打开的头也和画出来的对不上(#70 review)。
+ */
+export function joinsFoldRunAt(turns: readonly TranscriptTurn[], index: number, enabled: boolean): boolean {
+  const first = turns[index];
+  if (!enabled || !first || index === 0) return false;
+  const opens = (turn: TranscriptTurn) => {
+    const head = (turn.items as readonly ChatItem[])[0];
+    return head !== undefined && itemIsUser(head);
+  };
+  // 带人话开头的一轮不会并进别人(并进来要求没有开场白),它自己起一条 —— 往回找到最近的那一轮就够了。
+  if (opens(first)) return false;
+  let start = index - 1;
+  while (start > 0 && !opens(turns[start] as TranscriptTurn)) start--;
+  let prevDayKey: string | undefined;
+  for (let i = start - 1; i >= 0 && prevDayKey === undefined; i--) {
+    const startedAt = turns[i]?.startedAt;
+    if (startedAt !== undefined) prevDayKey = localDayKey(startedAt);
+  }
+  return planTurnFoldRuns(turns.slice(start, index + 1), prevDayKey, true).absorbed[index - start] === true;
 }
 
 /** 一段过程的时间头:和桌面 `turn-process` 行同一组事实。 */
@@ -418,14 +457,17 @@ export function turnFoldView(
 ): { leading: ChatItem[]; segments: { process: ChatItem[]; tail: ChatItem[]; header: TurnProcessHeader | null }[] } {
   // 这一条覆盖的全部过程行与最终的尾巴 —— 可能来自不止一个回合(见 `planTurnFoldRuns`)。
   const merged = run ?? { segments: copySegments(fold.segments), turnCount: 1, endedAt: turn.endedAt };
-  // 时间头只给**人问的那一轮**(含并进来的后续 cycle):「整体可以有个时间」说的是
-  // 回答这一问花了多久。agent 自发的一轮(完成通知、后续 cycle)没有头,平铺,
-  // 语义折叠就是它的折叠(「这就已经算折叠了」)。
+  // 人问的那一轮(含并进来的后续 cycle)有时间头。agent 自己开头的一轮(后台命令跑完、完成通知把它
+  // 叫醒)跑完了同样折、只留最后一句话(#69,owner 2026-10-22,推翻 09-06「自发轮平铺,语义折叠就是它的
+  // 折叠」:读的人分不出哪段是谁开的头,跑完了还摊着过程,看着就是同一问没折)。
+  // 一句话没说的那种在 `planTurnFoldRuns` 里就不折了。跑着的时候不套头:它会不会开口还不知道,
+  // 先给头、跑完一句没说再撤掉,那一行就白跳一下 —— 跑完再折,正是「跑完了就折起来」。
   const userRun = fold.leading.length > 0 || turn.initiator === 'user';
+  const headed = userRun || (!active && fold.spoke);
   return {
     leading: fold.leading,
     segments: merged.segments.map((segment, segIndex) => {
-      if (!userRun) return { process: segment.process, tail: segment.tail, header: null };
+      if (!headed) return { process: segment.process, tail: segment.tail, header: null };
       // 时间头(owner 2026-09-06:「时间头本身算是过程的折叠,只不过是运行完成后,
       // 时间头是对过程的折叠」):跑着「已处理 16s」在数、内容摊开;跑完写总时长、把过程收起来。
       // 跑着的只有**最后一段** —— 前面那些已经被钩子封口了(#5350),所以按段判,不按轮判。
