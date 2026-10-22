@@ -577,6 +577,7 @@ async function startSpawnedSession(input: {
           ...(input.session.initialMessageId
             ? { initialMessageId: input.session.initialMessageId }
             : {}),
+          ...(input.session.taskChatId ? { taskChatId: input.session.taskChatId } : {}),
           model: input.session.model ?? null,
           permissionMode: resolveSessionPermissionMode(input.session),
         },

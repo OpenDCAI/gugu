@@ -673,6 +673,20 @@ export default {
       "failedHint": "未送达，点击重试或丢弃",
       "sending": "发送中"
     },
+    "showQuoted": "跳到被引用的消息",
+    "taskCard": {
+      "task": "新任务",
+      "schedule": "已安排",
+      "handedTo": "交给",
+      "inProject": "在 {{project}}",
+      "onMachine": "在 {{machine}} 上",
+      "onColleagueComputer": "在 {{name}} 的电脑上",
+      "awaitingApproval": "等群主同意它进群",
+      "rejected": "群主没有同意它进群，结果在它的会话里",
+      "open": "打开这个会话",
+      "line": "新任务：{{text}}",
+      "scheduleLine": "已安排：{{text}}"
+    },
     "unread": "未读",
     "aiSent": "AI 发送",
     "agentSentForYou": "由 {{agent}} 代你发送",

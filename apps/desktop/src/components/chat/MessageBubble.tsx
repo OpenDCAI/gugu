@@ -18,7 +18,7 @@ import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'
 import { Markdown } from '../markdown/Markdown'; import { chatLinks } from '../markdown/fileLinks'
 import { buildBubbleStyle } from './messageBubbleStyle'
-import { WidgetCard, type Widget } from './WidgetCard'
+import { WidgetCard, type Widget } from './WidgetCard'; import { ComposerCardView } from './ComposerCardView'; import { composerCardPreview, parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { APP_SHOW_MESSAGE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
 const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
@@ -327,7 +327,7 @@ export const MessageBubble = memo(function MessageBubble({
   // @@@2017 owner 终版 — 路由真源 → 高亮名单(backedNames)+ 兜底徽标名单(fallbackLabels),单重显示(见 hook)。
   const mentionRender = useMentionRender(msg, isGroup, memberProfiles)
 
-  const bubbleStyle = buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
+  const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null; const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile) // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
@@ -515,7 +515,7 @@ export const MessageBubble = memo(function MessageBubble({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
                 {msg.reply_to_message_id && (
-                  <div style={{
+                  <div role="button" title={t('message.showQuoted')} onClick={(event) => { event.stopPropagation(); window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail: { chatId: msg.chat_id, messageId: msg.reply_to_message_id } })) }} style={{ cursor: 'pointer',
                     display: 'inline-block',
                     overflow: 'hidden',
                     borderLeft: `3px solid ${msg.is_mine ? 'var(--bubble-quote-bar-mine)' : 'var(--bubble-quote-bar-other)'}`,
@@ -526,11 +526,11 @@ export const MessageBubble = memo(function MessageBubble({
                       {resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
                     </div>
                     <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {msg.reply_to_content ?? ''}
+                      {((quoted) => quoted ? t(quoted.type === 'task' ? 'message.taskCard.line' : 'message.taskCard.scheduleLine', { text: quoted.text }) : msg.reply_to_content ?? '')(composerCardPreview(msg.reply_to_content))}
                     </div>
                   </div>
                 )}
-                {msg.content_type === 'widget' ? (() => {
+                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} sentAt={msg.created_at} /> : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
                   try {

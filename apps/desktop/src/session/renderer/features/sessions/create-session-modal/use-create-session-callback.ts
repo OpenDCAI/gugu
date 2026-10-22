@@ -50,6 +50,12 @@ interface UseCreateSessionCallbackParams {
   creationSurface?: SessionCreationSurface;
   /** 建出来的 agent 一出生就进这个群(CreateSessionParams.birthChatId)。 */
   birthChatId?: string;
+  /**
+   * gugu-dev#181 派任务:这一轮由哪个对话的输入框派出。首句由宿主落成那里的一张任务卡(task-card-first-turn.ts),
+   * 结果回那里;建完人留在原处,会话放哪由 onCreated 决定(❌ 跳去会话页)。只对会话页那一面成立:
+   * 首句是 spawn 的启动载荷,附件是会话内的路径 mention。
+   */
+  taskChatId?: string;
   /** #6264 建任务之前先做的一步(别的机器上还没装所选的家:先在那台机器上装好)。失败 = 不建,原因说出来。 */
   beforeCreate?: () => Promise<void>;
 }
@@ -76,6 +82,7 @@ export function useCreateSessionCallback({
   onCreated,
   creationSurface = 'session-page',
   birthChatId,
+  taskChatId,
   beforeCreate,
 }: UseCreateSessionCallbackParams): {
   handleCreateSession: () => void;
@@ -248,7 +255,11 @@ export function useCreateSessionCallback({
       firstTurnTransport === 'startup' && creationSurface === 'chat-page' && !text
         ? 'router'
         : firstTurnTransport;
-    const initialMessageId = transport === 'startup' && creationSurface === 'chat-page'
+    if (taskChatId && creationSurface !== 'session-page') {
+      throw new Error('a dispatched task is created on the session-page surface (its first turn is the startup payload)');
+    }
+    // 派出去的任务首句同样是一条真的咕咕消息(那张卡),要稳定 id;没有首句可交(纯附件)就没有卡。
+    const initialMessageId = transport === 'startup' && (creationSurface === 'chat-page' || (taskChatId && text))
       ? crypto.randomUUID()
       : undefined;
     // tripwire 必须在 createSession **之前**响,理由见 strayChatAttachmentError 的注释。
@@ -263,6 +274,7 @@ export function useCreateSessionCallback({
                 ...baseSession,
                 startupOrigin,
                 initialMessageId,
+                ...(taskChatId && initialMessageId ? { taskChatId } : {}),
                 initialQueue: text
                   ? [{
                       text,
@@ -273,7 +285,13 @@ export function useCreateSessionCallback({
                     }]
                   : undefined,
               }
-            : { ...baseSession, startupOrigin, initialMessageId, initialPrompt: text || undefined };
+            : {
+                ...baseSession,
+                startupOrigin,
+                initialMessageId,
+                ...(taskChatId && initialMessageId ? { taskChatId } : {}),
+                initialPrompt: text || undefined,
+              };
         })()
       : baseSession;
     const session = startupSession;
@@ -351,7 +369,7 @@ export function useCreateSessionCallback({
         pendingMessageRef.current = null;
       }
       onCreated?.({ projectId: selectedProjectId, sessionId });
-      navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
+      if (!taskChatId) navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
       onClose();
     }).catch((error) => {
       // @@@5173 已知的建任务失败带着领域语义过来 ⇒ 成句在这里发生,给用户看的是产品文案。
@@ -374,6 +392,7 @@ export function useCreateSessionCallback({
     messageTransportError,
     beforeCreate,
     birthChatId,
+    taskChatId,
     state,
     initialSession,
     firstTurnTransport,

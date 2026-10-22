@@ -323,6 +323,8 @@ export const ProjectHome = observer(function ProjectHome({ projectId }: { projec
               // 选了别的机器上的文件夹 = 换了创建目标(那台机器上的本地项目):同样整棵重挂;草稿按这一页暂存,跟着走。
               key={targetProjectId}
               draftKey={projectDraftKey(projectId)}
+              // gugu-dev#181 在项目里派任务:首句落成项目群里的一张任务卡,发完人留在项目块里(点卡把会话拼到右边)。
+              taskChatId={projectGroupsStore.chatIdOf(targetProjectId)}
               placeholder={translate('projects.home.hero', { projectName: displayName })}
               workspaceId={scopedFolders.chosen?.workspaceId ?? null}
               {...machineComposerProps(machineContext, { projectId: targetProjectId, isContextPending: scopedFolders.folders === null, blockReason: scopedFolders.folders?.length === 0 ? translate('projects.folders.scopeUnavailable') : null })}

@@ -181,6 +181,7 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
 import {
   emdashAgentRegistry,
   type LocalSessionPeer,
@@ -4734,13 +4735,34 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
-    }): Promise<{ chatId: string; envelope: string }> => {
+      /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
+      taskChatId?: string
+      projectId: string
+    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
       }
       const auth = await getSessionpageAuth()
       if (!auth) throw new Error('chat-page startup envelope: owner not authenticated')
+      if (input.taskChatId) {
+        const deviceId = await localDeviceId()
+        if (!deviceId) throw new Error(`task card for ${input.sessionId}: this device is not registered yet`)
+        return landTaskCardFirstTurn({
+          auth,
+          sessionId: input.sessionId,
+          projectId: input.projectId,
+          agentUserId: input.guguAgentUserId,
+          chatId: input.taskChatId,
+          messageId: input.messageId,
+          text: content,
+          deviceId,
+          machineLabel: deviceLabelOption.label?.() ?? hostname(),
+          senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+          timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+          env: process.env,
+        })
+      }
       const chatId = input.knownChatId || await openOwnerDirectChatForAgent(
         input.guguAgentUserId,
         auth.accessToken,
@@ -4779,7 +4801,7 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, envelope }
+      return { chatId, firstTurn: envelope, envelope: true }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
@@ -5065,7 +5087,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' }> | undefined
+      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5080,7 +5102,8 @@ app.whenReady().then(async () => {
       // 这一腿上两种不一致仍响亮失败:载荷在而稳定 id 缺(没有 id 就写不出那条幂等的聊天行);
       // 行上 sessionId 为空(首次 spawn / 重来)却没带载荷 —— 那是载荷没跟上会话行,❌ 不许静默开一条
       // 空会话冒充首轮(重来路径的载荷失联本身归 session-resume 那条票,这里只保证它响亮)。
-      const chatPageFirstTurnText = info.startupOrigin === 'chat-page' && info.lifecycle === 'fresh'
+      // gugu-dev#181:派出去的任务(taskChatId)与对话页同形 —— 首句是一条真的咕咕消息(那张任务卡)。
+      const chatPageFirstTurnText = (info.startupOrigin === 'chat-page' || info.taskChatId) && info.lifecycle === 'fresh'
         ? info.initialMessageText?.trim()
         : undefined
       // ⚠️ 闸的条件是「**承诺过**一份首句载荷却没交出来」,不是「来自聊天页」。承诺的凭据是
@@ -5113,9 +5136,11 @@ app.whenReady().then(async () => {
           knownChatId: provisionedChatId,
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
+          taskChatId: info.taskChatId,
+          projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.envelope, origin: 'communication' }]
+        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5495,8 +5520,10 @@ app.whenReady().then(async () => {
         knownChatId: provisioned.chatId,
         messageId: request.messageId,
         text: request.text,
+        taskChatId: request.taskChatId,
+        projectId: request.projectId,
       })
-      return delivered.envelope
+      return delivered.firstTurn
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an

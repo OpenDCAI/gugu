@@ -673,6 +673,20 @@ export default {
       "failedHint": "Not delivered. Click to retry or discard.",
       "sending": "Sending"
     },
+    "showQuoted": "Go to the quoted message",
+    "taskCard": {
+      "task": "New task",
+      "schedule": "Scheduled",
+      "handedTo": "Assigned to",
+      "inProject": "in {{project}}",
+      "onMachine": "on {{machine}}",
+      "onColleagueComputer": "on {{name}}’s computer",
+      "awaitingApproval": "Waiting for the group owner to let it in",
+      "rejected": "Not let into the group; its result is in its session",
+      "open": "Open this session",
+      "line": "New task: {{text}}",
+      "scheduleLine": "Scheduled: {{text}}"
+    },
     "unread": "Unread",
     "aiSent": "AI sent",
     "agentSentForYou": "Sent for you by {{agent}}",

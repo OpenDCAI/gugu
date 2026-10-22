@@ -126,6 +126,7 @@ export async function prepareCreateSession(
     initialQueue: ic.initialQueue,
     startupOrigin: ic.startupOrigin,
     initialMessageId: ic.initialMessageId,
+    taskChatId: ic.taskChatId,
     // 首启由 hydrateSession 做(工作区要先 provision 完),所以这一行落库时**不**认领
     // session_id —— 那把尺子留给 hydrate 用。
     claimsFirstSpawn: false,
