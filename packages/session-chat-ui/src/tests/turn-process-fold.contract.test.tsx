@@ -345,7 +345,7 @@ describe('#4981 #12 活动层的过程也折', () => {
       expect(h!.textContent).not.toMatch(/steps/);
       // 微光只在跑着的时候上身：`CollapseHeader` 把 textShimmer 挂在标签那个 span 上。
       const label = h!.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
-      expect(getComputedStyle(label).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+      expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       // 高度契约与静息态同源：同一个 def、同一个 measure()。
       const caches = createChatCaches();
       const mctx: MeasureCtx = {
@@ -385,7 +385,7 @@ describe('#4981 #12 活动层的过程也折', () => {
       const settledLabel = settledHeader!.querySelector(
         '[data-slot="collapse-header"] > span'
       ) as HTMLElement;
-      expect(getComputedStyle(settledLabel).webkitTextFillColor).not.toBe('rgba(0, 0, 0, 0)');
+      expect(settledLabel.querySelector('[data-shimmer-text]')).toBeNull();
     } finally {
       view.dispose();
       ctx.dispose();
@@ -430,7 +430,7 @@ describe('一轮开始了、还什么都没有:时间头已经在数秒', () => 
       expect(h.dataset.turnId).toBe(ONLY_PROMPT.id);
       expect(h.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
       const label = h.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
-      expect(getComputedStyle(label).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+      expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       const mctx: MeasureCtx = { theme: ctx.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches: createChatCaches(), expandedId: null };
       const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true, startedAt: STARTED_AT };
       expect(h.offsetHeight).toBe(turnProcessUnitDef.measure(item, mctx, turnProcessUnitDef.vars!));

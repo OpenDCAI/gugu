@@ -33,6 +33,7 @@ import './i18n/registerAgentsCatalog'
 import './i18n/registerAssistantCatalog'
 import './styles/sora.css'
 import './styles/tokens.css'
+import '@gugu/session-shared/animation-visibility.css'
 import { installPerfCounterResponder } from './lib/perfCounterResponder'
 
 installPerfCounterResponder(window.electronAPI)

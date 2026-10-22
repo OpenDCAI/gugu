@@ -1,7 +1,6 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { collapsibleRow } from '@session-chat/components/primitives/collapse-header.css';
 import { MEASURED_SCROLLBAR_GUTTER_X } from '@session-chat/core/measure/soft-wrap';
-import { textShimmer } from '@session-chat/styles/effects.css';
 import { sx } from '@session-chat/styles/sprinkles.css';
 import { vars } from '@session-chat/styles/theme.css';
 import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
@@ -228,5 +227,3 @@ export const toolPayloadResult = style({ color: vars.fg });
 // that shows up uninvited, which is exactly why it is the one that gets to be
 // the loudest thing in the row.
 export const toolPayloadError = style({ color: vars.fgError });
-
-export { textShimmer };

@@ -122,6 +122,20 @@ it('switches Codex by moving credentials through the user root, keeping rotated 
   expect(await sessionHarnessConnectionId('deleted')).toBeUndefined();
 });
 
+it('can always switch back to the native Codex sign-in, even when the same account was also added as a connection', async () => {
+  await writeAuthAt(state.codexRoot, chatgptAuth('original'));
+  const same = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
+  await writeAuthAt(vault(same.id), chatgptAuth('original', 'r-same'));
+  const other = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
+  await writeAuthAt(vault(other.id), chatgptAuth('other'));
+  await selectHarnessConnection('codex', same.id);
+  await selectHarnessConnection('codex', 'native');
+  await selectHarnessConnection('codex', other.id);
+  expect(await readFile(join(state.codexRoot, 'auth.json'), 'utf8')).toBe(chatgptAuth('other'));
+  await selectHarnessConnection('codex', 'native');
+  expect(JSON.parse(await readFile(join(state.codexRoot, 'auth.json'), 'utf8')).tokens.id_token).toBe(JSON.parse(chatgptAuth('original')).tokens.id_token);
+});
+
 it('keeps a copy of an unrecognized sign-in and refuses keychain-backed Codex credentials', async () => {
   await writeAuthAt(state.codexRoot, chatgptAuth('original'));
   const work = await createHarnessConnection({ providerId: 'codex', kind: 'account' });

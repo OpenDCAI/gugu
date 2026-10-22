@@ -24,8 +24,7 @@
  * ⚠️ baseUrl 指向**立即拒连**的回环端口,❌ 不指向真中转:万一哪家 harness 真去打一下,
  *    我们要的是当场 ECONNREFUSED,而不是拿一个无效令牌去生产中转上刷 401。
  *
- * ⚠️ 第二遍失败是**安全**的:某家若在 `session/new` 就校验凭据有效性,它照旧回 auth-required
- *    —— 与改动前一模一样,不会更糟。调用方(probeHarnessModelCatalog)退回第一遍结论。
+ * 若 `session/new` 校验凭据有效性并返回 auth-required,仍保持未登录;网络、协议等真实失败照实返回。
  *
  * ## 凭据走哪条载体,与真会话同一个分派
  *
@@ -62,10 +61,12 @@ import {
   codexPlatformAuthRequest,
   codexPlatformProviderBlock,
   CODEX_PLATFORM_PROVIDER_ID,
+  materializePiModelConfig,
 } from '@gugu/session-plugins/agents'
 import { platformEnvelopeKind } from './platform-envelope'
 import { claudeAcpAdapterEnv } from './sessionpage/sessionpage-platform-hooks'
 import { codexPlatformInjection } from './sessionpage/sessionpage-platform-model'
+import { applySessionMaterialization } from './session-materialization'
 
 /** 立即拒连的回环地址 —— 端口 1 上不会有任何东西在听。这是中转**根**;各方言自己的形状由协议表决定。 */
 export const PROBE_RELAY_ROOT = 'http://127.0.0.1:1'
@@ -110,9 +111,7 @@ export async function buildProbePlatformCredentials(
   // 模型由这一家自己的会话包投递的那几家,真会话是在能力注入那一层解析平台额度、再让信封注入器整个跳过
   // (main.ts 的 `platformConfigured`)。探针照同一条路:
   //  · 进程配置那族(opencode / mimocode):配置文档本身就在物化出的 spawnEnv 里(`OPENCODE_CONFIG_CONTENT`);
-  //  · 配置文件那族:文档由会话包物化器写,探针不物化它。方言自己有环境变量形态的(codebuddy:它那份
-  //    `--settings` 文档本身就是一个 `env` 块,物化器写进文档的正是 `load()` 给的这一份)⇒ 占位凭据照这份
-  //    形态进探针进程;没有的(pi 的 models.json)⇒ 抛,说清楚。
+  //  · 配置文件那族:Pi 的 models/settings 与真会话同源,只写探针 scratch;CodeBuddy 的 env 块照原载体。
   if (providerUsesSessionProcessConfig(pluginId)) {
     if (Object.keys(spawnEnv).length === 0) {
       throw probeCredentialsFault(pluginId, 'its process-config dialect materialized no spawn environment')
@@ -120,6 +119,14 @@ export async function buildProbePlatformCredentials(
     return { env: spawnEnv }
   }
   if (providerDeliversModelViaConfigFile(pluginId, 'acp')) {
+    if (capability?.dialect === 'pi-models-json') {
+      const config = materializePiModelConfig('acp', {
+        model: capability,
+        env: { GUGU_HOME: scratchDir },
+      })
+      await applySessionMaterialization({ cwd: scratchDir, guguHome: scratchDir, materialization: config })
+      return { env: { ...config.env } }
+    }
     if (Object.keys(spawnEnv).length === 0) {
       throw probeCredentialsFault(pluginId, 'its model is delivered by a session-bundle config file the probe does not materialize')
     }

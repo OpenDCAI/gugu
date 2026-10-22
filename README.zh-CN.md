@@ -11,11 +11,11 @@
 需要 Git、`.node-version` 指定的 Node、`package.json` 指定的 pnpm，以及自己账号下的专用 Supabase 项目。模型使用自己的 Claude 账号或 API；官方模型和官方云托管均为可选。
 
 1. 获取社区基础后端 [gugu-supabase](https://github.com/OpenDCAI/gugu-supabase)，按其 README 初始化新的专用 Supabase 项目。
-2. 在后端运行 `pnpm setup --client-dir /path/to/gugu`，将公共连接信息写入本仓 `.envs/local.env`。授权令牌只在本机环境配置。
-3. 在本仓运行 `pnpm install --frozen-lockfile`，然后 `GUGU_DB_TARGET=local bash scripts/dev-app.sh`。
+2. 在后端运行 `pnpm run setup --client-dir /path/to/gugu`（直接写 `pnpm setup` 会调用 pnpm 自带命令），将公共连接信息写入本仓 `.envs/local.env`。授权令牌只在本机环境配置。
+3. 在本仓运行 `pnpm install --frozen-lockfile` 和 `pnpm rebuild:native`，然后 `GUGU_DB_TARGET=local bash scripts/dev-app.sh`。
 4. 用自己的邮箱登录，在设置的订阅页面配置自己的 Claude 账号或 API，再创建本地助理。
 
-SMTP 和 Supabase 项目管理由安装者自行配置。附件使用自己的 Supabase Storage；协同文件编辑另需运行后端仓 `services/files` 的 Node 服务。详见 [可选官方服务](docs/optional-cloud-services.md) 和 [贡献指南](CONTRIBUTING.zh-CN.md)。
+登录靠邮件验证码，需要配置自己的 SMTP；SMTP、Supabase 免费版限制和排错见后端的[自部署指南](https://github.com/OpenDCAI/gugu-supabase/blob/dev/docs/self-hosting.md)（英文）。附件使用自己的 Supabase Storage；协同文件编辑另需运行后端仓 `services/files` 的 Node 服务。详见 [可选官方服务](docs/optional-cloud-services.md) 和 [贡献指南](CONTRIBUTING.zh-CN.md)。
 
 ## 仓库
 

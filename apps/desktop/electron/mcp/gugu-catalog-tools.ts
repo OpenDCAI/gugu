@@ -76,14 +76,30 @@ export function unlistedTools(server: McpServer): CatalogTool[] {
     .map(([name, tool]) => ({
       ...(advertisedTool(name, tool) as Pick<Tool, 'name' | 'description' | 'inputSchema'> & { description: string }),
       run: async (args, extra) => {
-        const parsed = await (tool.inputSchema as z.ZodType).safeParseAsync(args)
+        const schema = tool.inputSchema as z.ZodType
+        const parsed = await schema.safeParseAsync(args)
         if (!parsed.success) {
-          const detail = parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')
+          const detail = parsed.error.issues.map((issue) =>
+            selfNamedArgumentHint(args, issue.path) ?? `${issue.path.join('.') || '(root)'}: ${issue.message}`,
+          ).join('; ')
           return { content: [{ type: 'text', text: `Input validation error: Invalid arguments for tool ${name}: ${detail}` }], isError: true }
         }
         return (tool.handler as (args: unknown, extra: Extra) => Promise<CallToolResult>)(parsed.data, extra)
       },
     }))
+}
+
+/** #7509:只解释校验失败的同名标量包装,不改参数、不重试。合法的对象参数照常通过。 */
+function selfNamedArgumentHint(args: unknown, path: PropertyKey[]): string | null {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return null
+  const key = path[0]
+  if (path.length !== 1 || typeof key !== 'string') return null
+  const value = (args as Record<string, unknown>)[key]
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const inner = value as Record<string, unknown>
+  if (Object.keys(inner).length !== 1 || !Object.hasOwn(inner, key)) return null
+  if (inner[key] !== null && typeof inner[key] === 'object') return null
+  return `${key} 多套了一层同名对象：应写成 ${JSON.stringify({ [key]: inner[key] })}，不要写 ${JSON.stringify({ [key]: value })}`
 }
 
 /**
