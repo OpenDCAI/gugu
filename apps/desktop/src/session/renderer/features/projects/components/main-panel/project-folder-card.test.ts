@@ -25,7 +25,8 @@ vi.mock('@renderer/lib/chat/sender-avatar', () => ({
   senderAvatarUrl: (fromId: string) => `avatar:${fromId}`,
   subscribeSenderAvatars: () => () => {},
 }));
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     // 按通道分开:「文件夹变了」只重读那个项目的,「项目群绑定变了」一律重读 —— 混在一起就分不出前者有没有挑项目。
     on: (channel: { name: string }, cb: (data: { projectId: string }) => void) => {
@@ -41,7 +42,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       detachProjectFolder: (...args: unknown[]) => mocks.detach(...args),
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 const folder = (workspaceId: string, kind: ProjectFolder['kind'], path: string, sessionIds: string[] = [], projectId = 'p1'): ProjectFolder => ({
   workspaceId,

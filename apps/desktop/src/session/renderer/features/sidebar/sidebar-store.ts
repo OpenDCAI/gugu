@@ -20,7 +20,8 @@ import {
   machineHomeLayout,
   type MachineHomeLayout,
 } from '@renderer/features/remote-hosts/machine-home';
-import { events } from '@renderer/lib/ipc';
+import { events, onMachineEvent } from '@renderer/lib/ipc';
+import { onEachMachine } from '@renderer/lib/machine-clients';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
@@ -229,14 +230,17 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
     // A new nested session must be visible immediately. This event-only update preserves restored
     // disclosure preferences during the initial list while reopening the direct parent on spawn.
-    events.on(sessionCreatedChannel, ({ session }) => {
+    // 本机的与每台连着的机器上的(别的机器上的会话也会派生子会话)。
+    const expandParent = ({ session }: { session: { parentSessionId?: string | null } }) => {
       const parentSessionId = session.parentSessionId;
       if (parentSessionId) {
         runInAction(() => {
           this.expandedSessionIds.add(parentSessionId);
         });
       }
-    });
+    };
+    events.on(sessionCreatedChannel, expandParent);
+    onEachMachine((deviceId) => onMachineEvent(deviceId, sessionCreatedChannel, expandParent));
   }
 
   /** 「项目」分区的项目(本机与别的机器上的,按侧栏次序)。 */

@@ -18,6 +18,7 @@ import { remoteInstallNote } from './remote-install-before-create';
 import { MachinePicker } from '@renderer/features/remote-hosts/machine-picker';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { machineRegistry } from '@renderer/lib/machine-routing';
+import { installRemoteHostsBridge, type RemoteHostsBridge } from '@shared/remote-hosts';
 import { ComposerProjectPicker, ComposerRemoteProjectPicker } from './composer-context-tray';
 import { getSessionWorkspaceActionOrder, sessionWorkspaceActionBlocked } from './pane-empty-state';
 import { registerWorkspaceBackend, type WorkspaceBackend } from './workspace-backend/workspace-backend';
@@ -814,6 +815,12 @@ describe('NewSessionPage', () => {
   });
 
   it('项目页可切换只有远端文件夹的项目,设备范围如实标离线', async () => {
+    // 产品里别的机器的项目只经远程主机那座桥登记进来;桥在、那台机器连不上(开线一直不回)= 离线。
+    const removeBridge = installRemoteHostsBridge({
+      openSessionHost: () => () => new Promise(() => {}),
+      listDevices: () => [],
+      subscribeDevices: () => () => {},
+    } as unknown as RemoteHostsBridge);
     machineRegistry.register('device-9', ['project-remote']);
     mocks.projectId = 'project-remote';
     mocks.orderedProjects = [{ id: 'project-remote', state: 'mounted' }, { id: 'project-1', state: 'mounted' }];
@@ -828,6 +835,7 @@ describe('NewSessionPage', () => {
       expect(projects).toContain('project-1');
     } finally {
       machineRegistry.forgetMachine('device-9');
+      removeBridge();
     }
   });
 
