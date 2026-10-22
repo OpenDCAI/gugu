@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocalePreference } from '@/i18n';
 import type { SessionFailure } from '@renderer/features/sessions/stores/session-failure';
 import { readPanelToggle } from '@/lib/panelToggles';
-import { titlebarActionsReserve } from '@/lib/window-chrome';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from './session-home-project-constants';
 import { homeView } from '@renderer/app/home-view';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectHome } from '@renderer/features/projects/components/main-panel/project-home';
-import { ProjectTitlebar } from '@renderer/features/projects/components/project-titlebar';
+import { ProjectMenu } from '@renderer/features/projects/components/project-menu';
+import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { NewSessionComposer, NewSessionPage } from './new-session-page';
 import { remoteInstallNote } from './remote-install-before-create';
 import { MachinePicker } from '@renderer/features/remote-hosts/machine-picker';
@@ -338,10 +338,21 @@ describe('NewSessionPage', () => {
     });
   }
 
+  // 项目块画的那几样(app/project-block.tsx):窗口 chrome、页签条右端的项目菜单与「在哪里打开」、项目首页。
   async function renderProjectHome() {
+    const projectId = mocks.projectId;
     await act(async () => {
       root.render(
-        localized(React.createElement(ProjectTitlebar), React.createElement(ProjectHome))
+        localized(
+          React.createElement(SessionTitlebar),
+          React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(ProjectMenu, { projectId }),
+            React.createElement(ProjectTitleActions, { projectId }),
+            React.createElement(ProjectHome, { projectId })
+          )
+        )
       );
     });
   }
@@ -424,48 +435,10 @@ describe('NewSessionPage', () => {
       requireGeneratedName: true,
       runInProjectDir: true
     });
-    expect(container.querySelector('button[aria-label="展开文件面板"]')).not.toBeNull();
-    // 顶栏那一横排的几何只有一个来源。从前这一排里的按钮是 `absolute top-3 right-12` 自己糊的一个容器:
-    // top-3 让它比同排其它按钮低 6px,right-12 量的是**内容列**右缘而不是窗口的(工作区面板一开就
-    // 整块跟着漂,Windows 上 48px 还正好压在窗口控制条上)—— owner 实机圈的就是这一下。
-    // ⚠️ jsdom 没有布局,这里只证「走的是共享容器、预留按真实槽位数算」;「看起来是一排」由
-    // tests/browser/titlebar-safe-area.test.tsx 那组真实测量证。
-    // 锚点用「在哪里打开项目」:项目设置齿轮 2026-09-10 下线后,它是这一排剩下的项目级动作。
-    const openInRow = container.querySelector('[data-open-in-row]');
-    expect(openInRow).not.toBeNull();
-    const settingsRow = openInRow?.closest('[data-page-title-actions]') as HTMLElement | null;
-    expect(settingsRow).not.toBeNull();
-    // ❌ 别加「className 不含 right-12」那种断言:className 现在是共享组件里的一个字面量,
-    // project-home 怎么改都不会让它出现,是一条永远为真、只提供虚假信心的判据。
-    // 真正能判假的是下面这个 —— 落点必须由**真实渲染出的**槽位数推导。
-    const homeSlots = container.querySelectorAll(
-      '[data-titlebar-actions] [data-titlebar-action-slot]'
-    );
-    expect(homeSlots.length).toBeGreaterThan(0);
-    expect(settingsRow?.style.right).toBe(
-      `${titlebarActionsReserve(
-        dom.window.document.documentElement.dataset.platform,
-        homeSlots.length
-      )}px`
-    );
-    // 盒子只该有按钮那么宽:用 paddingInlineEnd 让位会一路伸到固定簇底下,
-    // 在页面右上角留一片看不见却吃点击的死区。
-    expect(settingsRow?.style.paddingInlineEnd).toBe('');
-    expect(container.querySelector('.rounded-tl-none')).toBeNull();
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    const workspacePanel = container.querySelector('[data-testid="new-session-right-panel"]');
-    expect(workspacePanel).not.toBeNull();
-    expect(
-      Array.from(
-        workspacePanel?.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])') ?? []
-      ).map((item) => item.textContent?.trim())
-    ).toEqual(['侧边聊天', '审阅', '终端', '浏览器', '文件', '没有启用的 App，去「App」里安装或启用']);
+    // 项目是一块之后(gugu-dev#181):项目级动作在项目块的页签条上,首页自己不再浮一排顶栏;
+    // 「+」只列群文件夹和 App,终端、浏览器归会话 ⇒ 首页没有发第一句之前的草稿工作区。
+    expect(container.querySelector('[data-page-title-actions]')).toBeNull();
+    expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
   });
 
   // @@@5173 这一轮没送出去时,原因必须**在用户当时所在的那一面**说出来。
@@ -1074,9 +1047,9 @@ describe('NewSessionPage', () => {
   // 右侧边栏组件复用不行吗」。新建页/项目首页从前另有一套分栏,把手被缩成 40px 居中一截(#6303)。
   // 这里证的是**同一个组件**:面板装在会话页那个 session-workspace-panel 里,分隔条是会话页那条。
   // 通高、上下两头抓得住这类几何由 tests/browser/side-panel-split-divider.test.tsx 在真浏览器里量。
+  // 项目首页没有这块面板了:它在项目块里,「+」只列群文件夹和 App,终端、浏览器归会话(gugu-dev#181)。
   it.each([
     ['新建会话页', () => renderPage()],
-    ['项目首页', () => renderProjectHome()],
   ])('%s的右侧面板用会话页同一个分栏', async (_surface, render) => {
     await render();
     await act(async () => {

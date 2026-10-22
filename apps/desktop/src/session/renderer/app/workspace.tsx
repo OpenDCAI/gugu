@@ -33,6 +33,9 @@ import { ensureMachineSessionWiring } from '@renderer/features/remote-hosts/work
 import { ensureMachineWorkspaceBackend } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
 import { isEmbedVisible, subscribeEmbedVisibility } from '@renderer/lib/portal-container';
 
+/** 这几个视图看的是这一屏:会话、项目都是其中一块(gugu-dev#181:项目是一块)。 */
+const SCREEN_VIEWS: ReadonlySet<string | null | undefined> = new Set(['session', 'project']);
+
 export function Workspace() {
   useTheme();
   const { WrapView, withoutSessionSidebar, currentView } = useWorkspaceSlots();
@@ -61,8 +64,11 @@ export function Workspace() {
         sidebarHidden={withoutSessionSidebar}
         leftSidebar={<LeftSidebar />}
         mainContent={
-          <ScreenArea current={currentView === 'session' ? (wrapParams as SessionParams) : null}>
-            {currentView === 'session' ? null : (
+          <ScreenArea
+            onScreenView={SCREEN_VIEWS.has(currentView)}
+            current={currentView === 'session' ? (wrapParams as SessionParams) : null}
+          >
+            {SCREEN_VIEWS.has(currentView) ? null : (
               <WrapView {...wrapParams}>
                 <WorkspaceViewContent />
               </WrapView>
@@ -81,8 +87,17 @@ export function Workspace() {
  * 会话页这一屏(spec session-page「一屏几块」):骨架(几块、分界)+ 每个留着的会话页。摆在某一块里的会话页
  * 贴到那块上,其余的藏着(@@@retained-session-pages)。左边一行、⋮⋮ 拖到一块的边上,在这里判落点。
  */
-const ScreenArea = observer(function ScreenArea({ current, children }: { current: SessionParams | null; children: ReactNode }) {
-  const onSessionView = current !== null;
+const ScreenArea = observer(function ScreenArea({
+  onScreenView: onSessionView,
+  current,
+  children,
+}: {
+  /** 看着这一屏(一条会话、一个项目):画几块;别的视图(资源库、已安排……)盖在它上面。 */
+  onScreenView: boolean;
+  /** 正看着的会话;看着项目块时没有。 */
+  current: SessionParams | null;
+  children: ReactNode;
+}) {
   // 开在单独窗里的会话不在主窗里画(一个会话只在一处,画两份就是两套终端、两个输入框)。
   const currentWindow = current ? auxWindows.windowOfSession(current.sessionId) : undefined;
   // A session beside an App is on screen too: mounted, and never the page to leave.

@@ -21,8 +21,32 @@ export const MAX_SCREEN_BLOCKS = 4;
 
 export type ScreenSession = { projectId: string; sessionId: string };
 
-/** 一块装的东西:一个会话(连同它分好的格子和页签),或一个 App。 */
-export type ScreenBlockContent = ({ kind: 'session' } & ScreenSession) | { kind: 'app'; tabKind: string };
+/**
+ * 一块装的东西:一个会话(连同它分好的格子和页签)、一个 App、一个项目(第一枚页签是项目群,gugu-dev#181)
+ * 或一个对话(人和用户群)。
+ */
+export type ScreenBlockContent =
+  | ({ kind: 'session' } & ScreenSession)
+  | { kind: 'app'; tabKind: string }
+  | { kind: 'project'; projectId: string }
+  | { kind: 'chat'; chatId: string };
+
+/** 能单独开成一扇窗的:会话、App(项目、对话这一轮只在主窗里)。 */
+export type WindowableContent = Extract<ScreenBlockContent, { kind: 'session' | 'app' }>;
+
+/** 一块装的是哪一样(同一样东西只在一组的一块里):会话认会话 id,App 认页签类型,项目认项目 id,对话认对话 id。 */
+export function contentKey(content: ScreenBlockContent): string {
+  switch (content.kind) {
+    case 'session':
+      return `session:${content.sessionId}`;
+    case 'app':
+      return `app:${content.tabKind}`;
+    case 'project':
+      return `project:${content.projectId}`;
+    case 'chat':
+      return `chat:${content.chatId}`;
+  }
+}
 
 /** 新的一块从旁边那块分走一半;那一半放不下(调用方量过)= 这一排一起均分(照 VS Code 的 splitSizing: auto)。 */
 export type InsertOptions = { even?: boolean };
@@ -173,6 +197,13 @@ export class ScreenLayoutStore {
     return undefined;
   }
 
+  /** 这样东西此刻在这屏的哪一块(不在 = undefined)。 */
+  blockOf(content: ScreenBlockContent): string | undefined {
+    const key = contentKey(content);
+    for (const [blockId, block] of this.blocks) if (contentKey(block) === key) return blockId;
+    return undefined;
+  }
+
   /**
    * 这一块此刻挨着谁、在它哪一边(拿走之前记下,放回来时回到原处):同一刀里它前面那块 → 在那块的右 / 下边;
    * 它是第一块 → 在后面那块的左 / 上边。屏上只有它一块 = null。
@@ -223,22 +254,24 @@ export class ScreenLayoutStore {
    * 它在这屏 → 那块成为正看着的;在收起来的某一组 → 这屏收起来、那组整组摆回来,正看着它那块;
    * 哪组都不在 → 这屏收起来,它单独一屏。❌ 只换掉正看着的那一块。
    */
-  show(target: ScreenSession): void {
-    const at = this.blockOfSession(target.sessionId);
+  show(target: ScreenSession | ScreenBlockContent): void {
+    const content = asContent(target);
+    const at = this.blockOf(content);
     if (at) {
       this.focus(at);
       return;
     }
-    const group = this.parked.find((entry) => Object.values(entry.blocks).some((block) => isSession(block, target.sessionId)));
+    const key = contentKey(content);
+    const group = this.parked.find((entry) => Object.values(entry.blocks).some((block) => contentKey(block) === key));
     this.park();
     if (group) {
       this.unpark(group);
-      const blockId = this.blockOfSession(target.sessionId);
+      const blockId = this.blockOf(content);
       if (blockId) this.focus(blockId);
       return;
     }
     const blockId = newBlockId();
-    this.blocks.set(blockId, { kind: 'session', projectId: target.projectId, sessionId: target.sessionId });
+    this.blocks.set(blockId, content);
     this.layout = paneLeaf(blockId);
     this.focus(blockId);
   }
@@ -247,13 +280,13 @@ export class ScreenLayoutStore {
    * ⌘ 点左边一行:拼进这屏,放在正看着那块的右边。已经在屏上 = 去那块;满了 = 不放(返回 false);
    * 它在收起来的别的组里 = 从那组挪过来(一条只在一组里)。
    */
-  showBeside(target: ScreenSession, options: InsertOptions = {}): boolean {
-    if (!this.layout || this.blockOfSession(target.sessionId)) {
-      this.show(target);
+  showBeside(target: ScreenSession | ScreenBlockContent, options: InsertOptions = {}): boolean {
+    const content = asContent(target);
+    if (!this.layout || this.blockOf(content)) {
+      this.show(content);
       return true;
     }
     if (this.isFull) return false;
-    const content: ScreenBlockContent = { kind: 'session', projectId: target.projectId, sessionId: target.sessionId };
     this.release(content);
     this.insert(content, this.focusedBlockId ?? this.order[0], 'right', options);
     return true;
@@ -448,10 +481,6 @@ export class ScreenLayoutStore {
     if (!this.anchorSessionId || !sessions.includes(this.anchorSessionId)) this.anchorSessionId = sessions[0] ?? null;
   }
 
-  private blockOf(content: ScreenBlockContent): string | undefined {
-    return content.kind === 'session' ? this.blockOfSession(content.sessionId) : this.blockOfApp(content.tabKind);
-  }
-
   /** 「当前会话」那块:正看着的会话块;正看着 App 那块 → 最近看过的会话块;再没有 → 任一会话块。 */
   private sessionSlot(): string | undefined {
     const focused = this.focusedBlockId ? this.blocks.get(this.focusedBlockId) : undefined;
@@ -486,7 +515,7 @@ function readGroup(
   const entries = Object.entries(snapshot.blocks ?? {}).filter((entry): entry is [string, ScreenBlockContent] => {
     const block = entry[1];
     if (!isBlockContent(block)) return false;
-    const key = block.kind === 'session' ? `session:${block.sessionId}` : `app:${block.tabKind}`;
+    const key = contentKey(block);
     if (seen.has(key) || mine.has(key) || seen.has(`block:${entry[0]}`) || mine.has(`block:${entry[0]}`)) return false;
     mine.add(key);
     mine.add(`block:${entry[0]}`);
@@ -529,14 +558,29 @@ function isSession(block: ScreenBlockContent, sessionId: string): boolean {
 }
 
 function sameContent(a: ScreenBlockContent, b: ScreenBlockContent): boolean {
-  return a.kind === 'session' ? isSession(b, a.sessionId) : b.kind === 'app' && b.tabKind === a.tabKind;
+  return contentKey(a) === contentKey(b);
+}
+
+/** 只给了会话的那种老调用(看这条会话)= 一块会话。 */
+function asContent(target: ScreenSession | ScreenBlockContent): ScreenBlockContent {
+  return 'kind' in target ? target : { kind: 'session', projectId: target.projectId, sessionId: target.sessionId };
 }
 
 function isBlockContent(value: unknown): value is ScreenBlockContent {
-  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string }> | null;
+  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string; chatId: string }> | null;
   if (!block || typeof block !== 'object') return false;
-  if (block.kind === 'session') return typeof block.projectId === 'string' && typeof block.sessionId === 'string';
-  return block.kind === 'app' && typeof block.tabKind === 'string';
+  switch (block.kind) {
+    case 'session':
+      return typeof block.projectId === 'string' && typeof block.sessionId === 'string';
+    case 'app':
+      return typeof block.tabKind === 'string';
+    case 'project':
+      return typeof block.projectId === 'string';
+    case 'chat':
+      return typeof block.chatId === 'string';
+    default:
+      return false;
+  }
 }
 
 export const screenLayout = new ScreenLayoutStore();

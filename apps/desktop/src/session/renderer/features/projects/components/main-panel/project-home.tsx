@@ -11,16 +11,11 @@ import { ComposerTray } from '@renderer/features/sessions/composer-tray';
 import { NewSessionComposer } from '@renderer/features/sessions/new-session-page';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import { machineComposerProps, useMachineCreateContext } from '@renderer/features/sessions/use-machine-create-target';
-import { DraftWorkspacePanel } from '@renderer/features/sessions/draft-workspace-panel';
-import { PageTitleActions } from '@renderer/features/sessions/titlebar-actions';
-import { SidePanelSplit } from '@renderer/lib/layout/side-panel-split';
-import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import {
   sessionComposerDockBandClassName,
   sessionComposerDockedWidthClassName,
 } from '@renderer/features/sessions/session-composer-styles';
-import { useSessionShellContext } from '@renderer/features/sessions/session-shell-context';
-import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { electronApi } from '@renderer/lib/electron-api';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
@@ -47,10 +42,7 @@ function folderName(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
 }
 
-export const ProjectHome = observer(function ProjectHome() {
-  const {
-    params: { projectId }
-  } = useParams('project');
+export const ProjectHome = observer(function ProjectHome({ projectId }: { projectId: string }) {
   const { translate } = useSessionMessages();
   const { navigate } = useNavigate();
   const project = getProjectStore(projectId);
@@ -58,7 +50,6 @@ export const ProjectHome = observer(function ProjectHome() {
   // gugu #2328: bootstrapping 阶段页面已上屏,发送/设置由 mounted 态解锁;这行小字是
   // 发送暂不可用的唯一提示(安静补齐,❌ 显眼 loading)。
   const isBootstrapping = projectViewKind(project) === 'bootstrapping';
-  const { isNewSessionWorkspaceOpen, setNewSessionWorkspaceOpen } = useSessionShellContext();
 
   // 在托盘里换一个项目 = 去那个项目的页面,写好的话跟着走(那边还没有草稿时)。
   const openProject = (nextId: string | undefined) => {
@@ -103,7 +94,7 @@ export const ProjectHome = observer(function ProjectHome() {
   // 项目就是群(gugu-dev#181):打开项目页时它的群就该在 —— 新建的项目一进来就建好(只有自己一个人),
   // 老项目没有群的也在这时补上。幂等;建好了由绑定变更事件刷新各处。
   useEffect(() => {
-    void rpcOn(machineRegistry.machineOf(rowId) ?? null).projects.ensureProjectGroup(rowId).then((result) => {
+    void Promise.resolve().then(() => rpcOn(machineRegistry.machineOf(rowId) ?? null).projects.ensureProjectGroup(rowId)).then((result) => {
       if (!result.success) log.warn('[project-home] 项目群没建成', { projectId: rowId, error: result.error });
     }).catch((error: unknown) => log.warn('[project-home] 项目群没建成', { projectId: rowId, error: String(error) }));
   }, [rowId]);
@@ -286,27 +277,11 @@ export const ProjectHome = observer(function ProjectHome() {
     void attachOn(null, path);
   };
 
+  // 上面是文件夹卡(在剩下的空间里居中,上方留出摊开的余地),输入框贴在底部 —— 与会话页聊天的输入框
+  // 同一个位置、同样宽(product spec「项目首页」)。项目块的「+」只列群文件夹和 App(gugu-dev#181),
+  // 终端、浏览器归会话,所以这里没有发第一句之前的草稿工作区。
   return (
-    // @@@draft-split — 右侧面板与会话页、新建会话页是同一个分栏组件(lib/layout/side-panel-split.tsx)。
-    <SidePanelSplit
-      form={isNewSessionWorkspaceOpen ? 'side' : 'closed'}
-      resizeLabel={translate('task.resizeWorkspacePanel')}
-      onCollapseWorkspace={() => setNewSessionWorkspaceOpen(false)}
-      workspacePanel={<DraftWorkspacePanel projectId={projectId} visible={isNewSessionWorkspaceOpen} />}
-      chatColumn={
-      // 上面是文件夹卡(在剩下的空间里居中,上方留出摊开的余地),输入框贴在底部 —— 与会话页聊天的输入框
-      // 同一个位置、同样宽(product spec「项目首页」)。
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        {/* 顶栏那一横排的几何只认 titlebar-actions.tsx —— ❌ 别退回 `absolute top-3 right-12`:
-            top-3 让它比同排其它按钮低 6px,right-12 量的是这条内容列的右缘而不是窗口的。
-            图标尺寸由容器规定(index.css 那条 @@@titlebar-action-icons),所以这里不写 size-*。 */}
-        <PageTitleActions
-          // 固定簇是不是就在我右边:bootstrapping 态 SessionTitlebar 虽然渲染了,工作区面板展开时
-          // 这一列也够不到窗口右缘 —— 不该给它让路,否则 Windows 上白缩进 178px。
-          reserveFixedCluster={!isNewSessionWorkspaceOpen}
-        >
-          <ProjectTitleActions projectId={projectId} />
-        </PageTitleActions>
 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 pt-24 pb-6">
           <ProjectFolderCard
@@ -361,7 +336,5 @@ export const ProjectHome = observer(function ProjectHome() {
         </div>
         </div>
       </div>
-      }
-    />
   );
 });

@@ -50,6 +50,7 @@ import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { ContactsProvider } from '../store/contacts'
 import { DevicesProvider } from '../store/devices'
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
+import { ChatSlotHost } from '../components/ChatSlotHost'
 import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskChatOpener'
 import { FeedbackHost } from '../components/FeedbackHost'
 import { AssistantCloseHost } from '../components/assistant/AssistantCloseHost'
@@ -1473,6 +1474,14 @@ function InnerLayout({
       {!mobile && sessionHostAvailable && (
         <AssistantShellHost
           visible={activeTab === 'tasks'}
+          onOpenUserChat={handleOpenProfileChat}
+          onOpenSessionpageAgent={handleOpenSessionpageAgent}
+          onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
+        />
+      )}
+      {/* gugu-dev#181 项目块、对话块里的对话:会话页留格子(lib/shellSlots.ts 的 chat:<id>),这里画进去。 */}
+      {!mobile && sessionHostAvailable && (
+        <ChatSlotHost
           onOpenUserChat={handleOpenProfileChat}
           onOpenSessionpageAgent={handleOpenSessionpageAgent}
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}

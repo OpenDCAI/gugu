@@ -2,7 +2,6 @@ import { ShieldAlert, TriangleAlert } from '@/lib/icons'
 import { isMacHost } from '@shared/host-os';
 import { observer } from 'mobx-react-lite';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
-import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { rpc } from '@renderer/lib/ipc';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { isUnregisteredProject } from '../../stores/project';
@@ -13,13 +12,11 @@ import {
   projectViewKind,
   unmountedMountErrorMessage,
 } from '../../stores/project-selectors';
-import { ActiveProject } from './active-project';
+import { ProjectHome } from './project-home';
 import { PendingProjectStatus } from './pending-project';
 
-export const ProjectMainPanel = observer(function ProjectMainPanel() {
-  const {
-    params: { projectId },
-  } = useParams('project');
+/** 项目块里的内容(gugu-dev#181:项目是一块):按项目此刻的状态画首页、建立中、或读不到的原因。 */
+export const ProjectMainPanel = observer(function ProjectMainPanel({ projectId }: { projectId: string }) {
   const { translate } = useSessionMessages();
   const store = getProjectStore(projectId);
   const kind = projectViewKind(store);
@@ -32,7 +29,7 @@ export const ProjectMainPanel = observer(function ProjectMainPanel() {
   // gugu #2328: bootstrapping 直接渲染项目首页(乐观上屏)——远程项目挂载是网络物理耗时,
   // 页面不等它;发送等控件由 mounted 态渐进解锁,❌ 整页 Setting up 转圈。
   if (kind === 'bootstrapping') {
-    return <ActiveProject />;
+    return <ProjectHome projectId={projectId} />;
   }
 
   if (kind === 'path_not_found') {
@@ -62,7 +59,7 @@ export const ProjectMainPanel = observer(function ProjectMainPanel() {
     return <div className="flex flex-1 items-center justify-center text-foreground-muted" />;
   }
 
-  return <ActiveProject />;
+  return <ProjectHome projectId={projectId} />;
 });
 
 function ProjectBootstrapErrorPanel({

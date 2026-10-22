@@ -26,6 +26,8 @@ import {
   blockMinExtent,
   type MentionDrop,
 } from './screen-layout-actions';
+import { ChatSlot } from '@renderer/lib/chat-slot';
+import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
 import { clearDraggedSession, getDraggedSession, hasDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
 
@@ -127,7 +129,7 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
   );
 });
 
-/** 一块的占位。会话块是空的(会话页贴在它上面);App 块在这里画它那条页签条和它的页。 */
+/** 一块的占位。会话块是空的(会话页贴在它上面);App 块、项目块在这里画它那条页签条和它的页。 */
 const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) {
   const block = screenLayout.blocks.get(blockId);
   return (
@@ -138,6 +140,15 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
       onPointerDownCapture={() => focusScreenBlock(blockId)}
     >
       {block?.kind === 'app' ? <AppBlock blockId={blockId} tabKind={block.tabKind} /> : null}
+      {block?.kind === 'project' ? (
+        <ProjectBlock
+          blockId={blockId}
+          projectId={block.projectId}
+          blockActions={screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
+        />
+      ) : null}
+      {/* 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):对话由壳画进格子,它自带头栏。 */}
+      {block?.kind === 'chat' ? <ChatSlot chatId={block.chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" /> : null}
     </div>
   );
 });

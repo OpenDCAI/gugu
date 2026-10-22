@@ -16,7 +16,8 @@ import {
   useParams,
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
-import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -136,10 +137,17 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   // spec session-page 微决策: first click selects the project (home view + expand); clicking the
   // already-selected project row toggles its collapse — the row is the second collapse affordance
   // beside the folder/chevron button (why B saw "active project won't collapse": B clicked the row).
-  const openProject = () => {
+  const openProject = (beside = false) => {
     // behavior session-page「键盘导航」: the project row is a station too, so a click moves the cursor
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
+    // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
+    const onScreen = appState.navigation.currentViewId === 'session' || appState.navigation.currentViewId === 'project';
+    if (beside && onScreen && !standInDevice && !assistantHome) {
+      showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
+      sidebarStore.ensureProjectExpanded(projectId);
+      return;
+    }
     if (isProjectActive) {
       sidebarStore.toggleProjectExpanded(projectId);
       return;
@@ -209,7 +217,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
           tabIndex={0}
           role="treeitem"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={openProject}
+          onClick={(event) => openProject(event.metaKey || event.ctrlKey)}
           onKeyDown={(e) => {
             // Arrows belong to the session navigation listener (see sidebar-session-item for
             // why the old sibling walk could not work here either).

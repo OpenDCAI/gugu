@@ -10,7 +10,7 @@ import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
 import { minExtent } from '@renderer/features/tabs/pane-layout-tree';
 import { auxWindows, type TabWindowHome } from './aux-windows';
-import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession } from './screen-layout';
+import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
 
 /**
  * 这一屏(screen-layout)和导航之间的那两根线(spec session-page「一屏几块」):
@@ -133,6 +133,20 @@ export function ensureScreenLayoutSync(): void {
     },
     { fireImmediately: true }
   );
+  // 看一个项目(点左边项目那一行、新建项目落地)= 这屏把它那一块摆出来,和看一条会话同一个规矩。
+  // 几台机器上的同一个项目在左边是一行(绑在同一个群上):认那一行,❌ 同一个项目摆两块。
+  reaction(
+    () => {
+      const navigation = appState.navigation;
+      return navigation.currentViewId === 'project'
+        ? (navigation.viewParamsStore.project as { projectId?: string } | undefined)?.projectId
+        : undefined;
+    },
+    (projectId) => {
+      if (projectId) screenLayout.show({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
+    },
+    { fireImmediately: true }
+  );
   // 回到主窗:导航跟回这屏正看着的那块(焦点在子窗时,导航指着窗里那条会话)。
   window.addEventListener('focus', () => {
     if (auxWindows.focusedWindowId === null) return;
@@ -147,6 +161,14 @@ export function ensureScreenLayoutSync(): void {
  */
 function followFocus(): void {
   const navigation = appState.navigation;
+  // 正看着项目块:导航到那个项目(左边那一行高亮、新建会话预选它)。
+  const focusedBlock = screenLayout.focusedBlockId ? screenLayout.blocks.get(screenLayout.focusedBlockId) : undefined;
+  if (focusedBlock?.kind === 'project') {
+    const current = navigation.viewParamsStore.project as { projectId?: string } | undefined;
+    const here = navigation.currentViewId === 'project' && !!current?.projectId && sidebarStore.rowProjectIdOf(current.projectId) === focusedBlock.projectId;
+    if (!here) navigation.navigate('project', { projectId: focusedBlock.projectId });
+    return;
+  }
   const current = navigation.viewParamsStore.session as Partial<ScreenSession> | undefined;
   const onScreen = navigation.currentViewId === 'session' && !!current?.sessionId && !!screenLayout.blockOfSession(current.sessionId);
   const focusedId = screenLayout.focusedBlockId;
@@ -215,6 +237,25 @@ export function showSessionBeside(target: ScreenSession): void {
   followFocus();
 }
 
+/** 把一样东西摆到这屏上(项目、对话;会话走导航):它在哪组就整组回来,否则单独一屏。 */
+export function showOnScreen(content: ScreenBlockContent): void {
+  screenLayout.show(content);
+  followFocus();
+}
+
+/** ⌘ 点左边一行(项目、对话、会话都一样):并排放在正看着那块右边;满了提示。 */
+export function showBesideOnScreen(content: ScreenBlockContent): void {
+  if (content.kind === 'session') {
+    showSessionBeside(content);
+    return;
+  }
+  if (!screenLayout.showBeside(content, { even: halfWontFit(screenLayout.focusedBlockId, 'right') })) {
+    fullToast();
+    return;
+  }
+  followFocus();
+}
+
 /** 贴着 `targetId` 那块的一条边分出一块放它(拖到边上松手、页签右键「单独一块」)。 */
 export function placeOnScreen(content: ScreenBlockContent, targetId: string, edge: PaneEdge): boolean {
   if (!screenLayout.canPlaceAt(content, targetId)) {
@@ -260,7 +301,7 @@ export function takeAppOffScreen(tabKind: string): void {
  * 这屏留一句「开在单独的窗口里」—— 再开一扇窗装它。已经在窗里 = 把那扇窗提到前面。
  * `at`:拖到窗口外松手的那一点(屏幕坐标),新窗开在那里。
  */
-export function openInWindow(content: ScreenBlockContent, at?: { screenX: number; screenY: number }): void {
+export function openInWindow(content: WindowableContent, at?: { screenX: number; screenY: number }): void {
   const existing = auxWindows.windowOf(content);
   if (existing) {
     existing.handle?.focus();
@@ -401,8 +442,7 @@ export function revealTabWindow(paneId: string): void {
   auxWindows.windowOfTabPane(paneId)?.handle?.focus();
 }
 
-const blockOf = (content: ScreenBlockContent) =>
-  content.kind === 'session' ? screenLayout.blockOfSession(content.sessionId) : screenLayout.blockOfApp(content.tabKind);
+const blockOf = (content: ScreenBlockContent) => screenLayout.blockOf(content);
 
 // ── 拖到一块的边上,或(App)拖进一格 ──
 
@@ -455,7 +495,7 @@ export function contentMinExtent(content: ScreenBlockContent, axis: 'width' | 'h
 export function blockMinExtent(blockId: string, axis: 'width' | 'height'): number {
   const block = screenLayout.blocks.get(blockId);
   if (!block) return axis === 'width' ? MIN_PANE_WIDTH_PX : MIN_PANE_HEIGHT_PX;
-  return contentMinExtent(block.kind === 'session' ? { kind: 'session', projectId: block.projectId, sessionId: block.sessionId } : { kind: 'app', tabKind: block.tabKind }, axis);
+  return contentMinExtent(block, axis);
 }
 
 export const screenBlockElement = (blockId: string): HTMLElement | null =>
