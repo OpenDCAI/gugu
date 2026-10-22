@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CHAT_SLOT_PREFIX, installShellSlots, readShellSlots } from '../lib/shellSlots'
+import { CHAT_SLOT_PREFIX, chatPartSlotKey, installShellSlots, readShellSlots } from '../lib/shellSlots'
 import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
@@ -14,6 +14,7 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 /**
  * 把对话画进会话页留的格子(gugu-dev#181:项目块的第一枚页签是项目群,对话也是一块)。和对话页同一个群聊组件,
  * 话题、置顶、悄悄话、回应都是现成的;每个格子各是一条活的线(TaskChatScope),和对话页正开着的那条互不挤占。
+ * 块里没有群聊头:头上那排图标、对话的头像和名字画进这一块页签条上留的两格(chatPartSlotKey)。
  */
 export function ChatSlotHost(handlers: AssistantChatHandlers) {
   // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流。
@@ -33,7 +34,12 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
         const chatId = key.slice(CHAT_SLOT_PREFIX.length)
         return [createPortal(
           <TaskChatScope chatId={chatId}>
-            <ChatAreaPanel chatId={chatId} activeTab="chats" {...handlers} />
+            <ChatAreaPanel
+              chatId={chatId}
+              activeTab="chats"
+              blockHost={{ actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null, title: entries.get(chatPartSlotKey('title', chatId)) ?? null }}
+              {...handlers}
+            />
           </TaskChatScope>,
           element,
           key,

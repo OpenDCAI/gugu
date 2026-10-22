@@ -54,3 +54,11 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 /** 画一个对话的那种格子(项目块里的项目群、对话块):壳那边 components/ChatSlotHost.tsx 认这个前缀。 */
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
+
+/**
+ * 同一个对话在块的页签条上的两格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
+ * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字。
+ * 和 `chat:` 那格一起由 ChatSlotHost 交给同一个群聊组件,❌ 单独画。
+ */
+export type ChatPart = 'actions' | 'title'
+export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`

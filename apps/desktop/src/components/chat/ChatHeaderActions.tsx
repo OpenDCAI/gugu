@@ -31,6 +31,8 @@ interface ChatHeaderActionsProps {
   mobile?: boolean
   /** 页头最右还摆着模式按钮(手机 Agent 私聊,#7197)。 */
   modeButton?: boolean
+  /** 画在会话页一块的页签条上时(没有标题后面的「(N)」):人数挂在成员按钮上。 */
+  memberCount?: number
   moreButtonRef: RefObject<HTMLButtonElement | null>
   onEnterSearchMode: () => void
   onOpenWorkspacePanel: () => void
@@ -55,6 +57,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   showHeaderMenu,
   mobile,
   modeButton,
+  memberCount,
   moreButtonRef,
   onEnterSearchMode,
   onOpenWorkspacePanel,
@@ -136,6 +139,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           }}
         >
           <Users />
+          {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
         </IconButton>
       )}
       {/* 历史 — @@@1366(owner 2026-06-20 撤销 #1161):历史=查看面板(线程/附件/导入历史),≠工作区,恢复

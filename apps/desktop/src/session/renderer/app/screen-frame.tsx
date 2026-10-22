@@ -26,7 +26,7 @@ import {
   blockMinExtent,
   type MentionDrop,
 } from './screen-layout-actions';
-import { ChatSlot } from '@renderer/lib/chat-slot';
+import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
@@ -148,11 +148,44 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
           blockActions={screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
         />
       ) : null}
-      {/* 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):对话由壳画进格子,它自带头栏。 */}
-      {block?.kind === 'chat' ? <ChatSlot chatId={block.chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" /> : null}
-      {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
-      {block?.kind === 'chat' ? <ComposerVerbDock chatId={block.chatId} /> : null}
+      {block?.kind === 'chat' ? <ChatBlock blockId={blockId} chatId={block.chatId} /> : null}
     </div>
+  );
+});
+
+/**
+ * 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):和项目块同一条页签条,第一枚是这个对话(头像 + 名字,关不掉);
+ * 对话由壳画进格子,头像和名字、右端那排图标(搜索、群文件夹、成员、历史、⋯)也由壳画进页签条留的两格。
+ * 屏上不止一块时右端一枚「关闭这一块」。
+ */
+const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: string; chatId: string }) {
+  const { translate } = useSessionMessages();
+  const { isLeftOpen } = useWorkspaceLayoutContext();
+  const corners = screenLayout.corners(blockId);
+  return (
+    <>
+      <TabStripShell
+        reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
+        actionsSlot={
+          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+            <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
+            {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
+          </TabBarActionRow>
+        }
+      >
+        <TabSlot data-chat-block-tab={chatId}>
+          <TabChip
+            isActive
+            isFocusedPane={screenLayout.focusedBlockId === blockId}
+            label={translate('sidebar.chats')}
+            labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
+          />
+        </TabSlot>
+      </TabStripShell>
+      <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+      {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
+      <ComposerVerbDock chatId={chatId} />
+    </>
   );
 });
 

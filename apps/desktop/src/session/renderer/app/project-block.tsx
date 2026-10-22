@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderClosed } from '@/lib/icons';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
-import { ProjectMenu } from '@renderer/features/projects/components/project-menu';
+import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
 import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
@@ -12,7 +12,7 @@ import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { ChatSlot } from '@renderer/lib/chat-slot';
+import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { useChatHasMessages } from '@/lib/chatActivityBridge';
 import { setComposerVerb, useComposerVerb } from '@/lib/composerVerbBridge';
@@ -27,7 +27,8 @@ import { screenLayout } from './screen-layout';
  * 一个项目占一块(gugu-dev#181「块与页签」):顶上一条页签条(和会话块同一套),第一枚是项目群,不能关;
  * 下面是这一枚的内容:项目群的消息流(和对话页同一个群聊组件,由壳画进格子)。群里还没有消息(包括刚建的项目)
  * 时正中是项目首页那一套 —— 文件夹卡 + 输入框,和以前点项目进来看到的一样。
- * 项目菜单(移除项目、仓库链接)和「在哪里打开」挂在页签条右端,❌ 另起一条顶栏。
+ * 格子里没有群聊头:群聊头那排图标(搜索、群文件夹、成员、历史、⋯)由壳画进页签条右端,后面是「在哪里打开」,
+ * ❌ 另起一条顶栏。仓库链接、移除项目在项目页签的右键菜单里。
  */
 export const ProjectBlock = observer(function ProjectBlock({
   blockId,
@@ -60,38 +61,40 @@ export const ProjectBlock = observer(function ProjectBlock({
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
           <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
-            <ProjectMenu projectId={projectId} />
+            {chatId && hasMessages ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
             <ProjectTitleActions projectId={projectId} />
             {blockActions}
           </TabBarActionRow>
         }
       >
         <TabSlot data-project-block-tab={projectId}>
-          <TabChip
-            isActive
-            isFocusedPane={focused}
-            label={label}
-            preSlot={
-              // gugu-dev#181:页签上那枚小文件夹 = 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
-              // 群里还没有消息时这一块本来就是项目首页,不用它。
-              chatId && hasMessages ? (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={translate('taskDispatch.task')}
-                  title={translate('taskDispatch.task')}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setComposerVerb(chatId, 'task');
-                  }}
-                >
+          <ProjectTabMenu projectId={projectId}>
+            <TabChip
+              isActive
+              isFocusedPane={focused}
+              label={label}
+              preSlot={
+                // gugu-dev#181:页签上那枚小文件夹 = 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
+                // 群里还没有消息时这一块本来就是项目首页,不用它。
+                chatId && hasMessages ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={translate('taskDispatch.task')}
+                    title={translate('taskDispatch.task')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setComposerVerb(chatId, 'task');
+                    }}
+                  >
+                    <FolderClosed className="size-3.5 shrink-0" />
+                  </Button>
+                ) : (
                   <FolderClosed className="size-3.5 shrink-0" />
-                </Button>
-              ) : (
-                <FolderClosed className="size-3.5 shrink-0" />
-              )
-            }
-          />
+                )
+              }
+            />
+          </ProjectTabMenu>
         </TabSlot>
       </TabStripShell>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
