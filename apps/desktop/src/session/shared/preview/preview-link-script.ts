@@ -6,11 +6,9 @@
  * 要么把整个预览导走(#5814 / #6156)。凡是**要离开这个预览**的链接,都在这里拦下来
  * postMessage 给宿主,由宿主去开:相对链接交给标签页管理器开文件,`http(s)` 交给浏览器面板。
  *
- * ⚠️ **页内锚点(`#`)不拦,是故意的,而且只有现在才敢不拦。**
- * 预览改由 `gugu-preview://` 供给之后,文档有了自己的地址,`#x` 就是同文档跳转,浏览器自己
- * 滚过去。而在这之前预览走 `srcdoc` —— 那个文档没有地址,`#x` 会按宿主页的地址解析成一次
- * 跨文档导航,把 iframe 导到应用页上,整个预览变白(#6156)。同一行代码,在两种供给方式下
- * 一个是正确一个是故障:**判据不是「锚点该不该拦」,是「这份文档有没有自己的地址」。**
+ * 页内锚点复用原 srcdoc 脚本的定位分支。没有 allow-same-origin 的 Blob 预览会拒绝
+ * 原生片段导航(Not allowed to load local resource: blob:…#target),因此两种传输都直接
+ * 定位文档内的目标,保持同一个脚本和 sandbox,不改变导航权限。
  *
  * 其余协议(`javascript:` / `mailto:` / `data:`)一概不碰 —— 不拦,也不假装能开。
  *
@@ -41,7 +39,17 @@ export const PREVIEW_LINK_SCRIPT = `
     if (!a) return;
     var href = a.getAttribute('href');
     if (!href) return;
-    if (href.charAt(0) === '#') return;
+    if (href.charAt(0) === '#') {
+      // 复用原 srcdoc 分支:opaque sandbox 下的 Blob 也不能交回默认导航。
+      e.preventDefault();
+      var id = href.slice(1);
+      if (!id) { window.scrollTo({ top: 0 }); return; }
+      var el = null;
+      try { el = document.getElementById(decodeURIComponent(id)); } catch (_) {}
+      if (!el) el = document.getElementById(id);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+      return;
+    }
     var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href);
     if (scheme && !/^https?$/i.test(scheme[1])) return;
     e.preventDefault();

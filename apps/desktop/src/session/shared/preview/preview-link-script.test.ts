@@ -10,16 +10,49 @@ function runInFakeDocument(script: string) {
   const listeners = new Map<string, Listener>();
   const document = {
     documentElement: { style: { zoom: '' } },
+    getElementById: vi.fn(),
     addEventListener: (type: string, listener: Listener) => listeners.set(type, listener),
   };
-  runInNewContext(script, { document, parent: { postMessage: vi.fn() }, window: {} });
+  const postMessage = vi.fn();
+  const scrollTo = vi.fn();
+  runInNewContext(script, { document, parent: { postMessage }, window: { scrollTo } });
   const wheel = (event: { ctrlKey: boolean; deltaY: number }) => {
     const preventDefault = vi.fn();
     listeners.get('wheel')?.({ ...event, preventDefault });
     return preventDefault;
   };
-  return { document, wheel };
+  const click = (href: string) => {
+    const preventDefault = vi.fn();
+    listeners.get('click')?.({
+      target: { closest: () => ({ getAttribute: () => href }) },
+      preventDefault,
+    });
+    return preventDefault;
+  };
+  return { document, wheel, click, postMessage, scrollTo };
 }
+
+describe('shared preview anchors', () => {
+  it('scrolls to an existing target without navigating or opening a host link', () => {
+    const { document, click, postMessage } = runInFakeDocument(PREVIEW_LINK_SCRIPT);
+    const scrollIntoView = vi.fn();
+    document.getElementById.mockReturnValue({ scrollIntoView });
+
+    expect(click('#target')).toHaveBeenCalledOnce();
+    expect(document.getElementById).toHaveBeenCalledWith('target');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('leaves the document alone without throwing when the target is missing', () => {
+    const { document, click, postMessage, scrollTo } = runInFakeDocument(PREVIEW_LINK_SCRIPT);
+    document.getElementById.mockReturnValue(null);
+
+    expect(() => click('#target')).not.toThrow();
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+});
 
 describe('shared preview pinch zoom', () => {
   const script = PREVIEW_LINK_SCRIPT;
