@@ -129,14 +129,15 @@ export const ProjectBlock = observer(function ProjectBlock({
  */
 const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
   const { translate } = useSessionMessages();
-  const [cardShown, setCardShown] = useState(true);
-  const stage = useProjectFolderStage(projectId, { floating: true, onChosen: () => setCardShown(false) });
   // 选「新任务」那一刻群里输入框写着的话跟过来:要在新建框挂上(读草稿)之前放好。
   useState(() => {
     const carried = takeComposerCarry(chatId);
     if (carried) composerDrafts.set(projectDraftKey(projectId), carried);
     return null;
   });
+  // 框里已经有字(群里写着带过来的、新建会话页选项目带过来的)= 卡一开始就让开,与打了字同一个道理(核对 #37)。
+  const [cardShown, setCardShown] = useState(() => !composerDrafts.get(projectDraftKey(projectId)).trim());
+  const stage = useProjectFolderStage(projectId, { floating: true, onChosen: () => setCardShown(false) });
   const dockRef = useRef<HTMLDivElement>(null);
   useFloatingCardKeys(cardShown, () => setCardShown(false), dockRef);
   const close = () => setComposerVerb(chatId, null);

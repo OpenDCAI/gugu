@@ -37,7 +37,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
   const rowId = sidebarStore.rowProjectIdOf(projectId);
   const memberIds = sidebarStore.projectMembersOf(rowId);
   const folders = useProjectFolders(rowId, memberIds);
-  const thisComputer: AttachMachine = { id: null, label: translate('projects.folders.thisComputer'), online: true, kind: 'computer' };
+  const thisComputer: AttachMachine = { id: null, label: translate('task.deviceLocal'), online: true, kind: 'computer' };
   const describeMachine = (deviceId: string): AttachMachine => {
     const device = remoteHostsStore.device(deviceId);
     return {

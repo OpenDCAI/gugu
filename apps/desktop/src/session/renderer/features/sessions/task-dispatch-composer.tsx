@@ -32,17 +32,26 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
   chatId,
   chatName,
   joinChat = false,
+  verbKey = chatId,
+  onSessionCreated,
+  placeholder,
 }: {
   chatId: string;
   /** 群名(托盘上那一格);`joinChat` 时要。 */
   chatName?: string;
   joinChat?: boolean;
+  /** 这个词记在 composerVerbBridge 的哪一格;缺省 = 这个对话(没有项目的会话里选的记在那条会话上,卡落它的私聊)。 */
+  verbKey?: string;
+  /** 建好之后(框已还原):会话里派的,新会话拼到右边。 */
+  onSessionCreated?: (result: { projectId: string; sessionId: string }) => void;
+  /** 缺省「想让 X 做点什么？」;会话里派的说清是一个新的 agent。 */
+  placeholder?: (agentName: string) => string;
 }) {
   const { translate } = useSessionMessages();
-  const draftKey = taskDispatchDraftKey(chatId);
+  const draftKey = taskDispatchDraftKey(verbKey);
   // 选词那一刻框里写着的话跟过来:要在 NewSessionComposer 挂上(读草稿)之前放好。
   useState(() => {
-    const carried = takeComposerCarry(chatId);
+    const carried = takeComposerCarry(verbKey);
     if (carried) composerDrafts.set(draftKey, carried);
     return null;
   });
@@ -67,7 +76,7 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
   );
   const effectiveProjectId = selectedId ?? implicitProjectId;
 
-  const close = () => setComposerVerb(chatId, null);
+  const close = () => setComposerVerb(verbKey, null);
   return (
     <div data-testid="task-dispatch-composer" data-chat-id={chatId}>
       <ComposerTray
@@ -79,14 +88,17 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
         <NewSessionComposer
           key={remote?.deviceId ?? 'local'}
           draftKey={draftKey}
-          placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
-          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(chatId, draftKey), testId: 'task-dispatch' })}
+          placeholder={placeholder ?? ((agent) => translate('taskDispatch.placeholder', { agent }))}
+          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(verbKey, draftKey), testId: 'task-dispatch' })}
           creationSurface="session-page"
           taskChatId={chatId}
           openAfterCreate={false}
           birthChatId={joinChat ? chatId : undefined}
           {...machineComposerProps(machineContext, { projectId: effectiveProjectId })}
-          onSessionCreated={close}
+          onSessionCreated={(result) => {
+            close();
+            onSessionCreated?.(result);
+          }}
         />
       </ComposerTray>
     </div>

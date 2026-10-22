@@ -410,9 +410,9 @@ const ComposerForStore = observer(function ComposerForStore({
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
-  // 只有项目里的会话(项目有群)才能从这里派:任务卡和结果要有地方落。
+  // gugu-dev#181 ⑫ 在会话里也能派:项目里的会话,卡落项目群;没有项目的会话(就是和这个 agent 的私聊),卡落那个私聊。
   const groupChatId = projectGroupsStore.chatIdOf(store.projectId);
-  const verb = useComposerVerb(groupChatId ? sessionVerbKey(store.sessionId) : null);
+  const verb = useComposerVerb(sessionVerbKey(store.sessionId));
   // 点了新任务框标签上的 ×:那一框写的话交回这里(composerVerbBridge 的 carry)。
   useEffect(() => {
     const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
@@ -1576,8 +1576,8 @@ const ComposerForStore = observer(function ComposerForStore({
 
   const a = store.affordances;
 
-  // gugu-dev#181 ⑫ 项目里的会话也能派:选了「新任务 / 定时任务」,这一框换成那件事(任务卡落项目群)。
-  if (verb && groupChatId) {
+  // gugu-dev#181 ⑫ 会话里也能派:选了「新任务 / 定时任务」,这一框换成那件事(卡落项目群;没有项目的落它的私聊)。
+  if (verb) {
     return createPortal(<SessionVerbDock sessionId={store.sessionId} verb={verb} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
   }
 
@@ -1738,9 +1738,7 @@ const ComposerForStore = observer(function ComposerForStore({
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}
-        toolbarExtra={groupChatId ? (
-          <SessionComposerVerbs sessionId={store.sessionId} draft={store.draftText} onCarried={() => store.setDraftText('')} />
-        ) : undefined}
+        toolbarExtra={<SessionComposerVerbs sessionId={store.sessionId} draft={store.draftText} onCarried={() => store.setDraftText('')} />}
       />
     </>,
     composerSlot
