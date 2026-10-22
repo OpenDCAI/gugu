@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatItem, ChatMessage, TranscriptTurn, TurnProcessItem, TurnCompletionItem } from '@session-chat/model';
 import { flattenTier, planTurnFold, toolRunId, turnProcessId } from './flatten';
 import { pendingPromptTurn } from './pending-prompt';
-import { turnProcessLabel } from './turn-fold';
+import { joinsFoldRunAt, turnProcessLabel } from './turn-fold';
 
 function passthrough(kind: string): ItemSegmenter {
   return {
@@ -561,13 +561,68 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(ids(units)).toEqual(['u13', turnProcessId('t13'), toolRunId('t13', 'b1'), 'a13', toolRunId('t13', 'b4')]);
   });
 
-  it('agent 自发的一轮不套头:完成通知、后续 cycle 平铺,语义折叠就是它的折叠(「这就已经算折叠了」)', () => {
+  it('agent 自己开头、跑完一句话没留下的一轮不套头:外面只会剩一个空头,照旧平铺(#69)', () => {
     // 没有用户开场白、initiator 是 agent —— 比如后台子智能体跑完那一轮。
     const notified = turn('t10', [row('subagent-done-tool-call', 'd1'), row('subagent-done-tool-call', 'd2'), thinking('th10')], DONE);
     const units = flattenTier([notified], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
     expect(kinds(units)).not.toContain('turn-process');
     // 思考也进这一句(#7316,owner 10-16),所以两条「跑完了」和那一段思考是同一行。
     expect(ids(units)).toEqual([toolRunId('t10', 'd1')]);
+  });
+
+  // owner 2026-10-22(#69):后台命令跑完把 agent 叫醒的那一轮,跑完了过程还摊着,看着就是同一问没折。
+  it('#69 agent 自己开头、说了话的一轮同样折:时间头 + 最后一句话', () => {
+    const woke = turn('t11', [
+      row('background-command-done-tool-call', 'bd'), row('read-tool-call', 'rd'),
+      reply('a-mid', '汇总脚本写错了,先看是哪个 job 挂的'), bash('x1'), reply('a-final', '已重跑'),
+    ], DONE, { startedAt: 1_000, endedAt: 66_000 });
+    const units = flattenTier([woke], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(ids(units)).toEqual([turnProcessId('t11'), 'a-final']);
+    expect([header(units)?.startedAt, header(units)?.endedAt]).toEqual([1_000, 66_000]);
+  });
+
+  it('#69 一句话没说的那一轮不当锚:紧跟着开口的那一轮自己一个头,用时只算它自己', () => {
+    // 两次被叫醒之间可能隔了很久;并成一个头,头上的用时就把这段空闲也算进去了(#70 review)。
+    const silent = turn('t12', [row('background-command-done-tool-call', 'bd1'), bash('x1')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const spoke = turn('t13', [row('background-command-done-tool-call', 'bd2'), bash('x2'), reply('a13', '验证完了')], DONE, { startedAt: 600_000, endedAt: 604_000 });
+    const units = flattenTier([silent, spoke], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    const headers = units.filter((u) => u.kind === 'turn-process');
+    expect(headers.map((u) => u.itemId)).toEqual([turnProcessId('t13')]);
+    // 没开口的那一轮平铺(两行语义折成一句),开口的那一轮自己一个头。
+    expect(ids(units)).toEqual([toolRunId('t12', 'bd1'), turnProcessId('t13'), 'a13']);
+    const h = headers[0]?.data as { startedAt?: number; endedAt?: number };
+    expect([h.startedAt, h.endedAt]).toEqual([600_000, 604_000]);
+  });
+
+  it('#69 只说了 `[NO_REPLY]` 或空白不算开口:照旧平铺', () => {
+    const quiet = turn('t15', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('nr', '[NO_REPLY]')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const blank = turn('t16', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('ws', '  \n')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    for (const t of [quiet, blank]) {
+      expect(kinds(flattenTier([t], ctxWith({ foldTurnProcess: true }), SEGMENTERS))).not.toContain('turn-process');
+    }
+  });
+
+  it('#69 agent 自己开头、只以钩子的话收尾的一轮:没开口,平铺,钩子的话看得见', () => {
+    const t = turn('t17', [row('background-command-done-tool-call', 'bd'), bash('x1'), hookNotice('hk')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const units = flattenTier([t], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect(ids(units)).toContain('hk');
+  });
+
+  it('#69 一句话没说的自发轮照旧并进前面那一问(那一问还没收尾)', () => {
+    const asked = turn('t18', [user('u18'), bash('x1')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+    const silent = turn('t19', [row('background-command-done-tool-call', 'bd'), bash('x2')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+    const units = flattenTier([asked, silent], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(units.filter((u) => u.kind === 'turn-process').map((u) => u.itemId)).toEqual([turnProcessId('t18')]);
+    expect(ids(units).slice(0, 2)).toEqual(['u18', turnProcessId('t18')]);
+    expect(ids(units)).not.toContain('bd');
+  });
+
+  it('#69 agent 自己开头、正在跑的一轮不套头:开不开口还不知道,跑完再折', () => {
+    const running = turn('t14', [row('background-command-done-tool-call', 'bd'), bash('x1'), reply('a14', '在查'), bash('x2')], undefined, { startedAt: 5_000 });
+    const units = flattenTier([running], ctxWith({ foldTurnProcess: true, active: true }), SEGMENTERS);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect(ids(units)).toContain('a14');
   });
 
   it('活动层:时间头带 live 在数,内容**默认摊开**(Codex:跑着的时候看得见在干嘛)', () => {
@@ -720,5 +775,32 @@ describe('tool-only completion reading (#7324)', () => {
   it('places actions after a final tool even when the agent spoke before calling it', () => {
     expect(reading([turn('t', [user('u'), reply('preface', 'I will send the reply'), tool('send')], DONE, clock)])?.text)
       .toBe('I will send the reply\n\nbash');
+  });
+});
+
+describe('joinsFoldRunAt:追加的那一轮会不会并进前面还没收尾的折叠(#70 review)', () => {
+  const DAY = 86_400_000;
+  const ask = turn('ask', [user('u'), bash('x0')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+  const answered = turn('answered', [user('u'), bash('x0'), reply('a0')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+  const silent = turn('silent', [row('background-command-done-tool-call', 'bd'), bash('x1')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+  const spoke = turn('spoke', [bash('x2'), reply('a2', '做完了')], DONE, { startedAt: 5_000, endedAt: 6_000 });
+
+  it('前一问没收尾、agent 接着干 ⇒ 会并', () => {
+    expect(joinsFoldRunAt([ask, spoke], 1, true)).toBe(true);
+  });
+  it('隔着一轮并进去的没开口的轮,也往回找到那一问', () => {
+    expect(joinsFoldRunAt([ask, silent, spoke], 2, true)).toBe(true);
+  });
+  it('前一问已经有了回复、人开口的一轮、没开折叠、头一轮 ⇒ 不并', () => {
+    expect(joinsFoldRunAt([answered, spoke], 1, true)).toBe(false);
+    expect(joinsFoldRunAt([ask, answered], 1, true)).toBe(false);
+    expect(joinsFoldRunAt([ask, spoke], 1, false)).toBe(false);
+    expect(joinsFoldRunAt([spoke], 0, true)).toBe(false);
+  });
+  it('一句没说的轮不当锚,后面那一轮不并', () => {
+    expect(joinsFoldRunAt([answered, silent, spoke], 2, true)).toBe(false);
+  });
+  it('跨了一天的那一轮不并', () => {
+    expect(joinsFoldRunAt([ask, { ...spoke, startedAt: DAY * 3, endedAt: DAY * 3 + 1_000 }], 1, true)).toBe(false);
   });
 });

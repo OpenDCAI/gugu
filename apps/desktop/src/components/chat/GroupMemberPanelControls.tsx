@@ -99,13 +99,13 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   ), [currentUserId, enabled])
 
   const setRole = useCallback((profile: MemberProfileCardModel, role: GroupMemberRole) => (
-    runMutation(() => chatService.setGroupMemberRole(chatId, profile.id, role, profile.type === 'agent'))
+    runMutation(() => chatService.setGroupMemberRole(chatId, profile.id, role))
   ), [chatId, runMutation])
   const setListenMode = useCallback((profile: MemberProfileCardModel, mode: ListenMode) => (
     runMutation(() => chatService.setAgentListenMode(chatId, profile.id, mode))
   ), [chatId, runMutation])
   const remove = useCallback(async (profile: MemberProfileCardModel) => {
-    if (await runMutation(() => chatService.removeGroupMember(chatId, profile.id, profile.type === 'agent'))) setActiveProfile(null)
+    if (await runMutation(() => chatService.removeGroupMember(chatId, profile.id))) setActiveProfile(null)
   }, [chatId, runMutation])
 
   const editControlsFor = useCallback((profile: MemberProfileCardModel): MemberProfileEditControls | undefined => {

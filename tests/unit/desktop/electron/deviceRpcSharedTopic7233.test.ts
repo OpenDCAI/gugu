@@ -3,7 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const subs = vi.hoisted(() => ({ list: [] as { topic: string; onStatus: (status: string) => void }[] }))
-vi.mock('../../../../apps/desktop/electron/realtime-channel', () => ({
+vi.mock('../../../../apps/desktop/electron/realtime-channel', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../apps/desktop/electron/realtime-channel')>()),
   subscribeAuthenticatedElectronRealtimeChannel: async (_client: unknown, channel: { topic: string }, options: { onStatus: (status: string) => void }) => {
     subs.list.push({ topic: channel.topic, onStatus: options.onStatus })
     return () => undefined

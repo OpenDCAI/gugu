@@ -22,6 +22,7 @@ import {
   safeStorage,
   screen,
   desktopCapturer,
+  webContents,
   type OpenDialogOptions
 } from 'electron'
 import { listAgents, listDevices, listReapedAgents, provisionSessionpageAgentOneTrip, resolveMachineHardwareId, type DeviceTableClient, type RuntimeAuthProvider } from '@gugu/core'
@@ -78,6 +79,7 @@ import { isWindowMenuCommand } from '../shared/window-menu-commands'
 import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
+import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
@@ -1330,6 +1332,50 @@ function loadMainWindowContents(): void {
     // renderer output 打包在 app root 的 dist/,由 whenReady 里的 protocol.handle 供给。
     mainWindow.loadURL('gugu-app://app/index.html')
   }
+}
+
+/**
+ * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(前提与边界见 macWebAuthn.ts 头注释)。只在包里嵌着描述文件时打开;
+ * 要在界面语言定下之后调用 —— 系统指纹框里那句「正在尝试…」用的是它。
+ */
+function enableMacTouchIdPasskeys(): void {
+  if (process.platform !== 'darwin' || !app.isPackaged) return
+  const logger = createLogger('webauthn')
+  const profilePath = join(dirname(process.execPath), '..', 'embedded.provisionprofile')
+  // 描述文件是 CMS 包着的 plist,按 latin1 读,里面那段 XML 原样可见(只取 ASCII 的应用 ID)。
+  const keychainAccessGroup = webAuthnKeychainGroup(existsSync(profilePath) ? readFileSync(profilePath, 'latin1') : null)
+  if (!keychainAccessGroup) {
+    logger.info('包里没有嵌描述文件(开发版 / 验收包 / ad-hoc 包),不开 Touch ID 通行密钥')
+    return
+  }
+  // 指纹框里那句交给系统后就定了,改界面语言要下次启动才跟上;选账号的对话框每次弹时现取(见下)。
+  app.configureWebAuthn({ touchID: { keychainAccessGroup, promptReason: currentHostCatalog().webAuthn.touchIdReason } })
+  logger.info({ keychainAccessGroup }, 'Touch ID 通行密钥已开')
+
+  // 同一网站存着多把:不接这个事件,请求就被当成取消(恰好回调一次、看不见就不问,见 createSelectAccountHandler)。
+  // 事件挂在 session 上,而内置浏览器每个档案一个 session、用到才建 ⇒ 默认那个现在挂,之后建的在 session-created 里挂。
+  const handle = createSelectAccountHandler<BrowserWindow, Electron.WebFrameMain>({
+    parentFor: (frame) => {
+      const contents = frame ? webContents.fromFrame(frame) : undefined
+      if (!contents || contents.isDestroyed()) return null
+      // 内置浏览器的网页是摆在咕咕窗口上(或停在看不见的停放窗里)的 view ⇒ 由会话页说它此刻露在哪扇窗上;
+      // 其余网页(咕咕自己的窗口)就是拥有它的那扇窗。
+      const page = loadEmdashBridge()?.emdashVisibleHostOfPage(contents)
+      if (page !== undefined) return page
+      const owner = BrowserWindow.fromWebContents(contents)
+      return owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() ? owner : null
+    },
+    copy: () => currentHostCatalog().webAuthn.chooseAccount,
+    ask: async (parent, options) => (await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })).response,
+    warn: (message, error) => logger.warn({ err: error }, message),
+  })
+  const onSelectAccount = (
+    _event: Electron.Event,
+    details: Electron.SelectWebauthnAccountDetails,
+    callback: (credentialId?: string | null) => void,
+  ): void => handle(details, callback)
+  session.defaultSession.on('select-webauthn-account', onSelectAccount)
+  app.on('session-created', (created) => created.on('select-webauthn-account', onSelectAccount))
 }
 
 /**
@@ -4106,6 +4152,11 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), HOST_LOCALE_STATE_FILE),
     app.getPreferredSystemLanguages(),
   )
+  try {
+    enableMacTouchIdPasskeys()
+  } catch (error) {
+    createLogger('webauthn').error({ err: error }, 'Touch ID 通行密钥没开成,内置浏览器照旧(网站会以为这台电脑没有指纹)')
+  }
 
   try {
     const retired = await removeRetiredCodexCapabilityRuns(process.env)

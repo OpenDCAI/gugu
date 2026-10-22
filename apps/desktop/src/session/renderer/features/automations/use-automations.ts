@@ -167,7 +167,7 @@ export function useLatestAutomationRun(automationId: string) {
   const key = automationsQueryKey(host, 'runs', automationId, 'latest');
 
   useEffect(() => {
-    // 只听这一页看的那台机器推的(各台机器的事件在渲染层合流,见 lib/ipc.ts)。
+    // 只听这一页看的那台机器推的(事件按机器订,见 lib/ipc.ts 的 onMachineEvent)。
     return onMachineEvent(machineOf(host), automationRunChangedChannel, ({ automationId: id, run }) => {
       if (id !== automationId) return;
       queryClient.setQueryData(key, run);
@@ -197,7 +197,7 @@ export function useAutomationEventBridge(automationId: string) {
   const queryClient = useQueryClient();
   const host = useAutomationsHost();
   useEffect(() => {
-    // 只听这一页看的那台机器推的(各台机器的事件在渲染层合流,见 lib/ipc.ts)。
+    // 只听这一页看的那台机器推的(事件按机器订,见 lib/ipc.ts 的 onMachineEvent)。
     const machine = machineOf(host);
     const unsubChanged = onMachineEvent(machine, automationChangedChannel, ({ automationId: id }) => {
       if (id !== automationId) return;

@@ -1018,6 +1018,8 @@ describe('AcpRuntime session manager', () => {
       } as SessionUpdate,
     });
 
+    // 同一拍里的第二块在拍尾才发出(显示节拍,见 publishOnTick)。
+    await vi.waitFor(() => expect(updates.length).toBeGreaterThan(0));
     const patches = updates.flatMap((update) => update.delta as Array<{ path: unknown[] }>);
     expect(patches.length).toBeGreaterThan(0);
     expect(patches.every((patch) => patch.path.length > 0)).toBe(true);

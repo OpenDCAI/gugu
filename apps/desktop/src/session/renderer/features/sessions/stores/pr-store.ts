@@ -1,7 +1,7 @@
 import type { GitChange } from '@gugu/session-core/git';
 import { makeAutoObservable } from 'mobx';
 import type { GitRepositoryStore } from '@renderer/features/projects/stores/git-repository-store';
-import { events, rpc } from '@renderer/lib/ipc';
+import { rpc } from '@renderer/lib/ipc';
 import { Resource } from '@renderer/lib/stores/resource';
 import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git/events';
 import { commitRef, mergeBaseRange } from '@shared/core/git/utils';
@@ -69,7 +69,7 @@ export class PrStore {
               const unsubHead = workspaceEvents.on(gitWorktreeUpdateChannel, (p) => {
                 if (p.workspaceId === this.workspaceId && p.update.kind === 'head') handler();
               });
-              const unsubRefs = events.on(gitRepoUpdateChannel, (p) => {
+              const unsubRefs = workspaceEvents.on(gitRepoUpdateChannel, (p) => {
                 if (p.projectId === this.projectId && p.update.kind === 'refs') handler();
               });
               return () => {

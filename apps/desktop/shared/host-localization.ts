@@ -73,6 +73,18 @@ const HOST_CATALOG = {
       noSession: '这个链接要在一个任务里打开「{name}」,但那个任务不在这台电脑上。',
       openFailed: '「{name}」没能打开:{detail}',
     },
+    /**
+     * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(electron/macWebAuthn.ts)。touchIdReason 由 macOS 拼进系统指纹框:
+     * 「"咕咕"正在尝试<这一句>」,`$1` 换成网站域名。chooseAccount = 同一网站存着多把时让人选。
+     */
+    webAuthn: {
+      touchIdReason: '在 $1 上验证你的身份',
+      chooseAccount: {
+        message: '用哪个账号登录 {site}?',
+        detail: '这台 Mac 上的咕咕里存着 {site} 的多把通行密钥。',
+        cancel: '取消',
+      },
+    },
     /** 主窗口的页面几分钟内连着崩了好几次、不再自动重新载入时,当面说的话(electron/renderer-crash-recovery.ts)。{count} = 次数。 */
     rendererCrash: {
       title: '咕咕的界面反复出错',
@@ -144,6 +156,15 @@ const HOST_CATALOG = {
       noSuchTab: "{name} has no page this link points to — it may come from another version.",
       noSession: 'This link opens {name} in a task that is not on this computer.',
       openFailed: "{name} couldn't open: {detail}",
+    },
+    webAuthn: {
+      // macOS renders `"咕咕" is trying to <this>`, so a lowercase fragment.
+      touchIdReason: 'verify your identity on $1',
+      chooseAccount: {
+        message: 'Which account do you want to sign in to {site} with?',
+        detail: '咕咕 on this Mac has more than one passkey for {site}.',
+        cancel: 'Cancel',
+      },
     },
     rendererCrash: {
       title: "咕咕's window keeps crashing",

@@ -157,6 +157,19 @@ function makeFakeChat() {
     },
     async rpc(name: string, args: Record<string, unknown>) {
       rpcCalls.push({ name, args })
+      if (name === 'add_group_agent') {
+        const group = groups.find((g) => g.chatId === args.p_chat_id)
+        if (!group) return { data: null, error: { message: 'not_a_group' } }
+        const user = String(args.p_agent_user_id)
+        const exists = group.members.includes(user)
+        if (!exists) group.members.push(user)
+        return { data: { chat_id: group.chatId, status: exists ? 'already_member' : 'joined' }, error: null }
+      }
+      if (name === 'set_agent_listen_mode_as') return { data: { chat_id: args.p_chat_id, user_id: args.p_agent_user_id, listen_mode: args.p_mode }, error: null }
+      if (name === 'archive_group_as') {
+        chatUpdates.push({ table: 'chats', id: String(args.p_chat_id), patch: { status: 'archived' } })
+        return { data: { chat_id: args.p_chat_id, status: 'archived' }, error: null }
+      }
       if (name === 'open_dm') {
         const target = String(args.p_target_user_id)
         let dm = dms.find((d) => d.target === target)

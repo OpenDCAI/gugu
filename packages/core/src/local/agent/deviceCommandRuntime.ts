@@ -970,12 +970,13 @@ export async function syncAgentRuntimeSessions(
     /** #4277 这份 token 是谁的:记了别家 owner 的行不写(它们的主人回来时自己会刷)。 */
     ownerUserId?: string | null
   } = {}
-): Promise<void> {
+): Promise<boolean> {
   const env = options.env ?? process.env
-  if (!options.accessToken) return
+  if (!options.accessToken) return false
   const accessToken = options.accessToken
   const refreshToken = options.refreshToken ?? ''
   const agents = agentsForOwner(await listAgents(env), options.ownerUserId)
+  let allWritten = true
   for (const agent of agents) {
     if (!agent.gugu_user_id) continue
     try {
@@ -985,9 +986,11 @@ export async function syncAgentRuntimeSessions(
       )
     } catch {
       // Best-effort: a single agent's file write failing should not block the
-      // rest. Errors surface on the next tick if persistent.
+      // rest. Reported as not-all-written so the caller writes the batch again.
+      allWritten = false
     }
   }
+  return allWritten
 }
 
 /**

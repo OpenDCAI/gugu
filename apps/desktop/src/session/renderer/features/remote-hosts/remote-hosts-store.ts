@@ -9,11 +9,18 @@ import { comparer, makeAutoObservable, observable, reaction, runInAction } from 
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { LocalProject } from '@shared/projects';
 import type { SessionHostClient } from '@shared/lib/ipc/session-host-client';
-import { rpcOn } from '@renderer/lib/ipc';
+import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
+import type { EventDefinition } from '@shared/lib/ipc/events';
+import {
+  projectCreatedChannel,
+  projectDeletedChannel,
+  projectVisibilityChangedChannel,
+} from '@shared/core/projects/projectEvents';
 import {
   closeMachineClient,
   machineClient,
   machineLinkState,
+  onEachMachine,
   reconnectMachine,
   subscribeMachineLink,
   type MachineLinkState,
@@ -39,6 +46,7 @@ import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
 import { sessionListFromDigest, startSessionListSync, type SessionListSync } from '@/session/shared/remote-sessions/session-list-sync';
 import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
 import {
+  remoteHostReachable,
   cloudComputerWakeFailureOf,
   findRemoteHostsBridge,
   onRemoteHostsBridgeChange,
@@ -542,7 +550,18 @@ export class RemoteHostsStore {
       for (const deviceId of [...this.hosts.keys()]) this.forget(deviceId);
       return;
     }
-    this.stopDevices = bridge.subscribeDevices(() => this.reconcile());
+    const offDevices = bridge.subscribeDevices(() => this.reconcile());
+    // 那台机器上的项目清单变了(新建 / 删掉 / 显隐):在那台机器上订,重读它的清单(只登记,❌ 挂;用到时 ensureMounted)。
+    const offProjects = onEachMachine((deviceId) => {
+      const offs = [projectCreatedChannel, projectDeletedChannel, projectVisibilityChangedChannel].map((event) =>
+        onMachineEvent(deviceId, event as EventDefinition<unknown>, () => void this.syncProjects(deviceId))
+      );
+      return () => offs.forEach((off) => off());
+    });
+    this.stopDevices = () => {
+      offDevices();
+      offProjects();
+    };
     this.reconcile();
   }
 
@@ -554,7 +573,7 @@ export class RemoteHostsStore {
     for (const device of devices) {
       seen.add(device.id);
       const current = this.hosts.get(device.id);
-      const cameBack = current !== undefined && !reachable(current.device) && reachable(device);
+      const cameBack = current !== undefined && !remoteHostReachable(current.device) && remoteHostReachable(device);
       runInAction(() => {
         if (current) current.device = device;
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
@@ -563,7 +582,7 @@ export class RemoteHostsStore {
       });
       if (!current) this.watch(device.id);
       // 心跳说它在(远程 SSH:设备连接没报问题)就连;刚从离线回来的不等退避。
-      if (reachable(device)) {
+      if (remoteHostReachable(device)) {
         const client = machineClient(device.id);
         if (client && linkNeedsReopen(device, machineLinkState(device.id), client, cameBack)) reconnectMachine(device.id);
       }
@@ -661,12 +680,6 @@ export class RemoteHostsStore {
       saveHomeDirs(rest);
     }
   }
-}
-
-/** 心跳说它在;远程 SSH 的机器只看 SSH 这一条(要先登录 / 正在替它升级都不去连,升完那一刻再连)。 */
-function reachable(device: RemoteHostDevice): boolean {
-  if (device.sshLink === 'signInRequired' || device.sshLink === 'updating') return false;
-  return device.isOnline || device.directTerminal;
 }
 
 /**

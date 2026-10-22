@@ -22,7 +22,8 @@ function harness(options: {
   peers?: Array<{ sessionId: string; identity: { users: { id: string } } }>
   guguNumbers?: Record<number, string>
   ownerPinned?: string[]
-  patchRows?: unknown
+  saved?: unknown
+  managementError?: Error
 } = {}) {
   const rpcs: RpcCall[] = []
   const patches: Array<{ path: string; body: Record<string, unknown> }> = []
@@ -34,6 +35,11 @@ function harness(options: {
         throw new RpcHttpError(400, { detail: `Not allowed to act as ${actor}` })
       }
       return options.groupsAs?.[actor] ?? []
+    }
+    if (name === 'chat_facts') return [{ kind: 'group' }]
+    if (name === 'update_group_as' || name === 'group_info_as') {
+      if (options.managementError) throw options.managementError
+      return options.saved ?? { id: body.p_chat_id, name: '保存的群', can_manage: true, can_dissolve: false }
     }
     if (name === 'add_group_agent') {
       if (options.addError) throw options.addError
@@ -65,11 +71,12 @@ function harness(options: {
       if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') {
         return (options.ownerPinned ?? []).map((chat_id) => ({ chat_id }))
       }
+      if (path.startsWith('chats?') && path.endsWith('select=kind')) return [{ kind: 'group' }]
       throw new Error(`group tools must not read tables directly: ${path}`)
     },
     restPatchReturning: async (path: string, body: Record<string, unknown>) => {
       patches.push({ path, body })
-      return options.patchRows ?? []
+      throw new Error('direct group PATCH must not be used')
     },
   }
   const call = (name: string, args: Record<string, unknown>) => callToolImpl(context, name, args, deps)
@@ -98,117 +105,60 @@ describe('#6492 group_list', () => {
   })
 })
 
-describe('#6492 group_add_agent', () => {
-  test('省略 agent = 自己:先以自己身份核群,再走 add_group_agent(与界面同一条路)', async () => {
-    const h = harness({ groupsAs: { [SELF]: [row()] } })
-    const result = JSON.parse(await h.call('group_add_agent', { chat_id: GROUP }))
-    expect(result).toEqual({ status: 'joined', chat_id: GROUP, agent_user_id: `user:${SELF}` })
-    expect(h.rpcs).toEqual([
-      { name: 'list_owner_groups_as', body: { p_as_user_id: SELF } },
-      { name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SELF, p_message: null } },
-    ])
-  })
-
-  test('已是成员 ⇒ already_member,不再调 add_group_agent(正对照:joined=false 时会调,见上一条)', async () => {
-    const h = harness({ groupsAs: { [SELF]: [row({ joined: true })] } })
+describe('group_add_agent through the shared actor door', () => {
+  test('adds itself with the caller’s actor, without a second owner-role preflight', async () => {
+    const h = harness()
     expect(JSON.parse(await h.call('group_add_agent', { chat_id: GROUP })))
-      .toEqual({ status: 'already_member', chat_id: GROUP, agent_user_id: `user:${SELF}` })
-    expect(h.rpcs.map((call) => call.name)).toEqual(['list_owner_groups_as'])
+      .toEqual({ status: 'joined', chat_id: GROUP, agent_user_id: `user:${SELF}` })
+    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SELF, p_message: null, p_as_user_id: SELF } }])
   })
-
-  test('需审批的群 ⇒ pending_approval 原样带回 request_id', async () => {
-    const h = harness({
-      groupsAs: { [SELF]: [row({ agent_join_needs_approval: true })] },
-      addResult: { status: 'pending_approval', chat_id: GROUP, request_id: 'req-1' },
-    })
+  test('already_member is authoritative from the database', async () => {
+    const h = harness({ addResult: { status: 'already_member', chat_id: GROUP } })
+    expect(JSON.parse(await h.call('group_add_agent', { chat_id: GROUP })).status).toBe('already_member')
+    expect(h.rpcs.map((call) => call.name)).toEqual(['add_group_agent'])
+  })
+  test('returns pending_approval without claiming membership', async () => {
+    const h = harness({ addResult: { status: 'pending_approval', chat_id: GROUP, request_id: 'req-1' } })
     expect(JSON.parse(await h.call('group_add_agent', { chat_id: GROUP })))
-      .toEqual({ status: 'pending_approval', chat_id: GROUP, request_id: 'req-1', agent_user_id: `user:${SELF}` })
+      .toMatchObject({ status: 'pending_approval', request_id: 'req-1' })
   })
-
-  test('session:<id> 经本机名录解析成那条会话的身份,核群与入群都用它', async () => {
-    const h = harness({
-      groupsAs: { [SIBLING]: [row()] },
-      peers: [{ sessionId: 'conv-sibling', identity: { users: { id: SIBLING } } }],
-    })
-    const result = JSON.parse(await h.call('group_add_agent', { chat_id: GROUP, agent: 'session:conv-sibling' }))
-    expect(result).toMatchObject({ status: 'joined', agent_user_id: `user:${SIBLING}` })
-    expect(h.rpcs).toEqual([
-      { name: 'list_owner_groups_as', body: { p_as_user_id: SIBLING } },
-      { name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SIBLING, p_message: null } },
-    ])
+  test('resolves a sibling session as the target while the actor stays the caller', async () => {
+    const h = harness({ peers: [{ sessionId: 'conv-sibling', identity: { users: { id: SIBLING } } }] })
+    await h.call('group_add_agent', { chat_id: GROUP, agent: 'session:conv-sibling' })
+    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SIBLING, p_message: null, p_as_user_id: SELF } }])
   })
-
-  test('gugu:<号> 与 aid:<id> 两种写法落到同一个身份', async () => {
-    const byNumber = harness({ groupsAs: { [SIBLING]: [row()] }, guguNumbers: { 4242: SIBLING } })
-    await byNumber.call('group_add_agent', { chat_id: GROUP, agent: 'gugu:4242' })
-    expect(byNumber.rpcs.find((call) => call.name === 'add_group_agent')?.body.p_agent_user_id).toBe(SIBLING)
-    const byAid = harness({ groupsAs: { [SIBLING]: [row()] } })
-    await byAid.call('group_add_agent', { chat_id: GROUP, agent: `aid:${SIBLING}` })
-    expect(byAid.rpcs.find((call) => call.name === 'add_group_agent')?.body.p_agent_user_id).toBe(SIBLING)
+  test('resolves gugu and aid addresses through the existing identity boundary', async () => {
+    for (const address of ['gugu:4242', `aid:${SIBLING}`]) {
+      const h = harness({ guguNumbers: { 4242: SIBLING } })
+      await h.call('group_add_agent', { chat_id: GROUP, agent: address })
+      expect(h.rpcs.find((call) => call.name === 'add_group_agent')?.body).toMatchObject({ p_agent_user_id: SIBLING, p_as_user_id: SELF })
+    }
   })
-
-  test('不是主人名下的 agent(人、别人的 agent)⇒ 报错并指向 message_invite,不调 add_group_agent', async () => {
-    const h = harness({ notOwned: [SIBLING] })
-    await expect(h.call('group_add_agent', { chat_id: GROUP, agent: `user:${SIBLING}` }))
-      .rejects.toThrow(/not one of your owner's agents[\s\S]*message_invite/)
-    expect(h.rpcs.map((call) => call.name)).toEqual(['list_owner_groups_as'])
-  })
-
-  test('主人不在的群 ⇒ 报错并指向 group_list,不调 add_group_agent', async () => {
-    const h = harness({ groupsAs: { [SELF]: [row({ chat_id: OTHER_GROUP })] } })
-    await expect(h.call('group_add_agent', { chat_id: GROUP })).rejects.toThrow(/not an active group your owner is in[\s\S]*group_list/)
-    expect(h.rpcs.map((call) => call.name)).toEqual(['list_owner_groups_as'])
-  })
-
-  test('库回了认不出的状态 ⇒ fail loud,❌ 不报成已入群', async () => {
-    const h = harness({ groupsAs: { [SELF]: [row()] }, addResult: { status: 'accepted', chat_id: GROUP } })
-    await expect(h.call('group_add_agent', { chat_id: GROUP })).rejects.toThrow(/unexpected result/)
-  })
-
-  test('库的其余拒绝(人数上限、归档……)原样透给 agent', async () => {
-    const h = harness({ groupsAs: { [SELF]: [row()] }, addError: new RpcHttpError(400, { detail: 'member_limit_reached' }) })
-    await expect(h.call('group_add_agent', { chat_id: GROUP })).rejects.toThrow(/member_limit_reached/)
-  })
-
-  test('三件工具归 group 域,两件写类(不认识的键直接拒)', () => {
-    const defs = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>).filter((def) => def.name.startsWith('group_'))
-    expect(defs.map((def) => def.name)).toEqual(['group_list', 'group_add_agent', 'group_create', 'group_update'])
-    expect(defs.filter((def) => def.writer).map((def) => def.name)).toEqual(['group_add_agent', 'group_create', 'group_update'])
+  test('propagates ownership/admission rejection from the one database check', async () => {
+    for (const detail of ['agent_not_owned', 'actor_not_member', 'member_limit_reached']) {
+      const h = harness({ addError: new RpcHttpError(400, { detail }) })
+      await expect(h.call('group_add_agent', { chat_id: GROUP })).rejects.toThrow(detail)
+    }
+    await expect(harness({ addResult: { status: 'accepted', chat_id: GROUP } }).call('group_add_agent', { chat_id: GROUP })).rejects.toThrow(/unexpected membership result/)
   })
 })
 
-// #6698 group_update:与人在群设置里改群资料同一个写口(PATCH chats),判权交给库(chats_update_owner)。
-// 库那一半(主人是群主 / 管理员才改得动)在 ownerGroupTools6492 契约用例里对着真库判。
-describe('#6698 group_update', () => {
-  const saved = { id: GROUP, name: '问题汇总群', description: null }
-
-  test('只 PATCH 这一个群(kind=group),值先 trim;回的是库里存下的那一行', async () => {
-    const h = harness({ patchRows: [saved] })
-    expect(JSON.parse(await h.call('group_update', { chat_id: GROUP, name: '  问题汇总群 ', description: '   ' })))
-      .toEqual({ chat_id: GROUP, name: '问题汇总群', description: null })
-    expect(h.patches).toEqual([{
-      path: `chats?id=eq.${GROUP}&kind=eq.group&select=id,name,description`,
-      body: { name: '问题汇总群', description: null },
-    }])
-    expect(h.rpcs).toEqual([])
-  })
-
-  test('只给 description 就只写 description', async () => {
-    const h = harness({ patchRows: [{ ...saved, description: '收问题' }] })
-    await h.call('group_update', { chat_id: GROUP, description: '收问题' })
-    expect(h.patches.map((p) => p.body)).toEqual([{ description: '收问题' }])
-  })
-
-  test('改到 0 行(主人不是群主 / 管理员,或不是群)⇒ 报错说清是主人没权限,❌ 当作改好了', async () => {
-    const h = harness({ patchRows: [] })
-    await expect(h.call('group_update', { chat_id: GROUP, name: 'X' }))
-      .rejects.toThrow(/your owner is not the owner or an admin of group/)
-  })
-
-  test('空名字、什么都没给 ⇒ 报错,不发请求', async () => {
-    const h = harness({ patchRows: [saved] })
-    await expect(h.call('group_update', { chat_id: GROUP, name: '   ' })).rejects.toThrow(/name cannot be empty/)
-    await expect(h.call('group_update', { chat_id: GROUP })).rejects.toThrow(/pass name, description, or both/)
+describe('group_update has one sparse RPC write', () => {
+  test('maps rules to group_prompt and preserves the actual agent actor', async () => {
+    const h = harness({ saved: { id: GROUP, name: '保存的群', can_manage: true, can_dissolve: false } })
+    const result = JSON.parse(await h.call('group_update', { chat_id: GROUP, changes: { rules: '规则', description: '' } }))
+    expect(result.name).toBe('保存的群')
+    expect(h.rpcs.filter((call) => call.name !== 'chat_facts')).toEqual([{ name: 'update_group_as', body: { p_chat_id: GROUP, p_changes: { group_prompt: '规则', description: '' }, p_as_user_id: SELF } }])
     expect(h.patches).toEqual([])
+  })
+  test('rejects owner authority and missing authoritative receipts', async () => {
+    await expect(harness({ managementError: new Error('group_manager_required') }).call('group_update', { chat_id: GROUP, changes: { name: 'X' } })).rejects.toThrow('group_manager_required')
+    await expect(harness({ saved: [] }).call('group_update', { chat_id: GROUP, changes: { name: 'X' } })).rejects.toThrow(/no authoritative result/)
+  })
+  test('advertises no actor override and no legacy update schema', () => {
+    const def = TOOL_DEFS.find((entry: { name: string }) => entry.name === 'group_update')
+    for (const args of [{ chat_id: GROUP, name: 'X' }, { chat_id: GROUP, changes: {} }, { chat_id: GROUP, changes: { name: ' ' } }, { chat_id: GROUP, changes: { status: 'archived' } }, { chat_id: GROUP, changes: { name: 'X' }, as_user_id: SELF }]) {
+      expect(def.schema.strict().safeParse(args).success).toBe(false)
+    }
   })
 })

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { BUILD_TAG_WINDOW_NAME } from '../session/shared/aux-window'
+import { buildTagWindowName } from '../session/shared/aux-window'
 
 declare const __GUGU_BUILD_TAG__: string
 declare const __GUGU_TEST_NOTES__: string
@@ -67,7 +67,7 @@ export function BuildTagBadge() {
     const lifecycle = lease.current
     const generation = ++lifecycle.generation
     if (!owned.current || owned.current.popup.closed) {
-      const popup = window.open('about:blank', BUILD_TAG_WINDOW_NAME)
+      const popup = window.open('about:blank', buildTagWindowName())
       if (!popup) throw new Error('The native build tag window could not be opened')
       const mount = popup.document.createElement('div')
       popup.document.body.append(mount)
@@ -104,11 +104,15 @@ export function BuildTagBadge() {
       observer.disconnect()
       sizeObserver.disconnect()
       window.removeEventListener('resize', sync)
-      // StrictMode 会立即释放再认领同一组件。先交回这一轮同步任务,只关闭确实无人认领的窗口。
+      // StrictMode 会立即释放再认领同一组件。先交回这一轮同步任务,只收起确实无人认领的那一层。
+      // ❌ popup.close():角标是主窗里的一层,Electron 的 window.close 会把整个主窗关掉(electron/window-layers.ts)。
+      // 清空、写成 0 大小,主进程就收起它;再认领时开一层新的,主进程换掉这层。
       queueMicrotask(() => {
         if (lifecycle.generation !== generation) return
         owned.current = null
-        if (!popup.closed) popup.close()
+        mount.remove()
+        doc.documentElement.style.width = '0px'
+        doc.documentElement.style.height = '0px'
       })
     }
   }, [tag, native])
