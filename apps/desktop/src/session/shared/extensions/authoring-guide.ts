@@ -232,9 +232,9 @@ Free, from a click or key (they read and write no data):
 - \`showMessage(id)\` → its chat comes up, scrolled to it (a file's \`sourceMessageIds\`). \`not-found\`: not in its chat.
 - \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.session.id\`, a tool's
   \`call.session\`). \`not-found\`: not in that list. \`{ peek: true }\`: beside your page, left as it is.
-- \`compose(text, { chat } | { session } | { refs })\` → puts \`text\` after what is in the composer the call names — a
-  chat's (\`ctx.chat.id\`, or its \`refs\`' chat) or a session's — and brings it up; none named (\`apiVersion\` 10): the
-  person picks in gugu's sheet → \`{ chat }\` / \`{ session }\` / \`{ cancelled: true }\`. The person sends it, or not.
+- \`compose(text, { chat } | { session } | { refs })\` → adds \`text\` to the composer the call names — a chat's
+  (\`ctx.chat.id\`, or its \`refs\`' chat) or a session's — and brings it up; none named (\`apiVersion\` 10): the
+  person picks in gugu's sheet → \`{ chat }\` / \`{ session }\` / \`{ cancelled: true }\`. They send it, or not.
   Never a list, picker or composer of your own. "Cite this": a ref per place picked; a chat's takes \`images: [blob]\`
   too. \`not-found\`: a chat you are not in, a session not here.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
