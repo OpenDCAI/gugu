@@ -1,0 +1,5 @@
+/* Retained surfaces keep their layout and viewport intersection while hidden.
+   Pause descendants through inheritance, including across shadow boundaries. */
+[inert] {
+  --gugu-animation-surface-paused: paused;
+}
