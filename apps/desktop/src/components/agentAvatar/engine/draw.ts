@@ -1,6 +1,7 @@
 /**
- * draw.ts —— 一帧头像怎么画：底色 → 各形态层（由下到上：落地影 → 部件软网格（WebGL）→ 脸红 → 眼睛）→ 特效
+ * draw.ts —— 一帧头像怎么画：底色 → 各形态层（由下到上：落地影 → 部件软网格（WebGL）→ 腮红 → 眼睛 → 眉毛（face.ts））→ 特效
  * 不画任何旁挂的状态零件：展示状态由身体自己变形表达（forms.ts），形态的画面是设计稿出图抠下来的素材。
+ * 本体的翅膀、喙、脚是刚体部件（rig.ts），和身体底图在同一趟 GL 里按前后次序画。
  * 眼睛/腮红经过它所在部件的同一个 warp 与摆放，身体怎么挤、怎么歪、怎么滚，它们就怎么跟。
  * 装扮(outfits.ts)是另一层,穿插在这几步之间:back 在部件前、mid 在部件后眼睛前、top 在眼睛后(第二趟 GL)。
  */
@@ -10,6 +11,8 @@ import type { EyeOut, GuguFrame, Layer, Particle } from './engine'
 import type { Character } from './characters'
 import type { Part } from './forms'
 import type { OutfitDraw } from './outfits'
+import { newPose, piecePose, type PiecePose, type RigPiece } from './rig'
+import { EYE_ASPECT_K, EYE_SIZE_K, drawBrow, drawCheek, drawEye } from './face'
 
 export type FrameShape = 'circle' | 'squircle' | 'free'
 export type Crop = 'full' | 'bust'
@@ -157,144 +160,6 @@ function setLocal(ctx: CanvasRenderingContext2D, e: EyeOut, p: Part, v: View) {
   ctx.setTransform(m00 * v.s, m10 * v.s, m01 * v.s, m11 * v.s, v.ox + X0 * v.s, v.oy + Y0 * v.s)
 }
 
-function drawBlush(ctx: CanvasRenderingContext2D, e: EyeOut, k: number) {
-  if (k < 0.02) return
-  const r = e.r
-  ctx.save()
-  ctx.translate(0, r * (1.1 + 0.85 * e.aspect))
-  ctx.scale(1, 0.52)
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.5)
-  g.addColorStop(0, `rgba(255,118,128,${0.5 * k * e.alpha})`)
-  g.addColorStop(0.6, `rgba(255,128,138,${0.22 * k * e.alpha})`)
-  g.addColorStop(1, 'rgba(255,140,150,0)')
-  ctx.fillStyle = g
-  ctx.beginPath()
-  ctx.arc(0, 0, r * 1.5, 0, TWO_PI)
-  ctx.fill()
-  ctx.restore()
-}
-
-const lidV = (off: number, slope: number, bow: number, up: number, inner: number) =>
-  off + slope * inner * up + bow * (1 - up * up)
-
-/**
- * 眼睛的画法(owner 2026-10-13 选定「圆润暖棕」,issue #7160)。
- * 用户反馈「眼珠太黑、不可爱」:原来是又大又黑又亮的竖椭圆,配一个白高光,读成玩偶式「直勾勾」;小尺寸里连高光都没有,
- * 读成一个黑洞。所以:放圆(不再是竖椭圆)、略小、颜色换成带暖色的栗棕,任何尺寸都有一个看得见的高光。
- * ❌ 不要把黑豆再调回近乎纯黑,也不要把高光在小尺寸里关掉。
- */
-const EYE = {
-  bead: ['#85685a', '#4e362c', '#2a190f'] as const, // 豆子渐变:左上亮区 / 中段 / 边缘
-  rim: 'rgba(255,225,205,0.30)', // 右下一圈弱反光
-  glossK: 1.6, // 主高光半径 = character.eye.gloss.r × glossK
-  glossA: 0.9, // 主高光的浓度
-  glossMinPx: 2.4, // 主高光半径下限(设备像素):小头像里也看得见
-  spark: { r: 0.1, a: 0.45 }, // 次高光
-  glow: 0.35, // 下缘一抹暖光:栗棕里透一点光,像玻璃珠,不是一块黑
-  sizeK: 0.96, // 眼睛整体略小
-  aspectK: 0.86 // 纵横比倍数:fjj 的眼睛是竖椭圆,放圆
-}
-
-/** 画一只眼睛。导出只为单测直接喂假画布(draw.ts 其余部分依赖 WebGL)。 */
-export function drawEye(
-  ctx: CanvasRenderingContext2D,
-  e: EyeOut,
-  small: boolean,
-  gloss: Character['eye']['gloss'],
-  socket: number
-) {
-  const sh = e.shape
-  const r = e.r * sh.size * EYE.sizeK
-  if (e.alpha < 0.02 || r < 1) return
-  const N = 16
-  const asp = e.aspect * EYE.aspectK
-
-  // 睁眼程度：决定"豆眼窝"那圈暗影有多重（闭成月牙时淡掉）
-  const mid = 0.5 * (sh.bOff + sh.bBow - (sh.tOff + sh.tBow))
-  const vis = clamp((mid - 0.55) / 1.0)
-
-  // 以下全在「宽 = r、高 = r·asp」的椭圆坐标里画：圆眼 asp=1，fjj 的竖椭圆眼 asp>1；眼睑曲线的纵向单位也随之变成眼高
-  ctx.save()
-  ctx.scale(1, asp)
-
-  // 豆子嵌在毛里的暗圈
-  if (vis > 0.05 && !small) {
-    const g = ctx.createRadialGradient(0.05 * r, 0.09 * r, r * 0.8, 0.05 * r, 0.09 * r, r * 1.5)
-    g.addColorStop(0, `rgba(84,66,58,${0.5 * vis * e.alpha * socket})`)
-    g.addColorStop(0.45, `rgba(96,78,70,${0.2 * vis * e.alpha * socket})`)
-    g.addColorStop(1, 'rgba(96,78,70,0)')
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.arc(0.05 * r, 0.09 * r, r * 1.5, 0, TWO_PI)
-    ctx.fill()
-  }
-
-  ctx.globalAlpha = e.alpha
-  ctx.beginPath()
-  ctx.ellipse(0, 0, r * (1 + 0.15 * (1 - vis)), r * (1 + 0.15 * (1 - vis)), 0, 0, TWO_PI) // 闭成弧时外圈放宽一点，弧的两头才圆润不被削尖
-  ctx.clip()
-  // 眼睑夹出的可见区域：上线→下线
-  ctx.beginPath()
-  for (let k = 0; k <= N; k++) {
-    const up = -1.5 + (3 * k) / N
-    const y = lidV(sh.tOff, sh.tSlope, sh.tBow, up, e.inner) * r
-    if (k === 0) ctx.moveTo(up * r, y)
-    else ctx.lineTo(up * r, y)
-  }
-  for (let k = N; k >= 0; k--) {
-    const up = -1.5 + (3 * k) / N
-    ctx.lineTo(up * r, lidV(sh.bOff, sh.bSlope, sh.bBow, up, e.inner) * r)
-  }
-  ctx.closePath()
-  ctx.clip()
-
-  // 黑豆：上左一团柔光，右下一圈弱反光
-  const bead = ctx.createRadialGradient(-0.3 * r, -0.34 * r, 0, -0.1 * r, -0.1 * r, 1.25 * r)
-  bead.addColorStop(0, EYE.bead[0])
-  bead.addColorStop(0.28, EYE.bead[1])
-  bead.addColorStop(1, EYE.bead[2])
-  ctx.fillStyle = bead
-  ctx.fillRect(-r * 1.2, -r * 1.2, r * 2.4, r * 2.4)
-  const rim = ctx.createRadialGradient(0.42 * r, 0.5 * r, 0, 0.42 * r, 0.5 * r, 0.7 * r)
-  rim.addColorStop(0, EYE.rim)
-  rim.addColorStop(1, 'rgba(150,150,165,0)')
-  ctx.fillStyle = rim
-  ctx.fillRect(-r * 1.2, -r * 1.2, r * 2.4, r * 2.4)
-
-  // 下缘一抹暖光
-  const gg = ctx.createRadialGradient(0.12 * r, 0.62 * r, 0, 0.12 * r, 0.62 * r, 0.95 * r)
-  gg.addColorStop(0, `rgba(255,205,190,${EYE.glow})`)
-  gg.addColorStop(1, 'rgba(255,205,190,0)')
-  ctx.fillStyle = gg
-  ctx.fillRect(-r * 1.2, -r * 1.2, r * 2.4, r * 2.4)
-
-  {
-    // 高光(任何尺寸都画;小头像里靠 glossMinPx 保证看得见)。画成正圆（抵消纵向拉伸）；位置的纵向以眼高为单位
-    ctx.scale(1, 1 / asp)
-    const m = ctx.getTransform()
-    const devPerUnit = Math.sqrt(Math.abs(m.a * m.d - m.b * m.c)) || 1
-    const hx = (gloss.x + e.gx * 0.1) * r
-    const hy = (gloss.y * asp + e.gy * 0.1) * r
-    const hR = Math.max(gloss.r * EYE.glossK * r, EYE.glossMinPx / devPerUnit)
-    const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hR)
-    hg.addColorStop(0, `rgba(255,255,255,${0.96 * EYE.glossA})`)
-    hg.addColorStop(0.5, `rgba(255,255,255,${0.78 * EYE.glossA})`)
-    hg.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = hg
-    ctx.beginPath()
-    ctx.arc(hx, hy, hR, 0, TWO_PI)
-    ctx.fill()
-    // 次高光
-    const sx = (0.32 + e.gx * 0.06) * r
-    const sy = (0.36 * asp + e.gy * 0.06) * r
-    ctx.fillStyle = `rgba(255,255,255,${EYE.spark.a})`
-    ctx.beginPath()
-    ctx.arc(sx, sy, Math.max(EYE.spark.r * r, (EYE.glossMinPx * 0.5) / devPerUnit), 0, TWO_PI)
-    ctx.fill()
-  }
-  ctx.restore()
-}
-
 // ───────────── 特效 ─────────────
 function sparkPath(ctx: CanvasRenderingContext2D, R: number) {
   const r = R * 0.22
@@ -423,6 +288,73 @@ export function glPasses(f: GuguFrame, outfit: OutfitDraw | null): number {
   return n
 }
 
+// ───────────── 刚体部件 ─────────────
+const poses: PiecePose[] = []
+const poseOf = (i: number) => (poses[i] ??= newPose())
+
+/** 部件素材上的点 q 画在 W(A) + J·(M·(q − A) + d):挂点跟身体的软网格走,部件本身不被扭(rig.ts) */
+function rigMesh(gl: GuguGL, v: View, p: Part, box: RigPiece['box'], at: RigPiece['at'], ps: PiecePose) {
+  place(at.x, at.y, p, p.body, tmp)
+  const X0 = tmp[0],
+    Y0 = tmp[1]
+  place(at.x + 1, at.y, p, p.body, tmp1)
+  place(at.x, at.y + 1, p, p.body, tmp2)
+  const j00 = tmp1[0] - X0,
+    j10 = tmp1[1] - Y0,
+    j01 = tmp2[0] - X0,
+    j11 = tmp2[1] - Y0
+  const m = ps.m
+  const verts = gl.verts
+  let k = 0
+  for (let j = 0; j <= GRID_Y; j++) {
+    const qy = box.y + (j / GRID_Y) * box.h - at.y
+    for (let i = 0; i <= GRID_X; i++) {
+      const qx = box.x + (i / GRID_X) * box.w - at.x
+      const mx = m[0] * qx + m[1] * qy + ps.dx
+      const my = m[2] * qx + m[3] * qy + ps.dy
+      verts[k++] = v.ox + (X0 + j00 * mx + j01 * my) * v.s
+      verts[k++] = v.oy + (Y0 + j10 * mx + j11 * my) * v.s
+    }
+  }
+}
+
+/** 一个部件:身后的刚体部件 → 底图(软网格)→ 压在身上的接触阴影 → 身前的刚体部件(形态素材没有 rig,只有底图) */
+function paintPart(gl: GuguGL, f: GuguFrame, p: Part, v: View, alpha: number) {
+  const rig = p.pack.rig
+  const pieces = rig ? rig.pieces : []
+  if (rig) for (let i = 0; i < pieces.length; i++) piecePose(rig, pieces[i], p.body, poseOf(i))
+  const piece = (front: boolean) => {
+    for (let i = 0; i < pieces.length; i++) {
+      const pc = pieces[i],
+        ps = poses[i]
+      if (ps.depth >= 0 !== front || ps.alpha < 0.004) continue
+      rigMesh(gl, v, p, pc.box, pc.at, ps)
+      gl.drawSprite(pc.id, f.desat, f.dim, alpha * ps.alpha, f.tint)
+    }
+  }
+  piece(false)
+  const spr = p.pack.spr
+  const verts = gl.verts
+  let k = 0
+  for (let j = 0; j <= GRID_Y; j++) {
+    const y = (j / GRID_Y) * spr.h
+    for (let i = 0; i <= GRID_X; i++) {
+      place((i / GRID_X) * spr.w, y, p, p.body, tmp)
+      verts[k++] = v.ox + tmp[0] * v.s
+      verts[k++] = v.oy + tmp[1] * v.s
+    }
+  }
+  gl.drawSprite(p.pack.id, f.desat, f.dim, alpha, f.tint)
+  for (let i = 0; i < pieces.length; i++) {
+    const pc = pieces[i],
+      ps = poses[i]
+    if (!pc.shade || ps.shade < 0.01) continue
+    rigMesh(gl, v, p, pc.shade.box, pc.at, ps)
+    gl.drawSprite(pc.shade.id, f.desat, f.dim, alpha * ps.shade * ps.alpha, null)
+  }
+  piece(true)
+}
+
 /**
  * 头一半:这一只的身体与装扮在共用 GL 画布上各占一格画好(gl.room() 先问过)。同一批的几只都画完了,
  * 再各自 drawAvatar 把格子抄到自己的画布上、叠上眼睛与脸红。
@@ -437,21 +369,7 @@ export function paintGL(gl: GuguGL, f: GuguFrame, o: DrawOpts, outfit: OutfitDra
     const parts = L.parts
     at.push(...gl.begin(w, h))
     outfit?.mesh(gl, f, L, v, o, 'back')
-    const verts = gl.verts
-    for (let pi = 0; pi < parts.n; pi++) {
-      const p = parts.list[pi]
-      const spr = p.pack.spr
-      let k = 0
-      for (let j = 0; j <= GRID_Y; j++) {
-        const y = (j / GRID_Y) * spr.h
-        for (let i = 0; i <= GRID_X; i++) {
-          place((i / GRID_X) * spr.w, y, p, p.body, tmp)
-          verts[k++] = v.ox + tmp[0] * v.s
-          verts[k++] = v.oy + tmp[1] * v.s
-        }
-      }
-      gl.drawSprite(p.pack.id, f.desat, f.dim, lay * p.alpha, f.tint)
-    }
+    for (let pi = 0; pi < parts.n; pi++) paintPart(gl, f, parts.list[pi], v, lay * parts.list[pi].alpha)
     outfit?.mesh(gl, f, L, v, o, 'mid')
     if (outfit && outfit.has(L, 'top')) {
       at.push(...gl.begin(w, h))
@@ -497,17 +415,21 @@ function drawLayer(
     outfit?.flat(ctx, f, L, v, o, 'mid')
   }
 
-  // 脸红 + 眼睛（在眼睛部件的局部坐标系里画）
+  // 腮红 + 眼睛 + 眉毛（在眼睛部件的局部坐标系里画）
   const ep = parts.list[L.eye.part]
   const eye = ep.pack.eye
   const small = Math.min(w, h) < 70 * o.dpr
+  // 脸(face.ts):先两边腮红,再眼睛;眉毛只长在本体上(形态素材只有眼睛)
   for (const e of L.eyes) {
     setLocal(ctx, e, ep, v)
-    drawBlush(ctx, e, f.blush)
+    drawCheek(ctx, f.cheek, f.blush, e.inner, e.r * EYE_SIZE_K, e.aspect * EYE_ASPECT_K, e.alpha, small)
   }
   for (const e of L.eyes) {
     setLocal(ctx, e, ep, v)
-    drawEye(ctx, e, small, eye.gloss, eye.socket)
+    const r = e.r * EYE_SIZE_K,
+      asp = e.aspect * EYE_ASPECT_K
+    drawEye(ctx, e.shape, e.inner, r, asp, e.alpha, eye.gloss, e.gx, e.gy, small, eye.socket)
+    if (L.id === 'body') drawBrow(ctx, e.brow, e.inner, r, asp, e.alpha, small)
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0)
 
@@ -568,7 +490,7 @@ const LOOK_GRID = [0, 0.5, 1]
 export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: OutfitDraw | null = null): number[] {
   out.length = 0
   const v = viewFor(o.w, o.h, o.crop, o.shape, f.ch, outfit)
-  out.push(f.desat * 255, f.dim * 255, f.blush * 255)
+  out.push(f.desat * 255, f.dim * 255, f.blush * 255, f.cheek.lift * 255, f.cheek.wide * 255, f.cheek.lines * 255)
   if (f.tint) out.push(f.tint[0] * 255, f.tint[1] * 255, f.tint[2] * 255)
   for (const L of f.layers) {
     const lay = f.alpha * L.alpha
@@ -585,6 +507,26 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
           place(gx * spr.w, gy * spr.h, p, p.body, tmp)
           out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s)
         }
+      // 刚体部件:四角落在哪、可见度、接触阴影(同 paintPart 的算法)
+      const rig = p.pack.rig
+      if (rig)
+        for (let r = 0; r < rig.pieces.length; r++) {
+          const pc = rig.pieces[r]
+          const ps = piecePose(rig, pc, p.body, poseOf(r))
+          place(pc.at.x, pc.at.y, p, p.body, tmp)
+          const X0 = tmp[0],
+            Y0 = tmp[1]
+          place(pc.at.x + 1, pc.at.y, p, p.body, tmp1)
+          place(pc.at.x, pc.at.y + 1, p, p.body, tmp2)
+          for (const [cx, cy] of [[pc.box.x, pc.box.y], [pc.box.x + pc.box.w, pc.box.y + pc.box.h]]) {
+            const qx = cx - pc.at.x,
+              qy = cy - pc.at.y
+            const mx = ps.m[0] * qx + ps.m[1] * qy + ps.dx
+            const my = ps.m[2] * qx + ps.m[3] * qy + ps.dy
+            out.push(v.ox + (X0 + (tmp1[0] - X0) * mx + (tmp2[0] - X0) * my) * v.s, v.oy + (Y0 + (tmp1[1] - Y0) * mx + (tmp2[1] - Y0) * my) * v.s)
+          }
+          out.push(ps.alpha * 255, ps.shade * 255, ps.depth >= 0 ? 255 : 0)
+        }
     }
     const ep = parts.list[L.eye.part]
     for (const e of L.eyes) {
@@ -594,6 +536,8 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
       const sh = e.shape
       out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s, e.alpha * 255, k * sh.size, k * e.aspect, k * e.ax, k * e.ay, k * e.bx, k * e.by)
       out.push(k * sh.tOff, k * sh.tSlope, k * sh.tBow, k * sh.bOff, k * sh.bSlope, k * sh.bBow, k * e.gx * 0.1, k * e.gy * 0.1)
+      out.push(k * sh.arc, k * sh.flat, sh.chev > 0.5 ? 255 : 0)
+      if (L.id === 'body') out.push(e.brow.on * 255, k * e.brow.lift, k * e.brow.tilt, k * e.brow.arch)
     }
     outfit?.drawnLook(f, L, v, o, out)
   }
