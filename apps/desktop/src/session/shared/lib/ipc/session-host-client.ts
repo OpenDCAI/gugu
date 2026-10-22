@@ -132,6 +132,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let beat: ReturnType<typeof setInterval> | null = null
   let state: SessionHostConnectionState = 'closed'
   let opening: Promise<void> | null = null
+  // 作废的是一次物理开线,不是等连接的调用。立即叫醒旧调用,让它跟随新的那次;
+  // 不能等旧 opener 自己结算(它可能正卡在断掉的网络上)。
+  let abandonOpening: (() => void) | null = null
   let lastHello: SessionHostHello | null = null
   let nextId = 1
   let retryDelay = 1000
@@ -276,6 +279,8 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     pipe = null
     stopTimers()
     opening = null
+    abandonOpening?.()
+    abandonOpening = null
     setState('closed')
     // 原因进日志,用户文案只留下一步(user-copy-leak 棘轮)。
     warn('会话页宿主连接关闭', { reason })
@@ -291,9 +296,11 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       onClosed(generation, reason)
       dead?.close()
     } else if (state === 'connecting') {
-      // 在路上的那一次作废:它迟到的回包按代数认不出来(成了也当场关掉,❌ 盖掉新线),等它的调用方照旧拿到它的结果
+      // 在路上的那一次作废:等它的调用方当场跟随新线,迟到的回包只负责清理。
       generation += 1
       opening = null
+      abandonOpening?.()
+      abandonOpening = null
     }
     if (retryTimer) clearTimeout(retryTimer)
     retryTimer = null
@@ -326,7 +333,10 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow()) ?? null
     setState('connecting')
     const gen = ++generation
-    opening = open({
+    const abandoned = new Promise<never>((_resolve, reject) => {
+      abandonOpening = () => reject(new Error('[session-host] opening replaced or closed'))
+    })
+    const attempt = open({
       onFrame: (frame) => {
         if (gen !== generation) return
         lastSeenAt = now()
@@ -334,7 +344,15 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (decoded) handle(decoded as HostWsServerMessage)
       },
       onClose: (reason) => onClosed(gen, reason),
-    }).then(
+    }).then((opened) => {
+      // race 已经把等待者交给新线,旧 opener 仍可能迟到成功。这里拥有那条管道的清理。
+      if (gen !== generation || disposed) {
+        opened.close()
+        throw new Error('[session-host] obsolete opening')
+      }
+      return opened
+    })
+    opening = Promise.race([attempt, abandoned]).then(
       (opened) => {
         if (gen !== generation || disposed) {
           // 这一次已被后来的一次取代:等它的调用方接着等现在那一次,❌ 拿一句「连不上」(disposed 时 connect 自己拒)
@@ -354,6 +372,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (heartbeatMs > 0) beat = setInterval(() => trySend({ t: 'hb' }), heartbeatMs)
         setState('open')
         opening = null
+        abandonOpening = null
         if (options.subscribeEvents) {
           for (const channel of eventListeners.keys()) trySend({ t: 'sub', channel })
         }
@@ -374,6 +393,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (gen === generation) {
           generation += 1
           opening = null
+          abandonOpening = null
           setState('closed')
           warn('会话页宿主连不上', { error: String(error) })
           options.onOpenFailed?.(error)
@@ -490,6 +510,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       unwatchPeer = null
       if (retryTimer) clearTimeout(retryTimer)
       generation += 1
+      abandonOpening?.()
+      abandonOpening = null
+      opening = null
       stopTimers()
       pipe?.close()
       pipe = null
