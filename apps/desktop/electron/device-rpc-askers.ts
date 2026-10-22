@@ -223,12 +223,20 @@ export function createDeviceRpcAskers<TChannel>(input: {
         const name = subscribeStatusName(status)
         if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
           if (asker.leaving) return
+          const flushStartedAt = Date.now()
           asker.joined = true
           const queued = asker.queue
+          const queuedBytes = queued.reduce((total, payload) => {
+            const serialized = JSON.stringify(payload)
+            return total + (serialized === undefined ? 0 : Buffer.byteLength(serialized, 'utf8'))
+          }, 0)
           asker.queue = []
           asker.queuedChars = 0
           // 照原序发:同一条 socket 上先发先到,窗口帧的 seq 由发问端那边再排一次。
           for (const payload of queued) send(asker, payload)
+          if (queued.length > 0) {
+            warn(`[device-rpc] asker topic ${id.slice(0, 8)} flushed queued frames=${queued.length} bytes=${queuedBytes} elapsedMs=${Date.now() - flushStartedAt}`)
+          }
           return
         }
         if (isSubscribeFailure(status)) {

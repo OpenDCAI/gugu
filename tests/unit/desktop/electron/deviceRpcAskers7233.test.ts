@@ -61,6 +61,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     reply({ type: `${body.type}:reply`, request_id: body.request_id, result: { ok: true } })
   })
   const closedWindows: string[] = []
+  const warnings: string[] = []
   const askers = createDeviceRpcAskers({
     supabase: supabase as never,
     accessToken: 'token',
@@ -68,6 +69,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     handle: handle as never,
     replyShared: (reply) => { shared.push(reply) },
     limits: { ...DEVICE_RPC_ASKER_LIMITS, ...limits },
+    warn: (message) => { warnings.push(message) },
     now: () => t,
     detachGraceMs: 0,
   })
@@ -78,7 +80,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   const ask = (asker: string, requestId: string, payload: unknown = {}) =>
     channelOf(asker).listeners.forEach((listener) => listener({ type: 'broadcast', event: 'broadcast', payload: { type: 'taskhost.call', request_id: requestId, user_id: 'u1', payload } }))
   const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-  return { askers, channels, channelOf, subOf, attach, ask, shared, handled, handle, closedWindows, settle, setNow: (value: number) => { t = value } }
+  return { askers, channels, channelOf, subOf, attach, ask, shared, handled, handle, closedWindows, warnings, settle, setNow: (value: number) => { t = value } }
 }
 
 const types = (sent: unknown[]) => sent.map((p) => (p as { type: string }).type)
@@ -97,6 +99,8 @@ describe('报到:宿主订上那个发问端的线,在那条上回', () => {
     expect(sent.map((p) => p.name ?? p.type)).toEqual(['taskhost.attach:reply', 'e1', 'e2', 'e3', 'taskhost.call:reply'])
     expect(sent[0]).toMatchObject({ request_id: 'attach-askerAAAA1111', result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } })
     expect(host.shared).toEqual([])
+    expect(host.warnings).toHaveLength(1)
+    expect(host.warnings[0]).toMatch(/asker topic askerAAA flushed queued frames=5 bytes=\d+ elapsedMs=\d+/)
   })
 
   it('这条上来的一问交给处理器,带着发问端;应答与推送只回这条', async () => {
