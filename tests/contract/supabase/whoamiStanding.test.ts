@@ -70,6 +70,13 @@ async function group(creator: string, name: string, members: Array<[string, stri
   for (const [userId, role] of members) await db.query('INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,$3)', [id,userId,role])
   return id
 }
+/** 界面点开私聊走的那条函数(chat.open_dm),以发起人身份。 */
+async function dm(from: string, to: string): Promise<string> {
+  await asUser(from)
+  const { rows } = await db.query<{ id: string }>('SELECT chat.open_dm($1) AS id', [to])
+  await db.query('RESET role')
+  return rows[0]!.id
+}
 
 /** 以 owner 的身份跑一段 SQL(与 PostgREST 带主人 JWT 同一个判权上下文),失败回滚到调用前。 */
 /**
@@ -121,12 +128,29 @@ function tools(owner: string, self: string) {
         throw new RpcHttpError(400, { detail: String((error as Error).message) })
       }
     },
-    // 只允许读 identity.users 的一行(自己的资料、主人的名字);会话与成员 ❌ 直读 —— 那要走按 agent 判的 RPC。
-    // 置顶是主人自己的状态:唯一允许的会话表直读是主人自己那几行里置顶的,以主人的 JWT(RLS)读。
+    // 只允许读 identity.users(自己的资料、主人和好友的名字);agent 的会话与成员 ❌ 直读 —— 那要走按 agent 判的 RPC。
+    // 主人自己的状态以主人的 JWT(RLS)直读:置顶、好友、备注,以及主人私聊的两位成员(#84,本就按主人的可见域读)。
     restGet: async (path: string, profile = 'chat') => {
+      const ids = (list: string) => list.split(',').map(decodeURIComponent)
       const pinned = /^chat_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
       if (pinned && profile === 'chat') {
         return (await asOwnerQuery(owner, 'SELECT chat_id FROM chat.chat_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])).rows
+      }
+      const rosters = /^chat_members\?chat_id=in\.\(([^)]+)\)&select=chat_id,user_id$/.exec(path)
+      if (rosters && profile === 'chat') {
+        return (await asOwnerQuery(owner, 'SELECT chat_id, user_id FROM chat.chat_members WHERE chat_id = ANY($1)', [ids(rosters[1]!)])).rows
+      }
+      const friendships = /^friendships\?or=\(user_a_id\.eq\.([^,]+),user_b_id\.eq\.([^)]+)\)&select=user_a_id,user_b_id$/.exec(path)
+      if (friendships && profile === 'identity' && decodeURIComponent(friendships[1]!) === owner && decodeURIComponent(friendships[2]!) === owner) {
+        return (await asOwnerQuery(owner, 'SELECT user_a_id, user_b_id FROM identity.friendships WHERE user_a_id = $1 OR user_b_id = $1', [owner])).rows
+      }
+      const aliases = /^contact_overrides\?owner_user_id=eq\.([^&]+)&select=contact_user_id,alias$/.exec(path)
+      if (aliases && profile === 'identity' && decodeURIComponent(aliases[1]!) === owner) {
+        return (await asOwnerQuery(owner, 'SELECT contact_user_id, alias FROM identity.contact_overrides WHERE owner_user_id = $1', [owner])).rows
+      }
+      const users = /^users\?id=in\.\(([^)]+)\)&select=([a-z_,]+)$/.exec(path)
+      if (users && profile === 'identity') {
+        return (await asOwnerQuery(owner, `SELECT ${users[2]} FROM identity.users WHERE id = ANY($1)`, [ids(users[1]!)])).rows
       }
       const match = /^users\?id=eq\.([^&]+)&select=([a-z_,]+)$/.exec(path)
       if (!match || profile !== 'identity') throw new Error(`whoami / conversations must not read tables directly: ${profile}.${path}`)
@@ -176,5 +200,28 @@ describe('profile_whoami / message_conversations against the migrated database',
     const pinnedById = new Map(conversations.map((row) => [row.id, row.pinned]))
     expect(pinnedById.get(ownGroup)).toBe(true)
     expect(pinnedById.get(ownerLeft)).toBe(false)
+  })
+
+  it('#84 主人与当前好友的私聊在列(主人的备注作名字),按主人读得到;与陌生人的私聊不在列', async () => {
+    const owner = await human('Owner')
+    const friend = await human('Friend')
+    const stranger = await human('Stranger')
+    const self = await agentOf(owner, 'Self Agent')
+    const [lo, hi] = [owner, friend].sort()
+    await db.query('INSERT INTO identity.friendships (user_a_id,user_b_id) VALUES ($1,$2)', [lo, hi])
+    await db.query('INSERT INTO identity.contact_overrides (owner_user_id,contact_user_id,alias) VALUES ($1,$2,$3)', [owner, friend, 'Old Wang'])
+    const friendDm = await dm(owner, friend)
+    const strangerDm = await dm(owner, stranger)
+    await db.query(`INSERT INTO chat.messages (id,chat_id,sender_user_id,content,content_type,created_at)
+      VALUES ($1,$2,$3,'see you at noon','text',clock_timestamp())`, [randomUUID(), friendDm, friend])
+
+    const call = tools(owner, self)
+    const dms = ((await call('message_conversations', { kind: 'dm' })) as { items: Array<Record<string, unknown>> }).items
+    expect(dms.map((row) => row.id)).toEqual([friendDm])
+    expect(dms[0]).toMatchObject({ owner_dm: true, friend_user_id: `user:${friend}`, friend_display_name: 'Friend', name: 'Old Wang' })
+    expect(dms.map((row) => row.id)).not.toContain(strangerDm)
+
+    const history = (await call('message_history', { chat_id: friendDm })) as Array<{ content: string }>
+    expect(history.map((row) => row.content)).toContain('see you at noon')
   })
 })
