@@ -83,6 +83,8 @@ describe('ComposeTargetPicker', () => {
     expect(rowIds()).toEqual(['chat:c-group', 'chat:c-dm'])
     expect(ticked()).toEqual([])
     expect(button('放入输入框')?.disabled).toBe(true)
+    // One at a time: the foot counts nothing (the forward sheet's 「已选 N 个」 is for several).
+    expect(document.body.textContent).not.toContain('已选')
     await click(button('取消'))
     await expect(picked).resolves.toBeNull()
   })

@@ -44,8 +44,8 @@ interface ChatPickSheetProps {
   above?: ReactNode
   /** Above the rows while nothing is searched. */
   top?: ReactNode
-  /** The foot: how many are picked, and what the pick is for. */
-  picked: string
+  /** The foot: how many are picked (several at once; a one-row pick says nothing), and what the pick is for. */
+  picked?: string
   actionLabel: string
   onAction: () => void
   actionDisabled?: boolean

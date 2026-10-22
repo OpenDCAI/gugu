@@ -76,7 +76,6 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
       onQuery={setQuery}
       placeholder={t('composePick.search')}
       empty={t('composePick.empty')}
-      picked={t('forward.selected', { count: selected.size })}
       actionLabel={t('composePick.action')}
       actionDisabled={!picked}
       onAction={() => {

@@ -105,7 +105,6 @@ export function ForumConsent() {
         placeholder={t('forum.consent.searchAgents')}
         empty={t('forum.consent.noAgents')}
         above={<div className="text-[length:var(--font-body)] text-[var(--text-primary)]">{ask.draft.title}<p className="m-0 mt-1 text-[var(--text-secondary)]">{t('forum.consent.assignBody')}</p></div>}
-        picked={t('forward.selected', { count: picked ? 1 : 0 })}
         actionLabel={t('forum.consent.assignConfirm')}
         actionDisabled={busy || !picked}
         onAction={() => void confirm()}
