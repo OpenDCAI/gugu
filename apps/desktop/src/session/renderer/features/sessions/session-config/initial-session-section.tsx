@@ -32,6 +32,7 @@ import {
   useState,
   type ChangeEvent,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
@@ -1483,13 +1484,22 @@ function promptHasIssueMention(text: string, token: string): boolean {
   return extractIssueMentionTargets(text).some((target) => target.token === token);
 }
 
+/** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag)。 */
+export interface ComposerVerbLook {
+  tone: 'task' | 'schedule';
+  tag: ReactNode;
+}
+
 interface InitialSessionFieldProps {
   state: InitialSessionState;
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault: boolean;
   enableMentions?: boolean;
   onPromptBlur?: () => void;
-  placeholder?: string;
+  /** 给成函数 = 随所选 agent 变(「想让 Claude 做点什么？」)。 */
+  placeholder?: string | ((agentName: string) => string);
+  /** 这一框是一件事(新任务 / 定时任务,gugu-dev#181):框换那件事的色,标签排在输入行最前面。 */
+  verb?: ComposerVerbLook;
   textareaClassName?: string;
   showAutoApproveToggle?: boolean;
   /**
@@ -1510,6 +1520,7 @@ export function InitialSessionField({
   enableMentions = true,
   onPromptBlur,
   placeholder,
+  verb,
   textareaClassName,
   showAutoApproveToggle = true,
   enableAttachments = true,
@@ -1974,8 +1985,11 @@ export function InitialSessionField({
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}
           placeholder={
-            placeholder ?? 'Describe what the agent should do, or use / to select a prompt...'
+            (typeof placeholder === 'function' ? placeholder(selectedAgentName) : placeholder) ??
+            'Describe what the agent should do, or use / to select a prompt...'
           }
+          tone={verb?.tone}
+          leading={verb?.tag}
           onSubmit={() => onSubmit?.()}
           onInputChange={handleComposerInputChange}
           editorApiRef={editorApiRef}

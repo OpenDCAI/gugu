@@ -39,6 +39,8 @@ function writeStored(value: StoredBindings): void {
 export class ProjectGroupsStore {
   private readonly byProject = observable.map<string, string>();
   private readonly representativeProjects = observable.set<string>();
+  /** 这次打开以来答过一次的机器(读到了或读失败了都算;这台电脑记作 'local')。 */
+  private readonly answeredMachines = observable.set<string>();
   private stop: (() => void) | null = null;
   /** 此刻连着、项目清单同步过的机器(由远程主机那边给;❌ 在这里 import 它 —— 那边反过来要用这里)。 */
   private syncedMachines: () => readonly string[] = () => [];
@@ -49,6 +51,17 @@ export class ProjectGroupsStore {
   }
 
   /** 绑在这个群上的一个本地项目(几台机器上的同一个项目绑同一个群,任取一个;认侧栏那一行用 rowProjectIdOf)。不是项目群 = undefined。 */
+  /**
+   * 这个本地项目绑没绑群,此刻是不是已经知道:绑着(这次读到的或上次记下的)、它那台机器这次已经答过(读失败也算答过,
+   * 失败进日志;下一次读成了绑定照常补上)、或者那台机器此刻连不上(不会有回音,按「没有」画能画的那部分)。
+   * false = 正在读,❌ 当成「没有群」(项目块据此不先画首页,gugu-dev#181)。
+   */
+  bindingKnown(projectId: string): boolean {
+    const machine = machineRegistry.machineOf(projectId) ?? null;
+    return this.byProject.has(projectId) || this.answeredMachines.has(machine ?? 'local')
+      || (machine !== null && !this.syncedMachines().includes(machine));
+  }
+
   projectOfChat(chatId: string): string | undefined {
     for (const [projectId, bound] of this.byProject) if (bound === chatId) return projectId;
     return undefined;
@@ -134,6 +147,8 @@ export class ProjectGroupsStore {
       }])) });
     } catch (error) {
       log.warn('[project-groups] 读项目群绑定失败', { machine, error: String(error) });
+    } finally {
+      runInAction(() => this.answeredMachines.add(machine ?? 'local'));
     }
   }
 }

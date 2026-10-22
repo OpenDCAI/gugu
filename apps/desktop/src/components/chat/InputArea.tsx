@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'
+import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -110,7 +110,7 @@ export function InputArea({
   // 三个 300ms 防抖存 / ref 镜像 / currentChatRef 追踪）全部收进 useChatDraft，塌成一条同步 effect——切换
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
-  const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
+  const inChatSlot = useInChatSlot(); const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
   // 发失败回滚判「是否还在发送时那个会话」用（异步 send 期间用户可能切走 → 失败要回原会话而非当前会话，#1872）。
   const activeChatIdRef = useRef<string | null>(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
@@ -545,6 +545,28 @@ export function InputArea({
       : (placeholder || t('composer.placeholder'))
   const disabledHint = disabledReason || (disabled ? t('composer.disabled') : undefined)
 
+  const attachButton = <ComposerAttachButton glyph={attachGlyph} actions={attachMenu} disabled={disabled} mobile={mobileShell} onPickFile={() => fileInputRef.current?.click()} />
+  // gugu-dev#181 格子里(项目块、对话块)的排法:「+ 新任务 定时任务 … 发送」进框内底排(手机、格子外照旧:两坞在框外)。
+  const inBar = inChatSlot && !mobileShell
+  const verbs = surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />
+  const sendable = canSend && !disabled && !sending
+  // @@@ui-ruler 发送钮 = ui/Button 的 primary 实底 + 药丸半径(--primary 与旧的 --accent 同值,
+  // --primary-fg 与 --text-on-accent 同值 → 可发送态像素不变;尺寸 30 → --control-h-md 32、
+  // 移动 44 由 size="icon" 自带)。手写的 onMouseEnter/onMouseLeave 改 style 那套 hover 删掉:
+  // Button 自带 hover/press/disabled 三态。空态维持原来的「安静灰圆」而非淡掉的实底。
+  const sendButton = (
+    <Button
+      variant="primary"
+      size="icon"
+      className="shrink-0 rounded-[var(--radius-capsule)] data-[disabled]:bg-[var(--muted)] data-[disabled]:text-[var(--faint-fg)]"
+      onClick={handleSend}
+      disabled={!sendable}
+      aria-label={t('common.send')}
+      title={t('common.send')}
+    >
+      <ArrowUp size={mobileShell ? 18 : 16} />
+    </Button>
+  )
   return (
     <div
       ref={composerRootRef}
@@ -697,6 +719,7 @@ export function InputArea({
     {/* @@@1322 composer 外层 = 纯布局列容器（附件/悄悄话/引用条堆叠在 .box 上方）。
         边框/药丸/focus 态移到内层单行 .box（见下）。 */}
     <div
+      className={inBar ? sessionComposerDockedWidthClassName : undefined} // 格子里与新任务框同宽(同一个常量)
       style={{ flexShrink: 0, display: verbTakesOver ? 'none' : 'flex', flexDirection: 'column', gap: '6px' }}
     >
       <input
@@ -835,29 +858,19 @@ export function InputArea({
         </div>
       )}
 
-      {/* @@@1697 三分离(owner override 单-pill，对齐已合设计 SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：
-          外层 row align-items:flex-end + 左右 dock(h=42 固定)夹中间只裹 textarea 的 box(--r-lg 12px)；多行时
-          box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动。逆转 #933 单-pill 回退、复原 #1459 结构。 */}
+      {/* @@@1697 三分离(SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：外层 row align-items:flex-end + 左右 dock(h=42 固定)
+          夹中间只裹 textarea 的 box；多行时 box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动(复原 #1459 结构)。 */}
       <div data-chat-composer-row="" className="@container" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
-        {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152：30×30 透明、回形针、hover bg --hover)。
-            @@@4292 mobile:回形针命中框为 44×44，dock 高与之匹配；桌面维持原尺寸。 */}
-        <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>
-          <ComposerAttachButton
-            glyph={attachGlyph}
-            actions={attachMenu}
-            disabled={disabled}
-            mobile={mobileShell}
-            onPickFile={() => fileInputRef.current?.click()}
-          />
-        </div>
-        {surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />}
+        {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152)。@@@4292 mobile:命中框 44×44，dock 高与之匹配。 */}
+        {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>{attachButton}</div>}
+        {!inBar && verbs}
 
         {/* 中间框：只裹 textarea——border/圆角(--r-lg 12px)/focus/bg 在此层，独立增高(SSOT `.box` L148-149)。 */}
         <div
           style={{
             flex: 1,
             minWidth: 0,
-            display: 'flex',
+            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? 96 : undefined, // 格子里是一个大框:上面输入、下面一排按钮
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。
@@ -925,32 +938,11 @@ export function InputArea({
               boxSizing: 'border-box',
             }}
           />
+          {inBar && <div className="@container flex items-center gap-1 pt-1">{attachButton}{verbs}<span className="flex-1" />{sendButton}</div>}
         </div>
 
-        {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154：30×30 --accent(==--primary) 圆 + 上箭头)。
-            常驻：空态 opacity+pointer-events 不卸载(防布局抖、移动端可 tap)。 */}
-        <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 46 } : COMPOSER_BTN_DOCK}>
-          {(() => {
-            const sendable = canSend && !disabled && !sending
-            // @@@ui-ruler 发送钮 = ui/Button 的 primary 实底 + 药丸半径(--primary 与旧的 --accent 同值,
-            // --primary-fg 与 --text-on-accent 同值 → 可发送态像素不变;尺寸 30 → --control-h-md 32、
-            // 移动 44 由 size="icon" 自带)。手写的 onMouseEnter/onMouseLeave 改 style 那套 hover 删掉:
-            // Button 自带 hover/press/disabled 三态。空态维持原来的「安静灰圆」而非淡掉的实底。
-            return (
-              <Button
-                variant="primary"
-                size="icon"
-                className="shrink-0 rounded-[var(--radius-capsule)] data-[disabled]:bg-[var(--muted)] data-[disabled]:text-[var(--faint-fg)]"
-                onClick={handleSend}
-                disabled={!sendable}
-                aria-label={t('common.send')}
-                title={t('common.send')}
-              >
-                <ArrowUp size={mobileShell ? 18 : 16} />
-              </Button>
-            )
-          })()}
-        </div>
+        {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154)。常驻：空态不卸载(防布局抖、移动端可 tap)。 */}
+        {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 46 } : COMPOSER_BTN_DOCK}>{sendButton}</div>}
       </div>
     </div>
     </div>

@@ -14,10 +14,14 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
+import { composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
+import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
+import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useChatHasMessages } from '@/lib/chatSummariesBridge';
-import { setComposerVerb, useComposerVerb } from '@/lib/composerVerbBridge';
+import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
+import { focusSessionComposer } from '@renderer/features/sidebar/session-keyboard-nav';
 import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
@@ -61,7 +65,7 @@ export const ProjectBlock = observer(function ProjectBlock({
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
           <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
-            {chatId && hasMessages ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
+            {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
             <ProjectTitleActions projectId={projectId} />
             {blockActions}
           </TabBarActionRow>
@@ -76,7 +80,7 @@ export const ProjectBlock = observer(function ProjectBlock({
               preSlot={
                 // gugu-dev#181:页签上那枚小文件夹 = 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
                 // 群里还没有消息时这一块本来就是项目首页,不用它。
-                chatId && hasMessages ? (
+                chatId && hasMessages !== false ? (
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -98,48 +102,58 @@ export const ProjectBlock = observer(function ProjectBlock({
         </TabSlot>
       </TabStripShell>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
-        {chatId && hasMessages ? (
+        {/* 正中摆群还是首页:只有确知群里没消息(或确知没有群)才摆首页;还不知道时摆群(多数项目群里有消息),
+            连有没有群都还不知道就先空着 —— ❌ 把「还没读到」当成「没有」先画一帧首页。 */}
+        {chatId && hasMessages !== false ? (
           <>
             <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
             {/* gugu-dev#181 群里输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(建在这个项目里)。 */}
             {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : <ComposerVerbDock chatId={chatId} projectId={projectId} />}
           </>
-        ) : (
+        ) : chatId || projectGroupsStore.bindingKnown(projectId) ? (
           <SessionShellProvider>
             <ProjectMainPanel projectId={projectId} />
           </SessionShellProvider>
-        )}
+        ) : null}
       </div>
     </>
   );
 });
 
 /**
- * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框,项目的文件夹卡浮到群聊上面 —— 整片统一淡下去,
- * 卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,卡收回;直接打字、按 Esc、点空白处,
- * 卡也让开。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
+ * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框(与项目首页同一个,ProjectTaskComposer),项目的文件夹卡
+ * 浮到群聊上面 —— 整片统一淡下去、虚一点,卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,
+ * 卡让开;直接打字、按 Esc、点空白处,卡也让开。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
  */
 const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
-  const stage = useProjectFolderStage(projectId);
+  const { translate } = useSessionMessages();
   const [cardShown, setCardShown] = useState(true);
-  const chosen = stage.scopedFolders.chosen?.workspaceId ?? null;
-  const chosenAtOpen = useRef(chosen);
-  useEffect(() => {
-    if (chosen !== chosenAtOpen.current) setCardShown(false);
-  }, [chosen]);
+  const stage = useProjectFolderStage(projectId, { floating: true, onChosen: () => setCardShown(false) });
+  // 选「新任务」那一刻群里输入框写着的话跟过来:要在新建框挂上(读草稿)之前放好。
+  useState(() => {
+    const carried = takeComposerCarry(chatId);
+    if (carried) composerDrafts.set(projectDraftKey(projectId), carried);
+    return null;
+  });
+  // 卡浮着时按 Esc 或直接打字,卡就让开;打的字落进新任务的框(焦点在别处也一样)。
+  const dockRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!cardShown) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setCardShown(false);
+      if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) return;
+      setCardShown(false);
+      if (dockRef.current && !dockRef.current.contains(document.activeElement)) focusSessionComposer(dockRef.current);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [cardShown]);
+  const close = () => setComposerVerb(chatId, null);
   return (
     <>
       {cardShown ? (
         <div
-          className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 px-4 pb-32"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-(--em-surface-base)/65 px-4 pb-32 backdrop-blur-[2px]"
           data-project-task-card=""
           onPointerDown={(event) => {
             if (event.target === event.currentTarget) setCardShown(false);
@@ -148,13 +162,15 @@ const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }:
           {stage.card}
         </div>
       ) : null}
-      <div
-        className="relative z-30"
-        onKeyDownCapture={(event) => {
-          if (cardShown && event.key.length === 1) setCardShown(false);
-        }}
-      >
-        <ComposerVerbDock chatId={chatId} projectId={stage.targetProjectId} workspaceId={chosen} />
+      <div ref={dockRef} className="relative z-30">
+        <ProjectTaskComposer
+          projectId={projectId}
+          stage={stage}
+          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: close, testId: 'task-dispatch' })}
+          placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
+          onSessionCreated={close}
+          focusOnOpen
+        />
       </div>
     </>
   );

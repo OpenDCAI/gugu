@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CHAT_SLOT_PREFIX, chatPartSlotKey, installShellSlots, readShellSlots } from '../lib/shellSlots'
+import { CHAT_SLOT_PREFIX, InChatSlot, chatPartSlotKey, installShellSlots, readShellSlots } from '../lib/shellSlots'
 import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
@@ -17,11 +17,12 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
  * 块里没有群聊头:头上那排图标、对话的头像和名字画进这一块页签条上留的两格(chatPartSlotKey)。
  */
 export function ChatSlotHost(handlers: AssistantChatHandlers) {
-  // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流,会话里「来自 X」写群名。
-  const { chats } = useChatStore('chats')
+  // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流,会话里「来自 X」写群名。列表读成之前那份空列表是
+  // 「还不知道」:不发,❌ 发一份空的让每个项目块先画首页。
+  const { chats, chatsRead } = useChatStore('chats', 'chatsRead')
   useEffect(() => {
-    publishChatSummaries(chats)
-  }, [chats])
+    if (chatsRead) publishChatSummaries(chats)
+  }, [chats, chatsRead])
   const slots = readShellSlots()
   const entries = useSyncExternalStore(
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
@@ -33,14 +34,16 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
         if (!key.startsWith(CHAT_SLOT_PREFIX)) return []
         const chatId = key.slice(CHAT_SLOT_PREFIX.length)
         return [createPortal(
-          <TaskChatScope chatId={chatId}>
-            <ChatAreaPanel
-              chatId={chatId}
-              activeTab="chats"
-              blockHost={{ actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null, title: entries.get(chatPartSlotKey('title', chatId)) ?? null }}
-              {...handlers}
-            />
-          </TaskChatScope>,
+          <InChatSlot.Provider value>
+            <TaskChatScope chatId={chatId}>
+              <ChatAreaPanel
+                chatId={chatId}
+                activeTab="chats"
+                blockHost={{ actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null, title: entries.get(chatPartSlotKey('title', chatId)) ?? null }}
+                {...handlers}
+              />
+            </TaskChatScope>
+          </InChatSlot.Provider>,
           element,
           key,
         )]

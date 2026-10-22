@@ -66,7 +66,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const setMessages = historyWindow.update
   const setHasMoreOlder = historyWindow.setHasOlder
   const loadingOlder = messageWindow.loading === 'older'
-  const [chatsLoad, setChatsLoad] = useState<'idle' | 'loading' | 'failed'>('idle') // failed = 最近一次列表读失败了(#2118:空着不是「没有」)
+  const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const { track: trackMessageRead, noteFreshRead: noteFreshMessageRead, failureOf: messageReadFailureOf } = useMessageReadFailures() // #7199 读失败按会话、按最新一次读记
   const { memberReadSeqs, memberReadSeqsChatRef, setMemberReadSeqs, readMemberReadSeqs } = useMemberReadSeqs() // #6470 线级水位容器,与话题分栏同一个
@@ -315,7 +315,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const loadChats = useCallback(async (options: RefreshChatsOptions = {}) => {
     if (!user) return
     const isFirstLoad = chatsRef.current.length === 0
-    setChatsLoad((state) => (isFirstLoad ? 'loading' : state === 'failed' ? 'idle' : state))
+    setChatsLoad((state) => (isFirstLoad ? 'loading' : state === 'failed' || state === 'unread' ? 'idle' : state))
     const requestSeq = ++listRequestSeqRef.current
     try {
       // 冷启快照也走投影(spec I7:会话列表只有一条拉取路)—— 一次「哪些会话属于我」的读 + 同一套族读。
@@ -551,7 +551,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   useEffect(() => {
     if (!user) {
-      setChats([]); setChatsLoad('idle') // 换号 / 登出:上一个号的读失败 ❌ 带到下一个号的「群」那一格
+      setChats([]); setChatsLoad('unread') // 换号 / 登出:上一个号的读失败 ❌ 带到下一个号的「群」那一格
       return
     }
     let cancelled = false
@@ -1048,7 +1048,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         activeChatId,
         activeChat,
         messages,
-        loadingChats: chatsLoad === 'loading', chatsLoadFailed: chatsLoad === 'failed',
+        loadingChats: chatsLoad === 'loading', chatsLoadFailed: chatsLoad === 'failed', chatsRead: chatsLoad === 'idle',
         loadingMessages,
         messagesError: messageReadFailureOf(activeChatId),
         hasMoreOlder,

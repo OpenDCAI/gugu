@@ -18,8 +18,9 @@ import {
 } from '@renderer/lib/layout/navigation-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions';
-import { readChatSummary } from '@/lib/chatSummariesBridge';
-import { setComposerVerb } from '@/lib/composerVerbBridge';
+import { readComposerVerb, setComposerVerb } from '@/lib/composerVerbBridge';
+import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
+import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -156,6 +157,13 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
       return;
     }
     if (isProjectActive) {
+      // gugu-dev#181 正在开新任务时点这一行 = 回到群聊:还没打字,「新任务」一起撤掉;打了字就留着。
+      const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
+      if (chatId && readComposerVerb(chatId) === 'task') {
+        if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
+        sidebarStore.ensureProjectExpanded(projectId);
+        return;
+      }
       sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
@@ -172,11 +180,9 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const openNewSession = () => {
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     if (standInDevice) return openHomeComposer(standInDevice);
+    // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
+    prepareProjectTask(projectId);
     if (!isProjectActive) navigate('project', { projectId });
-    // gugu-dev#181 悬停的「+」= 在这个项目里开新任务:群里已经有消息时,项目块的框直接是「新任务」、文件夹卡浮出来;
-    // 还没有消息时项目块本来就是项目首页(文件夹卡 + 新任务的框)。
-    const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
-    if (chatId && readChatSummary(chatId)?.hasMessages) setComposerVerb(chatId, 'task');
     sidebarStore.ensureProjectExpanded(projectId);
   };
 
