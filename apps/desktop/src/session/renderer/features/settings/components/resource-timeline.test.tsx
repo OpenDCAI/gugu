@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { CartesianTimeAxis } from '@visactor/vchart/cjs/component/axis/cartesian/time-axis';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ResourcePoint, ResourceSnapshot } from '@shared/resource-monitor';
 import { createReactHarness, deferred } from '../../../../../../../../tests/support/testHarness';
 import { ResourceTimeline } from './resource-timeline';
 
 type ChartProps = {
-  spec: { theme: string; line: { style: { stroke: string } }; point: { visible: boolean }; data?: unknown };
+  spec: { theme: string; line: { style: { stroke: string } }; point: { visible: boolean }; axes: { orient: string }[]; data?: unknown };
   data?: { id: string; values: { id: number; value: number; series: string }[] }[];
   options: unknown;
   onClick: (event: { datum: { id: number } }) => void;
@@ -113,4 +114,16 @@ it('omits compact point marks while keeping full-page point selection and both d
   expect(rig.point).toHaveBeenCalledWith(2);
   expect(harness.container.querySelector('table')).not.toBeNull();
   expect(harness.container.querySelectorAll('select')).toHaveLength(1);
+});
+
+it('shows distinct clock labels for samples on the same day through the real time-axis formatter', async () => {
+  const timestamps = [new Date(2026, 9, 22, 15, 0, 0).getTime(), new Date(2026, 9, 22, 15, 0, 5).getTime()];
+  rig.history.mockResolvedValue(history(points.map((point, i) => ({ ...point, timestamp: timestamps[i] }))));
+  await render();
+  type AxisFormatter = (this: { _spec: unknown }) => (value: number, datum: object, index: number, data: unknown[], layer: number) => string;
+  const getLabelFormat = Reflect.get(CartesianTimeAxis.prototype, '_getLabelFormatMethod') as AxisFormatter;
+  for (const chart of [cpu(), memory()]) {
+    const format = getLabelFormat.call({ _spec: chart.spec.axes.find((axis) => axis.orient === 'bottom') });
+    expect(timestamps.map((value, i) => format(value, {}, i, [], 0))).toEqual(['15:00:00', '15:00:05']);
+  }
 });

@@ -82,7 +82,7 @@ function TimelineChart({ points, metric, compact, select }: { points: ResourcePo
   // VChart can update data without rebuilding axes/layout; keep its spec stable between samples.
   const spec = useMemo(() => ({ type: 'line', theme, animation: false, background: 'transparent', padding: 5,
     xField: 'timestamp', yField: 'value', seriesField: 'series',
-    axes: [{ orient: 'bottom', visible: !compact, type: 'time', label: { formatMethod: (v: number) => new Date(Number(v)).toLocaleTimeString() } }, { orient: 'left', visible: !compact, zero: true }],
+    axes: [{ orient: 'bottom', visible: !compact, type: 'time', layers: [{ timeFormat: '%H:%M:%S' }] }, { orient: 'left', visible: !compact, zero: true }],
     line: { style: { stroke: metric === 'cpu' ? '#1664ff' : '#3cc780' } }, point: { visible: !compact, style: { size: 3 } }, legends: { visible: false },
   }), [theme, compact, metric]);
   return <Suspense><VChart spec={spec as never} data={data} options={CHART_OPTIONS} onClick={(event: { datum?: { id?: number } }) => { if (event.datum?.id) select(event.datum.id); }} /></Suspense>;
