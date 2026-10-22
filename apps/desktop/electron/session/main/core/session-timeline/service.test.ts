@@ -351,6 +351,7 @@ describe('session timeline service', () => {
     persistedQuestions.clear();
     service.resetSessionTimelineService();
     service.setSessionTimelineFactory(null);
+    service.setConnectionConfigRootResolver(null);
     state.pendingWatchAvailable = true;
     state.pendingWatchCalls = [];
     state.pendingWatchDisposed = 0;
@@ -454,6 +455,41 @@ describe('session timeline service', () => {
     await expect(
       service.respond({ conversationId: 'conv-1', itemId: 'x', optionId: 'y', kind: 'permission', by: 'desktop' })
     ).resolves.toMatchObject({ ok: false, error: { code: 'session_not_started' } });
+  });
+
+  it('绑在非原生订阅连接上的会话:记录先去那条连接自己的配置根里找,原生会话不带它', async () => {
+    const factory = vi.fn(async () => makeTimeline().timeline);
+    service.setSessionTimelineFactory(factory);
+    service.setConnectionConfigRootResolver((provider, id) => (provider === 'claude' && id !== 'native' ? `/conn/${id}/.claude` : null));
+    const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
+
+    state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'conn-1' } })];
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(rootsOf()[0]).toBe('/conn/conn-1/.claude/projects');
+    expect(rootsOf().length).toBeGreaterThan(1); // 默认根仍在后面:会话在绑定之前留下的记录照样找得到
+
+    service.resetSessionTimelineService();
+    state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'native' } })];
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
+  });
+
+  it('还没启动过的外部 fork 没有自己的绑定:顺着 forkedFrom 用源会话那条连接的根;解析器抛错只退回默认根', async () => {
+    const factory = vi.fn(async () => makeTimeline().timeline);
+    service.setSessionTimelineFactory(factory);
+    service.setConnectionConfigRootResolver((_provider, id) => `/conn/${id}/.claude`);
+    const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
+    state.rows = [
+      row({ id: 'src', providerSessionId: 'sess-src', config: { type: 'acp', subscriptionConnectionId: 'conn-1' } }),
+      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
+    ];
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf()[0]).toBe('/conn/conn-1/.claude/projects');
+
+    service.resetSessionTimelineService();
+    service.setConnectionConfigRootResolver(() => { throw new Error('userData unavailable'); });
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
   });
 
   it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
