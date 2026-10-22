@@ -1,11 +1,10 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { Clock } from '@/lib/icons';
-import { publishDefaultTaskAgent, useDefaultTaskAgent } from '@/lib/defaultTaskAgentBridge';
 import { PluginIcon } from '@renderer/lib/components/plugin-icon';
 import { useAgentIcon } from '@renderer/lib/stores/use-agents';
 import { useDefaultTaskProvider } from './use-default-task-provider';
-import { setComposerVerb, takeComposerCarry, type ComposerVerb } from '@/lib/composerVerbBridge';
+import { publishDefaultTaskAgent, setComposerVerb, takeComposerCarry, useDefaultTaskAgent, type ComposerVerb } from '@/lib/composerVerbBridge';
 import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
@@ -50,7 +49,7 @@ export function DefaultTaskAgentMark() {
   return agent ? <PluginIcon id={agent.id} icon={agent.icon} size={14} /> : null;
 }
 
-/** 把新任务的框会默认选中的那个 agent 和它的标交给壳:群输入框上的「新任务」按钮画它(defaultTaskAgentBridge)。 */
+/** 把新任务的框会默认选中的那个 agent 和它的标交给壳:群输入框上的「新任务」按钮画它(composerVerbBridge)。 */
 export function DefaultTaskAgentPublisher() {
   const id = useDefaultTaskProvider();
   const icon = useAgentIcon(id ?? '');

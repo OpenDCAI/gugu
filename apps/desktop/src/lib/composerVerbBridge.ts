@@ -3,7 +3,11 @@
 // 按对话记:每个对话一格。壳那棵树的输入框(InputArea)写,会话页那棵读 —— 项目块据此把新任务的框摆在群聊底下、
 // 浮出文件夹卡;对话页也读,据此收起自己的框。同一个 window 对象 + 一个 window 事件(与 chatSummariesBridge 同一做法),
 // 两边都只 import 这一个文件,❌ 各写一份键名。
+//
+// 新任务的框会默认选中的那个 agent(和它的标)也在这里:会话页那一侧算得出(设置、记忆、装没装都在那边)、发布,
+// 壳的「新任务」按钮读它画标 —— 那也是新任务框的状态。
 import { useSyncExternalStore } from 'react'
+import type { AgentIconAsset } from '../session/shared/core/agents/agent-payload'
 
 export type ComposerVerb = 'task' | 'schedule'
 
@@ -88,4 +92,29 @@ function subscribe(listener: () => void): () => void {
 /** 这个对话的输入框此刻是哪个词;没选 = null(就是发消息)。 */
 export function useComposerVerb(chatId: string | null | undefined): ComposerVerb | null {
   return useSyncExternalStore(subscribe, () => (chatId ? readComposerVerb(chatId) : null), () => null)
+}
+
+/** 新任务的框会默认选中的那个 agent 和它的标(没有 = null)。 */
+export interface DefaultTaskAgent {
+  id: string
+  icon: AgentIconAsset
+}
+
+const DEFAULT_AGENT_KEY = '__GUGU_COMPOSER_VERB_DEFAULT_AGENT__'
+
+function readDefaultTaskAgent(): DefaultTaskAgent | null {
+  return ((window as unknown as Record<string, unknown>)[DEFAULT_AGENT_KEY] as DefaultTaskAgent | undefined) ?? null
+}
+
+/** 会话页:默认的那个 agent 变了。没变不通知。 */
+export function publishDefaultTaskAgent(agent: DefaultTaskAgent | null): void {
+  const current = readDefaultTaskAgent()
+  if (current?.id === agent?.id && current?.icon === agent?.icon) return
+  ;(window as unknown as Record<string, unknown>)[DEFAULT_AGENT_KEY] = agent
+  window.dispatchEvent(new Event(EVENT))
+}
+
+/** 壳:「新任务」按钮上画哪个 agent 的标。 */
+export function useDefaultTaskAgent(): DefaultTaskAgent | null {
+  return useSyncExternalStore(subscribe, readDefaultTaskAgent, () => null)
 }
