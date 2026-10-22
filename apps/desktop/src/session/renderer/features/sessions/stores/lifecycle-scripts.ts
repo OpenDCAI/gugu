@@ -1,5 +1,7 @@
 import { action, computed, makeObservable, observable, onBecomeObserved, runInAction } from 'mobx';
-import { events, rpc } from '@renderer/lib/ipc';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { PtySession } from '@renderer/lib/pty/pty-session';
 import { type TabViewProvider } from '@renderer/lib/stores/generic-tab-view';
 import {
@@ -51,7 +53,7 @@ export class LifecycleScriptStore {
       undefined,
       undefined
     );
-    this.offStatus = events.on(lifecycleScriptStatusChannel, (event) => {
+    this.offStatus = onMachineEvent(machineRegistry.machineOf(projectId), lifecycleScriptStatusChannel, (event) => {
       if (
         event.projectId !== projectId ||
         event.workspaceId !== workspaceId ||
@@ -115,7 +117,7 @@ export class LifecycleScriptsStore implements TabViewProvider<LifecycleScriptSto
       void this.load();
     });
     this._unsubscribes.push(
-      events.on(fileChangesChannel, (data) => {
+      workspaceEvents.on(fileChangesChannel, (data) => {
         if (data.projectId !== this.projectId || data.workspaceId !== this.workspaceId) return;
         if (
           data.update.kind === 'resync' ||
@@ -124,7 +126,7 @@ export class LifecycleScriptsStore implements TabViewProvider<LifecycleScriptSto
           this.reloadIfLoaded();
         }
       }),
-      events.on(projectSettingsChangedChannel, ({ projectId }) => {
+      onMachineEvent(machineRegistry.machineOf(this.projectId), projectSettingsChangedChannel, ({ projectId }) => {
         if (projectId === this.projectId) this.reloadIfLoaded();
       })
     );

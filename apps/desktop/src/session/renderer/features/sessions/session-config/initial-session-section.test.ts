@@ -497,7 +497,6 @@ vi.mock('@renderer/lib/ipc', () => {
         : mod.rpc,
     // 平台模型目录那一问经宿主通道走(本机 = electronApi().invoke)。
     invokeOnMachine: (_machine: string | null, channel: string, ...args: unknown[]) => mocks.invoke(channel, ...args),
-    eventSourceMachine: () => null,
     onMachineEvent: () => () => {},
     ...mod,
   };

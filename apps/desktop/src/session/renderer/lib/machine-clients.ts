@@ -24,7 +24,7 @@ type Entry = {
 };
 
 const entries = new Map<string, Entry>();
-const createdListeners = new Set<(deviceId: string, client: SessionHostClient) => void>();
+const createdListeners = new Set<(deviceId: string) => void>();
 
 function notify(entry: Entry): void {
   for (const listener of [...entry.listeners]) listener();
@@ -71,21 +71,23 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     notify(entry);
   });
   entries.set(deviceId, entry);
-  for (const listener of [...createdListeners]) listener(deviceId, entry.client);
+  for (const listener of [...createdListeners]) listener(deviceId);
   return entry.client;
 }
 
-/** 此刻开着的客户端(事件合流用)。 */
-export function machineClients(): ReadonlyMap<string, SessionHostClient> {
-  const out = new Map<string, SessionHostClient>();
-  for (const [deviceId, entry] of entries) out.set(deviceId, entry.client);
-  return out;
-}
-
-/** 以后新建的客户端(事件合流要给它补订已有的订阅)。返回退订。 */
-export function onMachineClientCreated(listener: (deviceId: string, client: SessionHostClient) => void): () => void {
+/**
+ * 每台连着的机器(此刻的与以后连上的)各跑一次 setup,返回全部退订。给真要听**每台**机器的那几种低频事件用
+ * (项目清单变了、项目分组、App 程序通知、会话开户改名);项目里的事件按项目所在的机器订(onMachineEvent)。
+ */
+export function onEachMachine(setup: (deviceId: string) => () => void): () => void {
+  const offs = new Map<string, () => void>();
+  for (const deviceId of entries.keys()) offs.set(deviceId, setup(deviceId));
+  const listener = (deviceId: string) => offs.set(deviceId, setup(deviceId));
   createdListeners.add(listener);
-  return () => createdListeners.delete(listener);
+  return () => {
+    createdListeners.delete(listener);
+    for (const off of offs.values()) off();
+  };
 }
 
 export function machineLinkState(deviceId: string): MachineLinkState {

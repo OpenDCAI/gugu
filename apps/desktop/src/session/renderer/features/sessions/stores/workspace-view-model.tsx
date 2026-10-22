@@ -18,7 +18,8 @@ import { TerminalTabViewStore } from '@renderer/features/sessions/terminals/term
 import { type SidebarTab } from '@renderer/features/sessions/types';
 import { sessionPageOnScreen } from '@renderer/app/sessions-on-screen';
 import { appState } from '@renderer/lib/stores/app-state';
-import { events } from '@renderer/lib/ipc';
+import { onMachineEvent } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { snapshotRegistry } from '@renderer/lib/stores/snapshot-registry';
 import { log } from '@renderer/utils/logger';
 import {
@@ -194,7 +195,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // chat column kept a live composer for a row that no longer existed (title fell back to the
     // task's internal slug, sends failed with a toast — 2026-08-24 owner 实测).
     this._disposers.push(
-      events.on(sessionDeletedChannel, ({ sessionId, projectId: eventProjectId }) => {
+      onMachineEvent(machineRegistry.machineOf(projectId), sessionDeletedChannel, ({ sessionId, projectId: eventProjectId }) => {
         if (eventProjectId !== projectId || sessionId !== this.sessionId) return;
         this._retireSessionTabs(sessionId);
       })
@@ -205,7 +206,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // 父会话之后,聊天栏落到空态「No conversation is open」,而同 task 里那条子会话还活着 —— tab 关了,
     // 没人把聊天栏交给剩下的那条)。
     this._disposers.push(
-      events.on(sessionChangedChannel, ({ sessionId, projectId: eventProjectId, changes }) => {
+      onMachineEvent(machineRegistry.machineOf(projectId), sessionChangedChannel, ({ sessionId, projectId: eventProjectId, changes }) => {
         if (eventProjectId !== projectId || sessionId !== this.sessionId) return;
         if (!changes.archivedAt) return;
         this._retireSessionTabs(sessionId);

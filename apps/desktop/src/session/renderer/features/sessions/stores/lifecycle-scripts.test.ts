@@ -11,7 +11,8 @@ const eventHandlers = new Map<string, (data: unknown) => void>();
 const offEvent = vi.fn();
 const getSettings = vi.hoisted(() => vi.fn());
 
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     on: vi.fn((event: { name: string }, cb: (data: unknown) => void, topic?: string) => {
       eventHandlers.set(`${event.name}.${topic ?? ''}`, cb);
@@ -23,7 +24,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       getSettings,
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 vi.mock('@renderer/lib/pty/pty-session', () => ({
   PtySession: class {

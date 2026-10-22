@@ -1,5 +1,7 @@
 import type { Result } from '@gugu/session-shared';
-import { events, rpc } from '@renderer/lib/ipc';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { Resource } from '@renderer/lib/stores/resource';
 import { fileChangesChannel } from '@shared/core/fs/fsEvents';
 import {
@@ -34,7 +36,7 @@ export class ProjectSettingsStore {
       return result.data;
     }, [{ kind: 'demand' }]);
 
-    this._unsubscribeConfigWatch = events.on(fileChangesChannel, (data) => {
+    this._unsubscribeConfigWatch = workspaceEvents.on(fileChangesChannel, (data) => {
       if (data.projectId !== projectId) return;
       if (
         data.update.kind === 'resync' ||
@@ -44,7 +46,7 @@ export class ProjectSettingsStore {
       }
     });
 
-    this._unsubscribeSettingsChanged = events.on(projectSettingsChangedChannel, (data) => {
+    this._unsubscribeSettingsChanged = onMachineEvent(machineRegistry.machineOf(projectId), projectSettingsChangedChannel, (data) => {
       if (data.projectId === projectId) {
         this.pageData.invalidate();
       }

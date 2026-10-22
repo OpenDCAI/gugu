@@ -9,11 +9,18 @@ import { comparer, makeAutoObservable, observable, reaction, runInAction } from 
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { LocalProject } from '@shared/projects';
 import type { SessionHostClient } from '@shared/lib/ipc/session-host-client';
-import { rpcOn } from '@renderer/lib/ipc';
+import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
+import type { EventDefinition } from '@shared/lib/ipc/events';
+import {
+  projectCreatedChannel,
+  projectDeletedChannel,
+  projectVisibilityChangedChannel,
+} from '@shared/core/projects/projectEvents';
 import {
   closeMachineClient,
   machineClient,
   machineLinkState,
+  onEachMachine,
   reconnectMachine,
   subscribeMachineLink,
   type MachineLinkState,
@@ -542,7 +549,18 @@ export class RemoteHostsStore {
       for (const deviceId of [...this.hosts.keys()]) this.forget(deviceId);
       return;
     }
-    this.stopDevices = bridge.subscribeDevices(() => this.reconcile());
+    const offDevices = bridge.subscribeDevices(() => this.reconcile());
+    // 那台机器上的项目清单变了(新建 / 删掉 / 显隐):在那台机器上订,重读它的清单(只登记,❌ 挂;用到时 ensureMounted)。
+    const offProjects = onEachMachine((deviceId) => {
+      const offs = [projectCreatedChannel, projectDeletedChannel, projectVisibilityChangedChannel].map((event) =>
+        onMachineEvent(deviceId, event as EventDefinition<unknown>, () => void this.syncProjects(deviceId))
+      );
+      return () => offs.forEach((off) => off());
+    });
+    this.stopDevices = () => {
+      offDevices();
+      offProjects();
+    };
     this.reconcile();
   }
 

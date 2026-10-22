@@ -3,6 +3,20 @@ export type ElectronManagedRealtimeChannel = {
   subscribe: (callback: (status: string, err?: Error) => void) => ElectronManagedRealtimeChannel
 }
 
+/** 一条订着的私有频道上能发广播的那一面。 */
+export type BroadcastChannel = {
+  send: (message: { type: 'broadcast'; event: string; payload: unknown }) => Promise<unknown>
+}
+
+/**
+ * 发一条广播,发不出去就失败。realtime-js 的 `send` 从不 reject:被拒(超过单条上限、限流)或等不到确认时只回
+ * 'error' / 'timed out' —— 不在这里变成失败,调用方就当它发出去了,丢掉的那一帧悄无声息(远程会话页按 seq 等它,一直等)。
+ */
+export async function sendBroadcast(channel: BroadcastChannel, event: string, payload: unknown): Promise<void> {
+  const result = await channel.send({ type: 'broadcast', event, payload })
+  if (result !== 'ok') throw new Error(`broadcast ${event} not delivered: ${String(result)}`)
+}
+
 export type ElectronRealtimeClient = {
   realtime: {
     setAuth: (accessToken: string) => unknown | Promise<unknown>

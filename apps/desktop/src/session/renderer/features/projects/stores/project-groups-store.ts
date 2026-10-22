@@ -1,6 +1,7 @@
 import { observable, reaction, runInAction } from 'mobx';
 import { projectGroupBindingChangedChannel } from '@shared/core/projects/projectEvents';
-import { events, rpcOn } from '@renderer/lib/ipc';
+import { events, onMachineEvent, rpcOn } from '@renderer/lib/ipc';
+import { onEachMachine } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
 import { publishProjectGroupChats } from './project-group-chats-bridge';
@@ -83,8 +84,11 @@ export class ProjectGroupsStore {
         },
         { fireImmediately: true }
       );
-      // 哪台机器上的绑定变了(并进来、撤销、agent 挂的):本机与各台连着的都重读,省得猜是哪台推的。
-      const offEvent = events.on(projectGroupBindingChangedChannel, () => this.refreshAll());
+      // 哪台机器上的绑定变了(并进来、撤销、agent 挂的):在那台机器上订,就重读那一台。
+      const offLocal = events.on(projectGroupBindingChangedChannel, () => void this.refresh(null));
+      const offMachines = onEachMachine((deviceId) =>
+        onMachineEvent(deviceId, projectGroupBindingChangedChannel, () => void this.refresh(deviceId))
+      );
       // 聊天页的列表据此把项目群拿掉(它们在项目页里)。
       const offPublish = reaction(
         () => [...new Set(this.byProject.values())].sort().join('\u0000'),
@@ -93,7 +97,8 @@ export class ProjectGroupsStore {
       );
       this.stop = () => {
         offHosts();
-        offEvent();
+        offLocal();
+        offMachines();
         offPublish();
       };
     }
