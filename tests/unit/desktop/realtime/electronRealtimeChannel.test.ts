@@ -53,11 +53,11 @@ describe('Electron Realtime physical channel replacement', () => {
       realtime: { setAuth: vi.fn(async (token?: string) => { installed = token ?? ownerToken }) },
       removeChannel: vi.fn(async () => 'ok'),
     }
-    const oldOptions = { accessToken: 'old-token', label: 'old', createChannel: () => replacement, reconnectOnStatus: () => true }
+    const oldOptions = { label: 'old', createChannel: () => replacement, reconnectOnStatus: () => true }
     const stopOld = await subscribeAuthenticatedElectronRealtimeChannel(client, old, oldOptions)
     old.emit('SUBSCRIBED')
     ownerToken = 'new-token'
-    const freshOptions = { accessToken: 'new-token', label: 'fresh' }
+    const freshOptions = { label: 'fresh' }
     const stopFresh = await subscribeAuthenticatedElectronRealtimeChannel(client, fresh, freshOptions)
     fresh.emit('SUBSCRIBED')
     expect(installed).toBe('new-token')
