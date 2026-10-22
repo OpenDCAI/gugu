@@ -1,10 +1,12 @@
 import { ShieldAlert, TriangleAlert } from '@/lib/icons'
 import { isMacHost } from '@shared/host-os';
 import { observer } from 'mobx-react-lite';
+import { useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
 import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { rpc } from '@renderer/lib/ipc';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { log } from '@renderer/utils/logger';
 import { isUnregisteredProject } from '../../stores/project';
 import {
   getProjectManagerStore,
@@ -25,13 +27,23 @@ export const ProjectMainPanel = observer(function ProjectMainPanel() {
   const kind = projectViewKind(store);
   const displayName = projectDisplayName(store) ?? translate('projects.fallbackName');
 
+  // 打开项目首页 = 要用这个项目了:还没挂上(别的机器上的项目列出时不挂)就经挂载的唯一入口挂上它,
+  // 那台机器此刻连不上就等它连上再挂。挂过失败的不在这里重试:那是错误面板上的「重试」。
+  useEffect(() => {
+    if (kind !== 'idle_unmounted') return;
+    void getProjectManagerStore()
+      .ensureMounted(projectId)
+      .catch((error: unknown) => log.warn('[project-page] 挂载项目失败', { projectId, error }));
+  }, [projectId, kind]);
+
   if (kind === 'creating' && store && isUnregisteredProject(store)) {
     return <PendingProjectStatus project={store} />;
   }
 
-  // gugu #2328: bootstrapping 直接渲染项目首页(乐观上屏)——远程项目挂载是网络物理耗时,
-  // 页面不等它;发送等控件由 mounted 态渐进解锁,❌ 整页 Setting up 转圈。
-  if (kind === 'bootstrapping') {
+  // 首页不等挂载(product spec「项目」:项目不属于任何一台机器,机器离线时它的文件夹照样列着、标离线):
+  // 挂载中(gugu #2328 乐观上屏,远程挂载是网络物理耗时)和还没挂上(那台机器没连上)都直接画首页 ——
+  // 文件夹卡列上次读到的、标离线,输入框说那台机器此刻用不了。❌ 空白一页、❌ 整页 Setting up 转圈。
+  if (kind === 'bootstrapping' || kind === 'idle_unmounted') {
     return <ActiveProject />;
   }
 
