@@ -21,7 +21,7 @@ import { useChatHasMessages } from '@/lib/chatSummariesBridge';
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
-import { focusSessionComposer } from '@renderer/features/sidebar/session-keyboard-nav';
+import { useFloatingCardKeys } from './floating-card-keys';
 import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
@@ -135,19 +135,8 @@ const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }:
     if (carried) composerDrafts.set(projectDraftKey(projectId), carried);
     return null;
   });
-  // 卡浮着时按 Esc 或直接打字,卡就让开;打的字落进新任务的框(焦点在别处也一样)。
   const dockRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!cardShown) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCardShown(false);
-      if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) return;
-      setCardShown(false);
-      if (dockRef.current && !dockRef.current.contains(document.activeElement)) focusSessionComposer(dockRef.current);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [cardShown]);
+  useFloatingCardKeys(cardShown, () => setCardShown(false), dockRef);
   const close = () => setComposerVerb(chatId, null);
   return (
     <>
