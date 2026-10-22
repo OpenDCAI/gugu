@@ -62,6 +62,8 @@ import { usePhoneAssistant, type PhoneAssistantState } from '../mobile/assistant
 import { useBackgroundUsageSync } from '../components/usage/useBackgroundUsageSync'
 import { useContactsStore } from '../store/contactsContext'
 import { chatService } from '../lib/chat'
+import { readAgentCreateDefaults, rememberAgentCreateProject } from '../lib/agentCreateDefaults'
+import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
 import { createOptimisticAgentChat, createOptimisticDmChat, createOptimisticGroupChat } from '@gugu/core/shared/ui/chatModels'
 import { AGENT_SESSION_STARTED_EVENT, readAgentConversationStartedEvent } from '../lib/agentConversationEvents'
 import { createAgentStartedNotificationPayload, createAgentTurnFailedNotificationPayload, shouldNotifyForAgentStarted, shouldNotifyForAgentTurnFailed } from '../lib/agentNotificationModels'
@@ -1148,6 +1150,11 @@ function InnerLayout({
         if (!openChatBlock(sourceChatId)) throw new Error('topics open on the session page only')
         requestTopicsPanel(sourceChatId)
       },
+      async sendCardToChat(chatId, content) {
+        await chatService.sendMessage(chatId, user.id, content, crypto.randomUUID(), 'card')
+      },
+      rememberedTaskProject: async (chatId, deviceId) => rememberedAgentCreateProject(await readAgentCreateDefaults(), deviceId, chatId),
+      rememberTaskProject: async (chatId, deviceId, projectId) => { await rememberAgentCreateProject(deviceId, projectId, chatId) },
       // 对话页「新建 Agent」落地的唯一导航入口:创建结果直驱,不经广播转手 (#4314)。
       openAgentChat({ chatId, agentUserId }) {
         upsertChat(createOptimisticAgentChat(chatId, agentUserId))

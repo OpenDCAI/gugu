@@ -2,15 +2,14 @@ import cronstrue from 'cronstrue';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { Clock, X } from '@/lib/icons';
-import { chatService } from '@/lib/chat';
 import { setComposerVerb, takeComposerCarry } from '@/lib/composerVerbBridge';
-import { getCurrentAuthUserId } from '@/lib/supabase';
 import { platform } from '@/platform';
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels';
 import { ProjectSelector } from '@renderer/features/sessions/create-session-modal/project-selector';
 import { SessionField } from '@renderer/features/sessions/session-config/session-field';
 import { SessionStateProvider } from '@renderer/features/sessions/session-config/session-state-context';
 import { CronPicker } from '@renderer/lib/CronPicker';
+import { sessionpageMessageHost } from '@renderer/lib/sessionpage-message-host';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { formatAutomationError } from '../automations/automation-run-format';
@@ -87,7 +86,7 @@ export const ScheduleDispatchComposer = observer(function ScheduleDispatchCompos
         deviceId: self.device_id,
         machineLabel: self.label,
       });
-      await chatService.sendMessage(chatId, await getCurrentAuthUserId(), content, crypto.randomUUID(), 'card');
+      await sessionpageMessageHost().sendCardToChat(chatId, content);
       form.initialSession.setPrompt('');
       close();
     } catch (saveError) {

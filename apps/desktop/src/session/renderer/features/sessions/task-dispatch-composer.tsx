@@ -1,13 +1,12 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { Sparkles, X } from '@/lib/icons';
-import { rememberAgentCreateProject, readAgentCreateDefaults } from '@/lib/agentCreateDefaults';
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { platform } from '@/platform';
-import { rememberedAgentCreateProject } from '@gugu/core/shared/ui/agentCreateDefaultsModels';
 import { machineLibraryHost } from '@renderer/features/library/library-host';
 import { useNewSessionMachine } from '@renderer/features/remote-hosts/use-new-session-machine';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { sessionpageMessageHost } from '@renderer/lib/sessionpage-message-host';
 import { log } from '@renderer/utils/logger';
 import { ComposerBirthGroupChip, ComposerProjectPicker, mountedProjects } from './composer-context-tray';
 import { composerDrafts } from './composer-drafts';
@@ -70,7 +69,7 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
   const pickProject = (projectId: string | undefined) => {
     setSelectedId(projectId);
     if (localDeviceId) {
-      void rememberAgentCreateProject(localDeviceId, projectId ?? null, chatId).catch((error: unknown) => {
+      void sessionpageMessageHost().rememberTaskProject(chatId, localDeviceId, projectId ?? null).catch((error: unknown) => {
         log.warn('remember the project picked for a chat failed', { chatId, error: error instanceof Error ? error.message : String(error) });
       });
     }
@@ -170,9 +169,8 @@ function useChatProjectMemory(chatId: string | null, deviceId: string | null): s
   useEffect(() => {
     if (!chatId || !deviceId) return;
     let live = true;
-    void readAgentCreateDefaults().then(
-      (defaults) => {
-        const id = rememberedAgentCreateProject(defaults, deviceId, chatId);
+    void sessionpageMessageHost().rememberedTaskProject(chatId, deviceId).then(
+      (id) => {
         if (live && id && mountedProjects().some((project) => project.id === id)) setProjectId(id);
       },
       (error: unknown) => log.warn('read the project remembered for a chat failed', { chatId, error: error instanceof Error ? error.message : String(error) }),
