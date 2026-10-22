@@ -31,7 +31,6 @@ export type SidebarSessionLine = {
 }
 
 export type SidebarChatView = {
-  readonly query: string
   readonly focusedChatId: string | null
   /** 正看着的那条会话(没有项目的会话排在「对话」里,那一行高亮)。 */
   readonly focusedSessionId: string | null
@@ -61,7 +60,7 @@ export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats
   return { chatsUnread, groupUnread }
 }
 
-const NO_VIEW: SidebarChatView = { query: '', focusedChatId: null, focusedSessionId: null }
+const NO_VIEW: SidebarChatView = { focusedChatId: null, focusedSessionId: null }
 
 function read<T>(key: string): T | null {
   return ((window as unknown as Record<string, unknown>)[key] as T | undefined) ?? null
@@ -101,11 +100,11 @@ export function useSidebarChatSignals(): SidebarChatSignals | null {
 /** 会话页:侧栏在看什么;没变不通知。 */
 export function publishSidebarChatView(next: SidebarChatView): void {
   const current = read<SidebarChatView>(VIEW_KEY)
-  if (current && current.query === next.query && current.focusedChatId === next.focusedChatId && current.focusedSessionId === next.focusedSessionId) return
+  if (current && current.focusedChatId === next.focusedChatId && current.focusedSessionId === next.focusedSessionId) return
   write(VIEW_KEY, VIEW_EVENT, next)
 }
 
-/** 壳:会话页还没说过 = 没在搜、没看着哪条对话。 */
+/** 壳:会话页还没说过 = 没看着哪条对话。 */
 export function useSidebarChatView(): SidebarChatView {
   return useSyncExternalStore(subscribeView, () => read<SidebarChatView>(VIEW_KEY) ?? NO_VIEW, () => NO_VIEW)
 }
@@ -121,3 +120,25 @@ export function publishSidebarSessions(next: readonly SidebarSessionLine[]): voi
 export function useSidebarSessions(): readonly SidebarSessionLine[] {
   return useSyncExternalStore(subscribeSessions, () => read<readonly SidebarSessionLine[]>(SESSIONS_KEY) ?? NO_SESSIONS, () => NO_SESSIONS)
 }
+
+export type ShellChatAction = 'create-group' | 'add-contact'
+
+const ACTION_KEY = '__GUGU_SIDEBAR_CHAT_ACTION__'
+const ACTION_EVENT = 'gugu:sidebar-chat-action'
+
+/**
+ * 会话页:新建群聊 / 添加联系人(侧栏「对话」页那两行、⌘K 面板)。弹窗是侧栏里那份对话列表的,那份列表此刻可能还没挂上
+ * (人在「项目」页):请求先存着,列表挂上或收到通知时取走 —— ❌ 发一个没人听的事件就丢了。
+ */
+export function requestShellChatAction(action: ShellChatAction): void {
+  write(ACTION_KEY, ACTION_EVENT, action)
+}
+
+/** 壳(侧栏那份对话列表):取走一个还没办的请求;取一次就没了。 */
+export function takeShellChatAction(): ShellChatAction | null {
+  const action = read<ShellChatAction>(ACTION_KEY)
+  ;(window as unknown as Record<string, unknown>)[ACTION_KEY] = null
+  return action
+}
+
+export const subscribeShellChatActions = subscribeTo(ACTION_EVENT)

@@ -27,7 +27,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
-import { useSidebarChatView, useSidebarSessions, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
+import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarSessions, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
 import { SidebarSessionLineRow } from './SidebarSessionLineRow'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { requestTopicsPanel } from '../lib/topicsPanelRequest'
@@ -553,17 +553,17 @@ export function ChatListPanel({
   const shownAgent = useShownAgentStatus() // #7199 宿主闲时收回着的自己的 agent:不画睡团 / 「不在线」
   const [showGroupModal, setShowGroupModal] = useState<boolean | string>(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
-  // gugu-dev#181 会话页侧栏「对话」页的两行入口(新建群聊、添加联系人)开的是侧栏那一份的这两个弹窗。
+  // gugu-dev#181 会话页的新建群聊、添加联系人(侧栏「对话」页那两行、⌘K 面板)开的是侧栏那一份的这两个弹窗:
+  // 挂上时先取一次(请求可能在这份列表挂上之前就发了),之后每来一个取一个。
   useEffect(() => {
     if (!inSidebar) return
-    const openGroup = () => setShowGroupModal(true)
-    const openAddFriend = () => setShowAddFriendModal(true)
-    window.addEventListener(UI_EVENTS.openCreateGroup, openGroup)
-    window.addEventListener(UI_EVENTS.openAddContact, openAddFriend)
-    return () => {
-      window.removeEventListener(UI_EVENTS.openCreateGroup, openGroup)
-      window.removeEventListener(UI_EVENTS.openAddContact, openAddFriend)
+    const take = () => {
+      const action = takeShellChatAction()
+      if (action === 'create-group') setShowGroupModal(true)
+      if (action === 'add-contact') setShowAddFriendModal(true)
     }
+    take()
+    return subscribeShellChatActions(take)
   }, [inSidebar])
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -590,7 +590,8 @@ export function ChatListPanel({
   // 问候语后它把空会话永久钉顶,发送后的会话永远排不到它前面,即 #2264)。
   // 现在能走到这个排序键的「无消息会话」只剩群、以及被置顶/标未读/有草稿的单聊(见下面 isListed)。
   const byTime = compareChatsByActivityDesc
-  const listQuery = inSidebar ? sidebarView.query : searchQuery
+  // 侧栏那一份不搜:搜索是 ⌘K 那一个面板(gugu-dev#181 ⑯);这里只有对话页自己那个搜索框。
+  const listQuery = searchQuery
   // 高亮哪一行:侧栏那一份认会话页正看着的那块对话,对话页那一份认它自己打开的那条。
   const selectedChatId = inSidebar ? sidebarView.focusedChatId : activeChatId
   const matchesSearch = (chat: ChatItem) => {
@@ -718,11 +719,8 @@ export function ChatListPanel({
     )
   }
 
-  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排;搜索按会话名。
-  const sessionQuery = listQuery.trim().toLocaleLowerCase()
-  const sessionLines = inSidebar
-    ? sidebarSessions.filter((line) => !sessionQuery || line.title.toLocaleLowerCase().includes(sessionQuery))
-    : []
+  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排。
+  const sessionLines = inSidebar ? sidebarSessions : []
   const openSessionLine = (line: SidebarSessionLine, beside: boolean) => {
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')

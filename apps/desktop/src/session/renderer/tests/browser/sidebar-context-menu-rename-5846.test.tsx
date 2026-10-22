@@ -45,8 +45,6 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     },
   },
   sidebarStore: {
-    searchQuery: '',
-    setSearchQuery: () => {},
     navChain: [
       { kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-other' },
     ],

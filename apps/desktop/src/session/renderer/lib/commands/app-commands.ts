@@ -5,6 +5,7 @@ import { openShellSettings } from '@renderer/lib/open-shell-settings';
 import { appState } from '@renderer/lib/stores/app-state';
 import { toggleHostTheme } from '@renderer/lib/theme/host-theme';
 import { APP_COMMAND_DEFS, type AppCommandId, type CommandDef } from '@shared/commands';
+import { openShellChatAction } from '@renderer/features/sidebar/sidebar-chats-section';
 import { commandRegistry } from './registry';
 import type { AppCommand, CommandProvider } from './types';
 
@@ -89,6 +90,40 @@ function createAppCommandProvider(): CommandProvider {
         },
       });
 
+      // gugu-dev#181 ⑯ 侧栏上那几个入口在 ⌘K 面板里也能到:执行的就是那几行点下去的同一件事。
+      const scheduledDef = appDef('app.scheduled');
+      const newGroupChatDef = appDef('app.newGroupChat');
+      const addContactDef = appDef('app.addContact');
+      commands.push(
+        {
+          id: scheduledDef.id,
+          label: scheduledDef.label,
+          description: scheduledDef.description,
+          group: scheduledDef.group,
+          execute() {
+            appState.navigation.navigate('automations');
+          },
+        },
+        {
+          id: newGroupChatDef.id,
+          label: newGroupChatDef.label,
+          description: newGroupChatDef.description,
+          group: newGroupChatDef.group,
+          execute() {
+            openShellChatAction('create-group');
+          },
+        },
+        {
+          id: addContactDef.id,
+          label: addContactDef.label,
+          description: addContactDef.description,
+          group: addContactDef.group,
+          execute() {
+            openShellChatAction('add-contact');
+          },
+        },
+      );
+
       commands.push({
         id: giveFeedbackDef.id,
         label: giveFeedbackDef.label,
@@ -114,21 +149,21 @@ function createAppCommandProvider(): CommandProvider {
         },
       });
 
-      if (projectId) {
-        const newSessionDef = appDef('app.newSession');
-        commands.push({
-          id: newSessionDef.id,
-          label: newSessionDef.label,
-          description: newSessionDef.description,
-          shortcutKey: newSessionDef.shortcutKey,
-          group: newSessionDef.group,
-          execute() {
-            // 与项目行的「新建」同一条路:回到这个项目的首页,在那里带着第一句话建(#5690)。
-            // ❌ 不开旧的 taskModal —— 那是只填标题 + 关联 issue 的旧残留(behavior session-resume)。
-            appState.navigation.navigate('project', { projectId });
-          },
-        });
-      }
+      const newSessionDef = appDef('app.newSession');
+      commands.push({
+        id: newSessionDef.id,
+        label: newSessionDef.label,
+        description: newSessionDef.description,
+        shortcutKey: newSessionDef.shortcutKey,
+        group: newSessionDef.group,
+        execute() {
+          // 在项目里:与项目行的「新建」同一条路,回到这个项目,在那里带着第一句话建(#5690)。
+          // 不在项目里:与侧栏「新建会话」同一条路,去新建会话页。
+          // ❌ 不开旧的 taskModal —— 那是只填标题 + 关联 issue 的旧残留(behavior session-resume)。
+          if (projectId) appState.navigation.navigate('project', { projectId });
+          else appState.navigation.navigate('new-session');
+        },
+      });
 
       const showKeyboardShortcutsDef = appDef('app.showKeyboardShortcuts');
       commands.push(

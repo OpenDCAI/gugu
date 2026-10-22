@@ -29,7 +29,7 @@ import {
   sidebarRowContentInsetX,
 } from './sidebar-primitives';
 import { sessionKeyboardNav } from './session-keyboard-nav';
-import { SidebarSearchInput } from './sidebar-search-trigger';
+import { SidebarSearchTrigger } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
@@ -137,8 +137,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   const chatSignals = useSidebarChatSignals();
   const chatsUnread = chatSignals?.chatsUnread ?? 0;
   const projectsUnread = chatSignals ? [...chatSignals.groupUnread.values()].reduce((sum, count) => sum + count, 0) : 0;
-  // 壳画的对话列表要知道:搜索框里的字(一个框搜两边)、正看着哪条对话(那一行高亮)。
-  const searchQuery = sidebarStore.searchQuery;
+  // 壳画的对话列表要知道:正看着哪条对话(那一行高亮)。
   const focusedChatId =
     appState.navigation.currentViewId === 'chat'
       ? ((appState.navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId ?? null)
@@ -148,8 +147,8 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
       ? ((appState.navigation.viewParamsStore.session as { sessionId?: string } | undefined)?.sessionId ?? null)
       : null;
   React.useEffect(
-    () => publishSidebarChatView({ query: searchQuery, focusedChatId, focusedSessionId }),
-    [searchQuery, focusedChatId, focusedSessionId]
+    () => publishSidebarChatView({ focusedChatId, focusedSessionId }),
+    [focusedChatId, focusedSessionId]
   );
   // 没有项目的会话就是和它的 agent 私聊(gugu-dev#181):不在这边单列一个分区,交给壳和对话一起排进「对话」。
   const standaloneLines = sidebarStore.standaloneLines;
@@ -191,7 +190,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
           <SidebarGroup className="mb-2 flex shrink-0 flex-col">
             <SidebarMenu>
               {!merged && <SidebarListSwitch projectsUnread={projectsUnread} chatsUnread={chatsUnread} />}
-              <SidebarSearchInput />
+              <SidebarSearchTrigger />
               {/* 新建任务是一个视图(compose 页),与「已安排」「设置」同理:正在看它时带 active
                   底色。以前写死 isActive={false},落地页上只剩键盘光标那圈 ring 孤零零地画着,
                   读起来像一个描边样式的按钮,与旁边几行不是一套。
