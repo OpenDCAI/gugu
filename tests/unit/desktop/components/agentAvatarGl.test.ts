@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GuguGL } from '../../../../apps/desktop/src/components/agentAvatar/engine/gl'
 
 /** 一个什么都不做、什么都答「成了」的 WebGL2 上下文:只为让建管线、载图那几步走得通 */
-function fakeContext(lost = false): WebGL2RenderingContext {
+function fakeContext(lost = false, draws: unknown[] = []): WebGL2RenderingContext {
+  let bound: unknown = null
   return new Proxy({} as Record<string | symbol, unknown>, {
     get(_target, prop) {
       if (prop === 'isContextLost') return () => lost
+      if (prop === 'bindTexture') return (_t: unknown, tex: unknown) => (bound = tex)
+      if (prop === 'drawElements') return (_m: unknown, n: number) => draws.push([bound, n])
       if (prop === 'getShaderParameter' || prop === 'getProgramParameter') return () => true
       if (prop === 'getExtension') return () => null
       if (typeof prop === 'string' && /^[A-Z0-9_]+$/.test(prop)) return 0
@@ -70,5 +73,34 @@ describe('共用 GL 画布', () => {
     expect(gl.begin(400, 400)).toEqual([0, 0])
     expect(gl.begin(400, 400)).toEqual([400, 0])
     expect(() => gl.begin(400, 400), '没问 room() 就硬排:报错,❌ 画到画布外面去').toThrow(/room\(\)/)
+  })
+
+  it('本体和它的部件拼在一张图集里:一格里的几片攒成一次绘制;换了纹理才另画一次', async () => {
+    vi.stubGlobal('Image', class {
+      src = ''
+      decode() {
+        return Promise.resolve()
+      }
+    })
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 8, height: 8, close() {} }))
+    const draws: [unknown, number][] = []
+    const gl = GuguGL.on(canvasWith(fakeContext(false, draws)))!
+    const px = { w: 8, h: 8 }
+    expect(await gl.loadAtlas([{ id: 'body', url: 'b', size: px }, { id: 'wing', url: 'w', size: px }, { id: 'beak', url: 'k', size: px }])).toBe(true)
+    expect(await gl.loadTexture('hat', 'h', px)).toBe(true)
+    expect(gl.has('wing')).toBe(true)
+
+    gl.begin(64, 64)
+    gl.drawSprite('wing', 0, 1, 1, null, 1, 1)
+    gl.drawSprite('body', 0, 1, 1)
+    gl.drawSprite('beak', 0, 1, 0.5, null, 1, 1)
+    expect(draws, '攒着,还没画').toHaveLength(0)
+    gl.drawSprite('hat', 0, 1, 1)
+    expect(draws, '换了纹理:前面三片一次画掉').toHaveLength(1)
+    expect(draws[0][1]).toBe(14 * 28 * 6 + 2 * 6)
+    gl.flush()
+    expect(draws).toHaveLength(2)
+    gl.flush()
+    expect(draws, '没攒着的就不画').toHaveLength(2)
   })
 })
