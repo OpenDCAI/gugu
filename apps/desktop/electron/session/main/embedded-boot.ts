@@ -338,7 +338,7 @@ import { appScope } from '@main/app/app-scope'
 // events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
 import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, needsAttention, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { busyForVersionSwitch, mostUrgentAttention, parseAgentStatusView, type AgentAttention, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
   sessionInScope,
   type AgentStatusChange,
@@ -2244,15 +2244,16 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent-attention count for the gugu host shell.
+// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent attention for the gugu host shell.
 // The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance "N agents need you" signal on gugu's 任务 sidebar tab, so a blocked/errored agent is visible
+// at-a-glance signal on gugu's 消息 rail cell (gugu-dev#181: amber while someone waits on you, red only when
+// the only trouble is an error), so a blocked/errored agent is visible
 // WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
 // BLOCKED on the human: needs_user or error. working/idle are NOT attention.
 //
 // Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
 // agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the count to
+// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the most urgent one to
 // subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
 // (owner #43: the host reaches the session backend only through exported entries; this is the session
 // backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
@@ -2260,26 +2261,22 @@ const attentionStatusBySession = new Map<
   string,
   { status: AgentStatus; projectId: string }
 >()
-const attentionSubscribers = new Set<(count: number) => void>()
+const attentionSubscribers = new Set<(attention: AgentAttention) => void>()
 
 // Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
 // hook). Silent in production so the main-process log isn't spammed on every agent status change.
 const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
 
-function computeAttentionCount(): number {
-  let count = 0
-  for (const { status } of attentionStatusBySession.values()) {
-    if (needsAttention(status)) count += 1
-  }
-  return count
+function computeAttention(): AgentAttention {
+  return mostUrgentAttention([...attentionStatusBySession.values()].map(({ status }) => status))
 }
 
 function notifyAttentionSubscribers(): void {
-  const count = computeAttentionCount()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention count=${count} (subscribers=${attentionSubscribers.size})`)
+  const attention = computeAttention()
+  if (OTTY_DEBUG) console.log(`[otty-tracker] attention=${attention} (subscribers=${attentionSubscribers.size})`)
   for (const cb of attentionSubscribers) {
     try {
-      cb(count)
+      cb(attention)
     } catch (err) {
       log.warn('session-page attention subscriber threw', { error: String(err) })
     }
@@ -2420,9 +2417,9 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (count: number) => void): () => void {
+export function onEmdashAttentionChanged(cb: (attention: AgentAttention) => void): () => void {
   attentionSubscribers.add(cb)
-  cb(computeAttentionCount())
+  cb(computeAttention())
   return () => {
     attentionSubscribers.delete(cb)
   }

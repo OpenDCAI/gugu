@@ -63,7 +63,6 @@ export const AUTOMATION_TEST_IDS = {
   contactsPersonEmptyAction: 'contacts-person-empty-action',
   contactsGroupEmpty: 'contacts-group-empty',
   contactsGroupEmptyAction: 'contacts-group-empty-action',
-  sidebarSessionsNav: 'sidebar-sessions-nav',
   sidebarMessagesNav: 'sidebar-messages-nav',
   sidebarExploreNav: 'sidebar-explore-nav',
   sidebarContactsNav: 'sidebar-contacts-nav',

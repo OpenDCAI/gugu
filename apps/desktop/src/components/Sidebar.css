@@ -202,6 +202,11 @@
   pointer-events: none;
 }
 
+/* gugu-dev#181 有人在等你:琥珀,与列表里「需要你」同一色;红只留给出错。 */
+.gg-sidebar-badge[data-tone='warn'] {
+  background: var(--agent-tone-needs-user);
+}
+
 /* 钉着的 App 开着:4px 状态点收进按钮左侧,与居中的 22px 图标保持 4px 间距。 */
 .gg-sidebar-running {
   width: 4px;
@@ -222,18 +227,6 @@
   .gg-sidebar-item[data-rail] svg * {
     transform-box: fill-box;
     transform-origin: center;
-  }
-
-  /* 任务:三个勾依次重画一遍(各 .4s,相隔 .1s,从半大长到原大)。图标是生成的 Solar Checklist,
-     前三笔是勾、第四笔是横线 —— 换字形要回来改这里。5 = 一个勾的笔画长(√2 + √12.5 ≈ 4.95)。 */
-  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(-n + 3) {
-    animation: gg-rail-draw 0.4s ease-out both;
-  }
-  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(2) {
-    animation-delay: 0.1s;
-  }
-  .gg-sidebar-item[data-rail='tasks']:hover svg g > path:nth-child(3) {
-    animation-delay: 0.2s;
   }
 
   /* 消息:气泡左右晃 −7° → 7°,同时弹到 1.05。 */
@@ -277,24 +270,6 @@
   }
   .gg-sidebar-dock [data-dragging] .gg-sidebar-item:hover .gg-sidebar-app-icon {
     animation: none;
-  }
-}
-
-@keyframes gg-rail-draw {
-  0% {
-    stroke-dasharray: 5;
-    stroke-dashoffset: 5;
-    opacity: 0;
-    scale: 0.5;
-  }
-  25% {
-    opacity: 1;
-  }
-  100% {
-    stroke-dasharray: 5;
-    stroke-dashoffset: 0;
-    opacity: 1;
-    scale: 1;
   }
 }
 

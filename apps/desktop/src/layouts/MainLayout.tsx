@@ -30,6 +30,7 @@ import { useOpenNewSessionOnDeviceHost } from '../components/sessionpage/openNew
 import { MobileCreatePage } from '../components/MobileAgentCreatePage'
 import { AcpAgentCreateComposer } from '../components/AcpAgentCreateComposer'
 import type { ActiveSection } from '@gugu/core/shared/enums/settingsSectionModels'
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { ResizableChatListPane } from './ResizableChatListPane'
 import {
   readStoredChatListPaneWidth,
@@ -311,9 +312,9 @@ function InnerLayout({
     !sessionHostAvailable || readMobileShell() ? 'chats' : 'tasks',
   )
   useSessionpageReveal(setActiveTab)
-  // @@@sessionpage otty-state — # of 会话页 agents blocked on the human (needs_user | error), pushed
-  // from the session backend; badges the 任务 sidebar tab so a stuck agent is visible without opening the session page.
-  const [sessionAttentionCount, setSessionAttentionCount] = useState(0)
+  // @@@sessionpage otty-state — the most urgent way a 会话页 agent is blocked on the human (needs_user over error),
+  // pushed from the session backend; dots the 消息 rail cell so a stuck agent is visible without opening the session page.
+  const [sessionAttention, setSessionAttention] = useState<AgentAttention>(null)
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list')
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   // @@@1507 设置面板初始 section;侧栏「额度」直接开到 quota,齿轮入口回 account。
@@ -915,16 +916,16 @@ function InnerLayout({
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
   }, [contacts, t, toast])
 
-  // @@@sessionpage otty-state — the consolidated "N session-page agents need you" count from the session backend
-  // (agents blocked on the human). Drives the 任务 sidebar-tab red dot. main broadcasts on subscribe +
-  // on every change; a Number guard keeps the CustomEvent detail honest.
+  // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
+  // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
   useEffect(() => {
-    const handleSessionpageAttentionCount = (event: Event) => {
+    const handleSessionpageAttention = (event: Event) => {
       const detail = (event as CustomEvent).detail
-      setSessionAttentionCount(typeof detail === 'number' && Number.isFinite(detail) ? detail : 0)
+      if (detail !== null && detail !== 'needs_user' && detail !== 'error') throw new Error(`unexpected session attention: ${String(detail)}`)
+      setSessionAttention(detail)
     }
-    window.addEventListener(UI_EVENTS.sessionpageAttentionCount, handleSessionpageAttentionCount)
-    return () => window.removeEventListener(UI_EVENTS.sessionpageAttentionCount, handleSessionpageAttentionCount)
+    window.addEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
+    return () => window.removeEventListener(UI_EVENTS.sessionpageAttention, handleSessionpageAttention)
   }, [])
 
   // @@@sessionpage 分享 — 会话页头部点了「分享这个 agent 的名片」:main 只转达 agentUserId + 名字,咕咕号与
@@ -1166,13 +1167,14 @@ function InnerLayout({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.metaKey) {
-        if (e.key === '1') { e.preventDefault(); selectTab('chats') }
+        // ⌘1 =「消息」(gugu-dev#181):会话页侧栏里的「项目 | 对话」;没有会话页的形态落在聊天页。
+        if (e.key === '1') { e.preventDefault(); selectTab(sessionHostAvailable && !mobile ? 'tasks' : 'chats') }
         else if (e.key === '2') { e.preventDefault(); selectTab('contacts') }
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [selectTab])
+  }, [selectTab, sessionHostAvailable, mobile])
 
   // 手机壳里盖在页面上的层与 Sheet 同一个返回栈(ui/sheetStack.ts);任务 tab 那一层在 AgentWatchPage 里。
   useBackLayer(() => setSettingsModalOpen(false), mobile && settingsModalOpen)
@@ -1227,7 +1229,7 @@ function InnerLayout({
           onTabChange={selectTab}
           settingsOpen={settingsModalOpen}
           pendingContactsCount={pendingRequestCount}
-          sessionAttentionCount={sessionAttentionCount}
+          sessionAttention={sessionAttention}
         />
       )}
 

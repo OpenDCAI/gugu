@@ -554,7 +554,7 @@ export default {
     },
     "logout": "Sign out",
     "mainNavigation": "Main navigation",
-    "messages": "Chats (⌘1)",
+    "messages": "Messages (⌘1)",
     "my": "Me",
     "newAgent": "New Agent",
     "newTask": "New Task",

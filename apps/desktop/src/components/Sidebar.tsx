@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { AgentAttention } from '@gugu/core/shared/agentStatus'
 import { observer } from 'mobx-react-lite'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -18,7 +19,7 @@ import { RailAppIcon } from './RailAppIcon'
 import { UpdateBanner } from './UpdateBanner'
 import { LoadingIndicator } from '../lib/loading/LoadingIndicator'
 import { AUTOMATION_TEST_IDS, type AutomationTestId } from '../lib/automationDom'
-import { Folder, Library, Plus, Settings } from '@/lib/icons'
+import { Library, Plus, Settings } from '@/lib/icons'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { cn } from '@/lib/cn'
 import { Menu, MenuItem as DropdownMenuItem, MenuSeparator } from './ui/Menu'
@@ -36,9 +37,9 @@ interface SidebarProps {
   /** 设置弹窗开着:栏底那枚齿轮亮着(product spec「入口」)。 */
   settingsOpen?: boolean
   pendingContactsCount?: number
-  // @@@sessionpage otty-state — # of 会话页 agents blocked on the human (needs_user | error). >0 → a
-  // red dot on the 任务 tab, so a stuck/errored agent is visible without opening the session page.
-  sessionAttentionCount?: number
+  // @@@sessionpage otty-state — 会话页 agent 里最急的那种「要人来处理」:有人等你(needs_user)是琥珀点,
+  // 只有出错(error)是红点(gugu-dev#181),不进会话页也看得见。
+  sessionAttention?: AgentAttention
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -111,6 +112,8 @@ interface RailItemProps {
   title: string
   testId?: AutomationTestId
   badge?: number
+  /** 点的颜色:默认红;`warn` = 琥珀(有人在等你,同列表里「需要你」那一色)。 */
+  badgeTone?: 'warn'
   /** Backend-not-built placeholder: 诚实禁用「即将开放」(反 fake, 对齐 #1228)，不留点了静默无反应的死按钮。 */
   disabled?: boolean
   /** Which entry this is (`tasks` / `chats` / …): its own small move on hover hangs off this (Sidebar.css). */
@@ -133,6 +136,7 @@ function RailItem({
   title,
   testId,
   badge = 0,
+  badgeTone,
   disabled = false,
   rail,
   running = false,
@@ -162,7 +166,7 @@ function RailItem({
       >
         {icon}
         {badge > 0 && (
-          <span className="gg-sidebar-badge" aria-hidden="true" />
+          <span className="gg-sidebar-badge" data-tone={badgeTone} aria-hidden="true" />
         )}
         {running && <i className="gg-sidebar-running" aria-hidden="true" />}
       </button>
@@ -393,8 +397,9 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, settingsOpen = false, pendingContactsCount = 0, sessionAttentionCount = 0 }: SidebarProps) {
+export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, settingsOpen = false, pendingContactsCount = 0, sessionAttention = null }: SidebarProps) {
   const { t } = useTranslation('main')
+  const messagesActive = activeTab === 'chats' || (activeTab === 'tasks' && sessionPagePlace() === 'tasks')
   // 手机版 — 已移除占位(owner 决定);移动端交接后端(#1534)就绪后再作为真功能加回(RailItem.disabled 能力保留)
 
   return (
@@ -410,32 +415,25 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
 
         {/* @@@task-web-host — 任务入口在 web 与桌面两个目标下都渲染:网页版由无头宿主供后端。 */}
         <nav className="gg-sidebar-nav" aria-label={t('shell.features')}>
-          {/* 栏上的名字与顺序与手机底栏同一套(owner 10-16):咕咕 / 项目 / 对话 / 联系人。
-              「咕咕」= 栏顶那一格(它自己的头像);「项目」= 原来的「任务」区。 */}
+          {/* gugu-dev#181:「项目」「对话」两格合成一格「消息」—— 项目就是群,没有项目的会话就是和 agent 私聊,
+              两边都在会话页侧栏里(顶上「项目 | 对话」两枚页签)。「咕咕」= 栏顶那一格(它自己的头像)。
+              对话还没做成会话页的块之前,打开一条对话仍落在聊天页上,那里这一格照样亮着。 */}
           <RailItem
-            icon={<Folder size={22} />}
-            active={activeTab === 'tasks' && sessionPagePlace() === 'tasks'}
+            icon={<ChatIcon active={messagesActive} />}
+            active={messagesActive}
             onClick={() => {
               onTabChange('tasks')
-              // From 「App」 or the dock, 任务 is back to the tasks: the last one looked at, or the home of them.
+              // From 「App」, the dock or a chat, 消息 is back to the session page: the last task looked at, or the home of them.
               if (sessionPagePlace() === 'tasks') return
               const last = appState.navigation.viewParamsStore.session
               if (last) appState.navigation.navigate('session', last)
               else appState.navigation.navigate('home')
             }}
-            title={t('shell.tasks')}
-            testId={AUTOMATION_TEST_IDS.sidebarSessionsNav}
-            rail="tasks"
-            badge={sessionAttentionCount}
-          />
-          <RailItem
-            icon={<ChatIcon active={activeTab === 'chats'} />}
-            active={activeTab === 'chats'}
-            onClick={() => onTabChange('chats')}
             title={t('shell.messages')}
             testId={AUTOMATION_TEST_IDS.sidebarMessagesNav}
             rail="chats"
-            badge={0}
+            badge={sessionAttention ? 1 : 0}
+            badgeTone={sessionAttention === 'needs_user' ? 'warn' : undefined}
           />
           {/* 「发现」入口已移除(owner 2026-09-05:「发现页离完善还有距离,先不展示」)。
               页面代码(pages/ExplorePage.tsx 及其 pane)原样留在仓里,只是不再可达——

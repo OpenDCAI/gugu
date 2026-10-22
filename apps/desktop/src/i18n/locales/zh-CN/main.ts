@@ -548,7 +548,7 @@ export default {
     },
     "logout": "退出登录",
     "mainNavigation": "主导航",
-    "messages": "对话 (⌘1)",
+    "messages": "消息 (⌘1)",
     "my": "我的",
     "newAgent": "新建 Agent",
     "newTask": "新建会话",

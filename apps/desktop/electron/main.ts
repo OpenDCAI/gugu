@@ -5559,16 +5559,16 @@ app.whenReady().then(async () => {
         },
       })
     })
-    // @@@sessionpage TASKPAGE-FUSION otty-state — relay the session backend's consolidated agent-attention count (how
-    // many session-page agents are BLOCKED on the human: needs_user | error) to gugu's 任务 sidebar tab,
+    // @@@sessionpage TASKPAGE-FUSION otty-state — relay the session backend's consolidated agent attention (the most
+    // urgent of the session-page agents BLOCKED on the human: needs_user over error) to gugu's 消息 rail cell,
     // so a stuck/errored agent is visible without opening the session page. main → preload → MainLayout →
     // Sidebar RailItem badge (mirrors the 通讯录 pendingContactsCount dot). Fires once on subscribe + on
     // every change; mainWindow?. tolerates a not-yet/again-created window.
-    emdash.onEmdashAttentionChanged((count) => {
+    emdash.onEmdashAttentionChanged((attention) => {
       if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-        console.log(`[otty-push] attention count=${count} → renderer (window=${mainWindow ? 'yes' : 'no'})`)
+        console.log(`[otty-push] attention=${attention} → renderer (window=${mainWindow ? 'yes' : 'no'})`)
       }
-      sendUiEvent(MAIN_UI_EVENTS.sessionpageAttentionCount, count)
+      sendUiEvent(MAIN_UI_EVENTS.sessionpageAttention, attention)
     })
     // TEST-ONLY, env-gated (GUGU_SESSION_TEST_HOOKS=1) — expose the session backend's control-channel entries + the
     // registry binding on the MAIN-process globalThis so a session-page fusion e2e can drive a
