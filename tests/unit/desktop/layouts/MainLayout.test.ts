@@ -714,7 +714,8 @@ describe('MainLayout', () => {
       AUTOMATION_TEST_IDS.mobileContactsNav,
       AUTOMATION_TEST_IDS.mobileProfileNav,
     ])
-    expect(buttons[0].textContent, 'the first entry names the user action').toContain('对话')
+    // 格名固定「咕咕」(owner 10-16 起名,10-22 再次确认),不跟着它改名;进去之后才是对话入口与它自己的名字。
+    expect(buttons[0].textContent, 'the cell name is fixed').toContain('咕咕')
     expect(buttons[0].textContent).not.toContain('小咕')
     expect(buttons[1].textContent, 'projects and groups share the workspace cell').toContain('工作区')
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['assistant'])
@@ -772,7 +773,10 @@ describe('MainLayout', () => {
     expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(mobileTabs(true).filter((tab) => tab !== 'chats'))
     const first = harness.container.querySelector<HTMLElement>('nav button')!
     expect(first.dataset.testid).toBe(AUTOMATION_TEST_IDS.mobileAssistantNav)
-    expect(first.textContent).toContain('对话')
+    expect(first.textContent).toContain('咕咕')
+    const icon = first.querySelector<HTMLElement>('[data-testid="mobile-assistant-nav-default"]')
+    expect(icon, 'the default 咕咕 icon').toBeTruthy()
+    expect(icon!.hasAttribute('data-fresh'), 'a small + while there is no assistant yet').toBe(true)
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['assistant'])
     expect(watchPage('conversation')?.dataset.active).toBe('true')
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')?.getAttribute('data-visible')).toBe('false')
@@ -812,7 +816,7 @@ describe('MainLayout', () => {
     await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
     const pages = [...harness.container.querySelectorAll<HTMLElement>('[data-mobile-tab-pager] > [data-mobile-tab-page]')]
     expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(mobileTabs(true).filter((tab) => tab !== 'chats'))
-    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)?.textContent).toContain('对话')
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)?.textContent).toContain('咕咕')
     expect(pages.filter((page) => !page.hasAttribute('inert')).map((page) => page.dataset.mobileTabPage)).toEqual(['assistant'])
     expect(watchPage('conversation')?.dataset.active).toBe('true')
     expect(harness.container.querySelector('[data-testid="phone-conversation-assistant"]')).toBeNull()

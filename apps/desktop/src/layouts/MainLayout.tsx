@@ -58,6 +58,7 @@ import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskCh
 import { FeedbackHost } from '../components/FeedbackHost'
 import { AssistantCloseHost } from '../components/assistant/AssistantCloseHost'
 import { MobileAssistantTab } from '../mobile/assistant/MobileAssistantTab'
+import { PhoneGuguTabIcon } from '../mobile/assistant/PhoneGuguTabIcon'
 import { usePhoneAssistant, type PhoneAssistantState } from '../mobile/assistant/usePhoneAssistant'
 import { useBackgroundUsageSync } from '../components/usage/useBackgroundUsageSync'
 import { useContactsStore } from '../store/contactsContext'
@@ -129,6 +130,7 @@ function MobileTabBar({
   assistant: { contact: PhoneAssistantState['assistant']; unread: number; fresh: boolean }
 }) {
   const { t } = useTranslation('main')
+  const { t: tAssistant } = useTranslation('assistant')
   const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const activeIndex = tabs.indexOf(activeTab)
   // @@@1787 owner 原定稿是「对话/联系人/发现/我的」;2026-09-05 owner 下架发现页后剩三格
@@ -145,10 +147,13 @@ function MobileTabBar({
     // 和它的私聊有未读就挂未读数(早晚简报、它做完的事都从那里来)。
     // 格名固定「咕咕」(owner 10-16:像微信的聊天区就叫微信;名字读 assistant 目录的 rail),进去后它有自己的名字(默认咕咕,可改)。
     assistant: {
-      label: tWorkspace('conversations'),
+      label: tAssistant('rail'),
       testId: AUTOMATION_TEST_IDS.mobileAssistantNav,
       badge: assistant.unread,
-      icon: <MessageCircle size={22} />,
+      isAvatar: true,
+      icon: assistant.contact
+        ? <Avatar name={assistant.contact.display_name} avatarUrl={assistant.contact.avatar} seed={assistant.contact.id} size={23} isAgent harnessBadge={false} />
+        : <PhoneGuguTabIcon name={tAssistant('rail')} fresh={assistant.fresh} />,
     },
     // 「任务」在手机上**不是**桌面那张会话页 IDE 面(那个确实不适配 <720px,桌面走左侧 rail 进),
     // 而是「看管 agent」:列出账号名下的机器 → 机器上的会话 → 会话时间线。owner 2026-09-05 拍板
@@ -425,7 +430,7 @@ function InnerLayout({
     openChat: (chatId) => { setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
     openAssistant: (tasks) => { if (mobile) setAssistantView(true); setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}) },
   })
-  // 首格固定为对话,工作区保留项目/群聊;桌面壳不变。
+  // 首格固定是「咕咕」(owner 10-16 起的名,10-22 再次确认),点进去是对话入口;工作区保留项目/群聊;桌面壳不变。
   // 引用要稳:分页器按它定位(useLayoutEffect 依赖 tabs),每次渲染换一个新数组就会在滑动 / 吸附途中被未读数一类的更新拽回当前页。
   const tabs = useMemo(() => (mobile ? mobileTabs(true).filter((tab) => tab !== 'chats') : SIDEBAR_TABS), [mobile])
   // tasks/chats remain the real surface identity for their existing lifecycle gates; the phone has one workspace page.
