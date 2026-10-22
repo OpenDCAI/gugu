@@ -51,6 +51,21 @@ it('copies through a user root whose projects folder, or one project in it, is a
   expect((await lstat(join(elsewhere, 'projects', '-repo'))).isSymbolicLink()).toBe(true);
 });
 
+it('skips links in the connection root that point back into the user root and still moves the rest', async () => {
+  await mkdir(join(native, 'projects', '-repo', 'memory'), { recursive: true });
+  await writeFile(join(native, 'projects', '-repo', 'memory', 'MEMORY.md'), 'user memory');
+  await symlink(join(native, 'projects', '-repo', 'memory'), join(connection, 'projects', '-repo', 'memory'));
+  await symlink(join(dir, 'gone'), join(connection, 'projects', '-repo', 'dangling'));
+
+  expect(await moveClaudeHistoryToUserRoot(connection, native)).toBe(true);
+  expect(await readFile(join(native, 'projects', '-repo', 'ran-on-connection.jsonl'), 'utf8')).toBe('connection');
+  expect(await readFile(join(native, 'todos', 'list.json'), 'utf8')).toBe('[]');
+  expect((await lstat(join(native, 'projects', '-repo', 'memory'))).isDirectory()).toBe(true);
+  expect(await readFile(join(native, 'projects', '-repo', 'memory', 'MEMORY.md'), 'utf8')).toBe('user memory');
+  await expect(lstat(join(native, 'projects', '-repo', 'dangling'))).rejects.toThrow();
+  expect(await moveClaudeHistoryToUserRoot(connection, native)).toBe(false);
+});
+
 it('does nothing for a connection that never had a folder', async () => {
   expect(await moveClaudeHistoryToUserRoot(join(dir, 'missing', '.claude'), native)).toBe(false);
   await expect(lstat(native)).rejects.toThrow();

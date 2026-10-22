@@ -247,10 +247,11 @@ function isStale(live: Json, saved: Json | null): boolean {
  *
  * 0. 上一次换进去的记录,账号还对得上 ⇒ 就是它。❌ 只靠「选中的」:选中 API 连接之后再选回账号 A,
  *    选中的是 API 连接,判不出用户根里是 A,会把 A 轮换过的 token 存到 native 名下。
- * 1. 选中的是账号连接,且它保管目录里的账号和用户根里的一致 ⇒ 就是它(升级前没有记录时靠这条)。
- * 2. `native` 还没有保管的账号 = 还没换出过,用户根里的(含用户在终端里登录的未知账号)就是它。
- *    ❌ 不能放在 0、1 之前:新用户原生没登录、先加了账号 A,这时用户根里是 A,若判成 native,
- *    换出时 A 轮换过的 token 会被存到 native 名下,A 自己那份保持作废。
+ * 1. 没有记录 = 从没换过(换进去之前先写记录,见 swapUnderLock;单一目录之前 Claude 也从不往用户根里换)⇒ native。
+ *    ❌ 按身份认:原生登录和某个账号连接常是同一个号登了两次,身份一样、token 是两份,
+ *    认成那个连接的话,原生那份会被存到它名下,原生就再也选不回来。
+ * 2. 有记录但账号对不上 = 用户在终端里换过登录:选中的账号和它一致 ⇒ 选中的;
+ *    `native` 还没有保管的账号 ⇒ native(用户自己在 CLI 里登录的);
  * 3. 否则按身份在所有连接里找;找不到 = 未知账号(null)。
  */
 export async function claudeLiveOwner(
@@ -263,6 +264,7 @@ export async function claudeLiveOwner(
   if (live && recorded && recorded.identity === live.identity && connectionIds.includes(recorded.connectionId)) {
     return recorded.connectionId;
   }
+  if (!recorded) return NATIVE;
   if (selectedId && selectedId !== NATIVE && live) {
     if ((await readAccount(vaultConfig(paths, selectedId)))?.identity === live.identity) return selectedId;
   }
@@ -356,16 +358,19 @@ async function swapUnderLock(
       );
     }
   }
+  // 先记下换进去的是谁,再动用户根:换过就一定有记录,claudeLiveOwner 才能把「没有记录」当成从没换过。
+  const previous = await readLiveState(paths.liveStateFile);
+  await recordLiveState(paths, { connectionId: targetId, identity: incomingAccount.identity });
   try {
     await paths.store.write(native(paths), withOauth(liveText, incomingOauth));
     await mergeAccount(paths.nativeGlobalConfig, incomingAccount.fields, retries);
   } catch (error) {
-    // 凭据与账号信息要一起换:哪一步没成(含凭据本身没写完整),都把原来的凭据放回去,
+    // 凭据与账号信息要一起换:哪一步没成(含凭据本身没写完整),都把原来的凭据和记录放回去,
     // ❌ 留一个「凭据是 B、账号信息是 A」或半份凭据的状态。
     if (liveText !== null) await paths.store.write(native(paths), liveText).catch(() => undefined);
+    await (previous ? recordLiveState(paths, previous) : rm(paths.liveStateFile, { force: true })).catch(() => undefined);
     throw error;
   }
-  await recordLiveState(paths, { connectionId: targetId, identity: incomingAccount.identity });
   return owner;
 }
 

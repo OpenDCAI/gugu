@@ -85,6 +85,13 @@ async function seedLive(ctx: ReturnType<typeof setup>, uuid: string, access: str
   ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential(access, expiresAt, credentialExtra));
   await writeConfig(ctx.paths.nativeGlobalConfig, uuid, configExtra);
 }
+/** 用户根里是某个连接的账号 = 咕咕把它换进去过,换之前一定写了这条记录。 */
+async function recordOwner(paths: ClaudeAuthSlotPaths, connectionId: string, identity: string) {
+  await mkdir(join(paths.liveStateFile, '..'), { recursive: true });
+  await writeFile(paths.liveStateFile, JSON.stringify({ connectionId, identity }));
+}
+const recordedOwner = async (paths: ClaudeAuthSlotPaths) =>
+  (JSON.parse(await readFile(paths.liveStateFile, 'utf8')) as { connectionId: string }).connectionId;
 const vaultText = (ctx: ReturnType<typeof setup>, id: string) => ctx.store.items.get(`${ctx.paths.vaultRoot(id)}|true`);
 const liveText = (ctx: ReturnType<typeof setup>) => ctx.store.items.get(`${ctx.paths.nativeRoot}|false`);
 
@@ -94,6 +101,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200, { mcpOAuth: { server: 'kept' } }, { projects: { '/x': 1 }, theme: 'dark' });
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
 
     const owner = await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
 
@@ -114,6 +122,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-old', 100);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
     await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
     ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('b-rotated', 400));
 
@@ -130,6 +139,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-fresh', 500);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
     await seedLive(ctx, 'uuid-a', 'a-stale', 100);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
 
     await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
 
@@ -141,7 +151,8 @@ describe('activateClaudeAccount', () => {
     const ctx = setup();
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
-    await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
+    await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'A', 'native');
+    ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('a-rotated', 200));
 
     expect(await claudeLiveOwner(ctx.paths, ['native', 'A', 'B'], 'A')).toBe('A');
     await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
@@ -155,6 +166,8 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'native', 'uuid-n', 'n-saved', 100);
     await seedVault(ctx, 'A', 'uuid-a', 'a-token', 300);
     await seedLive(ctx, 'uuid-z', 'z-token', 200);
+    // 原生换出去又换回来过,之后用户在终端里登了一个谁都不认识的号。
+    await recordOwner(ctx.paths, 'native', 'uuid-n');
 
     const owner = await activateClaudeAccount(ctx.paths, ['native', 'A'], 'A', 'native', () => new Date('2026-10-23T01:02:03.004Z'));
 
@@ -171,6 +184,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
     const before = liveText(ctx);
     const release = await holdLikeClaude(ctx.paths.nativeGlobalConfig, `${ctx.paths.nativeGlobalConfig}.lock`);
     try {
@@ -181,6 +195,7 @@ describe('activateClaudeAccount', () => {
 
     expect(liveText(ctx)).toBe(before);
     expect(accountUuid(await readConfig(ctx.paths.nativeGlobalConfig))).toBe('uuid-a');
+    expect(await recordedOwner(ctx.paths)).toBe('A');
   });
 
   it('does not touch anything while Claude holds either refresh lock of the user root, and switches once it lets go', async () => {
@@ -188,6 +203,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
     await mkdir(ctx.paths.nativeRoot, { recursive: true });
     const legacy = `${await realpath(ctx.paths.nativeRoot)}.lock`;
     for (const lockfilePath of [join(ctx.paths.nativeRoot, '.oauth_refresh.lock'), legacy, join(ctx.paths.nativeRoot, '.storage-write.lock')]) {
@@ -224,6 +240,7 @@ describe('activateClaudeAccount', () => {
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200, { mcpOAuth: { docs: 'kept' } });
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
     const before = liveText(ctx);
     const write = ctx.store.write;
     let failed = false;
@@ -240,6 +257,20 @@ describe('activateClaudeAccount', () => {
 
     expect(liveText(ctx)).toBe(before);
     expect(accountUuid(await readConfig(ctx.paths.nativeGlobalConfig))).toBe('uuid-a');
+    expect(await recordedOwner(ctx.paths)).toBe('A');
+  });
+
+  it('does not touch the live root when it cannot first record who goes in', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
+    await seedLive(ctx, 'uuid-n', 'n-live', 200);
+    // 记录所在的目录被一个文件占着:写不了记录。
+    await writeFile(join(dir, 'state'), 'not a folder');
+
+    await expect(activateClaudeAccount(ctx.paths, ['native', 'B'], 'B', 'native')).rejects.toThrow();
+
+    expect(accessOf(liveText(ctx))).toBe('n-live');
+    expect(accountUuid(await readConfig(ctx.paths.nativeGlobalConfig))).toBe('uuid-n');
   });
 
   it('keeps a symlinked .claude.json a symlink', async () => {
@@ -251,6 +282,7 @@ describe('activateClaudeAccount', () => {
     await mkdir(join(dir, 'home'), { recursive: true });
     await symlink(real, ctx.paths.nativeGlobalConfig);
     ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('a-rotated', 200));
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
 
     await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
 
@@ -282,6 +314,7 @@ describe('activateClaudeAccount', () => {
     const ctx = setup();
     await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
 
     expect(await activateClaudeAccount(ctx.paths, ['native', 'A'], 'A', 'A')).toBe('A');
     expect(ctx.store.writes).toEqual([]);
@@ -319,6 +352,7 @@ describe.runIf(process.platform === 'darwin')('activateClaudeAccount against a r
     await writeConfig(join(paths.vaultRoot('A'), '.claude.json'), 'uuid-a');
     await store.write(vaultOf('B'), credential('b-token', 300));
     await writeConfig(join(paths.vaultRoot('B'), '.claude.json'), 'uuid-b');
+    await recordOwner(paths, 'A', 'uuid-a');
 
     await activateClaudeAccount(paths, ['native', 'A', 'B'], 'B', 'A');
     expect(accessOf((await store.read(native))!)).toBe('b-token');
@@ -334,19 +368,35 @@ describe.runIf(process.platform === 'darwin')('activateClaudeAccount against a r
 });
 
 describe('claudeLiveOwner / claudeCredentialRoot', () => {
-  it('trusts the selected connection when the live account matches it', async () => {
+  it('trusts the record of who was put in while the live account still matches it', async () => {
     const ctx = setup();
     await seedVault(ctx, 'A', 'uuid-a', 'a', 100);
     await seedLive(ctx, 'uuid-a', 'a-live', 200);
+    await recordOwner(ctx.paths, 'A', 'uuid-a');
     expect(await claudeLiveOwner(ctx.paths, ['native', 'A'], 'A')).toBe('A');
     expect(await claudeCredentialRoot(ctx.paths, ['native', 'A'], 'A', 'A')).toBe('native');
     expect(await claudeCredentialRoot(ctx.paths, ['native', 'A', 'B'], 'B', 'A')).toBe('vault');
   });
 
-  it('treats the live root as native until native has been switched out once', async () => {
+  it('treats the live root as native until something was switched in', async () => {
     const ctx = setup();
     await seedLive(ctx, 'uuid-n', 'n-live', 200);
     expect(await claudeLiveOwner(ctx.paths, ['native', 'A'], 'native')).toBe('native');
+  });
+
+  it('treats the live root as native before any switch even when the selected account is the same account signed in twice', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'A', 'uuid-same', 'a', 100);
+    await seedLive(ctx, 'uuid-same', 'n-live', 200);
+    expect(await claudeLiveOwner(ctx.paths, ['native', 'A'], 'A')).toBe('native');
+
+    await activateClaudeAccount(ctx.paths, ['native', 'A'], 'A', 'A');
+    expect(accessOf(liveText(ctx))).toBe('a');
+    expect(accessOf(vaultText(ctx, 'native'))).toBe('n-live');
+    ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('a-rotated', 300));
+    await activateClaudeAccount(ctx.paths, ['native', 'A'], 'native', 'A');
+    expect(accessOf(liveText(ctx))).toBe('n-live');
+    expect(accessOf(vaultText(ctx, 'A'))).toBe('a-rotated');
   });
 
   it('finds the owner by account identity after the user signed in from a terminal', async () => {
@@ -354,6 +404,7 @@ describe('claudeLiveOwner / claudeCredentialRoot', () => {
     await seedVault(ctx, 'native', 'uuid-n', 'n', 100);
     await seedVault(ctx, 'A', 'uuid-a', 'a', 100);
     await seedLive(ctx, 'uuid-a', 'a-live', 200);
+    await recordOwner(ctx.paths, 'native', 'uuid-n');
     expect(await claudeLiveOwner(ctx.paths, ['native', 'A'], 'native')).toBe('A');
   });
 
@@ -361,6 +412,7 @@ describe('claudeLiveOwner / claudeCredentialRoot', () => {
     const ctx = setup();
     await seedVault(ctx, 'native', 'uuid-n', 'n', 100);
     await seedLive(ctx, 'uuid-z', 'z-live', 200);
+    await recordOwner(ctx.paths, 'native', 'uuid-n');
     expect(await claudeLiveOwner(ctx.paths, ['native', 'A'], 'native')).toBeNull();
   });
 });

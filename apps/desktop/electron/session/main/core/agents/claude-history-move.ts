@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { cp, stat, writeFile } from 'node:fs/promises';
+import { cp, realpath, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -11,6 +11,16 @@ import { join } from 'node:path';
  */
 const SESSION_STATE_DIRS = ['projects', 'file-history', 'todos'] as const;
 const MARKER = '.gugu-history-moved';
+
+/**
+ * 连接根里指回用户根的链接(比如把某个项目的 `memory` 链回用户根那份):那份本来就在用户根里,跳过。
+ * 不跳,cp 报「src and dest cannot be the same」,整次搬家停在半路、每次开机重来。指向空处的链接没东西可搬,也跳过。
+ */
+async function notAlreadyThere(source: string, destination: string): Promise<boolean> {
+  const from = await realpath(source).catch(() => undefined);
+  if (from === undefined) return false;
+  return from !== (await realpath(destination).catch(() => undefined));
+}
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -36,6 +46,7 @@ export async function moveClaudeHistoryToUserRoot(connectionRoot: string, native
       mode: constants.COPYFILE_FICLONE,
       // 用户根里的 `projects`(或其下某个项目)可能是指向别处的符号链接:不跟过去,cp 会把它当「不是目录」直接报错。
       dereference: true,
+      filter: notAlreadyThere,
     });
   }
   await writeFile(join(connectionRoot, MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });

@@ -353,6 +353,23 @@ it('aligns Claude at startup: moves old connection history into the user root on
   expect(await accessAt(state.claudeRoot)).toBe('work-rotated');
 });
 
+it('aligns Claude at startup when the native sign-in and the default account are the same account signed in twice', async () => {
+  await writeClaudeSignIn(state.claudeRoot, 'u-same', claudeCredential('original', 100));
+  const work = await createHarnessConnection({ providerId: 'claude', kind: 'account' });
+  await writeClaudeSignIn(claudeVault(work.id), 'u-same', claudeCredential('work', 200));
+  await state.fixture!.registry.setDefaultAccount('harness:claude', work.id);
+
+  await alignClaudeConnections();
+  expect(await accessAt(state.claudeRoot)).toBe('work');
+  expect(await accessAt(claudeVault('native'))).toBe('original');
+  // 原生那份存下来了:选得回去,换回来的是它自己的 token。
+  await assertHarnessConnectionSelectable('claude', 'native');
+  await writeFile(join(state.claudeRoot, '.credentials.json'), claudeCredential('work-rotated', 300));
+  await selectHarnessConnection('claude', 'native');
+  expect(await accessAt(state.claudeRoot)).toBe('original');
+  expect(await accessAt(claudeVault(work.id))).toBe('work-rotated');
+});
+
 it('a Claude connection config root is where its old sessions ran (now its vault); native and Codex have none', async () => {
   const connection = await createHarnessConnection({ providerId: 'claude', kind: 'account' });
   const asked = await resolveHarnessConnection('claude', { connectionId: connection.id });
