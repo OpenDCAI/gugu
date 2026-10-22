@@ -4,7 +4,7 @@ import { page } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ChatComposer } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
-import { sessionComposerBox, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
+import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
 import '@gugu/session-ui/styles/global'
 import '@gugu/session-ui/theme/theme.css'
@@ -70,5 +70,17 @@ describe('the session composer\'s box', () => {
     expect(Math.round(box.bottom - border - first.bottom)).toBe(sessionComposerBox.toolbarInsetPx)
     expect(Math.round(first.height)).toBe(sessionComposerBox.toolbarControlPx)
     expect(Math.round(second.left - first.right)).toBe(sessionComposerBox.toolbarGapPx)
+
+    // 卡面:群框在格子里挂的那组类,画出来和真的会话框一样 —— 同一圈描边、同一个底、没有投影。
+    const probe = document.createElement('div')
+    probe.className = sessionComposerCardClassName
+    container!.appendChild(probe)
+    const real = getComputedStyle(card()!)
+    const drawn = getComputedStyle(probe)
+    expect(drawn.borderTopWidth).toBe(real.borderTopWidth)
+    expect(drawn.borderTopColor).toBe(real.borderTopColor)
+    expect(drawn.backgroundColor).toBe(real.backgroundColor)
+    expect(real.boxShadow).toBe('none')
+    expect(drawn.boxShadow).toBe('none')
   })
 })

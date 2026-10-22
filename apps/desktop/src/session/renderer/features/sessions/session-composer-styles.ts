@@ -21,6 +21,10 @@ export const sessionComposerBox = {
   toolbarGapPx: 6,
   toolbarControlPx: 32,
 } as const;
+// 卡面:白底一圈细描边、没有投影,悬停 / 聚焦时描边加深 —— 会话输入框那张卡(session-ui chat-composer.css.ts 的
+// composerShell)原样,格子里的群框照它(原型三处是同一个 `.cbox`:白底、圆角 24、1px 描边、无投影)。
+export const sessionComposerCardClassName =
+  'border border-solid border-[var(--em-border)] bg-[var(--em-surface-base-emphasis)] transition-colors hover:border-[var(--em-border-1)] focus-within:border-[var(--em-border-1)]';
 // 空着时的高 = 编辑区 + 底排(按钮 + 离底)+ 上下边框各 1px = 110。
 export const sessionComposerEmptyHeightPx =
   sessionComposerBox.editorMinHeightPx + sessionComposerBox.toolbarControlPx + sessionComposerBox.toolbarInsetPx + 2;
