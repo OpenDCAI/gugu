@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   registered: new Map<string, string>(),
   adopted: [] as Array<{ browserId: string; placement: { window: () => unknown; origin: () => { x: number; y: number } } }>,
   parkings: [] as any[],
+  boxes: [] as Array<{ parent: unknown; options: any }>,
 }));
 
 vi.mock('electron', async () => {
@@ -46,6 +47,13 @@ vi.mock('electron', async () => {
     }
     setZoomFactor(factor: number) {
       this.zoom = factor;
+    }
+    // 照 Electron v44:网页的 JS 对话框走这两个内部事件(browser-page-dialogs.ts 接管)。
+    debugger = Object.assign(new Emitter(), { isAttached: () => false });
+    constructor() {
+      super();
+      this.on('-run-dialog', () => {});
+      this.on('-cancel-dialogs', () => {});
     }
     close() {
       this.destroyed = true;
@@ -96,6 +104,12 @@ vi.mock('electron', async () => {
     WebContentsView,
     BaseWindow,
     BrowserWindow: { getAllWindows: () => state.windows },
+    dialog: {
+      showMessageBox: (parent: unknown, options: any) => {
+        state.boxes.push({ parent, options });
+        return new Promise(() => {});
+      },
+    },
   };
 });
 
@@ -178,6 +192,7 @@ beforeEach(() => {
   state.adopted.length = 0;
   state.registered.clear();
   state.parkings.length = 0;
+  state.boxes.length = 0;
 });
 
 /** 这扇窗的停放窗(还没建过就是 undefined)。 */
@@ -222,6 +237,22 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     expect(mainWindow.children).toContain(view);
     expect(view.bounds).toEqual(toDip(RECT, 1.25));
+  });
+
+  it('#72 停着的网页弹 alert:什么窗都不出(❌ 挂到停放窗上);页签露出来、窗露着才挂到那扇窗上', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });
+    const callback = vi.fn();
+    view.webContents.emit('-run-dialog', { dialogType: 'alert', messageText: 'saved' }, callback);
+    expect(callback).toHaveBeenCalledWith(true, '');
+    expect(state.boxes).toHaveLength(0);
+    mainWindow.visible = false;
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(state.boxes).toHaveLength(0);
+    mainWindow.visible = true;
+    mainWindow.emit('show');
+    expect(state.boxes).toHaveLength(1);
+    expect(state.boxes[0]).toMatchObject({ parent: mainWindow, options: { message: 'saved' } });
   });
 
   it('停放窗:从不显示、不能聚焦、不进任务栏,内容区和那扇窗一样大;窗挪动 / 改大小跟着', () => {

@@ -13,6 +13,7 @@ import {
 } from '@shared/events/browserEvents';
 import { BROWSER_PINCH_MAX_LEVEL } from '@shared/preview/pinch-zoom';
 import { hardenWebPreferences } from '../../../../devtools-lock';
+import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
 
@@ -38,7 +39,8 @@ import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
  *   的网页挂到那里、大小照旧跟着页签。❌ 摘下来 / ❌ 挂着 setVisible(false):从没露过面的网页视口是 0×0,
  *   挂着隐藏的截图会卡死 —— agent 在后台操作它时截图、点击全不灵(exp11 / exp12 实测)。停在停放窗里平时不出帧;
  *   agent 连上时 Playwright 自己开的 focus emulation 让 Chromium 把它当作看得见(emulation_handler.cc
- *   IncrementCapturerCount),照常出帧、截得到图、点得着。
+ *   IncrementCapturerCount),照常出帧、截得到图、点得着。网页弹的 JS 对话框 ❌ 挂到停放窗上(会把它排上屏幕),
+ *   只出现在人正在看的页签上(browser-page-dialogs.ts)。
  * - **导航不抢焦点**:`focusOnNavigation: false`,网页换页时不把焦点拉过去(electron#42578 / #49425)。
  *
  * ⚠️ 网页销毁后不再碰它:对已销毁的 webContents 调方法会让整个 app 崩溃(见 agent-browser.ts 文件头)。
@@ -66,6 +68,7 @@ type BrowserPage = {
   releaseTimer: ReturnType<typeof setTimeout> | null;
   overlay: BrowserWindow | null;
   overlayInteractive: boolean;
+  dialogs: PageDialogs | null;
 };
 
 /** 占位卸下(页签挪去别的窗、分栏重排)后,网页留这么久等它在新位置挂回来 —— 挪动 ❌ 重新载入网页。 */
@@ -103,7 +106,11 @@ function wireHost(host: BrowserWindow): void {
   hostsWired.add(host);
   const reposition = () => {
     syncParking(host);
-    for (const page of pages.values()) if (page.host === host) placeOverlay(page);
+    for (const page of pages.values()) {
+      if (page.host !== host) continue;
+      placeOverlay(page);
+      page.dialogs?.pageShown();
+    }
   };
   host.on('move', reposition);
   host.on('resize', reposition);
@@ -202,6 +209,13 @@ function applyLayout(page: BrowserPage): void {
   else if (sized) page.view.setBounds(page.rect as Rect);
   placeOn(page, shown ? 'host' : 'parked');
   placeOverlay(page);
+  page.dialogs?.pageShown();
+}
+
+/** 人此刻看得见这张网页:挂在窗口上、那扇窗露着。 */
+function onScreen(page: BrowserPage): boolean {
+  const host = page.host;
+  return page.place === 'host' && !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized();
 }
 
 export type MountBrowserPageResult =
@@ -271,6 +285,7 @@ export function mountBrowserPage(args: {
     releaseTimer: null,
     overlay: null,
     overlayInteractive: false,
+    dialogs: null,
   };
   pages.set(args.browserId, page);
   const adopted = page;
@@ -321,6 +336,10 @@ export function ensureAgentBrowserPage(args: { browserId: string; partition: str
 
 function wirePage(page: BrowserPage): void {
   const { webContents } = page;
+  page.dialogs = wirePageDialogs(webContents, {
+    onScreen: () => onScreen(page),
+    host: () => (page.host && !page.host.isDestroyed() ? page.host : null),
+  });
   webContents.on('dom-ready', () => {
     page.ready = true;
     // 网页照 Chrome 那样能双指捏合放大(#6456)。Electron 默认关着;只开这一张网页的。每次 dom-ready 都设:换页可能换渲染进程。
