@@ -29,11 +29,14 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/draw', async
     lookDiff: real.lookDiff,
     glPasses: () => 1,
     paintGL: (_gl: unknown, f: unknown, o: { w: number; h: number }) => {
+      if (!fake.ids.has(f)) return { at: [0, 0], next: 0 }
       fake.allocate?.(o.w, o.h)
       fake.order.push(`paint:${fake.ids.get(f)}`)
       return { at: [0, 0], next: 0 }
     },
     drawAvatar: (_ctx: unknown, gl: unknown, _s: unknown, f: unknown) => {
+      // 只记这一条用例 boot 的头像:前面用例的运行时还挂在同一个 window 的事件上,窗口事件一来它们也会醒
+      if (!fake.ids.has(f)) return
       fake.draws.push(gl)
       fake.order.push(`copy:${fake.ids.get(f)}`)
     },

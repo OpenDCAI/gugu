@@ -100,7 +100,10 @@ class Runtime {
   private byCanvas = new Map<Element, AvatarHandle>()
   private io: IntersectionObserver | null = null
   private gl: GuguGL | null = null
-  private sprites = new Map<CharacterId, HTMLImageElement>()
+  /** 用到过的角色(GL 重建时按它重载素材) */
+  private chars = new Set<CharacterId>()
+  /** 无 WebGL 时整张贴的定格图:只在真走 2D 退路时才去取(有 WebGL 时不多载这一张) */
+  private flats = new Map<CharacterId, HTMLImageElement>()
   /** GL 素材这次没载下来的角色:先走 2D 定格(❌ 整只空白),过一会儿再试 */
   private texFailed = new Set<CharacterId>()
   private ready = false
@@ -138,7 +141,12 @@ class Runtime {
       'pointermove',
       (e) => {
         this.cursor = { x: e.clientX, y: e.clientY }
-        this.wake()
+        // 只有正跟着光标看的头像要马上醒;别的头像不因为光标在窗里动就出帧
+        for (const h of this.handles)
+          if (h.visible && h.opts.tracking) {
+            this.wake()
+            break
+          }
       },
       { passive: true }
     )
@@ -189,7 +197,7 @@ class Runtime {
     this.glInstalledAt = performance.now()
     this.texFailed.clear()
     this.watchContext(gl)
-    for (const id of this.sprites.keys()) this.loadTextures(CHARACTER_BY_ID[id])
+    for (const id of this.chars) this.loadTextures(CHARACTER_BY_ID[id])
   }
 
   /**
@@ -246,13 +254,22 @@ class Runtime {
     })
   }
 
-  /** 首次用到某个角色时才取它的素材（GL 纹理；无 WebGL 时退路用一张 <img>：拼好的定格图） */
+  /** 首次用到某个角色时才取它的 GL 素材 */
   private ensureSprite(ch: Character) {
-    if (this.sprites.has(ch.id)) return
-    const img = new Image()
-    img.src = ch.flat // 无 WebGL 的定格:身体与部件拼好的一整张
-    this.sprites.set(ch.id, img)
+    if (this.chars.has(ch.id)) return
+    this.chars.add(ch.id)
     this.loadTextures(ch)
+  }
+
+  /** 2D 退路要画的那张定格图(身体与部件拼好的一整张):第一次用到才取 */
+  private flatOf(ch: Character): HTMLImageElement {
+    let img = this.flats.get(ch.id)
+    if (!img) {
+      img = new Image()
+      img.src = ch.flat
+      this.flats.set(ch.id, img)
+    }
+    return img
   }
 
   /** 画布拿不到 2D 上下文（无 canvas 的环境）⇒ 返回 null，由调用方决定怎么说；❌ 不在这里吞掉 */
@@ -328,6 +345,7 @@ class Runtime {
     if (slowDue) this.slowTick = tick
     const w0 = performance.now()
     const batch: Pending[] = []
+    let nextWake = Infinity
     for (const h of this.handles) {
       if (!h.visible || h.canvas.closest('[inert]')) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
@@ -343,10 +361,11 @@ class Runtime {
       h.engine.spinOK = h.outfit.spins
       const look = this.lookFor(h, ms)
       h.engine.update(step, look)
+      nextWake = Math.min(nextWake, h.engine.wakeIn() * 1000) // 只看这一趟真跑过的引擎(在 inert 面板里、还在等素材的不算)
       h.outfit.update(step, h.engine.frame)
       // 这一身还有素材在路上:先不画(画布上留着上一张);载不下来的那片 ensure 记过错,不再等
       if ((gl ? h.outfit.ensure(gl) : h.outfit.ensureFlat()) > 0) continue
-      const sprite = this.sprites.get(h.ch.id) ?? null
+      const sprite = gl ? null : this.flatOf(h.ch)
       const o = {
         w: h.canvas.width,
         h: h.canvas.height,
@@ -377,11 +396,7 @@ class Runtime {
     this.flush(batch)
     this.workEma = this.workEma * 0.9 + (performance.now() - w0) * 0.1
     if (fast) this.raf = requestAnimationFrame(this.loop)
-    else {
-      let wait = SLOW_TICK_MS - (ms % SLOW_TICK_MS)
-      for (const h of this.handles) if (h.visible) wait = Math.min(wait, h.engine.wakeIn() * 1000)
-      this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, wait))
-    }
+    else this.idle = setTimeout(() => this.loop(performance.now()), Math.max(1, Math.min(nextWake, SLOW_TICK_MS - (ms % SLOW_TICK_MS))))
   }
 
   /** 这一批画好的格子抄到各自的画布上,共用 GL 画布从头排 */
@@ -411,8 +426,8 @@ class Runtime {
     const pathFor = () => {
       const gl = this.gl && this.gl.has(ch.id) ? this.gl : null
       const glLoading = !!this.gl && !gl && !this.texFailed.has(ch.id)
-      const sprite = this.sprites.get(ch.id)
-      const body = gl ? true : !glLoading && !!sprite?.complete && sprite.naturalWidth > 0
+      const sprite = gl || glLoading ? null : this.flatOf(ch)
+      const body = gl ? true : !!sprite?.complete && sprite.naturalWidth > 0
       return { gl, body, pending: gl ? outfit.ensure(gl) : outfit.ensureFlat() }
     }
     let path = pathFor()
@@ -431,7 +446,7 @@ class Runtime {
     // 共用 GL 画布在两趟 loop 之间总是空的(每趟末尾都抄走、reset),room() 必然放得下
     const gl = path.gl
     if (gl && !gl.room(px, px, glPasses(engine.frame, outfit))) throw new Error('shared GL canvas not empty between frames')
-    drawAvatar(ctx, gl, this.sprites.get(ch.id) ?? null, engine.frame, o, outfit, gl ? paintGL(gl, engine.frame, o, outfit) : { at: [], next: 0 })
+    drawAvatar(ctx, gl, gl ? null : this.flatOf(ch), engine.frame, o, outfit, gl ? paintGL(gl, engine.frame, o, outfit) : { at: [], next: 0 })
     gl?.reset()
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.9))
     if (!blob) throw new Error('still encode failed')
