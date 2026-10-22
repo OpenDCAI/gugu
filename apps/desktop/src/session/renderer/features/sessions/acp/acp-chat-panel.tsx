@@ -22,6 +22,7 @@ import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
 import { createPortal } from 'react-dom';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
+import { SessionPermissionHint } from '../session-permission-hint';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IntegrationIcon } from '@renderer/features/integrations/integration-icon';
 import { useConnectedIssueProviders } from '@renderer/features/integrations/use-connected-issue-providers';
@@ -2379,6 +2380,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             style={{ position: 'absolute', inset: 0 }}
           />
         </div>
+        {store.starting && store.loadError === null && <SessionPermissionHint projectId={store.projectId} />}
       </div>
       {/* Same z-index as the composer layer: placed after the transcript so it paints above it. */}
       <FindBar {...findBar} />

@@ -104,9 +104,10 @@ describe('启动那道闸 = 列表与 spawn 的唯一判据', () => {
     await expect(assertLocalHarnessLaunchable('codex', 'pty')).rejects.toThrow(/codex app-server requires harness runtime/)
   })
 
-  it('经 node 起的家(pi):判的是 node 的范围,不是 pi 自己的版本', async () => {
+  it('经 node 起的家(pi):Pi 版本通过后仍独立检查 node 的范围', async () => {
     const entry = join(dir, 'pi.js')
-    writeFileSync(entry, '// pi entry\n')
+    writeFileSync(entry, `#!${process.execPath}\nconsole.log('1.3.0')\n`)
+    chmodSync(entry, 0o755)
     engines.pi = { cli: entry, runtimeExecutable: engine('node-23.7', 'v23.7.0') }
     await expect(assertLocalHarnessLaunchable('pi', 'pty')).rejects.toThrow(/requires Node runtime one of >=22\.15\.0 <23\.0\.0, >=23\.8\.0; found 23\.7\.0/)
     engines.pi = { cli: entry, runtimeExecutable: engine('node-22.16', 'v22.16.0') }
