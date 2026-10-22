@@ -9,7 +9,9 @@ const subs = vi.hoisted(() => ({
   /** 设了就让退订挂着,直到叫它(那条「还在退」)。 */
   slowLeave: null as null | { finish: (() => void)[] },
 }))
-vi.mock('../../../../apps/desktop/electron/realtime-channel', () => ({
+vi.mock('../../../../apps/desktop/electron/realtime-channel', async (importOriginal) => ({
+  // sendBroadcast 用产品那一份(把 send 回的 'error' 变成失败);只换「订上」那一步。
+  ...(await importOriginal<typeof import('../../../../apps/desktop/electron/realtime-channel')>()),
   subscribeAuthenticatedElectronRealtimeChannel: async (_client: unknown, channel: { topic: string }, options: { onStatus: Status }) => {
     const sub = { topic: channel.topic, onStatus: options.onStatus, stopped: false }
     subs.list.push(sub)
@@ -23,7 +25,7 @@ vi.mock('../../../../apps/desktop/electron/realtime-channel', () => ({
 
 import { createDeviceRpcAskers, deviceRpcAskerLimitsFromEnv, DEVICE_RPC_ASKER_LIMITS } from '../../../../apps/desktop/electron/device-rpc-askers'
 
-type FakeChannel = { topic: string; sent: unknown[]; listeners: ((payload: unknown) => void)[] }
+type FakeChannel = { topic: string; sent: unknown[]; listeners: ((payload: unknown) => void)[]; reply: string }
 
 function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   subs.list.length = 0
@@ -33,7 +35,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     realtime: { setAuth: () => undefined },
     removeChannel: () => undefined,
     channel: (topic: string) => {
-      const record: FakeChannel = { topic, sent: [], listeners: [] }
+      const record: FakeChannel = { topic, sent: [], listeners: [], reply: 'ok' }
       channels.push(record)
       const channel = {
         topic,
@@ -42,9 +44,10 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
           return channel
         },
         subscribe: () => channel,
+        // realtime-js 的 send:从不 reject,被拒 / 没等到确认时回 'error' / 'timed out'。
         send: async (message: { payload: unknown }) => {
           record.sent.push(message.payload)
-          return 'ok'
+          return record.reply
         },
       }
       return channel
@@ -61,6 +64,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     reply({ type: `${body.type}:reply`, request_id: body.request_id, result: { ok: true } })
   })
   const closedWindows: string[] = []
+  const warnings: string[] = []
   const askers = createDeviceRpcAskers({
     supabase: supabase as never,
     accessToken: 'token',
@@ -70,6 +74,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
     limits: { ...DEVICE_RPC_ASKER_LIMITS, ...limits },
     now: () => t,
     detachGraceMs: 0,
+    warn: (line) => { warnings.push(line) },
   })
   const channelOf = (asker: string) => channels.filter((c) => c.topic === `gugu:dev:rpc:${asker}`).at(-1)!
   const subOf = (asker: string) => subs.list.filter((s) => s.topic === `gugu:dev:rpc:${asker}`).at(-1)!
@@ -78,7 +83,7 @@ function fakeHost(limits: Partial<typeof DEVICE_RPC_ASKER_LIMITS> = {}) {
   const ask = (asker: string, requestId: string, payload: unknown = {}) =>
     channelOf(asker).listeners.forEach((listener) => listener({ type: 'broadcast', event: 'broadcast', payload: { type: 'taskhost.call', request_id: requestId, user_id: 'u1', payload } }))
   const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-  return { askers, channels, channelOf, subOf, attach, ask, shared, handled, handle, closedWindows, settle, setNow: (value: number) => { t = value } }
+  return { askers, channels, channelOf, subOf, attach, ask, shared, handled, handle, closedWindows, warnings, settle, setNow: (value: number) => { t = value } }
 }
 
 const types = (sent: unknown[]) => sent.map((p) => (p as { type: string }).type)
@@ -140,6 +145,23 @@ describe('离开:先在那条上说 detached,经它开的窗口一并关掉', ()
     expect(host.closedWindows).toEqual(['askerAAAA1111'])
     expect(host.subOf('askerAAAA1111').stopped).toBe(true)
     expect(host.subOf('askerBBBB2222').stopped).toBe(false)
+  })
+
+  it('一帧发不出去(send 回 error):响亮记下并离开这条(send_failed),经它开的窗口一并关掉,❌ 当成发出去了', async () => {
+    const host = fakeHost()
+    host.attach('askerAAAA1111')
+    host.subOf('askerAAAA1111').onStatus('SUBSCRIBED')
+    host.ask('askerAAAA1111', 'r1', { window: true })
+    await host.settle()
+    expect(host.askers.ids()).toEqual(['askerAAAA1111'])
+    host.channelOf('askerAAAA1111').reply = 'error'
+    host.ask('askerAAAA1111', 'r2', { events: ['frame'] })
+    await host.settle()
+    await host.settle()
+    expect(host.askers.ids()).toEqual([])
+    expect(host.closedWindows).toEqual(['askerAAAA1111'])
+    expect(host.subOf('askerAAAA1111').stopped).toBe(true)
+    expect(host.warnings.some((line) => /send failed on askerAAA.*not delivered: error/.test(line))).toBe(true)
   })
 
   it('idleMs 里一问都没有:离开(idle);离开之后这条上的推送丢掉,❌ 再发', async () => {
