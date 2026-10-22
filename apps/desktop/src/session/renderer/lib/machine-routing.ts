@@ -35,6 +35,7 @@ const LOCAL_ONLY_NAMESPACES = new Set([
  * (别的机器上的页面由这台电脑按块取来渲染,见 preview-protocol.ts)。
  */
 const LOCAL_ONLY_CHANNELS = new Set([
+  'workspace.files.createDocumentPreview',
   'workspace.files.createRemotePreview',
   'workspace.files.setPreviewDocument',
   'workspace.files.releasePreview',

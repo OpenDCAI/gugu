@@ -7,7 +7,7 @@ import { Markdown } from '@/components/markdown/Markdown';
 import { DocumentFileRenderer } from '@renderer/lib/editor/document-file-renderer';
 import { getFileKind, isOfficeKind } from '@renderer/lib/editor/fileKind';
 import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@/components/preview/HtmlPreviewFrame';
-import { createProtocolPreview } from '@/components/preview/html-preview-registration';
+import { createBlobPreview, createProtocolPreview } from '@/components/preview/html-preview-registration';
 import { openBrowserUrlExternally } from '@renderer/features/browser/browser-toolbar-actions';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { ExtensionTabPane } from './extension-tab-pane';
@@ -136,6 +136,7 @@ function PeekHtml({ target }: { target: LocalPeek }) {
   const content = useFileText(target);
   const register = useCallback(
     async (documentHtml: string): Promise<HtmlPreviewRegistration> => {
+      if (!window.electronAPI) return createBlobPreview(documentHtml);
       // The page is registered by where it is on this computer: what it links beside it is read from there.
       const result = await workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, documentHtml);
       if (result.success) return createProtocolPreview(result.data);

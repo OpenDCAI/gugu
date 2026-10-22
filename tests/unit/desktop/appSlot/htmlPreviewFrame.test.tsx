@@ -54,4 +54,16 @@ describe('shared HTML frame lifecycle', () => {
     expect(release).toHaveBeenCalledTimes(2)
     expect(harness.container.querySelector('iframe')).toBeNull()
   })
+
+  it('shows registration failures and retries when the caller asks to reload', async () => {
+    const register = vi.fn<(...args: string[]) => Promise<HtmlPreviewRegistration>>()
+      .mockResolvedValueOnce({ ok: false, message: 'Host unavailable' })
+      .mockResolvedValue({ ok: true, url: 'blob:recovered', update: vi.fn(), release: vi.fn() })
+    const draw = (reloadKey: number) => harness.render(createElement(HtmlPreviewFrame, { fileName: 'report.html', rawContent: 'body', register, reloadKey, onLink: vi.fn() }))
+    await draw(0)
+    expect(harness.container.textContent).toContain('Host unavailable')
+    expect(harness.container.querySelector('iframe')).toBeNull()
+    await draw(1)
+    await until('host recovery is displayed', () => harness.container.querySelector('iframe')?.getAttribute('src') === 'blob:recovered')
+  })
 })

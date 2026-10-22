@@ -28,7 +28,7 @@ import {
   type PreviewRoot,
 } from '@shared/preview/preview-url';
 import { remotePageRoot } from '@shared/preview/remote-page-url';
-import { PREVIEW_LINK_SCRIPT } from '@shared/preview/preview-link-script';
+import { DOCUMENT_PREVIEW_CSP, previewDocumentHtml } from '@shared/preview/preview-link-script';
 import { resolveWorkspace } from '../projects/utils';
 import { readRemotePreviewBytes, remotePreviewFailureStatus, withUtf8Charset, type RemoteChunk } from './remote-preview-read';
 
@@ -77,7 +77,21 @@ interface PreviewRegistration {
 /** 取不到时给人看的话:`outside` 在会话目录外;其余(读不到、超时、太大、登记已撤)一律 `unavailable`。 */
 export type PreviewFailureCopy = { unavailable: string; outside: string };
 
-const registry = new Map<string, PreviewRegistration>();
+/** 群正文没有文件系统根;类型和请求入口都禁止退回本地/远端文件读取。 */
+type DocumentPreviewRegistration = {
+  source: { kind: 'document' };
+  surface: 'pane';
+  documentHtml: string;
+  failureCopy?: never;
+};
+
+const registry = new Map<string, PreviewRegistration | DocumentPreviewRegistration>();
+
+export function createDocumentPreview(documentHtml: string): { url: string; previewId: string } {
+  const previewId = newPreviewId();
+  registry.set(previewId, { source: { kind: 'document' }, surface: 'pane', documentHtml });
+  return { url: `${PREVIEW_SCHEME}://${previewId}/index.html`, previewId };
+}
 
 /**
  * 单份资源的上限。超了答 413 而不是截断后照发 —— 半截样式表或半截脚本进了页面,渲染错乱
@@ -292,6 +306,12 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
     return failurePage(undefined, 'unavailable', 404, 'unknown_preview');
   }
 
+  if (!('root' in registration)) {
+    return url.pathname === '/index.html'
+      ? htmlResponse(registration.documentHtml, registration)
+      : notFound('document only');
+  }
+
   const resolved = resolvePreviewRequest(registration.root, url.pathname);
   if (!resolved) {
     // 越界是围栏在起作用,不是「文件没找到」—— 说清楚,否则下次查起来只看到一个 404。
@@ -410,13 +430,15 @@ function readRemoteChunk(
  * 被打开的那一份文档。链接拦截只注给它 —— 页内锚点与相对资源现在归浏览器管,这段脚本
  * 只剩一件事:把「要离开这个预览」的点击交还给宿主(外链开浏览器面板、本机文件开新 tab)。
  */
-function htmlResponse(html: string, registration: PreviewRegistration): Response {
-  return new Response(`${html}\n<script>${PREVIEW_LINK_SCRIPT}</script>`, {
+function htmlResponse(html: string, registration: PreviewRegistration | DocumentPreviewRegistration): Response {
+  return new Response(previewDocumentHtml(html, registration.source.kind === 'document'), {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      ...(isRemotePanePreview(registration) ? { 'Content-Security-Policy': REMOTE_PANE_PREVIEW_CSP } : {}),
+      ...(registration.source.kind === 'document'
+        ? { 'Content-Security-Policy': DOCUMENT_PREVIEW_CSP }
+        : isRemotePanePreview(registration) ? { 'Content-Security-Policy': REMOTE_PANE_PREVIEW_CSP } : {}),
     },
   });
 }
@@ -432,7 +454,7 @@ export const REMOTE_PANE_PREVIEW_CSP = [
   `form-action 'none'`,
 ].join('; ');
 
-function isRemotePanePreview(registration: PreviewRegistration): boolean {
+function isRemotePanePreview(registration: PreviewRegistration | DocumentPreviewRegistration): boolean {
   return registration.source.kind === 'remote' && registration.surface === 'pane';
 }
 

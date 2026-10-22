@@ -85,6 +85,7 @@ export function HtmlPreviewFrame({ fileName, rawContent, register, onLink, reloa
     void preview.update(rawContent).then((nextUrl) => {
       if (cancelled) return;
       registeredContentRef.current = rawContent;
+      setFailed(null);
       setUrl(nextUrl);
     }).catch((error: unknown) => {
       if (!cancelled) setFailed(error instanceof Error ? error.message : 'Preview unavailable');

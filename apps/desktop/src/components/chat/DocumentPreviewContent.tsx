@@ -12,11 +12,9 @@ import {
   DOCUMENT_MIN_ZOOM,
   pinchZoom
 } from '@/session/shared/preview/pinch-zoom'
-import {
-  PREVIEW_LINK_MESSAGE_TYPE,
-  SRCDOC_PREVIEW_LINK_SCRIPT,
-  toExternalUrl,
-} from '@/session/shared/preview/preview-link-script'
+import { toExternalUrl } from '@/session/shared/preview/preview-link-script'
+import { HtmlPreviewFrame } from '../preview/HtmlPreviewFrame'
+import { registerDocumentPreview } from '../preview/html-preview-registration'
 import { truncateSheetXml } from './xlsxPreviewLimits'
 import './documentPreview.css'
 
@@ -83,8 +81,13 @@ async function fitLargeSheets(data: ArrayBuffer, errorMessage: string): Promise<
   return { data: await archive.generateAsync({ type: 'arraybuffer', compression: 'STORE' }), truncated }
 }
 
+function openHtmlLink(href: string) {
+  const externalUrl = toExternalUrl(href)
+  if (externalUrl) window.open(externalUrl)
+}
+
 export function DocumentPreviewContent({ kind, content, title, onOpenExternally }: DocumentPreviewContentProps) {
-  if (kind === 'html' && typeof content === 'string') return <HtmlPreview content={content} title={title} />
+  if (kind === 'html' && typeof content === 'string') return <HtmlPreviewFrame fileName={title} rawContent={content} register={registerDocumentPreview} onLink={openHtmlLink} />
   if (typeof content === 'string') return null
   if (!content) return null
   if (kind === 'docx') return <DocxPreview data={content} onOpenExternally={onOpenExternally} />
@@ -92,45 +95,6 @@ export function DocumentPreviewContent({ kind, content, title, onOpenExternally 
   if (kind === 'pptx') return <PptxPreview data={content} onOpenExternally={onOpenExternally} />
   if (kind === 'xlsx') return <XlsxPreview data={content} onOpenExternally={onOpenExternally} />
   return null
-}
-
-/**
- * 聊天里的 HTML 附件预览。
- *
- * 这一份的内容是一段字符串、盘上没有对应文件,所以它只能走 `srcdoc` —— 而 srcdoc 文档
- * **没有自己的地址**,页面里的每个链接都按宿主页的地址解析:点一个页内锚点会把 iframe 导到
- * 应用页上(预览变白),点一个外链会把外网页面直接加载进这个框里(#6156 实测三条全中)。
- * 所以这里必须自己拦:锚点自己滚,http(s) 递给宿主用系统浏览器开,其余一律不导航。
- *
- * ⚠️ 会话页那边的预览**不用**这一套:它由 `gugu-preview://` 供给、有真地址,锚点归浏览器管。
- * 分界是「这份文档有没有地址」,不是「在哪个界面」。
- */
-function HtmlPreview({ content, title }: { content: string; title: string }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      if (e.source !== iframeRef.current?.contentWindow) return
-      const data = e.data as { type?: string; href?: string } | null
-      if (!data || data.type !== PREVIEW_LINK_MESSAGE_TYPE || typeof data.href !== 'string') return
-      const externalUrl = toExternalUrl(data.href)
-      // window.open 被主进程的 setWindowOpenHandler 接走 → shell.openExternal。
-      // 沙箱 iframe 自己开不了(没有 allow-popups),所以这一步必须由宿主来。
-      if (externalUrl) window.open(externalUrl)
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [])
-
-  return (
-    <iframe
-      ref={iframeRef}
-      className="document-preview-html"
-      sandbox="allow-scripts"
-      srcDoc={`${content}\n<script>${SRCDOC_PREVIEW_LINK_SCRIPT}</script>`}
-      title={title}
-    />
-  )
 }
 
 function PreviewStatus({ children, error = false }: { children: React.ReactNode; error?: boolean }) {

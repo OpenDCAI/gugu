@@ -52,6 +52,7 @@ describe('machine routing (one workbench seam)', () => {
   it('keeps the gugu-preview:// registrations on this computer even with a machine project id', () => {
     const r = registry();
     // 登记表在看界面的这台电脑的主进程里;字节另经 readChunk 去那台机器取(那一条照常路由)。
+    expect(r.route('workspace.files.createDocumentPreview', [P])).toBeNull();
     expect(r.route('workspace.files.createRemotePreview', [{ projectId: P, workspaceId: 'ws', root: '/srv/a' }])).toBeNull();
     expect(r.route('workspace.files.setPreviewDocument', [P, 'ws', 'index.html'])).toBeNull();
     expect(r.route('workspace.files.releasePreview', [P, 'ws'])).toBeNull();

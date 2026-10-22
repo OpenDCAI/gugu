@@ -14,7 +14,10 @@ const boundary = vi.hoisted(() => ({
   save: vi.fn(),
   open: vi.fn(),
   close: vi.fn(),
+  preview: vi.fn(),
+  previewContents: new Map<string, string>(),
 }))
+vi.mock('@/components/preview/html-preview-registration', () => ({ registerDocumentPreview: boundary.preview }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } } }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile }))
 vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: vi.fn(async () => ({ error: null })) } }))
@@ -52,6 +55,12 @@ beforeEach(() => {
   HTMLElement.prototype.checkVisibility = () => false
   boundary.mobile = false
   vi.clearAllMocks()
+  boundary.previewContents.clear()
+  boundary.preview.mockImplementation(async (html: string) => {
+    const url = `blob:group-preview-${boundary.previewContents.size}`
+    boundary.previewContents.set(url, html)
+    return { ok: true, url, update: vi.fn(), release: vi.fn() }
+  })
   boundary.signed.mockResolvedValue({ status: 'ready', url: 'https://media.test/signed.mp4' })
   boundary.read.mockResolvedValue({ status: 'ready', blob: { text: async () => '<h1>lane report</h1>', arrayBuffer: async () => new ArrayBuffer(4) } })
   boundary.document.mockResolvedValue({ text: '<h1>live report</h1>' })
@@ -86,7 +95,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     const file = detail('html')
     vi.mocked(appsHere!.groupFileOpener).mockResolvedValue({ success: true, data: file })
     await harness.render(slot(file, false))
-    await until('the report HTML is drawn', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('lane report') === true)
+    await until('the report HTML is drawn', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     expect(appsHere!.groupFileOpener).toHaveBeenCalledWith({ chatId: file.chatId, itemId: file.itemId })
     expect(harness.container.querySelector('iframe')?.getAttribute('sandbox')).toBe('allow-scripts')
     expect(boundary.read).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 })
@@ -95,7 +104,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('peek has the same content and download as ordinary openWith', async () => {
     const file = detail('html')
     await harness.render(createElement(AppPeek, { target: { kind: 'chat', detail: file }, slotKey: 'report-peek', beside: false, onClose: vi.fn() }))
-    await until('peek uses the same HTML content', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('lane report') === true)
+    await until('peek uses the same HTML content', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     expect(harness.container.querySelector('button[aria-label="下载"]')).not.toBeNull()
   })
 
@@ -179,11 +188,11 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it('switching a peek to another HTML file never paints the old content under the new filename', async () => {
     const painted: string[] = []
     function Peek({ file }: { file: ReturnType<typeof detail> }) {
-      useLayoutEffect(() => { painted.push(harness.container.querySelector('iframe')?.getAttribute('srcdoc') ?? '') }, [file])
+      useLayoutEffect(() => { painted.push(boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '') ?? '') }, [file])
       return createElement(AppPeek, { target: { kind: 'chat', detail: file }, slotKey: 'changing-peek', beside: false, onClose: vi.fn() })
     }
     await harness.render(createElement(Peek, { file: detail('html') }))
-    await until('first report loaded', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('lane report') === true)
+    await until('first report loaded', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('lane report') === true)
     boundary.read.mockImplementationOnce(() => new Promise(() => {}))
     await harness.render(createElement(Peek, { file: { ...detail('html'), itemId: 'other-report', name: 'next.html' } }))
     expect(painted.at(-1), 'layout commit happens before the next file load effect').not.toContain('lane report')
@@ -192,7 +201,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
   it.each([false, true])('a collaborative HTML document uses the existing live document reader (peek=%s)', async (peek) => {
     const file = { ...detail('html'), file: { ...detail('html').file, document: true } }
     await harness.render(peek ? createElement(AppPeek, { target: { kind: 'chat', detail: file }, slotKey: 'live-document', beside: false, onClose: vi.fn() }) : slot(file))
-    await until('live document rendered', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('live report') === true)
+    await until('live document rendered', () => boundary.previewContents.get(harness.container.querySelector('iframe')?.getAttribute('src') ?? '')?.includes('live report') === true)
     expect(boundary.document).toHaveBeenCalledWith({ id: file.itemId })
     expect(boundary.signed).not.toHaveBeenCalled()
     expect(boundary.read).not.toHaveBeenCalled()

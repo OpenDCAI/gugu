@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { DOCUMENT_MAX_ZOOM } from './pinch-zoom';
-import { PREVIEW_LINK_SCRIPT, SRCDOC_PREVIEW_LINK_SCRIPT } from './preview-link-script';
+import { DOCUMENT_PREVIEW_CSP, PREVIEW_LINK_SCRIPT, previewDocumentHtml } from './preview-link-script';
 
 type Listener = (event: unknown) => void;
 
@@ -21,14 +21,8 @@ function runInFakeDocument(script: string) {
   return { document, wheel };
 }
 
-/**
- * #6456: 预览是沙箱 iframe,里面的 wheel 宿主接不到,双指捏合只能由注入脚本自己接。
- * 有地址(文件标签)和 srcdoc(聊天里的 HTML 附件)两段脚本,两边都要能缩放。
- */
-describe.each([
-  ['PREVIEW_LINK_SCRIPT', PREVIEW_LINK_SCRIPT],
-  ['SRCDOC_PREVIEW_LINK_SCRIPT', SRCDOC_PREVIEW_LINK_SCRIPT],
-])('%s pinch zoom', (_name, script) => {
+describe('shared preview pinch zoom', () => {
+  const script = PREVIEW_LINK_SCRIPT;
   it('zooms the document on a pinch and keeps the page from handling it', () => {
     const { document, wheel } = runInFakeDocument(script);
     const preventDefault = wheel({ ctrlKey: true, deltaY: -100 });
@@ -51,4 +45,15 @@ describe.each([
 
     expect(Number(document.documentElement.style.zoom)).toBe(DOCUMENT_MAX_ZOOM);
   });
+});
+
+it('prepares the same document policy before untrusted markup for protocol and Blob transports', () => {
+  const html = '<base href="file:///private/"><script>window.fixture = true</script>';
+  const rendered = previewDocumentHtml(html, true);
+  expect(rendered).toMatch(/^<!doctype html><meta http-equiv="Content-Security-Policy"/);
+  expect(rendered.indexOf(DOCUMENT_PREVIEW_CSP)).toBeLessThan(rendered.indexOf(html));
+  expect(DOCUMENT_PREVIEW_CSP).toContain("base-uri 'none'");
+  expect(DOCUMENT_PREVIEW_CSP).not.toMatch(/\bfile:|gugu-app:|\bhttp:|\bws:/);
+  expect(rendered).toContain(PREVIEW_LINK_SCRIPT);
+  expect(previewDocumentHtml(html)).toBe(html + '\n<script>' + PREVIEW_LINK_SCRIPT + '</script>');
 });
