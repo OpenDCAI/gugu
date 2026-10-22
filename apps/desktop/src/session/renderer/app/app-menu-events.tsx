@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
+import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
 import { openGroupFileLink } from '@/components/markdown/fileLinks';
 import { GROUP_FILE_NOT_OPENED } from '@shared/extensions/app-runtime-protocol';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
 import {
+  manageSessionTabsWhenReady,
   openHostRequestedBrowserInSessionWhenReady,
   openHostRequestedExtensionInSessionWhenReady,
   openHostRequestedFileInSessionWhenReady,
@@ -22,6 +24,8 @@ import {
   notificationFocusSessionChannel,
   remotePreviewReadChannel,
   remotePreviewReadResultChannel,
+  sessionManageTabsChannel,
+  sessionManageTabsResultChannel,
   sessionOpenFileInPaneChannel,
   sessionOpenFileInPaneResultChannel,
   sessionOpenBrowserInPaneChannel,
@@ -103,6 +107,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenFileInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -165,6 +170,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenBrowserInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -193,6 +199,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenExtensionInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -204,6 +211,16 @@ export function AppMenuEvents() {
       disposers.clear();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    const disposers = new Set<() => void>();
+    const off = events.on(sessionManageTabsChannel, (request) => {
+      disposers.add(manageSessionTabsWhenReady({ ...request, onResult: (result) => {
+        events.emit(sessionManageTabsResultChannel, { requestId: request.requestId, ...result });
+      } }));
+    });
+    return () => { off(); disposers.forEach((dispose) => dispose()); };
+  }, []);
 
   return null;
 }

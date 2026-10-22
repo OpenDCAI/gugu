@@ -89,9 +89,9 @@ export const listRowsSchema = z.preprocess(
 export const listNameSchema = z.string().optional()
 export const listWindowShape = { rows: listRowsSchema, name: listNameSchema }
 
-// agent 状态的筛选词 = core 的唯一词表(基础态 + 附属态,两组不重叠),❌ 在这里另抄一份。
+// agent 状态复用 core 词表；会话列表另有生命周期态 archived。
 // 不在 schema 里摊成枚举(每个工具多 250 字符),写错的词在切窗之前响亮地拒,并列出合法的词。
-export const AGENT_STATUS_FILTER_WORDS = [...AGENT_STATUSES, ...AGENT_STATUS_DETAILS]
+export const AGENT_STATUS_FILTER_WORDS = [...AGENT_STATUSES, ...AGENT_STATUS_DETAILS, 'archived']
 export const agentStatusFilterSchema = z.string().optional()
 export const pinnedFilterSchema = z.boolean().optional()
 

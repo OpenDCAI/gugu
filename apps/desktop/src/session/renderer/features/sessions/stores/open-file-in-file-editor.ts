@@ -1,4 +1,6 @@
 import { toast } from 'sonner';
+import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
+import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { when } from 'mobx';
 import {
@@ -335,6 +337,26 @@ function sessionPaneReady(projectId: string, sessionId: string): () => boolean {
     .then(() => getSessionManagerStore(projectId)?.provisionSession(sessionId))
     .catch(() => {});
   return () => Boolean(asProvisioned(getSessionPageStore(projectId, sessionId))?.viewModel);
+}
+
+export function manageSessionTabsWhenReady(request: {
+  projectId: string; sessionId: string; tabId?: string;
+  onResult: (result: { success: boolean; tabs?: SessionPaneTab[]; closed?: boolean; error?: string }) => void;
+}): () => void {
+  return when(sessionPaneReady(request.projectId, request.sessionId), () => {
+    const view = asProvisioned(getSessionPageStore(request.projectId, request.sessionId))?.viewModel;
+    if (!view) { request.onResult({ success: false, error: 'target session pane is unavailable' }); return; }
+    void (async () => {
+      try {
+        const result = request.tabId === undefined
+          ? { tabs: sessionPaneTabs(view.paneLayout) }
+          : await closeSessionPaneTab(view.paneLayout, request.tabId);
+        request.onResult({ success: true, ...result });
+      } catch (error) {
+        request.onResult({ success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+  }, { timeout: 10_000, onError: (error) => request.onResult({ success: false, error: String(error) }) });
 }
 
 export function openHostRequestedFileInSessionWhenReady({

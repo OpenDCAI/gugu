@@ -565,7 +565,7 @@ export function TopicSplitPane({
           placeholder={t('topic.pane.composerPlaceholder')}
           quoteContent={activeQuote}
           onQuoteConsumed={() => setQuoted(null)}
-          chatId={topic.chatId}
+          chatId={topic.chatId} hidden={visible === false}
           isGroupChat
           groupMembers={rankedMentionMembers}
           currentUserId={currentUserId}

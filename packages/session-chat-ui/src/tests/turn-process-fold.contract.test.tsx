@@ -294,6 +294,46 @@ describe('settled-turn process fold on a mounted ChatView', () => {
 
 });
 
+describe('#4981 合并:一轮一轮落进来,和整条重建画得一样(#70 review)', () => {
+  // 人问的那一轮没收尾(只想了一下就停了),agent 自己接着干完、开了口。两轮该并成一个头,回复在外面。
+  const thought = (id: string, seq: number) => ({ kind: 'thinking', id, seq, text: `Thinking ${id}`, status: 'done' }) as unknown as ChatMessage;
+  const ASK: TranscriptTurn = {
+    id: 'ask', seq: 1, initiator: 'user', startedAt: 1_000, endedAt: 2_000,
+    items: [msg('u-ask', 0, 'user', 'Ship the beta'), thought('th-ask', 1)] as TranscriptTurn['items'],
+    outcome: { kind: 'done' },
+  };
+  const CONT: TranscriptTurn = {
+    id: 'cont', seq: 2, initiator: 'agent', startedAt: 2_500, endedAt: 9_000,
+    items: [thought('th-cont', 0), msg('a-cont', 1, 'assistant', 'Beta shipped.')] as TranscriptTurn['items'],
+    outcome: { kind: 'done' },
+  };
+
+  it('后一轮追加进来时并进前一轮的头,❌ 等下次整条重建才跳进去', async () => {
+    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const state = createChatState(ctx);
+    state.transcript.history.seed([ASK]);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
+    document.body.appendChild(host);
+    const view = createChatView({ context: ctx, state, parent: host });
+    const headers = () => Array.from(host.querySelectorAll('[data-slot="turn-process"]'));
+    try {
+      await until('the asking turn folds', () => headers().length, (n) => n === 1);
+      await settled(host);
+      state.transcript.history.append([CONT]);
+      await until('the reply lands', () => host.querySelector('[data-chat-canvas]')?.textContent ?? '', (t) => t.includes('Beta shipped.'));
+      await settled(host);
+      // 整条重建(切 tab、重进)画出来的就是一个头 —— 追加时也得是。
+      expect(headers()).toHaveLength(1);
+    } finally {
+      view.dispose();
+      ctx.dispose();
+      state.dispose();
+      document.body.removeChild(host);
+    }
+  });
+});
+
 describe('#4981 #12 活动层的过程也折', () => {
   /**
    * ⚠️ 中间那条是**必需**的：`planTurnFold` 把最后一条助手消息当作留在外面的最终回复，
@@ -345,7 +385,7 @@ describe('#4981 #12 活动层的过程也折', () => {
       expect(h!.textContent).not.toMatch(/steps/);
       // 微光只在跑着的时候上身：`CollapseHeader` 把 textShimmer 挂在标签那个 span 上。
       const label = h!.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
-      expect(getComputedStyle(label).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+      expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       // 高度契约与静息态同源：同一个 def、同一个 measure()。
       const caches = createChatCaches();
       const mctx: MeasureCtx = {
@@ -385,7 +425,7 @@ describe('#4981 #12 活动层的过程也折', () => {
       const settledLabel = settledHeader!.querySelector(
         '[data-slot="collapse-header"] > span'
       ) as HTMLElement;
-      expect(getComputedStyle(settledLabel).webkitTextFillColor).not.toBe('rgba(0, 0, 0, 0)');
+      expect(settledLabel.querySelector('[data-shimmer-text]')).toBeNull();
     } finally {
       view.dispose();
       ctx.dispose();
@@ -430,7 +470,7 @@ describe('一轮开始了、还什么都没有:时间头已经在数秒', () => 
       expect(h.dataset.turnId).toBe(ONLY_PROMPT.id);
       expect(h.textContent).toMatch(/Worked for (?:\d+m)?\d+s/);
       const label = h.querySelector('[data-slot="collapse-header"] > span') as HTMLElement;
-      expect(getComputedStyle(label).webkitTextFillColor).toBe('rgba(0, 0, 0, 0)');
+      expect(label.querySelector('[data-shimmer-text]')).not.toBeNull();
       const mctx: MeasureCtx = { theme: ctx.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches: createChatCaches(), expandedId: null };
       const item = { kind: 'turn-process' as const, id: turnProcessId(ONLY_PROMPT.id), turnId: ONLY_PROMPT.id, live: true, startedAt: STARTED_AT };
       expect(h.offsetHeight).toBe(turnProcessUnitDef.measure(item, mctx, turnProcessUnitDef.vars!));

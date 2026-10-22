@@ -368,7 +368,7 @@
 
   /* ── Shape:assistant-ui design.md 的 8 档语义表(owner 2026-09-22 裁决,Refs #6104) ──────
      全仓圆角**只有这一份定义**。会话页 index.css 的 @theme、tailwind.config.cjs 的 borderRadius、
-     packages/session-ui、packages/session-chat-ui(及已拆出的中台 nmhjklnm/gugu-console、顾客面板 nmhjklnm/gugu-website 的 dashboard/)一律逐字等值,
+     packages/session-ui、packages/session-chat-ui(及已拆出本仓的中台、顾客面板)一律逐字等值,
      ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
      三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
      ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mjs 的
@@ -1010,8 +1010,20 @@ input::placeholder {
 
 /* Themed scrollbar —— 只给鼠标指针的宿主。
    ::-webkit-scrollbar 一旦被定义,WebKit/Blink 就把那个元素换成**经典**滚动条:常驻、占布局宽度。
-   桌面上这正是想要的细条;触屏上却把系统自带的「滚动时才浮出、停下就消失」的悬浮条换掉了 ——
-   安卓 App 里每个可滚区域右侧都钉着一道 4px 灰条,还把内容挤窄 4px。触屏交还给系统。 */
+   触屏上这会把系统自带的「滚动时才浮出、停下就消失」的悬浮条换掉 —— 安卓 App 里每个可滚区域
+   右侧都钉着一道 4px 灰条,还把内容挤窄 4px。触屏交还给系统。
+
+   @@@scrollbar-autohide (#7641) — 桌面这一侧原先是常驻细条,会话列表右缘那道灰线一直在,很碍眼。
+   现在改成**平时透明、滚动时浮出**:轨道宽度照旧占着(❌ 不能让它随显隐改变宽度 —— 那会让整列
+   内容在每次滚动时左右跳 4px),只把 thumb 的颜色在两个状态间切。
+   「正在滚动」由 lib/scrollbarAutoHide.ts 打的 `data-scrolling` 属性表示 —— CSS 没有这个状态,
+   鼠标停在可滚区域内也会在停滚后隐藏,只有悬停滑块本身时才加深颜色。
+
+   ⚠️ 这一条**只管主界面**,❌ 不要顺手把 session/renderer/index.css 的 `.gugu-skin` 那套一起改。
+   那边写了 `scrollbar-color`,而**元素上只要存在 scrollbar-color,Blink 就整个禁用 ::-webkit-scrollbar
+   伪元素**、改走系统滚动条 —— 在 macOS 上那本来就是「滚动时才浮出」的 overlay 条,已经是这里想要的
+   效果了。真机实测(Chromium headless 四格对照):`scrollbar-color + webkit` 同时写 ⇒ 不显示;
+   只写 webkit ⇒ 显示。所以给那边加 `data-scrolling` 规则是一条**不会生效**的改动。 */
 @media (hover: hover) and (pointer: fine) {
   ::-webkit-scrollbar {
     width: 4px;
@@ -1021,8 +1033,11 @@ input::placeholder {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--border-color);
+    background: transparent;
     border-radius: 2px;
+  }
+  [data-scrolling]::-webkit-scrollbar-thumb {
+    background: var(--border-color);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);

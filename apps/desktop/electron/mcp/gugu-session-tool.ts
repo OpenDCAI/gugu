@@ -52,7 +52,8 @@ const SESSION_ROWS: SessionpageListSpec = {
   filterKeys: ['status', 'pinned'],
   statusFilter: true,
   keep: (row, args) =>
-    matchesAgentStatus(row as { status?: string | null; detail?: string | null }, args.status as string | undefined)
+    (row.status !== 'archived' || args.status === 'archived')
+    && matchesAgentStatus(row as { status?: string | null; detail?: string | null }, args.status as string | undefined)
     && keepPinned(row, args),
   eachItem: async (row, call) => {
     if (row.status === 'archived') return row
@@ -147,7 +148,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_children',
-    description: 'Direct children of this session (or of session_id), most recent first; preview.ended = how each one\'s last turn ended.',
+    description: 'Direct children, newest first (default: yours). Archived only with status:"archived"; preview.ended = last turn\'s end.',
     schema: z.object({
       session_id: sessionIdSchema.optional(),
       ...listWindowShape,
@@ -230,6 +231,18 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     action: 'open_in_tab',
   },
   {
+    name: 'session_list_tabs',
+    description: 'List the live tabs in your own task, including their ids and titles. Conversation tabs cannot be closed.',
+    schema: z.object({}).strict(),
+    action: 'list_tabs',
+  },
+  {
+    name: 'session_close_tab',
+    description: 'Close one supplementary tab in your own task. Unsaved files keep their usual confirmation; closed:false means the tab stayed open.',
+    schema: z.object({ tab_id: z.string().min(1).describe('From session_list_tabs or session_open_in_tab.') }).strict(),
+    action: 'close_tab',
+  },
+  {
     name: 'session_get',
     description: 'Read this session (omit session_id) or another of yours: project_id, transport, status, model, preview. Pass model.spawn_model_id, not model.id, to session_spawn.',
     schema: z.object({ session_id: sessionIdSchema.describe(SESSION_ID_DESCRIPTION).optional() }).strict(),
@@ -243,7 +256,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours, whoever spawned it — the same archive a person does on the session page: its process stops, it leaves the session list and its agent identity is removed, and a person can restore it from session history; session_children and session_get keep listing it with status "archived". with_children=true archives its whole subtree with it; default false archives only this one. Deleting a session is a person\'s action; there is no tool for it.',
+    description: 'Archive another session of yours: stop its process, remove its agent identity and hide it from lists. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
     schema: z.object({
       session_id: sessionIdSchema,
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),

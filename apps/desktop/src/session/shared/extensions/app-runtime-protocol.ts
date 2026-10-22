@@ -641,7 +641,7 @@ export const FRAME_TYPE = {
   Pong: 10,
 } as const;
 
-const SYNC_STEP_2 = 1;
+export const SYNC_STEP_2 = 1;
 const SYNC_UPDATE = 2;
 const AUTH_TOKEN = 0;
 const AUTH_PERMISSION_DENIED = 1;
@@ -711,6 +711,8 @@ class Writer {
 export interface FrameHead {
   key: string;
   type: number;
+  /** Sync frames only: the Yjs handshake step or update kind. */
+  syncStep?: number;
   /** Sync frames only: whether it would change the document (Step 2 with content, or Update). */
   carriesUpdate: boolean;
 }
@@ -725,13 +727,11 @@ export function readFrameHead(frame: Uint8Array): FrameHead | null {
     const r = new Reader(frame);
     const key = r.varString();
     const type = r.varUint();
+    const syncStep = type === FRAME_TYPE.Sync ? r.varUint() : undefined;
     let carriesUpdate = false;
-    if (type === FRAME_TYPE.Sync) {
-      const step = r.varUint();
-      if (step === SYNC_UPDATE) carriesUpdate = true;
-      else if (step === SYNC_STEP_2) carriesUpdate = !isEmptyYjsUpdate(r.varBytes());
-    }
-    return { key, type, carriesUpdate };
+    if (syncStep === SYNC_UPDATE) carriesUpdate = true;
+    else if (syncStep === SYNC_STEP_2) carriesUpdate = !isEmptyYjsUpdate(r.varBytes());
+    return { key, type, syncStep, carriesUpdate };
   } catch {
     return null;
   }
@@ -765,6 +765,11 @@ export function encodeAuthFrame(key: string, token: string): Uint8Array {
 
 export function encodeSyncUpdateFrame(key: string, update: Uint8Array): Uint8Array {
   return new Writer().varString(key).varUint(FRAME_TYPE.Sync).varUint(SYNC_UPDATE).varBytes(update).toBytes();
+}
+
+/** A read-only replica completes the handshake without sending its content or deletion history. */
+export function encodeReadOnlySyncReply(key: string): Uint8Array {
+  return new Writer().varString(key).varUint(FRAME_TYPE.Sync).varUint(SYNC_STEP_2).varBytes(Uint8Array.of(0, 0)).toBytes();
 }
 
 /** The service's answer to an Auth frame, when that is what `frame` is. */

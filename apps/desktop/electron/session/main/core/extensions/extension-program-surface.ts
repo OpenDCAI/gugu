@@ -3,6 +3,7 @@ import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { APP_FRAME_MARKER, fileRefOf, isLocal, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
+import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
 import { fileSync } from './file-sync';
 
@@ -152,9 +153,19 @@ async function signedInChatClient(what: string) {
 }
 
 /**
+ * A door that could not answer (the network, an expired token, the agent not the person's) is not a refusal: said as
+ * what it was, to the agent and in the log — read as "not yours" it sends the agent after a membership it has.
+ */
+function doorFailed(named: string, what: string, error: { message: string }): Error {
+  log.warn('[app-programs] a handed chat or file could not be checked', { named, what, error: error.message });
+  return new Error(`${named}: could not check ${what}: ${error.message}`);
+}
+
+/**
  * A1 Each handed chat as its id, read as the calling agent: one named by the number people see (its public id) goes to
  * its id, the way the agent's message tools take either; the agent must be in it — the door every agent write of the
- * workspace goes through (`workspace_status_as`). Not there and not the agent's read the same, refused by name.
+ * workspace goes through (`workspace_status_as`). Not there and not the agent's read the same, refused by name; a door
+ * that could not answer says why.
  */
 export async function handedChatsAs(agentUserId: string, chatIds: readonly string[]): Promise<ExtensionHandedChat[]> {
   const client = await signedInChatClient('chat');
@@ -163,13 +174,15 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
       const refusal = new Error(`${named}: not a chat you are in, so it was not handed over`);
       let chatId = named.trim();
       if (/^\d+$/.test(chatId)) {
-        const { data } = await client.from('chats').select('id').eq('public_id', chatId);
+        const { data, error } = await client.from('chats').select('id').eq('public_id', chatId);
+        if (error) throw doorFailed(named, 'which chat this number is', error);
         const rows = (data as { id: string }[] | null) ?? [];
         if (rows.length !== 1) throw refusal;
         chatId = rows[0]!.id;
       }
       const { error } = await client.rpc('workspace_status_as', { p_chat_id: chatId, p_as_user_id: agentUserId });
-      if (error) throw refusal;
+      if (error?.hint === 'workspace_not_member') throw refusal;
+      if (error) throw doorFailed(named, 'that you are in this chat', error);
       return { chatId, agentUserId };
     }),
   );
@@ -177,13 +190,15 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
 
 /**
  * Which group each handed file is in, read as the calling agent: with the person's token acting as their agent, as
- * every agent read of the workspace is (`workspace_get_as`). A file the agent cannot open is refused by name.
+ * every agent read of the workspace is (`workspace_get_as`). A file the agent cannot open is refused by name; a door that
+ * could not answer says why.
  */
 export async function handedFilesAs(agentUserId: string, itemIds: readonly string[]): Promise<ExtensionHandedFile[]> {
   const client = await signedInChatClient('chat file');
   return Promise.all(
     itemIds.map(async (itemId) => {
       const { data, error } = await client.rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: agentUserId });
+      if (error && error.hint !== 'workspace_item_not_found') throw doorFailed(itemId, 'that you can open this file', error);
       const row = (Array.isArray(data) ? data[0] : data) as { chat_id?: string } | null;
       if (error || !row?.chat_id) throw new Error(`${itemId}: not a chat file you can open, so it was not handed over`);
       return { itemId, chatId: row.chat_id, agentUserId };

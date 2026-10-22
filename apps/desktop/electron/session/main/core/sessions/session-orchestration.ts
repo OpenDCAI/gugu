@@ -1,3 +1,5 @@
+import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
+import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
 import { readCurrentActivitySource } from './session-activity-source';
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
@@ -50,6 +52,8 @@ import { resolveTmuxEnabled } from '@main/core/projects/settings/resolve-tmux-en
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionsAliveInTmux } from '@main/core/sessions/session-process';
 import {
+  sessionManageTabsChannel,
+  sessionManageTabsResultChannel,
   sessionOpenBrowserInPaneChannel,
   sessionCancelBrowserAcquireChannel,
   sessionOpenBrowserInPaneResultChannel,
@@ -175,6 +179,8 @@ export type SessionAction =
   | { action: 'open_in_tab'; path: string; app_tab?: string; intent: 'preview' | 'pinned' }
   | { action: 'open_in_tab'; url: string; intent: 'preview' | 'pinned' }
   | { action: 'open_in_tab'; app_tab: string; intent: 'preview' | 'pinned' }
+  | { action: 'list_tabs' }
+  | { action: 'close_tab'; tab_id: string }
   | { action: 'get'; session_id?: string }
   | { action: 'stop'; session_id: string }
   | { action: 'archive'; session_id: string; with_children?: boolean }
@@ -1275,10 +1281,10 @@ function normalizeOpenInTabUrl(rawUrl: string): string {
 }
 
 /**
- * All three ack channels carry the same payload, so one of them names the shape.
+ * The open and tab-management acknowledgements share their live pane metadata.
  * (`EventDefinition` itself is not exported from the shared events module.)
  */
-type PaneOpenAckChannel = typeof sessionOpenFileInPaneResultChannel;
+type PaneOpenAckChannel = typeof sessionOpenFileInPaneResultChannel | typeof sessionManageTabsResultChannel;
 
 /**
  * The caller's own session and its mounted workspace, or a loud reason there is none.
@@ -1324,12 +1330,13 @@ async function requestPaneOpen(
   what: string,
   emit: (requestId: string) => void,
   signal?: AbortSignal,
-): Promise<{ openedWith?: string | null; browserId?: string }> {
+  timeoutMs: number | null = 10_000,
+): Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string }> {
   const requestId = randomUUID();
-  return await new Promise<{ openedWith?: string | null; browserId?: string }>((resolve, reject) => {
+  return await new Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string }>((resolve, reject) => {
     let dispose = () => {};
     const finish = (complete: () => void) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       dispose();
       signal?.removeEventListener('abort', abort);
       complete();
@@ -1339,15 +1346,15 @@ async function requestPaneOpen(
       if (result.requestId !== requestId) return;
       finish(() =>
         result.success
-          ? resolve({ openedWith: result.openedWith, browserId: result.browserId })
+          ? resolve({ ...result })
           : reject(new Error(result.error || `renderer could not open the ${what}`)),
       );
     });
-    const timer = setTimeout(
+    const timer = timeoutMs === null ? null : setTimeout(
       () => finish(() => reject(new Error(`timed out waiting for the session pane to open the ${what}`))),
-      10_000,
+      timeoutMs,
     );
-    timer.unref?.();
+    timer?.unref?.();
     signal?.addEventListener('abort', abort, { once: true });
     emit(requestId);
   });
@@ -1357,16 +1364,10 @@ async function openFileInTab(
   context: SessionCallerContext,
   action: Extract<SessionAction, { action: 'open_in_tab'; path: string }>,
   signal?: AbortSignal,
-): Promise<
-  | {
-      opened: true;
-      path: string;
-      /** The extension tab that claimed this file type, when one did. */
-      opened_with?: string;
-      intent: 'preview' | 'pinned';
-    }
+): Promise<TabHygieneResult & (
+  | { opened: true; path: string; opened_with?: string; intent: OpenInTabIntent }
   | (QueuedOpen & { path: string })
-> {
+)> {
   signal?.throwIfAborted();
   const workspace = await requireCallerWorkspace(context, signal);
 
@@ -1395,7 +1396,7 @@ async function openFileInTab(
     );
     return 'queued' in outcome
       ? { opened: false, queued: true, path: absolutePath, intent: action.intent, note: remotePaneQueuedNote(outcome) }
-      : { opened: true, path: absolutePath, intent: action.intent };
+      : { opened: true, path: absolutePath, intent: action.intent, ...tabHygiene(outcome.tabs) };
   }
 
   // ❌ 宿主不决定「用什么打开这个文件」—— 那是解析层的事,住在 renderer 里,人点和 agent
@@ -1416,8 +1417,8 @@ async function openFileInTab(
   // Reported, never predicted: an agent that cannot tell a spreadsheet tab from a plain
   // file tab will describe the screen wrongly to the person looking at it.
   return ack.openedWith
-    ? { opened: true, path: absolutePath, opened_with: ack.openedWith, intent: action.intent }
-    : { opened: true, path: absolutePath, intent: action.intent };
+    ? { opened: true, path: absolutePath, opened_with: ack.openedWith, intent: action.intent, ...tabHygiene(ack.tabs) }
+    : { opened: true, path: absolutePath, intent: action.intent, ...tabHygiene(ack.tabs) };
 }
 
 /**
@@ -1492,7 +1493,7 @@ async function openBrowserInTab(
   context: SessionCallerContext,
   action: Extract<SessionAction, { action: 'open_in_tab'; url: string }>,
   signal?: AbortSignal,
-): Promise<{ opened: true; url: string; intent: 'preview' | 'pinned' } | (QueuedOpen & { url: string })> {
+): Promise<TabHygieneResult & ({ opened: true; url: string; intent: OpenInTabIntent } | (QueuedOpen & { url: string }))> {
   signal?.throwIfAborted();
   const workspace = await requireCallerWorkspace(context, signal);
 
@@ -1508,9 +1509,9 @@ async function openBrowserInTab(
     const outcome = await remotePaneOpener.open(context.sessionId, { kind: 'browser', url }, action.intent, signal);
     return 'queued' in outcome
       ? { opened: false, queued: true, url, intent: action.intent, note: remotePaneQueuedNote(outcome) }
-      : { opened: true, url, intent: action.intent };
+      : { opened: true, url, intent: action.intent, ...tabHygiene(outcome.tabs) };
   }
-  await requestPaneOpen(sessionOpenBrowserInPaneResultChannel, 'browser URL', (requestId) => {
+  const ack = await requestPaneOpen(sessionOpenBrowserInPaneResultChannel, 'browser URL', (requestId) => {
     events.emit(sessionOpenBrowserInPaneChannel, {
       requestId,
       projectId: context.projectId,
@@ -1519,7 +1520,7 @@ async function openBrowserInTab(
       intent: action.intent,
     });
   }, signal);
-  return { opened: true, url, intent: action.intent };
+  return { opened: true, url, intent: action.intent, ...tabHygiene(ack.tabs) };
 }
 
 /**
@@ -1543,7 +1544,7 @@ async function openExtensionInTab(
   context: SessionCallerContext,
   action: Extract<SessionAction, { action: 'open_in_tab'; app_tab: string }>,
   signal?: AbortSignal,
-): Promise<{ opened: true; app_tab: string; intent: 'preview' | 'pinned' }> {
+): Promise<TabHygieneResult & { opened: true; app_tab: string; intent: OpenInTabIntent }> {
   signal?.throwIfAborted();
   // 咕咕 server 没有窗口,扩展在它上面跑不起来:当场说清,❌ 等 10 秒超时。
   if (remotePaneOpener) throw new Error(REMOTE_PANE_NO_EXTENSIONS);
@@ -1575,7 +1576,7 @@ async function openExtensionInTab(
     );
     throw new Error(`${requestedKind} opens files and has no tab of its own; open the file instead — ${how.join('; ')}`);
   }
-  await requestPaneOpen(sessionOpenExtensionInPaneResultChannel, 'App tab', (requestId) => {
+  const ack = await requestPaneOpen(sessionOpenExtensionInPaneResultChannel, 'App tab', (requestId) => {
     events.emit(sessionOpenExtensionInPaneChannel, {
       requestId,
       projectId: context.projectId,
@@ -1584,7 +1585,7 @@ async function openExtensionInTab(
       intent: action.intent,
     });
   }, signal);
-  return { opened: true, app_tab: requestedKind, intent: action.intent };
+  return { opened: true, app_tab: requestedKind, intent: action.intent, ...tabHygiene(ack.tabs) };
 }
 
 /**
@@ -1877,6 +1878,17 @@ export async function runSessionAction(
       action,
     );
   }
+  if (action.action === 'list_tabs' || action.action === 'close_tab') {
+    await requireCallerWorkspace(context, signal);
+    const tabId = action.action === 'close_tab' ? action.tab_id : undefined;
+    const result = remotePaneOpener
+      ? await remotePaneOpener.open(context.sessionId, tabId === undefined ? { kind: 'tabs' } : { kind: 'close-tab', tabId }, 'pinned', signal)
+      : await requestPaneOpen(sessionManageTabsResultChannel, 'tabs', (requestId) => {
+          events.emit(sessionManageTabsChannel, { requestId, projectId: context.projectId, sessionId: context.sessionId, ...(tabId === undefined ? {} : { tabId }) });
+        }, signal, tabId === undefined ? 10_000 : null);
+    if (!('tabs' in result) || !result.tabs) throw new Error('This Gugu window did not return live tabs. Update Gugu and retry.');
+    return { tabs: result.tabs, tab_count: result.tabs.length, ...('closed' in result ? { closed: result.closed } : {}) };
+  }
   if (action.action === 'open_in_tab') {
     if ('url' in action) return openBrowserInTab(context, action, signal);
     return 'path' in action ? openFileInTab(context, action, signal) : openExtensionInTab(context, action, signal);
@@ -2042,6 +2054,9 @@ export async function runRemoteSessionAction(
   if (action.action === 'spawn') return spawnForRemoteCaller(caller, action, signal);
   if (action.action === 'ask_user') throw new Error('session_ask_user asks in the calling agent conversation; it cannot target another machine');
 
+  if (action.action === 'list_tabs' || action.action === 'close_tab') {
+    throw new Error('Tab tools only operate on the calling session’s own task; they cannot target another machine.');
+  }
   if (action.action === 'open_in_tab') {
     throw new Error('session_open_in_tab opens a tab in the calling session\'s own pane; it has no meaning on another machine');
   }

@@ -998,7 +998,7 @@ export function useInitialSessionState(
   // ❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题。
   const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || (remoteHost && !remoteHost.online)
     ? null
-    : harnessCatalogNotice(harnessCatalogState, agentDisplayName);
+    : harnessCatalogNotice(harnessCatalogState, agentDisplayName, translate);
 
   // 切到一家**强制登录**的 harness 时,给一次提示并留一条退路(spec: harness-vendor-account)。
   // 判据本体在上面 `needsVendorLogin`。

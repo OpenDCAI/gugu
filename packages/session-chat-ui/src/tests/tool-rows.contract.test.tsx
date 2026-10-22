@@ -1037,8 +1037,7 @@ describe('#4981 状态记号只留需要看一眼的那些', () => {
       const label = host.querySelector<HTMLElement>(`.${toolName}`)
       return {
         labelFound: label ? 1 : 0,
-        transparentFill:
-          label && getComputedStyle(label).webkitTextFillColor === 'rgba(0, 0, 0, 0)' ? 1 : 0
+        sweep: label?.querySelector('[data-shimmer-text]') ? 1 : 0
       }
     }
     const running = (
@@ -1048,7 +1047,7 @@ describe('#4981 状态记号只留需要看一眼的那些', () => {
       await renderAndMeasureUnit(toolUnitDef, tool, makeContractCtx({ width: WIDTH }), shimmerOf)
     ).inspected
     expect(running.labelFound, '探针没找到名字那一格').toBe(1)
-    expect(running.transparentFill, '跑着的行也没有微光 ⇒ 两个状态长得一模一样').toBe(1)
-    expect(done.transparentFill).toBe(0)
+    expect(running.sweep, '跑着的行也没有微光 ⇒ 两个状态长得一模一样').toBe(1)
+    expect(done.sweep).toBe(0)
   })
 })

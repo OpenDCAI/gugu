@@ -65,12 +65,21 @@ function start(overrides: Partial<RemotePaneViewerDeps> & { link: RemotePaneView
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('看着别的机器上的一条会话:那台机器上的 open_in_tab 开在这里', () => {
+  it('returns the exact live tabs and a cancelled close to the calling machine', async () => {
+    const fake = fakeLink();
+    const tabs = [{ tab_id: 'file', title: 'Unsaved report', kind: 'file', closable: true }];
+    start({ link: fake.link, open: () => ({ ok: true, tabs, closed: false }) });
+    await flush();
+    fake.push('pane-1', request('close', 'conv-1', { kind: 'close-tab', tabId: 'file' }));
+    expect(fake.acks()).toEqual([{ requestId: 'close', subscriptionId: 'pane-1', ok: true, tabs, closed: false }]);
+  });
+
   it('先挂推送再订阅,报上浏览器格有无,订阅应答里攒着的照开并逐条回话', async () => {
     const fake = fakeLink([request('q-1'), request('q-2', 'conv-1', { kind: 'browser', url: 'http://localhost:3000/' })]);
     const { open } = start({ link: fake.link });
     await flush();
     expect(fake.order).toEqual(['events', 'subscribe']);
-    expect(fake.subscribes()).toEqual([{ subscriptionId: 'pane-1', sessionId: 'conv-1', browser: true, pages: true, external: true }]);
+    expect(fake.subscribes()).toEqual([{ subscriptionId: 'pane-1', sessionId: 'conv-1', browser: true, pages: true, external: true, tabs: true }]);
     expect(open).toHaveBeenCalledTimes(2);
     expect(fake.acks()).toEqual([
       { requestId: 'q-1', subscriptionId: 'pane-1', ok: true },

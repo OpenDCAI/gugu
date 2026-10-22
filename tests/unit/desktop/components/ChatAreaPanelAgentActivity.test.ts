@@ -233,7 +233,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     expect(runningBar?.textContent).toContain('运行中')
   })
 
-  it('prioritizes my agents before the three-token cap and keeps overflow mention targets (#6008)', async () => {
+  it('prioritizes my agents in the mobile scroller and keeps every mention target (#6008)', async () => {
     groupMock.agents = ['other-1', 'other-2', 'mine-1', 'mine-2', 'mine-3', 'mine-4', 'mine-idle'].map((id) => ({
       id, display_name: id, type: 'agent', role: 'member', account_status: 'active', avatar: null, email: null,
       owner_user_id: id.startsWith('mine-') ? 'user-1' : 'user-2',
@@ -245,14 +245,9 @@ describe('ChatAreaPanel agent activity placement', () => {
     await renderChatArea({ activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Team' }), messages: [] })
 
     const runningBar = harness.container.querySelector('[data-testid="group-agent-running-status"]')!
-    expect(Array.from(runningBar.querySelectorAll('.rtb-nm'), (node) => node.textContent)).toEqual(['mine-1', 'mine-2', 'mine-3'])
-    const more = runningBar.querySelector<HTMLButtonElement>('.rtb-more')!
-    expect(more.textContent).toBe('+3')
-    await clickElement(more)
-
-    const overflow = document.body.querySelector('.rtb-ov')!
-    expect(Array.from(overflow.querySelectorAll('.rtb-nm'), (node) => node.textContent)).toEqual(['mine-4', 'other-1', 'other-2'])
-    await clickElement(overflow.querySelector<HTMLButtonElement>('.rtb-otok')!)
+    expect(Array.from(runningBar.querySelectorAll('.rtb-nm'), (node) => node.textContent)).toEqual(['mine-1', 'mine-2', 'mine-3', 'mine-4', 'other-1', 'other-2'])
+    expect(runningBar.querySelector('.rtb-more')).toBeNull()
+    await clickElement(runningBar.querySelector<HTMLButtonElement>('[data-message-preview-trigger="mine-4"]')!)
     expect(harness.container.querySelector<HTMLTextAreaElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)?.value).toContain('@mine-4')
   })
 

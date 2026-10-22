@@ -9,7 +9,7 @@ import {
   subagentName,
 } from './subagent.css';
 import { summaryChip } from '@session-chat/components/primitives/summary-chip.css';
-import { textShimmer } from '@session-chat/styles/effects.css';
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { useChatTranslator } from '@session-chat/localization';
 
 /**
@@ -44,9 +44,9 @@ export function SubagentHeader(props: {
           : undefined
       }
     >
-      <span class={clsx(subagentName, props.item.status === 'running' && textShimmer)} title={name()}>
+      <ShimmerText class={subagentName} active={props.item.status === 'running'} title={name()}>
         {name()}
-      </span>
+      </ShimmerText>
       {/* 这个子任务被要求做什么(#4981)。与 tool / execute 行戴同一颗片。
           没有它时并行派出去的几个子任务是几行一模一样的「Agent 已完成」。 */}
       <Show when={props.item.task}>
