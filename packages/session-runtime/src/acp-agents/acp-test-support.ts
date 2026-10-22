@@ -398,7 +398,7 @@ type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
   /** 该家自己声明的原生档 ↔ 咕咕四档对应表。不给 = 没声明表,整条路退回按 id 猜。 */
   autoApproveModes?: ProviderPermissionModeMap;
   bundleAutonomy?: 'native' | 'per-surface-acp' | 'none';
-  /** agent 在 initialize 里声明自己报状态(`agentCapabilities._meta.sessionState`,claude 桥接 1.3.0 起)。 */
+  /** agent 自己报状态:它讲 ACP v2(initialize 答 `protocolVersion: 2`)。 */
   reportsState?: boolean;
 };
 
@@ -544,8 +544,8 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
   const agent = new FakeAcpAgent();
   if (reportsState) {
     agent.initialize.mockResolvedValue({
-      protocolVersion: 1,
-      agentCapabilities: { loadSession: true, _meta: { sessionState: {} } },
+      protocolVersion: 2,
+      agentCapabilities: { loadSession: true },
     });
   }
   const fakeHost = new FakeAcpProcessHost();
