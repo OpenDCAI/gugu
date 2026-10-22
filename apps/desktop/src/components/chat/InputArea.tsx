@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerBox, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
+import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerBox, sessionComposerCardClassName, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -875,6 +875,7 @@ export function InputArea({
 
         {/* 中间框：只裹 textarea——border/圆角(--r-lg 12px)/focus/bg 在此层，独立增高(SSOT `.box` L148-149)。 */}
         <div
+          className={inBar ? sessionComposerCardClassName : undefined} // 格子里:会话框那张卡(描边、无投影)
           style={{
             flex: 1,
             minWidth: 0,
@@ -882,9 +883,11 @@ export function InputArea({
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。
-            border: '1px solid transparent', boxShadow: composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
+            ...(inBar ? {} : {
+              border: '1px solid transparent', boxShadow: composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
+              background: 'var(--card)',
+            }),
             borderRadius: 'var(--radius-thread)',
-            background: 'var(--card)',
             padding: mobileShell ? '7px 15px' : inBar ? 0 : '5px 10px', // 格子里的内距在文字和底排身上,同会话框
           }}
         >
