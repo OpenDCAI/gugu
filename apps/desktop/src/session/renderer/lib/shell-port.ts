@@ -17,7 +17,8 @@ import {
   sessionpageAgentRenamedEvent,
 } from '@shared/lib/ipc/sessionpage-identity-contract'
 import { electronApi, findSessionHostBridge, type SessionHostBridge } from './electron-api'
-import { events, invokeOnMachine } from './ipc'
+import { invokeOnMachine, onMachineEvent } from './ipc'
+import { onEachMachine } from './machine-clients'
 import { machineRegistry } from './machine-routing'
 
 let cached: { bridge: SessionHostBridge; port: SessionShellPort } | null = null
@@ -27,16 +28,23 @@ function machinePort(machine: string): SessionShellPort {
 }
 
 /**
- * 开户 / 改名两条事件(载荷同形,见 sessionpage-identity-contract),本机与每台连着的机器合流(ipc.ts 的
- * 不带 topic 订阅):别的机器上的会话开户、改名,由那台机器推过来。❌ 只听本机的桥 —— 那样远端会话的
- * 身份卡永远等不到它。返回退订。
+ * 开户 / 改名两条事件(载荷同形,见 sessionpage-identity-contract):本机一份,每台连着的机器各订一份 —— 别的机器上的会话
+ * 开户、改名,由那台机器推过来。❌ 只听本机的桥 —— 那样远端会话的身份卡永远等不到它。返回退订。
  */
 export function onSessionpageIdentityEvent(cb: (event: SessionShellAgentName) => void): () => void {
-  const offProvisioned = events.on(sessionpageAgentProvisionedEvent, cb)
-  const offRenamed = events.on(sessionpageAgentRenamedEvent, cb)
+  const listen = (machine: string | null) => {
+    const offProvisioned = onMachineEvent(machine, sessionpageAgentProvisionedEvent, cb)
+    const offRenamed = onMachineEvent(machine, sessionpageAgentRenamedEvent, cb)
+    return () => {
+      offProvisioned()
+      offRenamed()
+    }
+  }
+  const offLocal = listen(null)
+  const offMachines = onEachMachine(listen)
   return () => {
-    offProvisioned()
-    offRenamed()
+    offLocal()
+    offMachines()
   }
 }
 

@@ -93,7 +93,7 @@ describe('资源库 → 扩展看另一台咕咕桌面(#6264)', () => {
     host.onEvent({ name: 'extensions.market.download-progress' }, () => undefined);
     expect(machine.events.at(-1)).toMatchObject({ machine: 'mac4', name: 'extensions.market.download-progress' });
   });
-
+  // 本机那一页只听本机推的(市场刷新「没取到」不该让本机那页写「上次更新于」)。
   // 别的机器的推送也合流进同一个频道:本机那一页只听本机的(市场刷新「没取到」不该让本机那页写「上次更新于」)。
   it('本机那一页也只听本机推的那一路', () => {
     LOCAL_EXTENSIONS_HOST.onEvent({ name: 'extensions.market.refreshed' }, () => undefined);

@@ -52,10 +52,12 @@ const REMOTE_ALLOWED_APP = new Set([
   'app.readUserImageDataUrl',
 ]);
 const REMOTE_DENIED_EXTENSIONS = /^extensions\.(bindSurface|retargetSurface|invokeCommand|reportLayout|setAppState|programNotifiedElsewhere)$/;
+/** 屏上有哪些会话:那台桌面的屏,❌ 盖掉这台机器自己报的(闲置回收读它,见 core/sessions/sessions-on-screen.ts)。 */
+const REMOTE_DENIED_CHANNELS = new Set(['sessions.reportSessionsOnScreen']);
 
 export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
   const namespace = channel.split('.', 1)[0] ?? '';
-  if (REMOTE_DENIED_NAMESPACES.has(namespace)) return false;
+  if (REMOTE_DENIED_NAMESPACES.has(namespace) || REMOTE_DENIED_CHANNELS.has(channel)) return false;
   if (namespace === 'app') return REMOTE_ALLOWED_APP.has(channel);
   return !REMOTE_DENIED_EXTENSIONS.test(channel);
 };

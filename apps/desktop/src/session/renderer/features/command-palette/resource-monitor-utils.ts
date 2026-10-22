@@ -64,13 +64,12 @@ export function entryLabel(entry: Entry, agentNames?: Map<string, string>): stri
 export function formatReport(snapshot: ResourceSnapshot, groups: Group[]): string {
   const entryMem = snapshot.entries.reduce((n, e) => n + e.memory, 0);
   const entryCpu = snapshot.entries.reduce((n, e) => n + e.cpu, 0);
-  const totalMem = snapshot.app.memoryBytes + entryMem;
-  const percent = (cpu: number | undefined) =>
-    cpu === undefined || snapshot.cpuCount === 0 ? '–' : `${(cpu / snapshot.cpuCount).toFixed(1)}%`;
+  const totalMem = snapshot.app.memoryBytes === undefined ? undefined : snapshot.app.memoryBytes + entryMem;
+  const percent = (cpu: number | undefined) => (cpu === undefined ? '–' : `${cpu.toFixed(1)}%`);
   const appCpu = snapshot.app.cpuPercent;
 
   const lines: string[] = [];
-  lines.push(`CPU ${percent(appCpu === undefined ? undefined : appCpu + entryCpu)} Memory ${formatBytes(totalMem)}`);
+  lines.push(`CPU (100% = one core) ${percent(appCpu === undefined ? undefined : appCpu + entryCpu)} Memory ${totalMem === undefined ? '–' : formatBytes(totalMem)}`);
 
   for (const proc of snapshot.appProcesses) {
     const label = appProcessLabel(proc.type, proc.name);
@@ -86,8 +85,7 @@ export function formatReport(snapshot: ResourceSnapshot, groups: Group[]): strin
         if (e.ppid !== undefined) parts.push(`ppid=${e.ppid}`);
         if (e.pid === undefined) parts.push('ssh');
         const suffix = parts.length > 0 ? ` (${parts.join(' ')})` : '';
-        const cpu = snapshot.cpuCount > 0 ? e.cpu / snapshot.cpuCount : 0;
-        lines.push(`${path} ${cpu.toFixed(1)}% ${formatBytes(e.memory)}${suffix}`);
+        lines.push(`${path} ${percent(e.cpu)} ${formatBytes(e.memory)}${suffix}`);
       }
     }
   }

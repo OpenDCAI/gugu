@@ -362,13 +362,18 @@ export function TopicSplitPane({
     onForward: onForward ?? noop,
     onDelete: onDelete ?? noop,
     onVisible: noop,
-    // 单层不嵌套:❌ 不传 onOpenTopic —— 话题里的消息不给「开话题」入口
-    // (spec「必须有来源」:话题上不再开话题)。MessageBubble 的菜单项只在收到这个 handler 时才画,
-    // 所以「不传」本身就是那道守卫。
+    // 右键发送者头像 → @ 他:插进**这一栏**的输入框,与上面运行中头像条同一个 setMentionToInsert。
+    onMentionMember: setMentionToInsert,
+    // 单层不嵌套:onOpenTopic 给 undefined —— 话题里的消息不给「开话题」入口,也就没有锚点卡
+    // (spec「必须有来源」:话题上不再开话题)。MessageBubble 的菜单项只在收到这个 handler 时才画。
+    onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+    // 本地文件链接只有 agent 私聊映射得到(useAgentSessionpagePresentation);搜索、三方、自动调档提示是主线的面。
+    onOpenLocalFileLink: undefined, highlight: undefined, threeParty: undefined, agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined,
+    // 分栏没有多选态 ⇒ 不给「多选」菜单项(给 noop 就是一个点了没反应的死项)。
     selectMode: false,
     selectedIds: EMPTY_SELECTION,
     onToggleSelect: noop,
-    onEnterSelectMode: noop,
+    onEnterSelectMode: undefined,
     flashMessageId,
   }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId])
 

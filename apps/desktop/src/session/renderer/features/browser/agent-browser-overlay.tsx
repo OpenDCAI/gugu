@@ -4,22 +4,73 @@ import { createPortal } from 'react-dom';
 import { mirrorDocument } from '@renderer/lib/aux-document';
 import { events, rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
-import { agentOverlayWindowName } from '@shared/aux-window';
+import { agentOverlayWindowName, type AgentOverlayPart } from '@shared/aux-window';
 import { browserAgentCursorChannel } from '@shared/events/browserEvents';
 import { AgentBrowserCursor, skipAgentCursorMove } from './agent-browser-cursor';
 import { AgentBrowserBadge, agentBrowserState } from './agent-browser-state';
 
-/** 小条上能点的那一块带这个标记:人的鼠标指着它时,浮窗才接住点击(否则点击穿过浮窗落到网页上)。 */
-export const AGENT_OVERLAY_INTERACTIVE_ATTRIBUTE = 'data-agent-overlay-interactive';
+type Layer = { name: string; root: HTMLElement; release: () => void };
 
-type Mounted = { win: Window; root: HTMLElement };
+/** 小条那层四周留给阴影的透明边(主进程摆小条时扣掉同样的量,browser-page-views.ts BADGE_BOTTOM_GAP)。 */
+const BADGE_LAYER_PADDING = 8;
 
 /**
- * #7274 agent 的鼠标与「agent 正在操作」小条,画在一扇盖在网页上的透明子窗里:网页是画在界面之上的独立 view
- * (browser-page-views.ts),界面里的元素盖不住它。这扇窗点不着、拿不到焦点(人点小条也不会把窗口焦点从聊天框拿走,
- * exp10 实测),位置由主进程跟着网页那一块摆。界面同一个渲染进程,鼠标、小条还是原来那两个组件,只是画进这扇窗。
+ * 开一层(同源空白页,主进程把它装进那扇窗里叠在网页上面的一层 view)、把主窗的样式抄过去、整层透明,交回画东西的根节点。
+ * 小条那层的大小跟着内容走(主进程读 preferred size):文档写成内容那么大,否则 preferred size 会把旧视口当成下限、缩不回去。
+ * 不要了由主进程关(closeAgentOverlayLayers):❌ win.close() —— Electron 的 window.close 关的是这份内容所在的那扇窗,
+ * 也就是整扇咕咕窗口(electron/window-layers.ts)。
+ */
+function openLayer(opener: Window, browserId: string, part: AgentOverlayPart): Layer | null {
+  const name = agentOverlayWindowName(browserId, part);
+  const win = opener.open('about:blank', name);
+  if (!win) {
+    log.warn('[agent-browser-overlay] the overlay layer could not be opened', { browserId, part });
+    return null;
+  }
+  const doc = win.document;
+  doc.title = 'agent';
+  const stopMirror = mirrorDocument(opener.document, doc);
+  // 整层透明:只有鼠标和小条有颜色(主题里给 html / body 上的底色一律压掉)。
+  for (const node of [doc.documentElement, doc.body]) {
+    node.style.setProperty('background', 'transparent', 'important');
+    node.style.setProperty('margin', '0');
+    node.style.setProperty('overflow', 'hidden');
+  }
+  const skinSource =
+    (opener as Window & { __EMDASH_MOUNT__?: HTMLElement }).__EMDASH_MOUNT__ ?? opener.document.querySelector('.gugu-skin');
+  const root = doc.createElement('div');
+  root.className = skinSource?.className ?? 'gugu-skin';
+  let sizeObserver: ResizeObserver | null = null;
+  if (part === 'cursor') {
+    root.style.cssText = 'position:fixed;inset:0;background:transparent';
+  } else {
+    doc.body.style.setProperty('width', 'max-content');
+    root.style.cssText = `display:inline-block;padding:${BADGE_LAYER_PADDING}px;background:transparent`;
+    sizeObserver = new ResizeObserver(() => {
+      const box = root.getBoundingClientRect();
+      doc.documentElement.style.width = `${Math.ceil(box.width)}px`;
+      doc.documentElement.style.height = `${Math.ceil(box.height)}px`;
+    });
+    sizeObserver.observe(root);
+  }
+  doc.body.append(root);
+  return {
+    name,
+    root,
+    release: () => {
+      sizeObserver?.disconnect();
+      stopMirror();
+    },
+  };
+}
+
+/**
+ * #7274 / #77 agent 的鼠标与「agent 正在操作」小条,画在那扇窗里叠在网页上面的两层里(主进程 window-layers.ts):网页是画在
+ * 界面之上的独立 view,界面里的元素盖不住它;层和窗口是一体的,窗口看得见它们就看得见,❌ 另开子窗。
+ * 小条那层只有小条那么大;鼠标那层铺满网页,只在画鼠标(agent 在操作)时露出。层的位置由主进程跟着网页那一块摆。
+ * 界面同一个渲染进程,鼠标、小条还是原来那两个组件,只是画进这两层。
  *
- * 只在 agent 用着这个页签(在操作 / 人接管了)、页签在屏上时开着;别的时候关掉,不多占一扇窗。
+ * 只在 agent 用着这个页签(在操作 / 人接管了)、页签在屏上时开着;别的时候关掉。
  */
 export const AgentBrowserOverlay = observer(function AgentBrowserOverlay({
   browserId,
@@ -27,74 +78,47 @@ export const AgentBrowserOverlay = observer(function AgentBrowserOverlay({
   visible,
 }: {
   browserId: string;
-  /** 页签里那块网页占位:浮窗从它所在的那扇窗里开出来(挪去单独成窗时,浮窗跟着挂到那扇窗上)。 */
+  /** 页签里那块网页占位:层从它所在的那扇窗里开出来(挪去单独成窗时,层跟着开在那扇窗里)。 */
   hostElement: HTMLElement | null;
   visible: boolean;
 }) {
   const engaged = visible && agentBrowserState(browserId) !== 'idle';
-  const [mounted, setMounted] = useState<Mounted | null>(null);
+  const [layers, setLayers] = useState<{ cursor: Layer; badge: Layer } | null>(null);
 
   useLayoutEffect(() => {
     const opener = hostElement?.ownerDocument.defaultView;
     if (!engaged || !opener) return;
-    const win = opener.open('about:blank', agentOverlayWindowName(browserId));
-    if (!win) {
-      log.warn('[agent-browser-overlay] the overlay window could not be opened', { browserId });
+    const cursor = openLayer(opener, browserId, 'cursor');
+    const badge = openLayer(opener, browserId, 'badge');
+    const close = () => {
+      const opened = [cursor, badge].filter((layer): layer is Layer => layer !== null);
+      for (const layer of opened) layer.release();
+      if (opened.length) void rpc.browser.closeAgentOverlayLayers(opened.map((layer) => layer.name));
+    };
+    if (!cursor || !badge) {
+      close();
       return;
     }
-    const doc = win.document;
-    const stopMirror = mirrorDocument(opener.document, doc);
-    // 整扇窗透明:只有鼠标和小条有颜色(主题里给 html / body 上的底色一律压掉)。
-    for (const node of [doc.documentElement, doc.body]) {
-      node.style.setProperty('background', 'transparent', 'important');
-      node.style.setProperty('margin', '0');
-      node.style.setProperty('overflow', 'hidden');
-    }
-    const skinSource =
-      (opener as Window & { __EMDASH_MOUNT__?: HTMLElement }).__EMDASH_MOUNT__ ?? opener.document.querySelector('.gugu-skin');
-    const root = doc.createElement('div');
-    root.className = skinSource?.className ?? 'gugu-skin';
-    root.style.cssText = 'position:fixed;inset:0;background:transparent';
-    doc.body.append(root);
-
-    // 人的鼠标指着小条上能点的那块时,浮窗接住点击;移开就让点击穿过去(主进程那边切换 setIgnoreMouseEvents)。
-    let interactive = false;
-    const onMove = (event: MouseEvent) => {
-      const over = (event.target as Element | null)?.closest?.(`[${AGENT_OVERLAY_INTERACTIVE_ATTRIBUTE}]`) != null;
-      if (over === interactive) return;
-      interactive = over;
-      void rpc.browser.setAgentOverlayInteractive({ browserId, interactive: over });
-    };
-    doc.addEventListener('mousemove', onMove);
-    setMounted({ win, root });
-
+    setLayers({ cursor, badge });
     return () => {
-      doc.removeEventListener('mousemove', onMove);
-      stopMirror();
-      setMounted(null);
-      if (!win.closed) win.close();
+      setLayers(null);
+      close();
     };
   }, [browserId, engaged, hostElement]);
 
+  // 层没开着(页签不在屏上):没有鼠标可飞,agent 的每一步当场回「到了」(开着时由层里的鼠标回)。
   useEffect(() => {
-    if (!mounted) return;
-    mounted.win.document.title = 'agent';
-  }, [mounted]);
-
-  // 浮窗没开着(页签不在屏上):没有鼠标可飞,agent 的每一步当场回「到了」(开着时由浮窗里的鼠标回)。
-  useEffect(() => {
-    if (mounted) return;
+    if (layers) return;
     return events.on(browserAgentCursorChannel, (event) => {
       if (event.browserId === browserId && event.kind === 'move') skipAgentCursorMove(event);
     });
-  }, [browserId, mounted]);
+  }, [browserId, layers]);
 
-  if (!mounted) return null;
-  return createPortal(
+  if (!layers) return null;
+  return (
     <>
-      <AgentBrowserCursor browserId={browserId} visible={visible} />
-      <AgentBrowserBadge browserId={browserId} />
-    </>,
-    mounted.root
+      {createPortal(<AgentBrowserCursor browserId={browserId} visible={visible} />, layers.cursor.root)}
+      {createPortal(<AgentBrowserBadge browserId={browserId} />, layers.badge.root)}
+    </>
   );
 });

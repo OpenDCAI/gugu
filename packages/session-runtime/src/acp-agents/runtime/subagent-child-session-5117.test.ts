@@ -70,9 +70,12 @@ describe('#5117 子会话路由', () => {
     await client.sessionUpdate({ sessionId: ROOT, update: spawnedEnvelope() });
     await client.sessionUpdate({ sessionId: KID, update: chunk('ZIWEIXINIU-7788') });
 
-    const agents = live.states.agents.snapshot().data as Array<{ subagentSessionId?: string; output?: string }>;
-    expect(agents).toHaveLength(1);
-    expect(agents[0]).toMatchObject({ subagentSessionId: KID, output: 'ZIWEIXINIU-7788' });
+    // 子会话的正文跟着显示节拍发出(publishOnTick):等这一拍过完。
+    await vi.waitFor(() => {
+      const agents = live.states.agents.snapshot().data as Array<{ subagentSessionId?: string; output?: string }>;
+      expect(agents).toHaveLength(1);
+      expect(agents[0]).toMatchObject({ subagentSessionId: KID, output: 'ZIWEIXINIU-7788' });
+    });
 
     // 子会话的事件**不许**把 cell 的会话号改成子会话号:之后的 cancel 必须仍打到主会话。
     await rt.cancelTurn('conv-kid');

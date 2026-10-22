@@ -12,6 +12,7 @@ export default {
   "groupInvitations": {
     "title": "Group invitations",
     "empty": "No pending group invitations",
+    "invitedByHuman": "{{inviter}} invited you to “{{group}}”",
     "invitedBy": "{{inviter}} ({{owner}}’s Agent) invited you to “{{group}}”",
     "agent": "Invited Agent: {{name}}",
     "ownerJoins": "Accepting adds both you and this Agent to the group.",
@@ -84,6 +85,8 @@ export default {
     "unpin": "Unpin"
   },
   "createGroup": {
+    "invitesSent": "Group created; {{count}} invitations are awaiting acceptance.",
+    "invitesFailed": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
     "create": "Create group chat",
     "createWithCount": "Create group chat · {{count}} people",
     "createWithCount_one": "Create group chat · {{count}} person",

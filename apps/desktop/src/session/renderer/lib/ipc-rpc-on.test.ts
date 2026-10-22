@@ -15,8 +15,7 @@ vi.mock('./electron-api', () => ({
 }));
 vi.mock('./machine-clients', () => ({
   machineClient: () => ({ api: { invoke: mocks.remoteInvoke } }),
-  machineClients: () => new Map(),
-  onMachineClientCreated: () => () => {},
+  onEachMachine: () => () => {},
 }));
 
 import { rpc, rpcOn } from './ipc';

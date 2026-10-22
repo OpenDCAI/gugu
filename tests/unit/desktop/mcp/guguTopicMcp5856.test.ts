@@ -137,9 +137,10 @@ describe('#5856 topic_ 域:agent 直接操作话题', () => {
       source_message_id: `msg:${SOURCE_MESSAGE}`,
       name: '把这一格收敛掉',
     }, deps)
-    // 建完之后还会读一次成员名单(把真实进来的人回给调用方,并单列没进来的)。
-    expect(calls.rpcs.map(([name]) => name)).toEqual(['create_topic', 'list_member_ids'])
-    const [rpcName, body] = calls.rpcs[0]
+    // 建之前读一次来源线的 kind(#84:来源是主人与好友的私聊就不建);建完之后还会读一次成员名单
+    // (把真实进来的人回给调用方,并单列没进来的)。
+    expect(calls.rpcs.map(([name]) => name)).toEqual(['chat_facts', 'create_topic', 'list_member_ids'])
+    const [rpcName, body] = calls.rpcs[1]
     expect(rpcName).toBe('create_topic')
     expect(body.p_as_user_id).toBe(AGENT_ID)
     // 判据要能判假:传成主人 id 这条断言必须红。
@@ -151,10 +152,11 @@ describe('#5856 topic_ 域:agent 直接操作话题', () => {
   test('topic_open 收 msg: 前缀的 source_message_id 并在边界解码成裸 id;裸 id 当场报错', async () => {
     const { deps, calls } = topicHarness({ rpc: () => CREATED_TOPIC })
     await callTool('topic_open', { chat_id: SOURCE_CHAT, source_message_id: `msg:${SOURCE_MESSAGE}` }, deps)
-    expect(calls.rpcs[0][1].p_source_message_id).toBe(SOURCE_MESSAGE)
-    expect(calls.rpcs[0][1].p_source_message_id).not.toContain('msg:')
+    const [, created] = calls.rpcs.find(([name]) => name === 'create_topic')!
+    expect(created.p_source_message_id).toBe(SOURCE_MESSAGE)
+    expect(created.p_source_message_id).not.toContain('msg:')
     // 名字不给 → null,由服务端截自来源消息(spec:建立是一步,不是一张表)。
-    expect(calls.rpcs[0][1].p_name).toBeNull()
+    expect(created.p_name).toBeNull()
 
     const bare = topicHarness({ rpc: () => CREATED_TOPIC })
     await expect(callTool('topic_open', { chat_id: SOURCE_CHAT, source_message_id: SOURCE_MESSAGE }, bare.deps))
@@ -179,8 +181,8 @@ describe('#5856 topic_ 域:agent 直接操作话题', () => {
       source_message_id: `msg:${SOURCE_MESSAGE}`,
       to_user_ids: ['gugu:4242', `user:${OWNER_ID}`],
     }, deps)
-    expect(calls.rpcs.map(([name]) => name)).toEqual(['search_users', 'create_topic', 'list_member_ids'])
-    expect(calls.rpcs[1][1].p_member_user_ids).toEqual([PEER, OWNER_ID])
+    expect(calls.rpcs.map(([name]) => name)).toEqual(['search_users', 'chat_facts', 'create_topic', 'list_member_ids'])
+    expect(calls.rpcs[2][1].p_member_user_ids).toEqual([PEER, OWNER_ID])
   })
 
   test('topic_open 回的是 JSON,且 id 在出口按类型编码(新 chat_id 是 agent 接下来要用的东西)', async () => {

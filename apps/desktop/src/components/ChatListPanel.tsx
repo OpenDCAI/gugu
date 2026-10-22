@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, CheckCircle, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -16,6 +16,8 @@ import { useAssistantShell } from '../session/renderer/features/assistant/assist
 import { isDuplicateAssistantChat } from '../lib/assistantChatList'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
+import { markAllChatsReadAndRefresh } from '../lib/chatUnreadLocator'
+import { useToast } from './toastContext'
 import { formatCalendarDay } from '../lib/calendarTime'
 import { CreateGroupChatForm } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
@@ -127,12 +129,14 @@ const SUNK_SECTION_STYLE: React.CSSProperties = {
   lineHeight: 'var(--lh-caption)',
 }
 
-// 会话右键菜单 —— 按设计稿 #ctxmenu：置顶 / 关闭通知 / 删除（带原图标）。
+// 会话右键菜单 —— 按设计稿 #ctxmenu：置顶 / 关闭通知 / 全部标为已读 / 删除（带原图标）。
 function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel, onDelete }: ChatRowMenuProps) {
   const { t } = useTranslation('messaging')
+  const { chats, refreshChats } = useChatStore('chats', 'refreshChats')
+  const { toast } = useToast()
   const currentLevel = chat.notification_level ?? 'all'
 
-  const items: { label: string; icon: IconComponent; danger?: boolean; onClick: () => void }[] = [
+  const items: { label: string; icon: IconComponent; danger?: boolean; disabled?: boolean; testId?: string; onClick: () => void }[] = [
     {
       label: chat.is_pinned ? t('chatList.unpin') : t('chatList.pin'),
       icon: Pin,
@@ -147,6 +151,21 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
       },
     },
     {
+      label: t('chatList.markAllRead'),
+      icon: CheckCircle,
+      testId: 'chat-row-mark-all-read',
+      disabled: !chats.some((row) => row.unread_count > 0),
+      onClick: () => {
+        onClose()
+        void markAllChatsReadAndRefresh({ chats, refresh: refreshChats })
+          .then(({ failedChats }) => { if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error') })
+          .catch((error: unknown) => {
+            chatListLog.error({ error: String(error) }, 'mark all read failed')
+            toast(t('chatList.markAllReadFailed'), 'error')
+          })
+      },
+    },
+    {
       label: t('chatList.delete'),
       icon: Trash,
       danger: true,
@@ -157,7 +176,7 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
   return (
     <Menu x={x} y={y} minWidth={160} onClose={onClose}>
       {items.map((item) => (
-        <MenuItem key={item.label} danger={item.danger} icon={<item.icon size={15} />} onClick={item.onClick}>
+        <MenuItem key={item.label} danger={item.danger} disabled={item.disabled} data-testid={item.testId} icon={<item.icon size={15} />} onClick={item.onClick}>
           {item.label}
         </MenuItem>
       ))}

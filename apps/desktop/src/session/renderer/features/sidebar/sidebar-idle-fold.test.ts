@@ -5,7 +5,11 @@ import { SidebarStore } from './sidebar-store';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
 
-vi.mock('@renderer/lib/ipc', () => ({ events: { on: vi.fn() }, rpc: {} }));
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = { events: { on: vi.fn() }, rpc: {} };
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: {} }));
 vi.mock('@renderer/features/sessions/acp/acp-chat-store', () => ({
   AcpChatStore: class {

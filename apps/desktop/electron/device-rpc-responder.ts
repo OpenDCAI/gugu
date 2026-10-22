@@ -19,7 +19,7 @@ import { MIN_CLIENT_PROTOCOL } from '@gugu/core/cloud/serverMachineHealth'
 import { SESSION_HOST_READY_EVENT } from '@shared/lib/ipc/session-host-device-frames'
 import { createDeviceRpcAskers, type DeviceRpcAskerLimits } from './device-rpc-askers'
 import type { ElectronManagedRealtimeChannel } from './realtime-channel'
-import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
+import { sendBroadcast, subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 
 /**
  * 共用 topic 上照旧直接收的请求:咕咕云库里中转来的 MessagePreview(#6357,`chat.message_preview_relay` 用 realtime.send
@@ -83,11 +83,11 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     const handleRequest = createDeviceRpcRequestHandler({ warn, handlers: hostHandlers?.handlers })
     const publishReply: PublishDeviceRpcReply = (payload) => {
       if (!liveChannel) return
-      return liveChannel.send({ type: 'broadcast', event: 'broadcast', payload })
+      return sendBroadcast(liveChannel, 'broadcast', payload)
     }
     const publishEvent: PublishDeviceRpcEvent = (payload) => {
       if (!active || !liveChannel) return
-      return liveChannel.send({ type: 'broadcast', event: 'broadcast', payload })
+      return sendBroadcast(liveChannel, 'broadcast', payload)
     }
     // #7233 每个报到过的发问端一条线:它的请求、回包、窗口回帧都走那条(device-rpc-askers.ts)。
     const askers = createDeviceRpcAskers({
@@ -198,7 +198,7 @@ function createTopicPublisher<TChannel>({
   let unsubscribe: (() => void) | null = null
   const flush = () => {
     if (closed || !joined || !live || latest === undefined) return
-    void live.send({ type: 'broadcast', event, payload: latest }).catch((error: unknown) => {
+    sendBroadcast(live, event, latest).catch((error: unknown) => {
       warn(`[topic-publisher] send failed on ${topic}: ${(error as Error)?.message ?? String(error)}`)
     })
   }

@@ -132,6 +132,34 @@ describe('provider review gate detector', () => {
     expect(wrongProvider).not.toHaveBeenCalled();
   });
 
+  it('reports the Codex hook-trust review as a blocker that waits on the person', async () => {
+    const onDetected = vi.fn();
+    createProviderBlockerDetector(onDetected, 'codex')(
+      '\u001b[2J\u001b[1;3H\u001b[1mHooks need review\u001b[0m\r\n'
+      + '  1 hook is new or changed.\r\n'
+      + '  Hooks can run outside the sandbox after you trust them.\r\n\r\n'
+      + '› 1. Review hooks\r\n'
+      + '  2. Trust all and continue\r\n'
+      + "  3. Continue without trusting (hooks won't run)\r\n"
+      + '  enter confirm · esc skip',
+    );
+    await parsed();
+    expect(onDetected).toHaveBeenCalledWith({
+      kind: 'provider',
+      reason: 'hook-trust',
+      message: 'Hooks need review 1 hook is new or changed. Hooks can run outside the sandbox after you trust them.',
+    });
+
+    // 阴例:标题被引用、同屏没有选项;或同一屏在别家 provider 上。
+    const quoted = vi.fn();
+    createProviderBlockerDetector(quoted, 'codex')('Codex printed "Hooks need review" earlier today.');
+    const wrongProvider = vi.fn();
+    createProviderBlockerDetector(wrongProvider, 'claude')('Hooks need review\n2. Trust all and continue');
+    await parsed();
+    expect(quoted).not.toHaveBeenCalled();
+    expect(wrongProvider).not.toHaveBeenCalled();
+  });
+
   it('normalizes full-screen TUI chrome before matching MiMo and OpenCode blockers', async () => {
     const mimoDetected = vi.fn();
     createProviderBlockerDetector(mimoDetected, 'mimocode')(
@@ -174,6 +202,7 @@ describe('provider review gate detector', () => {
     expect(PROVIDER_REVIEW_GATE_STATUS).toEqual({ mcp: 'needs_user' });
     expect(PROVIDER_BLOCKER_STATUS).toEqual({
       'workspace-trust': 'needs_user',
+      'hook-trust': 'needs_user',
       auth: 'error',
       account: 'error',
       config: 'error',

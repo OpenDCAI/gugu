@@ -16,10 +16,10 @@ import type { FileTabResource } from '@renderer/features/sessions/editor/stores/
 import { PreviewServerStore } from '@renderer/features/sessions/stores/preview-server-store';
 import { TerminalTabViewStore } from '@renderer/features/sessions/terminals/terminal-tab-view-store';
 import { type SidebarTab } from '@renderer/features/sessions/types';
-import { auxWindows } from '@renderer/app/aux-windows';
-import { screenLayout } from '@renderer/app/screen-layout';
+import { sessionPageOnScreen } from '@renderer/app/sessions-on-screen';
 import { appState } from '@renderer/lib/stores/app-state';
-import { events } from '@renderer/lib/ipc';
+import { onMachineEvent } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { snapshotRegistry } from '@renderer/lib/stores/snapshot-registry';
 import { log } from '@renderer/utils/logger';
 import {
@@ -162,16 +162,13 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // 被激活,开场读不到工作区 ⇒「The engine could not start: No workspace found for session」。
     // 「在屏上」不只是路由那一条(#7052 一屏几块):摆在某一块里(会话页正显示着)、开在单独的窗里,都看得见。
     // 只认路由时,重启后没被选中的那块一直是空的,点它一下对话才出来(owner 2026-10-09 实机截图)。
+    // 「在屏上」只在 app/sessions-on-screen.ts 一处定义,这里问的是「它的页在不在屏上」。
     const routed = () =>
       appState.navigation.currentViewId === 'session' &&
       (appState.navigation.viewParamsStore['session'] as { sessionId?: string } | undefined)?.sessionId === this.sessionId;
-    const onScreen = () =>
-      routed() ||
-      (appState.navigation.currentViewId === 'session' && screenLayout.blockOfSession(this.sessionId) !== undefined) ||
-      auxWindows.windowOfSession(this.sessionId) !== undefined;
     this._disposers.push(
       reaction(
-        () => _sessionPageStore.state === 'provisioned' && onScreen(),
+        () => _sessionPageStore.state === 'provisioned' && sessionPageOnScreen(this.sessionId),
         (isActive) => this.paneLayout.setViewActive(isActive),
         { fireImmediately: true }
       )
@@ -198,7 +195,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // chat column kept a live composer for a row that no longer existed (title fell back to the
     // task's internal slug, sends failed with a toast — 2026-08-24 owner 实测).
     this._disposers.push(
-      events.on(sessionDeletedChannel, ({ sessionId, projectId: eventProjectId }) => {
+      onMachineEvent(machineRegistry.machineOf(projectId), sessionDeletedChannel, ({ sessionId, projectId: eventProjectId }) => {
         if (eventProjectId !== projectId || sessionId !== this.sessionId) return;
         this._retireSessionTabs(sessionId);
       })
@@ -209,7 +206,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     // 父会话之后,聊天栏落到空态「No conversation is open」,而同 task 里那条子会话还活着 —— tab 关了,
     // 没人把聊天栏交给剩下的那条)。
     this._disposers.push(
-      events.on(sessionChangedChannel, ({ sessionId, projectId: eventProjectId, changes }) => {
+      onMachineEvent(machineRegistry.machineOf(projectId), sessionChangedChannel, ({ sessionId, projectId: eventProjectId, changes }) => {
         if (eventProjectId !== projectId || sessionId !== this.sessionId) return;
         if (!changes.archivedAt) return;
         this._retireSessionTabs(sessionId);

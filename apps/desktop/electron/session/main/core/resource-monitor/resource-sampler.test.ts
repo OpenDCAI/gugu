@@ -7,6 +7,7 @@ const focusedWindow = vi.fn();
 const settings = vi.fn();
 const emit = vi.fn();
 const collect = vi.fn();
+const append = vi.fn();
 const appEvents = new EventEmitter();
 vi.mock('electron', () => ({
   app: {
@@ -24,6 +25,8 @@ vi.mock('@main/core/settings/settings-service', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: collect }));
+vi.mock('./context', () => ({ collectResourceContext: async () => ({ windows: [] }) }));
+vi.mock('./history', () => ({ resourceHistory: { append } }));
 
 function tab(cumulativeCPUUsage: number, pid = 7) {
   return { pid, type: 'Tab', cpu: { percentCPUUsage: 0, cumulativeCPUUsage }, memory: { workingSetSize: 1 } };
@@ -46,6 +49,16 @@ afterEach(async () => {
 });
 
 describe('resource sampler CPU', () => {
+  it('leaves missing process metrics unknown, then resumes real readings', async () => {
+    const { sampleOnce } = await import('./resource-sampler');
+    const missing = await sampleOnce();
+    expect(missing.app.memoryBytes).toBeUndefined();
+    expect(missing.app.cpuPercent).toBeUndefined();
+    metrics.mockReturnValue([tab(10)]);
+    const recovered = await sampleOnce();
+    expect(recovered.app.memoryBytes).toBe(1024);
+  });
+
   it('reports CPU as the cumulativeCPUUsage delta, with no reading before a baseline', async () => {
     const { sampleOnce } = await import('./resource-sampler');
     metrics.mockReturnValue([tab(10)]);
@@ -85,6 +98,7 @@ describe('resource sampler CPU', () => {
     metrics.mockReturnValue([tab(40)]);
     expect((await sampleOnce()).appProcesses[0].cpu).toBeUndefined();
   });
+
 });
 
 describe('resource sampler cadence', () => {
@@ -214,7 +228,7 @@ describe('page-scoped advanced diagnostics', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('samples internals only while expanded, ignores old persisted flags, and stops on leaving', async () => {
+  it('samples internals only while expanded, but continues recording after leaving', async () => {
     const { setResourceMonitorOpen } = await import('./resource-sampler');
     // Older versions stored this flag. It must not enable collection on the new page.
     settings.mockResolvedValue({ enabled: true, internals: true });
@@ -231,7 +245,34 @@ describe('page-scoped advanced diagnostics', () => {
     setResourceMonitorOpen('client', 'page', false, 4, false);
     const calls = metrics.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(metrics).toHaveBeenCalledTimes(calls);
+    expect(metrics.mock.calls.length).toBeGreaterThan(calls);
+    expect(append.mock.calls.length).toBeGreaterThan(calls);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+  it('records without any page or popup, and stops only when the setting is disabled', async () => {
+    const { reconcileResourceSampler } = await import('./resource-sampler');
+    settings.mockResolvedValue({ enabled: false });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(append).not.toHaveBeenCalled();
+    expect(metrics).not.toHaveBeenCalled();
+    settings.mockResolvedValue({ enabled: true });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(append).toHaveBeenCalledTimes(3);
+    expect(emit).not.toHaveBeenCalled(); // No renderer subscriptions / hidden DOM work.
+    settings.mockResolvedValue({ enabled: false });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(append).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(0);
+  });
+  it('does not let a delayed old open restart advanced collection after its view closes', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'page', false, 2, false);
+    setResourceMonitorOpen('client', 'page', true, 1, true);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(metrics).toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
   });
 });

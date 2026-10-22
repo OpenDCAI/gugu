@@ -143,6 +143,15 @@ function connectionHome(providerId: string, id: string): string {
   return join(app.getPath('userData'), 'harness-connections', providerId, id);
 }
 
+/**
+ * 一条连接自己的配置根:`CLAUDE_CONFIG_DIR` 指向这里,会话记录就写在它下面的 `projects/`。
+ * 原生连接与 Codex(会话恒跑在用户根上)没有独立的根 ⇒ null。
+ */
+export function connectionConfigRoot(providerId: string, connectionId: string): string | null {
+  if (providerId !== 'claude' || connectionId === 'native') return null;
+  return join(connectionHome(providerId, connectionId), requireNativeHome(providerId).userPath);
+}
+
 /** 用户自己的配置根:用户导出了 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 就是那里,否则 `~/.claude` / `~/.codex`。 */
 function nativeConfigRoot(providerId: 'claude' | 'codex', env: Record<string, string | undefined> = process.env): string {
   const home = requireNativeHome(providerId);

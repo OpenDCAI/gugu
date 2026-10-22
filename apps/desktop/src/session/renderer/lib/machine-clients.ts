@@ -2,12 +2,13 @@
 // 线由咕咕壳经 remote-hosts 桥给(`openSessionHost`);客户端本身与本机网页形态同一份(session-host-client.ts)。
 //
 // 成本:连着的每台机器双向各一拍心跳(20s);断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
-import { findRemoteHostsBridge } from '@shared/remote-hosts';
+import { findRemoteHostsBridge, remoteHostReachable } from '@shared/remote-hosts';
 import {
   createSessionHostClient,
   SESSION_HOST_CLIENT_HEARTBEAT_MS,
   type SessionHostClient,
   type SessionHostConnectionState,
+  type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
 import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -24,7 +25,7 @@ type Entry = {
 };
 
 const entries = new Map<string, Entry>();
-const createdListeners = new Set<(deviceId: string, client: SessionHostClient) => void>();
+const createdListeners = new Set<(deviceId: string) => void>();
 
 function notify(entry: Entry): void {
   for (const listener of [...entry.listeners]) listener();
@@ -36,10 +37,20 @@ export function machineClient(deviceId: string): SessionHostClient | null {
   if (existing) return existing.client;
   const bridge = findRemoteHostsBridge();
   if (!bridge?.openSessionHost) return null;
+  // 那台机器此刻够不着就不开线(当场以 unreachable 失败,❌ 发一次没人应答的报到;客户端停在 closed、不退避)。
+  // 回来的那一刻由 remote-hosts-store 的 reconcile 叫 reconnectMachine 当场重开。
+  const opener = bridge.openSessionHost(deviceId);
+  const openWhenReachable: SessionHostPipeOpener = Object.assign(
+    (handlers: Parameters<SessionHostPipeOpener>[0]) => {
+      const device = bridge.listDevices().find((d) => d.id === deviceId);
+      return device && remoteHostReachable(device) ? opener(handlers) : Promise.reject(Object.assign(new Error(`${deviceId} is not reachable now`), { code: 'unreachable' }));
+    },
+    { watchPeerRestart: opener.watchPeerRestart }
+  );
   const entry: Entry = {
     tooOld: false,
     listeners: new Set(),
-    client: createSessionHostClient(bridge.openSessionHost(deviceId), {
+    client: createSessionHostClient(openWhenReachable, {
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -71,21 +82,23 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     notify(entry);
   });
   entries.set(deviceId, entry);
-  for (const listener of [...createdListeners]) listener(deviceId, entry.client);
+  for (const listener of [...createdListeners]) listener(deviceId);
   return entry.client;
 }
 
-/** 此刻开着的客户端(事件合流用)。 */
-export function machineClients(): ReadonlyMap<string, SessionHostClient> {
-  const out = new Map<string, SessionHostClient>();
-  for (const [deviceId, entry] of entries) out.set(deviceId, entry.client);
-  return out;
-}
-
-/** 以后新建的客户端(事件合流要给它补订已有的订阅)。返回退订。 */
-export function onMachineClientCreated(listener: (deviceId: string, client: SessionHostClient) => void): () => void {
+/**
+ * 每台连着的机器(此刻的与以后连上的)各跑一次 setup,返回全部退订。给真要听**每台**机器的那几种低频事件用
+ * (项目清单变了、项目分组、App 程序通知、会话开户改名);项目里的事件按项目所在的机器订(onMachineEvent)。
+ */
+export function onEachMachine(setup: (deviceId: string) => () => void): () => void {
+  const offs = new Map<string, () => void>();
+  for (const deviceId of entries.keys()) offs.set(deviceId, setup(deviceId));
+  const listener = (deviceId: string) => offs.set(deviceId, setup(deviceId));
   createdListeners.add(listener);
-  return () => createdListeners.delete(listener);
+  return () => {
+    createdListeners.delete(listener);
+    for (const off of offs.values()) off();
+  };
 }
 
 export function machineLinkState(deviceId: string): MachineLinkState {
