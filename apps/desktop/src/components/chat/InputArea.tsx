@@ -1,16 +1,22 @@
 import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, FileText, Plus, X } from '@/lib/icons'
-import { Button } from '../ui/Button'
+import { FileText, Plus, X } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
-import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'; export type { ComposerAttachAction } from './ComposerAttachButton'
+import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'
+export type { ComposerAttachAction } from './ComposerAttachButton'
 import { useToast } from '../toastContext'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
-import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerBox, sessionComposerCardClassName, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
+// @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
+import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft'
+import { ComposerVerbs } from './ComposerVerbs'
+import { ComposerSendButton } from './ComposerSendButton'
+import { ComposerSlotToolbar } from './ComposerSlotToolbar'
+import { useComposerVerbTakeover } from './useComposerVerbTakeover'
+import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'
+import { sessionComposerBox, sessionComposerCardClassName, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -69,14 +75,6 @@ interface InputAreaProps {
 
 // @@@1459 框外按钮 dock：高度=单行框外高（border 2 + box pad 10 + 行高 20 + textarea pad 10 = 42），居中放 30px 按钮 → 单行时按钮与文本行居中对齐；框多行增高时 dock 不长高、按钮贴底，y 坐标稳定。
 
-// 格子里那一框的底排,位置和间距同会话框(sessionComposerBox)。
-const SLOT_TOOLBAR_STYLE = {
-  gap: sessionComposerBox.toolbarGapPx,
-  height: sessionComposerBox.toolbarControlPx,
-  padding: `0 ${sessionComposerBox.toolbarInsetPx}px ${sessionComposerBox.toolbarInsetPx}px`,
-  boxSizing: 'content-box',
-} as const
-
 export function InputArea({
   onSend,
   beforeSend,
@@ -118,9 +116,11 @@ export function InputArea({
   // 三个 300ms 防抖存 / ref 镜像 / currentChatRef 追踪）全部收进 useChatDraft，塌成一条同步 effect——切换
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
-  const inChatSlot = useInChatSlot(); const slotProjectName = useChatSlotProjectName(); const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
-  useEffect(() => { const back = verbTakesOver || !chatId ? '' : takeComposerCarry(chatId); if (back) setText(back) }, [verbTakesOver, chatId, setText]) // 点了那个框标签上的 ×:写的话交回这里
-  const activeChatIdRef = useRef<string | null>(chatId ?? null) // 发失败回滚判「是否还在发送时那个会话」用(异步 send 期间可能切走,#1872)
+  const inChatSlot = useInChatSlot()
+  const slotProjectName = useChatSlotProjectName()
+  const verbTakesOver = useComposerVerbTakeover(chatId, setText)
+  // 发失败回滚判「是否还在发送时那个会话」用(异步 send 期间可能切走,#1872)。
+  const activeChatIdRef = useRef<string | null>(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
 
   // ── @ mention picker state ──────────────────────────────────────────────
@@ -557,24 +557,7 @@ export function InputArea({
   const inBar = inChatSlot && !mobileShell
   const attachButton = <ComposerAttachButton glyph={attachGlyph ?? (inBar ? <Plus /> : undefined)} actions={attachMenu} disabled={disabled} mobile={mobileShell} onPickFile={() => fileInputRef.current?.click()} />
   const verbs = surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />
-  const sendable = canSend && !disabled && !sending
-  // @@@ui-ruler 发送钮 = ui/Button 的 primary 实底 + 药丸半径(--primary 与旧的 --accent 同值,
-  // --primary-fg 与 --text-on-accent 同值 → 可发送态像素不变;尺寸 30 → --control-h-md 32、
-  // 移动 44 由 size="icon" 自带)。手写的 onMouseEnter/onMouseLeave 改 style 那套 hover 删掉:
-  // Button 自带 hover/press/disabled 三态。空态维持原来的「安静灰圆」而非淡掉的实底。
-  const sendButton = (
-    <Button
-      variant="primary"
-      size="icon"
-      className="shrink-0 rounded-[var(--radius-capsule)] data-[disabled]:bg-[var(--muted)] data-[disabled]:text-[var(--faint-fg)]"
-      onClick={handleSend}
-      disabled={!sendable}
-      aria-label={t('common.send')}
-      title={t('common.send')}
-    >
-      <ArrowUp size={mobileShell ? 18 : 16} />
-    </Button>
-  )
+  const sendButton = <ComposerSendButton sendable={canSend && !disabled && !sending} mobile={mobileShell} onSend={handleSend} />
   return (
     <div
       ref={composerRootRef}
@@ -950,11 +933,7 @@ export function InputArea({
             }}
           />
           {/* 格子里的底排:和会话框的底排同一套位置和间距(sessionComposerBox)。 */}
-          {inBar && (
-            <div className="flex items-center" style={SLOT_TOOLBAR_STYLE}>
-              {attachButton}{verbs}<span className="flex-1" />{sendButton}
-            </div>
-          )}
+          {inBar && <ComposerSlotToolbar start={<>{attachButton}{verbs}</>} end={sendButton} />}
         </div>
 
         {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154)。常驻：空态不卸载(防布局抖、移动端可 tap)。 */}
