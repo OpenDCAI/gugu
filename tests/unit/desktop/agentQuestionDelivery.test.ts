@@ -5,6 +5,7 @@ vi.mock('../../../apps/desktop/electron/session/main/core/session-timeline/servi
 vi.mock('../../../apps/desktop/electron/session/main/core/sessions/sendMessage', () => ({ sendMessage: mocks.send }))
 vi.mock('@main/lib/logger', () => ({ log: { error: mocks.error } }))
 import { postAgentQuestion } from '../../../apps/desktop/electron/session/main/core/sessions/agent-question'
+import { readQuestionAnswerDelivery } from '../../../packages/session-core/src/session-record/question-answer'
 
 const input = { sessionId: 'assistant', projectId: 'home', sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333', questions: [
   { question: 'Which Node?', options: [{ label: 'PATH' }, { label: 'Repository' }] },
@@ -33,6 +34,8 @@ it('returns pending without holding the model turn, then delivers only the expli
   expect(sent.text).toContain(input.sourceLink)
   expect(sent.text).toContain('"reply_to_message_id":"33333333-3333-4333-8333-333333333333"')
   expect(mocks.ask.mock.calls[0][1].host.payload).toMatchObject({ answerMessageId: sent.clientMessageId, deliveryVersion: 1 })
+  // The session's transcript reads this very text back as the owner's answer, one line, not the block (gugu-dev#181).
+  expect(readQuestionAnswerDelivery(sent.text)).toEqual({ answer: 'PATH' })
   expect(mocks.error).not.toHaveBeenCalled()
 })
 
@@ -62,4 +65,9 @@ it('refuses to claim a card was published when the calling session has disappear
   mocks.ask.mockResolvedValue('unavailable')
   await expect(postAgentQuestion(input)).rejects.toThrow('could not be published')
   expect(mocks.send).not.toHaveBeenCalled()
+})
+
+it('reads a withdrawn question back as withdrawn, and leaves other text alone', () => {
+  expect(readQuestionAnswerDelivery('<gugu_question_answer>\n{"question_id":"q","state":"withdrawn","questions":["x"]}\n</gugu_question_answer>\nThe owner explicitly withdrew this question in Gugu.')).toEqual({ answer: null })
+  expect(readQuestionAnswerDelivery('PATH')).toBeUndefined()
 })

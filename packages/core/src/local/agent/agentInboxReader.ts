@@ -710,12 +710,14 @@ async function prepareMessage(
       isAgent: row.senderType === 'agent',
     })
   }
-  const mentionRecipientIds = [...new Set(
-    (row.toUserIds ?? []).filter((id) => id && id !== row.senderUserId && id !== '*'),
+  // Everyone the envelope names besides the sender: whom it is for, and whose message it quotes (that can be the
+  // agent itself, quoted back by its owner) — else the envelope can only give their bare id.
+  const namedIds = [...new Set(
+    [...(row.toUserIds ?? []), row.replyToSenderUserId].filter((id): id is string => !!id && id !== row.senderUserId && id !== '*'),
   )]
-  if (mentionRecipientIds.length && deps.resolveGuguIds) {
-    const mentionIdentities = await deps.resolveGuguIds(mentionRecipientIds, deps.accessToken)
-    for (const [id, identity] of mentionIdentities) identities.set(id, identity)
+  if (namedIds.length && deps.resolveGuguIds) {
+    const named = await deps.resolveGuguIds(namedIds, deps.accessToken)
+    for (const [id, identity] of named) identities.set(id, identity)
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)

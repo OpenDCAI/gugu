@@ -25,6 +25,8 @@ import { estimateUserMessage, measureUserMessage } from './user-message-metrics'
 import { DELIVERY_VARS, DeliveryCard, estimateDelivery, measureDelivery } from './DeliveryCard';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
+import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer';
+import { turnReturnRow } from '@session-chat/components/rows/turn-process/turn-return.css';
 import {
   HOOK_NOTICE_VARS,
   HookNoticeCard,
@@ -40,12 +42,17 @@ import {
   srOnly,
 } from './message.css';
 
+/** 主人的回答一行:高度是常量,不换行(长了截断)。 */
+const QUESTION_ANSWER_H = 24;
+
 export function normalizeMessage(item: ChatMessage): ChatMessage {
   const guguDelivery = item.guguDelivery ?? readDeliveryEnvelope(item.text);
   // 只有 agent 那一路会带 hook 通知：桥把它当助手消息发过来。用户自己打的字里出现同样的
   // 形状是他引用的原文，❌ 不能拿它当钩子说话。
   const hookNotice =
     item.hookNotice ?? (item.role === 'assistant' ? (parseHookNotice(item.text) ?? undefined) : undefined);
+  const questionAnswer = item.questionAnswer ?? (item.role === 'user' ? readQuestionAnswerDelivery(item.text) : undefined);
+  if (questionAnswer) return { ...item, questionAnswer };
   const normalized = {
     ...item,
     ...(guguDelivery ? { text: guguDelivery.body, guguDelivery } : {}),
@@ -86,6 +93,7 @@ export function messageFromItem(item: ChatMessage, ctx: SegmentCtx): ChatMessage
 // ── Measure ───────────────────────────────────────────────────────────────────
 
 export function measureMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
+  if (item.questionAnswer) return QUESTION_ANSWER_H;
   const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
   const blocks = item.streaming
     ? ctx.caches.parseBlocksStreaming(item.id, item.text)
@@ -230,6 +238,21 @@ export function UserMessageRender(props: { data: ChatMessage; ctx: RenderCtx; va
 function MessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
   const translate = useChatTranslator();
   return (
+    <Show when={props.data.questionAnswer} fallback={<MessageBodyRender data={props.data} ctx={props.ctx} vars={props.vars} />}>
+      {(reading) => (
+        <div class={turnReturnRow} data-slot="question-answer" style={{ height: `${QUESTION_ANSWER_H}px` }}>
+          {reading().answer === null
+            ? translate('transcript.questionWithdrawn')
+            : translate('transcript.questionAnswered', { answer: reading().answer ?? '' })}
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function MessageBodyRender(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+  const translate = useChatTranslator();
+  return (
     <Show
       when={props.data.hookNotice}
       fallback={
@@ -274,6 +297,7 @@ export const messageUnitDef = defineUnit<ChatMessage, MessageVars>({
 
   estimate(item, ctx, baseVars): number {
     const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
+    if (item.questionAnswer) return QUESTION_ANSWER_H;
     if (item.role === 'user' && item.guguDelivery) {
       return estimateDelivery(item, ctx, DELIVERY_VARS, baseVars);
     }
