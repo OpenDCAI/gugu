@@ -1,3 +1,4 @@
+import { ResourceMonitorHost } from '@/session/renderer/features/settings/components/resource-monitor-host'
 import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { ReactNode, RefObject } from 'react'
@@ -1420,6 +1421,7 @@ function InnerLayout({
 
       </div>
 
+      <ResourceMonitorHost tab={activeTab} settings={settingsModalOpen ? settingsSection : null} />
       {settingsModalOpen && <SettingsPanel mobile={mobile} section={settingsSection} onSectionChange={setSettingsSection} onClose={() => setSettingsModalOpen(false)} />}
       {cameraPermissionSheetOpen && <CameraPermissionSheet onClose={() => setCameraPermissionSheetOpen(false)} />}
       <RemoteMachinesHost enabled={sessionHostAvailable} openSettingsSection={openSettingsSection} />

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { app, BrowserWindow } from 'electron';
 import pidusage from 'pidusage';
@@ -7,6 +8,8 @@ import { appSettingsService } from '@main/core/settings/settings-service';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { collectRendererMetrics } from './renderer-metrics';
+import { collectResourceContext } from './context';
+import { resourceHistory } from './history';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 import type {
@@ -26,7 +29,13 @@ type ProcessUsage = { cpu: number; memory: number; ppid?: number };
 type ProcessUsageMap = Record<string, ProcessUsage>;
 type ProcessTreeSnapshot = { trees: Map<number, number[]>; sampledPids: number[] };
 
-export async function sampleOnce(): Promise<ResourceSnapshot> {
+const runId = randomUUID();
+let inFlight: Promise<ResourceSnapshot> | null = null;
+export function sampleOnce(): Promise<ResourceSnapshot> {
+  inFlight ??= collectSample().finally(() => { inFlight = null; });
+  return inFlight;
+}
+async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
   const localPids = active
     .map((a) => a.pid)
@@ -59,6 +68,8 @@ export async function sampleOnce(): Promise<ResourceSnapshot> {
   const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
   return {
     timestamp: Date.now(),
+    runId,
+    context: await collectResourceContext(),
     cpuCount: CPU_COUNT,
     totalMemoryBytes: TOTAL_MEMORY_BYTES,
     app: appUsage,
@@ -179,14 +190,15 @@ function isStaleLocalPty(pid: number | undefined, usage: ProcessUsage | undefine
  * cputime (which `cumulativeCPUUsage` matched to the centisecond) reported 0.08-0.29%.
  */
 const MIN_CPU_INTERVAL_MS = 1000;
-let cpuBaseline: { at: number; seconds: Map<number, number> } | null = null;
+let cpuBaseline: { at: number; seconds: Map<string, number> } | null = null;
 
 function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProcess[] } {
   try {
     const metrics = app.getAppMetrics();
+    if (!metrics.length) throw new Error('Application process metrics were empty');
     const now = Date.now();
     const base = cpuBaseline && now - cpuBaseline.at >= MIN_CPU_INTERVAL_MS ? cpuBaseline : null;
-    const seconds = new Map<number, number>();
+    const seconds = new Map<string, number>();
     let memoryBytes = 0;
     let cpuPercent: number | undefined;
     const processes: ResourceAppProcess[] = [];
@@ -194,20 +206,21 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
       const memBytes = m.memory.workingSetSize * 1024;
       memoryBytes += memBytes;
       const total = m.cpu.cumulativeCPUUsage;
-      if (total !== undefined) seconds.set(m.pid, total);
-      const before = base?.seconds.get(m.pid);
+      const identity = `${m.pid}:${m.creationTime}`;
+      if (total !== undefined) seconds.set(identity, total);
+      const before = base?.seconds.get(identity);
       const cpu =
         base && total !== undefined && before !== undefined && total >= before
           ? ((total - before) / ((now - base.at) / 1000)) * 100
           : undefined;
       if (cpu !== undefined) cpuPercent = (cpuPercent ?? 0) + cpu;
-      processes.push({ pid: m.pid, type: m.type, name: m.name ?? m.serviceName, cpu, memory: memBytes });
+      processes.push({ pid: m.pid, creationTime: m.creationTime, type: m.type, name: m.name ?? m.serviceName, cpu, memory: memBytes });
     }
     if (!cpuBaseline || base) cpuBaseline = { at: now, seconds };
-    return { usage: { memoryBytes, cpuPercent }, processes };
+    return { usage: { memoryBytes, cpuPercent: processes.every((p) => p.cpu !== undefined) ? cpuPercent : undefined }, processes };
   } catch (err) {
     log.warn('resource-sampler: app metrics failed', err);
-    return { usage: { memoryBytes: 0, cpuPercent: undefined }, processes: [] };
+    return { usage: { unavailable: 'Application process metrics unavailable' }, processes: [] };
   }
 }
 
@@ -245,7 +258,11 @@ async function tick(): Promise<void> {
   sampling = false;
   if (!timer) return;
   if (timer !== current) return sampleSoon();
-  events.emit(resourceSnapshotChannel, snap);
+  if (snap) {
+    try { resourceHistory.append(snap); }
+    catch (error) { snap.recordingError = 'write-failed'; log.warn('resource history write failed', error); }
+  }
+  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, snap);
   // The monitor covers the whole app: a foreground auxiliary window also counts.
   const delay = BrowserWindow.getFocusedWindow() ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
   timer = setTimeout(() => void tick(), delay);
@@ -279,7 +296,6 @@ export function setResourceMonitorOpen(
     openSubscriptions.set(subscriptionId, internals);
   } else {
     openSubscriptions.delete(subscriptionId);
-    latestSequenceByClient.delete(clientId);
   }
   void reconcileResourceSampler();
 }
@@ -287,7 +303,7 @@ export function setResourceMonitorOpen(
 export async function reconcileResourceSampler(): Promise<void> {
   try {
     const { enabled } = await appSettingsService.get('resourceMonitor');
-    if (enabled && openSubscriptions.size > 0) startResourceSampler();
+    if (enabled) startResourceSampler();
     else stopResourceSampler();
   } catch (err) {
     log.warn('resource-sampler: failed to read settings', err);

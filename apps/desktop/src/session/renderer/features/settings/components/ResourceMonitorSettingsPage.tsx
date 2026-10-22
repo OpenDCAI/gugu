@@ -6,6 +6,8 @@ import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-
 import { ResourceMonitorView } from '@renderer/features/command-palette/resource-monitor-view';
 import { appState } from '@renderer/lib/stores/app-state';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { openResourcePopup } from './resource-monitor-host';
+import { ResourceTimeline } from './resource-timeline';
 
 export const ResourceMonitorSettingsPage = observer(function ResourceMonitorSettingsPage() {
   const { value, update, isLoading, isSaving } = useAppSettingsKey('resourceMonitor');
@@ -15,8 +17,8 @@ export const ResourceMonitorSettingsPage = observer(function ResourceMonitorSett
 
   useEffect(() => {
     if (!enabled) return;
-    store.start();
-    return () => store.dispose();
+    const release = store.watch();
+    return () => { void store.setInternals(false); release(); };
   }, [enabled, store]);
 
   return (
@@ -26,6 +28,8 @@ export const ResourceMonitorSettingsPage = observer(function ResourceMonitorSett
         description={translate('resourceMonitor.description')}
         control={<Switch aria-label={translate('resourceMonitor.enabled')} checked={enabled} disabled={isLoading || isSaving} onCheckedChange={(next) => update({ enabled: next })} />}
       />
+      <button type="button" disabled={!enabled} onClick={openResourcePopup} className="rounded-md border border-foreground/10 px-3 py-2 text-xs disabled:opacity-50">{translate('resourceMonitor.float')}</button>
+      <ResourceTimeline />
       {enabled ? <ResourceMonitorView /> : <SettingsNote>{translate('resourceMonitor.off')}</SettingsNote>}
     </SettingsPage>
   );

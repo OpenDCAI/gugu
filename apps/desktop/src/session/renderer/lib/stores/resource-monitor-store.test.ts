@@ -4,10 +4,12 @@ import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 const setOpen = vi.fn();
 const getSnapshot = vi.fn();
+let source: string | null = null;
 let snapshotHandler: ((snap: ResourceSnapshot | null) => void) | null = null;
 const offSnapshot = vi.fn(() => { snapshotHandler = null; });
 
 vi.mock('@renderer/lib/ipc', () => ({
+  eventSourceMachine: () => source,
   rpc: { resourceMonitor: { setOpen, getSnapshot } },
   events: {
     on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot | null) => void) => {
@@ -30,9 +32,23 @@ async function flushPromises(): Promise<void> {
 }
 
 describe('ResourceMonitorStore', () => {
+  it('shares one display subscription between page and popup until both close', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore();
+    const page = store.watch();
+    const popup = store.watch();
+    expect(setOpen).toHaveBeenCalledTimes(1);
+    page(); page();
+    expect(setOpen).toHaveBeenCalledTimes(1);
+    snapshotHandler?.(snapshot(7));
+    expect(store.snapshot?.timestamp).toBe(7);
+    popup();
+    expect(setOpen.mock.lastCall?.[2]).toBe(false);
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     snapshotHandler = null;
+    source = null;
     setOpen.mockResolvedValue({ success: true });
     getSnapshot.mockResolvedValue({ success: true, data: null });
     offSnapshot.mockImplementation(() => { snapshotHandler = null; });
@@ -68,6 +84,14 @@ describe('ResourceMonitorStore', () => {
     snapshotHandler?.(snapshot(2));
     expect(store.snapshot?.timestamp).toBe(2);
     expect(store.isLoadingInitialSnapshot).toBe(false);
+  });
+  it('does not mix another machine resource stream into this computer timeline', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore(); store.start();
+    source = 'another-device'; snapshotHandler?.(snapshot(1));
+    expect(store.snapshot).toBeNull();
+    source = null; snapshotHandler?.(snapshot(2));
+    expect(store.snapshot?.timestamp).toBe(2);
   });
 
   it('requests diagnostics only for an open page and always reopens collapsed', async () => {

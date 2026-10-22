@@ -1,5 +1,5 @@
 import { computed, makeObservable, observable, runInAction } from 'mobx';
-import { events, rpc } from '@renderer/lib/ipc';
+import { events, eventSourceMachine, rpc } from '@renderer/lib/ipc';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 import type { ResourcePtyEntry, ResourceSnapshot } from '@shared/resource-monitor';
 
@@ -13,10 +13,17 @@ export class ResourceMonitorStore {
   private clientId = crypto.randomUUID();
   private sequence = 0;
   private subscriptionId: string | null = null;
+  private viewers = 0;
+
+  watch(): () => void {
+    if (++this.viewers === 1) this.start();
+    let active = true;
+    return () => { if (active) { active = false; if (--this.viewers === 0) this.dispose(); } };
+  }
 
   constructor() {
     makeObservable(this, {
-      snapshot: observable,
+      snapshot: observable.ref,
       previousSnapshot: observable.ref,
       isLoadingInitialSnapshot: observable,
       internals: observable,
@@ -70,6 +77,7 @@ export class ResourceMonitorStore {
       this.isLoadingInitialSnapshot = true;
     });
     const onSnapshot = (snap: ResourceSnapshot | null) => {
+      if (eventSourceMachine() !== null) return;
       if (this.subscriptionId !== subscriptionId) return;
       runInAction(() => {
         if (snap) this.applyFetchedSnapshot(snap);

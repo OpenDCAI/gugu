@@ -3,9 +3,16 @@ import { appService } from '@main/core/app/service';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { captureDeepSample } from './deep-sample';
+import { resourceHistory } from './history';
+import { reportResourceContext } from './context';
 import { hasResourceMonitorInternals, sampleOnce, setResourceMonitorOpen } from './resource-sampler';
 
 export const resourceMonitorController = createRPCController({
+  reportContext: (id: string, context: unknown) => { reportResourceContext(id, context); return ok(); },
+  history: (since?: number, until?: number, pid?: number, runId?: string, creationTime?: number) => ok(resourceHistory.read(since, until, pid, runId, creationTime)),
+  point: (id: number) => ok(resourceHistory.point(id)),
+  clearHistory: () => { resourceHistory.clear(); return ok(); },
+  exportHistory: async (title: string) => ok(await appService.saveTextFile({ title, defaultPath: `gugu-resource-history-${Date.now()}.json`, content: resourceHistory.export() }) ?? null),
   /** One-shot sample of current PTY resource usage. */
   getSnapshot: async () => {
     const { enabled } = await appSettingsService.get('resourceMonitor');
@@ -22,7 +29,7 @@ export const resourceMonitorController = createRPCController({
   deepSample: async (dialogTitle: string) => {
     const { enabled } = await appSettingsService.get('resourceMonitor');
     if (!enabled || !hasResourceMonitorInternals()) throw new Error('deep sample needs the monitor page and its advanced diagnostics open');
-    const content = await captureDeepSample(await sampleOnce());
+    const content = await captureDeepSample(await sampleOnce(), JSON.parse(resourceHistory.export()));
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const path = await appService.saveTextFile({ title: dialogTitle, defaultPath: `gugu-deep-sample-${stamp}.json`, content });
     return ok(path ?? null);
