@@ -7,10 +7,10 @@ import { createReactHarness, deferred } from '../../../../../../../../tests/supp
 import { ResourceTimeline } from './resource-timeline';
 
 type ChartProps = {
-  spec: { theme: string; line: { style: { stroke: string } }; point: { visible: boolean }; axes: { orient: string }[]; data?: unknown };
-  data?: { id: string; values: { id: number; value: number; series: string }[] }[];
+  spec: { theme: string; yField: string; point: { visible: boolean }; tooltip: { visible: boolean }; axes: { orient: string }[]; data?: unknown };
+  data?: { id: string; values: { id: number; mem?: number; series: string }[] }[];
   options: unknown;
-  onClick: (event: { datum: { id: number } }) => void;
+  onDimensionClick: (event: { dimensionInfo: { data: { datum: { id: number }[] }[] }[] }) => void;
 };
 const rig = vi.hoisted(() => ({ charts: [] as ChartProps[], history: vi.fn(), point: vi.fn(), snapshot: null as ResourceSnapshot | null }));
 vi.mock('mobx-react-lite', () => ({ observer: (component: unknown) => component }));
@@ -26,8 +26,9 @@ const points: ResourcePoint[] = [
   { id: 1, timestamp: 1000, cpu: 1, memory: 1048576, runId: 'first' },
   { id: 2, timestamp: 2000, cpu: 2, memory: 2097152, runId: 'first' },
 ];
-const cpu = () => rig.charts.filter((p) => p.spec.line.style.stroke === '#1664ff').at(-1)!;
-const memory = () => rig.charts.filter((p) => p.spec.line.style.stroke === '#3cc780').at(-1)!;
+const cpu = () => rig.charts.filter((p) => p.spec.yField === 'cpu').at(-1)!;
+const memory = () => rig.charts.filter((p) => p.spec.yField === 'mem').at(-1)!;
+const clickAt = (id: number) => cpu().onDimensionClick({ dimensionInfo: [{ data: [{ datum: [{ id }] }] }] });
 let harness: ReturnType<typeof createReactHarness>;
 beforeEach(() => {
   vi.clearAllMocks(); rig.charts.length = 0; rig.snapshot = snapshot(1);
@@ -78,10 +79,11 @@ it('keeps chart configuration and data unchanged while awaiting history, then up
 it('preserves sample selection, unit conversion, and run boundaries without refreshing charts on selection', async () => {
   rig.history.mockResolvedValue(history([...points, { ...points[1], id: 3, timestamp: 3000, runId: 'second' }]));
   await render();
-  expect(memory().data?.[0].values.map((p) => p.value)).toEqual([1, 2, 2]);
+  expect(memory().data?.[0].values.map((p) => p.mem)).toEqual([1, 2, 2]);
+  expect(memory().data).toBe(cpu().data);
   expect(cpu().data?.[0].values.map((p) => p.series)).toEqual(['0', '0', '1']);
   const before = cpu();
-  await act(async () => { before.onClick({ datum: { id: 2 } }); });
+  await act(async () => { clickAt(2); });
   expect(rig.point).toHaveBeenCalledWith(2);
   expect(harness.container.querySelector('table')).not.toBeNull();
   expect(harness.container.querySelectorAll('select')).toHaveLength(1);
@@ -98,19 +100,17 @@ it('updates chart styling when the theme changes while retaining the dataset', a
   expect(cpu().data).toBe(before.data);
 });
 
-it('omits compact point marks while keeping full-page point selection and both datasets', async () => {
+it('draws lines without point marks, hides hover readouts only in compact mode, and keeps full-page selection', async () => {
   await render();
   const values = [cpu().data, memory().data];
-  expect(cpu().spec.point.visible).toBe(true);
-  expect(memory().spec.point.visible).toBe(true);
+  expect([cpu().spec.point.visible, memory().spec.point.visible]).toEqual([false, false]);
+  expect([cpu().spec.tooltip.visible, memory().spec.tooltip.visible]).toEqual([true, true]);
   await harness.render(<ResourceTimeline compact />);
-  expect(cpu().spec.point.visible).toBe(false);
-  expect(memory().spec.point.visible).toBe(false);
+  expect([cpu().spec.tooltip.visible, memory().spec.tooltip.visible]).toEqual([false, false]);
   expect([cpu().data, memory().data]).toEqual(values);
   await render();
-  expect(cpu().spec.point.visible).toBe(true);
-  expect(memory().spec.point.visible).toBe(true);
-  await act(async () => { cpu().onClick({ datum: { id: 2 } }); });
+  expect(cpu().spec.tooltip.visible).toBe(true);
+  await act(async () => { clickAt(2); });
   expect(rig.point).toHaveBeenCalledWith(2);
   expect(harness.container.querySelector('table')).not.toBeNull();
   expect(harness.container.querySelectorAll('select')).toHaveLength(1);

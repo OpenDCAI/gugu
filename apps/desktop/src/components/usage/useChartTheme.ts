@@ -11,3 +11,8 @@ export function useChartTheme(): 'dark' | 'light' {
   }, [])
   return theme
 }
+
+/** A gugu color token's current value for canvas marks (canvas cannot resolve CSS variables). Read it during render: a theme flip re-renders through useChartTheme. */
+export function tokenColor(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
