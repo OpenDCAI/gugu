@@ -7,6 +7,10 @@ import { platform } from '../../platform'
 import { useInChatSlot } from '../../lib/shellSlots'
 import { useChatStore } from '../../store/chatContext'
 import { Button } from '../ui/Button'
+import { sessionComposerBox } from '../../session/renderer/features/sessions/session-composer-styles'
+
+// 格子里两个词之间的间距,同会话框底排(sessionComposerBox)。
+const SLOT_VERBS_STYLE = { gap: sessionComposerBox.toolbarGapPx } as const
 
 /**
  * gugu-dev#181 输入框「+」右边两个词:「新任务」「定时任务」。选了一个,这个对话的输入框就换成那件事(composerVerbBridge),
@@ -37,7 +41,7 @@ export function ComposerVerbs({ chatId, isGroupChat, draft, onCarried }: {
   }
   // 格子里它们在框内底排;格子外在框左边,与坞同高。
   return (
-    <span data-composer-verbs="" className={inSlot ? 'flex shrink-0 items-center gap-1' : 'flex h-[42px] shrink-0 items-center gap-1'}>
+    <span data-composer-verbs="" className={inSlot ? 'flex shrink-0 items-center' : 'flex h-[42px] shrink-0 items-center gap-1'} style={inSlot ? SLOT_VERBS_STYLE : undefined}>
       {(inSlot || isGroupChat) && (
         <Button variant="ghost" size="sm" data-testid="composer-verb-task" aria-label={t('composer.verb.task')} title={t('composer.verb.task')} onClick={() => pick('task')}>
           {taskAgent ? <PluginIcon id={taskAgent.id} icon={taskAgent.icon} size={14} /> : null}<span>{t('composer.verb.task')}</span>
