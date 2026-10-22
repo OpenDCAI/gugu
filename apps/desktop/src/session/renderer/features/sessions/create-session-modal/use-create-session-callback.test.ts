@@ -161,6 +161,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       sendMessageToChat: mocks.sendMessageToChat,
       sendAttachmentsToChat: mocks.sendAttachmentsToChat,
       openAgentChat: mocks.openAgentChat,
+      openTopic: () => { throw new Error('not used here'); },
+      openTopics: () => { throw new Error('not used here'); },
     };
     Object.assign(dom.window, {
       electronAPI: { invoke: mocks.invoke },
