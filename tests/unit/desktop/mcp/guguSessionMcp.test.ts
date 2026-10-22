@@ -421,7 +421,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
         seen.push(a)
         if (a.action !== 'get') return children
         if (a.session_id === 'c5') throw new Error('machine "B" (device:b) did not answer')
-        return { session_id: a.session_id, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
+        return { session_id: a.session_id, status: children.find((row) => row.session_id === a.session_id)?.status, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
       },
     })
     const call = async (args: Record<string, unknown>) => {
@@ -431,16 +431,32 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     }
 
     const first = await call({ rows: '1' })
-    expect(first.total).toBe(5)
+    expect(first.total).toBe(4)
     expect(first.items[0]!.preview?.ended).toEqual({ kind: 'done', reason: 'refusal' })
     expect(seen.filter((a) => a.action === 'get')).toEqual([{ action: 'get', session_id: 'c1' }])
 
     seen.length = 0
     const rest = await call({ rows: '2-5' })
-    // 窗内 4 行:归档的 c3 不走 get、不带 preview;c5 那台没答,原因落在它自己那一行。
+    // 先筛掉归档再切窗；c5 那台没答,原因落在它自己那一行。
     expect(seen.filter((a) => a.action === 'get').map((a) => a.session_id)).toEqual(['c2', 'c4', 'c5'])
-    expect(rest.items.find((row) => row.session_id === 'session:c3')).not.toHaveProperty('preview')
+    expect(rest.items.map((row) => row.session_id)).toEqual(['session:c2', 'session:c4', 'session:c5'])
     expect(rest.items.find((row) => row.session_id === 'session:c5')?.preview?.error?.message).toContain('did not answer')
+
+    seen.length = 0
+    const archived = await call({ status: 'archived' })
+    expect(archived.total).toBe(1)
+    expect(archived.items).toEqual([expect.objectContaining({ session_id: 'session:c3', status: 'archived' })])
+    expect(archived.items[0]).not.toHaveProperty('preview')
+    expect(seen).toEqual([{ action: 'children' }])
+
+    for (const status of ['', 'idle', 'done']) {
+      const filtered = await call({ status })
+      expect(filtered.items.map((row) => row.session_id)).not.toContain('session:c3')
+    }
+
+    const direct = await client.callTool({ name: 'session_get', arguments: { session_id: 'session:c3' } })
+    expect(direct.isError ?? false, responseText(direct)).toBe(false)
+    expect(JSON.parse(responseText(direct))).toMatchObject({ session_id: 'session:c3', status: 'archived' })
   })
 
   // spec im-mcp 列表约定:rows / name / 工具自己的筛选在注册机判,❌ 进分派器;结果按宿主给的顺序切窗。

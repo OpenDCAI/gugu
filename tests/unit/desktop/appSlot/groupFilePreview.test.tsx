@@ -1,6 +1,6 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 // @vitest-environment jsdom
-import { act, createElement, useLayoutEffect } from 'react'
+import { act, createElement, useLayoutEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
@@ -161,6 +161,34 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await act(async () => close.click())
     expect(boundary.close).toHaveBeenCalledTimes(1)
   })
+
+  it('expands and restores a group HTML preview without replacing its page or returning to the folder', async () => {
+    const file = detail('html')
+    const fileToOpen = { chatId: file.chatId, itemId: file.itemId, request: ++request, opener: file }
+    function Preview() {
+      const [full, setFull] = useState(false)
+      return createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
+        chatId: file.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close,
+        fileToOpen, full, onToggleFull: () => setFull((value) => !value),
+      }))
+    }
+    await harness.render(createElement(Preview))
+    await until('HTML is ready before expanding', () => harness.container.querySelector('iframe')?.getAttribute('srcdoc')?.includes('lane report') === true)
+    const page = harness.container.querySelector('iframe')
+    const expand = harness.container.querySelector<HTMLButtonElement>('button[aria-label="面板全屏"]')
+    expect(expand).not.toBeNull()
+    await act(async () => expand!.click())
+    const restore = harness.container.querySelector<HTMLButtonElement>('button[aria-label="还原面板"]')
+    expect(restore?.getAttribute('aria-pressed')).toBe('true')
+    await act(async () => restore!.click())
+    expect(harness.container.querySelector('button[aria-label="面板全屏"]')?.getAttribute('aria-pressed')).toBe('false')
+    expect(harness.container.querySelector('iframe')).toBe(page)
+    expect(harness.container.querySelectorAll('header')).toHaveLength(1)
+    expect(groupSlotMemory.opened(file.chatId)?.itemId).toBe(file.itemId)
+    expect(boundary.read).toHaveBeenCalledTimes(1)
+    expect(boundary.close).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])('an App arriving during a later file ask never takes over it (later answer first=%s)', async (answerFirst) => {
     const file = detail('exe')
     await harness.render(slot(file))

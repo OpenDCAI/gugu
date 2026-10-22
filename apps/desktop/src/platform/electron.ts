@@ -89,6 +89,11 @@ export const electronPlatform: AppPlatform = {
     if (!api?.onAppForeground) throw unavailable('App foreground subscription')
     return api.onAppForeground(listener)
   },
+  subscribeAppActive(listener) {
+    const api = electronApi()
+    if (!api?.subscribeAppActive) throw unavailable('App active subscription')
+    return api.subscribeAppActive(listener)
+  },
   async selectDirectory() {
     const api = electronApi()
     if (!api?.selectDirectory) throw unavailable('Directory picker')
