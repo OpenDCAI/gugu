@@ -1,5 +1,5 @@
 import { appSearchText, CAPABILITY_RISK, NETWORK_RISK, type PermissionRisk } from './catalog';
-import type { ExtensionManifest } from './manifest';
+import { ownPageTab, type ExtensionManifest } from './manifest';
 import { queryScore, queryWords } from './query-score';
 
 /*
@@ -39,6 +39,8 @@ export interface AppSearchRequest {
   max_risk?: AppRisk;
   /** A file suffix (`.pdf` or `pdf`): Apps with a tab that opens it, in a chat or a session. */
   opens?: string;
+  /** Only Apps used there (`appSurfaces`). */
+  surface?: AppSurface;
   sort?: AppSearchSort;
 }
 
@@ -70,6 +72,29 @@ export function appOpens(manifest: ExtensionManifest): string[] {
   return [...new Set(suffixes.map(suffixOf))];
 }
 
+/**
+ * Where an App is used once installed, in the market's order (owner 10-22: agents before groups):
+ * - `task`: a tab beside tasks — a page of its own (`ownPageTab`, not a settings page the host draws) or one per task;
+ * - `agent`: tools or skills for agents (`mcpServers`, `skills`);
+ * - `group`: work with a group — it opens the group's files, or reads or relays its messages.
+ * Read from what the manifest declares, never from what an author says about it.
+ */
+export const APP_SURFACES = ['task', 'agent', 'group'] as const;
+export type AppSurface = (typeof APP_SURFACES)[number];
+
+export function appSurfaces(manifest: ExtensionManifest): AppSurface[] {
+  const { tabs, mcpServers, skills } = manifest.contributes;
+  const used: Record<AppSurface, boolean> = {
+    // A settings page the host draws (an App that only gives agents tools gets one by default) is not a tab of its own.
+    task: Boolean(ownPageTab(manifest) && !ownPageTab(manifest)?.hostPage) || tabs.some((tab) => tab.perSession === true),
+    agent: Boolean(mcpServers?.length) || Boolean(skills),
+    group:
+      tabs.some((tab) => (tab.opensFiles?.chat?.length ?? 0) > 0) ||
+      (manifest.permissions?.capabilities ?? []).some((capability) => capability.startsWith('chat:')),
+  };
+  return APP_SURFACES.filter((surface) => used[surface]);
+}
+
 const RISK_RANK: Record<AppRisk, number> = { none: 0, medium: 1, high: 2 };
 
 type Dimension = 'state' | 'category' | 'risk';
@@ -92,7 +117,8 @@ export function searchApps(
     (skip === 'state' || !request.state?.length || request.state.includes(entry.record.state)) &&
     (skip === 'category' || !request.category?.length || entry.categories.some((category) => request.category!.includes(category))) &&
     (skip === 'risk' || request.max_risk === undefined || RISK_RANK[entry.risk] <= RISK_RANK[request.max_risk]) &&
-    (opens === undefined || appOpens(entry.record.manifest).includes(opens));
+    (opens === undefined || appOpens(entry.record.manifest).includes(opens)) &&
+    (request.surface === undefined || appSurfaces(entry.record.manifest).includes(request.surface));
 
   const count = <Key extends string>(skip: Dimension, keysOf: (entry: Scored) => readonly Key[]) => {
     const counts: Partial<Record<Key, number>> = {};

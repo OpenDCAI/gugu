@@ -23,3 +23,13 @@ export async function readMarketRanking(): Promise<Map<string, number>> {
   if (error) throw new Error(error.message);
   return new Map(((data as { app_id: string; score: number }[] | null) ?? []).map((row) => [row.app_id, row.score]));
 }
+
+/**
+ * 每个 App 的安装数(owner 10-22「可以显示人数」):装过它的账号数,只给到档位的下沿(1、5、10、50、100…,照应用商店),
+ * 按 App id。精确数和谁装的都不出库;卸载不记,所以是「装过」的数。
+ */
+export async function readMarketInstallCounts(): Promise<Map<string, number>> {
+  const { data, error } = await (await chatClient()).rpc('market_install_counts');
+  if (error) throw new Error(error.message);
+  return new Map(((data as { app_id: string; installs: number | string }[] | null) ?? []).map((row) => [row.app_id, Number(row.installs)]));
+}

@@ -46,8 +46,10 @@ import { installExtensionFromMarket, type MarketInstall } from '@main/core/exten
 import { autoUpdateApps } from '@main/core/extensions/auto-update-apps';
 import { appService } from '@main/core/app/service';
 import { cloudExtensionMarket } from '@main/core/extensions/market-catalog-root';
-import { readMarketRanking } from '@main/core/extensions/market-ranking';
+import { readMarketInstallCounts, readMarketRanking } from '@main/core/extensions/market-ranking';
 import type { MarketCategory } from '@shared/extensions/catalog';
+import type { AppSurface } from '@shared/extensions/app-search';
+import type { MarketListSort } from '@main/core/extensions/market-catalog';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
@@ -58,7 +60,7 @@ import {
   parseExtensionTabKind,
   type ExtensionManifest,
 } from '@shared/extensions/manifest';
-import type { CloudMarketEntry, MarketListItem } from '@shared/extensions/market';
+import type { CloudMarketEntry, MarketHomeSection, MarketListItem } from '@shared/extensions/market';
 import {
   extensionsInventoryChangedChannel,
   extensionsQuitChangedChannel,
@@ -494,39 +496,41 @@ export const extensionsController = createRPCController({
    * 连不上时回的仍是这个形状:一页空清单 + `errorKind`,界面据此只画那一句话和「重试」,
    * ❌ 画「这里还没有 App」—— 空清单和读不到清单是两件事。`error` 是原话、只进日志。
    *
-   * `page` / `query`:一页一页给界面(翻页要看得见),搜索按名字 / 简介 / id 筛同一份目录。
+   * `page` / `query` / `category` / `surface` / `sort`:一页一页给界面(翻页要看得见),筛、排都是同一份目录上的 `searchApps`。
+   * 安装数(`installs`,档位的下沿)每一问都随着读:卡片、产品页、「最新」页的「热门」都用它。读不到 = `null`、记一条 error,
+   * 界面就不画安装数(❌ 画成 0)。
+   *
+   * 叫 `marketBrowse`(协议 11):回答的形状(首页按推荐理由分排、类别卡片、安装数)和协议 10 的 `market` 不兼容,旧机器上
+   * 没有这个动词,问它回 `unknown_method`,页面据此说「那台机器上的咕咕太旧」。
    */
-  market: async (args: { page?: number; query?: string } = {}) => {
+  marketBrowse: async (args: { page?: number; query?: string; category?: MarketCategory; surface?: AppSurface; sort?: MarketListSort } = {}) => {
     const page = Math.max(0, args.page ?? 0);
     const query = (args.query ?? '').trim();
+    const unreadable = (what: string) => (error: unknown) => {
+      log.error(`market ${what} unreadable: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    };
     try {
-      // 首页精选和「热门」那一排按近期安装量排(只随第一页、不带搜索词):分数读不到时精选只按索引上的 `featured`、
-      // 不画「热门」,市场照常打开(owner 10-19)。
-      const scores =
-        page === 0 && !query
-          ? await readMarketRanking().catch((error: unknown) => {
-              log.error(`market install ranking unreadable: ${error instanceof Error ? error.message : String(error)}`);
-              return undefined;
-            })
-          : undefined;
-      const listing = await cloudExtensionMarket().list({ page, search: query, scores });
+      // 首页精选按近期安装量排(只随第一页、不带搜索词):分数读不到时精选只按索引上的 `featured`,市场照常打开(owner 10-19)。
+      const [scores, installs] = await Promise.all([
+        page === 0 && !query ? readMarketRanking().catch(unreadable('install ranking')) : undefined,
+        readMarketInstallCounts().catch(unreadable('install counts')),
+      ]);
+      const listing = await cloudExtensionMarket().list({ page, search: query, category: args.category, surface: args.surface, sort: args.sort, scores, installs });
       const asItem = ({ manifest, ...cloud }: CloudMarketEntry): MarketListItem => ({
         manifest,
         ref: { extensionId: manifest.id, version: cloud.version },
         cloud,
       });
-      const extensions = listing.extensions.map(asItem);
       return {
         success: true,
         data: {
-          extensions,
-          // 首页精选那一排和下面那几排(只随第一页、不带搜索词)。
+          extensions: listing.extensions.map(asItem),
+          // 首页精选那一排和下面那几排、类别卡片(只随第一页、不带搜索词)。
           featured: listing.featured.map(asItem),
-          home: {
-            newest: listing.home.newest.map(asItem),
-            popular: listing.popular.map(asItem),
-            shelves: listing.home.shelves.map((shelf) => ({ category: shelf.category, items: shelf.entries.map(asItem) })),
-          },
+          home: listing.home.map((section) => ({ kind: section.kind, items: section.entries.map(asItem) })),
+          categories: listing.categories,
+          installs: installs ? Object.fromEntries(installs) : null,
           invalid: listing.invalid.map((entry) => ({ dirName: entry.extensionId, reason: entry.reason })),
           // `errorKind` 是给界面看的(它决定文案),`error` 是原话、只进日志 ——
           // 用户可见文案里 ❌ 不拼内部失败描述(CI policy: copy-leaks-raw-error-slot)。
@@ -547,7 +551,9 @@ export const extensionsController = createRPCController({
         data: {
           extensions: [] as MarketListItem[],
           featured: [] as MarketListItem[],
-          home: { newest: [] as MarketListItem[], popular: [] as MarketListItem[], shelves: [] as { category: MarketCategory; items: MarketListItem[] }[] },
+          home: [] as { kind: MarketHomeSection; items: MarketListItem[] }[],
+          categories: [] as { category: MarketCategory; count: number; icons: (string | null)[] }[],
+          installs: null as Record<string, number> | null,
           invalid: [] as { dirName: string; reason: string }[],
           errorKind,
           error: reason as string | null,

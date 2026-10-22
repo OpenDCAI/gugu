@@ -832,6 +832,14 @@ export function declaredContexts(tab: Parameters<typeof claimedSuffixes>[0]): Fi
   return (['session', 'chat'] as const).filter((context) => claimedSuffixes(tab, context).length > 0);
 }
 
+/**
+ * An App's page of its own: its first tab that opens no file and is not one per task, or null. The rail opens it, the
+ * window opens it, and the market says the App adds a tab beside tasks because of it — one rule for all three.
+ */
+export function ownPageTab<Tab extends ExtensionTabContribution>(manifest: { contributes: { tabs: readonly Tab[] } }): Tab | null {
+  return manifest.contributes.tabs.find((tab) => declaredContexts(tab).length === 0 && tab.perSession !== true) ?? null;
+}
+
 /** Whether the App has something to open in a chat: a page of its own (it opens in any chat), or a tab of chat files. */
 export function opensInChats(manifest: ExtensionManifest): boolean {
   return manifest.contributes.tabs.some((tab) => {

@@ -232,11 +232,11 @@ export function manifestLanguages(
 }
 
 /**
- * 市场分区(#7059,原型「按研究 / 效率 / 开发分区」):官方的一张类别表,顺序就是页上从上到下的顺序。
+ * 市场类别(#7059;「类别」页照 Google Play 一类一张卡):官方的一张类别表,顺序就是类别页上的顺序。
  * manifest 的 `categories` 是自由 slug;表里没有的(或没写)归「其他」,排在最后 —— 市场只由官方发布,
- * 上架时把类别对上表是官方的事,❌ 照作者写的 slug 现开一个区。
+ * 上架时把类别对上表是官方的事,❌ 照作者写的 slug 现开一类。
  */
-export const MARKET_CATEGORIES = ['research', 'productivity', 'developer'] as const;
+export const MARKET_CATEGORIES = ['research', 'productivity', 'developer', 'games', 'social'] as const;
 export type MarketCategory = (typeof MARKET_CATEGORIES)[number] | 'other';
 
 /** 一个 App 落在哪一区:它写的类别里第一个在表里的;都不在就「其他」。 */
@@ -247,8 +247,3 @@ export function marketCategoryOf(manifest: Pick<ExtensionManifest, 'categories'>
   return known ?? 'other';
 }
 
-/** 分区在页上的次序:表里的照表,「其他」最后。 */
-export function marketCategoryRank(category: MarketCategory): number {
-  const index = (MARKET_CATEGORIES as readonly string[]).indexOf(category);
-  return index === -1 ? MARKET_CATEGORIES.length : index;
-}

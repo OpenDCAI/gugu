@@ -11,10 +11,11 @@ import type {
   MarketUpdatesSummary,
   MarketVersionHistoryEntry,
 } from '@shared/extensions/market';
-import { compatOf, featuredOf, MARKET_PAGE_SIZE, marketHome, popularOf } from '@shared/extensions/market';
+import { compatOf, featuredOf, MARKET_PAGE_SIZE, marketHome, type MarketHomeSection } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
-import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
-import { queryScore, queryWords } from '@shared/extensions/query-score';
+import { MARKET_CATEGORIES, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
+import { searchApps, type AppSearchRecord, type AppSurface } from '@shared/extensions/app-search';
+import { queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom, type InvalidMarketRow } from '@shared/extensions/market-entries';
 import {
@@ -72,20 +73,34 @@ export interface CloudMarketListing {
   hasMore: boolean;
   /** 首页精选那一排(`featuredOf`):只随第一页、不带搜索词时给,别的时候是空的;它们在下面照样各有一行。 */
   featured: CloudMarketEntry[];
-  /** 首页精选下面那几排(`marketHome`):「最新」和够数的类别各一排;同 `featured`,只随不带搜索词的第一页。 */
-  home: ReturnType<typeof marketHome<CloudMarketEntry & { firstPublishedAt: string }>>;
-  /** 首页「热门」那一排(`popularOf`):近期安装分数够数才有;同 `featured`,只随不带搜索词的第一页。 */
-  popular: CloudMarketEntry[];
+  /** 首页精选下面那几排(`marketHome`):每一排一个推荐理由;同 `featured`,只随不带搜索词的第一页。 */
+  home: { kind: MarketHomeSection; entries: CloudMarketEntry[] }[];
+  /**
+   * 「类别」页那几张卡:每一类几个、前三个的图标(照搜索词和「用在哪」筛过,❌ 照类别筛 —— 卡片上数的就是那一类)。
+   * 只随第一页;一个都没有的类不在里面。次序照 `MARKET_CATEGORIES`,「其他」最后。
+   */
+  categories: { category: MarketCategory; count: number; icons: (string | null)[] }[];
   fetchedAt: string;
 }
+
+/** 「最新」页那几种排法:`popular` = 安装数从高到低(读不到安装数时退成按名字,不编一个次序)。 */
+export type MarketListSort = 'relevance' | 'name' | 'newest' | 'updated' | 'popular';
 
 export interface CloudMarketListOptions {
   /** 第几页,从 0 起。 */
   page?: number;
-  /** 搜索词;空串 = 不搜。按名字 / 简介 / id 做不区分大小写的包含匹配。 */
+  /** 搜索词;空串 = 不搜。和 agent 的 app_search 同一条规矩(`searchApps`:按词打分,按相关度排)。 */
   search?: string;
-  /** 近期安装分数(`chat.market_install_ranking`),按 App id;排首页精选、「热门」那一排用。没有就只按 `featured`、不画「热门」。 */
+  /** 只看这一类(`marketCategoryOf`)。 */
+  category?: MarketCategory;
+  /** 只看这样用的(`appSurfaces`)。 */
+  surface?: AppSurface;
+  /** 次序;不给 = 有搜索词按相关度、没有按名字。 */
+  sort?: MarketListSort;
+  /** 近期安装分数(`chat.market_install_ranking`),按 App id;排首页精选用。没有就只按 `featured`。 */
   scores?: ReadonlyMap<string, number>;
+  /** 安装数的档位(`chat.market_install_counts`),按 App id;`sort: 'popular'` 用。 */
+  installs?: ReadonlyMap<string, number>;
 }
 
 export interface CloudExtensionMarketOptions {
@@ -199,19 +214,17 @@ export class CloudExtensionMarket {
     const needle = options.search ?? '';
     const { index, fetchedAt } = await this.index(false);
     const { extensions, invalid } = await this.entriesFrom(index.apps);
-    const matched = (
-      // 10-19 按词打分,与已装列表、agent 的 app_search 同一条规矩(query-score.ts);❌ 再按整串包含。
-      queryWords(needle).length > 0
-        ? extensions.filter(({ manifest }) => queryScore(needle, appSearchText(manifest)) > 0)
-        : extensions
-    ).sort(
-      (a, b) =>
-        // 按分区排好再切页(#7059):页上一区一区往下排,后取到的一页只会接在最后一区后面、或开下一区,
-        // ❌ 插回已经画过的区里去。搜索结果不分区,照同一个次序。
-        marketCategoryRank(marketCategoryOf(a.manifest)) - marketCategoryRank(marketCategoryOf(b.manifest)) ||
-        a.manifest.name.localeCompare(b.manifest.name) ||
-        a.manifest.id.localeCompare(b.manifest.id)
-    );
+    const records = this.datedRecords(index.apps, extensions);
+    // 搜索、「用在哪」、次序都是 `searchApps`(和 agent 的 app_search 同一份);类别按市场那张表(`marketCategoryOf`)筛。
+    const searchSort = options.sort === 'popular' ? 'name' : options.sort;
+    const { items } = searchApps(records, { query: needle, surface: options.surface, sort: searchSort });
+    const installs = options.installs;
+    const ordered = options.sort === 'popular' && installs
+      ? items.slice().sort((a, b) => (installs.get(b.manifest.id) ?? 0) - (installs.get(a.manifest.id) ?? 0))
+      : items;
+    const matched = ordered
+      .filter((record) => !options.category || marketCategoryOf(record.manifest) === options.category)
+      .map((record) => (record as (typeof records)[number]).entry);
     const firstPage = page === 0 && queryWords(needle).length === 0;
     return {
       extensions: matched.slice(page * MARKET_PAGE_SIZE, (page + 1) * MARKET_PAGE_SIZE),
@@ -220,10 +233,23 @@ export class CloudExtensionMarket {
       page,
       hasMore: (page + 1) * MARKET_PAGE_SIZE < matched.length,
       featured: firstPage ? featuredOf(extensions, options.scores ?? new Map()) : [],
-      home: firstPage ? marketHome(await this.entries()) : { newest: [], shelves: [] },
-      popular: firstPage ? popularOf(extensions, options.scores ?? new Map()) : [],
+      home: firstPage ? marketHome(extensions) : [],
+      categories: page === 0 ? categoryCards(items.map((record) => (record as (typeof records)[number]).entry)) : [],
       fetchedAt: new Date(fetchedAt).toISOString(),
     };
+  }
+
+  /** 目录里的每一条加上它第一版发布的时刻,做成 `searchApps` 的记录(带着原来那一条)。 */
+  private datedRecords(apps: readonly MarketIndexApp[], extensions: readonly CloudMarketEntry[]) {
+    const first = new Map(apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']));
+    return extensions.map((entry) => ({
+      manifest: entry.manifest,
+      state: 'market' as const,
+      version: entry.version,
+      publishedAt: entry.publishedAt,
+      firstPublishedAt: first.get(entry.manifest.id) || entry.publishedAt,
+      entry,
+    })) satisfies AppSearchRecord[];
   }
 
   /**
@@ -240,8 +266,8 @@ export class CloudExtensionMarket {
    */
   async entries(): Promise<(CloudMarketEntry & { firstPublishedAt: string })[]> {
     const { index } = await this.index(false);
-    const first = new Map(index.apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']));
-    return (await this.entriesFrom(index.apps)).extensions.map((entry) => ({ ...entry, firstPublishedAt: first.get(entry.manifest.id) ?? entry.publishedAt }));
+    const { extensions } = await this.entriesFrom(index.apps);
+    return this.datedRecords(index.apps, extensions).map(({ entry, firstPublishedAt }) => ({ ...entry, firstPublishedAt }));
   }
 
   /**
@@ -497,4 +523,12 @@ export async function unpackBundle(bytes: Uint8Array, targetDir: string): Promis
 
 function randomHex(): string {
   return randomBytes(4).toString('hex');
+}
+
+/** 「类别」页的卡片:每一类几个、前三个的图标,次序照 `MARKET_CATEGORIES`、「其他」最后;一个都没有的类不出卡。 */
+function categoryCards(entries: readonly CloudMarketEntry[]): CloudMarketListing['categories'] {
+  return [...MARKET_CATEGORIES, 'other' as const].flatMap((category) => {
+    const members = entries.filter((entry) => marketCategoryOf(entry.manifest) === category);
+    return members.length ? [{ category, count: members.length, icons: members.slice(0, 3).map((entry) => entry.iconUrl) }] : [];
+  });
 }
