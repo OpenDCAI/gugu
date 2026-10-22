@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
@@ -93,6 +94,7 @@ import { useToast } from './toastContext'
 import { rendererLogger } from '../lib/log'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { PaneHeader } from './ui/Pane'
+import { Avatar } from './Avatar'
 import { IconButton } from './ui/IconButton'
 import { Button } from './ui/Button'
 import { SearchField } from './ui/SearchField'
@@ -112,6 +114,12 @@ interface ChatAreaPanelProps {
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
+  /**
+   * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
+   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签)。
+   * 两格还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
+   */
+  blockHost?: { actions: HTMLElement | null; title: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
@@ -144,7 +152,7 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
   return chatId === undefined ? <ChatAreaSurface {...surface} /> : <ChatLineScope chatId={chatId}><ChatAreaSurface {...surface} /></ChatLineScope>
 }
 
-function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce, onBack, chrome, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
+function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, appendMessage, removeMessage, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, hasMoreOlder, loadingOlder, messageWindow, unreadNavigationPending, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, setDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'appendMessage', 'removeMessage', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'hasMoreOlder', 'loadingOlder', 'messageWindow', 'unreadNavigationPending', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'setDraft')
@@ -1062,6 +1070,36 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     ? { peerId: activeChat.peer_user_id ?? '', presentation: agentHeaderPresentation ?? null, location: agentHeaderLocation, engine: agentHeaderEngine, engineMissing: agentHeaderEngineMissing }
     : null
   const agentHero = isAgentChat && !searchMode && !!activeChat.peer_user_id
+  const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
+  const headerActions = (
+    <>
+      <ChatHeaderActions
+        isGroupChat={isGroupChat}
+        isRoomChat={isRoomChatSurface}
+        searchMode={searchMode}
+        workspacePanelOpen={workspaceForm !== 'closed'}
+        memberListOpen={memberListOpen}
+        historyPanelOpen={historyPanelOpen}
+        showHeaderMenu={showHeaderMenu}
+        mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
+        // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
+        memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
+        moreButtonRef={moreButtonRef}
+        onEnterSearchMode={() => setSearchMode(true)}
+        onOpenWorkspacePanel={handleOpenWorkspacePanel}
+        onCloseWorkspacePanel={handleCloseWorkspacePanel}
+        onOpenSettingsDrawer={handleOpenSettingsDrawer}
+        onOpenMemberList={handleOpenMemberList}
+        onCloseRightSurfaces={closeRightSurfaces}
+        onOpenHistoryPanel={handleOpenHistoryPanel}
+        onCloseHistoryPanel={handleCloseHistoryPanel}
+        onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
+        onCloseHeaderMenu={() => setShowHeaderMenu(false)}
+        onOpenAnnouncement={handleOpenAnnounce}
+      />
+      {sessionpageAgent.openAction}
+    </>
+  )
 
   return (
     <div ref={surfaceElement} data-chat-surface={activeChatId}
@@ -1082,7 +1120,24 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           与会话列表/通讯录/发现/设置四个列头的 47/52/77 各不相同;现在四处同吃 --pane-header-h,标题坐在同一条基线上。
           @@@822 右侧窗控留白(Windows/Linux 138px、Mac/web 0)不再撑出一套自己的 padding,只加在 PaneHeader 的
           paddingRight 上。@@@1375 owner: header 与正文同色,只用 divider 一条线区分。 */}
-      {(!chrome || searchMode) && <PaneHeader
+      {blockHost?.actions ? createPortal(headerActions, blockHost.actions) : null}
+      {blockHost?.title ? createPortal(
+        <span className="flex min-w-0 items-center gap-1" data-chat-block-title="">
+          <Avatar
+            name={activeChatName}
+            avatarUrl={activeChatAvatar}
+            seed={activeChat.peer_user_id ?? undefined}
+            isAgent={isAgentChat}
+            variant={isRoomChatSurface ? 'group' : 'default'}
+            memberAvatars={isRoomChatSurface ? activeChat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : []) : undefined}
+            size={16}
+            still
+          />
+          <span className="min-w-0 truncate">{activeChatName}</span>
+        </span>,
+        blockHost.title,
+      ) : null}
+      {((!chrome && !blockHost) || searchMode) && <PaneHeader
         divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}
         style={{
@@ -1180,33 +1235,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             {agentStatus ? <AgentHeaderStatusLine {...agentStatus} /> : null}
           </div>
         )}
-        actions={searchMode ? null : (
-          <>
-            <ChatHeaderActions
-              isGroupChat={isGroupChat}
-              isRoomChat={isRoomChatSurface}
-              searchMode={searchMode}
-              workspacePanelOpen={workspaceForm !== 'closed'}
-              memberListOpen={memberListOpen}
-              historyPanelOpen={historyPanelOpen}
-              showHeaderMenu={showHeaderMenu}
-              mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
-              moreButtonRef={moreButtonRef}
-              onEnterSearchMode={() => setSearchMode(true)}
-              onOpenWorkspacePanel={handleOpenWorkspacePanel}
-              onCloseWorkspacePanel={handleCloseWorkspacePanel}
-              onOpenSettingsDrawer={handleOpenSettingsDrawer}
-              onOpenMemberList={handleOpenMemberList}
-              onCloseRightSurfaces={closeRightSurfaces}
-              onOpenHistoryPanel={handleOpenHistoryPanel}
-              onCloseHistoryPanel={handleCloseHistoryPanel}
-              onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
-              onCloseHeaderMenu={() => setShowHeaderMenu(false)}
-              onOpenAnnouncement={handleOpenAnnounce}
-            />
-            {sessionpageAgent.openAction}
-          </>
-        )}
+        actions={searchMode ? null : headerActions}
       >
         <AnimatePresence initial={false}>
           {searchMode && (
@@ -1378,7 +1407,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           「差一截」错觉），出现/消失改 scroller clientHeight → #780 ResizeObserver 自动重 pin 到真底。
           · 群聊：GroupAgentStatusBar 列出在执行的 agent（可点 → @mention），去底色后即浮动文字。
           · 单聊：运行中/思考中从消息列表行（#1102 in-list）移到这里；流式正文仍留消息流。 */}
-      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
+      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (blockHost ? null :
+        // gugu-dev#181 块里的群:谁在跑挂在它那张任务卡的行尾(第 55 条),❌ 再另起一条运行条。
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。

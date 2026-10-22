@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { replyProcess, replyProcesses } from './reply-process';
+import { replyProcess, replyProcesses, replyReturn } from './reply-process';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
 const messageId = '6417511d-8f36-4cbc-8cbb-81ce9f97df73';
@@ -60,5 +60,30 @@ describe('explicit message streaming and reply effort', () => {
     if (!exec || exec.kind !== 'execute-tool-call') throw new Error('fixture');
     record.items.splice(2, 0, { kind: 'tool-group', id: 'group', seq: 2, label: 'commands', groupKind: 'read-batch', status: 'done', children: [exec, { ...exec, id: 'child', parentToolCallId: 'parent' }] });
     expect(replyProcess(record, 'send')).toEqual({ thoughts: 1, thinkingMs: 0, tools: 1, commands: 1 });
+  });
+});
+
+describe('where a turn from a group returned its result (gugu-dev#181「已回到 X」)', () => {
+  const chat = '127ec4f0-30b1-4583-b469-706756153bdd';
+  const source = 'ee1a78d8-55f3-42ac-b437-4cf4e81a4741';
+  const fromGroup = (tool: McpToolCall): TranscriptTurn => {
+    const record = turn(tool); const input = record.items[0];
+    if (input.kind !== 'message') throw new Error('fixture');
+    input.text = input.text.replace('chat="dm" chat_kind="dm"', `chat="213036" chat_kind="group" source_link="gugu-chat://${chat}/${source}"`).replace('msg:source', 'msg:' + source);
+    return record;
+  };
+  const sent = (input: Record<string, unknown>) => ({ ...send(input), status: 'done' as const, outputText: `sent (id=msg:${messageId})` });
+
+  it('names the group from the delivery facts and the message from the send result', () => {
+    expect(replyReturn(fromGroup(sent({ chat_id: '213036' })))).toEqual({ chatId: chat, messageId });
+    expect(replyReturn(fromGroup(sent({ chat_id: chat })))).toEqual({ chatId: chat, messageId });
+    expect(replyReturn(fromGroup({ ...sent({ chat_id: '213036' }), outputText: 'ok' }))).toEqual({ chatId: chat, messageId: null });
+  });
+
+  it('has no return when the turn never sent to that group', () => {
+    expect(replyReturn(fromGroup(sent({ chat_id: 'other' })))).toBeNull();
+    expect(replyReturn(fromGroup({ ...sent({ chat_id: '213036' }), status: 'error' }))).toBeNull();
+    expect(replyReturn(fromGroup({ ...sent({ chat_id: '213036' }), rawInput: '{"text":"truncated' }))).toBeNull();
+    expect(replyReturn(turn(sent({ chat_id: 'dm' }))), 'a direct chat is not a group').toBeNull();
   });
 });

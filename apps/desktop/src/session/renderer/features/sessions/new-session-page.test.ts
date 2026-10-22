@@ -11,7 +11,6 @@ import { IMPLICIT_SESSION_HOME_PROJECT_ID } from './session-home-project-constan
 import { homeView } from '@renderer/app/home-view';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectHome } from '@renderer/features/projects/components/main-panel/project-home';
-import { ProjectMenu } from '@renderer/features/projects/components/project-menu';
 import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { NewSessionComposer, NewSessionPage } from './new-session-page';
 import { remoteInstallNote } from './remote-install-before-create';
@@ -339,7 +338,7 @@ describe('NewSessionPage', () => {
     });
   }
 
-  // 项目块画的那几样(app/project-block.tsx):窗口 chrome、页签条右端的项目菜单与「在哪里打开」、项目首页。
+  // 项目块画的那几样(app/project-block.tsx):窗口 chrome、页签条右端的「在哪里打开」、项目首页。
   async function renderProjectHome() {
     const projectId = mocks.projectId;
     await act(async () => {
@@ -349,7 +348,6 @@ describe('NewSessionPage', () => {
           React.createElement(
             React.Fragment,
             null,
-            React.createElement(ProjectMenu, { projectId }),
             React.createElement(ProjectTitleActions, { projectId }),
             React.createElement(ProjectHome, { projectId })
           )

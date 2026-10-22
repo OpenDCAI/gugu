@@ -1,7 +1,7 @@
 // 输入框此刻是不是「新任务 / 定时任务」(gugu-dev#181「输入框」:框里「+」右边两个词,选了一个,框就换成那件事)。
 //
 // 按对话记:每个对话一格。壳那棵树的输入框(InputArea)写,会话页那棵读 —— 项目块据此把新任务的框摆在群聊底下、
-// 浮出文件夹卡;对话页也读,据此收起自己的框。同一个 window 对象 + 一个 window 事件(与 chatActivityBridge 同一做法),
+// 浮出文件夹卡;对话页也读,据此收起自己的框。同一个 window 对象 + 一个 window 事件(与 chatSummariesBridge 同一做法),
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 

@@ -18,7 +18,7 @@ import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'
 import { Markdown } from '../markdown/Markdown'; import { chatLinks } from '../markdown/fileLinks'
 import { buildBubbleStyle } from './messageBubbleStyle'
-import { WidgetCard, type Widget } from './WidgetCard'; import { ComposerCardView } from './ComposerCardView'; import { composerCardPreview, parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { APP_SHOW_MESSAGE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
+import { WidgetCard, type Widget } from './WidgetCard'; import { ComposerCardHead, ComposerCardView } from './ComposerCardView'; import { composerCardPreview, parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'; import { APP_SHOW_MESSAGE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
 const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
@@ -327,7 +327,7 @@ export const MessageBubble = memo(function MessageBubble({
   // @@@2017 owner 终版 — 路由真源 → 高亮名单(backedNames)+ 兜底徽标名单(fallbackLabels),单重显示(见 hook)。
   const mentionRender = useMentionRender(msg, isGroup, memberProfiles)
 
-  const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null; const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile) // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡
+  const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null; const quotedCard = msg.reply_to_message_id ? composerCardPreview(msg.reply_to_content) : null; const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile) // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
@@ -473,8 +473,9 @@ export const MessageBubble = memo(function MessageBubble({
               @@@1460 与 MessageStatus 互斥：传输瞬态(sending/failed)只显 MessageStatus 小图标、不显环;
               有已读进度时只显环(MessageStatus 已 return null)→ 永远单一指示,无新老双勾。
               showReadReceipt：每条本人消息各自挂环（#2098 owner 要逐条，撤 #1779 只挂末条的降噪）。
-              read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。 */}
-          {showReadReceipt && msg.is_mine && !msg.retracted_at && sendState !== 'sending' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
+              read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。
+              任务卡不挂环:它是交给一个 agent 的事件(gugu-dev#181),接没接、做到哪看卡行尾的状态,❌ 再问谁读了。 */}
+          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
             <button
               type="button"
               data-testid="message-read-receipt"
@@ -522,15 +523,17 @@ export const MessageBubble = memo(function MessageBubble({
                     paddingLeft: '7px',
                     maxWidth: '180px',
                   }}>
+                    {/* 引的是一张任务卡(gugu-dev#181):第一行是卡头「✳ 新任务」(谁的卡不用说,卡上有),第二行是原话。 */}
                     <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
+                      {quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={avatarIsAgent ? msg.sender_user_id : null} />
+                        : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
                     </div>
                     <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {((quoted) => quoted ? t(quoted.type === 'task' ? 'message.taskCard.line' : 'message.taskCard.scheduleLine', { text: quoted.text }) : msg.reply_to_content ?? '')(composerCardPreview(msg.reply_to_content))}
+                      {quotedCard ? quotedCard.text : msg.reply_to_content ?? ''}
                     </div>
                   </div>
                 )}
-                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} /> : msg.content_type === 'widget' ? (() => {
+                {card ? <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} /> : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
                   try {

@@ -1782,6 +1782,8 @@ body.barcode-scanner-active #root {
   inset: calc((var(--control-h-sm) - var(--control-h-touch)) / 2);
 }
 .gg-icon-btn[data-shape='pill'] { border-radius: var(--radius-capsule); }
+/* 图标后面跟一个数(块页签条上的成员按钮「👥 4」):宽度让给那个数,图标与数一行排开。 */
+.gg-icon-btn:has(> [data-member-count]) { width: auto; grid-auto-flow: column; gap: 4px; padding: 0 6px; font-size: var(--font-caption); }
 .gg-icon-btn > svg { display: block; width: var(--icon-md); height: var(--icon-md); }
 .gg-icon-btn[data-size='sm'] > svg { width: var(--icon-sm); height: var(--icon-sm); }
 .gg-icon-btn[data-size='lg'] > svg { width: var(--icon-lg); height: var(--icon-lg); }
