@@ -99,7 +99,10 @@ export async function spawnRuntime<Defs extends ContractDefinitions>(
   try {
     await waitForReady(managed, options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
   } catch (error) {
-    await managed.dispose();
+    // 没就绪才是原因:收尾再失败(如 graceful shutdown 超时,进程照样被 kill)只记一行,❌ 拿它顶掉原始错误。
+    await managed.dispose().catch((disposeError: unknown) => {
+      options.scope?.log.warn('runtime cleanup after a failed start failed', { error: disposeError });
+    });
     throw error;
   }
 
