@@ -14,6 +14,7 @@ let reduced = false
 
 beforeEach(() => {
   harness = createReactHarness()
+  tabBarRef.current = document.createElement('nav')
   reduced = false
   vi.stubGlobal('matchMedia', () => ({ matches: reduced }))
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 390 } as DOMRect)
@@ -26,16 +27,18 @@ const pager = (activeTab: typeof tabs[number]) => createNode(MobileTabPager, {
   mobile: true, tabs, activeTab, swipeable: true, onSettle: settle, tabBarRef, pages: {},
 })
 
-it('a tap scrolls through intermediate tabs without opening them; the next gesture can interrupt it', async () => {
+it('a tap aligns the page and tab highlight immediately; swipes settle only at whole pages', async () => {
   await harness.render(pager('tasks'))
   expect(scrollTo).toHaveBeenLastCalledWith({ left: 0, behavior: 'instant' })
   await harness.render(pager('settings'))
-  expect(scrollTo).toHaveBeenLastCalledWith({ left: 1170, behavior: 'smooth' })
-  const element = harness.container.querySelector('[data-mobile-tab-pager]') as HTMLElement
-  await act(async () => { element.scrollLeft = 390; element.dispatchEvent(new Event('scroll')) })
+  expect(scrollTo).toHaveBeenLastCalledWith({ left: 1170, behavior: 'instant' })
+  expect(tabBarRef.current?.style.getPropertyValue('--gg-tab-position')).toBe('3')
   expect(settle).not.toHaveBeenCalled()
+  const element = harness.container.querySelector('[data-mobile-tab-pager]') as HTMLElement
+  await act(async () => { element.scrollLeft = 975; element.dispatchEvent(new Event('scroll')) })
+  expect(settle).not.toHaveBeenCalled()
+  expect(tabBarRef.current?.style.getPropertyValue('--gg-tab-position')).toBe('2.5')
   await act(async () => {
-    element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     element.scrollLeft = 780
     element.dispatchEvent(new Event('scroll'))
   })
