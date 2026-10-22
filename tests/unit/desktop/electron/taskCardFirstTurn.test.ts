@@ -4,7 +4,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseComposerCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
 
-const roster = [{ name: 'Claude 7', gugu_user_id: 'agent-7', agent_type: 'claude', path: '', prompt: '', created_at: 0 }]
+const roster = [{ name: 'Claude 7', gugu_user_id: 'agent-7', agent_type: 'claude-code', path: '', prompt: '', created_at: 0 }]
+const LOOK = 'https://storage.test/avatars/agent-look/v1/agent-7.json'
 const chats = new Map<string, { kind: string; public_id: number | null; name: string | null; members: string[] }>()
 const writes: Array<Record<string, unknown>> = []
 const awaited: string[] = []
@@ -14,6 +15,9 @@ vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning
   awaitSessionpageCloudIdentity: vi.fn(async (agentUserId: string) => { awaited.push(agentUserId) }),
 }))
 vi.mock('../../../../apps/desktop/electron/supabase', () => ({
+  makeIdentityClient: () => ({
+    from: () => ({ select: () => ({ eq: (_c: string, id: string) => ({ maybeSingle: async () => ({ data: id === 'agent-7' ? { avatar: LOOK } : null, error: null }) }) }) }),
+  }),
   makeChatClient: () => ({
     from(table: string) {
       const filters: Record<string, string> = {}
@@ -74,6 +78,8 @@ describe('task card first turn (gugu-dev#181)', () => {
     expect(write).toMatchObject({ p_message_id: 'msg-card-1', p_chat_id: 'group-1', p_sender_user_id: 'owner-1', p_to_user_ids: [], p_content_type: 'card' })
     expect(parseComposerCard(write.p_content as string)).toEqual({
       v: 1, type: 'task', text: '登录页闪一下，看看为什么', agentUserId: 'agent-7', agentName: 'Claude 7',
+      // Who took it, as everyone who sees the card draws it (80e: a colleague could not look the agent up yet).
+      agentType: 'claude-code', agentAvatar: LOOK,
       sessionId: 'session-1', projectId: 'project-1', deviceId: 'device-1', machineLabel: 'Mac Studio',
     })
     expect(turn.envelope).toBe(true)
