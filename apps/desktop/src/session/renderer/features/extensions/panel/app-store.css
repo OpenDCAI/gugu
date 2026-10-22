@@ -428,7 +428,11 @@
   background: none;
   overflow: visible;
 }
-/* 一块一块各自带框(照 Google Play 那排),选中的那块去框铺实底;和上面「市场 / 已安装」那种连成一条的分段区分开。 */
+/* 顶上那一行里的类别排(右边是「从文件夹安装」):和按钮对齐,不另留上边距。 */
+.mk-bar .mk-chipbar {
+  margin-top: 0;
+}
+/* 一块一块各自带框(照 Google Play 那排),选中的那块去框铺实底;「已安装」也是其中一块。 */
 .mk-chipbar [data-slot='toggle-group-item'] {
   height: 32px;
   padding: 0 14px;

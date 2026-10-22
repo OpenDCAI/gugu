@@ -55,6 +55,7 @@ import {
   INSTALLED_GROUP_ORDER,
   installedGroupOf,
   localizedManifestText,
+  MARKET_CATEGORIES,
   marketCategoryOf,
   matchesExtensionQuery,
   shelfRelation,
@@ -1039,14 +1040,13 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           entry.dirName.toLowerCase().includes(query.trim().toLowerCase())
         );
 
-  // 市场那一侧的筛选在服务端,这里拿到的已经是结果;次序也是那边排好的(先按类别,再按名字)。
+  // 市场那一侧的搜索、次序在服务端,这里拿到的已经是结果。
   const marketRows = shelf.status === 'ready' ? shelf.items : [];
-  // 类别那一排只列取到的清单里有的类(次序同清单:先按类别再按名字);选中的那类没了(搜别的了)就当「全部」。
-  const chipKeys: ('all' | MarketCategory)[] = ['all'];
-  for (const item of marketRows) {
-    const category = marketCategoryOf(item.manifest);
-    if (!chipKeys.includes(category)) chipKeys.push(category);
-  }
+  // 类别那一排只列取到的清单里有的类,次序照类别表、「其他」最后(❌ 跟着列表的次序变);选中的那类没了(搜别的了)就当「全部」。
+  const chipKeys: ('all' | MarketCategory)[] = [
+    'all',
+    ...[...MARKET_CATEGORIES, 'other' as const].filter((category) => marketRows.some((item) => marketCategoryOf(item.manifest) === category)),
+  ];
   const activeChip = chipKeys.includes(chip) ? chip : 'all';
   const shownRows = activeChip === 'all' ? marketRows : marketRows.filter((item) => marketCategoryOf(item.manifest) === activeChip);
   const chipLabel = (key: 'all' | MarketCategory) => translate(key === 'all' ? 'extensions.chipAll' : `extensions.category.${key}`);
