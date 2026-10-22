@@ -1,4 +1,5 @@
-// #7167 — 聊天页那颗模式按钮选了「编程 / 通用」:打开任务之后,请会话页换成那种展示。读端适配边界。
+// #7167 — 聊天页那颗模式按钮选了「编程 / 通用」:打开任务之后,请会话页换成那种展示;gugu-dev#181 打开一条对话
+// (对话是会话页这屏的一块)。读端适配边界。
 //
 // 写端在任务 renderer(apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests.ts):
 // 会话页上有那条会话的那一份 SessionActionsProvider 认领请求,能不能换、换前问不问由它判断、由它说 ——
@@ -22,7 +23,8 @@ export function readSessionpageViewRequestBridge(
   if (!target) return undefined
   const candidate = (target as unknown as Record<string, unknown>)[SESSIONPAGE_VIEW_REQUEST_BRIDGE_KEY]
   if (!candidate || typeof candidate !== 'object') return undefined
-  if (typeof (candidate as Partial<SessionpageViewRequestBridge>).request !== 'function') {
+  const shape = candidate as Partial<SessionpageViewRequestBridge>
+  if (typeof shape.request !== 'function' || typeof shape.openChat !== 'function') {
     throw new Error('sessionpage view request bridge is present but malformed')
   }
   return candidate as SessionpageViewRequestBridge

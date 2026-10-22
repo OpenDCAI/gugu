@@ -1,7 +1,9 @@
 import { Plus, UserPlus, Users } from '@/lib/icons';
+import { readShellSlots } from '@/lib/shellSlots';
+import { CHAT_LIST_SLOT_KEY } from '@/lib/sidebarChatsBridge';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { observer } from 'mobx-react-lite';
-import { useRef, type MouseEvent } from 'react';
+import { useCallback, useRef, type MouseEvent } from 'react';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import {
   DropdownMenu,
@@ -13,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/toolti
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
 import { SidebarGroupToggle } from './sidebar-group-toggle';
+import { SidebarUnreadCount } from './sidebar-list-switch';
 import { useSidebarScrollTargets } from './sidebar-scroll-context';
 import { SidebarGroup, sidebarGroupHeaderClass, sidebarHeaderIconButtonClass } from './sidebar-primitives';
 
@@ -55,6 +58,7 @@ export const SidebarChatsSection = observer(function SidebarChatsSection({
     scroller.scrollBy({ top: natural - scroller.getBoundingClientRect().top, behavior: 'smooth' });
   };
   const collapsed = sidebarStore.chatsCollapsed;
+  const listSlot = useCallback((element: HTMLDivElement | null) => readShellSlots()?.setSlot(CHAT_LIST_SLOT_KEY, element), []);
 
   return (
     <SidebarGroup className="mb-0 flex flex-col" data-sidebar-chats="">
@@ -64,7 +68,7 @@ export const SidebarChatsSection = observer(function SidebarChatsSection({
         onClickCapture={jumpWhenStuck}
         className={cn(sidebarGroupHeaderClass, merged && 'sticky bottom-0 z-10 bg-background-tertiary')}
       >
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1">
           <SidebarGroupToggle
             label={translate('sidebar.chats')}
             count={0}
@@ -72,14 +76,7 @@ export const SidebarChatsSection = observer(function SidebarChatsSection({
             onToggle={() => sidebarStore.toggleChatsCollapsed()}
             ariaLabel={translate(collapsed ? 'sidebar.expandChats' : 'sidebar.collapseChats')}
           />
-          {merged && unread > 0 && (
-            <span
-              aria-label={translate('sidebar.unreadCount', { count: unread })}
-              className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--badge-red)] px-1 text-[10.5px] font-semibold text-white"
-            >
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
+          {merged && <SidebarUnreadCount count={unread} />}
         </span>
         {/* 合在一起时没有对话页那两行入口,挪到这颗「+」里,与「项目」头上的「添加项目」对称。 */}
         {merged && (
@@ -109,8 +106,8 @@ export const SidebarChatsSection = observer(function SidebarChatsSection({
           </DropdownMenu>
         )}
       </div>
-      {/* 聊天列表画进这一格(壳那棵树,经壳的格子 portal 进来)。 */}
-      {!collapsed && <div data-region="sidebar-chat-list" className="min-h-0" />}
+      {/* 聊天列表画进这一格(壳那棵树的 components/ChatListSlotHost.tsx);格子里的东西归壳管,这一侧 ❌ 往里放子元素。 */}
+      {!collapsed && <div ref={listSlot} data-region="sidebar-chat-list" className="min-h-0" />}
     </SidebarGroup>
   );
 });

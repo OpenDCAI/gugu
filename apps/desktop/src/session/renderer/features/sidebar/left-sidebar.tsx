@@ -33,6 +33,7 @@ import { SidebarSearchInput } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
 import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
+import { publishSidebarChatView, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
 import { SidebarSessionsSection } from './sidebar-sessions-section';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
@@ -133,6 +134,17 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
     scroller.scrollTop = scrollTopByPage.current[page];
   }, [page, scroller]);
   const layoutMenu = useSidebarLayoutContextMenu();
+  // 两枚页签上的未读数由壳发过来(还没发过 = 先不挂数);「项目」那枚是所有项目群的未读之和。
+  const chatSignals = useSidebarChatSignals();
+  const chatsUnread = chatSignals?.chatsUnread ?? 0;
+  const projectsUnread = chatSignals ? [...chatSignals.groupUnread.values()].reduce((sum, count) => sum + count, 0) : 0;
+  // 壳画的对话列表要知道:搜索框里的字(一个框搜两边)、正看着哪条对话(那一行高亮)。
+  const searchQuery = sidebarStore.searchQuery;
+  const focusedChatId =
+    appState.navigation.currentViewId === 'chat'
+      ? ((appState.navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId ?? null)
+      : null;
+  React.useEffect(() => publishSidebarChatView({ query: searchQuery, focusedChatId }), [searchQuery, focusedChatId]);
   const [scrollContent, setScrollContent] = React.useState<HTMLDivElement | null>(null);
   const scrollTargets = React.useMemo<SidebarScrollTargets>(
     () => ({ scroller, content: scrollContent }),
@@ -169,8 +181,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
               「项目」标题之间的距离与行距一模一样,三个分区因此读不出是三个分区。 */}
           <SidebarGroup className="mb-2 flex shrink-0 flex-col">
             <SidebarMenu>
-              {/* 未读数由壳的聊天列表经格子发过来,还没接上时两枚页签只挂「需要你」那颗点。 */}
-              {!merged && <SidebarListSwitch projectsUnread={0} chatsUnread={0} />}
+              {!merged && <SidebarListSwitch projectsUnread={projectsUnread} chatsUnread={chatsUnread} />}
               <SidebarSearchInput />
               {/* 新建任务是一个视图(compose 页),与「已安排」「设置」同理:正在看它时带 active
                   底色。以前写死 isActive={false},落地页上只剩键盘光标那圈 ring 孤零零地画着,
@@ -268,7 +279,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
                     <SidebarSessionsSection />
                   </>
                 )}
-                {showChats && <SidebarChatsSection merged={merged} unread={0} />}
+                {showChats && <SidebarChatsSection merged={merged} unread={chatsUnread} />}
               </SidebarScrollContext.Provider>
             </div>
           </div>

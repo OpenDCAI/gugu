@@ -21,14 +21,14 @@ import { sidebarHeaderIconButtonClass } from './sidebar-primitives';
 // gugu-dev#181「侧栏」:项目和对话默认分开,顶上「项目 | 对话」两枚页签;也能合在一起(右上「显示方式」或在侧栏上右键)。
 // 两枚页签一直挂着各自的信号,数只在真读了才减 —— 切页签不算读,所以这里只读数、❌ 在切换时清任何东西。
 
-/** 一枚页签上的未读数(红底白字,同对话行尾那枚)。 */
-function UnreadCount({ count }: { count: number }) {
+/** 未读数(红底白字):页签上、项目行尾、合在一起时「对话」分区头上。 */
+export function SidebarUnreadCount({ count }: { count: number }) {
   const { translate } = useSessionMessages();
   if (count <= 0) return null;
   return (
     <span
       aria-label={translate('sidebar.unreadCount', { count })}
-      className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--badge-red)] px-1 text-[10.5px] font-semibold text-white"
+      className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--badge-red)] px-1 text-[length:var(--font-caption)] leading-none font-semibold text-white"
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -52,7 +52,7 @@ export const SidebarListSwitch = observer(function SidebarListSwitch({
       data-testid={`sidebar-list-page-${id}`}
       onClick={() => sidebarStore.setListPage(id)}
       className={cn(
-        'flex h-full flex-1 items-center justify-center gap-1.5 rounded-md text-sm transition-colors',
+        'flex h-full flex-1 items-center justify-center gap-1 rounded-md text-sm transition-colors',
         page === id ? 'bg-background font-medium text-foreground shadow-xs' : 'text-foreground-tertiary-muted hover:text-foreground'
       )}
     >
@@ -61,14 +61,14 @@ export const SidebarListSwitch = observer(function SidebarListSwitch({
     </button>
   );
   return (
-    <div role="tablist" className="mb-2 flex h-8 w-full gap-0.5 rounded-lg bg-foreground/[0.06] p-0.5">
+    <div role="tablist" className="mb-2 flex h-8 w-full gap-[2px] rounded-lg bg-foreground/[0.06] p-[2px]">
       {tab('projects', translate('sidebar.projects'), (
         <>
-          <UnreadCount count={projectsUnread} />
+          <SidebarUnreadCount count={projectsUnread} />
           <ProjectNeedsYouDot count={sidebarStore.projectsNeedYouCount} />
         </>
       ))}
-      {tab('chats', translate('sidebar.chats'), <UnreadCount count={chatsUnread} />)}
+      {tab('chats', translate('sidebar.chats'), <SidebarUnreadCount count={chatsUnread} />)}
     </div>
   );
 });

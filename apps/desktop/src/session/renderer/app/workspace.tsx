@@ -33,8 +33,8 @@ import { ensureMachineSessionWiring } from '@renderer/features/remote-hosts/work
 import { ensureMachineWorkspaceBackend } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
 import { isEmbedVisible, subscribeEmbedVisibility } from '@renderer/lib/portal-container';
 
-/** 这几个视图看的是这一屏:会话、项目都是其中一块(gugu-dev#181:项目是一块)。 */
-const SCREEN_VIEWS: ReadonlySet<string | null | undefined> = new Set(['session', 'project']);
+/** 这几个视图看的是这一屏:会话、项目、对话都是其中一块(gugu-dev#181)。 */
+const SCREEN_VIEWS: ReadonlySet<string | null | undefined> = new Set(['session', 'project', 'chat']);
 
 export function Workspace() {
   useTheme();

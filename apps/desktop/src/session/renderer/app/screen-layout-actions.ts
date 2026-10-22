@@ -147,6 +147,19 @@ export function ensureScreenLayoutSync(): void {
     },
     { fireImmediately: true }
   );
+  // 看一条对话(点左边对话那一行、通知、链接)= 这屏把它那一块摆出来,同上。
+  reaction(
+    () => {
+      const navigation = appState.navigation;
+      return navigation.currentViewId === 'chat'
+        ? (navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId
+        : undefined;
+    },
+    (chatId) => {
+      if (chatId) screenLayout.show({ kind: 'chat', chatId });
+    },
+    { fireImmediately: true }
+  );
   // 回到主窗:导航跟回这屏正看着的那块(焦点在子窗时,导航指着窗里那条会话)。
   window.addEventListener('focus', () => {
     if (auxWindows.focusedWindowId === null) return;
@@ -167,6 +180,12 @@ function followFocus(): void {
     const current = navigation.viewParamsStore.project as { projectId?: string } | undefined;
     const here = navigation.currentViewId === 'project' && !!current?.projectId && sidebarStore.rowProjectIdOf(current.projectId) === focusedBlock.projectId;
     if (!here) navigation.navigate('project', { projectId: focusedBlock.projectId });
+    return;
+  }
+  // 正看着对话块:导航到那条对话(左边那一行高亮)。
+  if (focusedBlock?.kind === 'chat') {
+    const current = navigation.viewParamsStore.chat as { chatId?: string } | undefined;
+    if (navigation.currentViewId !== 'chat' || current?.chatId !== focusedBlock.chatId) navigation.navigate('chat', { chatId: focusedBlock.chatId });
     return;
   }
   const current = navigation.viewParamsStore.session as Partial<ScreenSession> | undefined;

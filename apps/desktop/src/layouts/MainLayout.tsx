@@ -52,6 +52,7 @@ import { ContactsProvider } from '../store/contacts'
 import { DevicesProvider } from '../store/devices'
 import { AssistantShellHost } from '../components/assistant/AssistantShellHost'
 import { ChatSlotHost } from '../components/ChatSlotHost'
+import { ChatListSlotHost } from '../components/ChatListSlotHost'
 import { AssistantTaskChatOpener } from '../components/assistant/AssistantTaskChatOpener'
 import { FeedbackHost } from '../components/FeedbackHost'
 import { AssistantCloseHost } from '../components/assistant/AssistantCloseHost'
@@ -1489,6 +1490,8 @@ function InnerLayout({
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}
+      {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。 */}
+      {!mobile && sessionHostAvailable && <ChatListSlotHost activeTab={activeTab} />}
 
     </div>
   )

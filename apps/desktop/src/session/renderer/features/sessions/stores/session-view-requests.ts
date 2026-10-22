@@ -20,6 +20,11 @@ export const SESSION_VIEW_REQUEST_BRIDGE_KEY = '__GUGU_SESSIONPAGE_VIEW_REQUESTS
 
 export interface SessionViewRequestBridge {
   request(sessionId: string, view: SessionView): void;
+  /**
+   * gugu-dev#181 壳要打开一条对话(侧栏「对话」里点一行、通知、链接……):对话是会话页这屏的一块,
+   * 摆不摆、摆在哪由这一页定。`beside` = ⌘ 点,并排放在正看着那块右边。
+   */
+  openChat(chatId: string, beside: boolean): void;
 }
 
 const pending = observable.map<string, { view: SessionView; at: number }>();
@@ -41,9 +46,8 @@ export const sessionViewRequests = {
   },
 };
 
-const bridge: SessionViewRequestBridge = { request: sessionViewRequests.request };
-
-/** 装到宿主文档的 window 上,让 gugu 那棵树读得到。幂等。 */
-export function installSessionViewRequestBridge(target: Window): void {
+/** 装到宿主文档的 window 上,让 gugu 那棵树读得到。幂等。打开对话那一下由入口接到这屏上(这里不认这屏)。 */
+export function installSessionViewRequestBridge(target: Window, openChat: SessionViewRequestBridge['openChat']): void {
+  const bridge: SessionViewRequestBridge = { request: sessionViewRequests.request, openChat };
   (target as unknown as Record<string, unknown>)[SESSION_VIEW_REQUEST_BRIDGE_KEY] = bridge;
 }
