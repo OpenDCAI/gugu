@@ -556,7 +556,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(harness().deps)
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_create', 'group_list', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
+      'activity_chat_list', 'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_create', 'group_list', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
       'message_rules', 'message_search', 'message_send', 'message_send_as_owner', 'message_send_file', 'message_send_file_as_owner',
       'owner_friends_list', 'profile_lookup', 'profile_update', 'profile_whoami', 'session_peers',
       'topic_invite', 'topic_list', 'topic_members', 'topic_open',

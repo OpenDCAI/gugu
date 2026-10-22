@@ -13,6 +13,7 @@ import {
 import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, unlistedTools, type CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { AppSearchHit } from '../../../../apps/desktop/electron/mcp/gugu-app-search-tool'
 import { GUIDE_TOPICS } from '../../../../apps/desktop/electron/mcp/gugu-guide-tool'
+import { ACTIVITY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-activity-tool'
 import { PROJECT_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-project-tool'
 import { LIBRARY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-library-tool'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
@@ -80,6 +81,7 @@ describe('catalog_*: 渐进披露 (#6614)', () => {
       ...SESSION_TOOL_DEFS.map((def) => def.name),
       ...PROJECT_TOOL_DEFS.map((def) => def.name),
       ...LIBRARY_TOOL_DEFS.map((def) => def.name),
+      ...ACTIVITY_TOOL_DEFS.map((def) => def.name),
       ...SCHEDULE_TOOL_DEFS.map((def) => def.name),
       ...EXTENSION_TOOL_DEFS.map((def) => def.name),
       'guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search',

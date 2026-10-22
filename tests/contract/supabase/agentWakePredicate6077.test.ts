@@ -128,7 +128,10 @@ describe('#6077 chat.message_wakes_agent 真值表(纯谓词,无夹具)', () => 
     ['无点名 · 群 · active', ['B', 'active', 'all', 'group', 'H', false, false, null, false, null], true],
     ['无点名 · 话题 · active', ['B', 'active', 'all', 'topic', 'H', false, false, null, false, null], true],
     ['无点名 · passive 不醒', ['B', 'passive', 'all', 'group', 'H', false, false, null, false, null], false],
-    ['无点名 · 私聊没有「场所」', ['B', 'active', 'all', 'dm', 'H', false, false, null, false, null], false],
+    // The backend now treats a person's unaddressed line in a direct chat (dm, ai) as addressed to the other member.
+    ['无点名 · 私聊里人说的话点名对端', ['B', 'passive', 'all', 'dm', 'H', false, false, null, false, null], true],
+    ['无点名 · ai 会话里人说的话点名对端', ['B', 'passive', 'all', 'ai', 'H', false, false, null, false, null], true],
+    ['无点名 · 私聊里 agent 说的话谁也不醒', ['B', 'active', 'all', 'dm', 'A', true, false, null, false, null], false],
     ['无点名 · agent 发的不唤醒人(#1671)', ['B', 'active', 'all', 'group', 'A', true, false, null, false, null], false],
     ['@A · A 是 passive 也醒', ['A', 'passive', 'all', 'group', 'H', false, false, ['A'], false, null], true],
     ['@A · 旁观的 active B 不醒(#6077)', ['B', 'active', 'all', 'group', 'H', false, false, ['A'], false, null], false],
