@@ -511,7 +511,7 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
     for (let i = 0; i < parts.n; i++) {
       const p = parts.list[i]
       out.push(lay * p.alpha * 255)
-      if (p.shOn) out.push(p.shx * v.s, p.shy * v.s, p.shrx * v.s * (1 - 0.28 * p.hopN), p.shry * v.s * (1 - 0.3 * p.hopN), p.hopN * 255)
+      if (p.shOn) out.push(p.shx * v.s, p.shy * v.s, p.shrx * v.s * (1 - 0.28 * p.hopN), p.shry * v.s * (1 - 0.3 * p.hopN), (o.bg ? 0.34 : 0.2) * (1 - 0.55 * p.hopN) * 255)
       const spr = p.pack.spr
       for (const gy of LOOK_GRID)
         for (const gx of LOOK_GRID) {
