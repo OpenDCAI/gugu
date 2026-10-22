@@ -139,8 +139,7 @@ export function HtmlPreviewFrame({ fileName, rawContent, register, onLink, reloa
           // 源决定它能读到什么**。有了地址,锚点和相对路径已经对了;不给同源,它就读不到自己
           // 这个 origin 下的存储、也发不出同源请求。两样都要。
           sandbox="allow-scripts"
-          className="w-full min-h-0 flex-1 border-0"
-          style={{ background: 'var(--bg-primary)' }}
+          className="w-full min-h-0 flex-1 border-0 bg-[var(--bg-primary)]"
         />
       ) : (
         <div className="flex h-full items-center justify-center">
