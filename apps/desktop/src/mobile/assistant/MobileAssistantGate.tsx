@@ -1,7 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding'
 import { Button } from '@/components/ui/Button'
+import { IconButton } from '@/components/ui/IconButton'
 import { PaneHeader } from '@/components/ui/Pane'
+import { ChevronLeft } from '@/lib/icons'
+import { Avatar } from '@/components/Avatar'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
 import { canSetUpCloudAssistant } from '@/lib/assistantHome'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -18,11 +21,12 @@ import './assistant-phone.css'
  * 它还不存在 = 给它安家的引导(与桌面同一个 AssistantOnboarding;手机上装不了它,会员一键领取、非会员引导开会员)、私聊在开 / 开不了。
  * 能打开聊天了,这一格就换成助理 App 本身。格名固定「咕咕」,还没有它时页头就写「咕咕」。
  */
-export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude<PhoneAssistantStage, { stage: 'ready' }>; name: string | null; ownerName: string | null }) {
+export function MobileAssistantGate({ stage, name, ownerName, onBack }: { stage: Exclude<PhoneAssistantStage, { stage: 'ready' }>; name: string | null; ownerName: string | null; onBack?: () => void }) {
   const { t } = useTranslation('assistant')
   const { user } = useAuth()
   const { cloudComputer, devices } = useDevicesStore()
   const who = name ?? t('rail')
+  const leading = onBack ? <IconButton size="lg" aria-label={t('panel.back')} onClick={onBack} data-testid="phone-assistant-gate-back"><ChevronLeft /></IconButton> : undefined
 
   const body = (() => {
     switch (stage.stage) {
@@ -31,7 +35,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'cloud-unreadable':
         return (
           <>
-            <p className="ta-intro-body">{t('cloud.unreadable')}</p>
+            <p className="ta-intro-body" role="alert">{t('cloud.unreadable')}</p>
             <Button variant="ghost" className="ta-pill-btn" onClick={() => void refreshCloudComputer().catch(() => undefined)} data-testid="mobile-assistant-cloud-retry">
               {t('machine.retry')}
             </Button>
@@ -42,9 +46,9 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'identity':
         return (
           <>
-            <div className="ta-intro-glow" aria-hidden />
+            <Avatar name={who} seed="gugu-default" size={72} isAgent harnessBadge={false} />
             <h1 className="ta-intro-title">{t('identity.title')}</h1>
-            <p className="ta-intro-body">{t(`identity.${stage.state}`)}</p>
+            <p className="ta-intro-body" role={stage.state === 'unreadable' ? 'alert' : 'status'}>{t(`identity.${stage.state}`)}</p>
             {stage.state === 'unreadable' ? (
               <Button variant="ghost" className="ta-pill-btn" onClick={() => reloadMyAssistant(user?.id)} data-testid="mobile-assistant-identity-retry">
                 {t('machine.retry')}
@@ -57,7 +61,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'chat-failed':
         return (
           <>
-            <p className="ta-intro-body">{t('chat.openFailed', { name: who })}</p>
+            <p className="ta-intro-body" role="alert">{t('chat.openFailed', { name: who })}</p>
             <Button variant="ghost" className="ta-pill-btn" onClick={stage.retry} data-testid="mobile-assistant-chat-retry">
               {t('machine.retry')}
             </Button>
@@ -71,7 +75,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
     const device = snapshot?.deviceId ? devices.find((d) => d.device_id === snapshot.deviceId) ?? null : null
     return (
       <div className="ta-phone" data-testid="mobile-assistant-gate-onboarding">
-        <PaneHeader mobile title={who} />
+        <PaneHeader mobile title={who} titleLevel={onBack ? 'panel' : 'page'} leading={leading} />
         <main className="ta-phone-gate ta-phone-onboarding">
           <AssistantOnboarding ownerUserId={user.id} ownerName={ownerName} snapshot={snapshot} device={device} cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)} localDeviceId={null} />
         </main>
@@ -81,7 +85,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
 
   return (
     <div className="ta-phone" data-testid={`mobile-assistant-gate-${stage.stage}`}>
-      <PaneHeader mobile title={who} />
+      <PaneHeader mobile title={who} titleLevel={onBack ? 'panel' : 'page'} leading={leading} />
       <main className="ta-phone-gate">
         <div className="ta-intro">{body}</div>
       </main>
@@ -91,7 +95,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
 
 function Waiting({ text }: { text: string }) {
   return (
-    <p className="ta-intro-body inline-flex items-center gap-2">
+    <p className="ta-intro-body inline-flex items-center gap-2" role="status">
       <LoadingIndicator size="inline" />
       {text}
     </p>

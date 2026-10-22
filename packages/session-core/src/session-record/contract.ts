@@ -632,6 +632,8 @@ export type SessionpageSessionSummary = {
   activitySourceLinks?: readonly string[];
   /** 这条会话的 agent(本机名录的绑定,没有身份 = null)。只带 id:显示名只在云端 `identity.users`,看的一端按 id 取。老宿主不带。 */
   agent?: { userId: string } | null;
+  /** 宿主提供的真实咕咕私聊；手机 Agent 可通过它继续任务，独立于 workspace 转录支持。 */
+  chatId?: string;
   /** 起它的 App(`spawnedByExtensionId`);App 列 agent 时由发起方比对成「是不是我起的」。老宿主不带。 */
   spawnedByExtensionId?: string | null;
   /**
@@ -699,6 +701,8 @@ export type SessionpageHarnessOption = {
    * 照列不藏,标出来点不动 —— 与「没装」同一条口径。
    */
   watchable: boolean;
+  /** 可在 Agent 的真实咕咕对话中继续任务；不代表支持 workspace 转录。 */
+  chatAvailable?: boolean;
 };
 
 /**
@@ -876,6 +880,10 @@ export function guguReasonInText(text: string | null | undefined): GuguCatalogRe
 }
 
 export type SessionpageSessionCreateRequest = {
+  /** 支持持久创建重试的宿主使用同一个请求 id，避免回复丢失后重复建身份。 */
+  clientRequestId?: string;
+  /** 可选的预设名字；不提供时由宿主命名。 */
+  title?: string;
   /**
    * 建在哪个项目下。与 `projectPath` 二选一:给了 id 就用那台机器上已有的项目;
    * 只给 `projectPath` = 那台机器上的一个目录,没登记过就当场登记成项目(与远端建 agent 同一条规则,
@@ -908,6 +916,8 @@ export type SessionpageSessionCreateResult = {
   conversationId: string;
   projectId: string;
   title: string;
+  /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
+  birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:
    * 第一句话在转录里,失败原因是其后的一行、可以再试一次 —— ❌ 留一条点不开的死行。老宿主不带这一格。

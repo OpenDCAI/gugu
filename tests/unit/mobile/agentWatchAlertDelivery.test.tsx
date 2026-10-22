@@ -44,7 +44,7 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
 
 const { useAgentWatchAlerts, useAgentWatchFocus } = await import('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts')
 
-const device = { device_id: 'machine-1', is_online: true } as unknown as Device
+const device = { device_id: 'machine-1', is_online: true, capabilities: {} } as unknown as Device
 const session = (agentStatus: string): SessionpageSessionSummary => ({
   conversationId: 'conversation-1',
   projectId: 'project-1',

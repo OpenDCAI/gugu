@@ -8,7 +8,7 @@ import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/s
 import { DESKTOP_REPORT_REFRESH_MS, readDesktopReports, readVersionSwitchRequest, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions';
 import type { DeviceRpcHandlerContext } from '@gugu/core/cloud/deviceRpcResponder';
 import { createSessionHostDeviceRpcHandlers } from './device-session-host';
-import type { FrameSessionHost } from './frame-host';
+import { FrameSessionHost } from './frame-host';
 
 const saved = { mode: process.env.GUGU_SERVER_MODE, data: process.env.GUGU_TASK_HOST_USER_DATA };
 afterEach(() => {
@@ -122,6 +122,28 @@ describe('taskhost.open 带来的桌面版本', () => {
 });
 
 describe('taskhost.call(一问一答,不开窗口)', () => {
+  it('can read and edit the host books while window controls and unlisted app calls remain refused', async () => {
+    const frameHost = new FrameSessionHost();
+    const entry = { id: 'phone-trial', content: 'old' };
+    frameHost.ipcMain.handle('app.getUserLibrary', () => ({ capabilities: [entry] }));
+    frameHost.ipcMain.handle('app.getUserLibraryVolume', (_event, kind) => ({ volume: { kind }, items: [entry] }));
+    frameHost.ipcMain.handle('app.readUserLibraryEntry', (_event, kind, id) => ({ kind, id, content: entry.content }));
+    frameHost.ipcMain.handle('app.writeUserLibraryEntry', (_event, input) => {
+      entry.content = (input as { content: string }).content;
+      return entry;
+    });
+    const forbidden = vi.fn();
+    for (const channel of ['app.closeWindow', 'app.getUserLibraryVolumeExtra', 'browser.open']) frameHost.ipcMain.handle(channel, forbidden);
+    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => frameHost });
+    const call = (channel: string, args: unknown[] = []) => handlers['taskhost.call']!({ channel, args }, ctx);
+    expect(await call('app.getUserLibrary')).toMatchObject({ result: { value: { capabilities: [entry] } } });
+    expect(await call('app.getUserLibraryVolume', ['capabilities'])).toMatchObject({ result: { value: { volume: { kind: 'capabilities' } } } });
+    expect(await call('app.writeUserLibraryEntry', [{ kind: 'capabilities', id: entry.id, content: 'new' }])).toMatchObject({ result: { value: { content: 'new' } } });
+    expect(await call('app.readUserLibraryEntry', ['capabilities', entry.id])).toMatchObject({ result: { value: { content: 'new' } } });
+    for (const channel of ['app.closeWindow', 'app.getUserLibraryVolumeExtra', 'browser.open']) expect(await call(channel)).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
   it('runs the call through the host with the remote policy; a failure comes back as {code, message}; a bad payload is refused', async () => {
     const invokeOnce = vi.fn(async (channel: string, _args: unknown[], _policy?: (channel: string) => boolean) => {
       if (channel === 'boom.now') throw Object.assign(new Error('nope'), { code: 'session_not_found' });

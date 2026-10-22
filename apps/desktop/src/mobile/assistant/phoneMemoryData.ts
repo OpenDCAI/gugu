@@ -2,7 +2,7 @@
 // 这里只把桌面页面里那几步(删一条记忆连同索引、数一数、资料夹里往下钻、上传)拆成不带界面的函数,手机页与单测共用。
 import { VOICE_NOTES_DIR } from '@gugu/core/shared/voiceNotes'
 import type { DirectoryEntry } from '@shared/core/fs/fs'
-import { joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type ResourceRejection } from '@/session/renderer/features/assistant/assistant-files'
+import { joinPath, removeIndexEntry, resourceRejection, type ResourceRejection } from '@/session/renderer/features/assistant/assistant-files'
 import {
   AssistantFileError,
   listDirectory,
@@ -56,6 +56,13 @@ export function filesSub(trail: readonly string[]): string {
 
 export function resourcePathOf(machine: AssistantMachine, trail: readonly string[]): string {
   return trail.reduce((dir, name) => joinPath(dir, name), machine.paths.resourcesDir)
+}
+
+/** Use the same location for reading, uploading and asking the assistant to inspect files. */
+export function resourceDisplayPath(machine: AssistantMachine, trail: readonly string[]): string {
+  const path = resourcePathOf(machine, trail)
+  const home = machine.home.replace(/\/+$/, '')
+  return path === home ? '~' : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 }
 
 /** 手机上看一个文件最多读这么大(与核心 readText 同一个上限);大了不读,只说多大。 */
@@ -129,7 +136,11 @@ export async function uploadResources(
     else accepted.push(file)
   }
   if (!accepted.length) return outcome
-  if (trail.length === 0) await makeFolder(machine, machine.home, RESOURCES_DIR_NAME)
+  if (trail.length === 0) {
+    const root = machine.paths.resourcesDir
+    const split = root.lastIndexOf('/')
+    await makeFolder(machine, root.slice(0, split) || '/', root.slice(split + 1))
+  }
   const dir = resourcePathOf(machine, trail)
   for (const file of accepted) {
     onFile?.(file.name)

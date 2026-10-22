@@ -1,6 +1,7 @@
 export default {
   "agent": {
     "identity": {
+      "phone": "手机 Agent",
       "pending": "智能体 · 类型确认中",
       "unavailable": "智能体类型不可用",
       "removed": "已移除的智能体",

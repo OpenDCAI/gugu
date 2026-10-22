@@ -53,7 +53,7 @@ afterEach(() => {
   Element.prototype.scrollTo = scrollTo
 })
 
-async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[]) {
+async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[], onSend = async (_text: string) => undefined) {
   await harness.render(
     <AgentThread
       timeline={{ ...emptyAgentWatchTimeline(), turns, queuedPrompts }}
@@ -62,7 +62,7 @@ async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: 
       sessionRuntime="acp"
       respondingItemId={null}
       onRespond={() => undefined}
-      onSend={async () => undefined}
+      onSend={onSend}
       pendingSends={[]}
       sending={false}
       agentWorking
@@ -77,6 +77,21 @@ async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: 
 const userBubbles = () => [...harness.container.querySelectorAll('[data-role="user"]')].map((el) => el.textContent ?? '')
 
 describe('手机任务页的排队提示', () => {
+  it('keeps the phone Enter key for writing and sends through the explicit send control', async () => {
+    const onSend = vi.fn(async () => undefined)
+    await show(running, [], onSend)
+    const input = harness.container.querySelector('textarea')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, '下一步\n请继续')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(input.getAttribute('enterkeyhint')).toBe('enter')
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })) })
+    expect(onSend).not.toHaveBeenCalled()
+    await act(async () => { (harness.container.querySelector('.aui-composer-send') as HTMLButtonElement).click() })
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('下一步\n请继续')
+  })
+
   it('那台机器上排着的那句画在时间线末尾:重新进页时拿到的就是这一份', async () => {
     await show(running, [{ id: 'qp-1', text: QUEUED }])
     expect(userBubbles().filter((text) => text.includes(QUEUED))).toHaveLength(1)

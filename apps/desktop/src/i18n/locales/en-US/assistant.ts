@@ -416,6 +416,7 @@ export default {
     },
     "unseen": "Has unseen results",
     "emptyTitle": "No tasks yet",
+    "loadFailed": "Couldn't load tasks",
     "empty": "Tasks {{name}} starts while working for you show up here.",
     "notRead": "{{name}}'s tasks can only be read while it's awake."
   },
@@ -426,6 +427,7 @@ export default {
     "active": "Active",
     "inactive": "Paused",
     "next": "Next {{time}}",
+    "nextUnavailable": "Couldn't read the next run time",
     "ended": "Ended",
     "enabled": "On",
     "everyDay": "Daily at {{time}}",

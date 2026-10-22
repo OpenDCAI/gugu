@@ -45,7 +45,7 @@ export function PhoneMachineGate({ readiness, name, children }: { readiness: Pho
   }
   return (
     <AssistantEmpty>
-      <span className="inline-flex items-center gap-2" data-testid="assistant-connecting">
+      <span className="inline-flex items-center gap-2" role="status" data-testid="assistant-connecting">
         <LoadingIndicator size="inline" />
         {t('machine.connecting', { name })}
       </span>

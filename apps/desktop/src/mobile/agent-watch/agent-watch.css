@@ -6,7 +6,7 @@
  * ❌ 不靠 !important 把问题按下去(与 ExplorePage.css 同一条理由)。
  *
  * 几何一律取 tokens.css 的刻度,本表不拍新数:
- *   字号 --font-caption/body/title/heading = 11/13(移动端 14)/15/17
+ *   字号 --font-caption/body/title/heading = 12/14/16/20;消息正文 --font-prose = 16
  *   圆角 --radius-control / --radius-xl / --radius-capsule / --radius-circle
  *                                          = 8 / 12 / 9999 / 50%
  *   间距 --spacing-xs…2xl                  = 4/8/12/16/20/24
@@ -263,17 +263,21 @@
    骨架是 assistant-ui 的原语(无样式),视觉全部落在这里的 token 上。
    ❌ 不引它的预置样式表:那套是 shadcn 词汇,与本仓的 token 体系不是一套。 */
 
-/* 官方 Thread 自己是 h-full 的 flex 列,这一层只负责把高度交给它。 */
-/* 移动端刻度:官方那套是按桌面调的,text-base=16px 在 390px 屏上偏胖。
-   这里只在这棵子树里把 Tailwind 的字号 token 收一档 —— 不改官方源码里的类名,
-   也不影响 app 其它地方(token 是继承来的,覆盖只在本子树生效)。 */
+/* Thread owns the composer; message prose and compact controls use the current shared type roles. */
 .gg-aw .gg-aw-thread-host {
-  --text-base: 0.9375rem;   /* 15px，与咕咕正文同一档 */
-  --text-sm: 0.8125rem;     /* 13px */
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  font-family: var(--font-family-system);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+.gg-aw .gg-aw-create-intro { padding-block: var(--spacing-lg); }
+.gg-aw .gg-aw-create-intro .aui-thread-welcome-hint {
+  color: var(--muted-fg);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
 }
 /* 输入框恒贴底。官方模板在「还没有消息」时把整列居中(欢迎语 + 输入框一起浮在中间),有消息后
    才把页脚 sticky 到底 —— 手机上一次新建会经过「新建页(空)→ 会话页首帧(空)→ 有消息」三态,
@@ -443,29 +447,13 @@
 }
 @keyframes gg-aw-spin { to { transform: rotate(360deg); } }
 
-/* 一行会话。左侧指示列定宽,标题与元信息各占一行。 */
+/* Task and device buttons use the shared ListRow slots and touch geometry. */
 .gg-aw .gg-aw-item {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: 10px var(--spacing-md);
-  border: 0;
-  border-radius: var(--radius-xl);
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  color: var(--fg);
-  cursor: pointer;
-  /* @@@1787 触控下限。 */
-  min-height: 44px;
+  min-height: var(--control-h-touch);
 }
 .gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
 .gg-aw .gg-aw-item:not([aria-disabled='true']):active { background: var(--press); }
 .gg-aw .gg-aw-item[aria-disabled='true'] { cursor: default; opacity: 0.55; }
-.gg-aw .gg-aw-item-ind { padding-top: 5px; }
-/* 指示列画的是咕咕小鸟(SessionAvatar):状态靠它的身体说,所以比从前那个 8px 点大得多,与标题 + 元信息两行垂直居中。 */
-.gg-aw .gg-aw-item-ind[data-avatar] { padding-top: 0; align-self: center; display: flex; }
 /* 行 = 打开按钮 + 行尾「…」管理入口。两个都是按钮,❌ 嵌套(按钮里不能再放按钮),并排放。 */
 .gg-aw .gg-aw-item-wrap { display: flex; align-items: center; }
 .gg-aw .gg-aw-item-wrap > .gg-aw-item { flex: 1; min-width: 0; }
@@ -485,15 +473,6 @@
 .gg-aw .gg-aw-actions-error { color: var(--danger, var(--badge-red)); font-size: var(--font-size-sm); }
 .gg-aw .gg-aw-actions-item { width: 100%; justify-content: center; }
 .gg-aw .gg-aw-actions-field { width: 100%; }
-.gg-aw .gg-aw-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.gg-aw .gg-aw-item-title {
-  font-size: var(--font-body);
-  line-height: 1.35;
-  font-weight: var(--font-weight-medium);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* 放不下就换行,❌ 每段一起缩成「Ma… · Do…」:状态词、机器名、agent 名一个都不能截掉。只有单独一段比整行还长时才截它。 */
 .gg-aw .gg-aw-item-meta {
   display: flex;
@@ -522,46 +501,25 @@
 .gg-aw .gg-aw-item-schedule[data-attention] svg { color: var(--warn); }
 
 
-/* 机器卡：orca 的 MobileHostCard 形制。
-   ⚠️ 类名不能叫 gg-aw-card —— 那个已经被上面的审批/提问卡占了(它是 flex-direction:column),
-   撞名的后果是这张卡塌成竖排居中,而边框圆角照常生效,看起来像「布局写错了」而不是「撞名」。 —— 圆角卡 + 左侧图标块 + 两三行信息。 */
-/* ⚠️ 2026-09-22 按 design.md 统一:去掉描边卡,跟上同一张表里的会话行(.gg-aw-item)。
-   「**Rows breathe on rhythm and a hover fill, not on dividers**」
-   「**Prefer a change of density over a box.**」—— 一列机器 = 一列行,不是一叠卡片;
-   同一张表里两种列表行原来是两套形制、两档圆角(卡 --r-xl 16 vs 行 --r-lg 12),
-   而 --r-xl 连这张表自己的自述刻度都没列。现在两者同一档 --radius-xl。 */
+/* Device identity uses the same leading lane as an Agent avatar, without an icon backplate. */
 .gg-aw .gg-aw-machine {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 12px var(--spacing-md);
-  border: 0;
-  border-radius: var(--radius-xl);
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  color: var(--fg);
-  cursor: pointer;
+  min-height: var(--control-h-touch);
 }
 .gg-aw .gg-aw-machine:not(:disabled):hover { background: var(--hover); }
 .gg-aw .gg-aw-machine:not(:disabled):active { background: var(--press); }
 .gg-aw .gg-aw-machine-icon {
   display: inline-flex;
-  width: 46px;
-  height: 46px;
+  width: var(--avatar-sm);
+  height: var(--avatar-sm);
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-xl);
-  background: var(--muted);
   color: var(--muted-fg);
 }
+.gg-aw .gg-aw-machine-icon svg { width: var(--icon-lg); height: var(--icon-lg); }
 .gg-aw .gg-aw-machine-icon[data-online='true'] { color: var(--fg); }
 /* 选机器模式下的离线机器:照画,点不动。压暗而不是藏掉 —— 人得看见「它在,只是不在线」。 */
 .gg-aw .gg-aw-machine:disabled { opacity: 0.45; cursor: default; }
-.gg-aw .gg-aw-machine-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.gg-aw .gg-aw-machine-sub { margin-left: 18px; }
 .gg-aw .gg-aw-machine-trailing { flex: none; color: var(--faint-fg); display: inline-flex; }
 
 
@@ -596,25 +554,22 @@
 }
 
 
-/* 页头标题块：标题一行、状态一行(orca 的 sessionTitleBlock 同款)。
-   状态挤在标题旁会跟标题抢宽度,而会话标题本来就长、已经在省略号收尾。 */
-.gg-aw .gg-aw-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gg-aw .gg-aw-head-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gg-aw .gg-aw-head-meta {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  font-size: var(--font-caption);
-  line-height: var(--lh-caption);
-  font-weight: var(--font-weight-regular);
-  color: var(--muted-fg);
+/* Entity and actual state occupy one compact shared header, with no second title/hero above the thread. */
+.gg-aw .gg-aw-title-avatar {
+  display: inline-flex;
+  width: var(--avatar-sm);
+  height: var(--avatar-sm);
+  flex: none;
 }
-
-/* 时间线页顶:头像、名称、状态同行;整行固定,不随线程滚动。 */
-.gg-aw .gg-aw-hero { flex: none; display: flex; justify-content: center; align-items: center; gap: var(--spacing-xs); min-width: 0; padding: var(--spacing-xs) 0; }
-.gg-aw .gg-aw-hero-line { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 100%; min-width: 0; font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gg-aw .gg-aw-hero-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--font-weight-medium); color: var(--fg); }
-.gg-aw .gg-aw-hero-line > :not(.gg-aw-hero-name) { flex-shrink: 0; }
+.gg-aw .gg-aw-head-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  max-width: 100%;
+}
+.gg-aw .gg-aw-head-agent { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gg-aw .gg-aw-head-state { flex: none; }
 
 /* ── 「机器离线」一行提示 + 渐进披露 ────────────────────────────────────────
    形制照 orca 的 HostRouteNoticeBanner:单行次级文字、单色、贴一条下边框。

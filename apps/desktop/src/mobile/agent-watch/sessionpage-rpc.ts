@@ -1,4 +1,6 @@
 import type { RpcRouter } from '@main/rpc'
+import { invokePhoneHost } from '../local-agent/phoneHostRpc'
+import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -36,6 +38,8 @@ import type {
   SessionpageSessionView,
   SessionpageSessionCreateRequest,
   SessionpageSessionCreateResult,
+  SessionpageProjectSummary,
+  SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
 // ⚠️ 只能从 `/contract` 取,❌ 不许写成 `@gugu/session-core/session-record`:那个 barrel 会往下拖
 // node:fs 与 better-sqlite3(宿主侧的记录源),浏览器里首屏直接白屏 —— 实测过一次。
@@ -185,7 +189,12 @@ export function sendSessionText(deviceId: string, sessionId: string, text: strin
 }
 
 /** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
-export function sessionAttachmentRpc(deviceId: string) {
+export function sessionAttachmentRpc(deviceId: string, phoneHost = false): AttachmentUploadRpc {
+  if (phoneHost) return {
+    writeAttachmentChunk: (chunk) => invokePhoneHost(deviceId, 'sessionCreate.writeAttachmentChunk', [{ ...chunk, data: Array.from(chunk.data) }]),
+    commitAttachmentUpload: (commit) => invokePhoneHost(deviceId, 'sessionCreate.commitAttachmentUpload', [commit]),
+    discardAttachmentUpload: (input) => invokePhoneHost(deviceId, 'sessionCreate.discardAttachmentUpload', [input]),
+  }
   return rpc(deviceId).sessionCreate
 }
 
@@ -217,15 +226,18 @@ export function subscribeSessionEvents(deviceId: string, subscriptionId: string,
     onResult((event as SessionpageSessionEvent).result))
 }
 
-export function fetchSessionOptions(deviceId: string, sessionId: string): Promise<SessionpageSessionOptionsWithMenu> {
+export function fetchSessionOptions(deviceId: string, sessionId: string, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionOptions', [{ conversationId: sessionId }])
   return value(rpc(deviceId).sessionTimeline.sessionOptions({ conversationId: sessionId }))
 }
 
-export function setSessionOption(deviceId: string, input: SessionpageSessionSetOptionRequest): Promise<SessionpageSessionOptionsWithMenu> {
+export function setSessionOption(deviceId: string, input: SessionpageSessionSetOptionRequest, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionSetOption', [input])
   return value(rpc(deviceId).sessionTimeline.sessionSetOption(input))
 }
 
-export function reloadSessionModel(deviceId: string, input: SessionpageSessionReloadModelRequest): Promise<SessionpageSessionOptionsWithMenu> {
+export function reloadSessionModel(deviceId: string, input: SessionpageSessionReloadModelRequest, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionReloadModel', [input])
   return value(rpc(deviceId).sessionTimeline.sessionReloadModel(input))
 }
 
@@ -251,6 +263,26 @@ export function fetchCreateModels(
 /** **在那台机器上开一条新会话。**只在用户点了发送之后调 —— 它会在对方机器上起一个 agent 进程。 */
 export function createSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
   return value(rpc(deviceId).sessionTimeline.sessionCreate(request))
+}
+
+export function fetchPhoneSessions(deviceId: string): Promise<{ projects: SessionpageProjectSummary[]; sessions: SessionpageSessionSummary[] }> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionsList', [])
+}
+
+export function cancelPhoneSessionTurn(deviceId: string, sessionId: string): Promise<{ cancelled: boolean }> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCancel', [{ conversationId: sessionId }])
+}
+
+export function fetchPhoneCreateOptions(deviceId: string): Promise<SessionpageSessionCreateOptions> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreateOptions', [])
+}
+
+export function fetchPhoneCreateModels(deviceId: string, harness: string, sessionView: SessionpageSessionView | null, model: string | null): Promise<SessionpageSessionCreateModels> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreateModels', [{ harness, ...(sessionView ? { sessionView } : {}), ...(model ? { model } : {}) }])
+}
+
+export function createPhoneSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreate', [request], request.clientRequestId)
 }
 
 export function subscribeSessionsList(deviceId: string, subscriptionId: string): Promise<unknown> {

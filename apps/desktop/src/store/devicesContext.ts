@@ -13,7 +13,8 @@ export interface DevicesContextValue {
    */
   devices: Device[]
   /**
-   * #7199 账号名下登记成设备的手机(只被助理调单个动作,不是运行位置,所以不在 `devices` 里)。设置 → 设备列它们;
+   * Action-only phones; a phone with an available agent host belongs to `devices`.
+   * 设置 → 设备列它们;
    * 在手机上,这台手机自己那一行 is_current_device。可选:没接这一格的场合就没有手机。
    */
   phones?: Device[]

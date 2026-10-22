@@ -1,0 +1,27 @@
+div.gg-phone-skills {
+  --phone-font-note: var(--phone-font-caption, calc((var(--font-caption) + var(--font-body)) / 2));
+  --phone-surface: color-mix(in oklab, var(--muted) 36%, var(--bg));
+  display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; background: var(--bg);
+}
+div.gg-phone-skills-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 24px; min-height: 0; padding: 16px; overflow-y: auto; overscroll-behavior: contain; }
+.gg-phone-skills-body > * { flex-shrink: 0; }
+.gg-phone-skills .gg-settings-note,
+.gg-phone-skills .gg-settings-row-description,
+.gg-phone-skills .gg-list-row-subtitle,
+.gg-phone-skills [data-slot='field-description'] { font-size: var(--phone-font-note); line-height: var(--lh-body); }
+div.gg-phone-skills-toolbar { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+div.gg-phone-skills-list { display: flex; flex-direction: column; gap: 4px; }
+div.gg-phone-skill-row { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.gg-phone-skill-row > [data-slot='button'] { flex: 1; min-width: 0; }
+.gg-phone-skill-row > [role='switch'] { flex: none; }
+.gg-phone-skill-row .gg-list-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
+.gg-phone-skill-row .gg-list-row { min-height: 56px; padding-inline: 0; }
+div.gg-phone-skill-fields { display: flex; flex-direction: column; gap: 24px; }
+.gg-phone-skill-fields [data-slot='field-control'] { min-height: var(--control-h-touch); border: 0; background: var(--phone-surface); font-size: var(--font-prose); line-height: var(--lh-prose); }
+.gg-phone-skill-fields textarea { min-height: calc(8 * var(--lh-prose)); }
+.gg-phone-skill-fields .gg-settings-row { padding-inline: 0; border: 0; }
+.gg-phone-skill-fields .gg-settings-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
+div.gg-phone-skills-footer { display: flex; flex: none; flex-direction: column; gap: 12px; padding: 16px; border-top: 0; background: var(--bg); }
+div.gg-phone-skills-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); }
+.gg-phone-skills-actions > [data-slot='button'], .gg-phone-skills-toolbar > [data-slot='button'] { min-height: var(--control-h-touch); }
+.gg-phone-skills-actions > [data-slot='button'] { flex: 1; min-width: 0; white-space: normal; }

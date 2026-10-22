@@ -1,0 +1,146 @@
+/* Handset composition. Desktop surfaces keep their existing geometry and tokens. */
+[data-phone-shell] {
+  --phone-font-caption: calc((var(--font-caption) + var(--font-body)) / 2);
+  --pane-pad-x: var(--spacing-lg);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-phone-shell] .gg-pane[data-mobile] {
+  border: 0;
+  background: var(--bg);
+}
+
+[data-phone-shell] .gg-pane-header[data-mobile] {
+  min-height: 64px;
+  padding-inline: var(--spacing-lg);
+  border-bottom: 0;
+  background: var(--bg);
+}
+
+[data-phone-shell] .gg-pane-header .gg-pane-heading-title[data-title-level='page'] {
+  font-size: var(--font-size-xl);
+  line-height: var(--lh-page);
+}
+
+[data-phone-shell] .gg-phone-conversations,
+[data-phone-shell] .gg-phone-conversation-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+[data-phone-shell] button.gg-phone-assistant-entry {
+  display: grid;
+  place-items: center;
+  min-width: var(--control-h-touch);
+  min-height: var(--control-h-touch);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: transparent;
+  touch-action: manipulation;
+}
+
+[data-phone-shell] .gg-list-row {
+  min-height: 56px;
+  border-radius: var(--radius-surface);
+  touch-action: manipulation;
+}
+
+[data-phone-shell] .gg-list-row-title {
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+
+[data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {
+  min-height: 56px;
+  border: 0;
+}
+
+[data-phone-shell] .gg-settings-body {
+  gap: var(--spacing-xl);
+}
+
+[data-phone-shell] .gg-settings-group .gg-settings-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-phone-shell] .gg-settings-group .gg-settings-row {
+  min-height: 56px;
+  padding: var(--spacing-md) 0;
+  border: 0;
+}
+
+[data-phone-shell] .gg-settings-row .gg-settings-row-title {
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+
+[data-phone-shell] .gg-settings-row .gg-settings-row-description {
+  margin-top: var(--spacing-xs);
+  font-size: var(--phone-font-caption);
+  line-height: var(--lh-body);
+}
+
+[data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-identity {
+  margin-inline: var(--spacing-sm);
+  border: 0;
+  background: var(--muted);
+  border-radius: var(--radius-thread);
+}
+
+[data-phone-shell] .gg-mobile-composer-row {
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-thread);
+  background: var(--muted);
+}
+
+[data-phone-shell] .gg-mobile-composer-row:focus-within {
+  outline: 1px solid var(--border-strong);
+  outline-offset: 0;
+}
+
+[data-phone-shell] .ta-phone-chat {
+  padding-inline: var(--spacing-sm);
+}
+
+[data-phone-shell] .ta-phone-identity .ta-phone-identity-name {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+}
+
+div.gg-phone-feature-menu {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xl);
+  gap: var(--spacing-xs);
+}
+
+.gg-phone-feature-menu h2 {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+  font-weight: var(--font-weight-semibold);
+}
+
+.gg-phone-feature-menu button.gg-phone-feature-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding-inline: var(--spacing-lg);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+
+.gg-phone-feature-menu .gg-phone-feature-link svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  color: var(--muted-fg);
+}

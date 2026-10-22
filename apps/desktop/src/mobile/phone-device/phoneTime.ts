@@ -1,4 +1,4 @@
-// #7199 手机当设备 —— 时间的写法。这段 JS 跑在手机的 WebView 里:Date 的「本地」就是手机的时区。
+// 手机时区的时间写法:WebView 随系统;原生宿主用 Android 的 TZ 启动 Node。
 
 export const pad = (n: number, width = 2) => String(Math.abs(Math.trunc(n))).padStart(width, '0')
 

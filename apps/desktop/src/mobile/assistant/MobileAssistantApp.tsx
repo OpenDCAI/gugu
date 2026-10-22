@@ -5,6 +5,7 @@ import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { PaneHeader } from '@/components/ui/Pane'
+import { Sheet } from '@/components/ui/Sheet'
 import { Avatar } from '@/components/Avatar'
 import { ChatAreaPanel } from '@/components/ChatAreaPanel'
 import { AssistantCustomizeCard } from '@/components/assistant/AssistantCustomizeCard'
@@ -19,7 +20,7 @@ import type { AssistantHomePlace } from '@/lib/assistantHome'
 import { assistantTintHue, assistantTintStyle } from '@/lib/assistantTint'
 import { IdeasEntry } from '@/session/renderer/features/assistant/assistant-ideas'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
-import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, Settings, Sparkles } from '@/lib/icons'
+import { ArrowUpToLine, ChevronLeft, Mic, Plus, Search, MoreHorizontal, Sparkles, ChevronRight } from '@/lib/icons'
 import { useReportChatOnScreen } from '@/lib/onScreenChat'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
@@ -101,6 +102,7 @@ function MobileAssistantAppContent({
   home,
   visible,
   chatRequest,
+  onBack,
   ...chatHandlers
 }: {
   chatId: string
@@ -113,8 +115,11 @@ function MobileAssistantAppContent({
   visible: boolean
   /** 每变一次 = 别处打开了和它的私聊:落在聊天那一段。 */
   chatRequest: number
+  onBack?: () => void
 } & AssistantChatHandlers) {
   const { t } = useTranslation('assistant')
+  const { t: tWorkspace } = useTranslation('mobileWorkspace')
+  const [menuOpen, setMenuOpen] = useState(false)
   const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
   useEffect(() => {
     const open = () => setRoute({ tab: 'profile', sub: 'connectors' })
@@ -206,21 +211,20 @@ function MobileAssistantAppContent({
           左 = 它的头像 + 名字(点了去 <名字> 那一段;往下钻的页最左多一个返回箭头),右 = 搜索(聊天段)+ 齿轮。 */}
       <PaneHeader
         mobile
+        titleLevel={back ? 'panel' : 'page'}
         data-testid="mobile-assistant-header" hidden={taskChat}
         leading={
           back ? (
-            <IconButton size="lg" aria-label={t('panel.back')} onClick={() => open(back)} data-testid="mobile-assistant-back">
+            <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back.tab]}`} onClick={() => open(back)} data-testid="mobile-assistant-back">
               <ChevronLeft />
             </IconButton>
-          ) : undefined
+          ) : tab !== 'chat' || onBack ? <IconButton size="lg" aria-label={t('panel.back')} onClick={() => tab !== 'chat' ? open({ tab: 'chat' }) : onBack?.()}><ChevronLeft /></IconButton> : undefined
         }
-        title={
-          <h2 className="gg-pane-title ta-phone-identity-title">
-            <Button variant="ghost" className="ta-phone-identity" onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
-              <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
-              <span className="ta-phone-identity-name">{name}</span>
-            </Button>
-          </h2>
+        title={tab !== 'chat' ? labels[tab] :
+          <Button variant="ghost" className="ta-phone-identity" onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
+            <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
+            <span className="ta-phone-identity-name">{name}</span>
+          </Button>
         }
         actions={
           <>
@@ -232,23 +236,24 @@ function MobileAssistantAppContent({
             {/* 齿轮直接开到「我的 → 咕咕」那一组(owner 10-16:咕咕的设置是全局设置里的一组,❌ 第二个设置页)。 */}
             <IconButton
               size="lg"
-              aria-label={t('top.settings')}
-              onClick={() => open({ tab: 'profile', sub: 'settings' })}
+              aria-label={tWorkspace('assistantMenu')}
+              onClick={() => setMenuOpen(true)}
               data-testid="mobile-assistant-gear"
             >
-              <Settings />
+              <MoreHorizontal />
             </IconButton>
           </>
         }
       />
-      <div className="ta-seg ta-phone-seg" role="tablist" aria-label={name} hidden={taskChat}>
-        {PHONE_TABS.map((id) => (
-          <Button key={id} variant="ghost" role="tab" aria-selected={tab === id} onClick={() => { showAssistantTaskChat(null); open({ tab: id }) }} data-testid={`mobile-assistant-tab-${id}`}>
-            {labels[id]}
-          </Button>
-        ))}
-      </div>
-      <div className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
+      {menuOpen ? <Sheet onClose={() => setMenuOpen(false)} ariaLabel={tWorkspace('assistantMenu')} mobileFitContent testId="mobile-assistant-menu">
+        <div className="gg-phone-feature-menu">
+          <h2>{tWorkspace('assistantMenu')}</h2>
+          {PHONE_TABS.map((id) => <Button key={id} variant="ghost" className="gg-phone-feature-link" data-testid={`mobile-assistant-tab-${id}`} onClick={() => { setMenuOpen(false); showAssistantTaskChat(null); open({ tab: id }) }}>
+            <span>{labels[id]}</span><ChevronRight />
+          </Button>)}
+        </div>
+      </Sheet> : null}
+      <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
         <ChatAreaPanel
           chatId={chatId}
           activeTab="chats"
@@ -275,7 +280,7 @@ function MobileAssistantAppContent({
       />
       {ideasOpen ? <PhoneIdeas assistant={assistant} chatId={chatId} askInChat={askInChat} onClose={() => setIdeasOpen(false)} /> : null}
       {tab === 'chat' ? null : (
-        <main className="ta-phone-body" data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
+        <main id={`assistant-${assistant.id}-${tab}`} role="tabpanel" aria-label={labels[tab]} className="ta-phone-body" data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
           {tab === 'today' ? <PhoneToday {...page} /> : null}
           {tab === 'tasks' ? <PhoneTasks {...page} /> : null}
           {tab === 'memory' ? <PhoneMemory {...page} /> : null}

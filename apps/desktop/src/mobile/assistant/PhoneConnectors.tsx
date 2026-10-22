@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { OtherDeviceConnectors, ThisDeviceConnectors } from '@/components/devices/AssistantDeviceConnectors'
 import { Button } from '@/components/ui/Button'
 import { Cloud } from '@/lib/icons'
-import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { platform } from '@/platform'
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead, WideSegments } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { integrationErrorText } from '@/session/renderer/features/integrations/integration-display'
@@ -18,6 +17,7 @@ import { PhoneDeviceActionsPage } from '../phone-device/PhoneDeviceActionsPage'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneMachineGate } from './PhoneMachineGate'
+import { ReadingNow } from './PhoneMachineView'
 import {
   connectSub,
   disconnectIntegration,
@@ -101,15 +101,10 @@ export function CloudGate({
             </Button>
           }
         >
-          {integrations.error instanceof Error ? integrations.error.message : String(integrations.error)}
+          <span role="alert">{integrations.error instanceof Error ? integrations.error.message : String(integrations.error)}</span>
         </AssistantEmpty>
       )
-    if (!integrations.data)
-      return (
-        <AssistantEmpty>
-          <LoadingIndicator size="inline" />
-        </AssistantEmpty>
-      )
+    if (!integrations.data) return <ReadingNow />
     return children(integrations.data)
   })()
   return (
@@ -251,7 +246,9 @@ export function PhoneConnectorDetail({ assistant, readiness, homeDeviceId, integ
                       {t('machine.retry')}
                     </Button>
                   }
-                />
+                >
+                  <span role="alert">{accounts.error instanceof Error ? accounts.error.message : String(accounts.error)}</span>
+                </AssistantEmpty>
               ) : null}
               {view.connected && !listsAccounts ? (
                 <Button variant="ghost" className="ta-wide-btn" data-tone="danger" onClick={() => setConfirm({ accountId: null, label: view.item.name })} data-testid="assistant-connector-disconnect">

@@ -1,6 +1,6 @@
 import type { Device } from '@gugu/core/shared/types/chat'
 import { DEVICE_ONLINE_STALE_MS } from '@gugu/core/shared/enums/deviceModels'
-import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 
 // #1749 设备列表排序（面板 + create-agent selector 共用单一事实源）：本机 → 其他在线 → 离线。
@@ -52,16 +52,16 @@ export function sortAssistantDevices(devices: readonly Device[]): Device[] {
 }
 
 /**
- * #7199 把手机分出去:手机只被调单个动作(product spec「手机也能被调用」),不是运行位置 ——
- * 「在哪跑」、侧栏、各处的机器选择只读 machines;设置 → 设备两份都列。`thisPhoneId` = 在手机上时这台手机自己的
- * device_id,那一行标成本机。
+ * Action-only phones live in `phones`; a phone with a ready native host is also a run target
+ * and lives in `machines`. The two collections never duplicate a device.
  */
 export function partitionPhones(devices: readonly Device[], thisPhoneId: string | null): { machines: Device[]; phones: Device[] } {
   const machines: Device[] = []
   const phones: Device[] = []
   for (const device of devices) {
-    if (!isPhoneDevice(device)) machines.push(device)
-    else phones.push(thisPhoneId !== null && device.device_id === thisPhoneId ? { ...device, is_current_device: true } : device)
+    const here = thisPhoneId !== null && device.device_id === thisPhoneId ? { ...device, is_current_device: true } : device
+    if (isAgentHostDevice(here)) machines.push(here)
+    else phones.push(here)
   }
   return { machines, phones }
 }

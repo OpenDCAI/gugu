@@ -3,7 +3,7 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { SessionpageSessionSummary, SessionpageSessionsEvent } from '@gugu/session-core/session-record/contract'
-import { createNode, createReactHarness } from '../../support/testHarness'
+import { createNode, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
 
 /**
  * #6738:时间线页头读的是壳根上那份会话列表(`useAgentWatchLiveSessions`)。那份列表的订阅**第一次列表失败**
@@ -42,9 +42,9 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
 }))
 
 const { useAgentWatchAlerts } = await import('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts')
-const { useLiveDeviceSessions } = await import('../../../apps/desktop/src/session/shared/remote-sessions/session-directory')
+const { useLiveDeviceSessions, retryDeviceSessions } = await import('../../../apps/desktop/src/session/shared/remote-sessions/session-directory')
 
-const machine = (id: string) => ({ device_id: id, is_online: true }) as unknown as Device
+const machine = (id: string) => ({ device_id: id, is_online: true, capabilities: {} }) as unknown as Device
 const session = (agentStatus: string): SessionpageSessionSummary => ({
   conversationId: 'conversation-1',
   projectId: 'project-1',
@@ -93,6 +93,18 @@ const callsFor = (fn: Mock<SubscribeFn>, deviceId: string) =>
   (fn.mock.calls as unknown[][]).filter((call) => call[0] === deviceId).length
 
 describe('壳根会话列表订阅:第一次列表失败之后(#6738)', () => {
+  it('手机 Agent 宿主不订 workspace pipe，其他在线机器仍正常同步', async () => {
+    vi.useFakeTimers()
+    const phone = { ...machine('phone-1'), capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: [{ id: 'pi', available: true }] } } as unknown as Device
+    mocks.current['machine-1'] = [session('idle')]
+    await harness.render(createNode(Root, { devices: [phone, machine('machine-1')] }))
+    await settle()
+    expect(callsFor(mocks.subscribeSessionsList, 'phone-1')).toBe(0)
+    expect(live['phone-1']).toBeUndefined()
+    expect(callsFor(mocks.subscribeSessionsList, 'machine-1')).toBe(1)
+    expect(live['machine-1']?.map((row) => row.agentStatus)).toEqual(['idle'])
+  })
+
   it('退避后自己再订阅;live 行出现,之后的推送(只有变了的行)照样更新它', async () => {
     vi.useFakeTimers()
     mocks.current['machine-1'] = [session('idle')]
@@ -112,6 +124,30 @@ describe('壳根会话列表订阅:第一次列表失败之后(#6738)', () => {
 })
 
 describe('回到前台:每台机器整个重订一次(#6738)', () => {
+  it('项目页重试复用当前账号目标机器的同步器,换账号/离线/卸载后不能再重试旧连接', async () => {
+    vi.useFakeTimers()
+    await renderWithAppProviders(harness, createNode(Root, { devices: [machine('a'), machine('b')] }), { auth: { id: 'owner-a' } })
+    await settle()
+    await expect(retryDeviceSessions('owner-b', 'a')).rejects.toThrow('当前账号')
+    await act(async () => { await retryDeviceSessions('owner-a', 'a'); await vi.advanceTimersByTimeAsync(0) })
+    expect(callsFor(mocks.subscribeSessionsList, 'a')).toBe(2)
+    expect(callsFor(mocks.subscribeSessionsList, 'b')).toBe(1)
+    expect([...mocks.pushes.values()].filter(entry => entry.deviceId === 'a')).toHaveLength(1)
+    expect([...mocks.pushes.values()].filter(entry => entry.deviceId === 'b')).toHaveLength(1)
+    await renderWithAppProviders(harness, createNode(Root, { devices: [machine('a')] }), { auth: { id: 'owner-b' } })
+    await settle()
+    await expect(retryDeviceSessions('owner-a', 'a')).rejects.toThrow('当前账号')
+    await expect(retryDeviceSessions('owner-a', 'b')).rejects.toThrow('当前账号')
+    await renderWithAppProviders(harness, createNode(Root, { devices: [{ ...machine('a'), is_online: false }] }), { auth: { id: 'owner-b' } })
+    await expect(retryDeviceSessions('owner-b', 'a')).rejects.toThrow('当前账号')
+    expect(mocks.pushes.size).toBe(0)
+    await renderWithAppProviders(harness, createNode(Root, { devices: [machine('b')] }), { auth: { id: 'owner-b' } })
+    await settle()
+    await harness.render(null)
+    await expect(retryDeviceSessions('owner-b', 'b')).rejects.toThrow('当前账号')
+    expect(mocks.pushes.size).toBe(0)
+  })
+
   it('两台在线机器;resume 与 visibilitychange 同一次都响:每台都重订,最后只剩一条活订阅,旧的退掉', async () => {
     vi.useFakeTimers()
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })

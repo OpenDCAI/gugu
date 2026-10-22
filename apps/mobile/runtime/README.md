@@ -1,0 +1,41 @@
+# Android 手机 Agent 宿主
+
+咕咕 Android App 打包 ARM64 Node 和 Pi SDK。Android 前台服务拥有 Node 子进程；任务、模型请求、收件箱、设备命令与消息投递不依赖 WebView 的计时器。当前运行时要求 Android 8 或以上。模型推理使用咕咕平台的短效票据。
+
+`pnpm android:build` 与 `pnpm android:build:release` 都会先执行 `build:mobile-agent`。Node 二进制及依赖来自 `android-node.lock.json`，下载必须通过 SHA-256 校验；Pi 与 npm 依赖由锁文件固定。生成的二进制、资源、已收集的第三方许可证及依赖清单放在 Android assets / jniLibs 中，不入 Git。
+
+## 边界
+
+- `agent.mjs` 处理原生字节协议；`pi-session.mjs` 为每个咕咕会话建立独立 Pi 转录和取消边界。
+- `phone-network.mjs` 为 Android 移动网络设置双栈连接尝试窗口的 2000ms 下限，保留更长的已有配置。
+- `phone-agent-host.mjs` 接正式设备命令、跨设备会话 RPC、Agent 收件箱、状态与结果投递。身份创建使用既有 provision saga，成功须以设备命令的终态为准。
+- `phone-capacitor.mjs` 是打包时的原生传输适配。通过任务范围的 AsyncLocalStorage，复用现有 `PHONE_ACTIONS` 和健康聚合逻辑；Android 执行器复用现有原生插件方法。
+- `phone-actions.mjs` 提供受控动作目录。写入与敏感操作必须收到真人 owner 对确切请求的确认；模型填写的 `confirmed` 或审批字段不构成授权。
+- 媒体字节在原生与 Node 之间分块传输，保存为该 Agent 的私有文件。模型只取得已完整验证的文件元数据和可用预览；附件发送使用现有上传、提交协议。
+- 不加载任意扩展、Shell、Root 或无障碍工具。手机工具授权与宿主开关相互独立。
+
+## 登录与持久化
+
+宿主启用时，Node 是该手机登录会话的唯一刷新方。WebView 的登录协调器向原生宿主取最新会话；交接会等已开始的刷新完成存储与发布。原生保存续期结果，登录主体改变、退出和晚到响应均须检查 owner / session 边界。
+
+宿主配置通过 Android Keystore 加密；正式 Agent 转录与队列在不参与系统备份的私有目录中。入队先落盘再推进云端已读位置。进程中断时，执行中的任务和操作标为结果未确认，不自动重复执行。待发送结果可以幂等重投，但发送前重新检查原始数据权限。
+
+每轮上下文累计实际读取的数据权限证明。系统撤权或分组关闭后，发送会被拦截；下一轮使用新的 Pi 上下文，旧转录保留为历史，不再交给模型。启动前台服务不代表可以绕过强停、系统回收或 Android 对后台读取与打开其他 App 的限制。
+
+## 任务 Skill 配置
+
+`phone-agent-skills.mjs` 导出 `PHONE_SKILL_LIMITS`、`PHONE_SKILL_SCHEMA` 与 `PHONE_SKILLS_SCHEMAS`（`get` / `set` / `response`），供界面与 RPC 核对字段。`taskhost.call` 仍使用 `{channel,args}`，方法与参数如下：
+
+- `sessionTimeline.phoneSkillsGet`：`args=[{conversationId}]`。
+- `sessionTimeline.phoneSkillsSet`：`args=[{conversationId,expectedRevision,skills:[{id,name,description,instructions,enabled}]}]`。这是完整替换；界面为新 Skill 生成 UUID，后续编辑保留该 id。删除即从列表移除。
+- 两者返回 `{conversationId,revision,updatedAt,skills,editable,busy,limits}`。首次为空、版本为 `0`、时间为 `null`。只有来自当前 owner 的原生界面且任务不忙时，`editable` 才为 `true`。设置只接受 Android 原生桥追加的 `native-ui` 来源；参数中自填来源不能授权。
+
+每任务最多 20 项；名称最多 80 字、简介最多 512 字、正文最多 16384 字，完整 Skill 列表的 UTF-8 JSON 最多 131072 字节。仅接收明确的说明字段，拒绝重复 id、未知字段、无效类型及超限内容。正文支持普通 Markdown 和换行；路径、URL、代码片段不形成加载或执行机制。
+
+配置保存于 owner 私有 `host.json` 中对应 Agent 的 `skills` 字段，使用原子日志写入。读写均复核该 Agent 的账号和设备归属；损坏或不认识的已存格式明确失败，不静默丢弃。运行、排队或等待确认时不能修改；不同内容的并发保存以 `expectedRevision` 检查冲突，相同内容重试不增加版本。配置改变后下一轮使用新的 Skill 快照，原对话、任务地址、手机数据权限证明和长期笔记保留；不热改执行中的一轮。
+
+Pi 每轮快照仅包含启用项。`phone_skills_list({})` 返回 `{revision,skills:[{id,name,description}]}`；`phone_skills_read({id})` 才返回 `{revision,skill:{id,name,description,instructions}}`。禁用、删除或重启后按已保存版本生效；旧轮次的工具句柄在配置版本改变后失效。配置修改保留原对话及记录；历史中已出现的 Skill 说明不代表当前启用项。Skill 只能指导使用已有受控工具，不加载 Pi 的文件 Skill、脚本、扩展或咕咕 App，也不增加手机系统权限。
+
+## 验证
+
+`tests/unit/desktop/mobile/phoneRuntime.test.ts` 通过与 APK 相同的编译和原生传输适配运行 Node 单元测试。Android 范围、权限与生命周期规则的单元测试在原生工程中。产品验收仍须使用真实 App、平台模型及原生数据，确认实际发送者、运行设备、权限拒绝、取消和中断后的状态。

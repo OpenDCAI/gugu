@@ -23,23 +23,23 @@ export function AgentWatchScreen({
   footer,
   actions,
   subtitle,
+  titleLeading,
+  headerTestId,
   bodyFill,
   bodyRef,
+  headerAfter,
 }: {
-  title: string
+  title: ReactNode
   onBack?: () => void
   testId: string
   children: ReactNode
   footer?: ReactNode
   /** 页头右侧（放次要动作，如「载入更早的」）。 */
   actions?: ReactNode
-  /**
-   * 标题**下面**那一行小字（时间线页放会话状态）。
-   *
-   * 位置照 orca（`MobileSessionHeader` 的 sessionTitleBlock：标题一行、meta 一行）——
-   * 状态挤在标题旁边会跟标题抢宽度，而会话标题本来就长、已经在省略号收尾了。
-   */
+  /** Actual state or location belongs to the shared header subtitle. */
   subtitle?: ReactNode
+  titleLeading?: ReactNode
+  headerTestId?: string
   /**
    * body 交给内容自己铺满、自己滚（时间线页用）。
    *
@@ -49,6 +49,8 @@ export function AgentWatchScreen({
   bodyFill?: boolean
   /** 滚动体的节点:列表页要读 / 还原滚动位置、滚到某一行。 */
   bodyRef?: Ref<HTMLDivElement>
+  /** Root navigation shared with the workspace group list. */
+  headerAfter?: ReactNode
 }) {
   const { t } = useTranslation('main')
   return (
@@ -56,16 +58,11 @@ export function AgentWatchScreen({
       <PaneHeader
         mobile
         divider={Boolean(onBack)}
-        title={
-          subtitle ? (
-            <span className="gg-pane-title gg-aw-head">
-              <span className="gg-aw-head-title">{title}</span>
-              <span className="gg-aw-head-meta">{subtitle}</span>
-            </span>
-          ) : (
-            title
-          )
-        }
+        title={title}
+        subtitle={subtitle}
+        titleLeading={titleLeading}
+        titleLevel={onBack ? 'panel' : 'page'}
+        data-testid={headerTestId}
         actions={actions}
         leading={onBack ? (
           <IconButton
@@ -77,6 +74,7 @@ export function AgentWatchScreen({
           </IconButton>
         ) : undefined}
       />
+      {headerAfter}
       <div ref={bodyRef} className="gg-aw-body" data-fill={bodyFill ? 'true' : undefined}>{children}</div>
       {footer}
     </div>

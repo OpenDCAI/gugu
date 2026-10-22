@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
@@ -16,7 +17,12 @@ import { OfflineNote } from './OfflineNote'
 import { SessionActionsSheet, SessionRow } from './SessionsPage'
 import { assistantGroupIds, locateSession, sessionSections, type SessionNode, type SessionSection } from './session-sections'
 import { useMachineLabel } from './useMachineLabel'
-import { visibleMachines } from './machine-list'
+import { directoryMachines } from './machine-list'
+import '@/i18n/registerMobileWorkspaceCatalog'
+import { DeviceDirectoryRetry } from './DeviceDirectoryRetry'
+import { PhoneHostSetupEntry } from './PhoneHostSetupEntry'
+import { phoneAgentAvailable } from '../local-agent/nativeAgent'
+import './task-flow-catalog'
 
 // 折叠与「展开显示」只是本机的阅读偏好。键是格(`机器|项目`)与父会话 id,全局唯一,所以一份就够。
 const COLLAPSED_KEY = 'gugu.agent-watch.collapsed.projects'
@@ -62,7 +68,7 @@ const ALL_OPEN = { has: () => true }
  */
 function MachineNote({ device }: { device: Device }): ReactNode {
   if (device.cloud_computer === 'asleep' || device.cloud_computer === 'waking') return null
-  return device.is_online ? null : <OfflineNote lastSeenAt={device.last_seen_at} />
+  return device.is_online ? null : <OfflineNote lastSeenAt={device.last_seen_at} phone={isPhoneDevice(device)} />
 }
 
 /**
@@ -77,6 +83,8 @@ export function ProjectsPage({
   onCreate,
   reveal,
   scrollMemo,
+  workspaceNavigation,
+  onBack,
 }: {
   /** 交出行所在的机器,❌ 当成别的。 */
   onOpenSession: (deviceId: string, session: SessionpageSessionSummary) => void
@@ -86,9 +94,14 @@ export function ProjectsPage({
   reveal?: { deviceId: string; sessionId: string }
   /** 滚动位置的存放处:进时间线再回来要还在原处,页面自己在返回时是重新挂的。 */
   scrollMemo: MutableRefObject<number>
+  workspaceNavigation?: ReactNode
+  onBack?: () => void
 }) {
   const { t } = useTranslation('main')
-  const { devices, loading: devicesLoading, error: devicesError } = useDevicesStore()
+  const { t: tWorkspace } = useTranslation('mobileWorkspace')
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const { devices: allDevices, phones, loading: devicesLoading, error: devicesError } = useDevicesStore()
+  const devices = useMemo(() => [...new Map([...(phones ?? []), ...allDevices].map((device) => [device.device_id, device])).values()], [allDevices, phones])
   const live = useLiveDeviceSessions()
   const agentNames = useAgentNames()
   // #7199 个人助理不住项目区:它自己的会话不列,它派的归一组、标「由它发起」(桌面侧栏同一条)。
@@ -96,7 +109,7 @@ export function ProjectsPage({
   const assistantName = useAssistantName()
   const { label: machineLabel, isHome } = useMachineLabel()
 
-  const machines = useMemo(() => visibleMachines(devices, isHome), [devices, isHome])
+  const machines = useMemo(() => directoryMachines(devices, isHome), [devices, isHome])
   const homeIds = useMemo(() => new Set(devices.filter((device) => isHome(device)).map((device) => device.device_id)), [devices, isHome])
   const deviceOf = useMemo(() => new Map(devices.map((device) => [device.device_id, device])), [devices])
   const rows = useMemo(() => directoryRows(devices, live), [devices, live])
@@ -106,7 +119,13 @@ export function ProjectsPage({
     () => machines.map((device) => ({ deviceId: device.device_id, projects: deviceSessionsOf(device, live).projects })),
     [machines, live],
   )
-  const online = useCallback((deviceId: string) => deviceOf.get(deviceId)?.is_online === true, [deviceOf])
+  const online = useCallback((deviceId: string) => {
+    const device = deviceOf.get(deviceId)
+    if (!device?.is_online) return false
+    if (!isPhoneDevice(device)) return true
+    const here = deviceSessionsOf(device, live)
+    return isAgentHostDevice(device) && !here.cached && !here.error
+  }, [deviceOf, live])
 
   /**
    * 折起来的分区(owner 2026-09-15:「项目也应该可以折叠」)与父会话。子会话默认展开:桌面在子会话出生时会把父会话点开,
@@ -201,6 +220,9 @@ export function ProjectsPage({
       const { deviceId } = node.item
       const { projectId } = node.item.session
       const rowDevice = deviceOf.get(deviceId)
+      const phone = !!rowDevice && isPhoneDevice(rowDevice)
+      const hostAvailable = online(deviceId)
+      const cancellable = node.item.session.agentStatus === 'working' || node.item.session.agentStatus === 'needs_user'
       return [
         <SessionRow
           key={node.item.id}
@@ -211,8 +233,10 @@ export function ProjectsPage({
           childCount={node.children.length}
           childrenOpen={open}
           onToggleChildren={() => toggleCollapsed(node.item.id)}
+          statusAvailable={phone ? hostAvailable : undefined}
+          phoneHost={phone}
           onOpen={(session) => onOpenSession(deviceId, session)}
-          onMenu={rowDevice?.is_online ? (session) => setMenuFor({ deviceId, session }) : undefined}
+          onMenu={(phone ? hostAvailable && cancellable : rowDevice?.is_online) ? (session) => setMenuFor({ deviceId, session }) : undefined}
         />,
         ...(open ? renderTree(section, node.children, depth + 1, { deviceId, projectId }) : []),
       ]
@@ -231,7 +255,9 @@ export function ProjectsPage({
 
   return (
     <AgentWatchScreen
-      title={t('agentWatch.projects.title')}
+      title={workspaceNavigation ? tWorkspace('title') : t('agentWatch.projects.title')}
+      onBack={onBack}
+      headerAfter={workspaceNavigation}
       testId="agent-watch-projects"
       bodyRef={bodyRef}
       actions={
@@ -257,7 +283,9 @@ export function ProjectsPage({
           detail={devicesError}
           tone="danger"
           testId="agent-watch-machines-error"
-        />
+        >
+          <DeviceDirectoryRetry />
+        </AgentWatchNote>
       ) : null}
       {failures.map(({ device, here }) => (
         <AgentWatchNote
@@ -284,7 +312,10 @@ export function ProjectsPage({
       {nothingYet && !waitingForMachines && !refreshing && !devicesError && failures.length === 0 ? (
         <div className="gg-aw-placeholder" data-testid="agent-watch-projects-empty">
           <div>{t('agentWatch.projects.empty')}</div>
-          <div>{machines.length === 0 ? t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
+          <div>{machines.length === 0 ? phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
+          {machines.length === 0 ? <PhoneHostSetupEntry /> : onCreate ? (
+            <Button variant="secondary" size="lg" onClick={onCreate} data-testid="agent-watch-empty-create">{tFlow('createTask')}</Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -318,7 +349,7 @@ export function ProjectsPage({
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(key) } }}
             >
               {heading}
-              {machine ? <span className="gg-aw-group-machine">{` · ${machineLabel(machine)}`}</span> : null}
+              {machine && manyMachines ? <span className="gg-aw-group-machine">{` · ${machineLabel(machine)}`}</span> : null}
             </SectionLabel>
             {!isCollapsed && noteDevice ? <MachineNote device={noteDevice} /> : null}
             {isCollapsed ? null : renderTree(section, section.roots)}
@@ -342,6 +373,7 @@ export function ProjectsPage({
           open={menuFor !== null}
           session={menuFor?.session ?? null}
           deviceId={menuFor?.deviceId ?? ''}
+          phoneHost={!!menuFor && !!deviceOf.get(menuFor.deviceId) && isPhoneDevice(deviceOf.get(menuFor.deviceId)!)}
           onClose={() => setMenuFor(null)}
         />
     </AgentWatchScreen>

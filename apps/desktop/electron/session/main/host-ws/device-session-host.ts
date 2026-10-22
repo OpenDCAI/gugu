@@ -50,6 +50,11 @@ const REMOTE_ALLOWED_APP = new Set([
   'app.getElectronVersion',
   'app.readUserFile',
   'app.readUserImageDataUrl',
+  // The assistant's books belong to this host and signed-in owner, including when read on a phone.
+  'app.getUserLibrary',
+  'app.getUserLibraryVolume',
+  'app.readUserLibraryEntry',
+  'app.writeUserLibraryEntry',
 ]);
 const REMOTE_DENIED_EXTENSIONS = /^extensions\.(bindSurface|retargetSurface|invokeCommand|reportLayout|setAppState|programNotifiedElsewhere)$/;
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BellOff, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
@@ -37,6 +37,7 @@ import { chatRowTag } from '../lib/chatRowTag'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { rendererLogger } from '../lib/log'
 import { chatListShortcutFor, nextChatId } from './chat-list-keyboard-nav'
+import '@/i18n/registerMobileWorkspaceCatalog'
 
 const chatListLog = rendererLogger('chat/list')
 
@@ -79,6 +80,10 @@ interface ChatListPanelProps {
   // (#3809 实际发生过)。必填让那种写法当场是编译错误 —— 比任何测试都早、也更便宜。
   onOpenAgentCreateDraft?: () => void
   onOpenSessionCreate?: () => void
+  /** A view projection only; selection and messages still belong to the shared chat store. */
+  listScope?: 'all' | 'groups'
+  headerTitle?: string
+  headerAfter?: ReactNode
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
@@ -92,6 +97,7 @@ const NAV_HEADER_STYLE: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad
 // #6753 桌面上还要让开浮在左上角的列表栏开关(--list-toggle-lane;Windows 的开关在标题栏行,那里是 0)。
 const NAV_HEADER_STYLE_DESKTOP: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad-x), var(--titlebar-list-header-inset), var(--list-toggle-lane))' }
 const LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: '4px 8px 16px' }
+const MOBILE_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--spacing-xs) var(--pane-pad-x) max(var(--spacing-xl), env(safe-area-inset-bottom))' }
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
 const EMPTY_STATE_WRAP_STYLE: React.CSSProperties = { padding: '40px 16px', display: 'flex', justifyContent: 'center' }
 const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)' }
@@ -501,11 +507,16 @@ export function ChatListPanel({
   onScan,
   onOpenAgentCreateDraft,
   onOpenSessionCreate,
+  listScope = 'all',
+  headerTitle,
+  headerAfter,
 }: ChatListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
+  const { t: tWorkspace } = useTranslation('mobileWorkspace')
   const assistantShell = useAssistantShell()
-  const { chats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const { chats: storedChats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const chats = useMemo(() => listScope === 'groups' ? storedChats.filter((chat) => chat.kind === 'group') : storedChats, [storedChats, listScope])
   const workrooms = useAssistantWorkrooms(assistantShell, chats.filter((chat) => chat.kind === 'group')
     .map((chat) => `${chat.id}:${[...(chat.member_user_ids ?? [])].sort().join(',')}`).sort().join('|'))
   // @@@chat-list-agent-status (#437/#33) - one batched presence subscription for every agent shown in
@@ -785,8 +796,9 @@ export function ChatListPanel({
     <Pane paneRole="nav" mobile={mobile} style={NAV_PANE_STYLE}>
       <HeaderSearch mobile={mobile} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
       <PaneHeader
-        title={tMain('shell.chats')}
+        title={headerTitle ?? tMain('shell.chats')}
         mobile={mobile}
+        titleLevel={mobile ? 'page' : undefined}
         style={mobile ? NAV_HEADER_STYLE : NAV_HEADER_STYLE_DESKTOP}
         actions={
           <>
@@ -855,6 +867,7 @@ export function ChatListPanel({
         }
       />
       )}</HeaderSearch>
+      {headerAfter}
 
       {!mobile && (
         <SearchField
@@ -869,7 +882,7 @@ export function ChatListPanel({
         />
       )}
 
-      <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={LIST_SCROLL_STYLE}>
+      <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={mobile ? MOBILE_LIST_SCROLL_STYLE : LIST_SCROLL_STYLE}>
         {/* #6158 列表行不再按 tab 卸载:聊天面在别的 tab 上由 MainLayout 隐藏而非卸载,行留着滚动位置才在。 */}
         {loadingChats && (
           <div style={LOADING_STATE_STYLE}>
@@ -883,8 +896,8 @@ export function ChatListPanel({
           >
             <PaneEmptyState
               icon={<MessageCircle size={26} color="var(--text-tertiary)" />}
-              caption={t('chatList.empty')}
-              hint={t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
+              caption={listScope === 'groups' ? tWorkspace('groupsEmpty') : t('chatList.empty')}
+              hint={listScope === 'groups' ? tWorkspace('groupsEmptyHint') : t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
             />
           </div>
         )}

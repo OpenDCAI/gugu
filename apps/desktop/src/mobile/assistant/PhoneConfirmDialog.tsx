@@ -65,7 +65,7 @@ export function PhoneConfirmDialog({
         <Dialog.Backdrop className={cn(sheetBackdropMotion, 'gg-mobile-motion z-[var(--z-modal)]')} />
         <Dialog.Viewport className="gg-window-layer pointer-events-none z-[var(--z-modal)] flex items-center justify-center p-6">
           <Dialog.Popup
-            className="ta-dialog gg-mobile-motion pointer-events-auto flex w-full max-w-[360px] flex-col gap-3 p-6 outline-none animate-[gg-sheet-pop-in_var(--dur-med)_var(--ease-spring)] data-[ending-style]:animate-none data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.98] motion-reduce:animate-none motion-reduce:transition-none"
+            className="ta-dialog ta-phone-confirm-dialog gg-mobile-motion pointer-events-auto flex w-full max-w-[360px] flex-col gap-3 p-6 outline-none animate-[gg-sheet-pop-in_var(--dur-med)_var(--ease-spring)] data-[ending-style]:animate-none data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.98] motion-reduce:animate-none motion-reduce:transition-none"
             data-testid={testId}
           >
             <Dialog.Title className="ta-dialog-title">{title}</Dialog.Title>
@@ -79,7 +79,7 @@ export function PhoneConfirmDialog({
               <Button variant="ghost" className="ta-pill-btn" disabled={busy} onClick={close}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="ghost" className="ta-pill-btn" data-tone="danger" disabled={busy} onClick={() => void confirm()} data-testid={testId ? `${testId}-confirm` : undefined}>
+              <Button variant="ghost" className="ta-pill-btn" data-tone="danger" disabled={busy} aria-busy={busy} onClick={() => void confirm()} data-testid={testId ? `${testId}-confirm` : undefined}>
                 {confirmLabel}
               </Button>
             </div>

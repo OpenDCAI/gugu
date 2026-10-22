@@ -7,16 +7,17 @@ import { Button } from '@/components/ui/Button'
 import { Crown, Folder, Heart, Mic, Sparkles, SquarePen, Trash2 } from '@/lib/icons'
 import { RESOURCES_DIR_NAME, type MemoryKind } from '@/session/renderer/features/assistant/assistant-files'
 import { readMemoryNotes, type MemoryEntry } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, AssistantRow, AssistantSection, PageHead, Tile } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneFiles } from './PhoneFiles'
 import { PhoneHealth } from './PhoneHealth'
 import { PhoneMachineView, ReadView, type OpenedPageProps } from './PhoneMachineView'
+import { PhoneLibraryVolume } from './PhoneLibraryVolume'
 import { PhoneVoiceNotes } from './PhoneVoiceNotes'
 import { deleteMemoryNote, filesTrail, readMemoryCounts } from './phoneMemoryData'
 import { machineKey, usePhoneRead, type PhoneRead } from './usePhoneRead'
-import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume'
+import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 type NotesRead = PhoneRead<{ notes: MemoryEntry[]; index: string | null }> & { reload: () => void }
@@ -45,8 +46,8 @@ export function PhoneMemory(props: PhonePageProps) {
   const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
   const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
-  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} machine={ready} kind={'workspace'} askInChat={props.askInChat} />
-  if (sub === 'health') return <PhoneHealth {...props} healthNotes={notes.state === 'ok' ? notes.data.notes : null} />
+  if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
+  if (sub === 'health') return <PhoneHealth {...props} healthNotes={notes} />
   if (sub === 'voice' || sub?.startsWith('voice:')) return <PhoneVoiceNotes {...props} />
   if (sub === 'files' || sub?.startsWith('files:')) return <PhoneFiles key={sub} {...props} trail={filesTrail(sub)} />
   if (sub?.startsWith('note:')) return <MemoryNote {...props} file={sub.slice('note:'.length)} notes={notes} />
@@ -69,9 +70,12 @@ function MemoryHome(props: PhonePageProps & { notes: NotesRead }) {
       <AssistantSection title={t('library.workspace')}>
         <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="workspace" onOpen={() => go('library:workspace')} />
       </AssistantSection>
-      <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
-        {notes.state === 'ok' && machine.state === 'ready' && readiness === 'ready' ? <MachineTiles {...props} machine={machine.machine} notes={notes.data.notes} /> : null}
-      </AssistantSection>
+      {notes.state === 'ok' && readiness === 'ready' && notes.data.notes.some((entry) => entry.kind !== 'user') ? (
+        <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
+          <MemoryList {...props} notes={notes.data.notes} />
+        </AssistantSection>
+      ) : null}
+      <MemorySources {...props} />
     </div>
   )
 }
@@ -82,11 +86,10 @@ function AboutYou({ assistant, askInChat, go, notes }: PhonePageProps & { notes:
   const time = useTime()
   const name = assistant.display_name
   const aboutYou = notes.filter((entry) => entry.kind === 'user')
-  const latest = aboutYou.map((entry) => entry.modifiedAt).filter(Boolean).sort().at(-1) ?? null
   return (
     <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
       {aboutYou.length === 0 ? (
-        <div className="flex flex-col items-start gap-3">
+        <div className="ta-phone-empty-body">
           <p className="ta-page-sub">{t('memory.aboutEmpty', { name })}</p>
           <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
             <Sparkles />
@@ -95,42 +98,47 @@ function AboutYou({ assistant, askInChat, go, notes }: PhonePageProps & { notes:
         </div>
       ) : (
         aboutYou.map(entry => <AssistantRow key={entry.file} leading={<Crown />} title={entry.title}
-          detail={entry.description || (latest ? t('memory.updated', { time: time(latest) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
+          detail={entry.description || (entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : undefined)} onClick={() => go(`note:${entry.file}`)} />)
       )}
     </AssistantSection>
   )
 }
 
-/** 「全部」里健康之后那几张:语音笔记、给助理的资料(带个数)、其余每一条记忆。读到了记忆才摆。 */
-function MachineTiles({ assistant, go, machine, notes }: OpenedPageProps & { notes: MemoryEntry[] }) {
+/** 其余记忆按条目显示；独立来源入口不依赖这一组是否读到。 */
+function MemoryList({ assistant, go, notes }: PhonePageProps & { notes: MemoryEntry[] }) {
   const { t } = useTranslation('assistant')
   const time = useTime()
   const name = assistant.display_name
-  const counts = usePhoneRead(`memory-counts|${machineKey(machine)}`, () => readMemoryCounts(machine), 'count memory folders')
-  const voice = counts.state === 'ok' ? counts.data.voice : null
-  const files = counts.state === 'ok' ? counts.data.files : null
   return (
-    <>
-      <div className="ta-grid">
+    <div className="ta-phone-memory-list">
       {notes
         .filter((entry) => entry.kind !== 'user')
         .map((entry) => (
-          <Tile
+          <AssistantRow
             key={entry.file}
             title={entry.title}
-            sub={entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name)}
-            preview={entry.description || entry.body.slice(0, 140)}
+            detail={entry.modifiedAt ? t('memory.updated', { time: time(entry.modifiedAt) }) : kindLabel(entry.kind, t, name)}
             onClick={() => go(`note:${entry.file}`)}
             testId={`assistant-memory-${entry.file}`}
           />
         ))}
-      </div>
-      <AssistantSection title={t('library.sources')}>
-        <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => go('health')} testId="assistant-memory-health" />
-        <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voice ? t('memory.items', { n: voice }) : t('memory.voiceNotesCount')} onClick={() => go('voice')} testId="assistant-memory-voice" />
-        <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME} detail={files === null ? '' : t('memory.items', { n: files })} onClick={() => go('files')} testId="assistant-memory-files" />
-      </AssistantSection>
-    </>
+    </div>
+  )
+}
+
+/** 本机健康不依赖助理连接；远端来源可以先打开，由各自页面说明实际连接状态。 */
+function MemorySources({ readiness, machine, go }: PhonePageProps) {
+  const { t } = useTranslation('assistant')
+  const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
+  const counts = usePhoneRead(ready ? `memory-counts|${machineKey(ready)}` : null, () => readMemoryCounts(ready!), 'count memory folders')
+  const voice = counts.state === 'ok' ? counts.data.voice : null
+  const files = counts.state === 'ok' ? counts.data.files : null
+  return (
+    <AssistantSection title={t('library.sources')}>
+      <AssistantRow leading={<Heart />} title={t('health.title')} onClick={() => go('health')} testId="assistant-memory-health" />
+      <AssistantRow leading={<Mic />} title={t('memory.voiceNotes')} detail={voice === null ? t('memory.voiceNotesCount') : t('memory.items', { n: voice })} onClick={() => go('voice')} testId="assistant-memory-voice" />
+      <AssistantRow leading={<Folder />} title={RESOURCES_DIR_NAME} detail={files === null ? undefined : t('memory.items', { n: files })} onClick={() => go('files')} testId="assistant-memory-files" />
+    </AssistantSection>
   )
 }
 

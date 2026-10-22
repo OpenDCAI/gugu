@@ -189,10 +189,12 @@ test('main renderer search fields share one visual contract', async ({ page }, t
   // #7333 紧凑界面正文统一14px；手机另外验证44px点击区，不再依靠旧的13→14差值。
   // ⚠️ 按 testid 找,❌ 别按 placeholder:通讯录那个框在桌面写「搜索联系人」、在移动壳写
   // 「搜索联系人和 Agent」(ContactsNav 与桌面侧栏各给各的),按文案定位在窄屏必然落空。
-  await page.getByTestId('mobile-messages-nav').click()
-  // 手机上框收在页头(ui/HeaderSearch):先点会话列表页头的放大镜。
-  await page.locator('[data-mobile-tab-page="chats"] [data-header-search-open]').click()
-  const mobileSearch = page.getByTestId('chat-list-search-input')
+  await page.getByTestId('mobile-sessions-nav').click()
+  const workspace = page.getByTestId('mobile-workspace')
+  // 手机群聊已并入工作区；项目与群聊面常驻，只操作当前可见分段的页头。
+  await workspace.locator('[data-testid="mobile-workspace-groups"]:visible').click()
+  await workspace.locator('[data-header-search-open]:visible').click()
+  const mobileSearch = workspace.getByTestId('chat-list-search-input')
   await expect(mobileSearch, '移动壳会话列表的搜索框应可见').toBeVisible({ timeout: 30_000 })
   const mobileReading = await readSearchMetrics('messages-mobile', mobileSearch)
   await capture(page, testInfo, 'search-field-messages-mobile')

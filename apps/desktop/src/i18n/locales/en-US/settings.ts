@@ -214,6 +214,7 @@ export default {
       "healthOldApp": "This version of 咕咕 can't read health data yet. Update it and try again",
       "healthPartial": "{{granted}} of {{total}} kinds allowed",
       "healthManage": "Change in Health Connect",
+      "healthForegroundOnly": "This system version can read health data only while Gugu is open.",
       "healthBackgroundHint": "To read while 咕咕 is in the background, turn on \"Read in background\" in Health Connect",
       "restrictedHint": "Installed from an APK and the system switch won't turn on? Open the app's info page, tap the top-right menu and choose “Allow restricted settings”.",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",

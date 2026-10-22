@@ -17,8 +17,8 @@
   ],
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
-    "android:build": "pnpm cap:sync && scripts/android-gradle-build.sh assembleDebug",
-    "android:build:release": "pnpm cap:sync && scripts/android-gradle-build.sh assembleRelease",
+    "android:build": "pnpm build:mobile-agent && pnpm cap:sync && scripts/android-gradle-build.sh assembleDebug",
+    "android:build:release": "pnpm build:mobile-agent && pnpm cap:sync && scripts/android-gradle-build.sh assembleRelease",
     "build": "pnpm build:app && electron-builder",
     "build:acp": "node scripts/fetch-acp-adapters.mjs",
     "build:app": "pnpm preflight:env && pnpm build:tmux && pnpm build:acp && pnpm build:mise && pnpm build:frpc && tsgo --noEmit && tsx scripts/build-electron-app.mts && pnpm gate:bake && pnpm rebuild:native && node scripts/build-provenance.mjs --write",
@@ -28,6 +28,7 @@
     "build:linux": "pnpm build:app:pack && electron-builder --linux --x64",
     "build:linux:beta": "GUGU_TIER=beta pnpm build:linux",
     "build:mac": "pnpm build:app:pack && electron-builder --mac",
+    "build:mobile-agent": "node scripts/build-mobile-node.mjs && node scripts/build-mobile-agent.mjs",
     "build:psmux": "node scripts/build-psmux-bundle.mjs",
     "build:renderer": "pnpm preflight:node && GUGU_TARGET=web tsgo --noEmit && GUGU_TARGET=web tsx scripts/build-electron-app.mts",
     "build:renderer:ci": "pnpm preflight:node && GUGU_TARGET=web tsx scripts/build-electron-app.mts",
