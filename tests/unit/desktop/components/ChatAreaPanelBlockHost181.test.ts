@@ -3,6 +3,7 @@
 // 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
+import { sessionComposerDockBandClassName } from '../../../../apps/desktop/src/session/renderer/features/sessions/session-composer-styles'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
@@ -122,6 +123,17 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     await renderPanel()
     expect(document.querySelector('[data-testid="block-panel-plus"]')).toBeNull()
     expect(document.querySelector('[data-panel-tab]')).toBeNull()
+  })
+
+  it('in a block the composer sits in the session composer\'s band (核对 21); the chat page keeps its own padding', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    const band = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
+    expect(band.className.split(/\s+/)).toEqual(expect.arrayContaining(sessionComposerDockBandClassName.split(/\s+/)))
+    expect(band.style.padding).toBe('')
+    await renderPanel()
+    const page = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
+    expect(page.className).toBe('')
+    expect(page.style.padding).toBe('12px 22px 18px')
   })
 
   it('in a block whose slots are not mounted yet still draws no header', async () => {

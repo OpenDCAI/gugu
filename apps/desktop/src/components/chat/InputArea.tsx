@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
+import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -870,7 +870,7 @@ export function InputArea({
           style={{
             flex: 1,
             minWidth: 0,
-            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? 96 : undefined, // 格子里是一个大框:上面输入、下面一排按钮
+            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? sessionComposerEmptyHeightPx : undefined, // 格子里是一个大框:上面输入、下面一排按钮,空着时和会话框同高
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。

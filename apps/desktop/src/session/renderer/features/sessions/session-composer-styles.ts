@@ -8,6 +8,10 @@ export const sessionComposerWidthClassName = 'w-full max-w-2xl';
 // 两边一致由 session-composer-styles.test.ts 钉住。
 export const sessionComposerDockBandClassName = 'w-full shrink-0 px-4 pb-2';
 export const sessionComposerDockedWidthClassName = 'mx-auto w-full max-w-2xl xl:max-w-3xl';
+// 空着时的高:会话页、新建会话页、新任务框用的是同一个输入框(packages/session-ui 的 chat-composer:编辑区 66px 含内距
+// + 底排 42px + 上下边框各 1px),群框在格子里照它的高(gugu-dev#181 核对 21)。会话框的这个高由
+// tests/browser/composer-empty-height.test.tsx 量真组件钉住。
+export const sessionComposerEmptyHeightPx = 110;
 
 // ── Context tray ──────────────────────────────────────────────────────────────
 // A full-width band behind the composer carrying 仓库 · 环境 · 分支, replacing the
