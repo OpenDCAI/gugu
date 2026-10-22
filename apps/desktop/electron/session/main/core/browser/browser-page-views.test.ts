@@ -96,6 +96,7 @@ vi.mock('electron', async () => {
     WebContentsView,
     BaseWindow,
     BrowserWindow: { getAllWindows: () => state.windows },
+    app: new Emitter(),
   };
 });
 
@@ -104,7 +105,8 @@ function fakeWindow(name = '', zoom = 1) {
     destroyed: false,
     visible: true,
     minimized: false,
-    focused: false,
+    /** 人正看着咕咕(前台窗口)。 */
+    focused: true,
     isDestroyed() {
       return this.destroyed;
     },
@@ -436,28 +438,25 @@ describe('#7274 盖在网页上的 agent 浮窗', () => {
     });
   }
 
-  it.each(['darwin', 'win32', 'linux'])('%s: 露出浮层不把父窗提到别的 App 前面', (platform) => {
+  it.each(['darwin', 'win32', 'linux'])('%s: 浮层挂成真正的子窗露出,不把父窗提到别的 App 前面', (platform) => {
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { ...descriptor, value: platform });
     try {
+      mainWindow.focused = false; // 咕咕不在前台
       mount('b1');
       layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
       const overlay = overlayWindow();
       mainWindow.webContents.emit('did-create-window', overlay, { frameName: 'gugu-agent-overlay:b1' });
-      expect(overlay.visible).toBe(true);
       if (platform === 'darwin') {
-        expect(overlay.showInactive).not.toHaveBeenCalled();
-        expect(overlay.moveAbove).toHaveBeenCalledWith('window:101:0');
-        expect(overlay.setParentWindow).toHaveBeenCalledWith(mainWindow);
-        expect(overlay.moveAbove.mock.invocationCallOrder[0]).toBeLessThan(overlay.setParentWindow.mock.invocationCallOrder[0]);
-        // #77 人切回咕咕 / 点窗口(父窗拿到焦点):挂成真正的子窗,父窗提前时它不沉下去。
+        // #77 showInactive 会把咕咕提到别的 App 前面 ⇒ 先不露,等人回到咕咕;❌ moveAbove 顶替(挂不成子窗,父窗一提前就沉下去)。
+        expect(overlay.visible).toBe(false);
         mainWindow.focused = true;
         mainWindow.emit('focus');
-        expect(overlay.showInactive).toHaveBeenCalledOnce();
-      } else {
-        expect(overlay.showInactive).toHaveBeenCalledOnce();
-        expect(overlay.moveAbove).not.toHaveBeenCalled();
+        expect(overlay.setParentWindow).toHaveBeenCalledWith(mainWindow);
       }
+      expect(overlay.showInactive).toHaveBeenCalledOnce();
+      expect(overlay.visible).toBe(true);
+      expect(overlay.moveAbove).not.toHaveBeenCalled();
       expect(mainWindow.webContents.focus).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, 'platform', descriptor);

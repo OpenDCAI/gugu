@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest'
 import { createBuildTagAuxWindow } from '../../../../apps/desktop/electron/build-tag-window'
 
 vi.mock('../../../../apps/desktop/electron/devtools-lock', () => ({ hardenWebPreferences: <T>(preferences: T) => preferences }))
+vi.mock('electron', async () => ({ app: new (await import('node:events')).EventEmitter() }))
 
 function windows() {
   const parent = Object.assign(new EventEmitter(), {
@@ -11,7 +12,8 @@ function windows() {
     visible: true,
     isVisible() { return this.visible },
     isMinimized: () => false,
-    isFocused: () => false,
+    focused: true,
+    isFocused() { return this.focused },
     getContentBounds: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     getMediaSourceId: () => 'window:7575:0',
   })
@@ -44,10 +46,9 @@ it('keeps an independently sized native badge in the bottom-right corner without
   expect(child.setBounds).toHaveBeenLastCalledWith({ x: 1118, y: 829, width: 180, height: 19 })
   child.webContents.emit('preferred-size-changed', {}, { width: 360, height: 240 })
   expect(child.setBounds).toHaveBeenLastCalledWith({ x: 938, y: 608, width: 360, height: 240 })
-  if (process.platform === 'darwin') {
-    expect(child.showInactive).not.toHaveBeenCalled()
-    expect(child.moveAbove).toHaveBeenCalledWith('window:7575:0')
-  }
+  // #77 挂成真正的子窗(showInactive),❌ moveAbove 顶替:父窗一被提前它就沉到下面。
+  expect(child.showInactive).toHaveBeenCalledOnce()
+  expect(child.moveAbove).not.toHaveBeenCalled()
 })
 
 it('follows parent visibility and releases its window listeners when closed', () => {

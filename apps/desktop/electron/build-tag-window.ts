@@ -1,7 +1,7 @@
 import type { BrowserWindow, Size } from 'electron'
 import { BUILD_TAG_WINDOW_NAME } from '@shared/aux-window'
 import type { SpecialAuxWindow } from './aux-window'
-import { showChildAbove } from './child-window'
+import { hideChild, showChildAbove } from './child-window'
 import { hardenWebPreferences } from './devtools-lock'
 
 /**
@@ -47,12 +47,10 @@ export function createBuildTagAuxWindow(parent: BrowserWindow): SpecialAuxWindow
           y: bounds.y + bounds.height - size.height - 2,
           ...size,
         })
-        if (!parent.isVisible() || parent.isMinimized()) {
-          if (child.isVisible()) child.hide()
-        } else if (!child.isVisible()) {
-          // 与 agent 原生浮层同样处理(child-window.ts)。
-          showChildAbove(child, parent)
-        }
+        const wanted = () => !parent.isDestroyed() && parent.isVisible() && !parent.isMinimized()
+        if (!wanted()) hideChild(child)
+        // 与 agent 原生浮层同样处理(child-window.ts)。
+        else if (!child.isVisible()) showChildAbove(child, parent, wanted)
       }
       child.webContents.on('preferred-size-changed', (_event, preferred) => {
         if (!Number.isFinite(preferred.width) || !Number.isFinite(preferred.height) || preferred.width <= 0 || preferred.height <= 0) return

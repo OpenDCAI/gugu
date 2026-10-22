@@ -12,7 +12,7 @@ import {
   type BrowserPageState,
 } from '@shared/events/browserEvents';
 import { BROWSER_PINCH_MAX_LEVEL } from '@shared/preview/pinch-zoom';
-import { showChildAbove } from '../../../../child-window';
+import { hideChild, showChildAbove } from '../../../../child-window';
 import { hardenWebPreferences } from '../../../../devtools-lock';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
@@ -538,21 +538,28 @@ function adoptAgentOverlay(browserId: string, overlay: BrowserWindow): void {
   placeOverlay(page);
 }
 
+/** 浮层该露着:网页挂在窗上、露着、有大小,那扇窗露着。 */
+function overlayWanted(page: BrowserPage): boolean {
+  const host = page.host;
+  const rect = page.rect;
+  return (
+    !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized() && page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0
+  );
+}
+
 function placeOverlay(page: BrowserPage): void {
   const overlay = page.overlay;
   if (!overlay || overlay.isDestroyed()) return;
   const host = page.host;
   const rect = page.rect;
-  const visible =
-    !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized() && page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
-  if (!visible || !host || !rect) {
-    if (overlay.isVisible()) overlay.hide();
+  if (!overlayWanted(page) || !host || !rect) {
+    hideChild(overlay);
     return;
   }
   const content = host.getContentBounds();
   overlay.setBounds({ x: content.x + rect.x, y: content.y + rect.y, width: rect.width, height: rect.height });
-  // 露出来、挂成真正的子窗:不把父窗提到别的 App 前面,父窗被提前时也不沉下去(child-window.ts)。
-  if (!overlay.isVisible()) showChildAbove(overlay, host);
+  // 挂成真正的子窗露出来;macOS 上咕咕不在前台就等人回来再露(child-window.ts)。
+  if (!overlay.isVisible()) showChildAbove(overlay, host, () => overlayWanted(page));
 }
 
 /** 人的鼠标指到 / 离开小条:指着时子窗接住点击(按「停止」「让 agent 继续」),否则点击穿过去。 */
