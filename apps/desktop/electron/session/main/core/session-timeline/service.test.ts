@@ -474,6 +474,24 @@ describe('session timeline service', () => {
     expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
   });
 
+  it('还没启动过的外部 fork 没有自己的绑定:顺着 forkedFrom 用源会话那条连接的根;解析器抛错只退回默认根', async () => {
+    const factory = vi.fn(async () => makeTimeline().timeline);
+    service.setSessionTimelineFactory(factory);
+    service.setConnectionConfigRootResolver((_provider, id) => `/conn/${id}/.claude`);
+    const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
+    state.rows = [
+      row({ id: 'src', providerSessionId: 'sess-src', config: { type: 'acp', subscriptionConnectionId: 'conn-1' } }),
+      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
+    ];
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf()[0]).toBe('/conn/conn-1/.claude/projects');
+
+    service.resetSessionTimelineService();
+    service.setConnectionConfigRootResolver(() => { throw new Error('userData unavailable'); });
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
+  });
+
   it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });

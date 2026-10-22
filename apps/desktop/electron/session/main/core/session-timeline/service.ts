@@ -283,9 +283,33 @@ export function setConnectionConfigRootResolver(next: ConnectionConfigRootResolv
  * ❌ 只在默认根里找 —— 那样这条会话明明在跑,时间线却是空的(`record_not_found`)。
  */
 function connectionRootFor(row: SessionRow): string | null {
-  const connectionId = row.config?.subscriptionConnectionId;
+  const connectionId = pinnedConnectionId(row);
   if (!row.provider || !connectionId) return null;
-  return connectionConfigRootOf?.(row.provider, connectionId) ?? null;
+  try {
+    return connectionConfigRootOf?.(row.provider, connectionId) ?? null;
+  } catch (error) {
+    // 解析不出来只让这一条退回默认根,❌ 不许把整张会话列表带走(与 `managedConfigRootFor` 同一条理由)。
+    log.warn('sessionTimeline: 连接配置根解析失败,改在默认根里找', { sessionId: row.id, error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * 会话绑的连接。绑定是启动时才落的 —— 外部 fork 出来的行(终端里 `/fork`)还没启动过就没有,
+ * 而它的记录已经在源会话那条连接的根里了 ⇒ 顺着 `forkedFrom` 找最近一个落了绑定的祖先
+ * (与 `resolveHarnessConnection` 继承的是同一条链)。
+ */
+function pinnedConnectionId(row: SessionRow): string | undefined {
+  const seen = new Set<string>();
+  let current: SessionRow | null = row;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    const pinned = current.config?.subscriptionConnectionId;
+    if (pinned) return pinned;
+    const parentId: string | undefined = current.config?.forkedFrom?.sessionId;
+    current = parentId ? readSessionRow(parentId) : null;
+  }
+  return undefined;
 }
 
 function locateRow(row: SessionRow): SessionRecordLocation {
