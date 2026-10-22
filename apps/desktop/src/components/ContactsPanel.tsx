@@ -88,6 +88,7 @@ import { useTranslation } from 'react-i18next'
 import { formatDate, i18n } from '../i18n'
 import { cn } from '@/lib/cn'
 import { messageForUser } from '../lib/userFacingError'
+import { isProjectGroupChat } from '../lib/groupMemberPermissions'
 // #855 契约：GroupJoinConfirmDialog 曾从本模块导出，实现搬走后仍从这里透出，外部 import 不受影响。
 export { GroupJoinConfirmDialog } from './contacts/GroupInvite'
 interface ContactsPanelProps {
@@ -1482,7 +1483,10 @@ function GroupChatDetailPane({
             />
             <FieldRow label={ct('groupDetail.membersLabel')} value={ct('groupDetail.memberCountValue', { count: group.member_count })} />
             <FieldRow label={ct('groupDetail.typeLabel')} value={densityText} />
-            <GroupInviteQrShare group={group} />
+            {/* 项目群不拉人(gugu-dev#181):不出扫码加入的码,说一句原因。 */}
+            {isProjectGroupChat(group.id)
+              ? <div data-testid="project-group-no-invite" className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">{i18n.t('group.projectGroupNoInvite', { ns: 'messaging' })}</div>
+              : <GroupInviteQrShare group={group} />}
           </FieldList>
         </section>
 
