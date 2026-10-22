@@ -884,6 +884,13 @@ function codexBundledCatalog(
  *   · TUI 带 `-a never -s danger-full-access` 建的 thread → never + dangerFullAccess ✅。
  *   (`-a` / `-s` 是 codex TUI 的根级参数,见其 cli.rs。)
  * ⚠️ 认不出的键或非字符串值 **THROW**:悄悄丢掉一格 = 悄悄把这条会话的权限换成默认档。
+ *
+ * 完全访问档(`danger-full-access` 沙箱是它在这份载荷里唯一的标志 —— 只读档的 approvalPolicy 同样是 never)
+ * 还带 `--dangerously-bypass-hook-trust`,与 codex 普通终端那条腿的完全访问档同一组参数(codex 插件的
+ * `autoApproveFlag`)。不带它,一个还没审阅过的 hook(例如刚装的插件带的)让 TUI 在建出 thread 之前停在
+ * 「Hooks need review」上:会话永远不 live,每一条投递都被拒。其余档保留审阅,那是人的决定。
+ * 只有新建这一路能免:`--remote … resume` 时 codex 不认这个参数(上游 is_persistent_resume,
+ * codex-rs/tui/src/lib.rs,rust-v0.153.4 / rust-v0.163.0)。
  */
 export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unknown>>): string[] {
   const FLAGS: Readonly<Record<string, string>> = { approvalPolicy: '-a', sandbox: '-s' }
@@ -902,6 +909,7 @@ export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unk
     }
     args.push(flag, value)
   }
+  if (threadStart?.sandbox === 'danger-full-access') args.push('--dangerously-bypass-hook-trust')
   return args
 }
 
@@ -1683,7 +1691,8 @@ export class CodexAppServerSession {
    * thread-open 原生 `config` map 与 child env 承载，prompt 块则经 developerInstructions 进入原生
    * thread-open RPC。Codex 继续使用用户真实 `CODEX_HOME` 读取 auth/跨 run 状态；workspace trust 由 capability bundle 的 session-owned overlay 与 `-c` 覆盖提供，用户全局 config.toml 不被改写。这里不补 provider `buildCommand` 的 `notify`：本路径
    * 直接消费 WS `turn/started` / `turn/completed` 驱动会话页后端的 lifecycle,且 divert 时不会加载会话页的 CLI
-   * hooks,所以也没有 hook trust 需要 `--dangerously-bypass-hook-trust` 绕过。
+   * hooks,所以 app-server 进程不带 `--dangerously-bypass-hook-trust`;用户自己的 hook 由新建 thread 的 TUI
+   * 按权限档处理(见 codexTuiPermissionArgs)。
    */
   async start(
     cwd: string,

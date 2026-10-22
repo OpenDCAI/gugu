@@ -20,6 +20,7 @@ export const PROVIDER_REVIEW_GATE_STATUS: Record<ProviderReviewGate, Extract<Age
 };
 export const PROVIDER_BLOCKER_STATUS: Record<ProviderBlockerReason, Extract<AgentStatus, 'needs_user' | 'error'>> = {
   'workspace-trust': 'needs_user',
+  'hook-trust': 'needs_user',
   auth: 'error',
   account: 'error',
   config: 'error',
@@ -60,6 +61,17 @@ const PROVIDER_BLOCKERS: readonly ProviderBlockerCandidate[] = [
       text,
       /(?:Accessing workspace|访问工作区|存取工作區|Accès à l'espace de travail|Accediendo al espacio de trabajo|Доступ к рабочему пространству|ワークスペースにアクセス中)/,
     ) ?? 'Workspace trust confirmation required',
+  },
+  {
+    providerIds: ['codex'],
+    reason: 'hook-trust',
+    // Codex 的 hook 信任审阅:一个还没审阅过的 hook(例如刚装的插件带的)让 TUI 在建出 / 载入 thread 之前停在这里,
+    // 首句和之后的投递都进不去。完全访问档新建时由 `--dangerously-bypass-hook-trust` 免掉(codexTuiPermissionArgs);
+    // 其余档、以及 `--remote … resume`(codex 不认那个参数)都要人来答。门体只有英文。
+    pattern: /\bHooks need review\b/,
+    // 标题可能被别的输出引用;真正的门同屏渲染「Trust all and continue」选项。
+    guard: (text) => /\bTrust all and continue\b/.test(text),
+    message: (text) => extractNativeBlockerText(text, /\bHooks need review\b/) ?? 'Hooks need review',
   },
   {
     providerIds: ['opencode'],
