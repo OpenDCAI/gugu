@@ -20,17 +20,22 @@ import {
   ContextMenuTrigger
 } from '@renderer/lib/ui/context-menu'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
+import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items'
+import { OpenInMenuItems } from '@renderer/lib/components/titlebar/open-in-menu'
 import { isGitHubDotComHost, parseRepositoryRef } from '@shared/repository-ref'
 
 const MountedProjectMenu = observer(function MountedProjectMenu({
   projectId,
+  chatId,
   children
 }: {
   projectId: string
+  chatId: string | null
   children: ReactNode
 }) {
   const { navigate } = useNavigate()
   const { translate } = useSessionMessages()
+  const path = asMounted(getProjectStore(projectId))?.data.path ?? null
   const displayName = projectDisplayName(getProjectStore(projectId)) ?? translate('projects.fallbackName')
   const confirmDeleteProject = useConfirmDeleteProject()
 
@@ -44,8 +49,16 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
     <ContextMenu>
       <ContextMenuTrigger className="flex h-full w-full min-w-0">{children}</ContextMenuTrigger>
       <ContextMenuContent finalFocus={false} className="min-w-40">
+        {chatId ? (
+          <>
+            <ChatTabMenuItems chatId={chatId} />
+            <ContextMenuSeparator />
+          </>
+        ) : null}
+        {path ? <OpenInMenuItems path={path} /> : null}
         {remoteUrl && (
           <>
+            {path ? <ContextMenuSeparator /> : null}
             <ContextMenuItem
               className="flex items-center gap-2"
               onClick={() => void rpc.app.openExternal(isGithubUrl ? (repository?.repositoryUrl ?? remoteUrl) : remoteUrl)}
@@ -53,9 +66,9 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
               {isGithubUrl ? <GithubIcon className="size-4" /> : <Globe className="size-4" />}
               <span className="truncate">{repoLabel}</span>
             </ContextMenuItem>
-            <ContextMenuSeparator />
           </>
         )}
+        {path || remoteUrl ? <ContextMenuSeparator /> : null}
         <ContextMenuItem
           className="flex items-center gap-2 text-foreground-destructive"
           onClick={() => {
@@ -75,12 +88,12 @@ const MountedProjectMenu = observer(function MountedProjectMenu({
 })
 
 /**
- * 项目页签的右键菜单(gugu-dev#181:页签条右端只留搜索、群文件夹、成员、历史和「在哪里打开」):仓库链接、移除项目。
- * 这枚页签只有这一个右键菜单,项目的东西都加在这里。隐藏的内部项目(task-home)不是用户的项目,不出菜单
- * (见 session-home-project-constants)。
+ * 项目页签的右键菜单(gugu-dev#181:页签条右端只留搜索、群文件夹、成员、历史,和原型一样):项目群的公告、设置、
+ * 在本群打开 App,在哪里打开,仓库链接,移除项目。这枚页签只有这一个右键菜单,项目和它的群的东西都加在这里。
+ * 隐藏的内部项目(task-home)不是用户的项目,不出菜单(见 session-home-project-constants)。
  */
-export const ProjectTabMenu = observer(function ProjectTabMenu({ projectId, children }: { projectId: string; children: ReactNode }) {
+export const ProjectTabMenu = observer(function ProjectTabMenu({ projectId, chatId, children }: { projectId: string; chatId: string | null; children: ReactNode }) {
   const mounted = asMounted(getProjectStore(projectId))
   if (!mounted || isImplicitSessionHomeProject({ id: projectId })) return <>{children}</>
-  return <MountedProjectMenu projectId={projectId}>{children}</MountedProjectMenu>
+  return <MountedProjectMenu projectId={projectId} chatId={chatId}>{children}</MountedProjectMenu>
 })

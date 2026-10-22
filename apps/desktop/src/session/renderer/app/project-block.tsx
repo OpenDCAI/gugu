@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
 import { ProjectMiniFolder } from '@renderer/features/projects/components/main-panel/project-folder-card';
 import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
-import { ProjectTitleActions } from '@renderer/features/projects/components/project-title-actions';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
@@ -31,8 +30,8 @@ import { screenLayout } from './screen-layout';
  * 一个项目占一块(gugu-dev#181「块与页签」):顶上一条页签条(和会话块同一套),第一枚是项目群,不能关;
  * 下面是这一枚的内容:项目群的消息流(和对话页同一个群聊组件,由壳画进格子)。群里还没有消息(包括刚建的项目)
  * 时正中是项目首页那一套 —— 文件夹卡 + 输入框,和以前点项目进来看到的一样。
- * 格子里没有群聊头:群聊头那排图标(搜索、群文件夹、成员、历史、⋯)由壳画进页签条右端,后面是「在哪里打开」,
- * ❌ 另起一条顶栏。仓库链接、移除项目在项目页签的右键菜单里。
+ * 格子里没有群聊头:群聊头那排图标(搜索、群文件夹、成员、历史)由壳画进页签条右端,❌ 另起一条顶栏。
+ * 群公告、设置、在本群打开 App、在哪里打开、仓库链接、移除项目都在项目页签的右键菜单里(和原型一样,右端只有那四颗)。
  */
 export const ProjectBlock = observer(function ProjectBlock({
   blockId,
@@ -66,13 +65,12 @@ export const ProjectBlock = observer(function ProjectBlock({
         actionsSlot={
           <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
             {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
-            <ProjectTitleActions projectId={projectId} />
             {blockActions}
           </TabBarActionRow>
         }
       >
         <TabSlot data-project-block-tab={projectId}>
-          <ProjectTabMenu projectId={projectId}>
+          <ProjectTabMenu projectId={projectId} chatId={chatId && hasMessages !== false ? chatId : null}>
             <TabChip
               isActive
               isFocusedPane={focused}

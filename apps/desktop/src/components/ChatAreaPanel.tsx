@@ -24,7 +24,7 @@ import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupColla
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { UI_EVENTS } from '../lib/uiEvents'; import { isChatSearchTarget } from '../lib/chatSearchTarget'
+import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'; import { isChatSearchTarget } from '../lib/chatSearchTarget'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTopicsPanelRequest } from '../hooks/useTopicsPanelRequest'
 import type { HistoryTab } from './historyPanelModels'
@@ -344,13 +344,16 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   }, [loadGroupCollab, openNonce])
 
   useEffect(() => {
-    // @@@drawer-test-control - Private JSON-RPC smoke opens the same drawer surface without reintroducing broad DOM click RPC.
-    const handleOpenDetailsDrawer = () => {
-      if (activeChatId) handleOpenSettingsDrawer()
+    // 块页签的右键菜单(gugu-dev#181):点名是哪个对话、开哪一页;屏上几块里只有那个对话的这块面答。
+    const handleOpenDetailsDrawer = (event: Event) => {
+      const detail = (event as CustomEvent<ChatDetailsRequest>).detail
+      if (!activeChatId || detail?.chatId !== activeChatId) return
+      if (detail.page === 'announcement') handleOpenAnnounce()
+      else handleOpenSettingsDrawer()
     }
     window.addEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
     return () => window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-  }, [activeChatId, handleOpenSettingsDrawer])
+  }, [activeChatId, handleOpenAnnounce, handleOpenSettingsDrawer])
 
   useEffect(() => {
     if (!activeChatId || !isRoomChatSurface || !user?.id) return
@@ -1084,6 +1087,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
+        moreInTabMenu={Boolean(blockHost)}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenWorkspacePanel={handleOpenWorkspacePanel}
