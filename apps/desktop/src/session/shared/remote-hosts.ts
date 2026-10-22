@@ -9,6 +9,7 @@
 import type { DeviceSessionSummary } from '@gugu/core/shared/types/chat';
 import type { ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
 import type { CloudComputerPresence } from '@gugu/core/shared/types/deviceHost';
+import type { DeviceProject } from '@gugu/core/shared/types/deviceProject';
 import type { SessionHostPipeOpener } from './lib/ipc/session-host-client';
 
 export const REMOTE_HOSTS_BRIDGE_KEY = '__GUGU_REMOTE_HOSTS__';
@@ -75,6 +76,13 @@ export type RemoteHostDevice = {
    * 宿主那一侧换好)。不是 = 缺席。
    */
   assistantHome?: true;
+  /**
+   * #113 那台机器记在账号上的项目与文件夹(product spec「项目」:项目记在账号上)。没连着它时项目清单、群绑定、文件夹
+   * 都读这一份;连着时以那台机器此刻的为准。缺席 = 这一端还没读到过账号上的那份。
+   */
+  projects?: readonly DeviceProject[];
+  /** #113 那台机器的主目录(心跳报的);认它上面的「~」项目用。老宿主不报 = 缺席。 */
+  homeDir?: string;
 };
 
 /**
