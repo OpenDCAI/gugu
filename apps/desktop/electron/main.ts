@@ -1,3 +1,4 @@
+import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
   app,
@@ -1545,7 +1546,7 @@ function createWindow(loadContents = true): void {
 
   // window.open:咕咕子窗口(一块会话 / 一个 App 单独成窗、快速聊天小窗)放行,其余交给系统浏览器。
   quickChat ??= installQuickChat({ mainWindow: () => mainWindow, focusMain: focusMainWindow, supported: !SERVER_MODE })
-  attachAuxWindows(mainWindow, () => WINDOW_TONE_BG[readWindowTone()], [quickChat.auxWindow])
+  attachAuxWindows(mainWindow, () => WINDOW_TONE_BG[readWindowTone()], [quickChat.auxWindow, resourceMonitorWindow])
 
   setMainWindow(mainWindow)
   // A real sleep emits powerMonitor.resume, while a stopped process resumed by the OS/test
