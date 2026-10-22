@@ -35,6 +35,11 @@ const SECURITY = '/usr/bin/security';
 const NOT_FOUND = 44;
 /** 钥匙串被锁时 `security` 会等人去点解锁框;不设上限就把整次切换(和状态读取)挂死。 */
 const SECURITY_TIMEOUT_MS = 10_000;
+/**
+ * `security -i` 一行读不了太长:超出的部分被截掉,写进去的是半份凭据,命令却照样报成功(实测 2KB 的 JSON 即如此)。
+ * CLI 自己(2.1.293)也是整条命令不超过这个长度才走 stdin,超了改走参数 —— 照它。
+ */
+const SECURITY_STDIN_LIMIT = 4032;
 
 export function claudeKeychainService(location: ClaudeCredentialLocation): string {
   return location.suffixed
@@ -47,6 +52,8 @@ export type SecurityRunner = {
   find(args: string[]): Promise<string | null>;
   /** 写:把命令行喂给 `security -i` 的 stdin(❌ 不放进 argv,免得凭据出现在进程列表里)。 */
   interactive(command: string): Promise<void>;
+  /** 写:命令太长、stdin 装不下时才用,凭据会短暂出现在本机进程列表里(CLI 同样如此)。 */
+  run(args: string[]): Promise<void>;
 };
 
 function realSecurity(): SecurityRunner {
@@ -80,6 +87,14 @@ function realSecurity(): SecurityRunner {
           reject(new Error(`security write failed (${String(code)})`));
         });
         child.stdin.end(`${command}\n`);
+      }),
+    run: (args) =>
+      new Promise((resolve, reject) => {
+        execFile(SECURITY, args, { timeout: SECURITY_TIMEOUT_MS }, (error) => {
+          if (!error) return resolve();
+          const { code, killed } = error as { code?: unknown; killed?: boolean };
+          reject(new Error(killed ? `security ${args[0]} timed out` : `security ${args[0]} failed (${String(code)})`));
+        });
       }),
   };
 }
@@ -166,11 +181,15 @@ export function createClaudeCredentialStore(options: ClaudeCredentialStoreOption
         await writeFileCredential(location.root, text);
         return;
       }
+      const service = claudeKeychainService(location);
       const hex = Buffer.from(text, 'utf8').toString('hex');
-      await security.interactive(
-        `add-generic-password -U -a ${quote(account)} -s ${quote(claudeKeychainService(location))} -X ${hex}` +
-          (options.keychain ? ` ${quote(options.keychain)}` : '')
-      );
+      const command =
+        `add-generic-password -U -a ${quote(account)} -s ${quote(service)} -X ${hex}` +
+        (options.keychain ? ` ${quote(options.keychain)}` : '');
+      if (command.length <= SECURITY_STDIN_LIMIT) await security.interactive(command);
+      else await security.run(['add-generic-password', '-U', '-a', account, '-s', service, '-X', hex, ...keychainArgs]);
+      // 读回来逐字比对:`security` 写坏了也可能报成功,宁可当场报错让切换回滚,❌ 留一份坏凭据在那里。
+      if ((await readKeychain(location)) !== text) throw new Error('The Claude sign-in was not stored intact in the keychain');
     },
   };
 }

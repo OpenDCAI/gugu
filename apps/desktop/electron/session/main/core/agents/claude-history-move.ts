@@ -34,6 +34,8 @@ export async function moveClaudeHistoryToUserRoot(connectionRoot: string, native
       errorOnExist: false,
       preserveTimestamps: true,
       mode: constants.COPYFILE_FICLONE,
+      // 用户根里的 `projects`(或其下某个项目)可能是指向别处的符号链接:不跟过去,cp 会把它当「不是目录」直接报错。
+      dereference: true,
     });
   }
   await writeFile(join(connectionRoot, MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });

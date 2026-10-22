@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parse as parseTOML } from 'smol-toml';
 
 /**
@@ -22,7 +22,29 @@ export type CodexAuthSlotPaths = {
   vaultRoot(connectionId: string): string;
   /** 用户根里出现了谁都不认识的账号(用户在终端里自己 `codex login` 过)时,换出前留一份副本在这里。 */
   backupDir: string;
+  /** 记下上一次换进用户根的是哪个连接、哪个账号(不含凭据)。 */
+  liveStateFile: string;
 };
+
+type LiveState = { connectionId: string; identity: string };
+
+async function readLiveState(path: string): Promise<LiveState | null> {
+  try {
+    const value = JSON.parse(await readFile(path, 'utf8')) as Partial<LiveState> | null;
+    return value && typeof value.connectionId === 'string' && typeof value.identity === 'string'
+      ? { connectionId: value.connectionId, identity: value.identity }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function recordLiveState(path: string, state: LiveState): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.gugu-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+  await rename(temporary, path);
+}
 
 const AUTH_FILE = 'auth.json';
 
@@ -111,8 +133,10 @@ export async function assertCodexFileCredentialStore(nativeRoot: string): Promis
 /**
  * 用户根里此刻是哪个连接的账号。`selectedId` = 调用方认为当前选中的连接。
  *
- * 1. 选中的是账号连接,且它保管的账号和用户根里的一致 ⇒ 就是它。❌ 放到 2 之后:新用户原生没登录、
- *    先加了账号 A,这时用户根里是 A,若判成 native,换出时 A 轮换过的 token 会被存到 native 名下。
+ * 0. 上一次换进去的记录,账号还对得上 ⇒ 就是它。❌ 只靠「选中的」:选中 API 连接之后再选回账号 A,
+ *    选中的是 API 连接,判不出用户根里是 A。
+ * 1. 选中的是账号连接,且它保管的账号和用户根里的一致 ⇒ 就是它(升级前没有记录时靠这条)。❌ 放到 2 之后:
+ *    新用户原生没登录、先加了账号 A,这时用户根里是 A,若判成 native,换出时 A 轮换过的 token 会被存到 native 名下。
  * 2. `native` 还没有保管副本 = 还没换出过,用户根里的就是它:用户又把同一个账号加成了账号连接时,
  *    按身份会先撞上那个连接,于是原生连接永远「不在用户根里」、又没有副本,再也选不回去。
  *    同一个账号既是原生又是某个连接时也归原生:两边的凭据本来就是同一个人的。
@@ -124,6 +148,10 @@ export async function codexLiveOwner(
   selectedId: string | null
 ): Promise<string | null> {
   const live = await readAuth(paths.nativeRoot);
+  const recorded = await readLiveState(paths.liveStateFile);
+  if (live?.identity && recorded?.identity === live.identity && connectionIds.includes(recorded.connectionId)) {
+    return recorded.connectionId;
+  }
   if (selectedId && selectedId !== 'native' && live?.identity) {
     if ((await readAuth(paths.vaultRoot(selectedId)))?.identity === live.identity) return selectedId;
   }
@@ -160,8 +188,12 @@ export async function activateCodexAccount(
 ): Promise<string | null> {
   await assertCodexFileCredentialStore(paths.nativeRoot);
   const owner = await codexLiveOwner(paths, connectionIds, currentId);
-  // 已经在用户根里(含「用户从没登录过,原生连接就是空的」):什么都不用搬。
-  if (owner === targetId) return owner;
+  // 已经在用户根里(含「用户从没登录过,原生连接就是空的」):什么都不用搬,把记录对齐即可。
+  if (owner === targetId) {
+    const identity = (await readAuth(paths.nativeRoot))?.identity;
+    if (identity) await recordLiveState(paths.liveStateFile, { connectionId: targetId, identity });
+    return owner;
+  }
   const incoming = await readAuth(paths.vaultRoot(targetId));
   if (!incoming) throw new Error('The selected Codex account has no saved sign-in; sign in to it again');
   const live = await readAuth(paths.nativeRoot);
@@ -174,7 +206,13 @@ export async function activateCodexAccount(
     }
   }
   await writeAuth(paths.nativeRoot, incoming.text);
+  if (incoming.identity) await recordLiveState(paths.liveStateFile, { connectionId: targetId, identity: incoming.identity });
   return owner;
+}
+
+/** 这个连接的保管目录里有没有一份能换进来的登录(切换前先问,免得白白停掉在跑的会话)。 */
+export async function codexSignInSaved(paths: CodexAuthSlotPaths, connectionId: string): Promise<boolean> {
+  return (await readAuth(paths.vaultRoot(connectionId))) !== null;
 }
 
 /** 保管目录也要是一份能独立跑 `codex login` / `login status` 的根:凭据只落文件,❌ 落进钥匙串。 */

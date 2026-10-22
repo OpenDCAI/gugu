@@ -15,6 +15,7 @@ vi.mock('@main/lib/events', () => ({
   events: { emit: (_channel: unknown, target: { sessionId: string }) => mocks.calls.push(`reclaimed:${target.sessionId}`) },
 }));
 vi.mock('@main/core/agents/harness-connections', () => ({
+  assertHarnessConnectionSelectable: vi.fn(async () => undefined),
   selectHarnessConnection: vi.fn(async (provider: string, connectionId: string) => {
     mocks.calls.push(`select:${provider}:${connectionId}`);
   }),
@@ -78,4 +79,12 @@ it('still hands stopped sessions back when the credential switch fails', async (
   vi.mocked(selectHarnessConnection).mockRejectedValueOnce(new Error('keyring'));
   await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('keyring');
   expect(mocks.calls).toEqual(['stop:a', 'reclaimed:a']);
+});
+
+it('keeps running sessions alive when the target connection cannot be switched to', async () => {
+  summary('a');
+  const { assertHarnessConnectionSelectable } = await import('@main/core/agents/harness-connections');
+  vi.mocked(assertHarnessConnectionSelectable).mockRejectedValueOnce(new Error('no saved sign-in'));
+  await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('no saved sign-in');
+  expect(mocks.calls).toEqual([]);
 });

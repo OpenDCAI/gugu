@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { SessionSummary } from '@gugu/session-core/acp';
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge';
-import { selectHarnessConnection } from '@main/core/agents/harness-connections';
+import { assertHarnessConnectionSelectable, selectHarnessConnection } from '@main/core/agents/harness-connections';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
@@ -64,6 +64,8 @@ export async function switchSubscription(
         `Switch the subscription after they finish; switching restarts every running ${LABEL[providerId]} session.`
     );
   }
+  // 换不成(连接没了、登录没存、Codex 凭据不在文件里)就在停会话之前报出来。
+  await assertHarnessConnectionSelectable(providerId, connectionId, { nativeEnv });
   const stopped: LiveSession[] = [];
   try {
     for (const session of live) {

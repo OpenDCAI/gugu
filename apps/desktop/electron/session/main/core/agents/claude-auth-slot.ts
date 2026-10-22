@@ -18,15 +18,17 @@ import type { ClaudeCredentialLocation, ClaudeCredentialStore } from './claude-c
  * 换账号只换这一个键,其余原样留在用户根里,❌ 整段文本互换。
  * `.claude.json` 同理,只动属于账号的两格(`oauthAccount`、`hasCompletedOnboarding`)。
  *
- * 「用户根里此刻是谁」由调用方告知它认为选中的连接,再用 `.claude.json` 的 `oauthAccount.accountUuid` 校验;
- * 校验不上(用户在终端里自己 `claude login` 过)才按身份在所有连接里找,找不到就当未知账号,换出前另存副本。
+ * 「用户根里此刻是谁」:每次换完记下换进去的是哪个连接、哪个账号;下次先认这条记录,再用 `.claude.json` 的
+ * `oauthAccount.accountUuid` 校验(选中的可能是 API 连接,拿「选中的」判不了)。记录对不上(用户在终端里自己
+ * `claude login` 过)才按身份在所有连接里找,找不到就当未知账号,换出前另存副本。
  *
  * 和 CLI 拿同样的锁(bundled CLI 源码里看到的,claude-agent-sdk 0.3.293;对真 CLI 实测过它会等):
  * - 换凭据期间拿着用户根与目标保管目录的刷新锁:CLI 要刷新 token 时会一直等到我们放锁,
  *   不会在中途把旧账号刷新出来的新 token 写回来、盖掉换进去的账号。
+ * - 改凭据时拿着那个根的 `.storage-write` 锁:CLI 改凭据(存 MCP 登录、存新 token)都在这把锁里「重读 → 改 → 写」。
  * - 改 `.claude.json` 时拿着它的锁:CLI 写这个文件时会等一会儿(约 1.5 秒),等不到就重读文件、在最新内容上改它那一处。
  *   我们只在「读 → 改 → 写」那几毫秒里拿着,它总能等到。
- * 在终端里开着的 `claude` 也守这两把锁。
+ * 在终端里开着的 `claude` 也守这些锁。
  */
 
 export type ClaudeAuthSlotPaths = {
@@ -40,6 +42,8 @@ export type ClaudeAuthSlotPaths = {
   vaultRoot(connectionId: string): string;
   /** 用户根里出现了谁都不认识的账号时,换出前留一份副本在这里。 */
   backupDir: string;
+  /** 记下上一次换进用户根的是哪个连接、哪个账号(不含凭据)。 */
+  liveStateFile: string;
   store: ClaudeCredentialStore;
   /** 锁被 CLI 拿着时重试几次(缺省约等十几秒);测试传 0。 */
   lockRetries?: number;
@@ -137,7 +141,42 @@ async function lockRefresh(root: string, retries: number): Promise<() => Promise
   }
 }
 
-/** 只改账号那两格,其余原样;在 CLI 同一把锁(`<文件>.lock`)里重读再写,先写临时文件再改名。 */
+/** CLI 改凭据时拿的锁:`<根>/.storage-write.lock`(它调的是 `lock(<根>/.storage-write)`,锁目录取缺省的 `.lock` 后缀),stale 15s。 */
+async function lockStorage(root: string, retries: number): Promise<() => Promise<void>> {
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  return lockLikeClaude(join(root, '.storage-write.lock'), retries, { stale: 15_000, update: 7_500 });
+}
+
+/** 一个根上 CLI 会拿的全部凭据锁,按 CLI 自己的先后(先刷新、后写凭据)拿。 */
+async function lockCredentials(root: string, retries: number): Promise<() => Promise<void>> {
+  const releaseRefresh = await lockRefresh(root, retries);
+  try {
+    const releaseStorage = await lockStorage(root, retries);
+    return async () => {
+      await releaseStorage();
+      await releaseRefresh();
+    };
+  } catch (error) {
+    await releaseRefresh();
+    throw error;
+  }
+}
+
+/** 先写临时文件再改名:写到一半崩了,留下的要么是旧的、要么是新的。路径是符号链接就写到它指向的文件,链接本身留着。 */
+async function writeJsonAtomic(path: string, value: Json): Promise<void> {
+  const target = await realpath(path).catch(() => path);
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  const temporary = `${target}.gugu-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  try {
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+/** 只改账号那两格,其余原样;在 CLI 同一把锁(`<文件>.lock`)里重读再写。 */
 async function mergeAccount(path: string, fields: Json, retries: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const release = await lockLikeClaude(`${path}.lock`, retries, { stale: 10_000, update: 5_000 });
@@ -146,17 +185,33 @@ async function mergeAccount(path: string, fields: Json, retries: number): Promis
     for (const key of ACCOUNT_KEYS) {
       if (key in fields) config[key] = fields[key];
     }
-    const temporary = `${path}.gugu-${process.pid}-${Date.now()}`;
-    await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    try {
-      await rename(temporary, path);
-    } catch (error) {
-      await rm(temporary, { force: true });
-      throw error;
-    }
+    await writeJsonAtomic(path, config);
   } finally {
     await release();
   }
+}
+
+type LiveState = { connectionId: string; identity: string };
+
+async function readLiveState(path: string): Promise<LiveState | null> {
+  try {
+    const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+    if (!isObject(value) || typeof value.connectionId !== 'string' || typeof value.identity !== 'string') return null;
+    return { connectionId: value.connectionId, identity: value.identity };
+  } catch {
+    return null;
+  }
+}
+
+async function recordLiveState(paths: ClaudeAuthSlotPaths, state: LiveState): Promise<void> {
+  await writeJsonAtomic(paths.liveStateFile, state);
+}
+
+/** 要换进来的账号本来就在用户根里:不搬,只把记录对齐到它。 */
+async function keepInPlace(paths: ClaudeAuthSlotPaths, targetId: string): Promise<string> {
+  const live = await readAccount(paths.nativeGlobalConfig);
+  if (live) await recordLiveState(paths, { connectionId: targetId, identity: live.identity });
+  return targetId;
 }
 
 function parseCredential(text: string | null): Json | null {
@@ -190,9 +245,11 @@ function isStale(live: Json, saved: Json | null): boolean {
 /**
  * 用户根里此刻是哪个连接的账号。`selectedId` = 调用方认为当前选中的连接。
  *
- * 1. 选中的是账号连接,且它保管目录里的账号和用户根里的一致 ⇒ 就是它。
+ * 0. 上一次换进去的记录,账号还对得上 ⇒ 就是它。❌ 只靠「选中的」:选中 API 连接之后再选回账号 A,
+ *    选中的是 API 连接,判不出用户根里是 A,会把 A 轮换过的 token 存到 native 名下。
+ * 1. 选中的是账号连接,且它保管目录里的账号和用户根里的一致 ⇒ 就是它(升级前没有记录时靠这条)。
  * 2. `native` 还没有保管的账号 = 还没换出过,用户根里的(含用户在终端里登录的未知账号)就是它。
- *    ❌ 不能放在 1 之前:新用户原生没登录、先加了账号 A,这时用户根里是 A,若判成 native,
+ *    ❌ 不能放在 0、1 之前:新用户原生没登录、先加了账号 A,这时用户根里是 A,若判成 native,
  *    换出时 A 轮换过的 token 会被存到 native 名下,A 自己那份保持作废。
  * 3. 否则按身份在所有连接里找;找不到 = 未知账号(null)。
  */
@@ -202,6 +259,10 @@ export async function claudeLiveOwner(
   selectedId: string | null
 ): Promise<string | null> {
   const live = await readAccount(paths.nativeGlobalConfig);
+  const recorded = await readLiveState(paths.liveStateFile);
+  if (live && recorded && recorded.identity === live.identity && connectionIds.includes(recorded.connectionId)) {
+    return recorded.connectionId;
+  }
   if (selectedId && selectedId !== NATIVE && live) {
     if ((await readAccount(vaultConfig(paths, selectedId)))?.identity === live.identity) return selectedId;
   }
@@ -237,13 +298,13 @@ export async function activateClaudeAccount(
   now: () => Date = () => new Date()
 ): Promise<string | null> {
   const owner = await claudeLiveOwner(paths, connectionIds, currentId);
-  // 已经在用户根里(含「用户从没登录过,原生连接就是空的」):什么都不用搬。
-  if (owner === targetId) return owner;
+  // 已经在用户根里(含「用户从没登录过,原生连接就是空的」):什么都不用搬,把记录对齐即可。
+  if (owner === targetId) return keepInPlace(paths, targetId);
   const retries = paths.lockRetries ?? DEFAULT_LOCK_RETRIES;
   // 先用户根、再目标保管目录:CLI 一次只拿一个根的锁,固定这个顺序不会和它互等。
-  const releaseNative = await lockRefresh(paths.nativeRoot, retries);
+  const releaseNative = await lockCredentials(paths.nativeRoot, retries);
   try {
-    const releaseTarget = await lockRefresh(paths.vaultRoot(targetId), retries);
+    const releaseTarget = await lockCredentials(paths.vaultRoot(targetId), retries);
     try {
       return await swapUnderLock(paths, connectionIds, targetId, currentId, retries, now);
     } finally {
@@ -264,7 +325,7 @@ async function swapUnderLock(
 ): Promise<string | null> {
   // 拿到锁之后重新认一次:等锁期间 CLI 可能刚刷新完、或用户刚在终端里换了登录。
   const owner = await claudeLiveOwner(paths, connectionIds, currentId);
-  if (owner === targetId) return owner;
+  if (owner === targetId) return keepInPlace(paths, targetId);
   const incomingOauth = oauthOf(await paths.store.read(vault(paths, targetId)));
   const incomingAccount = await readAccount(vaultConfig(paths, targetId));
   if (!incomingOauth || !incomingAccount) {
@@ -275,10 +336,15 @@ async function swapUnderLock(
   const liveAccount = await readAccount(paths.nativeGlobalConfig);
   if (liveText !== null) {
     if (owner) {
-      const saved = await paths.store.read(vault(paths, owner));
-      if (liveOauth && !isStale(liveOauth, oauthOf(saved))) {
-        await paths.store.write(vault(paths, owner), withOauth(saved, liveOauth));
-        if (liveAccount) await mergeAccount(vaultConfig(paths, owner), liveAccount.fields, retries);
+      const releaseOwner = await lockStorage(paths.vaultRoot(owner), retries);
+      try {
+        const saved = await paths.store.read(vault(paths, owner));
+        if (liveOauth && !isStale(liveOauth, oauthOf(saved))) {
+          await paths.store.write(vault(paths, owner), withOauth(saved, liveOauth));
+          if (liveAccount) await mergeAccount(vaultConfig(paths, owner), liveAccount.fields, retries);
+        }
+      } finally {
+        await releaseOwner();
       }
     } else {
       await mkdir(paths.backupDir, { recursive: true, mode: 0o700 });
@@ -290,15 +356,22 @@ async function swapUnderLock(
       );
     }
   }
-  await paths.store.write(native(paths), withOauth(liveText, incomingOauth));
   try {
+    await paths.store.write(native(paths), withOauth(liveText, incomingOauth));
     await mergeAccount(paths.nativeGlobalConfig, incomingAccount.fields, retries);
   } catch (error) {
-    // 凭据与账号信息要一起换:后一步没成,把凭据放回去,❌ 留一个「凭据是 B、账号信息是 A」的半截状态。
+    // 凭据与账号信息要一起换:哪一步没成(含凭据本身没写完整),都把原来的凭据放回去,
+    // ❌ 留一个「凭据是 B、账号信息是 A」或半份凭据的状态。
     if (liveText !== null) await paths.store.write(native(paths), liveText).catch(() => undefined);
     throw error;
   }
+  await recordLiveState(paths, { connectionId: targetId, identity: incomingAccount.identity });
   return owner;
+}
+
+/** 这个连接的保管目录里有没有一份能换进来的登录(切换前先问,免得白白停掉在跑的会话)。 */
+export async function claudeSignInSaved(paths: ClaudeAuthSlotPaths, connectionId: string): Promise<boolean> {
+  return Boolean(oauthOf(await paths.store.read(vault(paths, connectionId)))) && Boolean(await readAccount(vaultConfig(paths, connectionId)));
 }
 
 /** 保管目录要存在(`claude auth login` 以它为配置根;凭据落钥匙串条目或其下的 `.credentials.json`)。 */

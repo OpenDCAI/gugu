@@ -25,6 +25,7 @@ vi.mock('./claude-credential-store', async (importOriginal) => {
 const {
   alignClaudeConnections,
   alignCodexDefaultAccount,
+  assertHarnessConnectionSelectable,
   connectionConfigRoot,
   createHarnessConnection,
   listHarnessConnections,
@@ -205,6 +206,44 @@ it('files a first Codex account under its own connection when native never had a
   await expect(stat(join(vault('native'), 'auth.json'))).rejects.toThrow();
   await selectHarnessConnection('codex', first.id);
   expect(await readFile(join(state.codexRoot, 'auth.json'), 'utf8')).toBe(chatgptAuth('first', 'r2'));
+});
+
+it('keeps a first Codex account’s rotated token with it after a detour through an API connection', async () => {
+  const first = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
+  const second = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
+  const api = await createHarnessConnection({ providerId: 'codex', kind: 'api-key', apiKey: 'fixture-key' });
+  await writeAuthAt(vault(first.id), chatgptAuth('first'));
+  await writeAuthAt(vault(second.id), chatgptAuth('second'));
+  await selectHarnessConnection('codex', first.id);
+  await selectHarnessConnection('codex', api.id);
+  // API 连接上跑着的时候,用户根里仍是 first,CLI 照样会轮换它的 token。
+  await writeAuthAt(state.codexRoot, chatgptAuth('first', 'r2'));
+  await selectHarnessConnection('codex', second.id);
+  expect(await readFile(join(vault(first.id), 'auth.json'), 'utf8')).toBe(chatgptAuth('first', 'r2'));
+  await expect(stat(join(vault('native'), 'auth.json'))).rejects.toThrow();
+});
+
+it('checks a switch before anything is stopped: a missing sign-in or keychain storage is refused up front', async () => {
+  await writeAuthAt(state.codexRoot, chatgptAuth('original'));
+  const work = await createHarnessConnection({ providerId: 'codex', kind: 'account' });
+  const api = await createHarnessConnection({ providerId: 'codex', kind: 'api-key', apiKey: 'fixture-key' });
+  await expect(assertHarnessConnectionSelectable('codex', work.id)).rejects.toThrow('no saved sign-in');
+  await writeAuthAt(vault(work.id), chatgptAuth('work'));
+  await assertHarnessConnectionSelectable('codex', work.id);
+  await assertHarnessConnectionSelectable('codex', 'native');
+  await assertHarnessConnectionSelectable('codex', api.id);
+  await expect(assertHarnessConnectionSelectable('codex', 'missing')).rejects.toThrow('no longer exists');
+  await writeFile(join(state.codexRoot, 'config.toml'), 'cli_auth_credentials_store = "keyring"\n');
+  await expect(assertHarnessConnectionSelectable('codex', work.id)).rejects.toThrow('keyring');
+  // 只是预检:用户根原样。
+  expect(await readFile(join(state.codexRoot, 'auth.json'), 'utf8')).toBe(chatgptAuth('original'));
+
+  await writeClaudeSignIn(state.claudeRoot, 'u-original', claudeCredential('original', 100));
+  const empty = await createHarnessConnection({ providerId: 'claude', kind: 'account' });
+  await expect(assertHarnessConnectionSelectable('claude', empty.id)).rejects.toThrow('no saved sign-in');
+  await writeClaudeSignIn(claudeVault(empty.id), 'u-work', claudeCredential('work', 200));
+  await assertHarnessConnectionSelectable('claude', empty.id);
+  await assertHarnessConnectionSelectable('claude', 'native');
 });
 
 const claudeVault = (id: string) => join(state.home, 'harness-connections', 'claude', id, '.claude');

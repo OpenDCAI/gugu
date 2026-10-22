@@ -13,10 +13,23 @@ import { providerAccountRegistry as registry } from '@main/core/provider-account
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
-import { activateClaudeAccount, claudeCredentialRoot, ensureClaudeVault, type ClaudeAuthSlotPaths } from './claude-auth-slot';
+import {
+  activateClaudeAccount,
+  claudeCredentialRoot,
+  claudeSignInSaved,
+  ensureClaudeVault,
+  type ClaudeAuthSlotPaths,
+} from './claude-auth-slot';
 import { createClaudeCredentialStore, type ClaudeCredentialStore } from './claude-credential-store';
 import { moveClaudeHistoryToUserRoot } from './claude-history-move';
-import { activateCodexAccount, codexCredentialRoot, ensureCodexVault, type CodexAuthSlotPaths } from './codex-auth-slot';
+import {
+  activateCodexAccount,
+  assertCodexFileCredentialStore,
+  codexCredentialRoot,
+  codexSignInSaved,
+  ensureCodexVault,
+  type CodexAuthSlotPaths,
+} from './codex-auth-slot';
 import {
   CLAUDE_CONNECTION_UNSET_ENV,
   CODEX_CONNECTION_UNSET_ENV,
@@ -108,6 +121,31 @@ export async function selectHarnessConnection(
   await registry.setDefaultAccount(namespace(providerId), connectionId);
 }
 
+/**
+ * 切换前先看换不换得成(连接还在、它的登录还存着、Codex 的凭据在文件里):换不成就别先停掉在跑的会话,
+ * 否则用户白白丢了进程、订阅还是旧的。只是预检,真正的切换仍在 `selectHarnessConnection` 里再判一次。
+ */
+export async function assertHarnessConnectionSelectable(
+  providerId: string,
+  connectionId: string,
+  options: { nativeEnv?: Record<string, string | undefined> } = {}
+): Promise<void> {
+  supported(providerId);
+  await ensureNative(providerId);
+  const target = await registry.getAccount(namespace(providerId), connectionId);
+  if (!target || target.meta?.harnessConnection?.removed) throw new Error('Connection no longer exists');
+  if ((target.meta?.harnessConnection?.kind ?? 'native') === 'api-key') return;
+  if (providerId === 'codex') await assertCodexFileCredentialStore(nativeConfigRoot('codex', options.nativeEnv));
+  if ((await credentialRoot(providerId, connectionId, options.nativeEnv)) === 'native') return;
+  const saved =
+    providerId === 'codex'
+      ? await codexSignInSaved(codexSlotPaths(options.nativeEnv), connectionId)
+      : await claudeSignInSaved(claudeSlotPaths(options.nativeEnv), connectionId);
+  if (!saved) {
+    throw new Error(`The selected ${providerId === 'codex' ? 'Codex' : 'Claude'} account has no saved sign-in; sign in to it again`);
+  }
+}
+
 export async function removeHarnessConnection(providerId: string, connectionId: string): Promise<void> {
   supported(providerId);
   if (connectionId === 'native') throw new Error('The existing CLI configuration cannot be removed');
@@ -151,6 +189,7 @@ function codexSlotPaths(env?: Record<string, string | undefined>): CodexAuthSlot
     nativeRoot: nativeConfigRoot('codex', env),
     vaultRoot: (id) => vaultRoot('codex', id),
     backupDir: join(app.getPath('userData'), 'harness-connections', 'codex', 'unrecognized-sign-ins'),
+    liveStateFile: join(app.getPath('userData'), 'harness-connections', 'codex', 'live-account.json'),
   };
 }
 
@@ -167,6 +206,7 @@ function claudeSlotPaths(env: Record<string, string | undefined> = process.env):
     nativeSuffixed: exported,
     vaultRoot: (id) => vaultRoot('claude', id),
     backupDir: join(app.getPath('userData'), 'harness-connections', 'claude', 'unrecognized-sign-ins'),
+    liveStateFile: join(app.getPath('userData'), 'harness-connections', 'claude', 'live-account.json'),
     store: claudeStore,
   };
 }

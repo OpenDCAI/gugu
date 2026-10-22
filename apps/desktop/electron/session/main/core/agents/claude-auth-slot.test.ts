@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { activateClaudeAccount, claudeCredentialRoot, claudeLiveOwner, type ClaudeAuthSlotPaths } from './claude-auth-slot';
+import { activateClaudeAccount, claudeCredentialRoot, claudeLiveOwner, claudeSignInSaved, type ClaudeAuthSlotPaths } from './claude-auth-slot';
 import { createClaudeCredentialStore, type ClaudeCredentialLocation, type ClaudeCredentialStore } from './claude-credential-store';
 
 let dir = '';
@@ -40,6 +40,7 @@ function setup() {
     nativeSuffixed: false,
     vaultRoot: (id) => join(dir, 'vault', id, '.claude'),
     backupDir: join(dir, 'backup'),
+    liveStateFile: join(dir, 'state', 'claude-live.json'),
     store,
     lockRetries: 0,
   };
@@ -56,7 +57,12 @@ async function holdLikeClaude(target: string, lockfilePath: string, stale = 10_0
 async function leftoverLocks(ctx: ReturnType<typeof setup>) {
   const { readdir: list } = await import('node:fs/promises');
   const under = async (path: string) => (await list(path).catch(() => [] as string[])).filter((name) => name.endsWith('.lock'));
-  return [...(await under(join(dir, 'home'))), ...(await under(ctx.paths.nativeRoot))];
+  const vaults = (await list(join(dir, 'vault')).catch(() => [] as string[])).map((id) => ctx.paths.vaultRoot(id));
+  return [
+    ...(await under(join(dir, 'home'))),
+    ...(await under(ctx.paths.nativeRoot)),
+    ...(await Promise.all(vaults.flatMap((root) => [under(root), under(join(root, '..'))]))).flat(),
+  ];
 }
 
 type Json = Record<string, unknown>;
@@ -184,7 +190,7 @@ describe('activateClaudeAccount', () => {
     await seedLive(ctx, 'uuid-a', 'a-rotated', 200);
     await mkdir(ctx.paths.nativeRoot, { recursive: true });
     const legacy = `${await realpath(ctx.paths.nativeRoot)}.lock`;
-    for (const lockfilePath of [join(ctx.paths.nativeRoot, '.oauth_refresh.lock'), legacy]) {
+    for (const lockfilePath of [join(ctx.paths.nativeRoot, '.oauth_refresh.lock'), legacy, join(ctx.paths.nativeRoot, '.storage-write.lock')]) {
       const release = await holdLikeClaude(ctx.paths.nativeRoot, lockfilePath, 60_000);
       try {
         await expect(activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A')).rejects.toThrow('try switching again');
@@ -196,6 +202,67 @@ describe('activateClaudeAccount', () => {
 
     expect(await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A')).toBe('A');
     expect(accessOf(liveText(ctx))).toBe('b-token');
+  });
+
+  it('remembers who it put in the live root, so a detour through an API connection does not misfile the token', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
+    await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
+    // 新用户:原生从没登录过。选中 A。
+    await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'A', 'native');
+    ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('a-rotated', 200));
+    // 期间选过 API 连接 K(不进 connectionIds,也不动用户根),现在从 K 切回 A、再切到 B。
+    expect(await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'A', 'K')).toBe('A');
+    expect(accessOf(liveText(ctx))).toBe('a-rotated');
+    expect(await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'K')).toBe('A');
+    expect(accessOf(vaultText(ctx, 'A'))).toBe('a-rotated');
+    expect(ctx.store.items.has(`${ctx.paths.vaultRoot('native')}|true`)).toBe(false);
+  });
+
+  it('puts the original credential back when writing the new one into the live root fails part-way', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
+    await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
+    await seedLive(ctx, 'uuid-a', 'a-rotated', 200, { mcpOAuth: { docs: 'kept' } });
+    const before = liveText(ctx);
+    const write = ctx.store.write;
+    let failed = false;
+    ctx.store.write = async (location, text) => {
+      if (!failed && location.root === ctx.paths.nativeRoot) {
+        failed = true;
+        ctx.store.items.set(`${location.root}|${location.suffixed}`, text.slice(0, 20)); // 写了半份
+        throw new Error('The Claude sign-in was not stored intact in the keychain');
+      }
+      return write(location, text);
+    };
+
+    await expect(activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A')).rejects.toThrow('not stored intact');
+
+    expect(liveText(ctx)).toBe(before);
+    expect(accountUuid(await readConfig(ctx.paths.nativeGlobalConfig))).toBe('uuid-a');
+  });
+
+  it('keeps a symlinked .claude.json a symlink', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
+    await seedVault(ctx, 'B', 'uuid-b', 'b-token', 300);
+    const real = join(dir, 'dotfiles', 'claude.json');
+    await writeConfig(real, 'uuid-a', { theme: 'dark' });
+    await mkdir(join(dir, 'home'), { recursive: true });
+    await symlink(real, ctx.paths.nativeGlobalConfig);
+    ctx.store.items.set(`${ctx.paths.nativeRoot}|false`, credential('a-rotated', 200));
+
+    await activateClaudeAccount(ctx.paths, ['native', 'A', 'B'], 'B', 'A');
+
+    expect((await lstat(ctx.paths.nativeGlobalConfig)).isSymbolicLink()).toBe(true);
+    expect(await readConfig(real)).toMatchObject({ theme: 'dark', oauthAccount: { accountUuid: 'uuid-b' } });
+  });
+
+  it('tells whether a connection has a sign-in that can be switched in', async () => {
+    const ctx = setup();
+    await seedVault(ctx, 'A', 'uuid-a', 'a-old', 100);
+    expect(await claudeSignInSaved(ctx.paths, 'A')).toBe(true);
+    expect(await claudeSignInSaved(ctx.paths, 'C')).toBe(false);
   });
 
   it('refuses a target with no saved sign-in without touching the live root', async () => {
@@ -240,6 +307,7 @@ describe.runIf(process.platform === 'darwin')('activateClaudeAccount against a r
       nativeSuffixed: false,
       vaultRoot: (id) => join(dir, 'vault', id, '.claude'),
       backupDir: join(dir, 'backup'),
+      liveStateFile: join(dir, 'state', 'claude-live.json'),
       store,
       lockRetries: 0,
     };
