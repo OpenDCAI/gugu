@@ -53,15 +53,25 @@ export interface HookNotice {
 const LEVEL_PREFIX = /^\*\*([A-Z][a-z]+):\*\* /;
 
 /**
- * `Stop says: ` / `PostToolUse says: `。
+ * `Stop says: ` / `PostToolUse says: ` / `SessionStart:compact says: `。
  *
  * ❌ 不写白名单：hook 事件名是上游的、会加（护栏常量会过期）。按**形状**认：
- * 一个或几个大驼峰词 + ` says: `。
+ * 一个或几个大驼峰词（可带 `:来源` 限定，压缩后的 SessionStart 就是 `SessionStart:compact`）+ ` says: `。
  */
-const SPEAKER = /^((?:[A-Z][A-Za-z]*)(?: [A-Z][A-Za-z]*)*) says: /;
+const SPEAKER = /^((?:[A-Z][A-Za-z]*)(?: [A-Z][A-Za-z]*)*(?::[\w.*|-]+)?) says: /;
 
 function speakerOf(line: string): string | null {
   return SPEAKER.exec(line)?.[1] ?? null;
+}
+
+/**
+ * 同一句 hook 输出的第二种来路（#55）：桥声明了 `session.notices`（gugu #6596）之后，informational
+ * 不再折进助手正文，而是一条 ACP `notice` —— 落成 `provider-notice`，`title` = 第一行，`detail` = 其余几行；
+ * 第一行太长时 `title` 换成桥的通用标题、整段进 `detail`（`claude-agent-acp` `splitNoticeText`）。
+ * 这条路上没有等级前缀，认的只是说话人那一层的形状。返回说话的 hook，不是 hook 就是 null。
+ */
+export function hookSpeakerOfNotice(notice: { title?: string; detail: string }): string | null {
+  return speakerOf(notice.title ?? '') ?? speakerOf(notice.detail);
 }
 
 export function parseHookNotice(text: string): HookNotice | null {

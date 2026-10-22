@@ -25,6 +25,7 @@ const SEGMENTERS: Record<string, ItemSegmenter> = Object.fromEntries(
     'turn-process',
     'turn-completion',
     'tool-run',
+    'session-notice',
   ].map((k) => [k, passthrough(k)])
 );
 
@@ -206,6 +207,57 @@ describe('planTurnFold (#4874)', () => {
     const plan = planTurnFold(t)!;
     expect(processOf(plan)).toEqual([['c1'], ['n1', 'c2'], ['n2', 'c3']]);
     expect(tailOf(plan)).toEqual([['r1'], ['r2'], ['r3']]);
+  });
+
+  it('#55 钩子响在 agent 又去干活之后(不是紧跟一句话) ⇒ 不切,通知落在过程里', () => {
+    const t = turn('t', [user('u'), tool('c1'), reply('r1'), tool('c2'), hookNotice('n1'), tool('c3'), reply('r2')], DONE);
+    const plan = planTurnFold(t)!;
+    expect(processOf(plan)).toEqual([['c1', 'r1', 'c2', 'n1', 'c3']]);
+    expect(tailOf(plan)).toEqual([['r2']]);
+  });
+
+  // 桥声明了 `session.notices`(#6596)之后,钩子说的话以 `provider-notice` 来,不再是助手消息。
+  describe('#55 钩子通知以 provider-notice 来', () => {
+    const providerNotice = (id: string, title: string, detail = title, at?: number): ChatItem =>
+      ({ kind: 'session-notice', id, seq: 0, code: 'provider-notice', title, detail, ...(at !== undefined ? { at } : {}) } as unknown as ChatItem);
+    const stopHook = (id: string, at?: number) =>
+      providerNotice(id, 'Stop says: ⏸ Stop 自检触发：本会话改过的仓有未提交改动', undefined, at);
+
+    it('照样劈两段:结束语与结束在外面,通知折进第二个头', () => {
+      const t = turn('t', [user('u'), tool('c1'), reply('a-real'), stopHook('n1', 5_000), tool('c2'), reply('a-post')], DONE);
+      const plan = planTurnFold(t)!;
+      expect(processOf(plan)).toEqual([['c1'], ['n1', 'c2']]);
+      expect(tailOf(plan)).toEqual([['a-real'], ['a-post']]);
+      expect(plan.segments[1]!.startedAt).toBe(5_000);
+    });
+
+    it('第一行太长、桥换了通用标题时,照 detail 认', () => {
+      const long = providerNotice('n1', 'Claude reported a notice', `Stop says: ${'x'.repeat(300)}`);
+      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), reply('a-real'), long, tool('c2'), reply('a-post')], DONE))!;
+      expect(tailOf(plan)).toEqual([['a-real'], ['a-post']]);
+    });
+
+    // 2026-10-22 真机(本 issue 的那一轮):自动压缩 → 两条 SessionStart:compact → 干活 → 结束语 → Stop → 结束。
+    it('压缩后的 SessionStart:compact 不切也不留在外面;Stop 照切', () => {
+      const sessionStart = (id: string) =>
+        providerNotice(id, 'SessionStart:compact says: AutoLibrary · 4 volumes', 'SessionStart:compact says:   ├ workspace\nSessionStart:compact says:   └ ideas', 1_500);
+      const t = turn('t', [
+        user('u'), tool('c1'), reply('r0'), tool('c2'), compaction('cp1', 1_000),
+        sessionStart('n1'), sessionStart('n2'), tool('c3'), reply('r-report'),
+        stopHook('n3', 9_000), tool('c4'), reply('r-final'),
+      ], DONE);
+      const plan = planTurnFold(t)!;
+      expect(processOf(plan)).toEqual([['c1', 'r0', 'c2'], ['n1', 'n2', 'c3'], ['n3', 'c4']]);
+      expect(tailOf(plan)).toEqual([['cp1'], ['r-report'], ['r-final']]);
+      expect(plan.segments.map((s) => s.startedAt)).toEqual([undefined, 1_000, 9_000]);
+    });
+
+    it('❌ 不是钩子的供应商提示照旧是边界线,留在外面', () => {
+      const fallback = providerNotice('n', 'Model fallback', 'claude-a declined this request; retried with claude-b.', 1_000);
+      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), fallback, tool('c2'), reply('a1')], DONE))!;
+      expect(processOf(plan)).toEqual([['c1'], ['c2']]);
+      expect(tailOf(plan)).toEqual([['n'], ['a1']]);
+    });
   });
 
   // #6199 B2 真机:启动期推理档被拒收的那行通知落在首句那一轮里,一轮成功收尾后被折进「Took 15s」。
@@ -394,6 +446,16 @@ describe('flattenTier × foldTurnProcess (#4874 → #4981 时间头)', () => {
     expect(ids(units)).toEqual([
       'u8', turnProcessId('t8'), 'a-real', turnProcessId('t8', 1), 'n1', 'c2', 'a-post',
     ]);
+  });
+
+  it('#55 钩子通知以 provider-notice 来:画出来同样是两个头,结束语与结束在外面,通知不在外面', () => {
+    const stop = { kind: 'session-notice', id: 'n1', seq: 0, code: 'provider-notice', title: 'Stop says: ⏸ 收尾自检', detail: 'Stop says: ⏸ 收尾自检', at: 5_000 } as unknown as ChatItem;
+    const t = turn('t10', [user('u10'), tool('c1'), reply('a-real'), stop, tool('c2'), reply('a-post')], DONE, { startedAt: 1_000, endedAt: 9_000 });
+    const units = flattenTier([t], ctxWith({ foldTurnProcess: true }), SEGMENTERS);
+    expect(ids(units)).toEqual(['u10', turnProcessId('t10'), 'a-real', turnProcessId('t10', 1), 'a-post']);
+    const headers = units.filter((u) => u.kind === 'turn-process').map((u) => u.data as TurnProcessItem);
+    expect([headers[0].startedAt, headers[0].endedAt]).toEqual([1_000, 5_000]);
+    expect([headers[1].startedAt, headers[1].endedAt]).toEqual([5_000, 9_000]);
   });
 
   it('a cancelled turn keeps its rows and its outcome line, no header', () => {

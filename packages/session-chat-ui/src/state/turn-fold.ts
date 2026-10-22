@@ -10,7 +10,7 @@ import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/ques
 import { localDayKey } from '@session-chat/lib/day-boundary';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
-import { parseHookNotice } from '@session-chat/lib/hook-notice';
+import { hookSpeakerOfNotice, parseHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { isPendingPromptTurn } from '@session-chat/state/pending-prompt';
 
@@ -25,8 +25,16 @@ export function itemIsUser(item: ChatItem): boolean {
  * ⚠️ 判定要在**这一层**做，而不是读 `item.hookNotice`：那个字段由消息单元在切段时才填
  * （见 `message.def.tsx` 的 `normalizeMessage`），而 flatten 跑在切段之前 —— 读它永远是
  * undefined，于是这两处会静静地退回旧行为。
+ *
+ * 两种来路都要认（#55）：桥没声明 `session.notices` 时，它是一条带等级前缀的助手消息；声明了之后
+ * （gugu #6596 起），它是一条 `provider-notice`。只认前一种，钩子通知就被当成「运行条件出了事」的
+ * 边界线留在外面，它前面那条真回复反被折进头里 —— #5350 原样回来了。
  */
 function isHookNotice(item: ChatItem): boolean {
+  if (item.kind === 'session-notice') {
+    const notice = item as TranscriptSessionNotice;
+    return notice.code === 'provider-notice' && hookSpeakerOfNotice(notice) !== null;
+  }
   return (
     item.kind === 'message' &&
     (item as ChatMessage).role === 'assistant' &&
@@ -50,9 +58,14 @@ function isAssistantMessage(item: ChatItem): boolean {
   return true;
 }
 
-/** 这条消息什么时候到的。非消息、或回放来的没有时刻的消息 → undefined。 */
+/**
+ * 这条什么时候到的。消息带 `at`(回放来的不带),会话通知总带 `at` —— 钩子通知两种来路都有(#55)。
+ * 其它条目 → undefined。
+ */
 function messageAt(item: ChatItem): number | undefined {
-  return item.kind === 'message' ? (item as ChatMessage).at : undefined;
+  if (item.kind === 'message') return (item as ChatMessage).at;
+  if (item.kind === 'session-notice') return (item as TranscriptSessionNotice).at;
+  return undefined;
 }
 
 // ── Turn process fold (#4874) ─────────────────────────────────────────────────
@@ -143,9 +156,11 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   let leadEnd = 0;
   while (leadEnd < items.length && itemIsUser(items[leadEnd])) leadEnd++;
 
-  // 切点 = 每条钩子通知之前 agent 说的最后一句话（= 那一段的「结束语」）。
+  // 切点 = 紧跟在 agent 一句话后面的钩子通知（那句话 = 这一段的「结束语」）。
   // 通知本身不是回复（`isAssistantMessage` 已经把它排除），所以它落进下一段的过程里，
   // 而它的到达时刻正是两段的边界 —— 下一段的头拿它当起点（#5350）。
+  // ⚠️ 只认「紧跟」：说完那句话 agent 又去干活了，钩子就不是在它收尾之后响的（#55：自动压缩之后的
+  // `SessionStart:compact`）—— 在那里切，夹在中间的那几步会落进一段起点比它们还晚的头里。
   const cuts: { reply: number; notice: number }[] = [];
   let pendingReply = -1;
   for (let i = leadEnd; i < items.length; i++) {
@@ -154,10 +169,12 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
       pendingReply = i;
       continue;
     }
-    if (isHookNotice(item) && pendingReply !== -1) {
-      cuts.push({ reply: pendingReply, notice: i });
+    if (isHookNotice(item)) {
+      if (pendingReply !== -1) cuts.push({ reply: pendingReply, notice: i });
       pendingReply = -1;
+      continue;
     }
+    pendingReply = -1;
   }
 
   const segments: TurnFoldSegment[] = [];
@@ -210,9 +227,11 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
  * - session-notice —— 这条会话的运行条件出了事（spec `session-always-openable`：它是消息列表里看得见的一行）。
  *   ⚠️ 它常落在**用户那一轮里**(启动期的降级在首句之后才落成转录),一轮成功收尾时,
  *   用户句与回复之间的全部条目会被折进「Took Ns」—— 通知跟着被折没了(#6199 B2 实测)。
+ *   钩子说的话也走这条来路(`provider-notice`),但它不是运行条件:按钩子切段,❌ 当边界线(#55)。
  */
 function isContextBoundary(item: ChatItem): boolean {
-  return item.kind === 'compaction' || item.kind === 'context-reset' || item.kind === 'session-notice';
+  if (item.kind === 'session-notice') return !isHookNotice(item);
+  return item.kind === 'compaction' || item.kind === 'context-reset';
 }
 
 /**
