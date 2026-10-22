@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
 /**
  * `gugu.compose(text)` naming no place: the shell's one sheet (ChatPickSheet) offers the person's chats and, on the desktop,
  * this computer's tasks under 「我的任务」 — the page's own task ticked, its project's next. The App hears only the pick.
