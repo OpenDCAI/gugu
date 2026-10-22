@@ -1,6 +1,5 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { recipe } from '@vanilla-extract/recipes';
-import { textShimmer } from '@session-chat/styles/effects.css';
 import { vars } from '@session-chat/styles/theme.css';
 import { createVariableThemeContract } from '@session-chat/styles/variable-theme-contract.css';
 
@@ -175,5 +174,3 @@ globalStyle(`${pdiffLine} span`, {
 globalStyle(`.emdark ${pdiffLine} span`, {
   color: 'var(--shiki-dark)',
 });
-
-export { textShimmer };
