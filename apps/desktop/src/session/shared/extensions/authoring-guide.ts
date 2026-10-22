@@ -235,7 +235,7 @@ Free, from a click or key (they read and write no data):
 - \`compose(text, { chat } | { session } | { refs })\` → puts \`text\` in the composer the call names — a chat's
   (\`ctx.chat.id\`, or the one its \`refs\` point into), or a session's agent's — after what is there, and brings it
   up. Nothing is sent: the person @s whom they like and sends it as their own message, or not. Name none —
-  \`compose(text)\` — and the person picks a chat or a task in gugu's own sheet: you get \`{ chat }\` / \`{ session }\`,
+  \`compose(text)\`, \`apiVersion\` 10 — and the person picks a chat or a task in gugu's own sheet: you get \`{ chat }\` / \`{ session }\`,
   or \`{ cancelled: true }\`. Never a target list, member picker or composer of your own. For "cite this": a ref
   per place they picked; a chat's takes \`images: [blob]\` too. \`not-found\`: a chat you are not in, a session not here.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
