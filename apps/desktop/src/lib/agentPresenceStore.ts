@@ -1,4 +1,5 @@
 import { recordPresenceBatch } from './perfCounters'
+import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisionListener } from './accountRevisionCoordinator'
 // 渲染层**唯一**的那张 agent 状态表:键是 agentId,值是「关于这个 agent 我观测到什么」。
 // 会话列表、标题栏、头像、群成员、群汇总、会话里的运行条、composer 忙态 —— 全部读它,读法只有一种。
 // ❌ 这里没有「按会话」的任何一维:一个 agent 在不在干活是它自己的事实,不是某条会话的属性
@@ -166,6 +167,23 @@ export async function recheckUnseenAgentPresence(memberIds: readonly string[]): 
     // 还是看不到也是正常的答案(另一个成员挪了读水位),照旧记在这一条上,❌ 当成修订失败抛出去。
     else await fetchSnapshot(entry)
   }))
+}
+
+/**
+ * 在线状态的两条修订都归这张表(❌ 归会话列表):`presence_changed` 刷新看过的 agent;`chat_members_changed`
+ * —— 一个 agent 进了我在的群,它的状态我才看得到(80e),成员变了就重问上次没问到的那几个。返回一个退订。
+ */
+export function subscribeAgentPresenceRevisions(
+  subscribe: (event: AccountRevisionEvent, listener: AccountRevisionListener) => () => void,
+): () => void {
+  const unsubscribes = [
+    subscribe('presence_changed', async (operations) => { await refreshObservedAgentPresenceFromRevision(operations.map((operation) => operation.payload)) }),
+    subscribe('chat_members_changed', async (operations) => {
+      await recheckUnseenAgentPresence(operations.map((operation) => readMemberRosterRevision(operation.payload))
+        .flatMap((change) => (change.left || !change.memberId ? [] : [change.memberId])))
+    }),
+  ]
+  return () => { for (const unsubscribe of unsubscribes) unsubscribe() }
 }
 
 /**
