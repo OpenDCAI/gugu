@@ -108,6 +108,7 @@ export class ScreenLayoutStore {
       close: action,
       forgetSession: action,
       forgetApp: action,
+      forgetContent: action,
       focus: action,
       setSplitSizes: action,
       equalizeSplit: action,
@@ -357,16 +358,19 @@ export class ScreenLayoutStore {
 
   /** 这条会话没了(归档、删除):它那块收掉(收起来的组里也一样);它是屏上唯一一块就整屏清空,下一次看谁就从谁开始。 */
   forgetSession(sessionId: string): void {
-    const at = this.blockOfSession(sessionId);
-    if (at) this.forget(at);
-    else this.release({ kind: 'session', projectId: '', sessionId });
+    this.forgetContent({ kind: 'session', projectId: '', sessionId });
   }
 
   /** 这个 App 不在一块里了(放进了某条会话、退出、停用)。 */
   forgetApp(tabKind: string): void {
-    const at = this.blockOfApp(tabKind);
+    this.forgetContent({ kind: 'app', tabKind });
+  }
+
+  /** 这样东西没了(会话归档删除、App 停用、项目删除):它那块收掉(收起来的组里也一样);是屏上唯一一块就整屏清空。 */
+  forgetContent(content: ScreenBlockContent): void {
+    const at = this.blockOf(content);
     if (at) this.forget(at);
-    else this.release({ kind: 'app', tabKind });
+    else this.release(content);
   }
 
   /** 收起来的组里有没有它(App 停用了要从那组里拿走;点左栏 App 图标要把那组摆回来)。 */

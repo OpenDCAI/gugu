@@ -284,6 +284,13 @@ function refillScreen(): void {
   screenLayout.show({ projectId: last.projectId, sessionId: last.sessionId });
 }
 
+/** 这个项目删掉了:它那块收掉(收起来的组里也一样);屏上空了就摆回最近看过的会话。 */
+export function forgetProjectOnScreen(projectId: string): void {
+  screenLayout.forgetContent({ kind: 'project', projectId });
+  refillScreen();
+  followFocus();
+}
+
 /** 这个 App 不在一块里、也不在单独的窗里了:× 收起、退出、停用、被放进某条会话或新建任务页的面板。 */
 export function takeAppOffScreen(tabKind: string): void {
   const windowed = auxWindows.windowOfApp(tabKind);

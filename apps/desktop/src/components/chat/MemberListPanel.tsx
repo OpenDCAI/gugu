@@ -68,12 +68,7 @@ const sectionHeaderStyle = {
   fontSize: 'var(--font-caption)', fontWeight: 600, letterSpacing: '.02em',
 } as const
 
-// gugu-dev#181「我的 agent · N」那一行:和段头同一种灰、同一档字,整行可点。
-const MY_AGENTS_ROW_STYLE = {
-  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-  padding: '6px 14px', color: 'var(--text-secondary)', fontSize: 'var(--font-caption)',
-  background: 'none', border: 0, cursor: 'pointer', textAlign: 'left',
-} as const
+// gugu-dev#181「我的 agent · N」那一行的折叠箭头。
 const myAgentsChevronStyle = (open: boolean): React.CSSProperties => ({
   width: 14, height: 14, flexShrink: 0, transform: open ? 'rotate(90deg)' : undefined,
 })
@@ -550,17 +545,17 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
             <div data-member-section-rows="agent">
               {myAgents.length > 0 ? (
                 <>
-                  <button
-                    type="button"
-                    className="gg-row"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2"
                     data-member-group="mine"
                     aria-expanded={myAgentsOpen}
                     onClick={() => setMyAgentsOpen((open) => !open)}
-                    style={MY_AGENTS_ROW_STYLE}
                   >
                     <ChevronRight aria-hidden="true" style={myAgentsChevronStyle(myAgentsOpen)} />
                     <span>{t('group.memberList.myAgents', { count: myAgents.length })}</span>
-                  </button>
+                  </Button>
                   {myAgentsOpen ? myAgents.map(renderAgentRow) : null}
                 </>
               ) : null}
