@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem, MessageItem } from '@gugu/core/shared/types/chat'
-import { forwardPreview, forwardableChats } from './forwardMessageUtils'
+import { chatPickRow, forwardPreview, forwardableChats } from './forwardMessageUtils'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
-import { ChatPickSheet, chatPickRow } from './ChatPickSheet'
+import { ChatPickSheet } from './ChatPickSheet'
 import { useChatStore } from '../../store/chatContext'
 import { ShareToAppsRow } from '../share/ShareToAppsRow'
 

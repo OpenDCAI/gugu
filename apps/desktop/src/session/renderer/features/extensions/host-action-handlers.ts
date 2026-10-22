@@ -199,7 +199,7 @@ export const extensionHostActionHandlers: RendererRpcHandlers = {
   },
   /** `gugu.compose(text)` naming no place: the person picks one in the shell's sheet (ComposeTargetPicker). */
   [EXTENSION_PICK_COMPOSE_TARGET_METHOD]: async (params: unknown) => {
-    const { pickComposeTarget } = await import('@/components/chat/ComposeTargetPicker');
+    const { pickComposeTarget } = await import('@/components/chat/composeTargetAsk');
     return pickComposeTarget(params as ComposePickAsk);
   },
   [EXTENSION_INSTALL_CONSENT_METHOD]: (params: unknown): Promise<ExtensionInstallConsentResult> => {

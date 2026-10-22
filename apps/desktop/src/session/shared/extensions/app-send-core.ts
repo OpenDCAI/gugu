@@ -179,7 +179,7 @@ export function composeNamesPlace(args: { chat?: unknown; session?: unknown; ref
  * chat's composer only, so with images the sheet offers chats.
  */
 export async function pickComposePlace(
-  args: { text: unknown; about?: unknown; images?: unknown },
+  args: { text?: unknown; about?: unknown; images?: unknown },
   pick: (ask: { tasks: boolean }) => Promise<ComposePlace | null>,
 ): Promise<ComposePlace | { cancelled: true }> {
   if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);

@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ChatItem } from '@gugu/core/shared/types/chat'
-import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { X } from '@/lib/icons'
 import { Avatar, type AvatarProps } from '../Avatar'
 import { Button } from '../ui/Button'
@@ -27,30 +25,6 @@ export interface ChatPickSection {
   id: string
   title: ReactNode
   rows: readonly ChatPickRow[]
-}
-
-type Identities = Readonly<Record<string, { display_name: string; avatar: string | null; type?: string } | undefined>>
-
-/** A chat as a row, by the name the caller gives it (its own for a group or topic, the peer's for a private chat). */
-export function chatPickRow(chat: ChatItem, name: string, identitiesById: Identities): ChatPickRow {
-  const identity = identitiesById[chat.peer_user_id ?? '']
-  return {
-    id: chat.id,
-    name,
-    // @@@2470 群没有 peer_user_id：不标 variant='group' 会被判成「缺身份 key 的人」，
-    // 每次渲染刷一条诊断（agent e2e 的 console 守卫会当场失败）。口径同 ChatListPanel。
-    avatar: {
-      name,
-      avatarUrl: isRoomChat(chat.kind) ? chat.avatar : identity?.avatar,
-      seed: chat.peer_user_id ?? undefined,
-      isAgent: identity?.type === 'agent',
-      variant: isRoomChat(chat.kind) ? 'group' : 'default',
-      memberAvatars: chat.member_user_ids?.flatMap((id) => {
-        const member = identitiesById[id]
-        return member ? [{ id, name: member.display_name, avatar: member.avatar }] : []
-      }),
-    },
-  }
 }
 
 interface ChatPickSheetProps {

@@ -36,7 +36,8 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/projects/stores/
   getProjectStore: (id: string) => ({ name: id === 'p-1' ? 'Papers' : 'Website' }),
 }))
 
-const { ComposeTargetPicker, pickComposeTarget } = await import('../../../../apps/desktop/src/components/chat/ComposeTargetPicker')
+const { ComposeTargetPicker } = await import('../../../../apps/desktop/src/components/chat/ComposeTargetPicker')
+const { pickComposeTarget } = await import('../../../../apps/desktop/src/components/chat/composeTargetAsk')
 
 let container: HTMLDivElement
 let root: Root

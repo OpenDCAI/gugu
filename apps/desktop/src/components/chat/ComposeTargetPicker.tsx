@@ -3,37 +3,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS } from '@/session/shared/extensions/host-actions'
-import type { ComposePickAsk, ComposePlace } from '@/session/shared/extensions/app-send-core'
+import type { ComposePlace } from '@/session/shared/extensions/app-send-core'
 import { localHomeSessions } from '@/session/renderer/features/assistant/assistant-home-sessions'
 import { getProjectStore } from '@/session/renderer/features/projects/stores/project-selectors'
 import { useChatStore } from '../../store/chatContext'
-import { forwardableChats } from './forwardMessageUtils'
-import { ChatPickSheet, chatPickRow, type ChatPickRow, type ChatPickSection } from './ChatPickSheet'
-
-type Asked = ComposePickAsk & { answer: (place: ComposePlace | null) => void }
-
-let ask: ((asked: Asked) => void) | null = null
-
-/**
- * `gugu.compose(text)` naming no place, on the desktop (main asks the window) and the phone (its page asks) alike: the person
- * picks a chat, or one of this computer's tasks, in the shell's sheet — null when they cancel or let it run out. The list is
- * the host's own: an App hears only the place picked.
- */
-export function pickComposeTarget(asked: ComposePickAsk): Promise<ComposePlace | null> {
-  return new Promise((resolve, reject) => {
-    if (!ask) return reject(new Error('No window here can ask where to compose'))
-    ask({ ...asked, answer: resolve })
-  })
-}
+import { chatPickRow, forwardableChats } from './forwardMessageUtils'
+import { ChatPickSheet, type ChatPickRow, type ChatPickSection } from './ChatPickSheet'
+import { takeComposeAsks, type ComposeAsked } from './composeTargetAsk'
 
 /** The sheet itself, drawn by the shell over whatever is on screen (ExtensionConsentSheet), so the view does not change for it. */
 export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
   const { t } = useTranslation('messaging')
   const { chats, identitiesById } = useChatStore('chats', 'identitiesById')
-  const [asked, setAsked] = useState<Asked | null>(null)
+  const [asked, setAsked] = useState<ComposeAsked | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [query, setQuery] = useState('')
-  const open = useRef<Asked | null>(null)
+  const open = useRef<ComposeAsked | null>(null)
 
   // Answered once: by the person, by running out, or by the next ask taking the sheet.
   const finish = useCallback((place: ComposePlace | null) => {
@@ -41,16 +26,13 @@ export const ComposeTargetPicker = observer(function ComposeTargetPicker() {
     open.current = null
     setAsked(null)
   }, [])
-  useEffect(() => {
-    ask = (next) => {
-      open.current?.answer(null)
-      open.current = next
-      setAsked(next)
-      setSelected(new Set(next.tasks && next.current ? [`session:${next.current}`] : []))
-      setQuery('')
-    }
-    return () => { ask = null }
-  }, [])
+  useEffect(() => takeComposeAsks((next) => {
+    open.current?.answer(null)
+    open.current = next
+    setAsked(next)
+    setSelected(new Set(next.tasks && next.current ? [`session:${next.current}`] : []))
+    setQuery('')
+  }), [])
   const tasks = asked?.tasks === true
   useEffect(() => (tasks ? localHomeSessions.use() : undefined), [tasks])
   // It waits on a person, as an install's consent does; main's clock (ipc-bridge) is the longer one.
