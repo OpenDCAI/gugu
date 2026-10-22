@@ -68,6 +68,7 @@ import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
+import { joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier,
   isDeliveredFromAgent,
@@ -572,7 +573,9 @@ export function ChatRoot(props: ChatRootProps) {
 
     if (
       next.length > prev.length &&
-      (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1])
+      (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1]) &&
+      // 新来的那一轮要并进上一条还没收尾的折叠(#4981)时,只 flatten 新的画不出合并,走整条重建。
+      !joinsFoldRunAt(next, prev.length, ctx.foldTurnProcess === true)
     ) {
       // Incremental append: only process the new tail.
       const tail = next.slice(prev.length);
@@ -591,7 +594,7 @@ export function ChatRoot(props: ChatRootProps) {
       }
       committedUnitsArr = [...committedUnitsArr, ...newUnits];
     } else {
-      // Full rebuild (seed, prepend, or non-append structural change).
+      // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
       committedUnitsArr = flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY);
       committedDayKey = trailingDayKey(next);
       committedIndexById.clear();

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatItem, ChatMessage, TranscriptTurn, TurnProcessItem, TurnCompletionItem } from '@session-chat/model';
 import { flattenTier, planTurnFold, toolRunId, turnProcessId } from './flatten';
 import { pendingPromptTurn } from './pending-prompt';
-import { turnProcessLabel } from './turn-fold';
+import { joinsFoldRunAt, turnProcessLabel } from './turn-fold';
 
 function passthrough(kind: string): ItemSegmenter {
   return {
@@ -775,5 +775,32 @@ describe('tool-only completion reading (#7324)', () => {
   it('places actions after a final tool even when the agent spoke before calling it', () => {
     expect(reading([turn('t', [user('u'), reply('preface', 'I will send the reply'), tool('send')], DONE, clock)])?.text)
       .toBe('I will send the reply\n\nbash');
+  });
+});
+
+describe('joinsFoldRunAt:追加的那一轮会不会并进前面还没收尾的折叠(#70 review)', () => {
+  const DAY = 86_400_000;
+  const ask = turn('ask', [user('u'), bash('x0')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+  const answered = turn('answered', [user('u'), bash('x0'), reply('a0')], DONE, { startedAt: 1_000, endedAt: 2_000 });
+  const silent = turn('silent', [row('background-command-done-tool-call', 'bd'), bash('x1')], DONE, { startedAt: 3_000, endedAt: 4_000 });
+  const spoke = turn('spoke', [bash('x2'), reply('a2', '做完了')], DONE, { startedAt: 5_000, endedAt: 6_000 });
+
+  it('前一问没收尾、agent 接着干 ⇒ 会并', () => {
+    expect(joinsFoldRunAt([ask, spoke], 1, true)).toBe(true);
+  });
+  it('隔着一轮并进去的没开口的轮,也往回找到那一问', () => {
+    expect(joinsFoldRunAt([ask, silent, spoke], 2, true)).toBe(true);
+  });
+  it('前一问已经有了回复、人开口的一轮、没开折叠、头一轮 ⇒ 不并', () => {
+    expect(joinsFoldRunAt([answered, spoke], 1, true)).toBe(false);
+    expect(joinsFoldRunAt([ask, answered], 1, true)).toBe(false);
+    expect(joinsFoldRunAt([ask, spoke], 1, false)).toBe(false);
+    expect(joinsFoldRunAt([spoke], 0, true)).toBe(false);
+  });
+  it('一句没说的轮不当锚,后面那一轮不并', () => {
+    expect(joinsFoldRunAt([answered, silent, spoke], 2, true)).toBe(false);
+  });
+  it('跨了一天的那一轮不并', () => {
+    expect(joinsFoldRunAt([ask, { ...spoke, startedAt: DAY * 3, endedAt: DAY * 3 + 1_000 }], 1, true)).toBe(false);
   });
 });

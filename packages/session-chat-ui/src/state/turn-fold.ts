@@ -390,6 +390,30 @@ export function planTurnFoldRuns(
   return { folds: foldPlans, runs: foldRuns, absorbed };
 }
 
+/**
+ * 一轮一轮往后追加时,`turns[index]` 会不会并进它前面那条还没收尾的折叠(上面的合并)。会的话,只 flatten
+ * 新来的那几轮画不出这次合并 —— 调用方得整条重建;不然要等下次整条重建(切 tab、重进)那几行才跳进头里,
+ * 「在聊天里找」(整条一次 flatten)打开的头也和画出来的对不上(#70 review)。
+ */
+export function joinsFoldRunAt(turns: readonly TranscriptTurn[], index: number, enabled: boolean): boolean {
+  const first = turns[index];
+  if (!enabled || !first || index === 0) return false;
+  const opens = (turn: TranscriptTurn) => {
+    const head = (turn.items as readonly ChatItem[])[0];
+    return head !== undefined && itemIsUser(head);
+  };
+  // 带人话开头的一轮不会并进别人(并进来要求没有开场白),它自己起一条 —— 往回找到最近的那一轮就够了。
+  if (opens(first)) return false;
+  let start = index - 1;
+  while (start > 0 && !opens(turns[start] as TranscriptTurn)) start--;
+  let prevDayKey: string | undefined;
+  for (let i = start - 1; i >= 0 && prevDayKey === undefined; i--) {
+    const startedAt = turns[i]?.startedAt;
+    if (startedAt !== undefined) prevDayKey = localDayKey(startedAt);
+  }
+  return planTurnFoldRuns(turns.slice(start, index + 1), prevDayKey, true).absorbed[index - start] === true;
+}
+
 /** 一段过程的时间头:和桌面 `turn-process` 行同一组事实。 */
 export type TurnProcessHeader = { id: string; live: boolean; startedAt?: number; endedAt?: number };
 
