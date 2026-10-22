@@ -14,7 +14,7 @@ import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
 import { ensureImplicitSessionHomeProjectId } from './implicit-session-home-project';
 import { NewSessionComposer } from './new-session-page';
 import { sessionComposerDockBandClassName, sessionComposerDockedWidthClassName } from './session-composer-styles';
-import { composerVerbLook } from './composer-verb-tag';
+import { cancelComposerVerb, composerVerbLook } from './composer-verb-tag';
 import { machineComposerProps } from './use-machine-create-target';
 
 export function taskDispatchDraftKey(chatId: string): string {
@@ -80,7 +80,7 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
           key={remote?.deviceId ?? 'local'}
           draftKey={draftKey}
           placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
-          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: close, testId: 'task-dispatch' })}
+          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(chatId, draftKey), testId: 'task-dispatch' })}
           creationSurface="session-page"
           taskChatId={chatId}
           openAfterCreate={false}

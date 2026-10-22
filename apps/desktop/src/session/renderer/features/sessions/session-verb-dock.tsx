@@ -8,7 +8,7 @@ import { useProjectFolderStage } from '@renderer/features/projects/components/ma
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { composerDrafts, projectDraftKey } from './composer-drafts';
-import { composerVerbLook } from './composer-verb-tag';
+import { cancelComposerVerb, composerVerbLook } from './composer-verb-tag';
 import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
 
 /** 会话输入框上「新任务 / 定时任务」记在哪一格(composerVerbBridge 按字符串记;对话用对话 id)。 */
@@ -52,15 +52,13 @@ export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, ve
   chatId: string;
 }) {
   const key = sessionVerbKey(sessionId);
-  const close = () => setComposerVerb(key, null);
   if (verb === 'schedule') return <ScheduleDispatchComposer chatId={chatId} projectId={projectId} verbKey={key} />;
-  return <SessionTaskDock projectId={projectId} verbKey={key} onClose={close} />;
+  return <SessionTaskDock projectId={projectId} verbKey={key} />;
 });
 
-const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey, onClose }: {
+const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey }: {
   projectId: string;
   verbKey: string;
-  onClose: () => void;
 }) {
   const { translate } = useSessionMessages();
   const stage = useProjectFolderStage(projectId);
@@ -74,11 +72,11 @@ const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey, 
     <ProjectTaskComposer
       projectId={projectId}
       stage={stage}
-      verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: onClose, testId: 'task-dispatch' })}
+      verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(verbKey, projectDraftKey(projectId)), testId: 'task-dispatch' })}
       // 在一条会话里派:说清是交给一个新的 agent,❌ 眼前这一个。
       placeholder={(agent) => translate('taskDispatch.placeholderNew', { agent })}
       onSessionCreated={(result) => {
-        onClose();
+        setComposerVerb(verbKey, null);
         showBesideOnScreen({ kind: 'session', projectId: result.projectId, sessionId: result.sessionId });
       }}
       focusOnOpen

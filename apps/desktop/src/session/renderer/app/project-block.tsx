@@ -14,7 +14,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
-import { composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
+import { cancelComposerVerb, composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useChatHasMessages } from '@/lib/chatSummariesBridge';
@@ -166,7 +166,7 @@ const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }:
         <ProjectTaskComposer
           projectId={projectId}
           stage={stage}
-          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: close, testId: 'task-dispatch' })}
+          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(chatId, projectDraftKey(projectId)), testId: 'task-dispatch' })}
           placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
           onSessionCreated={close}
           focusOnOpen

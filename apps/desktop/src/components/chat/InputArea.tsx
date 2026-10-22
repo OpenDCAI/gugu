@@ -10,7 +10,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft' // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
-import { ComposerVerbs } from './ComposerVerbs'; import { useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
+import { ComposerVerbs } from './ComposerVerbs'; import { takeComposerCarry, useComposerVerb } from '../../lib/composerVerbBridge'; import { useInChatSlot } from '../../lib/shellSlots'; import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -111,8 +111,8 @@ export function InputArea({
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
   const inChatSlot = useInChatSlot(); const verbTakesOver = useComposerVerb(chatId) !== null // gugu-dev#181 选了「新任务 / 定时任务」:会话页那一侧换上它的框,这个框整个收起
-  // 发失败回滚判「是否还在发送时那个会话」用（异步 send 期间用户可能切走 → 失败要回原会话而非当前会话，#1872）。
-  const activeChatIdRef = useRef<string | null>(chatId ?? null)
+  useEffect(() => { const back = verbTakesOver || !chatId ? '' : takeComposerCarry(chatId); if (back) setText(back) }, [verbTakesOver, chatId, setText]) // 点了那个框标签上的 ×:写的话交回这里
+  const activeChatIdRef = useRef<string | null>(chatId ?? null) // 发失败回滚判「是否还在发送时那个会话」用(异步 send 期间可能切走,#1872)
   activeChatIdRef.current = chatId ?? null
 
   // ── @ mention picker state ──────────────────────────────────────────────

@@ -1,7 +1,9 @@
 import { Clock, Sparkles, X } from '@/lib/icons';
+import { setComposerVerb } from '@/lib/composerVerbBridge';
 import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { ComposerVerbLook } from './session-config/initial-session-section';
+import { composerDrafts } from './composer-drafts';
 
 const TAG_TONE = {
   task: 'bg-(--em-foreground-conflict)/12 text-[var(--em-foreground-conflict)]',
@@ -12,6 +14,16 @@ const TAG_TONE = {
  * gugu-dev#181「输入框」:框此刻是一件事时,输入行最前面那枚标签(「新任务 ×」「定时任务 ×」),框也跟着换成那件事的色。
  * 群里的框、项目首页的框、新任务 / 定时任务的框都用这一个;`onCancel` 缺省 = 不带 ×(项目首页本来就只能开新任务)。
  */
+/**
+ * 点了标签上的 ×:框还原成发消息,这一框里写了的话交回去(composerVerbBridge 的 carry,发消息的框取走),
+ * 这一格草稿清掉 —— ❌ 字留在新任务的草稿里、下次打开才冒出来。发出去之后收框不走这里(草稿已经清了,也没有话要交回)。
+ */
+export function cancelComposerVerb(verbKey: string, draftKey: string): void {
+  const text = composerDrafts.get(draftKey);
+  composerDrafts.set(draftKey, '');
+  setComposerVerb(verbKey, null, text);
+}
+
 export function composerVerbLook(
   tone: ComposerVerbLook['tone'],
   { label, onCancel, testId }: { label: string; onCancel?: () => void; /** 标签 `<testId>-verb`,× 是 `<testId>-cancel`。 */ testId?: string },

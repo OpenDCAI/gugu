@@ -1,4 +1,4 @@
-import { useComposerVerb } from '@/lib/composerVerbBridge';
+import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
@@ -413,6 +413,11 @@ const ComposerForStore = observer(function ComposerForStore({
   // 只有项目里的会话(项目有群)才能从这里派:任务卡和结果要有地方落。
   const groupChatId = projectGroupsStore.chatIdOf(store.projectId);
   const verb = useComposerVerb(groupChatId ? sessionVerbKey(store.sessionId) : null);
+  // 点了新任务框标签上的 ×:那一框写的话交回这里(composerVerbBridge 的 carry)。
+  useEffect(() => {
+    const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
+    if (back) store.setDraftText(back);
+  }, [verb, store]);
   const editorApiRef = useRef<PromptEditorRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);

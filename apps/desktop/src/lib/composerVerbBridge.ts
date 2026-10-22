@@ -56,11 +56,11 @@ function carries(): Map<string, string> {
 }
 
 /**
- * 选了一个词(null = 点了标签上的 ×,框还原)。`carry` = 框里已经写了的话,跟着进新任务的框(由接手的那一侧
- * `takeComposerCarry` 取走一次)。
+ * 选了一个词(null = 点了标签上的 ×,框还原)。`carry` = 框里已经写了的话,跟着换上来的那个框走(由接手的那一侧
+ * `takeComposerCarry` 取走一次):选词时从发消息的框带进新任务的框,点 × 时从新任务的框带回发消息的框 —— 同一条路两个方向。
  */
 export function setComposerVerb(chatId: string, verb: ComposerVerb | null, carry?: string, chat?: ComposerVerbChat): void {
-  if (verb && carry?.trim()) carries().set(chatId, carry)
+  if (carry?.trim()) carries().set(chatId, carry)
   if (verb && chat) chats().set(chatId, chat)
   const map = verbs()
   if ((map.get(chatId) ?? null) === verb) return
