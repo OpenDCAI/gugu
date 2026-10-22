@@ -13,12 +13,15 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 import { composerDrafts, projectDraftKey } from './composer-drafts';
 import { cancelComposerVerb, composerVerbLook } from './composer-verb-tag';
 import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
+import { TaskDispatchComposer } from './task-dispatch-composer';
+import { shellPort } from '@renderer/lib/shell-port';
+import { log } from '@renderer/utils/logger';
 
 /** 会话输入框上「新任务 / 定时任务」记在哪一格(composerVerbBridge 按字符串记;对话用对话 id)。 */
 export const sessionVerbKey = (sessionId: string) => `session:${sessionId}`;
 
 /**
- * gugu-dev#181 ⑫「在会话里也能派」:项目里一条会话的输入框底排那两个词。选了一个,这一框换成那件事(SessionVerbDock),
+ * gugu-dev#181 ⑫「在会话里也能派」:每条会话的输入框底排那两个词。选了一个,这一框换成那件事(SessionVerbDock),
  * 框里写着的话跟过去。
  */
 export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
@@ -67,13 +70,45 @@ export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, ve
   sessionId: string;
   verb: ComposerVerb;
   projectId: string;
-  /** 项目群。 */
-  chatId: string;
+  /** 项目群;没有项目的会话 = undefined(它就是和这个 agent 的私聊,卡落那个私聊)。 */
+  chatId: string | undefined;
 }) {
+  const { translate } = useSessionMessages();
   const key = sessionVerbKey(sessionId);
-  if (verb === 'schedule') return <ScheduleDispatchComposer chatId={chatId} projectId={projectId} verbKey={key} />;
+  const dmChatId = useSessionAgentChat(chatId ? null : { projectId, sessionId });
+  const cardChatId = chatId ?? dmChatId;
+  if (!cardChatId) return null;
+  if (verb === 'schedule') return <ScheduleDispatchComposer chatId={cardChatId} projectId={chatId ? projectId : undefined} verbKey={key} />;
+  if (!chatId) {
+    // gugu-dev#181 核对 #51:没有项目的会话里派 —— agent 进不了私聊(只能两个人),卡照样留在私聊里,结果回它自己的会话。
+    return (
+      <TaskDispatchComposer
+        chatId={cardChatId}
+        verbKey={key}
+        placeholder={(agent) => translate('taskDispatch.placeholderNew', { agent })}
+        onSessionCreated={(result) => showBesideOnScreen({ kind: 'session', projectId: result.projectId, sessionId: result.sessionId })}
+      />
+    );
+  }
   return <SessionTaskDock projectId={projectId} verbKey={key} />;
 });
+
+/** 这条会话的 agent 和我的私聊(与对话页给它发首句同一个地址);不要 = null。 */
+function useSessionAgentChat(session: { projectId: string; sessionId: string } | null): string | undefined {
+  const [chatId, setChatId] = useState<string | undefined>(undefined);
+  const projectId = session?.projectId;
+  const sessionId = session?.sessionId;
+  useEffect(() => {
+    if (!projectId || !sessionId) return;
+    let live = true;
+    void shellPort().ensureAgentAddress({ projectId, sessionId }).then(
+      (address) => { if (live) setChatId(address.chatId); },
+      (error: unknown) => log.warn('resolve the session agent chat for a new task failed', { sessionId, error: error instanceof Error ? error.message : String(error) }),
+    );
+    return () => { live = false; };
+  }, [projectId, sessionId]);
+  return chatId;
+}
 
 const SessionTaskDock = observer(function SessionTaskDock({ projectId, verbKey }: {
   projectId: string;

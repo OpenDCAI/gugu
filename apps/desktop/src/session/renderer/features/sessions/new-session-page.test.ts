@@ -631,9 +631,9 @@ describe('NewSessionPage', () => {
     const picker = container.querySelector('[data-testid="composer-device-picker"]');
     expect(picker).not.toBeNull();
     expect(picker?.getAttribute('data-size')).toBe('compact');
-    // 默认本机:电脑图标 + 名字「本机」。
+    // 默认这台电脑:电脑图标 + 名字「这台电脑」(托盘里各处同一个叫法)。
     expect(picker?.getAttribute('data-selected-id')).toBe('local');
-    expect(picker?.textContent).toContain('本机');
+    expect(picker?.textContent).toContain('这台电脑');
     expect(picker?.querySelector('[data-kind="computer"]')).not.toBeNull();
   });
 

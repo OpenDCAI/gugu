@@ -128,7 +128,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const isHomeRow = sidebarStore.homeLayout.homeRows.has(projectId);
   const deviceIds = [...new Set(sidebarStore.projectMembersOf(projectId).map((id) => machineRegistry.machineOf(id) ?? null))];
   const machineDown = isHomeRow ? singleMachineDown : deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
-  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('projects.folders.thisComputer'));
+  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('task.deviceLocal'));
   const standInDevice = sidebarStore.homeLayout.standIns.get(projectId) ?? null;
   // #7199 个人助理住的那台(用户看不到它住在哪,owner 10-15):它的主目录那一组就是「它派出的任务」—— 组名是它的名字
   // (宿主那一侧把那台的 label 换成了它的名字)、不挂机器名;那台不接人开的任务:❌ 新建、❌ 点进项目页(那里有新建框)、❌ 移除。

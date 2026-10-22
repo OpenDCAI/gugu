@@ -154,7 +154,7 @@ export const enUSSessionWorkflowMessages = {
   'task.deviceNone': 'No devices available',
   'task.deviceSelect': 'Select device',
   'task.deviceOffline': 'Offline',
-  'task.deviceLocal': 'This device',
+  'task.deviceLocal': 'This computer',
   // 「咕咕」是品牌常量，不随 locale 翻译（见 foundation/localization）；英文侧同样保留原字。
   'task.deviceEmpty': 'No 咕咕 devices on your account yet',
   'task.deviceNoOtherMachines': 'No other machines yet.',
@@ -817,7 +817,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.deviceNone': '无可用设备',
   'task.deviceSelect': '选择设备',
   'task.deviceOffline': '离线',
-  'task.deviceLocal': '本机',
+  'task.deviceLocal': '这台电脑',
   'task.deviceEmpty': '名下还没有咕咕设备',
   'task.deviceNoOtherMachines': '还没有其他机器。',
   'task.deviceAdd': '添加一台机器…',
