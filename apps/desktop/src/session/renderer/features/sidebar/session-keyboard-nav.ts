@@ -86,7 +86,12 @@ function focusNavCursorRow(): boolean {
 }
 
 class SessionKeyboardNavStore {
-  /** Explicit cursor. Null means "wherever the main area currently is" (see `cursor`). */
+  /**
+   * A keyboard move that has not landed yet (↓ waiting out its coalesce window). Null means "wherever the main area
+   * currently is" (see `cursor`) — once a move lands, or anything else takes the main area somewhere (a click, a project
+   * picked on the new-task page, a link, ⌘P), the view is where you are and the one highlight sits there
+   * (owner 2026-10-23: New task stayed lit after the page jumped into a project).
+   */
   private _cursor: SidebarNavNode | null = null;
   get focusLayer(): SessionNavFocusLayer {
     return sessionNavigationFocus.focusLayer;
@@ -147,8 +152,8 @@ class SessionKeyboardNavStore {
       const pageSessionId = params?.sessionId;
       if (!projectId || !pageSessionId) return null;
       const focusedPane = getSessionView(projectId, pageSessionId)?.paneLayout.focusedPane;
-      const sessionId = focusedPane ? focusedSessionId(focusedPane) : undefined;
-      if (!sessionId) return null;
+      // The page is that session's until its panes are up: a ↓ that just landed on it highlights it at once.
+      const sessionId = (focusedPane ? focusedSessionId(focusedPane) : undefined) ?? pageSessionId;
       return { kind: 'conversation', projectId, sessionId };
     }
     return null;
@@ -224,8 +229,9 @@ class SessionKeyboardNavStore {
   }
 
   /** Click and other pointer paths land here: same cursor, but focus is the caller's business. */
-  syncCursorFromPointer(node: SidebarNavNode): void {
-    this._cursor = node;
+  syncCursorFromPointer(_node: SidebarNavNode): void {
+    // The click takes the main area to the row (or the row is already what it shows): the view is the cursor.
+    this._cursor = null;
     // Pointer activation follows the existing product path: opening a session hands the keyboard
     // to its composer. A later focusin keeps the same fact true if another surface wins the race.
     this.setFocusLayer('composer');
@@ -251,7 +257,6 @@ class SessionKeyboardNavStore {
       ? sidebarStore.rowOfSession(node.projectId, node.sessionId)
       : null;
     const parent: SidebarNavNode = row === null ? { kind: 'new-session' } : { kind: 'project', projectId: row };
-    this._cursor = parent;
     this.clearPendingArchive();
     this._applyNow(parent);
     // The project home and the New session page exist to be typed into, so ← lands in the composer.
@@ -330,7 +335,6 @@ class SessionKeyboardNavStore {
     const node = target ?? this.cursor;
     if (node?.kind !== 'conversation') return false;
     this.clearPendingArchive();
-    this._cursor = node;
     // 别的机器上还没挂的那一行:先挂上(没连上 / 挂完找不到都当场说),键已经接住。
     withMountedSession(node.projectId, node.sessionId, (session) =>
       showModal('renameSessionModal', {
@@ -398,10 +402,7 @@ class SessionKeyboardNavStore {
       const successor = index === -1 ? null : (chain[index + 1] ?? chain[index - 1] ?? null);
       const moveOn = () => {
         const target = successor ?? { kind: 'new-session' as const };
-        runInAction(() => {
-          this._cursor = target;
-        });
-        this._applyNow(target);
+        runInAction(() => this._applyNow(target));
       };
       // The two key presses ARE this path's confirmation (behavior session-page「键盘导航」), so no
       // dialog; the scope is this one session, as before.
@@ -429,6 +430,8 @@ class SessionKeyboardNavStore {
       clearTimeout(this._openTimer);
       this._openTimer = null;
     }
+    // The move lands here: from now on the main area is where the cursor is.
+    this._cursor = null;
     // A pending open for the station we just left would otherwise land later, or time out into a
     // toast for a conversation the user has already arrowed past.
     this._disposeOpen?.();
