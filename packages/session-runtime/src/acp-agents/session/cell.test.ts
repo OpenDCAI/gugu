@@ -2215,15 +2215,17 @@ function reportingCell() {
 describe('SessionCell idle turns and queue commands', () => {
   it('publishes a failed ending together with the group it settled, in every state a reader can observe', async () => {
     const seen: Array<{ lifecycle: string; lastTurnOutcome: string; lastTurnId: string | null | undefined; open: boolean }> = [];
-    let cell: SessionCell | undefined;
+    // Callbacks fire while the cell is being built; observation starts once it exists.
+    const observed: { cell?: SessionCell } = {};
     const observe = () => {
+      const cell = observed.cell;
       if (!cell) return;
       const state = cell.sessionState;
       seen.push({ lifecycle: state.lifecycle, lastTurnOutcome: state.lastTurnOutcome, lastTurnId: state.lastTurnId,
         open: cell.history().active !== null });
     };
     const made = makeCell(new FakeAcpAgent(), { callbacks: { onSessionStateChanged: observe, onTranscriptChanged: observe } });
-    cell = made.cell;
+    observed.cell = made.cell;
     made.agent.prompt = vi.fn().mockRejectedValue(new Error('provider cause'));
 
     await made.cell.prompt({ text: 'fails' });
