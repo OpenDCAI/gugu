@@ -14,7 +14,7 @@ import {
   resolveWorkspacePath,
 } from './workspace-file-policy';
 import { dirnameMachinePath, isAbsoluteMachinePath, joinMachinePath } from '../path-utils';
-import { createPreview, createRemotePreview, releasePreview, setPreviewDocument } from '../preview-protocol';
+import { createDocumentPreview, createPreview, createRemotePreview, releasePreview, setPreviewDocument } from '../preview-protocol';
 import {
   createWorkspaceUploads,
   readWorkspaceChunk,
@@ -51,6 +51,8 @@ function resolveWorkspaceFiles(projectId: string, workspaceId: string) {
 }
 
 export const workspaceFileSystemController = createRPCController({
+  /** 已授权读出的群正文:没有项目、目录或文件系统权限。 */
+  createDocumentPreview: async (documentHtml: string) => ok(createDocumentPreview(documentHtml)),
   readExternalFile: async (
     projectId: string,
     workspaceId: string,

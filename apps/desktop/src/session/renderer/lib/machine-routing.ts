@@ -36,6 +36,7 @@ const LOCAL_ONLY_NAMESPACES = new Set([
  *  · 屏上有哪些会话,报给这台电脑自己的闲置回收(app/sessions-on-screen.ts)—— 屏上摆着别的机器上的会话也一样。
  */
 const LOCAL_ONLY_CHANNELS = new Set([
+  'workspace.files.createDocumentPreview',
   'workspace.files.createRemotePreview',
   'workspace.files.setPreviewDocument',
   'workspace.files.releasePreview',
