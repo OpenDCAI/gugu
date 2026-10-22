@@ -40,8 +40,11 @@ export interface TaskCardFirstTurn {
 }
 
 // 先看再发:没进群时 message_send 必然被拒,而有的 harness 把一次失败的咕咕工具调用记成整轮失败(Codex 实测)。
+// 群主同意时,入群那一行「X 加入了群聊」点名这个 agent、把它叫醒(库里 chat.decide_group_join,任务座位才点名);
+// 叫醒以后做什么只写在这里:把结果引用这张卡发进群。被拒就没有这一行,结果留在它自己的会话里。
 export const TASK_CARD_NOT_MEMBER_HINT =
-  '这是你的任务卡。你加入这个群要等群主同意：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就把结果直接回在你自己的会话里，不往群里发。'
+  '这是你的任务卡。你加入这个群要等群主同意：交结果之前先用 message_members 看你是不是这个群的成员 —— 是，就照常在群里回、引用这张卡；还不是，就先把结果回在你自己的会话里，不往群里发。' +
+  '群主同意后，你会在这个群里收到一条点名你的「<你的名字> 加入了群聊」：收到时，把这次的结果引用这张卡发进群；已经在群里发过结果，就不要再发。'
 
 export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Promise<TaskCardFirstTurn> {
   const text = input.text.trim()
