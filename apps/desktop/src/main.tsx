@@ -10,6 +10,7 @@ import App from './App'
 import { renderEntryRoot } from './lib/renderer-entry-root'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { captureReferralFromUrl } from './lib/referral'
+import { installScrollbarAutoHide } from './lib/scrollbarAutoHide'
 import { installWindowMaterialAttribute } from './lib/windowMaterial'
 import {
   hasWindowTitlebarRow,
@@ -44,6 +45,11 @@ installPlatformLocaleSync(platform, {
 // 首启默认组(owner 10-16「为什么会有安装这一步,而不是一启动就装好了」):一启动就开始,和登录并行 —— 桌面听 main 装到哪了,
 // 手机在这一页里自己装(firstRunApps.ts)。
 startFirstRunApps()
+
+// @@@scrollbar-autohide (#7641) 滚动条平时透明、滚动时浮出 —— 这里只负责在滚动的元素上打
+// `data-scrolling`,显隐规则在 styles/tokens.css。装在这里而不是某个组件的 effect 里:
+// 它是一条进程级的 DOM 监听,与任何一棵 React 子树的生死无关。
+installScrollbarAutoHide()
 
 // @@@1511 启动即捕获邀请链接 ?ref=<gugu_number>,暂存待注册时塞进 signup metadata(给双方发返利积分)。
 captureReferralFromUrl()

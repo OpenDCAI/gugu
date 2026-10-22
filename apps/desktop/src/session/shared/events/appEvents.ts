@@ -1,4 +1,5 @@
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
+import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload';
 import { defineEvent } from '@shared/lib/ipc/events';
 import type { ShortcutSettingsKey, TabNavigationDirection } from '@shared/shortcuts';
@@ -75,6 +76,7 @@ export const sessionOpenFileInPaneResultChannel = defineEvent<{
   error?: string;
   openedWith?: string | null;
   browserId?: string;
+  tabs?: SessionPaneTab[];
 }>('session:open-file-in-pane-result');
 
 /** Host-validated request to open an HTTP(S) URL in the caller task's browser pane. */
@@ -94,10 +96,19 @@ export const sessionOpenBrowserInPaneResultChannel = defineEvent<{
   success: boolean;
   error?: string;
   browserId?: string;
+  tabs?: SessionPaneTab[];
 }>('session:open-browser-in-pane-result');
 
 /** Cancel a Browser Use acquisition that timed out or whose caller ended before the pane replied. */
 export const sessionCancelBrowserAcquireChannel = defineEvent<{ requestId: string }>('session:cancel-browser-acquire');
+
+export const sessionManageTabsChannel = defineEvent<{
+  requestId: string; projectId: string; sessionId: string; tabId?: string;
+}>('session:manage-tabs');
+
+export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult & {
+  requestId: string; success: boolean; error?: string;
+}>('session:manage-tabs-result');
 
 /**
  * #6264 预览要别的机器上的一块字节(`gugu-preview://` 的远端登记,见 preview-protocol.ts):
@@ -147,6 +158,7 @@ export const sessionOpenExtensionInPaneChannel = defineEvent<{
 
 /** Renderer acknowledgement for a host-requested extension tab. */
 export const sessionOpenExtensionInPaneResultChannel = defineEvent<{
+  tabs?: SessionPaneTab[];
   requestId: string;
   success: boolean;
   error?: string;

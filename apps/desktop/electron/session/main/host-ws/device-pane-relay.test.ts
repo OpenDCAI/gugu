@@ -21,6 +21,18 @@ function fakeHost() {
 }
 
 describe('device pane relay', () => {
+  it('relays tab capability and live tab/close acknowledgements through the owned subscription', async () => {
+    const route = createRemotePaneRoute({ newId: () => 'req-tabs' });
+    const { host, call } = fakeHost();
+    installDevicePaneRelay(host, route);
+    call(SESSION_HOST_PANE.subscribe, { subscriptionId: 'sub', sessionId: 's', tabs: true });
+    const closing = route.open('s', { kind: 'close-tab', tabId: 'report' }, 'pinned');
+    const tabs = [{ tab_id: 'report', title: 'Report', kind: 'file', closable: true }];
+    expect(call(SESSION_HOST_PANE.opened, { requestId: 'req-tabs', subscriptionId: 'not-owned', ok: true, tabs, closed: true })).toEqual({ accepted: false });
+    expect(call(SESSION_HOST_PANE.opened, { requestId: 'req-tabs', subscriptionId: 'sub', ok: true, tabs, closed: false })).toEqual({ accepted: true });
+    await expect(closing).resolves.toEqual({ opened: true, tabs, closed: false });
+  });
+
   // 桌面发的就是这个形状(remote-pane-viewer.ts 用 satisfies 绑在同一个类型上)。订上了,闲置回收才知道有人在看。
   it('a desktop subscribing with the shared payload shape counts as watching that session', () => {
     const route = createRemotePaneRoute();

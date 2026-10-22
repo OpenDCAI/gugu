@@ -8,12 +8,13 @@
 //  · 不看了(关掉会话 / 换一条)= 退订;之后的打开请求由那台机器攒着,下次再看时照开。
 import {
   isSessionpagePaneOpenEvent,
+  type SessionPaneTabsResult,
   type SessionpagePaneFailure,
   type SessionpagePaneOpenRequest,
 } from '@gugu/session-core/session-record/contract';
 import { SESSION_HOST_PANE, type SessionHostPaneSubscribe } from '@shared/lib/ipc/session-host-device-frames';
 
-export type PaneOpenResult = { ok: true } | { ok: false; failure: SessionpagePaneFailure };
+export type PaneOpenResult = ({ ok: true } & SessionPaneTabsResult) | { ok: false; failure: SessionpagePaneFailure; error?: string };
 
 /** 到那台机器的那条连接(生产装配见 machine-session-wiring.ts)。 */
 export type PaneLink = {
@@ -60,7 +61,7 @@ export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
           requestId: request.requestId,
           subscriptionId: forSubscription,
           ok: result.ok,
-          ...(result.ok ? {} : { failure: result.failure }),
+          ...(result.ok ? { ...result } : { failure: result.failure, ...(result.error ? { error: result.error } : {}) }),
         })
         .catch((error: unknown) => log('remote pane ack failed', { deviceId, requestId: request.requestId, error: String(error) }));
     let result: PaneOpenResult | Promise<PaneOpenResult>;
@@ -81,7 +82,7 @@ export function startRemotePaneViewer(deps: RemotePaneViewerDeps): () => void {
     const id = subscriptionId;
     void link
       // pages:这台电脑的浏览器格渲染得了那台机器上的 `file:` 网页;external:接得住那台机器上的程序「打开网页」。
-      .invoke(SESSION_HOST_PANE.subscribe, { subscriptionId: id, sessionId, browser: deps.browser, pages: deps.browser, external: true } satisfies SessionHostPaneSubscribe)
+      .invoke(SESSION_HOST_PANE.subscribe, { subscriptionId: id, sessionId, browser: deps.browser, pages: deps.browser, external: true, tabs: true } satisfies SessionHostPaneSubscribe)
       .then((result) => {
         if (stopped) return;
         const pending = (result as { pending?: SessionpagePaneOpenRequest[] } | null)?.pending ?? [];

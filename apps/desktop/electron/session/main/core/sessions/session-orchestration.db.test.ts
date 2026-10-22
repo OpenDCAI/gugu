@@ -1,5 +1,6 @@
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import type { AppDb } from '@main/db/client';
 
 const mocks = vi.hoisted(() => ({
@@ -8,8 +9,8 @@ const mocks = vi.hoisted(() => ({
   stopSession: vi.fn(),
   emit: vi.fn(),
   on: vi.fn(),
-  openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null }) => void) | undefined,
-  nextOpenFileResult: { success: true } as { success: boolean; error?: string; openedWith?: string | null },
+  openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean }) => void) | undefined,
+  nextOpenFileResult: { success: true } as { success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean },
   stat: vi.fn(),
   workspaces: new Map<string, { path: string; fileSystem: { stat: typeof vi.fn } }>(),
   summaries: {} as Record<string, Record<string, unknown>>,
@@ -1326,6 +1327,33 @@ describe('session orchestration', () => {
     await runSessionAction(context, { action: 'spawn', prompt: 'delegated work' });
     const envelope = lastAcpDelegationEnvelope();
     expect(envelope).toContain('from="Codex"');
+  });
+
+  it('returns live tab hygiene from the renderer acknowledgement for every target', async () => {
+    const tabs = Array.from({ length: 5 }, (_, n) => ({ tab_id: `tab-${n}`, title: `Report ${n}`, kind: 'file', closable: true }));
+    mocks.nextOpenFileResult = { success: true, tabs };
+    mocks.installedExtensions = [{ manifest: { id: 'notes', contributes: { tabs: [{ name: 'board' }] } } }];
+    for (const target of [{ path: 'data/report.csv' }, { url: 'https://example.com' }, { app_tab: 'notes.board' }]) {
+      const result = await runSessionAction(context, { action: 'open_in_tab', ...target, intent: 'pinned' });
+      expect(result).toMatchObject({ opened: true, tab_count: 5, tabs, note: expect.stringContaining('5 open tabs') });
+    }
+    mocks.nextOpenFileResult = { success: true, tabs: tabs.slice(0, 4) };
+    const result = await runSessionAction(context, { action: 'open_in_tab', url: 'https://example.com', intent: 'preview' });
+    expect(result).toMatchObject({ tab_count: 4 });
+    expect(result).not.toHaveProperty('note');
+  });
+
+  it('lists and closes only the caller task and preserves a refused close', async () => {
+    const tabs = [{ tab_id: 'chat', title: 'Conversation', kind: 'session', closable: false }];
+    mocks.nextOpenFileResult = { success: true, tabs };
+    await expect(runSessionAction(context, { action: 'list_tabs' })).resolves.toEqual({ tab_count: 1, tabs });
+    mocks.nextOpenFileResult = { success: true, tabs, closed: false };
+    await expect(runSessionAction(context, { action: 'close_tab', tab_id: 'file-1' })).resolves.toMatchObject({ closed: false, tabs });
+    expect(mocks.emit).toHaveBeenLastCalledWith(expect.anything(), { requestId: expect.any(String), projectId: 'project-1', sessionId: 'caller', tabId: 'file-1' });
+    mocks.nextOpenFileResult = { success: false, error: 'The conversation tab cannot be closed' };
+    await expect(runSessionAction(context, { action: 'close_tab', tab_id: 'chat' })).rejects.toThrow('conversation tab');
+    mocks.nextOpenFileResult = { success: true };
+    await expect(runSessionAction(context, { action: 'list_tabs' })).rejects.toThrow('did not return live tabs');
   });
 
   it('opens whatever the browser pane can load in the owning task browser pane', async () => {
