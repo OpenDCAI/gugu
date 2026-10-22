@@ -88,7 +88,9 @@ export default {
   "setup": {
     "nameTitle": "给它起个名字",
     "membershipUnreadable": "暂时读不到你的会员状态，请重试。",
-    "cloudNotOpen": "此环境尚未开通云端服务，暂时无法安家到云上。",
+    "cloudNotOpen": "云端服务尚未开放，当前无法选择。",
+    "cloudStillUnavailable": "检查完成：云端服务仍未开放，当前无法选择。",
+    "chooseComputer": "你可以先选择「装在这台电脑上」。",
     "introStart": "开通我的咕咕",
     "ownerOccupation": "- 身份：{{occupation}}",
     "back": "返回",

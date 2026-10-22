@@ -1,6 +1,7 @@
 import './assistant-onboarding.css'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMutation } from '@tanstack/react-query'
 import { cloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { Avatar } from '../Avatar'
@@ -277,6 +278,8 @@ function HomeChoice({
   draftAvatar: string
 }) {
   const { t } = useTranslation('assistant')
+  const { t: tc } = useTranslation('common')
+  const cloudCheck = useMutation({ mutationFn: refreshCloudComputer })
   if (member === null) {
     return (
       <p className="ta-onb-sub inline-flex items-center gap-2" data-testid="assistant-setup-home-loading">
@@ -286,14 +289,17 @@ function HomeChoice({
     )
   }
   const cloud = cloudEnabled ? (
-    <div className="ta-onb-choice" data-recommended={member} data-testid="assistant-setup-home-cloud">
+    <div className="ta-onb-choice" data-recommended={member && cloudAvailable} data-testid="assistant-setup-home-cloud">
       <span className="ta-onb-choice-title">{t('setup.homeCloudTitle')}</span>
       <span className="ta-onb-choice-body">{t('setup.homeCloudBody')}</span>
       <div className="ta-onb-choice-actions">
         {!cloudAvailable ? (
           <>
-            <span className="ta-onb-note" role="status">{t('setup.cloudNotOpen')}</span>
-            <Button variant="secondary" className="rounded-full" onClick={() => void refreshCloudComputer().catch(() => undefined)}>{t('setup.retry')}</Button>
+            {!cloudCheck.error && <span className="ta-onb-note" role="status">{t(cloudCheck.isSuccess ? 'setup.cloudStillUnavailable' : 'setup.cloudNotOpen')}</span>}
+            {canHostHere && <span className="ta-onb-note">{t('setup.chooseComputer')}</span>}
+            <Button variant="secondary" className="rounded-full" disabled={busy !== null || cloudCheck.isPending} onClick={() => cloudCheck.mutate()}>
+              {cloudCheck.isPending ? <><LoadingIndicator size="inline" />{t('cloud.loading')}</> : t('setup.retry')}
+            </Button>
           </>
         ) : member ? (
           <Button variant="primary" size="lg" className="rounded-full" disabled={busy !== null} onClick={onCloud} data-testid="assistant-setup-claim-cloud">
@@ -311,7 +317,7 @@ function HomeChoice({
     </div>
   ) : null
   const computer = canHostHere ? (
-    <div className="ta-onb-choice" data-recommended={!member} data-testid="assistant-setup-home-computer">
+    <div className="ta-onb-choice" data-recommended={!member || !cloudAvailable} data-testid="assistant-setup-home-computer">
       <span className="ta-onb-choice-title">{t('setup.homeComputerTitle')}</span>
       <span className="ta-onb-choice-body">{t('setup.homeComputerBody')}</span>
       <div className="ta-onb-choice-actions">
@@ -331,7 +337,7 @@ function HomeChoice({
       <Avatar name={name} avatarUrl={draftAvatar} seed="assistant-draft" size={72} isAgent harnessBadge={false} />
       <h1 className="ta-onb-title">{t('setup.homeTitle', { name })}</h1>
       <div className="ta-onb-choices">
-        {member ? (
+        {member && cloudAvailable ? (
           <>
             {cloud}
             {computer}
@@ -343,6 +349,7 @@ function HomeChoice({
           </>
         )}
       </div>
+      {cloudCheck.error && <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p>}
       {error ? (
         <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">
           {error.kind === 'still-starting' ? t('setup.stillStarting', { name }) : t('setup.failed')}
