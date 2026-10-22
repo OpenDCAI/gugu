@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { drawnLook, lookDiff } from '../../../../apps/desktop/src/components/agentAvatar/engine/draw'
 import { blinkCurve, blinkEye, drawEye } from '../../../../apps/desktop/src/components/agentAvatar/engine/face'
 import { GuguEngine } from '../../../../apps/desktop/src/components/agentAvatar/engine/engine'
-import { EXPRESSION_BY_ID, type EyeShape } from '../../../../apps/desktop/src/components/agentAvatar/engine/spec'
+import { EXPRESSION_BY_ID, OPEN_EYE as OPEN, type EyeShape } from '../../../../apps/desktop/src/components/agentAvatar/engine/spec'
 
 // 用户反馈「眼珠太黑、不可爱」(#7160):小尺寸里眼睛曾经连高光都没有(读成黑洞)。这里把眼睛画到一块只记账的假画布上,
 // 看 drawEye 在「小尺寸」下是否仍画出高光;又不能大过豆子的一半(32px 的眼睛只有两三个像素,高光一大就成了白圈)。
@@ -26,7 +26,6 @@ function recordingCtx(devPerUnit: number) {
   return { ctx: ctx as unknown as CanvasRenderingContext2D, arcs }
 }
 
-const OPEN: EyeShape = { size: 1, tOff: -1.3, tSlope: 0, tBow: 0, bOff: 1.3, bSlope: 0, bBow: 0, arc: 0, flat: 0, chev: 0 }
 const GLOSS = { x: -0.3, y: -0.5, r: 0.15 }
 const draw = (ctx: CanvasRenderingContext2D, r: number, small: boolean, alpha = 1, shape = OPEN) =>
   drawEye(ctx, shape, 1, r, 1.2, alpha, GLOSS, 0, 0, small, 0.5)

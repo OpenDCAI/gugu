@@ -19,7 +19,7 @@
  */
 import { BodyParams, TWO_PI, clamp, lerp, projectEye, smoothstep } from './geometry'
 import { BUILDERS, BuildCtx, CropId, EyeSpec, FormId, Parts, formFor, stageFor } from './forms'
-import { BLINK_LEN, BLINK_SHUT, blinkCurve, blinkEye } from './face'
+import { BLINK_LEN, BLINK_OPEN_AT, BLINK_SHUT, blinkCurve, blinkEye } from './face'
 import { WING_DEG } from './rig'
 import { CHARACTER_BY_ID, Character, DEFAULT_CHARACTER } from './characters'
 import type { Rgb } from './identity'
@@ -39,6 +39,7 @@ import {
   EyeShape,
   ExpressionId,
   FxKind,
+  OPEN_EYE,
   InternalExpressionId,
   STATE_BY_ID,
   Temper,
@@ -95,8 +96,8 @@ type CheekKey = keyof CheekShape
 const CHEEK_KEYS: CheekKey[] = ['lift', 'wide', 'lines']
 const ZERO_ACT: ActFrame = { hop: 0, sy: 0, sx: 0, lean: 0, roll: 0, nod: 0, puff: 0, pitch: 0, yaw: 0, wingAdd: 0, wing: 0, wingK: 0, eye: {}, eyeK: 0, brow: 0, browR: 0, cheek: 0 }
 const NO_EYE: Partial<EyeShape> = {}
-const restEye: EyeShape = { size: 1, tOff: -1.3, tSlope: 0, tBow: 0, bOff: 1.3, bSlope: 0, bBow: 0, arc: 0, flat: 0, chev: 0 }
-const newAct = (): ActFrame => ({ hop: 0, sy: 0, sx: 0, lean: 0, roll: 0, nod: 0, puff: 0, pitch: 0, yaw: 0, wingAdd: 0, wing: 0, wingK: 0, eye: {}, eyeK: 0, brow: 0, browR: 0, cheek: 0 })
+const restEye: EyeShape = { ...OPEN_EYE }
+const newAct = (): ActFrame => ({ ...ZERO_ACT, eye: {} })
 
 // ───────────── 输出 ─────────────
 export interface EyeOut {
@@ -258,6 +259,7 @@ export class GuguEngine {
   private blinkForced = false // 这次眨眼是变形带的（不受表情「不眨眼」的约束）
   private blinkC = 0 // 上一帧的闭眼程度（新的一次眨眼从这里接着闭）
   // 进场动作（spec.ts Expression.act）：这一次从什么时候开始演、下一次什么时候再演、动作里的特效放到第几个
+  private actOf: InternalExpressionId | null = null
   private actAt = -1
   private actNext = -1
   private actFx = 0
@@ -386,7 +388,7 @@ export class GuguEngine {
       r: ch.eye.r,
       aspect: ch.eye.aspect,
       inner,
-      shape: { size: 1, tOff: -1.3, tSlope: 0, tBow: 0, bOff: 1.3, bSlope: 0, bBow: 0, arc: 0, flat: 0, chev: 0 },
+      shape: { ...OPEN_EYE },
       brow: { ...REST_BROW },
       gx: 0,
       gy: 0
@@ -476,7 +478,7 @@ export class GuguEngine {
   /** 离下一次眨眼(或进场动作再演一次)还有几秒:runtime 空闲时按它准点醒来,不靠轮询碰运气 */
   wakeIn(): number {
     let w = this.blinkHold ? Infinity : this.nextBlink - this.time
-    if (this.actNext >= 0) w = Math.min(w, this.actNext - this.time)
+    if (this.actOf === this.cur && this.actNext >= 0) w = Math.min(w, this.actNext - this.time)
     return Math.max(0, w)
   }
 
@@ -511,7 +513,8 @@ export class GuguEngine {
     let p: Particle
     const w: 0 | 1 = this.formNow === 'body' ? 1 : 0
     switch (kind) {
-      case 'z':
+      case 'z': {
+        const g = glyph ?? (this.rng() < 0.5 ? 'z' : 'Z') // 大小写错开,一串 z 才不像复制出来的
         p = {
           kind,
           born: t,
@@ -520,12 +523,13 @@ export class GuguEngine {
           y: HEADY - 90 * q,
           vx: 26 * q,
           vy: -48 * q,
-          s: glyph === 'Z' ? 1.25 : 0.9,
+          s: g === 'Z' ? 1.25 : 0.9,
           rot: 0.15,
-          glyph: glyph ?? 'z',
+          glyph: g,
           w
         }
         break
+      }
       case 'spark': {
         const ring = this.state === 'removed' // 已移除：星屑绕一整圈、停留久一点（设计稿 13）；其余只撒在头顶和两侧（上半圈）
         const a = ring ? rnd() * TWO_PI : -Math.PI + rnd() * Math.PI
@@ -613,8 +617,7 @@ export class GuguEngine {
     const due = this.fxNext[kind] ?? 0
     if (this.time >= due) {
       this.fxNext[kind] = this.time + every * (0.85 + this.rng() * 0.3)
-      if (kind === 'z') this.spawn('z', this.rng() < 0.5 ? 'z' : 'Z')
-      else if (kind === 'spark') this.burst(2)
+      if (kind === 'spark') this.burst(2)
       else this.spawn(kind)
     }
   }
@@ -786,17 +789,21 @@ export class GuguEngine {
     void d
   }
 
-  private onEnterExpression(ex: Expression) {
-    // 进场动作:换到别的表情就停(没有动作的表情 actAt = -1)
-    this.actAt = ex.act ? this.time : -1
+  /**
+   * 换了一张脸:它的进场动作从这一刻演(换到别的表情,上一张的动作就停)。
+   * quiet = 第一帧,或者表情池轮换换来的:不演进场(不蹦、不抖、不放进场特效),只从一个间隔之后开始重复(every)
+   */
+  private onEnterExpression(ex: Expression, quiet: boolean) {
+    const act = ex.act
+    this.actOf = act ? ex.id : null
     this.actFx = 0
-    this.actNext = ex.act?.every ? this.time + ex.act.every : -1
-    const en = ex.enter
-    if (!en) return
-    if (en.hop) this.hop(en.hop)
-    if (en.shake) this.shakeAmp = Math.max(this.shakeAmp, en.shake)
-    if (en.squash) this.sy.v -= en.squash * 1.1
-    if (en.fx && this.formNow === 'body') this.spawn(en.fx)
+    this.actAt = act && !quiet ? this.time : -1
+    this.actNext = act?.every ? this.time + act.every : -1
+    const k = act?.kick
+    if (!k || quiet) return
+    if (k.hop) this.hop(k.hop)
+    if (k.shake) this.shakeAmp = Math.max(this.shakeAmp, k.shake)
+    if (k.squash) this.sy.v -= k.squash * 1.1
   }
 
   // ───────────── 每帧 ─────────────
@@ -833,14 +840,11 @@ export class GuguEngine {
     const ex = EXPRESSION_BY_ID[effId]
     if (effId !== this.cur) {
       this.cur = effId
-      if (this.ready && !this.rotSwapped) this.onEnterExpression(ex)
+      this.onEnterExpression(ex, !this.ready || this.rotSwapped)
     }
     this.rotSwapped = false
     this.ready = true
     this.applyExpressionTargets(ex, first, d)
-    // 持续特效（犯困/睡着的 z、兴奋的星星）：形态到位了才开始飘；已移除只留星屑，不飘 z（设计稿 13）
-    if (ex.fx && this.state !== 'removed' && this.layers[this.layers.length - 1].q.x > 0.9)
-      this.periodicFx(ex.fx.kind, ex.fx.every)
 
     // 性格化节律：平滑过渡，状态一换不会突然炸开
     const tgt: Temper = { ...DEFAULT_TEMPER, ...ex.temper, ...d.temper }
@@ -909,8 +913,9 @@ export class GuguEngine {
     this.nod.t = p.nod + d.nodAdd + ly * 7 * fw
     // 翅膀：姿态位置 + 周期扇动（右翅略晚半拍，不是机械同步）
     const flapPh = TWO_PI * tp.flapHz * t
-    this.wl.t = p.wl + tp.flap * Math.sin(flapPh) + breath * 4
-    this.wr.t = p.wr + tp.flap * Math.sin(flapPh - 0.5) + breath * 4
+    // 静着的时候翅膀不跟着呼吸动:翅膀是刚体部件,一动就是整片重画(空闲时尽量不出帧)
+    this.wl.t = p.wl + tp.flap * Math.sin(flapPh)
+    this.wr.t = p.wr + tp.flap * Math.sin(flapPh - 0.5)
     if (first) {
       this.wl.x = this.wl.t
       this.wr.x = this.wr.t
@@ -952,22 +957,24 @@ export class GuguEngine {
     if (!this.blinkForced && tp.blink < 0.1) blinkC = 0 // 不眨眼的表情(笑弧、平线这类本来就闭着的);变形那一次不受
     this.blinkC = blinkC
 
-    // 进场动作:这一刻相对静止姿态的偏移(spec.ts Act)
+    // 进场动作:这一刻相对静止姿态的偏移(spec.ts Act);特效等形态到位了才放,已移除只留星屑(设计稿 13)
     const A = this.act
     Object.assign(A, ZERO_ACT)
     A.eye = NO_EYE
     const ax = ex.act
-    if (ax && this.actAt >= 0) {
-      if (this.actNext >= 0 && t >= this.actNext) {
+    if (ax && this.actOf === effId) {
+      const every = ax.every
+      if (every && t >= this.actNext) {
         this.actAt = t
         this.actFx = 0
-        this.actNext = t + (ax.every ?? 0)
+        this.actNext = t + every * (0.85 + 0.3 * this.rng())
       }
       const at = t - this.actAt
-      if (at < ax.dur) {
-        ax.at(at, A)
-        while (ax.fx && this.actFx < ax.fx.length && at >= ax.fx[this.actFx].at) {
-          if (this.formNow === 'body') this.spawn(ax.fx[this.actFx].kind)
+      if (this.actAt >= 0) {
+        if (at < ax.dur && ax.at) ax.at(at, A)
+        const fx = ax.fx
+        while (fx && this.actFx < fx.length && at >= fx[this.actFx].at) {
+          if (this.state !== 'removed' && this.layers[this.layers.length - 1].q.x > 0.9) this.spawn(fx[this.actFx].kind)
           this.actFx++
         }
       }
@@ -1044,10 +1051,10 @@ export class GuguEngine {
     f.spin = f.state?.animate ? (t * TWO_PI) / 0.85 : 0
 
     // ───── 形态层输出 ─────
-    // 脸区随视线滑：小嘴钉在球面正前方，眼睛转到哪它就跟到哪（只对带「脸区」的本体素材有效；形态素材的小嘴是画死的）
+    // 喙随视线在球面上滑：钉在球面正前方，眼睛转到哪它就跟到哪（rig.ts 的喙；形态素材没有喙）
     const gx = clamp(this.gYaw.x * 0.05, -1, 1)
     const gy = clamp(this.gPitch.x * 0.05, -1, 1)
-    if (this.ch.face) {
+    if (this.ch.rig) {
       const e0 = this.ch.eye
       const p0 = projectEye(e0.yaw0, e0.pitch0, e0.roll0, 0)
       const pn = projectEye(
@@ -1215,7 +1222,7 @@ export class GuguEngine {
     const topL = this.layers[this.layers.length - 1]
     if (this.blinkHold && (topL.eyeVis > 0.9 || t - topL.born > 1)) {
       this.blinkHold = false
-      if (t - this.blinkStart >= BLINK_SHUT) this.blinkStart = t - 0.11 // 合着停够了:从睁眼那一段接着演
+      if (t - this.blinkStart >= BLINK_SHUT) this.blinkStart = t - BLINK_OPEN_AT // 合着停够了:从睁眼那一段接着演
     }
 
     // 粒子寿命

@@ -27,6 +27,8 @@ export interface RigPiece {
   box: { x: number; y: number; w: number; h: number }
   /** 挂点(本体坐标):翅膀的肩铰点在身体轮廓以内,所以怎么转翅根都压在身上 */
   at: { x: number; y: number }
+  /** 翅膀:手里拿的装扮(伞、魔杖)握在哪(本体坐标) */
+  grip?: { x: number; y: number }
   /** 压在身上的接触阴影(本体坐标) */
   shade?: { id: string; sprite: string; box: { x: number; y: number; w: number; h: number } }
 }
@@ -83,6 +85,7 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
     // 越接近正对 / 背对镜头,抬起的角度越小(不从头顶竖出去)
     const raw = b.yaw !== 0 ? Math.sin(phi) / Math.sin(phi0) : 1
     sx = Math.sign(raw || 1) * Math.max(0.32, Math.abs(raw))
+    alpha = clamp((Math.abs(raw) - 0.06) / 0.2) // 翻面那一下(正对 / 背对镜头)先淡掉再出来,❌ 一帧里左右跳
     const lift = (pc.side < 0 ? b.wl : b.wr) * WING_DEG * (b.yaw !== 0 ? 0.35 + 0.65 * Math.abs(Math.sin(phi)) : 1)
     rot = -pc.side * lift
     shade = clamp(1 - Math.abs(lift) / 18) * (depth > 0 ? 1 : 0)
@@ -113,15 +116,16 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
 
 export const newPose = (): PiecePose => ({ m: [1, 0, 0, 1], dx: 0, dy: 0, depth: 1, alpha: 1, shade: 1 })
 
+/** 一只翅膀的铰点与握点。没有翅膀的 rig 是角色包写错了:当场报 */
+export function wingOf(rig: Rig, side: -1 | 1): { piece: RigPiece; at: { x: number; y: number }; grip: { x: number; y: number } } {
+  for (const piece of rig.pieces) if (piece.kind === 'wing' && piece.side === side && piece.grip) return { piece, at: piece.at, grip: piece.grip }
+  throw new Error(`rig has no ${side < 0 ? 'left' : 'right'} wing with a grip`)
+}
+
 const scratch = newPose()
 /** 骑在翅膀上的一点(本体坐标):经这只翅膀的刚体动作后落在本体坐标哪里(还没过身体软网格)。手里拿的装扮跟着它走 */
 export function onWing(rig: Rig, side: -1 | 1, b: { wl: number; wr: number; yaw: number; fx: number; fy: number }, x: number, y: number, out: [number, number]) {
-  const pc = rig.pieces.find((p) => p.kind === 'wing' && p.side === side)
-  if (!pc) {
-    out[0] = x
-    out[1] = y
-    return
-  }
+  const pc = wingOf(rig, side).piece
   const ps = piecePose(rig, pc, b, scratch)
   const qx = x - pc.at.x,
     qy = y - pc.at.y

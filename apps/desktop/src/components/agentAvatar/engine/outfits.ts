@@ -15,7 +15,7 @@
  */
 import { rendererLogger } from '@/lib/log'
 import { DEG, NEUTRAL_BODY, clamp, smoothstep, warp } from './geometry'
-import { onWing } from './rig'
+import { onWing, wingOf, type Rig } from './rig'
 import { GRID_X, GRID_Y, type GuguGL } from './gl'
 import type { GuguFrame, Layer } from './engine'
 import type { FormId, Part } from './forms'
@@ -186,12 +186,8 @@ function secondary(d: Piece, rig: OutfitRig, sx: number, sy: number, out: [numbe
 type MapFn = (x: number, y: number, p: Part, out: [number, number]) => void
 const meshMap: MapFn = (x, y, p, out) => place(x, y, p, p.body, out)
 /** 骑在翅膀上的一点:先随翅膀的刚体动作转(rig.ts),再过身体(map);结果在 tmp */
-function wingMap(map: MapFn, p: Part, side: -1 | 1, x: number, y: number) {
-  if (p.pack.rig) onWing(p.pack.rig, side, p.body, x, y, tmp)
-  else {
-    tmp[0] = x
-    tmp[1] = y
-  }
+function wingMap(map: MapFn, p: Part, rig: Rig, side: -1 | 1, x: number, y: number) {
+  onWing(rig, side, p.body, x, y, tmp)
   map(tmp[0], tmp[1], p, tmp)
 }
 const flatMap: MapFn = (x, y, p, out) => {
@@ -353,9 +349,9 @@ export class OutfitDraw {
         if (m === 'head') {
           const sc = (fit.w * P.head.r) / pc.size.w
           top = Math.min(top, P.head.y + fit.tv * P.head.r - pc.anchor.y * sc)
-        } else if (m === 'wing' && P.wings) {
+        } else if (m === 'wing' && P.rig) {
           const sc = (fit.w * P.head.r) / pc.size.w
-          top = Math.min(top, P.wings.r.y + P.wings.r.ry * 0.25 + fit.tv - pc.anchor.y * sc * Math.cos((fit.rot ?? 0) * DEG))
+          top = Math.min(top, wingOf(P.rig, 1).grip.y + fit.tv - pc.anchor.y * sc * Math.cos((fit.rot ?? 0) * DEG))
         }
       }
     }
@@ -369,27 +365,21 @@ export class OutfitDraw {
       for (const pc of w.def.pieces) {
         if (ruleFor(w.def, pc, form).hide) continue
         const fit = pc.fit ?? w.def.fit
-        if ((pc.mount ?? w.def.mount) !== 'wing' || !P.wings) continue
+        const rig = P.rig
+        if ((pc.mount ?? w.def.mount) !== 'wing' || !rig) continue
         const sc = (fit.w * P.head.r) / pc.size.w
         const r = (fit.rot ?? 0) * DEG
-        // 翅膀会转(引擎里 wr 在 -1…1.25 之间),伞跟着翅膀尖走、跟着转:两头和中间都真算一遍 warp,取最靠外的那一角
+        const { at, grip } = wingOf(rig, 1)
+        // 翅膀会转(刚体,rig.ts),伞握在翅尖上跟着转:几个翅膀位置都真算一遍,取最靠外的那一角
         for (const v of [-1, -0.5, 0, 0.6, 1.25, 1.9]) {
           const b = { ...NEUTRAL_BODY, wl: v, wr: v }
-          const wing = (x: number, y: number) => {
-            if (P.rig) onWing(P.rig, 1, b, x, y, tmp)
-            else {
-              tmp[0] = x
-              tmp[1] = y
-            }
-            warp(tmp[0], tmp[1], b, tmp, P)
-          }
-          wing(P.wings.r.rootX, P.wings.r.rootY)
+          onWing(rig, 1, b, at.x, at.y, tmp)
+          warp(tmp[0], tmp[1], b, tmp, P)
           const r0x = tmp[0],
             r0y = tmp[1]
-          const gx = P.wings.r.x + P.wings.r.rx * 0.35,
-            gy = P.wings.r.y + P.wings.r.ry * 0.25
-          wing(gx, gy)
-          const a = r + Math.atan2(tmp[1] - r0y, tmp[0] - r0x) - Math.atan2(gy - P.wings.r.rootY, gx - P.wings.r.rootX)
+          onWing(rig, 1, b, grip.x, grip.y, tmp)
+          warp(tmp[0], tmp[1], b, tmp, P)
+          const a = r + Math.atan2(tmp[1] - r0y, tmp[0] - r0x) - Math.atan2(grip.y - at.y, grip.x - at.x)
           for (const [x, y] of [[0, 0], [pc.size.w, 0], [0, pc.size.h], [pc.size.w, pc.size.h]]) {
             const dx = (x - pc.anchor.x) * sc,
               dy = (y - pc.anchor.y) * sc
@@ -591,22 +581,22 @@ export class OutfitDraw {
         }
       return g.a
     }
-    const W = p.pack.wings
-    if (!W) return 0 // 变形后没有翅膀:手里的收起
+    const rig = p.pack.rig
+    if (!rig) return 0 // 变形后没有翅膀:手里的收起
     if (mount === 'hold') {
-      // 握在翅膀尖边上:素材按本体坐标摆好(和 head 一样的落位),但整件是刚体 —— 不走逐顶点变形(翅膀附近的网格一转,
-      // 魔杖、放大镜就被扭歪),只取翅膀尖变形后的位置和翅膀转过的角度,整件平移 + 旋转
-      const wg = pc.wing === 'r' ? W.r : W.l
+      // 握在翅膀尖边上:素材按本体坐标摆好(和 head 一样的落位),但整件是刚体 —— 只取握点随翅膀动过之后的位置和翅膀转过的角度,
+      // 整件平移 + 旋转
       const sgn = pc.wing === 'r' ? 1 : -1
-      const gx = wg.x + sgn * wg.rx * 0.35,
-        gy = wg.y + wg.ry * 0.25
-      wingMap(map, p, sgn, wg.rootX, wg.rootY)
+      const { at, grip } = wingOf(rig, sgn)
+      const gx = grip.x,
+        gy = grip.y
+      wingMap(map, p, rig, sgn, at.x, at.y)
       const r0x = tmp[0],
         r0y = tmp[1]
-      wingMap(map, p, sgn, gx, gy)
+      wingMap(map, p, rig, sgn, gx, gy)
       const t1x = tmp[0],
         t1y = tmp[1]
-      const ang = Math.atan2(t1y - r0y, t1x - r0x) - Math.atan2(gy - wg.rootY, gx - wg.rootX)
+      const ang = Math.atan2(t1y - r0y, t1x - r0x) - Math.atan2(gy - at.y, gx - at.x)
       const c = Math.cos(ang),
         s = Math.sin(ang)
       const P = p.pack
@@ -623,13 +613,12 @@ export class OutfitDraw {
       return p.alpha
     }
     // wing:握在右翅膀尖上
-    const tipX = W.r.x + W.r.rx * 0.35,
-      tipY = W.r.y + W.r.ry * 0.25
-    wingMap(map, p, 1, W.r.rootX, W.r.rootY)
+    const { at, grip } = wingOf(rig, 1)
+    wingMap(map, p, rig, 1, at.x, at.y)
     const rx0 = tmp[0],
       ry0 = tmp[1]
-    wingMap(map, p, 1, tipX, tipY)
-    const ang = Math.atan2(tmp[1] - ry0, tmp[0] - rx0) - Math.atan2(tipY - W.r.rootY, tipX - W.r.rootX)
+    wingMap(map, p, rig, 1, grip.x, grip.y)
+    const ang = Math.atan2(tmp[1] - ry0, tmp[0] - rx0) - Math.atan2(grip.y - at.y, grip.x - at.x)
     const hx = tmp[0] + fit.tu * p.sc,
       hy = tmp[1] + fit.tv * p.sc
     const sc = (fit.w * p.pack.head.r) / pc.size.w

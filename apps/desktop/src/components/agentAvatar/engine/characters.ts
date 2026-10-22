@@ -38,8 +38,6 @@ export interface Pack {
   head: { x: number; y: number; r: number }
   eye: Character['eye']
   shadow: { rx: number; ry: number }
-  face?: Character['face']
-  wings?: Character['wings']
   rig?: Rig
 }
 
@@ -52,15 +50,6 @@ export interface FormPacks {
   sleep: Pack
   roll: Pack
   plain: Pack
-}
-
-export interface WingGeo {
-  x: number
-  y: number
-  rx: number
-  ry: number
-  rootX: number
-  rootY: number
 }
 
 export interface Character {
@@ -91,9 +80,7 @@ export interface Character {
   view: { ref: number; top: number; bottom: number; cx: number; bustFill: number }
   shadow: { x: number; rx: number; ry: number }
   backdrop: [string, string, string]
-  face?: { x: number; y: number; R: number } // 脸区（小嘴）：随视线一起滑
-  wings?: { l: WingGeo; r: WingGeo } // 翅膀的范围与肩铰点（root）：手里拿的装扮挂在翅尖上
-  rig?: Rig
+  rig?: Rig // 翅膀、喙、脚（rig.ts）；没有 = 形态素材，只有一团
   forms?: FormPacks // 各展示状态的「形态」素材（第 7 轮设计稿出图抠出）；没有 = 只换表情，身体不变形
 }
 
@@ -127,8 +114,8 @@ const FJJ_RIG: Rig = {
     { id: 'fjj-part-foot-l', sprite: footL, kind: 'foot', side: -1, box: { x: 232, y: 823, w: 199, h: 98 }, at: { x: 323.7, y: 874.4 }, shade: { id: 'fjj-part-foot-l-ao', sprite: footLShade, box: { x: 229, y: 800, w: 227, h: 73 } } },
     { id: 'fjj-part-foot-r', sprite: footR, kind: 'foot', side: 1, box: { x: 564, y: 825, w: 202, h: 99 }, at: { x: 671.0, y: 877.7 }, shade: { id: 'fjj-part-foot-r-ao', sprite: footRShade, box: { x: 539, y: 803, w: 235, h: 71 } } },
     { id: 'fjj-part-beak', sprite: beak, kind: 'beak', side: 0, box: { x: 439, y: 366, w: 181, h: 155 }, at: { x: 536.1, y: 444.6 } },
-    { id: 'fjj-part-wing-l', sprite: wingL, kind: 'wing', side: -1, box: { x: 10, y: 403, w: 175, h: 291 }, at: { x: 168, y: 470 }, shade: { id: 'fjj-part-wing-l-ao', sprite: wingLShade, box: { x: 101, y: 386, w: 103, h: 319 } } },
-    { id: 'fjj-part-wing-r', sprite: wingR, kind: 'wing', side: 1, box: { x: 819, y: 419, w: 168, h: 282 }, at: { x: 836, y: 488 }, shade: { id: 'fjj-part-wing-r-ao', sprite: wingRShade, box: { x: 805, y: 411, w: 99, h: 301 } } }
+    { id: 'fjj-part-wing-l', sprite: wingL, kind: 'wing', side: -1, box: { x: 10, y: 403, w: 175, h: 291 }, at: { x: 168, y: 470 }, grip: { x: 65.7, y: 575.9 }, shade: { id: 'fjj-part-wing-l-ao', sprite: wingLShade, box: { x: 101, y: 386, w: 103, h: 319 } } },
+    { id: 'fjj-part-wing-r', sprite: wingR, kind: 'wing', side: 1, box: { x: 819, y: 419, w: 168, h: 282 }, at: { x: 836, y: 488 }, grip: { x: 930.6, y: 591.3 }, shade: { id: 'fjj-part-wing-r-ao', sprite: wingRShade, box: { x: 805, y: 411, w: 99, h: 301 } } }
   ]
 }
 
@@ -168,12 +155,7 @@ const FJJ_BEAK: Character = (() => {
     shadow: { x: cx, rx: 275, ry: 40 },
     backdrop: FJJ_BACKDROP,
     forms: FJJ_FORMS,
-    wings: {
-      l: { x: 93.7, y: 541.6, rx: 80, ry: 137, rootX: 168, rootY: 470 },
-      r: { x: 903.6, y: 558.4, rx: 77, ry: 131.5, rootX: 836, rootY: 488 }
-    },
-    rig: FJJ_RIG,
-    face: { x: 536.1, y: 444.6, R: 200 }
+    rig: FJJ_RIG
   }
 })()
 

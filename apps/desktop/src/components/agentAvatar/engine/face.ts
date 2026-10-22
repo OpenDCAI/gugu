@@ -7,7 +7,7 @@
  * 眼皮越往下越粗;两条曲线合拢 = 闭眼,只剩那道线。另有三种闭着的画法:^ 笑弧(arc)、‒ 平线(flat)、> < 挤眼(chev)。
  */
 import { TWO_PI, clamp, lerp } from './geometry'
-import type { BrowShape, CheekShape, EyeShape } from './spec'
+import { OPEN_EYE, type BrowShape, type CheekShape, type EyeShape } from './spec'
 
 /** 睫毛线、眉毛:暖深棕,不用纯黑 */
 const INK = '75,50,38'
@@ -39,17 +39,21 @@ export function blinkEye(e: EyeShape, c: number, out: EyeShape): EyeShape {
 }
 
 /** 一帧里闭眼的程度:合 70ms(加速)→ 合着停 40ms → 睁 150ms(减速)。dt = 这次眨眼开始后的秒数 */
+export const BLINK_SHUT = 0.07
+export const BLINK_OPEN_AT = 0.11
+export const BLINK_LEN = 0.26
 export function blinkCurve(dt: number): number {
   if (dt < 0) return 0
-  if (dt < 0.07) return (dt / 0.07) ** 2
-  if (dt < 0.11) return 1
-  if (dt < 0.26) return (1 - (dt - 0.11) / 0.15) ** 3
+  if (dt < BLINK_SHUT) return (dt / BLINK_SHUT) ** 2
+  if (dt < BLINK_OPEN_AT) return 1
+  if (dt < BLINK_LEN) return (1 - (dt - BLINK_OPEN_AT) / (BLINK_LEN - BLINK_OPEN_AT)) ** 3
   return 0
 }
-export const BLINK_SHUT = 0.07
-export const BLINK_LEN = 0.26
 
-const scratch: EyeShape = { size: 1, tOff: 0, tSlope: 0, tBow: 0, bOff: 0, bSlope: 0, bBow: 0, arc: 0, flat: 0, chev: 0 }
+// 每帧都要用的临时形状,复用不分配
+const opening: EyeShape = { ...OPEN_EYE }
+const unarc: EyeShape = { ...OPEN_EYE }
+const shut: EyeShape = { ...OPEN_EYE }
 
 /**
  * 画一只眼睛。r = 眼宽方向半径、asp = 高/宽(素材像素);gloss 高光位置;gx/gy 高光随视线;small = 小于 70 CSS px 的头像。
@@ -71,7 +75,11 @@ export function drawEye(
   if (alpha < 0.02) return
   let e = shape
   // 笑弧和睁眼之间没有「半个笑弧」:从笑弧睁开 = 一次眨眼的后半段
-  if (e.arc > 0 && e.arc < 0.5) e = blinkEye({ ...e, arc: 0 }, e.arc / 0.5, scratch)
+  if (e.arc > 0 && e.arc < 0.5) {
+    Object.assign(unarc, e)
+    unarc.arc = 0
+    e = blinkEye(unarc, e.arc / 0.5, opening)
+  }
   const r = r0 * e.size
   if (r < 0.5) return
   const m = ctx.getTransform()
@@ -114,7 +122,15 @@ export function drawEye(
   if (e.flat > 0 && e.flat < 1) {
     // 合成平线 = 两条眼皮都走到那条线上(一次闭了不再睁的眨眼),❌ 一颗半透明的豆子
     const f = e.flat
-    e = { ...e, tOff: lerp(e.tOff, 0.04, f), tBow: e.tBow * (1 - f), tSlope: e.tSlope * (1 - f), bOff: lerp(e.bOff, 0.2, f), bBow: e.bBow * (1 - f), bSlope: e.bSlope * (1 - f), flat: f > 0.85 ? 1 : 0 }
+    Object.assign(shut, e)
+    shut.tOff = lerp(e.tOff, 0.04, f)
+    shut.tBow = e.tBow * (1 - f)
+    shut.tSlope = e.tSlope * (1 - f)
+    shut.bOff = lerp(e.bOff, 0.2, f)
+    shut.bBow = e.bBow * (1 - f)
+    shut.bSlope = e.bSlope * (1 - f)
+    shut.flat = f > 0.85 ? 1 : 0
+    e = shut
   }
   const vTop = (u: number) => lidV(e.tOff, e.tSlope, e.tBow, u, inner)
   const vLow = (u: number) => lidV(e.bOff, e.bSlope, e.bBow, u, inner)
@@ -225,6 +241,11 @@ export function drawEye(
   ctx.restore()
 }
 
+const BROW_N = 14
+const xs = new Float32Array(BROW_N + 1),
+  ys = new Float32Array(BROW_N + 1),
+  ts = new Float32Array(BROW_N + 1)
+
 /**
  * 眉毛:眼睛上方一道短而圆头的豆豆眉,靠鼻梁一侧略粗(鼻梁侧 = u·inner > 0)。
  * 小头像(small)里平常的眉毛只是两个多出来的黑点:只在眉毛真在表情(明显抬高 / 压低 / 倾斜)时才画。
@@ -242,15 +263,12 @@ export function drawBrow(ctx: CanvasRenderingContext2D, b: BrowShape, inner: num
   ctx.globalAlpha = a * 0.82
   ctx.fillStyle = `rgb(${INK})`
   ctx.beginPath()
-  const N = 14
-  const xs: number[] = [],
-    ys: number[] = [],
-    ts: number[] = []
+  const N = BROW_N
   for (let i = 0; i <= N; i++) {
     const s = -1 + (2 * i) / N
-    xs.push(s * half * r - 0.05 * r * inner)
-    ys.push(y0 - b.arch * 0.32 * r * (1 - s * s) - b.tilt * 0.42 * r * s * inner)
-    ts.push(thick * (0.55 + 0.45 * Math.sin(Math.PI * (0.5 + 0.5 * s))) * (1 + 0.25 * s * inner))
+    xs[i] = s * half * r - 0.05 * r * inner
+    ys[i] = y0 - b.arch * 0.32 * r * (1 - s * s) - b.tilt * 0.42 * r * s * inner
+    ts[i] = thick * (0.55 + 0.45 * Math.sin(Math.PI * (0.5 + 0.5 * s))) * (1 + 0.25 * s * inner)
   }
   for (let i = 0; i <= N; i++) i ? ctx.lineTo(xs[i], ys[i] - ts[i] / 2) : ctx.moveTo(xs[i], ys[i] - ts[i] / 2)
   for (let i = N; i >= 0; i--) ctx.lineTo(xs[i], ys[i] + ts[i] / 2)

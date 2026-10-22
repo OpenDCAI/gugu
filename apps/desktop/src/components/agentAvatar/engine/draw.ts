@@ -292,28 +292,40 @@ export function glPasses(f: GuguFrame, outfit: OutfitDraw | null): number {
 const poses: PiecePose[] = []
 const poseOf = (i: number) => (poses[i] ??= newPose())
 
-/** 部件素材上的点 q 画在 W(A) + J·(M·(q − A) + d):挂点跟身体的软网格走,部件本身不被扭(rig.ts) */
-function rigMesh(gl: GuguGL, v: View, p: Part, box: RigPiece['box'], at: RigPiece['at'], ps: PiecePose) {
+/** 挂点 A 在身体软网格上落在哪、网格在那里的雅可比:[X, Y, ∂X/∂x, ∂Y/∂x, ∂X/∂y, ∂Y/∂y] */
+const J = new Float64Array(6)
+function hang(p: Part, at: RigPiece['at']) {
   place(at.x, at.y, p, p.body, tmp)
-  const X0 = tmp[0],
-    Y0 = tmp[1]
   place(at.x + 1, at.y, p, p.body, tmp1)
   place(at.x, at.y + 1, p, p.body, tmp2)
-  const j00 = tmp1[0] - X0,
-    j10 = tmp1[1] - Y0,
-    j01 = tmp2[0] - X0,
-    j11 = tmp2[1] - Y0
-  const m = ps.m
+  J[0] = tmp[0]
+  J[1] = tmp[1]
+  J[2] = tmp1[0] - tmp[0]
+  J[3] = tmp1[1] - tmp[1]
+  J[4] = tmp2[0] - tmp[0]
+  J[5] = tmp2[1] - tmp[1]
+}
+/** 部件素材上的点 (x, y)(本体坐标)画在 W(A) + J·(M·(q − A) + d);先 hang() 过。写进 out(世界坐标) */
+function onPart(ps: PiecePose, at: RigPiece['at'], x: number, y: number, out: [number, number]) {
+  const qx = x - at.x,
+    qy = y - at.y
+  const mx = ps.m[0] * qx + ps.m[1] * qy + ps.dx
+  const my = ps.m[2] * qx + ps.m[3] * qy + ps.dy
+  out[0] = J[0] + J[2] * mx + J[4] * my
+  out[1] = J[1] + J[3] * mx + J[5] * my
+}
+
+/** 部件的网格:挂点跟身体的软网格走,部件本身不被扭(rig.ts) */
+function rigMesh(gl: GuguGL, v: View, p: Part, box: RigPiece['box'], at: RigPiece['at'], ps: PiecePose) {
+  hang(p, at)
   const verts = gl.verts
   let k = 0
   for (let j = 0; j <= GRID_Y; j++) {
-    const qy = box.y + (j / GRID_Y) * box.h - at.y
+    const y = box.y + (j / GRID_Y) * box.h
     for (let i = 0; i <= GRID_X; i++) {
-      const qx = box.x + (i / GRID_X) * box.w - at.x
-      const mx = m[0] * qx + m[1] * qy + ps.dx
-      const my = m[2] * qx + m[3] * qy + ps.dy
-      verts[k++] = v.ox + (X0 + j00 * mx + j01 * my) * v.s
-      verts[k++] = v.oy + (Y0 + j10 * mx + j11 * my) * v.s
+      onPart(ps, at, box.x + (i / GRID_X) * box.w, y, tmp)
+      verts[k++] = v.ox + tmp[0] * v.s
+      verts[k++] = v.oy + tmp[1] * v.s
     }
   }
 }
@@ -470,9 +482,8 @@ export function drawAvatar(
 
   const small = Math.min(w, h) < 70 * o.dpr
   if (o.fx && !small) {
-    // 生在本体上的特效跟本体的软网格走（脸区滑动不算：它会把局部坐标剪歪）
-    const body = f.body.fx === 0 && f.body.fy === 0 ? f.body : { ...f.body, fx: 0, fy: 0 }
-    for (const p of f.particles) drawParticle(ctx, p, f.time, body, v, ch)
+    // 生在本体上的特效跟本体的软网格走
+    for (const p of f.particles) drawParticle(ctx, p, f.time, f.body, v, ch)
   }
   ctx.restore()
 }
@@ -513,18 +524,11 @@ export function drawnLook(f: GuguFrame, o: DrawOpts, out: number[], outfit: Outf
         for (let r = 0; r < rig.pieces.length; r++) {
           const pc = rig.pieces[r]
           const ps = piecePose(rig, pc, p.body, poseOf(r))
-          place(pc.at.x, pc.at.y, p, p.body, tmp)
-          const X0 = tmp[0],
-            Y0 = tmp[1]
-          place(pc.at.x + 1, pc.at.y, p, p.body, tmp1)
-          place(pc.at.x, pc.at.y + 1, p, p.body, tmp2)
-          for (const [cx, cy] of [[pc.box.x, pc.box.y], [pc.box.x + pc.box.w, pc.box.y + pc.box.h]]) {
-            const qx = cx - pc.at.x,
-              qy = cy - pc.at.y
-            const mx = ps.m[0] * qx + ps.m[1] * qy + ps.dx
-            const my = ps.m[2] * qx + ps.m[3] * qy + ps.dy
-            out.push(v.ox + (X0 + (tmp1[0] - X0) * mx + (tmp2[0] - X0) * my) * v.s, v.oy + (Y0 + (tmp1[1] - Y0) * mx + (tmp2[1] - Y0) * my) * v.s)
-          }
+          hang(p, pc.at)
+          onPart(ps, pc.at, pc.box.x, pc.box.y, tmp)
+          out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s)
+          onPart(ps, pc.at, pc.box.x + pc.box.w, pc.box.y + pc.box.h, tmp)
+          out.push(v.ox + tmp[0] * v.s, v.oy + tmp[1] * v.s)
           out.push(ps.alpha * 255, ps.shade * 255, ps.depth >= 0 ? 255 : 0)
         }
     }
