@@ -147,6 +147,15 @@ export type RemoteHostsBridge = {
 
 type RemoteHostsWindow = Window & { [REMOTE_HOSTS_BRIDGE_KEY]?: RemoteHostsBridge };
 
+/**
+ * 心跳说它在;远程 SSH 的机器只看 SSH 这一条(要先登录 / 正在替它升级都不去连,升完那一刻再连)。到它的线只在这时开 ——
+ * 够不着时开一次就是一次发到它那里、没人应答的报到。SSH 映射着的照旧算够得着:SSH 那条通着时云端心跳可能是断的。
+ */
+export function remoteHostReachable(device: Pick<RemoteHostDevice, 'isOnline' | 'directTerminal' | 'sshLink'>): boolean {
+  if (device.sshLink === 'signInRequired' || device.sshLink === 'updating') return false;
+  return device.isOnline || device.directTerminal;
+}
+
 export function findRemoteHostsBridge(): RemoteHostsBridge | null {
   if (typeof window === 'undefined') return null;
   return (window as RemoteHostsWindow)[REMOTE_HOSTS_BRIDGE_KEY] ?? null;

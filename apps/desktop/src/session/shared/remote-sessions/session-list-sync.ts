@@ -100,12 +100,13 @@ export function startSessionListSync(
     let current: SessionpageSessionsListResult | null = null
     /*
      * 这一轮没成(订不上、整份之前来了增量 = 约定破了):报错,自己再试(机器刚上线频道还没开、一时没应答都会自己好),
-     * ❌ 停在一个空列表上等人刷新,也 ❌ 不等退避就连着重订。那台机器不认这个接口(太旧)不会自己好,不重试。
+     * ❌ 停在一个空列表上等人刷新,也 ❌ 不等退避就连着重订。那台机器不认这个接口(太旧)不会自己好,不重试;
+     * 那台机器此刻够不着(unreachable,离线)也不重试 —— 线开了(onLinkChange)再重来。
      */
     const failRound = (err: unknown) => {
       handlers.onError?.(err instanceof Error ? err.message : String(err))
       const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
-      if (code === 'server_outdated' || code === 'client_outdated' || stopped || retryTimer) return
+      if (code === 'server_outdated' || code === 'client_outdated' || code === 'unreachable' || stopped || retryTimer) return
       failures += 1
       retryTimer = setTimeout(() => {
         retryTimer = null

@@ -2,12 +2,13 @@
 // 线由咕咕壳经 remote-hosts 桥给(`openSessionHost`);客户端本身与本机网页形态同一份(session-host-client.ts)。
 //
 // 成本:连着的每台机器双向各一拍心跳(20s);断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
-import { findRemoteHostsBridge } from '@shared/remote-hosts';
+import { findRemoteHostsBridge, remoteHostReachable } from '@shared/remote-hosts';
 import {
   createSessionHostClient,
   SESSION_HOST_CLIENT_HEARTBEAT_MS,
   type SessionHostClient,
   type SessionHostConnectionState,
+  type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
 import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -36,10 +37,20 @@ export function machineClient(deviceId: string): SessionHostClient | null {
   if (existing) return existing.client;
   const bridge = findRemoteHostsBridge();
   if (!bridge?.openSessionHost) return null;
+  // 那台机器此刻够不着就不开线(当场以 unreachable 失败,❌ 发一次没人应答的报到;客户端停在 closed、不退避)。
+  // 回来的那一刻由 remote-hosts-store 的 reconcile 叫 reconnectMachine 当场重开。
+  const opener = bridge.openSessionHost(deviceId);
+  const openWhenReachable: SessionHostPipeOpener = Object.assign(
+    (handlers: Parameters<SessionHostPipeOpener>[0]) => {
+      const device = bridge.listDevices().find((d) => d.id === deviceId);
+      return device && remoteHostReachable(device) ? opener(handlers) : Promise.reject(Object.assign(new Error(`${deviceId} is not reachable now`), { code: 'unreachable' }));
+    },
+    { watchPeerRestart: opener.watchPeerRestart }
+  );
   const entry: Entry = {
     tooOld: false,
     listeners: new Set(),
-    client: createSessionHostClient(bridge.openSessionHost(deviceId), {
+    client: createSessionHostClient(openWhenReachable, {
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
