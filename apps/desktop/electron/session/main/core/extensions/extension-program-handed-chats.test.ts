@@ -11,7 +11,7 @@ const CHAT = '33333333-3333-4333-8333-333333333333';
 
 let token: string | null = 'owner-token';
 let publicRows: { id: string }[] = [];
-let statusError: { message: string } | null = null;
+let statusError: { message: string; hint?: string } | null = null;
 const lookups: { table: string; column: string; value: unknown }[] = [];
 const doors: { name: string; args: Record<string, unknown> }[] = [];
 
@@ -39,6 +39,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => cl
 vi.mock('@gugu/core', () => ({ userIdFromSupabaseAccessToken: (value: string) => (value ? '11111111-1111-4111-8111-111111111111' : null) }));
 vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => token }));
 vi.mock('./file-sync', () => ({ fileSync: {} }));
+vi.mock('@main/lib/logger', () => ({ log: { warn: () => {} } }));
 
 const { handedChatsAs } = await import('./extension-program-surface');
 
@@ -52,7 +53,7 @@ beforeEach(() => {
 
 describe('handedChatsAs: a chat is handed only as the agent, and only one the agent is in', () => {
   it('① the agent is not in it (its door refuses): refused, naming the chat — the program is never handed it', async () => {
-    statusError = { message: `workspace: ${CHAT} is not a chat you are a member of` };
+    statusError = { message: `workspace: ${CHAT} is not a chat you are a member of`, hint: 'workspace_not_member' };
     await expect(handedChatsAs(AGENT, [CHAT])).rejects.toThrow(`${CHAT}: not a chat you are in, so it was not handed over`);
     expect(doors).toEqual([{ name: 'workspace_status_as', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }]);
   });
@@ -74,6 +75,13 @@ describe('handedChatsAs: a chat is handed only as the agent, and only one the ag
     expect(lookups).toEqual([{ table: 'chats', column: 'public_id', value: '207957' }]);
     const door = { name: 'workspace_status_as', args: { p_chat_id: CHAT, p_as_user_id: AGENT } };
     expect(doors).toEqual([door, door]);
+  });
+
+  it('④ a door that could not answer (an expired token): said as what it was — never as "not a chat you are in"', async () => {
+    statusError = { message: 'JWT expired' };
+    const refused = handedChatsAs(AGENT, [CHAT]);
+    await expect(refused).rejects.toThrow(`${CHAT}: could not check that you are in this chat: JWT expired`);
+    await expect(refused).rejects.not.toThrow('not a chat you are in');
   });
 
   it('nobody signed in: nothing is handed over', async () => {
