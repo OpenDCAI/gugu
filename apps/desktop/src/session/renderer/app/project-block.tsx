@@ -100,6 +100,7 @@ export const ProjectBlock = observer(function ProjectBlock({
             />
           </ProjectTabMenu>
         </TabSlot>
+        {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="tabs" className="contents" /> : null}
       </TabStripShell>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
         {/* 正中摆群还是首页:只有确知群里没消息(或确知没有群)才摆首页;还不知道时摆群(多数项目群里有消息),

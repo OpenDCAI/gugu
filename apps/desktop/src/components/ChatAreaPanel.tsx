@@ -116,10 +116,10 @@ interface ChatAreaPanelProps {
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
   /**
    * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
-   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签)。
-   * 两格还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
+   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签),
+   * 开着的话题是 `tabs` 里的一枚页签(TopicSplitPane)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
    */
-  blockHost?: { actions: HTMLElement | null; title: HTMLElement | null }
+  blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
@@ -1685,6 +1685,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
               : undefined}
             onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
             onClose={topicSurface.closeSplit}
+            tabHost={blockHost ? blockHost.tabs : undefined}
             currentUserId={user?.id ?? null}
             mobile={mobile}
             // 分栏的表情/删除**等写入落库**再重验证这一栏(主线那两个 handler 是 fire-and-forget,同一 tick 重读

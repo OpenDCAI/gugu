@@ -14,7 +14,7 @@ const EMPTY: ReadonlyMap<string, HTMLElement> = new Map()
 /**
  * 把对话画进会话页留的格子(gugu-dev#181:项目块的第一枚页签是项目群,对话也是一块)。和对话页同一个群聊组件,
  * 话题、置顶、悄悄话、回应都是现成的;每个格子各是一条活的线(TaskChatScope),和对话页正开着的那条互不挤占。
- * 块里没有群聊头:头上那排图标、对话的头像和名字画进这一块页签条上留的两格(chatPartSlotKey)。
+ * 块里没有群聊头:头上那排图标、对话的头像和名字、开着的话题画进这一块页签条上留的几格(chatPartSlotKey)。
  */
 export function ChatSlotHost(handlers: AssistantChatHandlers) {
   // 会话页据此决定项目块正中摆文件夹卡(群里还没有消息)还是消息流,会话里「来自 X」写群名。列表读成之前那份空列表是
@@ -39,7 +39,11 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
               <ChatAreaPanel
                 chatId={chatId}
                 activeTab="chats"
-                blockHost={{ actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null, title: entries.get(chatPartSlotKey('title', chatId)) ?? null }}
+                blockHost={{
+                  actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null,
+                  title: entries.get(chatPartSlotKey('title', chatId)) ?? null,
+                  tabs: entries.get(chatPartSlotKey('tabs', chatId)) ?? null,
+                }}
                 {...handlers}
               />
             </TaskChatScope>
