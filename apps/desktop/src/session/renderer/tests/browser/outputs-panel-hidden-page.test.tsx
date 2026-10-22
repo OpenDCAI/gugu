@@ -25,7 +25,7 @@ vi.mock('@renderer/features/sessions/session-view-context', () => ({
 vi.mock('@renderer/features/sessions/acp/acp-chat-resource-manager', () => ({
   findAcpChatStore: () => undefined,
 }));
-vi.mock('@renderer/lib/ipc', () => ({ rpc: {} }));
+vi.mock('@renderer/lib/ipc', () => ({ rpc: {}, rpcOn: () => ({}) }));
 vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => null } }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: [], isError: false }) }));
 vi.mock('@renderer/localization/use-session-messages', () => ({
