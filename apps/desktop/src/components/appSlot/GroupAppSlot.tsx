@@ -174,6 +174,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   shownNow.current = opened
   const showOpened = useCallback(
     (next: OpenedWith | null) => {
+      shownNow.current = next
       groupSlotMemory.setOpened(props.chatId, next)
       setOpenedState(next)
       if (next?.itemId) noteOpened(next.itemId)
@@ -291,6 +292,15 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     setOpenedState(groupSlotMemory.opened(props.chatId))
     setPrompt(null)
   }, [props.chatId])
+  // Another tab picked on the block's tab strip, or the shown one closed there (gugu-dev#181 第 ⑥ 步): show that one.
+  // What this panel opened itself comes back here too and is already shown.
+  useEffect(() => groupSlotMemory.subscribe(() => {
+    const next = groupSlotMemory.opened(props.chatId)
+    if (next === shownNow.current) return
+    trail.current = []
+    shownNow.current = next
+    setOpenedState(next)
+  }), [props.chatId])
 
   // Back from a file: that page is gone, and so is what it said — to what it was opened from (G2), else the folder.
   const back = () => {

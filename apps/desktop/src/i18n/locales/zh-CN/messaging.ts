@@ -602,6 +602,7 @@ export default {
     }
   },
   "header": {
+    "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
     "history": "历史记录",
     "memberList": "成员列表",

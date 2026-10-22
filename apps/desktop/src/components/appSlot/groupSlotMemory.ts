@@ -40,24 +40,37 @@ export interface FileToOpen extends AskedFile {
 }
 
 /**
- * What a group's side panel showed, per group, for the life of the window (摩擦单 F29): its form (closed, beside the
- * messages, or full), and which App on which file. Going elsewhere (another group, New Agent, the session page) and coming
- * back shows it as it was — the page itself is made again (F17 lets it go while unseen).
+ * What a group's side panel has open, per group, for the life of the window (摩擦单 F29): its form (closed, beside the
+ * messages, or full), the things open in it (gugu-dev#181 第 ⑥ 步: a block's tab strip lists each as a tab — the
+ * folder, an App's page, a file in an App), in the order they were opened, and which of them the panel shows. `null`
+ * is the folder. Going elsewhere and coming back shows it as it was — the page itself is made again (F17 lets it go
+ * while unseen). The panel draws the active one only; the chat page and the phone, which have no tab strip, look the
+ * same as when the panel kept one thing.
  */
-const remembered = new Map<string, { form: PanelForm; opened: OpenedWith | null }>()
+type PanelItem = OpenedWith | null
+const remembered = new Map<string, { form: PanelForm; open: PanelItem[]; active: PanelItem }>()
+/** The same thing opened again (the same App's page, the same file in the same App) is the same tab. */
+const sameItem = (a: PanelItem, b: PanelItem) => (a === null || b === null ? a === b : a.kind === b.kind && a.itemId === b.itemId)
+const listeners = new Set<() => void>()
+const changed = () => { for (const listener of listeners) listener() }
+const NO_TABS: readonly PanelItem[] = []
+const FOLDER_ONLY: readonly PanelItem[] = [null]
+const entryOf = (chatId: string) => remembered.get(chatId) ?? { form: 'closed' as PanelForm, open: [], active: null }
 const asked = new Map<string, AskedFile>()
 const askedApps = new Map<string, string>()
 export const groupSlotMemory = {
   form: (chatId: string | null | undefined): PanelForm => (chatId ? remembered.get(chatId)?.form ?? 'closed' : 'closed'),
   setForm(chatId: string | null | undefined, form: PanelForm) {
     if (!chatId) return
-    remembered.set(chatId, { opened: remembered.get(chatId)?.opened ?? null, form })
+    remembered.set(chatId, { ...entryOf(chatId), form })
+    changed()
   },
   /** A file of this group asked to be opened (a link, 摩擦单 F10): its panel opens it when it next shows the group. */
   askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem) {
     asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}) })
-    const form = groupSlotMemory.form(chatId)
-    remembered.set(chatId, { opened: remembered.get(chatId)?.opened ?? null, form: form === 'closed' ? 'side' : form })
+    const entry = entryOf(chatId)
+    remembered.set(chatId, { ...entry, form: entry.form === 'closed' ? 'side' : entry.form })
+    changed()
   },
   /** The file asked for this group, once: taken by the panel that opens it. */
   takeFile(chatId: string | null | undefined): AskedFile | null {
@@ -76,8 +89,53 @@ export const groupSlotMemory = {
     askedApps.delete(chatId)
     return extensionId
   },
-  opened: (chatId: string) => remembered.get(chatId)?.opened ?? null,
+  /** What the panel shows: the active one (`null` = the folder). */
+  opened: (chatId: string) => remembered.get(chatId)?.active ?? null,
+  /**
+   * The panel shows this now: opened before, it is that tab again (the newer opening, so the page is made anew); else
+   * it joins the open ones, after what was showing (which stays open as a tab).
+   */
   setOpened(chatId: string, opened: OpenedWith | null) {
-    remembered.set(chatId, { form: remembered.get(chatId)?.form ?? 'side', opened })
+    const entry = remembered.get(chatId)
+    const shown = entry ? entry.active : null
+    let open = entry ? [...entry.open] : []
+    if (!open.some((item) => sameItem(item, shown))) open.push(shown)
+    open = open.some((item) => sameItem(item, opened)) ? open.map((item) => (sameItem(item, opened) ? opened : item)) : [...open, opened]
+    remembered.set(chatId, { form: entry?.form ?? 'side', open, active: opened })
+    changed()
+  },
+  /** The tabs, in the order they were opened; none while the panel is closed. Nothing opened yet = the folder alone. */
+  tabs(chatId: string): readonly PanelItem[] {
+    const entry = remembered.get(chatId)
+    if (!entry || entry.form === 'closed') return NO_TABS
+    return entry.open.length > 0 ? entry.open : FOLDER_ONLY
+  },
+  /** A tab clicked, or the folder picked from the strip's「+」: the panel shows it (the folder joins the tabs if it was closed). */
+  activate(chatId: string, item: PanelItem) {
+    const entry = entryOf(chatId)
+    const open = entry.open.length > 0 ? [...entry.open] : [null]
+    let found = open.find((candidate) => sameItem(candidate, item))
+    if (found === undefined) {
+      if (item !== null) return
+      open.push(null)
+      found = null
+    }
+    remembered.set(chatId, { ...entry, open, active: found, form: entry.form === 'closed' ? 'side' : entry.form })
+    changed()
+  },
+  /** A tab's ×: it leaves the open ones; the one shown goes to its neighbour; the last one closes the panel. */
+  close(chatId: string, item: PanelItem) {
+    const entry = entryOf(chatId)
+    const open = entry.open.length > 0 ? entry.open : [null]
+    const at = open.findIndex((candidate) => sameItem(candidate, item))
+    if (at < 0) return
+    const rest = open.filter((_, index) => index !== at)
+    const active = sameItem(entry.active, item) ? (rest[at] ?? rest[at - 1] ?? null) : entry.active
+    remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { form: 'closed', open: [], active: null })
+    changed()
+  },
+  subscribe(listener: () => void): () => void {
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
   },
 }

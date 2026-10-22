@@ -80,7 +80,7 @@ import {
   COLOR_ON_ACCENT,
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
-import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
+import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { GroupPanelTabs } from './appSlot/GroupPanelTabs'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
 import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -117,7 +117,7 @@ interface ChatAreaPanelProps {
   /**
    * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
    * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签),
-   * 开着的话题是 `tabs` 里的一枚页签(TopicSplitPane)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
+   * `tabs` 里是开着的话题(TopicSplitPane)和右栏开着的那几枚(GroupPanelTabs)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
    */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
@@ -164,6 +164,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // #986 群公告：群聊 ⋮ 下拉菜单 + 右侧抽屉。
   const [showAnnounce, setShowAnnounce] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
+  const [topicTabHost, setTopicTabHost] = useState<HTMLElement | null>(null)
   // @@@history (#957) — 历史侧面板（线程/导入历史/消息附件），与工作区面板互斥（设计稿同槽位）。
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [historyOpenRequest, setHistoryOpenRequest] = useState<{ tab?: HistoryTab; nonce: number }>({ nonce: 0 })
@@ -1073,6 +1074,14 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     ? { peerId: activeChat.peer_user_id ?? '', presentation: agentHeaderPresentation ?? null, location: agentHeaderLocation, engine: agentHeaderEngine, engineMissing: agentHeaderEngineMissing }
     : null
   const agentHero = isAgentChat && !searchMode && !!activeChat.peer_user_id
+  // 块里第一枚页签后面那一格:先是开着的话题(和群对话连成一对),再是右栏开着的那几枚和「+」(gugu-dev#181 第 ⑤⑥ 步)。
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(
+    <>
+      <span ref={setTopicTabHost} className="contents" data-topic-tab-host="" />
+      <GroupPanelTabs chatId={activeChatId} onShowPanel={handleOpenWorkspacePanel} onClosePanel={handleCloseWorkspacePanel} />
+    </>,
+    blockHost.tabs,
+  ) : null
   const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>
@@ -1125,6 +1134,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           @@@822 右侧窗控留白(Windows/Linux 138px、Mac/web 0)不再撑出一套自己的 padding,只加在 PaneHeader 的
           paddingRight 上。@@@1375 owner: header 与正文同色,只用 divider 一条线区分。 */}
       {blockHost?.actions ? createPortal(headerActions, blockHost.actions) : null}
+      {blockTabs}
       {blockHost?.title ? createPortal(
         <span className="flex min-w-0 items-center gap-1" data-chat-block-title="">
           <Avatar
@@ -1689,7 +1699,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
               : undefined}
             onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
             onClose={topicSurface.closeSplit}
-            tabHost={blockHost ? blockHost.tabs : undefined}
+            tabHost={blockHost ? topicTabHost : undefined}
             currentUserId={user?.id ?? null}
             mobile={mobile}
             // 分栏的表情/删除**等写入落库**再重验证这一栏(主线那两个 handler 是 fire-and-forget,同一 tick 重读
