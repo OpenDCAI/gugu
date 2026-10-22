@@ -4,7 +4,7 @@
  * 任务名 / agent 名,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
  *
  * 守的是一次回归:#5643 为了修「看不见却能 Enter 触发归档」(#5642),把「这一行是键盘光标」
- * 也加进了显形判据;而点一行就会把键盘光标同步过去(`syncCursorFromPointer`),于是**选中的那一行
+ * 也加进了显形判据;而点一行,主区就到了这一行、键盘光标就在这一行,于是**选中的那一行
  * 从此常驻两枚钮**,还压住标题尾巴(owner 实机截图)。所以这条测试必须同时钉住两端:
  *
  *   ① 选中 + 键盘光标 + 行本身得焦(= 鼠标点一下之后的真实状态)→ 两枚钮仍是 0,时间仍是 1。
@@ -19,6 +19,7 @@
  * 事件状态,由引擎按指针位置判定,所以这里量到的 1 是引擎自己算的。
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { runInAction } from 'mobx'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
@@ -47,16 +48,20 @@ vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
 /**
  * 键盘光标那套是**真的**(session-keyboard-nav 没被替),它只从这一格取世界:
  *  · `navChain` 要包含这一行 —— 显式光标只在它还在链上时才作数(见 `get cursor`);
- *  · `navigation` 要说得出「主区在哪」,否则 `viewNode` 取不到值。
+ *  · `navigation` 要说得出「主区在哪」,否则 `viewNode` 取不到值;点一行走的 `navigate` 把它挪到那一行,
+ *    与真的一样 —— 光标就是主区所在(❌ 不摆一个假的光标)。
  * 项目树给空的:行按「项目没挂载」渲,与真实的早期状态同形。
  */
-vi.mock('@renderer/lib/stores/app-state', () => ({
-  appState: {
+const shown = vi.hoisted(() => ({ navigation: null as { currentViewId: string; viewParamsStore: Record<string, unknown> } | null }))
+vi.mock('@renderer/lib/stores/app-state', async () => {
+  const { observable } = await import('mobx')
+  shown.navigation = observable({
+    currentViewId: 'session',
+    viewParamsStore: { session: { projectId: 'proj-1', sessionId: 'task-1' } } as Record<string, unknown>,
+  })
+  return { appState: {
     projects: { projects: new Map() },
-    navigation: {
-      currentViewId: 'session',
-      viewParamsStore: { session: { projectId: 'proj-1', sessionId: 'task-1' } },
-    },
+    navigation: shown.navigation,
   },
   sidebarStore: {
     navChain: [{ kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-1' }],
@@ -65,8 +70,8 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
     agentNameOnHoverEnabled: true,
     // #7199 行上「助理发起」的标记问 store;这里的会话都不是个人助理派的。
     launchedByAssistant: () => false,
-  },
-}))
+  } }
+})
 vi.mock('@renderer/features/extensions/installed-extensions-store', () => ({
   installedExtensionsStore: { isLoaded: true, manifestFor: () => undefined, appName: () => undefined },
   // 资源库「扩展」那一格按机器各起一份清单(extensions-host.ts),侧栏经 use-agents 间接带上它。
@@ -81,7 +86,10 @@ vi.mock('@renderer/features/sessions/open-session-in-session', () => ({
   openSessionInSessionWhenReady: () => undefined,
 }))
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({
-  useNavigate: () => ({ navigate: () => {} }),
+  useNavigate: () => ({ navigate: (view: string, params: unknown) => runInAction(() => {
+    shown.navigation!.currentViewId = view
+    shown.navigation!.viewParamsStore[view] = params
+  }) }),
   useParams: () => ({ params: {} }),
   useWorkspaceSlots: () => ({ currentView: 'task' }),
 }))
@@ -99,6 +107,8 @@ let root: Root
 let host: HTMLDivElement
 
 beforeEach(() => {
+  // 每条用例从「主区在别的会话上」开始:上一条点过的行不算数。
+  runInAction(() => { shown.navigation!.viewParamsStore.session = { projectId: 'proj-1', sessionId: 'task-1' } })
   host = document.createElement('div')
   // 主题变量挂在 emlight/emdark 上;少了它 row-mask 那层底色算不出来。宽度取侧栏常规宽。
   host.className = 'gugu-skin emlight'
@@ -195,7 +205,7 @@ it('#5818 点开这一行再把指针挪走,置顶/归档不留,时间照画', a
   expect(rest.getBoundingClientRect().width).toBeGreaterThan(0)
 
   // owner 的原始复现:真的点一下这一行,再把指针挪走。
-  // ❌ 不摆一个假的 cursor —— 「点一下就成了键盘光标」(syncCursorFromPointer)正是这条 bug 的成因,
+  // ❌ 不摆一个假的 cursor —— 「点一下,主区到了这一行,光标就在这一行」正是这条 bug 的成因,
   // 摆假的等于把要判的那一环替掉了。
   await clickThenPark(row)
 
