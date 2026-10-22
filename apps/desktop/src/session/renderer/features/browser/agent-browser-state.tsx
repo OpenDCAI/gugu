@@ -107,10 +107,12 @@ export const AgentBrowserResumeButton = observer(function AgentBrowserResumeButt
       variant="outline"
       data-testid="agent-browser-resume"
       title={translate('browser.agentPaused')}
-      className="shrink-0 text-xs"
+      // 窄到 MIN_PANE_WIDTH_PX 的窗格里,让这枚按钮先缩(标签截断),❌ 把右边的「⋯」菜单挤出工具条;
+      // relative:网址栏缩到 0 宽时它的小地球图标(绝对定位)会溢出来,让按钮盖在上面。
+      className="relative min-w-0 shrink text-xs"
       onClick={() => void rpc.browser.resumeAgent(browserId)}
     >
-      {translate('browser.agentResume')}
+      <span className="truncate">{translate('browser.agentResume')}</span>
     </Button>
   );
 });
