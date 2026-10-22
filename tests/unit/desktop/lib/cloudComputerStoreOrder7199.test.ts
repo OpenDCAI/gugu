@@ -1,6 +1,7 @@
 // #7199 渲染层那一份云电脑状态:几路同时在问管家时只认最晚发出的那一次;换账号作废在途的应答。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
+import { canSetUpCloudAssistant } from '@/lib/assistantHome'
 
 const calls: Array<(snapshot: CloudComputerSnapshot) => void> = []
 const rejects: Array<(error: unknown) => void> = []
@@ -64,6 +65,25 @@ describe('refreshCloudComputer', () => {
     calls[0]!(snap('asleep'))
     await older
     expect(getCloudComputerState().snapshot?.state).toBe('awake')
+  })
+
+  it('a failed retry cannot make cloud setup selectable; a real successful state read can', async () => {
+    const closed = refreshCloudComputer()
+    rejects[0]!(new CloudComputerError(503, 'not_open', 'not open'))
+    await closed
+    expect(canSetUpCloudAssistant(getCloudComputerState())).toBe(false)
+
+    const failed = refreshCloudComputer()
+    rejects[1]!(new CloudComputerError(0, 'network', 'connection reset'))
+    await expect(failed).rejects.toThrow('connection reset')
+    // The feature remains visible so its error can be shown; it is not ready to select.
+    expect(getCloudComputerState()).toMatchObject({ available: true, loadError: 'network' })
+    expect(canSetUpCloudAssistant(getCloudComputerState())).toBe(false)
+
+    const recovered = refreshCloudComputer()
+    calls[2]!({ ...snap('none'), deviceId: null })
+    await recovered
+    expect(canSetUpCloudAssistant(getCloudComputerState())).toBe(true)
   })
 
   it('换了账号:上一个账号还在路上的应答不落进来', async () => {
