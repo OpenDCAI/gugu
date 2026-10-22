@@ -593,7 +593,8 @@ function upsertFileOperations(
   items: TranscriptItem[],
   toolId: string,
   toolCallId: string,
-  title: string,
+  /** Null = the update leaves the title unchanged (ACP: an omitted field is unchanged). */
+  title: string | null,
   parentToolCallId: string | undefined,
   diffs: NormalizedDiff[],
   status: NormalizedToolStatus | null
@@ -602,6 +603,7 @@ function upsertFileOperations(
   // ⇒ 两者会并存成重复的两行。改造前是靠「edit 类一律不建工具行」躲开这件事的,代价是
   // 差异没到时那次调用整个看不见(#4981,owner 2026-09-05「担心有 tool 不渲染」)。
   // 现在改成:照常建行,差异一到就把那行占位赶走 —— 可见性与不重复两头都要。
+  const placeholder = items.find((it) => isToolCallItem(it) && it.id === toolId) as ToolCallItem | undefined;
   let result = items.filter((it) => !(isToolCallItem(it) && it.id === toolId));
   for (const d of diffs) {
     const id = makeDiffId(toolId, d.path);
@@ -611,7 +613,7 @@ function upsertFileOperations(
       id,
       seq: nextSeq(result),
       toolCallId,
-      title,
+      title: title ?? placeholder?.title ?? 'Edit file',
       path: d.path,
       status: mapped ?? 'running',
       ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
@@ -625,7 +627,7 @@ function upsertFileOperations(
               kind: 'create-file-tool-call',
               content: d.newText,
               path: d.path,
-              title,
+              title: title ?? existing.title,
               toolCallId,
               ...(mapped !== undefined ? { status: mapped } : {}),
               ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
@@ -636,7 +638,7 @@ function upsertFileOperations(
               oldText: d.oldText,
               newText: d.newText,
               path: d.path,
-              title,
+              title: title ?? existing.title,
               toolCallId,
               ...(mapped !== undefined ? { status: mapped } : {}),
               ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
@@ -1079,7 +1081,7 @@ export function foldItem(
           base,
           toolId,
           event.toolCallId,
-          event.title ?? 'Edit file',
+          event.title,
           parentToolCallId,
           event.diffs,
           event.status
