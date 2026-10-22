@@ -224,11 +224,42 @@ describe('planTurnFold (#4874)', () => {
       providerNotice(id, 'Stop says: ⏸ Stop 自检触发：本会话改过的仓有未提交改动', undefined, at);
 
     it('照样劈两段:结束语与结束在外面,通知折进第二个头', () => {
-      const t = turn('t', [user('u'), tool('c1'), reply('a-real'), stopHook('n1', 5_000), tool('c2'), reply('a-post')], DONE);
+      const t = turn('t', [user('u'), tool('c1'), reply('a-real'), stopHook('n1', 5_000), tool('c2'), reply('a-post')], DONE, { startedAt: 0 });
       const plan = planTurnFold(t)!;
       expect(processOf(plan)).toEqual([['c1'], ['n1', 'c2']]);
       expect(tailOf(plan)).toEqual([['a-real'], ['a-post']]);
       expect(plan.segments[1]!.startedAt).toBe(5_000);
+    });
+
+    // 回放来的轮没有钟,通知却带着一个 `at` —— 那是回放的钟(item-fold 的 `stampAt ?? at`)。
+    it('回放来的轮(没有钟):通知的 at 不算数,段的起点是不知道', () => {
+      const t = turn('t', [
+        user('u'), tool('c1'), reply('r1'),
+        stopHook('n1', 1_000_000), tool('c2'), reply('r2'),
+        stopHook('n2', 1_000_003), tool('c3'), reply('r3'),
+      ], DONE);
+      expect(planTurnFold(t)!.segments.map((seg) => seg.startedAt)).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('结束语与钩子之间夹着的事件(别的提示、后台命令做完了)不打断切点', () => {
+      const stopped = providerNotice('bg', 'Task stopped by user', 'sleep 613.', 4_000);
+      const done = row('background-command-done-tool-call', 'bd');
+      const t = turn('t', [user('u'), tool('c1'), reply('a-real'), stopped, done, stopHook('n1', 5_000), tool('c2'), reply('a-post')], DONE, { startedAt: 0 });
+      const plan = planTurnFold(t)!;
+      expect(tailOf(plan).at(-1)).toEqual(['a-post']);
+      expect(plan.segments.flatMap((seg) => seg.tail.map((i) => i.id))).toContain('a-real');
+    });
+
+    it('整轮没说一句话、以钩子的话收尾 ⇒ 那句话留在外面(往往就是停下的原因)', () => {
+      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), stopHook('n1', 5_000)], DONE))!;
+      expect(processOf(plan)).toEqual([['c1']]);
+      expect(tailOf(plan)).toEqual([['n1']]);
+    });
+
+    it('❌ 只有第一行像钩子、后面几行不是 ⇒ 不是钩子,照旧是边界线', () => {
+      const mixed = providerNotice('n', 'Anthropic API says: overloaded', 'retrying in 5s', 1_000);
+      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), reply('r1'), mixed, tool('c2'), reply('a1')], DONE, { startedAt: 0 }))!;
+      expect(tailOf(plan)).toEqual([['n'], ['a1']]);
     });
 
     it('第一行太长、桥换了通用标题时,照 detail 认', () => {
@@ -245,7 +276,7 @@ describe('planTurnFold (#4874)', () => {
         user('u'), tool('c1'), reply('r0'), tool('c2'), compaction('cp1', 1_000),
         sessionStart('n1'), sessionStart('n2'), tool('c3'), reply('r-report'),
         stopHook('n3', 9_000), tool('c4'), reply('r-final'),
-      ], DONE);
+      ], DONE, { startedAt: 0 });
       const plan = planTurnFold(t)!;
       expect(processOf(plan)).toEqual([['c1', 'r0', 'c2'], ['n1', 'n2', 'c3'], ['n3', 'c4']]);
       expect(tailOf(plan)).toEqual([['cp1'], ['r-report'], ['r-final']]);
@@ -270,7 +301,7 @@ describe('planTurnFold (#4874)', () => {
     });
 
     it('过程中间的通知留在外面,之后另起一段', () => {
-      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), notice('n', 1_000), tool('c2'), reply('a1')], DONE))!;
+      const plan = planTurnFold(turn('t', [user('u'), tool('c1'), notice('n', 1_000), tool('c2'), reply('a1')], DONE, { startedAt: 0 }))!;
       expect(processOf(plan)).toEqual([['c1'], ['c2']]);
       expect(tailOf(plan)).toEqual([['n'], ['a1']]);
       expect(plan.segments[1]!.startedAt).toBe(1_000);

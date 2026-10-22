@@ -4,13 +4,14 @@
  * 桌面会话页(`flatten.ts` / `turn-process.def.tsx`)与手机会话页(`thread-messages.ts`)读的都是
  * 这一份 —— 两端对「一轮怎么折、头写什么」给出同一个答案。纯函数,不碰 Solid / React。
  */
+import { hookSpeakerOfNotice } from '@gugu/session-core/acp';
 import type { TranscriptCompaction, TranscriptContextReset, TranscriptSessionNotice } from '@gugu/session-core/acp';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
 import { localDayKey } from '@session-chat/lib/day-boundary';
 import { formatElapsed } from '@session-chat/lib/format-elapsed';
 import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
-import { hookSpeakerOfNotice, parseHookNotice } from '@session-chat/lib/hook-notice';
+import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import type { ChatItem, ChatMessage, TranscriptTurn } from '@session-chat/model';
 import { isPendingPromptTurn } from '@session-chat/state/pending-prompt';
 
@@ -27,14 +28,12 @@ export function itemIsUser(item: ChatItem): boolean {
  * undefined，于是这两处会静静地退回旧行为。
  *
  * 两种来路都要认（#55）：桥没声明 `session.notices` 时，它是一条带等级前缀的助手消息；声明了之后
- * （gugu #6596 起），它是一条 `provider-notice`。只认前一种，钩子通知就被当成「运行条件出了事」的
- * 边界线留在外面，它前面那条真回复反被折进头里 —— #5350 原样回来了。
+ * （gugu #6596 起），它是一条 `provider-notice`（认法在 session-core `hookSpeakerOfNotice`，只那一处）。
+ * 只认前一种，钩子通知就被当成「运行条件出了事」的边界线留在外面，它前面那条真回复反被折进头里
+ * —— #5350 原样回来了。
  */
 function isHookNotice(item: ChatItem): boolean {
-  if (item.kind === 'session-notice') {
-    const notice = item as TranscriptSessionNotice;
-    return notice.code === 'provider-notice' && hookSpeakerOfNotice(notice) !== null;
-  }
+  if (item.kind === 'session-notice') return hookSpeakerOfNotice(item as TranscriptSessionNotice) !== null;
   return (
     item.kind === 'message' &&
     (item as ChatMessage).role === 'assistant' &&
@@ -59,13 +58,27 @@ function isAssistantMessage(item: ChatItem): boolean {
 }
 
 /**
- * 这条什么时候到的。消息带 `at`(回放来的不带),会话通知总带 `at` —— 钩子通知两种来路都有(#55)。
- * 其它条目 → undefined。
+ * 这一条什么时候发生的 —— 段的起点只从这里读。不知道 → undefined。
+ *
+ * `clocked` = 这一轮自己有没有时刻(`turn.startedAt`)。回放来的轮没有:消息那时不写 `at`,
+ * 会话通知却照样带一个 `at` —— 那是**回放的钟**(item-fold 的 `stampAt ?? at`),拿它当段的起点
+ * 就会写出编出来的用时(#55 review)。所以通知的时刻只在有钟的轮里算数。
  */
-function messageAt(item: ChatItem): number | undefined {
+function itemAt(item: ChatItem, clocked: boolean): number | undefined {
   if (item.kind === 'message') return (item as ChatMessage).at;
-  if (item.kind === 'session-notice') return (item as TranscriptSessionNotice).at;
+  if (item.kind === 'session-notice') return clocked ? (item as TranscriptSessionNotice).at : undefined;
+  if (item.kind === 'compaction') return (item as TranscriptCompaction).startedAt;
+  if (item.kind === 'context-reset') return (item as TranscriptContextReset).at;
   return undefined;
+}
+
+/**
+ * 结束语与钩子之间可以夹的东西:别的通知、「后台命令 / 子智能体做完了」这类事件、`[NO_REPLY]`。
+ * 它们不是 agent 又去干活了,所以不打断「钩子紧跟在结束语后面」(#55 review)。
+ */
+function isPassingEvent(item: ChatItem): boolean {
+  if (item.kind === 'session-notice' || item.kind === 'subagent-done-tool-call' || item.kind === 'background-command-done-tool-call') return true;
+  return item.kind === 'message' && isGuguSilence((item as ChatMessage).text);
 }
 
 // ── Turn process fold (#4874) ─────────────────────────────────────────────────
@@ -153,28 +166,28 @@ export function turnProcessId(turnId: string, segment = 0): string {
 export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
   if (turn.outcome && turn.outcome.kind !== 'done') return null;
   const items = turn.items as readonly ChatItem[];
+  const clocked = turn.startedAt !== undefined;
   let leadEnd = 0;
   while (leadEnd < items.length && itemIsUser(items[leadEnd])) leadEnd++;
 
   // 切点 = 紧跟在 agent 一句话后面的钩子通知（那句话 = 这一段的「结束语」）。
   // 通知本身不是回复（`isAssistantMessage` 已经把它排除），所以它落进下一段的过程里，
   // 而它的到达时刻正是两段的边界 —— 下一段的头拿它当起点（#5350）。
-  // ⚠️ 只认「紧跟」：说完那句话 agent 又去干活了，钩子就不是在它收尾之后响的（#55：自动压缩之后的
-  // `SessionStart:compact`）—— 在那里切，夹在中间的那几步会落进一段起点比它们还晚的头里。
+  // ⚠️ 只认「紧跟」：说完那句话 agent 又去干活了（思考、工具、压缩……），钩子就不是在它收尾之后响的
+  // （#55：自动压缩之后的 `SessionStart:compact`）—— 在那里切，夹在中间的那几步会落进一段起点比它们
+  // 还晚的头里。夹着的只是事件（`isPassingEvent`）不算干活。
   const cuts: { reply: number; notice: number }[] = [];
   let pendingReply = -1;
   for (let i = leadEnd; i < items.length; i++) {
     const item = items[i] as ChatItem;
     if (isAssistantMessage(item)) {
       pendingReply = i;
-      continue;
-    }
-    if (isHookNotice(item)) {
+    } else if (isHookNotice(item)) {
       if (pendingReply !== -1) cuts.push({ reply: pendingReply, notice: i });
       pendingReply = -1;
-      continue;
+    } else if (!isPassingEvent(item)) {
+      pendingReply = -1;
     }
-    pendingReply = -1;
   }
 
   const segments: TurnFoldSegment[] = [];
@@ -188,7 +201,7 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
       ...(openedAt !== undefined ? { startedAt: openedAt } : {}),
     });
     start = cut.reply + 1;
-    openedAt = messageAt(items[cut.notice] as ChatItem);
+    openedAt = itemAt(items[cut.notice] as ChatItem, clocked);
   }
   // 「最后一条回复」= 最后一条 agent **自己**说的话（末段之内）。
   let lastReply = -1;
@@ -198,9 +211,17 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
       break;
     }
   }
+  // 整轮一句话都没说、却以钩子的话收尾：那往往就是「为什么停在这里」的唯一说明（`preventContinuation`），
+  // 留在外面（#55 review：钩子通知不再是边界线之后，它本会跟着过程一起折没）。
+  let tailStart = lastReply;
+  if (tailStart === -1 && cuts.length === 0) {
+    let k = items.length;
+    while (k > start && isHookNotice(items[k - 1] as ChatItem)) k--;
+    if (k < items.length) tailStart = k;
+  }
   segments.push({
-    process: lastReply === -1 ? items.slice(start) : items.slice(start, lastReply),
-    tail: lastReply === -1 ? [] : items.slice(lastReply),
+    process: tailStart === -1 ? items.slice(start) : items.slice(start, tailStart),
+    tail: tailStart === -1 ? [] : items.slice(tailStart),
     ...(openedAt !== undefined ? { startedAt: openedAt } : {}),
   });
 
@@ -216,7 +237,7 @@ export function planTurnFold(turn: TranscriptTurn): TurnFoldPlan | null {
 
   // Keep context boundaries, later user inputs and questions to the user outside
   // collapsed process rows. A steer/delivery is also a navigation target, even after completion.
-  const visible = segments.flatMap(splitAtContextBoundaries);
+  const visible = segments.flatMap((segment) => splitAtContextBoundaries(segment, clocked));
   if (visible.every((segment) => segment.process.length === 0)) return null;
   return { leading: items.slice(0, leadEnd), segments: visible };
 }
@@ -243,20 +264,12 @@ function isQuestionCall(item: ChatItem): boolean {
   return 'toolCallId' in item && isQuestionOrPlanToolName(toolCallName(item as { title: string; toolName?: string }));
 }
 
-/** 边界线的时刻。三种线都自带，所以线之后那一段的起点总写得出来。 */
-function contextBoundaryAt(item: ChatItem): number | undefined {
-  if (item.kind === 'compaction') return (item as TranscriptCompaction).startedAt;
-  if (item.kind === 'context-reset') return (item as TranscriptContextReset).at;
-  if (item.kind === 'session-notice') return (item as TranscriptSessionNotice).at;
-  return undefined;
-}
-
 /**
  * 在一段的过程里按边界线切开（#5381）：线当前一片的尾巴留在外面，线之后另起一片。
  * 最后一片接回原段的尾巴 —— 哪怕它的过程和尾巴都空着也要留：跨轮合并接的是末段，
  * 删了它，后面 agent 自发的 cycle 就接不到线的这一侧来了。
  */
-function splitAtContextBoundaries(segment: TurnFoldSegment): TurnFoldSegment[] {
+function splitAtContextBoundaries(segment: TurnFoldSegment, clocked: boolean): TurnFoldSegment[] {
   const pieces: TurnFoldSegment[] = [];
   let process: ChatItem[] = [];
   let startedAt = segment.startedAt;
@@ -267,7 +280,7 @@ function splitAtContextBoundaries(segment: TurnFoldSegment): TurnFoldSegment[] {
     }
     pieces.push({ process, tail: [item], ...(startedAt !== undefined ? { startedAt } : {}) });
     process = [];
-    startedAt = isContextBoundary(item) ? contextBoundaryAt(item) : messageAt(item);
+    startedAt = itemAt(item, clocked);
   }
   pieces.push({ process, tail: segment.tail, ...(startedAt !== undefined ? { startedAt } : {}) });
   return pieces;
