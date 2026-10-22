@@ -1207,6 +1207,44 @@ export function assertAgentMessageText(text, toolName = 'message_send') {
   }
 }
 
+/**
+ * 防刷屏(gugu-dev#181):同一个 agent 在同一个群(话题)里,从最后一条人说的话之后数自己发了几条;超过任一条线就在
+ * 回执后面提醒一句,不拦。阈值按历史数据定:过去的发送一次都碰不到这三条线。
+ */
+const FLOOD_LIMITS = [
+  { ms: 60_000, max: 8, label: '1 分钟' },
+  { ms: 5 * 60_000, max: 12, label: '5 分钟' },
+  { ms: 60 * 60_000, max: 30, label: '1 小时' },
+]
+
+async function floodNotice(deps, chatId, kind) {
+  try {
+    const now = Date.now()
+    const since = new Date(now - FLOOD_LIMITS.at(-1).ms).toISOString()
+    const rows = await deps.restGet(
+      `messages?chat_id=eq.${enc(chatId)}&created_at=gte.${enc(since)}&deleted_at=is.null&select=sender_user_id,created_at&order=seq.desc&limit=200`,
+    )
+    const senders = [...new Set(rows.map((r) => r.sender_user_id).filter((id) => id && id !== deps.context.agentId))]
+    const users = await restGetInBatches(senders, (batch) =>
+      deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,type`, 'identity'))
+    const humans = new Set(users.filter((u) => u.type === 'human').map((u) => u.id))
+    // 人一说话就从头算:只数最后一条人说的话之后的。
+    const mine = []
+    for (const r of rows) {
+      if (humans.has(r.sender_user_id)) break
+      if (r.sender_user_id === deps.context.agentId) mine.push(Date.parse(r.created_at))
+    }
+    const over = FLOOD_LIMITS.map((limit) => ({ ...limit, count: mine.filter((t) => now - t <= limit.ms).length }))
+      .find((limit) => limit.count > limit.max)
+    if (!over) return ''
+    const place = kind === 'topic' ? '话题' : '群'
+    return `\n提醒:你在这个${place}里 ${over.label}内已发 ${over.count} 条,其间没有人发言。不急的话先停一下,等有人说话或 @ 你再继续。`
+  } catch (err) {
+    // 消息已经发出去了:读不到频率只如实说一句,❌ 让这次发送报错(模型会以为没发出去而重发)。
+    return `\n这条已发出;发送频率没读到(${err instanceof Error ? err.message : String(err)}),不用重发。`
+  }
+}
+
 async function handleMessage(args, deps) {
   const requestedAction = args.action
   const writerToolName = requestedAction === 'contact-friend'
@@ -1289,6 +1327,7 @@ async function handleMessage(args, deps) {
     // client_message_id 走 messages_client_dedup 去重。content 初始 = 原文,群聊 @ 一致性校验后回填修补文本。
     const row = buildMessageRow(deps.context, { id: randomUUID(), chatId, content: args.text, contentType: 'text', toUserIds, replyToMessageId, threadRootId: sessionThread, isWhisper })
     // @@@2083 一次完整发送尝试(读+校验+插入)。抽成闭包以便 token 刷新后原样重放一次。
+    let sentKind = null
     const attemptSend = async () => {
       // 发送边界只负责校验并写入消息。收件箱由读者在工具边界统一注入，发送工具不重复读取或消费它。
       const [kind, memberRows] = await Promise.all([
@@ -1370,15 +1409,19 @@ async function handleMessage(args, deps) {
       }
       row.content = String(sendText ?? '')
       await postCommandMessageRow(deps, row)
+      sentKind = kind
     }
     const okMsg = () => socialGroup
       ? JSON.stringify({ ...socialGroup, message_id: row.id })
       : requestedAction === 'topic-invite'
         ? `invited into the topic (id=${row.id}); 被点名的人当场成为参与者,继续说话用 message_send 带这条话题的 chat_id`
         : (isReply ? `replied (id=${row.id})` : `sent (id=${row.id})`)
+    // 群和话题里发得太密:回执后面提醒一句,不拦(gugu-dev#181 防刷屏)。contact_friend 的回执是 JSON,不往后接字。
+    const receipt = async () => okMsg()
+      + (!socialGroup && (sentKind === 'group' || sentKind === 'topic') ? await floodNotice(deps, chatId, sentKind) : '')
     try {
       await attemptSend()
-      return okMsg()
+      return await receipt()
     } catch (err) {
       // 业务校验错原样抛给模型。鉴权失效只允许读取 host 新 token 后原样重试一次；command lease
       // 不能进入 outbox，延后直插也不能越过数据库 fence。
@@ -1389,7 +1432,7 @@ async function handleMessage(args, deps) {
       if (fresh && fresh !== err.accessToken) {
         try {
           await attemptSend()
-          return okMsg()
+          return await receipt()
         } catch (err2) {
           if (!isRefreshableAuthError(err2)) throw err2
           // 新鲜 token 仍投不出时由当前 turn fail loud。
