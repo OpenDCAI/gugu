@@ -455,6 +455,8 @@ import {
 import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
 import { setPhoneHealthCaller } from '@main/core/extensions/phone-health'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
+import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
+import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
@@ -680,6 +682,8 @@ if (!hasSingleInstanceLock) {
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let deviceRuntimeHost: DeviceRuntimeHost | null = null
+// #113 这台机器的项目记到账号上(会话页后端 boot 之后才有)。
+let deviceProjectsPublisher: DeviceProjectsPublisher | null = null
 // @@@local-device-truth (#777) - retained so localDeviceId can resolve this machine's device id
 // instead of returning null → misrouting. Same provider the host ticks with.
 let authProvider: RuntimeAuthProvider | null = null
@@ -2270,6 +2274,7 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
   deviceRuntimeHost?.notifyAuthChanged()
+  deviceProjectsPublisher?.notify()
   void handOffWechatIfAny()
 }
 // 「设置 → 聊天渠道 → 微信」的收发在云电脑管家上(#7199,桌面关了照样能聊);界面直接调管家。
@@ -5868,6 +5873,20 @@ app.whenReady().then(async () => {
         // unhandledRejection —— 会话页后端直接起不来(e2e 的 launchApp 阶段现形,dev 的 vite 产物顺序
         // 不同所以只在生产打包里暴露)。
         emdash.onEmdashSessionpageReapTrigger(runSessionpageReap)
+        // #113 这台机器的项目记到账号上(桌面与 server 同一份):现在记一次,之后一变就再记。订阅同上要在 boot 之后。
+        deviceProjectsPublisher ??= createDeviceProjectsPublisher({
+          getAuth: () => desktopAuthProvider().getAuth(),
+          deviceId: () => localDeviceId(),
+          client: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceProjectsRpcClient,
+          records: () => emdash.listDeviceProjectRecords(),
+          warn: (message, fields) => createLogger('device-projects').warn(fields, message),
+        })
+        try {
+          emdash.onDeviceProjectsMaybeChanged(() => deviceProjectsPublisher?.notify())
+        } catch (error) {
+          createLogger('device-projects').error({ err: error }, '订不上项目变化:账号上这台机器的项目只在开机与登录时更新')
+        }
+        deviceProjectsPublisher.notify()
         // #4008 —— 把会话页会话的 agent 状态接成咕咕侧的运行事实:「它在不在干活」是**读**会话页的状态,
         // 不再从「有没有一条投递命令正在执行」反推 —— 用户在会话页自己敲的回合、agent 之间的接力、以及
         // 一注入就返回的 transport,在咕咕的单聊/列表/群里都如实显示运行中。

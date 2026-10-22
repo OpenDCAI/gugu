@@ -106,11 +106,13 @@ describe('新建框那一句', () => {
   it('叫醒没成:说那句原因', () => {
     expect(machineUnavailableReason('wake-failed', '小咕', zh, '积分已用完，小咕 醒不来。')).toBe('积分已用完，小咕 醒不来。');
   });
-  // 统筹 10-15:「休眠中」只是说明状态,❌ 报错的红字;与私聊里那句同一个样子。叫醒没成、离线、版本太旧照旧是报错。
-  it('休眠中 / 正在唤醒是说明,别的用不了照旧是报错', () => {
-    expect(machineBlockIsStatus('asleep')).toBe(true);
-    expect(machineBlockIsStatus('waking')).toBe(true);
-    for (const state of ['wake-failed', 'offline', 'outdated', 'updating', 'sign-in', 'connected', null] as const) {
+  // 统筹 10-15:「休眠中」只是说明状态,❌ 报错的红字;与私聊里那句同一个样子。owner 10-22:离线同样只是状态(#113)。
+  // 叫醒没成、要先登录、版本太旧照旧是报错。
+  it('休眠中 / 正在唤醒 / 离线 / 正在连是说明,别的用不了照旧是报错', () => {
+    for (const state of ['asleep', 'waking', 'offline', 'connecting', 'reconnecting'] as const) {
+      expect(machineBlockIsStatus(state)).toBe(true);
+    }
+    for (const state of ['wake-failed', 'outdated', 'updating', 'update-failed', 'sign-in', 'connected', null] as const) {
       expect(machineBlockIsStatus(state)).toBe(false);
     }
   });

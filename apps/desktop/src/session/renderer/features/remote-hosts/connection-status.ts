@@ -128,11 +128,19 @@ export function hostStatusLabel(
 // ── 新建框:选着的那台此刻用不了 ─────────────────────────────────────────────
 
 /**
- * #7199 那句「用不了」只是在说云电脑此刻的状态(休眠中 / 正在唤醒):照样挡住发送,但画成说明(与私聊里那句同一个样子),
- * ❌ 画成报错的红字。叫醒没成、离线、版本太旧这些照旧是报错。
+ * 那句「用不了」只是在说那台机器此刻的状态:照样挡住发送,但画成说明(与私聊里那句同一个样子),❌ 画成报错的红字。
+ *  · #7199 云电脑休眠中 / 正在唤醒;
+ *  · 离线、正在连 / 重连(说的都是「离线」那一句):离线只是那台此刻用不了、不是出错(product spec「在哪跑」,owner 2026-10-22)。
+ * 叫醒没成、要先登录、版本太旧(正在更新 / 没更新成)照旧是报错:那是要人知道、可能要人去做点什么的事。
  */
 export function machineBlockIsStatus(connection: HostConnectionState | null): boolean {
-  return connection === 'asleep' || connection === 'waking';
+  return (
+    connection === 'asleep' ||
+    connection === 'waking' ||
+    connection === 'offline' ||
+    connection === 'connecting' ||
+    connection === 'reconnecting'
+  );
 }
 
 /**

@@ -7,7 +7,6 @@ import {
   isRemoteKey,
   linkNeedsReopen,
   machineConnectionState,
-  parseCachedProjects,
   remoteSessionKey,
 } from './remote-hosts-store';
 
@@ -82,15 +81,59 @@ describe('心跳说那台机器在时,线要不要现在重开', () => {
   });
 });
 
-describe('离线时照样列出的那份项目清单', () => {
-  it('读回上次存的;坏数据丢掉那一格,❌ 整份作废', () => {
-    const raw = JSON.stringify({
-      'dev-1': [{ id: 'p1', name: 'repo', path: '/srv/repo' }, { id: 3 }],
-      'dev-2': 'nope',
-    });
-    expect(parseCachedProjects(raw)).toEqual({ 'dev-1': [{ id: 'p1', name: 'repo', path: '/srv/repo' }] });
-    expect(parseCachedProjects('{')).toEqual({});
-    expect(parseCachedProjects(null)).toEqual({});
+// #113 没连着的机器:项目清单、群绑定、主目录照账号上记着的那份(设备行上带着),❌ 这台桌面从前问到过才有。
+describe('没连着的机器照账号上记着的那份', () => {
+  const record = (overrides: Record<string, unknown> = {}) => ({
+    localProjectId: 'acct-proj-1',
+    name: 'repo',
+    rootPath: '/srv/repo',
+    createdAt: '2026-10-01T08:00:00.000Z',
+    chatId: 'chat-repo',
+    groupRepresentative: true,
+    folders: [{ workspaceId: 'ws-acct-root', kind: 'root' as const, path: '/srv/repo', attachedAt: null }],
+    ...overrides,
+  });
+
+  it('列出它的项目、并上它的群、认得它的主目录,这台桌面从没连上过它也一样', async () => {
+    const { appState } = await import('@renderer/lib/stores/app-state');
+    const { projectGroupsStore } = await import('@renderer/features/projects/stores/project-groups-store');
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const store = new RemoteHostsStore();
+    store.start();
+    const offline = device({ id: 'dev-acct-1', isOnline: false, projects: [record()], homeDir: '/home/alice' });
+    let listed = [offline];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+    } as never);
+    try {
+      expect(appState.projects.projects.get('acct-proj-1')?.data).toMatchObject({
+        id: 'acct-proj-1', name: 'repo', path: '/srv/repo', repositoryWorkspaceId: 'ws-acct-root', createdAt: '2026-10-01 08:00:00',
+      });
+      expect(machineRegistry.machineOf('acct-proj-1')).toBe('dev-acct-1');
+      expect(projectGroupsStore.chatIdOf('acct-proj-1')).toBe('chat-repo');
+      expect(projectGroupsStore.isRepresentative('acct-proj-1')).toBe(true);
+      expect(store.homeDir('dev-acct-1')).toBe('/home/alice');
+      expect(store.accountFolders('dev-acct-1', 'acct-proj-1')?.map((folder) => [folder.workspaceId, folder.kind, folder.branch])).toEqual([
+        ['ws-acct-root', 'root', null],
+      ]);
+
+      // 那台机器离线时在它上面删了这个项目、建了另一个(它记到账号上,设备列表跟着刷新):这一端原地跟上。
+      listed = [{ ...offline, projects: [record({ localProjectId: 'acct-proj-2', name: 'next', chatId: null, groupRepresentative: false })] }];
+      listeners.forEach((listener) => listener());
+      expect(appState.projects.projects.has('acct-proj-1')).toBe(false);
+      expect(appState.projects.projects.get('acct-proj-2')?.data?.name).toBe('next');
+      expect(projectGroupsStore.chatIdOf('acct-proj-1')).toBeUndefined();
+
+      // 账号上那份这一端还没读到(设备行上没带):❌ 拿空清单把侧栏里它的项目清掉。
+      listed = [{ ...offline, projects: undefined }];
+      listeners.forEach((listener) => listener());
+      expect(appState.projects.projects.has('acct-proj-2')).toBe(true);
+    } finally {
+      off();
+    }
   });
 });
 
