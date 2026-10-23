@@ -51,7 +51,8 @@ import type { ChatConversation } from '@/store/useChatConversation'
 import { useFollowingTail, useTailPinning } from './useFollowingTail'
 import { useChatHistoryPagination } from './useChatHistoryPagination'
 import { useConversationScrollMemory } from './useConversationScrollMemory'
-import { ChatSearchControls, useChatSearch } from './ChatSearch'
+import { ChatSearchControls } from './ChatSearch'
+import { useChatSearch } from './useChatSearch'
 import { ChatTailNotice } from './ChatTailNotice'
 import { MessageLoadFailure } from './MessageLoadFailure'
 import { MessageListSkeleton } from './MessageListSkeleton'
@@ -370,7 +371,7 @@ export function TopicSplitPane({
   })
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows,
-    messages: [...messages],
+    messages,
     isFiltering,
     mobile,
     memberReadSeqs,
@@ -404,7 +405,7 @@ export function TopicSplitPane({
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history.markMessageVisible, visible, workspaceOpen, isFiltering, searchQuery])
+  }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, workspaceOpen, isFiltering, searchQuery])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
   const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : workspace.open ? workspace.close : onClose

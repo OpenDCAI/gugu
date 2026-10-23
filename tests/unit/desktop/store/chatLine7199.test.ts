@@ -19,7 +19,7 @@ function tree() {
 }
 beforeEach(() => {
   harness = createReactHarness(); windows = chatWindowStub()
-  windows.messageWindows.write('dm', () => [message({ id: 'dm1', chat_id: 'dm' })])
+  windows.write('dm', () => [message({ id: 'dm1', chat_id: 'dm' })])
 })
 afterEach(() => harness.cleanup())
 
@@ -29,7 +29,7 @@ describe('explicit conversation scopes', () => {
     expect(selected).toBe('a')
     expect(scoped.activeChatId).toBe('dm')
     expect(scoped.messages.map((row) => row.id)).toEqual(['dm1'])
-    act(() => windows.messageWindows.write('dm', (rows) => [...rows, message({ id: 'dm2', chat_id: 'dm', seq: 2 })]))
+    act(() => windows.write('dm', (rows) => [...rows, message({ id: 'dm2', chat_id: 'dm', seq: 2 })]))
     expect(scoped.messages.map((row) => row.id)).toEqual(['dm1', 'dm2'])
     expect(selected).toBe('a')
   })

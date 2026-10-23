@@ -12,7 +12,7 @@ import { ChatWindowCache } from './chatWindowCache'
 import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
 
 export function useChatWindowCache(accountId?: string | null) {
-  const cache = useMemo(() => new ChatWindowCache(), [accountId])
+  const cache = useMemo(() => new ChatWindowCache(accountId), [accountId])
   return { cache, subscribeChatWindow: cache.subscribe }
 }
 
@@ -21,19 +21,6 @@ export type WindowObserver = {
   painted: (rows: MessageItem[], hasMoreOlder?: boolean) => void
   ready: (hasMoreOlder?: boolean) => void
   readSeqs: (seqs: Record<string, number>) => void
-}
-
-/** Operations on the account's existing window, independent of the primary view selection. */
-export type ChatWindowAccess = {
-  window: (chatId: string) => ChatHistoryWindow
-  load: (chatId: string, direction: 'older' | 'newer' | 'latest') => Promise<void>
-  anchor: (chatId: string, messageId: string) => Promise<void>
-  read: (chatId: string) => MessageItem[] | undefined
-  write: (chatId: string, updater: (rows: MessageItem[]) => MessageItem[]) => void
-  persist: (chatId: string, rows: MessageItem[]) => void
-  open: (chatId: string, observer: WindowObserver) => Promise<void>
-  heal: (chatId: string, throwOnError: boolean, readSeqs?: WindowObserver['readSeqs']) => Promise<void>
-  revalidate: (chatId: string, throwOnError?: boolean) => Promise<void>
 }
 
 /** The main window's L1/L2, delta and result-side degrade path also opens topics and blocks. */

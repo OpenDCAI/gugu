@@ -15,7 +15,8 @@ type Listener = (rows: MessageItem[]) => void
 
 /** The existing message cache owns publication; every mutation reaches its visible surfaces. */
 export class ChatWindowCache extends Map<string, MessageItem[]> {
-  private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; view: ConversationSnapshot }>()
+  constructor(private readonly accountId: string | null = null) { super() }
+  private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; stopReading?: () => void; receipts: Set<string>; view: ConversationSnapshot }>()
   private readonly listeners = new Map<string, Set<Listener>>()
   override set(chatId: string, rows: MessageItem[]): this {
     const history = this.histories.get(chatId)?.window
@@ -27,6 +28,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   }
   override delete(chatId: string): boolean {
     this.histories.get(chatId)?.window.reset(chatId)
+    this.patchView(chatId, { activeThreadRootId: null, threadMessages: [], loadingThread: false, memberReadSeqs: {} })
     const deleted = super.delete(chatId)
     if (deleted) this.publish(chatId, [])
     return deleted
@@ -37,6 +39,8 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     super.clear()
     for (const id of ids) this.publish(id, [])
   }
+  isObserved(chatId: string): boolean { return (this.listeners.get(chatId)?.size ?? 0) > 0 }
+  readReceipts(chatId: string): Set<string> { return this.histories.get(chatId)!.receipts }
   getHistory(chatId: string): ChatHistoryWindow | undefined { return this.histories.get(chatId)?.window }
   view(chatId: string): ConversationSnapshot {
     this.history(chatId)
@@ -51,7 +55,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   history(chatId: string): ChatHistoryWindow {
     const existing = this.histories.get(chatId)
     if (existing) return existing.window
-    const window = new ChatHistoryWindow()
+    const window = new ChatHistoryWindow(this.accountId)
     window.reset(chatId, this.get(chatId))
     const publish = () => {
       const entry = this.histories.get(chatId)!
@@ -60,7 +64,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
       this.publish(chatId, window.getSnapshot().messages)
     }
     const stop = window.subscribe(publish)
-    this.histories.set(chatId, { window, stop, view: {
+    this.histories.set(chatId, { window, stop, receipts: new Set(), view: {
       messageWindow: window.getSnapshot(), loading: window.getSnapshot().messages.length === 0, memberReadSeqs: {},
       activeThreadRootId: null, threadMessages: [], loadingThread: false,
     } })
@@ -70,17 +74,19 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   private publish(chatId: string, rows: MessageItem[]): void {
     for (const listener of this.listeners.get(chatId) ?? []) listener(rows)
   }
-  readonly subscribe = (chatId: string, listener: Listener): (() => void) => {
+  readonly subscribe = (chatId: string, listener: Listener, start?: () => () => void): (() => void) => {
     let listeners = this.listeners.get(chatId)
     if (!listeners) this.listeners.set(chatId, listeners = new Set())
+    const first = listeners.size === 0
     listeners.add(listener)
+    if (first && start) { this.history(chatId); this.histories.get(chatId)!.stopReading = start() }
     listener(this.get(chatId) ?? [])
     return () => {
       listeners.delete(listener)
       if (listeners.size === 0) {
         this.listeners.delete(chatId)
         const history = this.histories.get(chatId)
-        history?.window.invalidate(); history?.stop(); this.histories.delete(chatId)
+        history?.stopReading?.(); history?.window.invalidate(); history?.stop(); this.histories.delete(chatId)
         const rows = this.get(chatId)
         if (rows) this.set(chatId, trimToMessageWindow(rows))
       }

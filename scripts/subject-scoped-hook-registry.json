@@ -82,10 +82,6 @@
     "how": "subject-scoped",
     "why": "selection 同存 chatId/messageId,渲染时先与当前 chatId 比对,不符立即返回 null;消息和读位只从当前会话派生。effect 负责清理选择,防串台不依赖 effect 的执行时机。"
   },
-  "apps/desktop/src/hooks/useTopicLine.ts::useTopicLine": {
-    "how": "subject-scoped",
-    "why": "#6470:话题分栏那条线的消息窗口存 {forChatId, messages},已读水位表的主体记在 memberReadSeqsChatRef(reconcile 先写它、再 setState);返回处都先比对当前 chatId,不符就交空列表 / 空表(空表 = 不画已读环,不是「没人读」)。换话题时 epoch +1,在途的旧读取拿着旧号回来一律不落;线级修订也只落在 line.chatId() 对得上的那条上。"
-  },
   "apps/desktop/src/hooks/useAgentHeaderStatusText.ts::useAgentHeaderStatusText": {
     "how": "derived",
     "why": "没有自有 state:状态、所在设备、引擎全部由 useAgentDisplayStatus(agentUserId) 与设备 store 当场派生,主体一换即换。"

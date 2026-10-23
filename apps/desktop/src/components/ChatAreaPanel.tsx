@@ -97,9 +97,9 @@ import { PaneHeader } from './ui/Pane'
 import { ChatBlockHead } from './chat/ChatBlockHead'
 import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
-import { Button } from './ui/Button'
 import { ChatTailNotice } from './chat/ChatTailNotice'
-import { ChatSearchControls, useChatSearch } from './chat/ChatSearch'
+import { ChatSearchControls } from './chat/ChatSearch'
+import { useChatSearch } from './chat/useChatSearch'
 import { loadImportedSessionHistories, type ImportedSessionHistory } from '../lib/importedHistoryReader'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
@@ -315,8 +315,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     setShowHeaderMenu(false)
     setImportedHistoryState(EMPTY_IMPORTED_HISTORY_STATE)
     importedHistoryLoadRef.current += 1
-    setSearchMode(false)
-    setSearchQuery('')
     setQuoteText(null)
     isAtBottomRef.current = true
     // @@@2169/@@@group-collab-swr - invalidate 在途加载 + 取消后台重试 + 按 in-memory cache 重铺首帧,细节见 useGroupCollabLoader。

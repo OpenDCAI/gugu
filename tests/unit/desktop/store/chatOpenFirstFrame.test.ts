@@ -80,9 +80,9 @@ const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/
 
 type Frame = Pick<ChatContextValue, 'activeChatId' | 'messages' | 'loadingMessages' | 'messageWindow' | 'memberReadSeqs'>
 const frames: Frame[] = []
-let sharedAccess: ChatContextValue['messageWindows']
+let sharedAccess: ChatContextValue['conversations']
 function Probe() {
-  sharedAccess = useChatStore('messageWindows').messageWindows
+  sharedAccess = useChatStore('conversations').conversations
   const { activeChatId, messages, loadingMessages, messageWindow, memberReadSeqs } = useChatStore('activeChatId', 'messages', 'loadingMessages', 'messageWindow', 'memberReadSeqs')
   // 记**提交了的**帧(layout 阶段),不是渲染尝试:提交了的才会被画出来。
   useLayoutEffect(() => { frames.push({ activeChatId, messages, loadingMessages, messageWindow, memberReadSeqs }) })
@@ -160,7 +160,7 @@ describe('打开会话的第一帧', () => {
     expect(revisionListeners.get('message_created')?.size).toBe(2)
     await act(async () => { network.resolve() })
     await vi.waitFor(() => expect(frames.at(-1)?.messages.map((row) => row.id)).toContain('msgA1'), WAIT)
-    expect(frames.at(-1)?.messageWindow).toBe(sharedAccess.window('chatA').getSnapshot())
+    expect(frames.at(-1)?.messageWindow).toBe(sharedAccess.read('chatA').messageWindow)
     harness.cleanup()
   })
 
@@ -222,9 +222,9 @@ describe('打开会话的第一帧', () => {
           },
         } }])
       })
-      expect(sharedAccess.read('chatA')?.map((row) => row.id)).toEqual(['live-2'])
+      expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.id)).toEqual(['live-2'])
       await act(async () => { network.resolve() })
-      await vi.waitFor(() => expect(sharedAccess.read('chatA')?.map((row) => row.id)).toEqual(['msgA1', 'live-2']), WAIT)
+      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.id)).toEqual(['msgA1', 'live-2']), WAIT)
     } finally { network.resolve(); harness.cleanup() }
   })
 
@@ -233,22 +233,19 @@ describe('打开会话的第一帧', () => {
     const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
     try {
       await vi.waitFor(() => expect(scopedFrames.some((frame) => frame.ids.includes('msgA1'))).toBe(true), WAIT)
-      await act(async () => {
-        for (let seq = 2; seq <= 200; seq++) sharedAccess.write('chatA', (rows) => [...rows, message({ id: `stream-${seq}`, chat_id: 'chatA', seq })])
-      })
-      expect(sharedAccess.read('chatA')?.map((row) => row.seq)).toEqual(Array.from({ length: 120 }, (_, index) => index + 81))
-      messagesByChat.chatA = Array.from({ length: 40 }, (_, index) => message({ id: `stream-${index + 161}`, chat_id: 'chatA', seq: index + 161 }))
-      // A realtime mutator may request persistence from inside the candidate update.
-      await act(async () => {
-        sharedAccess.write('chatA', (rows) => {
-          const candidate = [...rows, message({ id: 'stream-201', chat_id: 'chatA', seq: 201 })]
-          sharedAccess.persist('chatA', candidate)
-          return candidate
-        })
-      })
-      await vi.waitFor(() => expect(repository.snapshot().message.filter((row) => row.value.chat_id === 'chatA').map((row) => row.value.seq).sort((a, b) => a - b)).toEqual(Array.from({ length: 120 }, (_, index) => index + 82)), WAIT)
-      await act(async () => { await sharedAccess.heal('chatA', true) })
-      expect(sharedAccess.read('chatA')?.map((row) => row.seq)).toEqual(Array.from({ length: 120 }, (_, index) => index + 82))
+      const emit = async (seq: number) => {
+        for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: String(seq), payload: {
+          chat_id: 'chatA', entity_id: `stream-${seq}`, message: { id: `stream-${seq}`, chat_id: 'chatA', seq,
+            sender_user_id: 'a1', content: 'stream', content_type: 'text', created_at: new Date().toISOString() },
+        } }])
+      }
+      await act(async () => { for (let seq = 2; seq <= 201; seq++) await emit(seq) })
+      const expected = Array.from({ length: 120 }, (_, index) => index + 82)
+      expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.seq)).toEqual(expected)
+      await vi.waitFor(() => expect(repository.snapshot().message.filter((row) => row.value.chat_id === 'chatA').map((row) => row.value.seq).sort((a, b) => a - b)).toEqual(expected), WAIT)
+      messagesByChat.chatA = Array.from({ length: 40 }, (_, index) => message({ id: `stream-${index + 162}`, chat_id: 'chatA', seq: index + 162 }))
+      await act(async () => { await sharedAccess.actions('chatA').refreshMessages() })
+      expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.seq)).toEqual(expected)
       expect(scopedFrames.at(-1)?.ids).toHaveLength(120)
       await vi.waitFor(() => expect(repository.snapshot().message.filter((row) => row.value.chat_id === 'chatA')).toHaveLength(120), WAIT)
       await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe)), { auth: { id: 'user1' } })

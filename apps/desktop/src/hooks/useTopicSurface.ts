@@ -6,7 +6,7 @@
 // 分栏里的那条话题**是一条真的 chat**,所以它有自己的一条「线」(useChatConversation:消息窗口 + 已读水位),
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'

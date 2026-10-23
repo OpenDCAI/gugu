@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { ChatContextValue } from './chatContext'
 import { ChatHistoryWindow } from './chatHistoryWindow'
 import type { ConversationSnapshot } from './chatWindowCache'
@@ -12,7 +13,7 @@ type ConversationActions = Pick<ChatContextValue,
 
 export type ChatConversationAccess = {
   read: (chatId: string) => ConversationSnapshot
-  subscribe: ChatContextValue['subscribeChatWindow']
+  subscribe: (chatId: string, listener: (rows: MessageItem[]) => void) => () => void
   actions: (chatId: string | null) => ConversationActions
   errorOf: (chatId: string | null) => Error | null
 }
@@ -23,10 +24,11 @@ const EMPTY: ConversationSnapshot = {
 
 /** Every surface observes the account's same conversation, including its read and navigation state. */
 export function useChatConversation(chatId: string | null, access: ChatConversationAccess) {
-  const subscribe = useCallback((listener: () => void) => chatId ? access.subscribe(chatId, listener) : () => undefined, [access.subscribe, chatId])
-  const read = useCallback(() => chatId ? access.read(chatId) : EMPTY, [access.read, chatId])
+  const { subscribe: observe, read: snapshot, actions: actionsOf } = access
+  const subscribe = useCallback((listener: () => void) => chatId ? observe(chatId, listener) : () => undefined, [observe, chatId])
+  const read = useCallback(() => chatId ? snapshot(chatId) : EMPTY, [snapshot, chatId])
   const state = useSyncExternalStore(subscribe, read)
-  const actions = useMemo(() => access.actions(chatId), [access.actions, chatId])
+  const actions = useMemo(() => actionsOf(chatId), [actionsOf, chatId])
   const { messageWindow, memberReadSeqs, activeThreadRootId, threadMessages, loadingThread } = state
   const { messages, hasOlder: hasMoreOlder } = messageWindow
   const threadScope = useMemo(() => deriveThreadScope({ rootId: activeThreadRootId, messages,
