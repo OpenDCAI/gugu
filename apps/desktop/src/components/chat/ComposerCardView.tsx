@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { labelOfDisplayStatus } from '@gugu/core/shared/ui/agentConversationStatusModels'
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import type { ComposerCard, QuestionCard, TaskCard } from '@gugu/core/shared/ui/taskCardModels'
 import { composerCardCopy } from '../../lib/composerCardCopy'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
@@ -14,6 +14,7 @@ import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { openTaskCardSession } from './openTaskCardSession'
+import { AgentStatusGlyph } from '../../session/renderer/lib/components/agent-status-indicator'
 
 /**
  * 卡的记号:任务卡画接手那个 agent 的引擎字形(和侧栏会话行同一枚),已安排卡画一枚钟。
@@ -96,17 +97,17 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
 }
 
 /**
- * 行尾那一格,和侧栏会话行同一套点(AgentStatusGlyph 的色调):在跑 = 跳动的点、需要你 = 琥珀点、出错 = 红点、
- * 做完(空闲 / 后台静止)= 勾;归档 / 离线不画。
+ * 行尾那一格,和侧栏会话行同一枚字形(AgentStatusGlyph,同一个 presentAgentStatus):在跑 = 四个点在转、后台在跑 = 同一枚静止、
+ * 需要你 = 琥珀点、出错 = 红点;做完(空闲)= 勾;归档 / 离线不画。
  */
 function TaskStatusMark({ status }: { status: AgentDisplayStatus | undefined }) {
   const { t } = useTranslation('common')
   if (!status || status === 'pending' || status === 'removed' || status === 'offline') return null
-  const label = t(`agentStatus.${labelOfDisplayStatus(status)}`)
-  if (status === 'idle' || status === 'parked') return <Check role="img" aria-label={label} size={14} className="text-[var(--muted-fg)]" />
-  const tone = status === 'working' ? 'bg-[var(--agent-tone-running)] animate-pulse motion-reduce:animate-none'
-    : status === 'needs_user' ? 'bg-[var(--agent-tone-needs-user)]' : 'bg-[var(--agent-tone-error)]'
-  return <span role="img" aria-label={label} title={label} className={`mx-[3px] size-2 rounded-full ${tone}`} />
+  if (status === 'idle') return <Check role="img" aria-label={t('agentStatus.idle')} size={14} className="text-[var(--muted-fg)]" />
+  const presentation = presentAgentStatus({
+    reading: status === 'parked' ? { status: 'working', detail: 'parked' } : { status, detail: null },
+  })
+  return <AgentStatusGlyph presentation={presentation} label={t(`agentStatus.${presentation.label}`)} variant="2" />
 }
 
 let localDeviceIdOnce: Promise<string | null> | null = null

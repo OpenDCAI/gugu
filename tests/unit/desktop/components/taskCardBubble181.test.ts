@@ -17,8 +17,14 @@ vi.mock('../../../../apps/desktop/src/lib/groupAgentJoinService', () => ({
   listMyAgentJoinRequests: async () => { joins.reads += 1; return new Map(joins.status) },
 }))
 
+// 接手的 agent 此刻的状态(侧栏同一份读数)。
+let agentStatus: string | undefined
+vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => ({
+  useAgentDisplayStatuses: (ids: string[]) => Object.fromEntries(ids.map((id) => [id, agentStatus])),
+}))
+
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness(); lookedUp = 'codex' })
+beforeEach(() => { harness = createReactHarness(); lookedUp = 'codex'; agentStatus = undefined })
 afterEach(() => { harness.cleanup() })
 
 const CARD: TaskCard = {
@@ -62,6 +68,20 @@ describe('task card in a chat (gugu-dev#181)', () => {
     const card = harness.container.querySelector('[data-testid="composer-card"]')!
     expect(card.querySelector('[data-agent-harness]')).toBeNull()
     expect(card.textContent).toContain('Codex 1')
+  })
+
+  it('while its agent runs, the row ends in the sidebar\'s spinner, not a still dot; done is a tick', async () => {
+    const card = (id: string) => bubble(message({ id, is_mine: true, content_type: 'card', content: serializeComposerCard(CARD) }))
+    agentStatus = 'working'
+    await renderWithAppProviders(harness, card('card-run'))
+    const row = () => harness.container.querySelector('[data-testid="composer-card"]')!.lastElementChild!
+    expect(row().textContent, 'a braille spinner frame').toMatch(/[\u2800-\u28ff]/)
+    expect(row().querySelector('[data-animate="false"]'), 'it turns').toBeNull()
+    harness.cleanup(); harness = createReactHarness()
+    agentStatus = 'idle'
+    await renderWithAppProviders(harness, card('card-done'))
+    expect(row().textContent).not.toMatch(/[\u2800-\u28ff]/)
+    expect(row().querySelector('svg')).not.toBeNull()
   })
 
   it('positive control: my plain message keeps its read ring', async () => {
