@@ -203,6 +203,7 @@ interface ChatRowProps {
   agentStatus?: AgentDisplayStatus
   isActive: boolean
   topicsExpanded?: boolean
+  onToggleTopics: () => void
   draft?: string
   // @@@1787 移动触控放大(对齐 ContactsPanel.ContactRow 的 mobile 规格)
   mobile?: boolean
@@ -290,7 +291,7 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
   )
 }
 
-function ChatRow({ chat, agentStatus, isActive, topicsExpanded, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
+function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
   const [showMenu, setShowMenu] = useState(false)
@@ -367,9 +368,17 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, draft, mobile = 
             {/* Bolt/sparkle — the design accent, kept off the icon-size ladder
                 (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
             {hasBolt && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
-            {topicsExpanded !== undefined && (topicsExpanded
-              ? <ChevronDown className="size-3.5 shrink-0" style={TOPIC_SUBROW_ICON_STYLE} aria-hidden="true" />
-              : <ChevronRight className="size-3.5 shrink-0" style={TOPIC_SUBROW_ICON_STYLE} aria-hidden="true" />)}
+            {topicsExpanded !== undefined && (
+              <span className="relative size-3.5 shrink-0">
+                <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                  aria-label={t(topicsExpanded ? 'common.collapse' : 'common.expand')} aria-expanded={topicsExpanded}
+                  onClick={(event) => { event.stopPropagation(); onToggleTopics() }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() }}
+                >
+                  {topicsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                </IconButton>
+              </span>
+            )}
           </>
         }
         meta={formatCalendarDay(chatActivityAt(chat))}
@@ -677,6 +686,7 @@ export function ChatListPanel({
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
         isActive={chat.id === selectedChatId}
         topicsExpanded={hasTopics ? topicsExpanded : undefined}
+        onToggleTopics={() => toggleTopics(chat.id)}
         mobile={mobile}
         draft={drafts[chat.id]}
         onClick={(event) => activateChatRow(chat, event.metaKey || event.ctrlKey)}
@@ -798,19 +808,22 @@ export function ChatListPanel({
     onChatSelected?.(focusTarget)
   }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId])
 
-  // 切换会话仍只负责导航;只有重复激活当前来源行才收起/展开话题,不触碰右侧分栏。
-  // 再点一下眼前这条 = 收起 / 摊开它的话题;⌘ 点是拼到右边,照常打开。
+  const toggleTopics = (chatId: string) => {
+    setCollapsedTopicSources((previous) => {
+      const next = new Set(previous)
+      if (next.has(chatId)) next.delete(chatId)
+      else next.add(chatId)
+      return next
+    })
+  }
+
+  // 手机整行只导航;桌面重复激活当前来源行才收起/展开,⌘ 点照常拼到右边。
   const activateChatRow = (chat: ChatItem, beside = false) => {
-    if (beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
+    if (mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
       selectChat(chat, 'composer', beside)
       return
     }
-    setCollapsedTopicSources((previous) => {
-      const next = new Set(previous)
-      if (next.has(chat.id)) next.delete(chat.id)
-      else next.add(chat.id)
-      return next
-    })
+    toggleTopics(chat.id)
   }
 
   useEffect(() => {

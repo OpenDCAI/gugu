@@ -50,7 +50,7 @@ const WindowTabPaneContent = observer(function WindowTabPaneContent({ windowId, 
           <PaneContent
             leadingReservePx={auxLeadingReserve()}
             actionsSlot={
-              <TabBarActionRow atWindowEdge fixedCluster={false}>
+              <TabBarActionRow atWindowEdge>
                 <PutBackButton windowId={windowId} />
               </TabBarActionRow>
             }

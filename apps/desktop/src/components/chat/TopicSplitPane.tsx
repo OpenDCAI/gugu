@@ -46,6 +46,7 @@ import { prioritizeTopicParticipants } from './topicMentionModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
 import { groupSlotMemory } from '../appSlot/groupSlotMemory'
+import { ChatBottomDock } from './ChatBottomDock'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -158,6 +159,7 @@ const TOPIC_SPLIT_PANE_STYLE: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   height: '100%',
+  position: 'relative',
   background: 'var(--bg-primary)',
   borderLeft: '1px solid var(--border-subtle)',
 }
@@ -194,8 +196,9 @@ const TOPIC_SPLIT_MESSAGES_STYLE: React.CSSProperties = {
 // **垂直方向必须一模一样**:主线那份上 12 下 18,而这一栏原先什么都没有 ⇒ 输入框直接贴着窗底,
 // 同屏并排看就是两个高度(owner 2026-09-19 实测:「这个高度怎么不一致」)。
 // 水平方向用 14 与这一栏自己的头对齐 —— 它比主栏窄,照抄 22 会把输入框挤细。
+// 桌面上它坐在 ChatBottomDock 那层半透明底上(与主线同一层),自己不再垫实色。
 const TOPIC_SPLIT_COMPOSER_STYLE: React.CSSProperties = {
-  background: 'var(--bg-primary)', padding: '12px 14px 18px', flexShrink: 0,
+  padding: '12px 14px 18px', flexShrink: 0,
 }
 const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
   background: 'var(--bg-primary)', padding: '8px 10px max(10px, env(safe-area-inset-bottom))', flexShrink: 0,
@@ -555,6 +558,7 @@ export function TopicSplitPane({
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
+        <ChatBottomDock floating={!mobile} reserve={messages.length === 0}>
         {runningTokens && runningTokens.length > 0 ? (
           <RunningTokenBar
             testId="topic-agent-running-status"
@@ -593,6 +597,7 @@ export function TopicSplitPane({
           //     spec 没说,❌ 不在这里自己拍板。
         />
         </div>
+        </ChatBottomDock>
         </>
         )}
         {readReceiptPanel ? (

@@ -194,8 +194,7 @@
   padding-inline-start: max(var(--pane-pad-x), var(--list-toggle-lane));
 }
 
-/* 顶栏右上是「动作车道」:会话页的工作区面板开关常驻在那儿(TitlebarActions,top 6px + 28px 按钮;
-   分享与待办已归消息栏动作组,跟着聊天栏走,见 titlebar-actions.tsx)。
+/* 顶栏右上是「动作车道」:会话内的动作在 40px 顶栏里居中(titlebar-actions.tsx)。
    任何飘在右上的转瞬层(分享浮层等)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
    那正是实机看到的「组件堆叠」:浮层正好盖住会话页顶栏那排按钮。(提示条 #137 起在右下角,不走这里。)
    有标题栏行的平台(Windows)车道整体下移一行:main.tsx 按 window-chrome 的 titlebarActionsLane 写真值,

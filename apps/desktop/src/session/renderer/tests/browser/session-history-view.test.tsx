@@ -119,6 +119,10 @@ vi.mock('@renderer/features/sessions/restore-session-flow', () => ({
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ ensureProjectLoaded: mocks.ensureProjectLoaded }),
 }));
+// Sidebar controls belong to the workspace shell, outside this history panel's IPC fixture.
+vi.mock('@renderer/features/sidebar/sidebar-list-switch', () => ({
+  SidebarListLayoutButton: () => null,
+}));
 // 节头的 agent 图标:真 AgentIcon 会把 agent store / 导航那整张图拉进来,这里只判「画了几个、id 对不对」。
 vi.mock('@renderer/lib/components/agent-icon', () => ({
   AgentIcon: ({ id }: { id: string }) => <span data-testid="agent-icon" data-agent-id={id} />,

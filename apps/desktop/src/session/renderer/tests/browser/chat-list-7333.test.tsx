@@ -55,12 +55,12 @@ beforeAll(async () => {
 });
 afterEach(() => harness?.cleanup());
 
-async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn()) {
+async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false) {
   harness = createReactHarness();
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
-    createNode(ChatListPanel, { activeTab: 'chats', onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
+    createNode(ChatListPanel, { activeTab: 'chats', mobile, onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
     { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);
@@ -82,24 +82,25 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
     const plain = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
     expect(plain.hasAttribute('aria-expanded')).toBe(false);
-    expect(plain.querySelector('svg.size-3\\.5')).toBeNull();
+    expect(plain.querySelector('button[aria-expanded]')).toBeNull();
     expect(source().getAttribute('aria-expanded')).toBe('true');
-    const expandedArrow = source().querySelector('svg.size-3\\.5')!.innerHTML;
+    const disclosure = () => source().querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    expect(disclosure().getAttribute('aria-expanded')).toBe('true');
     expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
     expect(root.querySelector('[data-testid="topic-sunk-section"]')).not.toBeNull();
 
-    await userEvent.click(source());
+    await userEvent.click(source().querySelector<HTMLElement>('.gg-list-row-title')!);
     await until('source topics fold', () => source().getAttribute('aria-expanded') === 'false');
     expect(root.querySelector('[data-topic-subrow="t-live"]')).toBeNull();
     expect(root.querySelector('[data-testid="topic-sunk-section"]')).toBeNull();
-    expect(source().querySelector('svg.size-3\\.5')!.innerHTML).not.toBe(expandedArrow);
+    expect(disclosure().getAttribute('aria-expanded')).toBe('false');
     expect(source().getAttribute('aria-selected')).toBe('true');
     expect(onChatSelected).not.toHaveBeenCalled();
 
-    await userEvent.click(source());
+    await userEvent.click(source().querySelector<HTMLElement>('.gg-list-row-title')!);
     await until('source topics unfold', () => root.querySelector('[data-topic-subrow="t-live"]') !== null);
     expect(source().getAttribute('aria-expanded')).toBe('true');
-    expect(source().querySelector('svg.size-3\\.5')!.innerHTML).toBe(expandedArrow);
+    expect(disclosure().getAttribute('aria-expanded')).toBe('true');
     expect(root.querySelector('[data-testid="topic-sunk-section"]')).not.toBeNull();
     expect(onChatSelected).not.toHaveBeenCalled();
   });
@@ -108,10 +109,50 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     const onChatSelected = vi.fn();
     const root = await renderList('dm-1', onChatSelected);
     const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
-    await userEvent.click(source());
+    await userEvent.click(source().querySelector<HTMLElement>('.gg-list-row-title')!);
     expect(source().getAttribute('aria-expanded')).toBe('true');
     expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
     expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
+  });
+
+  it.each(['grp-1', 'dm-1'])('the chevron toggles topics without navigation when %s is selected', async (activeChatId) => {
+    const onChatSelected = vi.fn();
+    const root = await renderList(activeChatId, onChatSelected);
+    const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    const disclosure = () => source().querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+
+    await userEvent.click(disclosure());
+    await until('the button collapses topics', () => source().getAttribute('aria-expanded') === 'false');
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).toBeNull();
+    expect(root.querySelector('[data-testid="topic-sunk-section"]')).toBeNull();
+    expect(source().getAttribute('aria-selected')).toBe(String(activeChatId === 'grp-1'));
+    expect(onChatSelected).not.toHaveBeenCalled();
+
+    disclosure().focus();
+    await userEvent.keyboard('{Enter}');
+    await until('keyboard activates only the button', () => source().getAttribute('aria-expanded') === 'true');
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(source().getAttribute('aria-selected')).toBe(String(activeChatId === 'grp-1'));
+    expect(onChatSelected).not.toHaveBeenCalled();
+  });
+
+  it('mobile row clicks navigate while only the chevron changes topic visibility', async () => {
+    const onChatSelected = vi.fn();
+    const root = await renderList('grp-1', onChatSelected, true);
+    const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    const title = () => source().querySelector<HTMLElement>('.gg-list-row-title')!;
+
+    await userEvent.click(title());
+    expect(source().getAttribute('aria-expanded')).toBe('true');
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
+
+    await userEvent.click(source().querySelector<HTMLButtonElement>('button[aria-expanded]')!);
+    await until('mobile disclosure collapses topics', () => source().getAttribute('aria-expanded') === 'false');
+    expect(onChatSelected).toHaveBeenCalledTimes(1);
+    await userEvent.click(title());
+    expect(source().getAttribute('aria-expanded')).toBe('false');
+    expect(onChatSelected).toHaveBeenCalledTimes(2);
   });
 
   it('#7589 collapsed topics are skipped by keyboard navigation and Enter restores them', async () => {
@@ -120,7 +161,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     source().focus();
     await userEvent.keyboard('{ArrowDown}');
     await until('expanded topic receives focus', () => document.activeElement?.getAttribute('data-chat-row') === 't-live');
-    await userEvent.click(source());
+    await userEvent.click(source().querySelector<HTMLElement>('.gg-list-row-title')!);
     await until('topics collapse', () => source().getAttribute('aria-expanded') === 'false');
     source().focus();
     await userEvent.keyboard('{ArrowDown}');

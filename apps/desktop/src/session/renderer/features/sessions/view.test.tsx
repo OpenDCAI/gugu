@@ -42,7 +42,7 @@ vi.mock('@renderer/features/sessions/session-view-context', () => ({
 }));
 vi.mock('./commands', () => ({ createSessionCommandProvider: vi.fn() }));
 vi.mock('./main-panel', () => ({ SessionMainPanel: () => null }));
-vi.mock('./session-titlebar', () => ({ SessionTitlebar: () => null }));
+vi.mock('@renderer/lib/components/titlebar/shell-titlebar', () => ({ ShellTitlebar: () => null }));
 
 const { sessionView } = await import('./view');
 

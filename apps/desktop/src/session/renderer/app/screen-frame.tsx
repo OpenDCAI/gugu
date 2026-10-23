@@ -4,6 +4,7 @@ import { useGroupRef } from 'react-resizable-panels';
 import { X } from '@/lib/icons';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import type { PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
@@ -170,7 +171,7 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
       <TabStripShell
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
             {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
           </TabBarActionRow>
@@ -209,7 +210,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
   const { translate } = useSessionMessages();
   const { isLeftOpen } = useWorkspaceLayoutContext();
   const contribution = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === tabKind);
-  const label = contribution?.title ?? tabKind;
+  const { label, tooltip } = extensionTabTitle(extensionSurfaceStore.said(null, `screen:${blockId}`), installedExtensionsStore.tabTitle(tabKind) ?? tabKind);
   const corners = screenLayout.corners(blockId);
   const multi = screenLayout.order.length > 1;
   const focused = screenLayout.focusedBlockId === blockId;
@@ -241,7 +242,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
           </ContextMenu>
         }
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             {multi ? <CloseBlockButton blockId={blockId} /> : null}
           </TabBarActionRow>
         }
@@ -251,6 +252,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
             isActive
             isFocusedPane={focused}
             label={label}
+            title={tooltip}
             preSlot={<ExtensionMark iconDataUrl={contribution?.iconDataUrl} />}
             closeLabel={translate('task.closeTab', { label })}
             onClose={takeAway}
