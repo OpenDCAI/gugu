@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, MoreHorizontal, Plus } from '@/lib/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -58,8 +58,6 @@ export function SubscriptionConnections({ agent, machine, onError }: {
     void queryClient.invalidateQueries({ queryKey: harnessModelCredentialKey(agent.id) });
   };
   const action = useMutation({
-    onMutate: () => onError?.(null),
-    onError: (error) => onError?.(errorText(error)),
     mutationFn: async ({ kind, id }: { kind: 'select' | 'remove' | 'refresh'; id: string }) => {
       if (agent.id !== 'claude' && agent.id !== 'codex') throw new Error('Unsupported harness');
       const client = await getAgentConfigRuntimeClient(machine);
@@ -79,6 +77,9 @@ export function SubscriptionConnections({ agent, machine, onError }: {
       }
     },
   });
+  // 跟最近一次动作走:新动作一开始 `action.error` 就清空,重叠的两次里先失败的那次不会把原因留下。
+  const failure = action.error ? errorText(action.error) : null;
+  useEffect(() => { onError?.(failure); }, [failure, onError]);
   const signIn = (connectionId: string) => {
     if (!method || !canSignIn) return;
     setOpen(false);

@@ -8,7 +8,7 @@
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { until } from '../../../../../../../tests/support/awaitCondition';
+import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
 import { queryClient } from '@renderer/lib/query-client';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -267,8 +267,12 @@ it('a long switch refusal is shown under the row heading and does not squeeze th
   const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
   const identity = row.querySelector('.subscription-service-identity') as HTMLElement;
   await until('the account line is drawn', () => (identity.textContent ?? '').includes('me@example.test'));
+  // 连接数读回来之后右列的文案才定下来(「当前设备」→「当前设备 · 2 个连接」),账号列的宽度跟着变;等它稳了再量。
+  await until('the connection count is shown', () => row.querySelector('.subscription-scope')?.textContent?.includes('2') === true);
+  await untilStable('the account column settles', () => Math.round(identity.getBoundingClientRect().width));
   const widthBefore = identity.getBoundingClientRect().width;
   expect(widthBefore).toBeGreaterThan(150);
+  expect(row.querySelector('[role="alert"]')).toBeNull();
 
   (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
   await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
@@ -284,6 +288,14 @@ it('a long switch refusal is shown under the row heading and does not squeeze th
   expect(message.left).toBeGreaterThanOrEqual(card.left);
   expect(message.right).toBeLessThanOrEqual(card.right + 0.5);
   expect(control.connections.find(c => c.current)?.id).toBe('native');
+
+  // 下一次动作一开始,上一次的原因就撤掉;这次成功了,行里不再留着旧的拒绝。
+  control.rejectSelect = false;
+  if (!layer.querySelector('[data-testid="connection-use-saved-api"]')) (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used again', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the refusal is gone once a switch goes through', () => row.querySelector('[role="alert"]') === null);
+  expect(control.selected).toBe('saved-api');
   expect(thrown).toEqual([]);
 });
 

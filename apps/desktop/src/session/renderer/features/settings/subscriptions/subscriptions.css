@@ -48,7 +48,7 @@ article.subscription-service {
 @container gg-settings (max-width: 380px) {
   article.subscription-service { grid-template-columns: 28px minmax(0, 1fr); }
   .subscription-service-actions { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-  .subscription-service-details { grid-column: 1 / -1; }
+  .subscription-service-notice, .subscription-service-details { grid-column: 1 / -1; }
 }
 @container gg-settings (max-width: 320px) {
   .subscription-quota-grid { grid-template-columns: minmax(0, 1fr); }
