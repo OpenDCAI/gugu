@@ -169,7 +169,8 @@ function Probe() {
   shell.rerender = () => bump((n) => n + 1)
   useReportChatOnScreen(shell.offScreen ? null : latestStore.activeChatId)
   const { activeChatId, setFollowingTail } = latestStore
-  useEffect(() => { setFollowingTail(!shell.offScreen) }, [activeChatId, setFollowingTail, shell.offScreen])
+  const onScreen = !shell.offScreen
+  useEffect(() => { setFollowingTail(onScreen) }, [activeChatId, setFollowingTail, onScreen])
   return createNode('div', { 'data-testid': 'probe' })
 }
 async function flushReact(): Promise<void> {
