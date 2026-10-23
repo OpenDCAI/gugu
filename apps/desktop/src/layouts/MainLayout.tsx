@@ -1410,6 +1410,7 @@ function InnerLayout({
                     <div inert={showCreateSurface || assistantOnPhone} className="flex min-h-0 min-w-0 flex-[1_1_auto]" style={showCreateSurface || assistantOnPhone ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
                       <ChatAreaPanel
                         chatId={activeChatId}
+                        navigationTarget
                         activeTab={activeTab}
                         hidden={showCreateSurface || onScreenChatId !== activeChatId}
                         mobile={mobile}

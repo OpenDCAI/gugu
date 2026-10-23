@@ -90,10 +90,9 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     try {
       await runOpenStreamAtLocator(target, {
         activateChat: async (targetChatId) => {
-          const alreadyActive = deps.isChatOpen(targetChatId)
-          if (alreadyActive && !chatOpenInFlightRef.current.has(targetChatId)) return
+          if (!viewport) deps.setActiveChatId(targetChatId)
+          if (deps.isChatOpen(targetChatId) && !chatOpenInFlightRef.current.has(targetChatId)) return
           const ready = waitForChatOpen(targetChatId)
-          if (!alreadyActive) deps.setActiveChatId(targetChatId)
           await ready
         },
         ensureMessageLoaded: async (currentTarget) => {
@@ -156,7 +155,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   }, [deps.chatsRef, getMessageSnapshotEpoch])
   const openUnreadChat = useCallback(async (chatId: string): Promise<void> => {
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
-    if (locator && (locator.stream_kind === 'thread' || deps.isChatOpen(chatId))) return openStreamAtLocator(chatId)
+    if (locator && (locator.stream_kind === 'thread' || deps.activeChatIdRef.current === chatId)) return openStreamAtLocator(chatId)
     captureUnreadEntry(chatId)
     deps.setActiveChatId(chatId)
   }, [deps, captureUnreadEntry, openStreamAtLocator])

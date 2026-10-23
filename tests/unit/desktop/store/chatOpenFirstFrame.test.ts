@@ -104,10 +104,12 @@ function Selector() {
 }
 let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountImRepository
 
+const scopedLines = new Map<string, ReturnType<typeof useChatConversation>>()
 const scopedFrames: { chatId: string; ids: string[] }[] = []
 function ScopedProbe({ chatId }: { chatId: string }) {
   const { conversations } = useChatStore('conversations')
   const line = useChatConversation(chatId, conversations)
+  scopedLines.set(chatId, line)
   useLayoutEffect(() => { scopedFrames.push({ chatId, ids: line.messages.map((row) => row.id) }) })
   return null
 }
@@ -128,6 +130,7 @@ describe('打开会话的第一帧', () => {
     vi.mocked(chatService.getMessages).mockClear().mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
     vi.mocked(chatService.getMessageById).mockResolvedValue(null)
     scopedFrames.length = 0
+    scopedLines.clear()
     vi.mocked(chatService.revalidateWindow).mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
     messagesByChat = { chatA: [msgA1], chatB: [msgB1] }
     revisionListeners.clear()
@@ -185,6 +188,47 @@ describe('打开会话的第一帧', () => {
       await navigation
       expect(sharedAccess.read('chatA').loading).toBe(false)
     } finally { network.resolve(); window.removeEventListener(UI_EVENTS.openUnreadMessage, confirm); harness.cleanup() }
+  })
+
+  it('selects a badged chat even if a hidden explicit scope already owns its reader', async () => {
+    network.resolve()
+    projectionStub.rows = [{ ...chatA, unread_count: 1, unread_locator: { stream_id: 'main:chatA', stream_kind: 'main',
+      thread_root_id: null, message_id: 'msgA1', message_seq: 1, unread_count: 1, cursor_seq: 0, version: 0, is_marked_unread: false } }, chatB]
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    try {
+      await vi.waitFor(() => expect(sharedAccess.read('chatA').loading).toBe(false), WAIT)
+      await act(async () => { select('chatB') })
+      await act(async () => { await sharedAccess.actions(null).openUnreadChat('chatA') })
+      expect(frames.at(-1)?.activeChatId).toBe('chatA')
+    } finally { harness.cleanup() }
+  })
+
+  it('sends from a full off-bottom viewport without cutting off its ACK or reloading the tail', async () => {
+    network.resolve()
+    const ack = deferred<MessageItem>()
+    vi.mocked(chatService.sendMessage).mockImplementation(() => ack.promise)
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    try {
+      await vi.waitFor(() => expect(scopedLines.get('chatA')?.messages.length).toBe(1), WAIT)
+      await act(async () => {
+        for (let seq = 2; seq <= 121; seq++) for (const listener of revisionListeners.get('message_created')!) await listener([{ event: 'message_created', revision: String(seq), payload: {
+          chat_id: 'chatA', entity_id: `send-${seq}`, message: { id: `send-${seq}`, chat_id: 'chatA', seq,
+            sender_user_id: 'a1', content: 'incoming', content_type: 'text', created_at: new Date().toISOString() },
+        } }])
+        scopedLines.get('chatA')!.setFollowingTail(false)
+      })
+      const before = sharedAccess.read('chatA').messageWindow
+      expect(before.messages).toHaveLength(120)
+      vi.mocked(chatService.getMessages).mockClear()
+      await act(async () => { await scopedLines.get('chatA')!.sendMessage('full-window-send') })
+      const pending = sharedAccess.read('chatA').messageWindow.messages.find((row) => row.content === 'full-window-send')!
+      expect(pending).toMatchObject({ seq: -1, local_send_state: 'sending' })
+      expect(sharedAccess.read('chatA').messageWindow).toMatchObject({ hasNewer: false, viewVersion: before.viewVersion })
+      await act(async () => { ack.resolve({ ...pending, seq: 122, local_send_state: undefined }) })
+      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.at(-1)).toMatchObject({ id: pending.id, seq: 122 }), WAIT)
+      expect(sharedAccess.read('chatA').messageWindow.viewVersion).toBe(before.viewVersion)
+      expect(chatService.getMessages).not.toHaveBeenCalled()
+    } finally { harness.cleanup() }
   })
 
   it('shows a topic attachment placeholder at the latest page and removes it when upload fails', async () => {

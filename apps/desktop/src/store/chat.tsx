@@ -799,8 +799,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     const toUserIds = opts.toUserIds?.length ? opts.toUserIds
       : (chat?.kind === 'dm' || chat?.kind === 'ai') && chat.peer_user_id ? [chat.peer_user_id] : null
     if (!opts.threadRootId) {
-      if (cache.history(chatId).getSnapshot().hasNewer) await loadHistoryPage('latest', chatId)
-      else cache.history(chatId).followForSend()
+      if (!cache.history(chatId).followForSend()) await loadHistoryPage('latest', chatId)
     }
     return sendAttachmentBatch({ ...opts, files, chatId, senderId: user.id, toUserIds, appendMessage,
       removePlaceholder: (id) => removeMessage(id, chatId) })
@@ -867,9 +866,16 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     platform.setBadge(total)
   }, [chats])
 
-  const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId) => ({
-    sendAttachments: (files, options) => sendAttachmentsToChat(chatId, files, options),
-    sendMessage: (content, options) => chatId ? sendMessageToChat(chatId, content, options) : Promise.resolve(undefined),
+  const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId, viewport = {}) => ({
+    sendAttachments: (files, options) => {
+      if (chatId) cache.setFollowingTail(chatId, viewport, true)
+      return sendAttachmentsToChat(chatId, files, options)
+    },
+    sendMessage: (content, options) => {
+      if (!chatId) return Promise.resolve(undefined)
+      cache.setFollowingTail(chatId, viewport, true)
+      return sendMessageToChat(chatId, content, options)
+    },
     toggleReaction: (id, emoji) => toggleReaction(id, emoji, chatId),
     refreshMessages: (target = chatId ?? undefined) => refreshMessages(target),
     loadOlderMessages: () => loadHistoryPage('older', chatId), loadNewerMessages: () => loadHistoryPage('newer', chatId),
@@ -880,7 +886,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     openUnreadChat: unreadNavigation.openUnreadChat,
     unreadEntry: unreadNavigation.entryFor(chatId), unreadNavigationPending: !!chatId && unreadNavigation.ownsChat(chatId),
     jumpToUnreadEntry: (viewport) => unreadNavigation.jumpToUnreadEntry(chatId, viewport),
-  }), [sendAttachmentsToChat, sendMessageToChat, toggleReaction, refreshMessages, loadHistoryPage, loadMessageAnchor,
+  }), [cache, sendAttachmentsToChat, sendMessageToChat, toggleReaction, refreshMessages, loadHistoryPage, loadMessageAnchor,
     markMessageVisible, clearMessages, removeMessage, deleteMessage, appendMessage, openThread, unreadNavigation])
   const conversations = useMemo<ChatConversationAccess>(() => ({
     read: (id) => { readChatWindow(id); return cache.view(id) }, subscribe: subscribeChatWindow,

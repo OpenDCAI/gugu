@@ -36,7 +36,7 @@ describe('cached scoped history ownership', () => {
     cache.setFollowingTail('chat', older, false)
     cache.setFollowingTail('chat', tail, true)
     expect(history.isFollowingTail()).toBe(false)
-    history.followForSend()
+    expect(history.followForSend()).toBe(false)
     expect(history.isFollowingTail()).toBe(false)
     stopOlder()
     expect(history.isFollowingTail()).toBe(true)

@@ -96,8 +96,8 @@ function QuickNote({ title, body, action, onAction, loading, testId }: { title?:
 function QuickThread({ chatId, name, visible }: { chatId: string; name: string; visible: boolean }) {
   const { t } = useTranslation('assistant')
   useReportChatOnScreen(visible ? chatId : null)
-  const { conversations, sendMessageToChat } = useChatStore('conversations', 'sendMessageToChat')
-  const { messages, loadingMessages } = useChatConversation(chatId, conversations)
+  const { conversations } = useChatStore('conversations')
+  const { messages, loadingMessages, sendMessage } = useChatConversation(chatId, conversations)
   const recent = messages.filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -121,7 +121,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
     setDraft('')
     setSendFailed(false)
     try {
-      await sendMessageToChat(chatId, text)
+      await sendMessage(text)
     } catch {
       setDraft(text)
       setSendFailed(true)

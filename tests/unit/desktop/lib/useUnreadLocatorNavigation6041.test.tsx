@@ -14,7 +14,7 @@ async function setup(loading = false) {
   const older = vi.fn().mockResolvedValue(undefined)
   const newer = vi.fn().mockResolvedValue(undefined)
   const input = {
-    activeChatId: 'a', rows: [{ type: 'message', message: { id: 'm10', seq: 10 } }, { type: 'message', message: { id: 'm20', seq: 20 } }],
+    activeChatId: 'a', navigationTarget: true, enabled: true, onNavigate: vi.fn(), rows: [{ type: 'message', message: { id: 'm10', seq: 10 } }, { type: 'message', message: { id: 'm20', seq: 20 } }],
     firstItemIndex: 100000, scrollerRef: { current: null as HTMLElement | null }, listRef: { current: null }, setFollowingTail: vi.fn(), setFlashMessageId: vi.fn(),
     flashTimerRef: { current: null }, hasMoreOlder: true, loadingOlder: loading, loadOlderMessages: older,
     hasMoreNewer: true, loadingNewer: false, loadNewerMessages: newer,
@@ -29,7 +29,7 @@ async function setup(loading = false) {
     await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: request })) })
     return request
   }
-  return { older, newer, input, reveal, render: () => harness.render(createNode(Probe)) }
+  return { older, newer, input, reveal, Probe, render: () => harness.render(createNode(Probe)) }
 }
 
 describe('unread reveal outside a bounded history window', () => {
@@ -51,6 +51,21 @@ describe('unread reveal outside a bounded history window', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: { ...request, chatId: 'a', viewport: other } })) })
     expect(request.reject).not.toHaveBeenCalled()
     expect(context.input.setFollowingTail).not.toHaveBeenCalled()
+  })
+
+  it('addresses the primary navigation surface, ignoring a same-chat empty hidden or filtered pane', async () => {
+    const context = await setup()
+    function OtherPane() { useUnreadLocatorNavigation({ ...context.input, navigationTarget: false, rows: [] }); return null }
+    await harness.render(createNode('div', null, createNode(context.Probe), createNode(OtherPane)))
+    context.input.enabled = false
+    const request = await context.reveal(5)
+    expect(context.input.onNavigate).toHaveBeenCalledOnce()
+    expect(request.reject).not.toHaveBeenCalled()
+    expect(context.older).not.toHaveBeenCalled()
+    context.input.enabled = true
+    await harness.render(createNode('div', null, createNode(context.Probe), createNode(OtherPane)))
+    expect(context.older).toHaveBeenCalledOnce()
+    expect(request.reject).not.toHaveBeenCalled()
   })
 
   it('waits for an in-flight page instead of rejecting the locator', async () => {

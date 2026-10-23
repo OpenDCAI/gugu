@@ -15,7 +15,7 @@ export type ChatConversationAccess = {
   read: (chatId: string) => ConversationSnapshot
   subscribe: (chatId: string, listener: (rows: MessageItem[]) => void, viewport: ConversationViewport) => () => void
   setFollowingTail: (chatId: string, viewport: ConversationViewport, following: boolean | undefined) => void
-  actions: (chatId: string | null) => ConversationActions
+  actions: (chatId: string | null, viewport?: ConversationViewport) => ConversationActions
   errorOf: (chatId: string | null) => Error | null
 }
 const EMPTY: ConversationSnapshot = {
@@ -33,7 +33,7 @@ export function useChatConversation(chatId: string | null, access: ChatConversat
   const subscribe = useCallback((listener: () => void) => chatId ? observe(chatId, listener, viewport) : () => undefined, [observe, chatId, viewport])
   const read = useCallback(() => chatId ? snapshot(chatId) : EMPTY, [snapshot, chatId])
   const state = useSyncExternalStore(subscribe, read)
-  const actions = useMemo(() => actionsOf(chatId), [actionsOf, chatId])
+  const actions = useMemo(() => actionsOf(chatId, viewport), [actionsOf, chatId, viewport])
   const { messageWindow, memberReadSeqs, activeThreadRootId, threadMessages, loadingThread } = state
   const { messages, hasOlder: hasMoreOlder } = messageWindow
   const threadScope = useMemo(() => deriveThreadScope({ rootId: activeThreadRootId, messages,

@@ -75,7 +75,7 @@ export function useTopicSurface({
   subscribeAccountRevision,
   onCreateFailed,
 }: UseTopicSurfaceArgs): TopicSurface {
-  const { conversations, sendMessageToChat } = useChatStore('conversations', 'sendMessageToChat')
+  const { conversations } = useChatStore('conversations')
   const chatId = chat?.id ?? null
   // 调用方传的是内联箭头;直接进依赖会让 openTopicFromMessage 每次渲染换身份 ——
   // 它原样下传给每条消息气泡,于是任何一次面板重渲都打穿全部气泡的 memo。只在事件时刻取最新的那个。
@@ -128,12 +128,12 @@ export function useTopicSurface({
     async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null) => {
       const body = text.trim()
       if (!body || !splitChatId || !userId) return
-      await sendMessageToChat(splitChatId, body, {
+      await line.sendMessage(body, {
         toUserIds: toUserIds?.length ? [...toUserIds] : null,
         replyToMessageId: replyToMessageId ?? null,
       })
     },
-    [splitChatId, userId, sendMessageToChat],
+    [splitChatId, userId, line.sendMessage],
   )
 
   const openTopicFromMessage = useCallback(
