@@ -114,8 +114,9 @@ const FJJ_RIG: Rig = {
     { id: 'fjj-part-foot-l', sprite: footL, kind: 'foot', side: -1, box: { x: 232, y: 823, w: 199, h: 98 }, at: { x: 323.7, y: 874.4 }, shade: { id: 'fjj-part-foot-l-ao', sprite: footLShade, box: { x: 229, y: 800, w: 227, h: 73 } } },
     { id: 'fjj-part-foot-r', sprite: footR, kind: 'foot', side: 1, box: { x: 564, y: 825, w: 202, h: 99 }, at: { x: 671.0, y: 877.7 }, shade: { id: 'fjj-part-foot-r-ao', sprite: footRShade, box: { x: 539, y: 803, w: 235, h: 71 } } },
     { id: 'fjj-part-beak', sprite: beak, kind: 'beak', side: 0, box: { x: 439, y: 366, w: 181, h: 155 }, at: { x: 536.1, y: 444.6 } },
-    { id: 'fjj-part-wing-l', sprite: wingL, kind: 'wing', side: -1, box: { x: 10, y: 403, w: 175, h: 291 }, at: { x: 168, y: 470 }, grip: { x: 65.7, y: 575.9 }, shade: { id: 'fjj-part-wing-l-ao', sprite: wingLShade, box: { x: 101, y: 386, w: 103, h: 319 } } },
-    { id: 'fjj-part-wing-r', sprite: wingR, kind: 'wing', side: 1, box: { x: 819, y: 419, w: 168, h: 282 }, at: { x: 836, y: 488 }, grip: { x: 930.6, y: 591.3 }, shade: { id: 'fjj-part-wing-r-ao', sprite: wingRShade, box: { x: 805, y: 411, w: 99, h: 301 } } }
+    // 肩轴靠近翅根上端:抬翅时根部留在体侧,不让上端绕翅膀中段扫进胸口。
+    { id: 'fjj-part-wing-l', sprite: wingL, kind: 'wing', side: -1, box: { x: 10, y: 403, w: 175, h: 291 }, at: { x: 168, y: 425 }, grip: { x: 65.7, y: 575.9 }, shade: { id: 'fjj-part-wing-l-ao', sprite: wingLShade, box: { x: 101, y: 386, w: 103, h: 319 } } },
+    { id: 'fjj-part-wing-r', sprite: wingR, kind: 'wing', side: 1, box: { x: 819, y: 419, w: 168, h: 282 }, at: { x: 836, y: 441 }, grip: { x: 930.6, y: 591.3 }, shade: { id: 'fjj-part-wing-r-ao', sprite: wingRShade, box: { x: 805, y: 411, w: 99, h: 301 } } }
   ]
 }
 

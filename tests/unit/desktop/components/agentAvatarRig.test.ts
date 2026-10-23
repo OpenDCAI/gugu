@@ -43,7 +43,8 @@ describe('刚体部件', () => {
 
   it('翅膀抬起时它压在身上的接触阴影淡掉', () => {
     const wing = rig.pieces.find((p) => p.kind === 'wing')!
-    expect(piecePose(rig, wing, still, newPose()).shade).toBe(1)
+    expect(piecePose(rig, wing, still, newPose()).shade).toBeGreaterThan(0)
+    expect(piecePose(rig, wing, still, newPose()).shade).toBeLessThan(0.5)
     expect(piecePose(rig, wing, { ...still, wl: 1, wr: 1 }, newPose()).shade).toBe(0)
   })
 })
