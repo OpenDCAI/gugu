@@ -35,6 +35,21 @@ export class SessionHostTooOldError extends Error {
 /** 开线 / 发帧的一次设备 RPC 等多久(咕咕云一来一回 + 那台机器处理)。 */
 const OPEN_TIMEOUT_MS = 15_000
 const FRAME_TIMEOUT_MS = 20_000
+/**
+ * 桌面连别的机器时,只装着心跳的那一批等应答多久(#156)。那台机器收下一批就当场回(不等处理,device-session-host 的
+ * `taskhost.frame`),心跳又小:几秒没回 = 那台机器没了,断开让客户端重连,机器的状态随之变成「重新连接」。咕咕云上
+ * 没回还会重新报到、原样再问一次(#7233),所以最长 2 × 这个数。❌ 按办事的那一批等 20 s(再加一次重问):死掉的机器要
+ * 30 多秒才被发现。
+ */
+export const HEARTBEAT_REPLY_TIMEOUT_MS = 4_000
+
+export type RemoteSessionHostPipeOptions = {
+  /**
+   * 给了 = 心跳兼探活,只装着心跳的那一批等这么久(桌面连别的机器:HEARTBEAT_REPLY_TIMEOUT_MS)。
+   * 不给 = 心跳与办事的那一批一样等 FRAME_TIMEOUT_MS(手机:蜂窝网一切换就是几秒,❌ 几秒没回就断线重开、重新订阅)。
+   */
+  heartbeatReplyTimeoutMs?: number
+}
 
 export type DeviceRpcDeps = {
   call: typeof callDeviceRpc
@@ -117,7 +132,16 @@ export function openPhoneSessionHostPipe(deviceId: string): SessionHostPipeOpene
   return openRemoteSessionHostPipe(deviceId, { ...defaultDeps, desktop: undefined })
 }
 
-export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps = defaultDeps): SessionHostPipeOpener {
+/** 桌面连别的机器开的窗口:心跳兼探活(#156),那台机器没了几秒内就发现。 */
+export function openMachineSessionHostPipe(deviceId: string): SessionHostPipeOpener {
+  return openRemoteSessionHostPipe(deviceId, defaultDeps, { heartbeatReplyTimeoutMs: HEARTBEAT_REPLY_TIMEOUT_MS })
+}
+
+export function openRemoteSessionHostPipe(
+  deviceId: string,
+  deps: DeviceRpcDeps = defaultDeps,
+  options: RemoteSessionHostPipeOptions = {},
+): SessionHostPipeOpener {
   const opener: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
     const client = deps.newClientId()
     let closed = false
@@ -126,6 +150,8 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
     let abandonOpen: ((error: Error) => void) | null = null
     const joiner = createPieceJoiner(onFrame)
     const order = createSeqOrderer<SessionHostPiece[]>(joiner)
+    /** 听到那台机器多少回(推来的一批、对哪一批的应答)。探活那一问没回,可期间听到过它 = 它还在,只是线上正忙。 */
+    let heard = 0
     const shut = (reason: string) => {
       if (closed) return
       closed = true
@@ -143,7 +169,9 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
           return
         }
         const batch = batchFor(payload, client)
-        if (batch) order(batch.seq, batch.frames)
+        if (!batch) return
+        heard += 1
+        order(batch.seq, batch.frames)
       },
       {
         // 线开好之后频道又(重)接上 = 中间断过:断着的那段推送丢了,关掉重开一条(重开会重新订阅、重新取快照)。
@@ -193,26 +221,43 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
     live = true
     let outSeq = 0
     let outbox: (string | Uint8Array)[] = []
+    let outboxOnlyHeartbeats = true
     let flushScheduled = false
+    /** 发出去还没回的批数。 */
+    let unanswered = 0
     const flush = () => {
       flushScheduled = false
       const frames = outbox
+      // 探活:只装着心跳、前面也没有还没回的批。排在一大批后面的心跳回得慢是在排队,❌ 当成对面没了把正在传的线掐断。
+      const probe = options.heartbeatReplyTimeoutMs !== undefined && outboxOnlyHeartbeats && unanswered === 0
+      const timeoutMs = probe ? options.heartbeatReplyTimeoutMs! : FRAME_TIMEOUT_MS
+      const heardAtSend = heard
       outbox = []
+      outboxOnlyHeartbeats = true
       for (const pieces of toPieces(frames)) {
         const batch: SessionHostFrameBatch = { client, seq: outSeq++, frames: pieces }
-        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs: FRAME_TIMEOUT_MS }).then(
+        unanswered += 1
+        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs }).then(
           (reply) => {
+            unanswered -= 1
             // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
             if (reply.error) shut(`frame rejected: ${reply.error.code}`)
+            else heard += 1
           },
-          () => shut('frame not delivered'),
+          () => {
+            unanswered -= 1
+            // 探活那一问没回,可这期间听到过那台机器(推来的帧、别的批的应答):它还在,下一拍再问。
+            if (probe && heard !== heardAtSend) return
+            shut('frame not delivered')
+          },
         )
       }
     }
     const pipe: SessionHostPipe = {
-      send: (frame) => {
+      send: (frame, kind) => {
         if (closed) throw new Error('session host link closed')
         outbox.push(frame)
+        if (kind !== 'heartbeat') outboxOnlyHeartbeats = false
         if (!flushScheduled) {
           flushScheduled = true
           queueMicrotask(flush)

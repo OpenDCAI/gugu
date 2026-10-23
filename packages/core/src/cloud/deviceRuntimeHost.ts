@@ -6,6 +6,7 @@ import {
   DEVICE_HEARTBEAT_INTERVAL_MS,
   resolveLocalDeviceId,
   runDeviceRuntimeTick,
+  markDeviceOffline,
   syncDeviceHeartbeat,
   cleanupLegacyDeviceRows,
   type AgentDeliverFailure,
@@ -20,7 +21,9 @@ import {
   type DeviceHeartbeatTableClient
 } from './deviceRuntime'
 import {
+  readDeviceRuntimeInstances,
   reportRuntimeInstanceHeartbeat,
+  retireRuntimeInstance,
   type DeviceCommandTableClient,
   type ProcessDeviceCommandResult,
   RUNTIME_INSTANCE_STALE_MS,
@@ -1357,6 +1360,8 @@ export function createDeviceRuntimeHostLoop(
 
   async function stop(): Promise<void> {
     const runningTick = activeTick
+    const ownerAtStop = activeOwnerUserId
+    const deviceAtStop = lastDeviceId
     stopped = true
     lifecycleGeneration += 1
     activeTickAbortController?.abort(new Error('device runtime host stopped'))
@@ -1385,8 +1390,38 @@ export function createDeviceRuntimeHostLoop(
     if (activeScheduledTasksRun) await activeScheduledTasksRun.catch(() => undefined)
     if (activeLeaseRenewal) await activeLeaseRenewal
     if (activeActivityPublish) await activeActivityPublish.catch(() => undefined)
-    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired,设备行由租约清扫者在
-    // 租约过期后翻成 offline(#5912)。逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    // 在路上的心跳先落地:它写的是「在线」,落在下面那一句之后就又把这台标回在线了。
+    await Promise.all([...heartbeatFlights.values()].map((flight) => flight.catch(() => undefined)))
+    // 这台机器要走了:设备行当场标离线(#156),名下别的设备马上看见,❌ 等两分钟租约过期、看起来和崩溃一样。
+    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired(#5912),这一行就够了;
+    // 逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    if (ownerAtStop && deviceAtStop) await announceOffline(ownerAtStop, deviceAtStop)
+  }
+
+  async function announceOffline(ownerUserId: string, deviceId: string): Promise<void> {
+    try {
+      const auth = await options.authProvider.getAuth()
+      if (!auth?.accessToken || auth.userId !== ownerUserId) return
+      const client = options.makeIdentityClient(auth.accessToken)
+      // 先注销自己这个实例,再看兄弟:两个一起停(关机)时,后看的那个一定看得见先走的已经走了,至少有一个说离线。
+      await retireRuntimeInstance(client, instanceId, options.operationTimeouts)
+      // 同账号同机的别的实例共用这一行(#5041):它还活着,这台机器就没走 ——
+      // ❌ 替它说离线(要等它下一拍心跳才写回在线,中间别的设备都读成离线)。
+      const instances = await readDeviceRuntimeInstances(client, deviceId, options.operationTimeouts)
+      const siblingAlive = instances.some((instance) => {
+        if (instance.instanceId === instanceId) return false
+        const at = Date.parse(instance.lastHeartbeatAt)
+        return !Number.isNaN(at) && nowMs() - at < RUNTIME_INSTANCE_STALE_MS
+      })
+      if (siblingAlive) return
+      await markDeviceOffline(client, deviceId, {
+        nowIso: options.nowIso,
+        operationTimeouts: options.operationTimeouts,
+      })
+    } catch (error) {
+      // 说不出去(断网、令牌没了):别处照旧在租约过期后看见它离线。
+      options.warn?.(`[device-runtime] could not mark this device offline on stop: ${(error as Error).message}`)
+    }
   }
 
   function getDebugSnapshot(): DeviceRuntimeHostDebugSnapshot {
@@ -1412,7 +1447,8 @@ export function createDeviceRuntimeHostLoop(
   }
 
   return {
-    tickOnce: () => tickOnce('event'),
+    // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
+    tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,
     notifyCommandsChanged: () => {
       noteCommandAnnouncement()
