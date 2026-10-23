@@ -41,10 +41,8 @@ export const TITLEBAR_ACTION_EDGE_GAP_PX = 8
 export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
 
 /**
- * 侧栏收起时,主内容区左上角浮着一枚 28px 的「展开侧栏」按钮(shell-titlebar.tsx 的
- * <ShellSidebarRestoreButton>)。它是零高度浮层里的 absolute 元素,**不占版面** —— 于是同处这条
- * 40px 带、且自己就贴着主内容区左缘的容器,必须自己让开这条车道:
- *     左缘呼吸 8 + 按钮 28 + 一道行内间距 4 = 40px。
+ * Layout and collapse stay at the workspace's left edge when the sidebar is closed.
+ * Reserve their two slots plus the shared edge and gap before title content or search.
  *
  * 不让开就是「浮动按钮压住内容」:实机(#4129 那张图)工作区面板全屏 + 侧栏收起时,首个页签的
  * 文件图标和这枚按钮叠成一团。会话栏 header 早就在让(session-chat-column.tsx),页签条没跟上。
@@ -52,7 +50,7 @@ export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
  * ❌ 别在调用点另写 40:按钮改档时这里是唯一要动的地方。
  */
 export const SHELL_RESTORE_LANE_PX =
-  TITLEBAR_LEFT_EDGE_GAP_PX + TITLEBAR_ACTION_SLOT_WIDTH_PX + TITLEBAR_ACTION_SLOT_GAP_PX
+  TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(2) + TITLEBAR_ACTION_SLOT_GAP_PX
 
 /** n 个 28px 槽位 + (n-1) 道间距;n=0 时该组不占宽。 */
 export function titlebarActionsWidth(slotCount: number): number {
@@ -81,11 +79,10 @@ export function hasWindowTitlebarRow(platform: string | undefined): boolean {
 }
 
 /**
- * 内容区实际要让出的那条侧栏开关车道(SHELL_RESTORE_LANE_PX)。Windows 上开关住在标题栏行(#6753),
- * 不压内容 ⇒ 0;其余平台它浮在内容左上角,照旧让。
+ * Sidebar controls share the content header on every desktop platform.
  */
-export function shellRestoreLane(platform: string | undefined): number {
-  return hasWindowTitlebarRow(platform) ? 0 : SHELL_RESTORE_LANE_PX
+export function shellRestoreLane(_platform: string | undefined): number {
+  return SHELL_RESTORE_LANE_PX
 }
 
 /** 标题栏行占掉的竖直高度;没有这一行的平台为 0,内容从窗口顶端起。 */

@@ -8,7 +8,7 @@ import { listSlotOf, usePanelToggle } from '../lib/panelToggles'
 import { UI_EVENTS } from '../lib/uiEvents'
 import type { WindowMenuCommand } from '../../shared/window-menu-commands'
 import type { ShellNavigation } from '../hooks/useShellNavigation'
-import { FilePanelToggle, ListColumnToggle } from './PanelToggleButtons'
+import { FilePanelToggle } from './PanelToggleButtons'
 import { IconButton } from './ui/IconButton'
 import { DropdownMenu, MenuItem, MenuSeparator } from './ui/Menu'
 import type { DesktopWindowBridge } from './WindowControls'
@@ -17,10 +17,10 @@ import './WindowTitleBar.css'
 /**
  * @@@win-titlebar-row — Windows 的独立标题栏行:标准 Windows 应用的那条顶栏。
  *
- *   [← →] [◧] [文件 编辑 视图 帮助] ·········(拖拽区)········· [◨] [– □ ×]
+ *   [← →] [文件 编辑 视图 帮助] ·········(拖拽区)········· [◨] [– □ ×]
  *
- * ◧ ◨ = 列表栏 / 文件面板开关(PanelToggleButtons.tsx,#6753):◧ 每个页签都在同一坐标(= mac 上那颗:rail 宽 + 8),
- * 菜单才不会随切页左右跳;◨ 只在会话页有,贴着窗口控件,不画时拖拽区顶上,别的都不动。
+ * The list toggle lives beside sidebar layout in the content header. Menus have the same
+ * starting position on every tab; the file toggle remains beside window controls.
  *
  * 颜色与最左侧栏相同(--nav-rail),同在窗口底层;其下的区域关系与 mac 同一套(tokens.css 的
  * @@@win-titlebar-row)。拖窗口只归这一行。
@@ -108,10 +108,6 @@ export function WindowTitleBar({ desktopWindow: dw, controls, navigation, active
         >
           <ArrowRight />
         </IconButton>
-      </div>
-
-      <div className="gg-titlebar-panel-toggle" data-edge="start">
-        <ListColumnToggle slot={listSlotOf(activeTab)} disabledLabel={t('shell.panelToggles.noList')} />
       </div>
 
       <Menubar

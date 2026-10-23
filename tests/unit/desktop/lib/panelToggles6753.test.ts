@@ -65,9 +65,8 @@ describe('peekZones:标题栏行那一截', () => {
 })
 
 describe('内容区的侧栏开关车道', () => {
-  it('Windows 上开关在标题栏行,内容区不再让;其余平台照旧让', () => {
-    expect(shellRestoreLane('win')).toBe(0)
-    for (const platform of ['mac', 'linux', 'other', undefined]) {
+  it('layout and collapse reserve the same content header lane on every platform', () => {
+    for (const platform of ['win', 'mac', 'linux', 'other', undefined]) {
       expect(shellRestoreLane(platform)).toBe(SHELL_RESTORE_LANE_PX)
     }
   })

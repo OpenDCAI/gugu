@@ -31,14 +31,14 @@ import {
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SidebarSearchTrigger } from './sidebar-search-trigger';
 import { SidebarSpace } from './sidebar-space';
-import { SidebarListLayoutButton, SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
+import { SidebarListSwitch, useSidebarLayoutContextMenu } from './sidebar-list-switch';
 import { openShellChatAction, shellChatActions, SidebarChatsSection } from './sidebar-chats-section';
 import { publishSidebarChatView, publishSidebarSessions, useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
 import { SidebarVirtualList } from './sidebar-virtual-list';
 import { useSidebarDrop } from './use-sidebar-drop';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
-// gugu-dev#181 侧栏,自上而下:切换「项目 | 对话」→ 搜索 → 三行入口 → 置顶 → 列表,两页同一副骨架。
+// 侧栏自上而下:布局 / 折叠 / 搜索 →「项目 | 对话」→ 三行入口 → 置顶 → 列表,两页同一副骨架。
 // 三行入口的第一行都是「新建会话」;项目页另两行是会话历史、已安排,对话页是新建群聊、添加联系人。
 // 合在一起时没有切换,入口留项目那三行,列表是 置顶 → 项目 → 会话 → 对话。
 // No foot: 资源库 and 设置 are on the far-left rail (product spec, #7046) — they belong to the gugu shell.
@@ -182,7 +182,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
           </span>
         </div>
       )}
-      <SidebarSpace end={<SidebarListLayoutButton />} />
+      <SidebarSpace><SidebarSearchTrigger /></SidebarSpace>
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
         <SidebarContent className="flex flex-col">
           {/* mb-2:固定的动作区与下面滚动的分区之间要有一道呼吸。原先 mb-0 让「已安排」与
@@ -190,7 +190,6 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
           <SidebarGroup className="mb-2 flex shrink-0 flex-col">
             <SidebarMenu>
               {!merged && <SidebarListSwitch projectsUnread={projectsUnread} chatsUnread={chatsUnread} />}
-              <SidebarSearchTrigger />
               {/* 新建任务是一个视图(compose 页),与「已安排」「设置」同理:正在看它时带 active
                   底色。以前写死 isActive={false},落地页上只剩键盘光标那圈 ring 孤零零地画着,
                   读起来像一个描边样式的按钮,与旁边几行不是一套。
