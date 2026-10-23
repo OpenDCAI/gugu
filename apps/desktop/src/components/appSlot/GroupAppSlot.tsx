@@ -504,7 +504,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       if (props.full) toggleFull.current?.()
     }
   }, [peekingSession, props.full])
-  const heading = extensionTabTitle(shown, kind ? installedExtensionsStore.tabTitle(kind) ?? props.title : props.title, opened?.itemId ? { name: opened.title, path: opened.fileName ?? opened.title } : undefined)
+  const heading = extensionTabTitle(shown, opened?.kind ? installedExtensionsStore.tabTitle(opened.kind) ?? props.title : props.title, opened?.itemId ? { name: opened.title, path: opened.fileName ?? opened.title } : undefined)
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error

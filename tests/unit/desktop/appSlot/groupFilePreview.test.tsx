@@ -46,9 +46,9 @@ let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
 let request = 766300
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })
-const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem } = {}) => createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
-  chatId: opener.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close, visible: extra.visible ?? true, onForward: boundary.forward,
-  fileToOpen: { chatId: opener.chatId, itemId: opener.itemId, request: ++request, ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener } : {}) },
+const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void } = {}) => createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
+  chatId: opener.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close, visible: extra.visible ?? true, tabbed: extra.tabbed, onForward: boundary.forward,
+  fileToOpen: { chatId: opener.chatId, itemId: opener.itemId, request: ++request, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener } : {}) },
 }))
 beforeEach(() => {
   harness = createReactHarness()
@@ -66,6 +66,7 @@ beforeEach(() => {
   boundary.read.mockResolvedValue({ status: 'ready', blob: { text: async () => '<h1>lane report</h1>', arrayBuffer: async () => new ArrayBuffer(4) } })
   boundary.document.mockResolvedValue({ text: '<h1>live report</h1>' })
   boundary.save.mockResolvedValue(undefined)
+  for (const item of [...groupSlotMemory.tabs('preview-group')]) groupSlotMemory.close('preview-group', item)
   groupSlotMemory.setOpened('preview-group', null)
   act(() => installedExtensionsStore.applyList({ extensions: [workspace], invalid: [] } as never))
 })
@@ -155,11 +156,30 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(boundary.close).not.toHaveBeenCalled()
   })
 
-  it('the desktop preview close button closes the whole panel instead of going back', async () => {
-    await harness.render(slot(detail('exe')))
-    const close = harness.container.querySelector('header')!.lastElementChild as HTMLButtonElement
+  it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
+    const source = { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', opening: 17401 }
+    groupSlotMemory.setOpened('preview-group', source)
+    const file = detail('exe')
+    await harness.render(slot(file, true, { tabbed: true }))
+    expect(harness.container.querySelector('header')).toBeNull()
+    const bar = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!
+    const close = bar.lastElementChild as HTMLButtonElement
     await act(async () => close.click())
+    expect(groupSlotMemory.opened('preview-group')).toBe(source)
+    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
+    expect(boundary.close).not.toHaveBeenCalled()
+  })
+
+  it('a message entry has Close, removes its object and then restores the original message', async () => {
+    const restore = vi.fn()
+    const file = detail('exe')
+    await harness.render(slot(file, true, { tabbed: true, restore }))
+    expect(harness.container.querySelector('button[aria-label="返回"]')).toBeNull()
+    const close = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!.lastElementChild as HTMLButtonElement
+    await act(async () => close.click())
+    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
     expect(boundary.close).toHaveBeenCalledTimes(1)
+    expect(restore).toHaveBeenCalledTimes(1)
   })
 
   it('expands and restores a group HTML preview without replacing its page or returning to the folder', async () => {

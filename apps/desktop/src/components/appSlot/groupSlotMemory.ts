@@ -57,7 +57,7 @@ export interface FileToOpen extends AskedFile {
  *
  * The right side shows one thing at a time (#1312): the panel, or the topic opened beside the group. The other one
  * stays open as a tab, not shown — so the panel's things are listed while the panel is closed, and `topic` is the
- * topic open beside the group, `shown` while its pane is up. Only a tab's × closes it.
+ * topic open beside the group, `shown` while its pane is up. Leaving an object through Back or × closes its tab.
  */
 type PanelItem = OpenedWith | null
 
@@ -105,7 +105,7 @@ export const groupSlotMemory = {
     askedApps.delete(chatId)
     return extensionId
   },
-  /** The panel came up: what it shows is open — the folder too, when nothing else was — a tab until its ×. */
+  /** The panel came up: what it shows is open — the folder too, when nothing else was — a tab until it is closed. */
   noteShown(chatId: string) {
     const entry = entryOf(chatId)
     if (entry.open.length > 0) return
