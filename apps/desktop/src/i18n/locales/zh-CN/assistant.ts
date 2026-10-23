@@ -86,6 +86,8 @@ export default {
     "unavailable": "这里还开通不了咕咕。"
   },
   "setup": {
+    "identityTitle": "给它一个名字和形象",
+    "customizeLook": "换形象",
     "nameTitle": "给它起个名字",
     "membershipUnreadable": "暂时读不到你的会员状态，请重试。",
     "cloudNotOpen": "云端服务尚未开放，当前无法选择。",

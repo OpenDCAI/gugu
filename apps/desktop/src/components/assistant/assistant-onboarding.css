@@ -98,3 +98,10 @@
 
 /* 开通后聊天里的「自定义」卡(AssistantCustomizeCard):接在消息流末尾,一颗胶囊按钮 + 一个小叉,照 dots「自定义你的 dot ›」。 */
 .ta-customize-card { display: flex; align-items: center; gap: 6px; padding: 4px 16px 12px; }
+
+/* 开通前的形象入口与现有形象工坊；窄屏沿用工坊自己的纵向布局。 */
+.ta-onb-look.ta-onb-look { display: flex; flex-direction: column; gap: 6px; border-radius: var(--ta-radius-control); padding: 8px 20px; }
+.ta-onb-look-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--ta-fs-note); color: var(--ta-muted); }
+.ta-onb-workshop { overflow: auto; padding: var(--spacing-lg); }
+.ta-onb-look-header { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin-bottom: var(--spacing-md); }
+.ta-onb-look-header h2 { margin: 0; font-size: var(--font-title); font-weight: 600; }

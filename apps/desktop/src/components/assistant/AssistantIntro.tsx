@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Avatar } from '../Avatar'
+import { AgentAvatar } from '../agentAvatar/AgentAvatar'
+import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { Button } from '../ui/Button'
 import { ListChecks, MessageCircle } from '@/lib/icons'
 import '../../i18n/registerAssistantCatalog'
@@ -30,7 +31,7 @@ export function AssistantIntro({
   const rows: { key: string; icon: ReactNode; title: string; body: string }[] = [
     {
       key: 'gugu',
-      icon: <Avatar name={t('rail')} seed="gugu-default" size={22} isAgent harnessBadge={false} />,
+      icon: <AgentAvatar id="assistant-intro" name={t('rail')} look={DEFAULT_ASSISTANT_LOOK} size={22} />,
       title: t('intro.guguTitle'),
       body: t('intro.guguBody'),
     },
@@ -39,7 +40,7 @@ export function AssistantIntro({
   ]
   return (
     <>
-      <Avatar name={t('rail')} seed="gugu-default" size={88} isAgent harnessBadge={false} />
+      <AgentAvatar id="assistant-intro" name={t('rail')} look={DEFAULT_ASSISTANT_LOOK} size={88} />
       <h1 className="ta-onb-title">{t('intro.title')}</h1>
       <p className="ta-onb-sub">{t('intro.sub')}</p>
       <ul className="ta-onb-intro" data-testid="assistant-intro-rows">

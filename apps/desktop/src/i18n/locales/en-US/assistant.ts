@@ -86,6 +86,8 @@ export default {
     "unavailable": "Gugu isn't available here yet."
   },
   "setup": {
+    "identityTitle": "Choose a name and look",
+    "customizeLook": "Customize appearance",
     "nameTitle": "Give your assistant a name",
     "membershipUnreadable": "Could not read your membership. Please retry.",
     "cloudNotOpen": "Cloud hosting is not enabled and cannot be selected yet.",
