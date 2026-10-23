@@ -1,16 +1,19 @@
 import { FilePlus2, FileText, Globe, Link2, ListChecks } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
+import { useQuery } from '@tanstack/react-query';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { findAcpChatStore } from '@renderer/features/sessions/acp/acp-chat-resource-manager';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { log } from '@renderer/utils/logger';
 import { Button } from '@renderer/lib/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/lib/ui/popover';
 import { Separator } from '@renderer/lib/ui/separator';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { fileUrlToMachinePath } from '@shared/preview/remote-page-url';
-import type { SessionOutput } from '@shared/view-state';
+import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import {
   collectSubagents,
   SessionSubagentsSection,
@@ -42,7 +45,7 @@ const VISIBLE_SOURCES = 4;
 const URL_RE = /https?:\/\/[^\s)>"'\]]+/g;
 
 /** 文件与本机网页写文件名;网址写去掉协议的全址(与来源一节同一个写法)。 */
-function outputLabel(output: SessionOutput): string {
+function outputLabel(output: OpenedOutput): string {
   if (output.kind === 'file') return basenameFromAnyPath(output.path);
   const filePath = fileUrlToMachinePath(output.url);
   return filePath ? basenameFromAnyPath(filePath) : output.url.replace(/^https?:\/\//, '');
@@ -72,6 +75,26 @@ function collectSources(sessionId: string | undefined): string[] {
     }
   }
   return urls;
+}
+
+/**
+ * 「输出」读会话所在那台机器上的那一份记录(宿主 `session-outputs.ts`),❌ 这台桌面自己记:那样重启、换一台电脑、
+ * 没人看着时攒下的都对不上。面板开着时页签每变一次读一次 —— agent 打开东西,这一页就多一个页签。
+ */
+function useSessionOutputs(sessionId: string | undefined, open: boolean, tabCount: number) {
+  return useQuery({
+    queryKey: ['session-outputs', sessionId, tabCount],
+    enabled: open && !!sessionId,
+    retry: false,
+    queryFn: async () => {
+      const result = await rpcOn(machineRegistry.machineOf(sessionId!))
+        .sessionTimeline.sessionOutputs({ conversationId: sessionId! })
+        .catch((error: unknown) => ({ ok: false as const, error: String(error) }));
+      if (result.ok) return result.value;
+      log.warn('[outputs] reading the session outputs failed', { sessionId, error: result.error });
+      throw new Error('session outputs unreadable');
+    },
+  });
 }
 
 export const SessionOutputsPopover = observer(function SessionOutputsPopover({
@@ -139,10 +162,13 @@ export const SessionOutputsPopover = observer(function SessionOutputsPopover({
    * 面板里第一个可聚焦的东西 —— 第一张卡的「停止」键 —— 正在输入框 / 终端里打字的人下一下回车就把命令停了。
    */
   const focusOnOpen = useRef(false);
+  const panelOpen = pageShown && isOutputsPanelOpen(current);
+  const tabCount = viewModel.paneLayout.groups.reduce((count, group) => count + group.pane.resolvedTabs.length, 0);
+  const outputs = useSessionOutputs(sessionId, panelOpen, tabCount);
 
   return (
     <Popover
-      open={pageShown && isOutputsPanelOpen(current)}
+      open={panelOpen}
       onOpenChange={(nextOpen, details) => {
         // 规则见 outputsPanelEventFor。「这次 Esc 是不是发自面板里」看这次按键自己的来路(composedPath)。
         const event = outputsPanelEventFor(nextOpen, details.reason, {
@@ -193,14 +219,16 @@ export const SessionOutputsPopover = observer(function SessionOutputsPopover({
         <div className="px-2 pt-1 text-xs font-medium text-foreground-muted">
           {translate('task.outputs')}
         </div>
-        {viewModel.outputs.length === 0 ? (
+        {outputs.isError ? (
+          <div className="px-2 py-1 text-sm text-foreground-passive">{translate('task.outputsUnreadable')}</div>
+        ) : (outputs.data ?? []).length === 0 ? (
           <div className="flex items-center gap-2 px-2 py-1 text-sm text-foreground-passive">
             <FilePlus2 className="size-3.5 shrink-0" />
             {translate('task.outputsHint')}
           </div>
         ) : (
           <div className="flex max-h-56 flex-col overflow-y-auto">
-            {viewModel.outputs.map((output) => {
+            {outputs.data?.map((output) => {
               const target = output.kind === 'file' ? output.path : output.url;
               const Icon = output.kind === 'file' ? FileText : Globe;
               return (

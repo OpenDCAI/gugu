@@ -21,6 +21,7 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
 import { cloudWakeFailureText } from '@renderer/features/remote-hosts/connection-status';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useCloudComputerGate } from './use-cloud-computer-gate';
+import { workspaceReachLabel } from './workspace-backend/workspace-surface';
 
 const spinnerLog = rendererLogger('sessionpage/loading-span');
 
@@ -132,6 +133,9 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
     void getProjectManagerStore().ensureMounted(projectId).catch(() => {});
   }, [kind, projectId]);
   const cloud = useCloudComputerGate(projectId, sessionId, kind);
+  // 别的机器上的会话、那台此刻够不着(离线 / 开机恢复时线刚通又断):说它离线,❌ 一直转「正在准备文件」或摆一块
+  // 「准备失败」。线通了由 view.tsx 那一处照常准备(准备只有那一个入口)。
+  const unreachable = workspaceReachLabel(projectId);
 
   if (kind === 'creating') {
     return (
@@ -174,6 +178,10 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
         <LoadingIndicator ariaLabel={translate('remoteHost.status.waking', { device: cloud.label })} label={translate('remoteHost.status.waking', { device: cloud.label })} />
       </div>
     );
+  }
+
+  if (unreachable && (kind === 'project-mounting' || kind === 'provisioning' || kind === 'idle' || kind === 'provision-error')) {
+    return <div className="flex h-full w-full items-center justify-center text-sm text-foreground-muted">{unreachable}</div>;
   }
 
   if (kind === 'project-mounting' || kind === 'provisioning') {

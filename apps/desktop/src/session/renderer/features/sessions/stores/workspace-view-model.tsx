@@ -30,11 +30,11 @@ import { sessionTabKind } from '@renderer/features/sessions/session-tab-kind';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { closeTabsOfSession, findChatPaneId, findConversationAnchor } from '../view/session-pane-policy';
 import { OutputsPanelStore } from '../view/outputs-panel-state';
+import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { browserAddressKey } from '@shared/browser';
 import type {
   DiffViewSnapshot,
-  SessionOutput,
   SessionViewSnapshot,
   TerminalDrawerActiveItem,
 } from '@shared/view-state';
@@ -68,8 +68,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   readonly editorView: EditorViewStore;
   /** 「输出/来源」面板按会话的开合 —— 切 task 要留着,所以不能是弹层组件的 state(#6572)。 */
   readonly outputsPanel = new OutputsPanelStore();
-  /** 最近开的在前,同一个文件 / 网址只留一条。整份替换(`observable.ref`),存盘拿到的就是普通数组。 */
-  outputs: SessionOutput[] = [];
 
   /**
    * Returns the focused pane's PaneStore.
@@ -150,7 +148,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       terminalTabs: false,
       editorView: false,
       outputsPanel: false,
-      outputs: observable.ref,
       diffView: observable.ref,
       activeRenderer: computed,
     });
@@ -281,17 +278,11 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     void openFileInSessionEditor(this.projectId, this.sessionId, path, opts);
   }
 
-  recordOutput(output: SessionOutput): void {
-    const key = (o: SessionOutput) => (o.kind === 'file' ? o.path : o.url);
-    // 存盘里的一格,❌ 无限长。
-    this.outputs = [output, ...this.outputs.filter((o) => key(o) !== key(output))].slice(0, 50);
-  }
-
   /**
    * 文件走人点开文件的那条路(扩展认领、工作区外、已经删掉的提示都在那里);网页走 showPage(开着就切回去)。
    * 都开在对话右边:「输出」里是 agent 打开过的东西,重开和 agent 打开时同一个位置(spec session-page「并排」)。
    */
-  reopenOutput(output: SessionOutput): void {
+  reopenOutput(output: OpenedOutput): void {
     if (output.kind === 'file') {
       this.openFile(output.path, { beside: true });
       return;
@@ -386,7 +377,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
       terminals: this.terminalTabs.snapshot,
       editor: this.editorView.snapshot,
       diffView: this.diffView?.snapshot ?? this._savedDiffViewSnapshot,
-      outputs: this.outputs,
     };
   }
 
@@ -421,7 +411,6 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
     if (savedSnapshot.diffView) {
       this._savedDiffViewSnapshot = savedSnapshot.diffView;
     }
-    this.outputs = savedSnapshot.outputs ?? [];
   }
 
   /**
