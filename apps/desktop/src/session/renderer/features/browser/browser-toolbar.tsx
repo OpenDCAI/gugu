@@ -38,6 +38,7 @@ import {
   previousBrowserZoomFactor,
   type BrowserSessionSnapshot,
 } from '@shared/browser';
+import { AgentBrowserResumeButton } from './agent-browser-state';
 import { browserSessionStore } from './browser-session-store';
 import {
   canOpenBrowserUrlExternally,
@@ -66,6 +67,7 @@ export function BrowserToolbar({
   onSetZoomFactor,
   onFitToWidth,
   onFocusUrl,
+  agentBrowserId,
 }: {
   session: BrowserSessionSnapshot;
   adapter: BrowserWebviewAdapter | null;
@@ -79,6 +81,8 @@ export function BrowserToolbar({
   /** 「适应宽度」:把缩放交还给自动挡,按当前面板宽度把整幅页面装进来。 */
   onFitToWidth?: () => void;
   onFocusUrl?: (focus: () => void) => void;
+  /** 会话 agent 在用的页签:人接管后,工具条里露出「让 agent 继续」(OpenDCAI/gugu#56)。 */
+  agentBrowserId?: string;
 }) {
   const [urlText, setUrlText] = useState(browserUrlInputText(session.currentUrl));
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -221,6 +225,7 @@ export function BrowserToolbar({
           </div>
         )}
       </form>
+      {agentBrowserId ? <AgentBrowserResumeButton browserId={agentBrowserId} /> : null}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

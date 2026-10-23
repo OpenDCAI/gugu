@@ -13,6 +13,7 @@ import {
 import { tabNavigationShortcutChannel } from '@shared/events/appEvents';
 import { browserFocusedChannel } from '@shared/events/browserEvents';
 import { AgentBrowserOverlay } from './agent-browser-overlay';
+import { useAgentBrowserStateSync } from './agent-browser-state';
 import { browserControlsRegistry } from './browser-controls-registry';
 import {
   browserLoadErrorCode,
@@ -149,6 +150,13 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
       };
     });
   }, [resolveUrl, session, sessionBrowserId, sessionPartition]);
+
+  // OpenDCAI/gugu#56 页签在屏上(且已向主进程登记)时补问 agent 现在的状态:人接管后停在 paused 的页签,界面晚挂上来也得露出「让 agent 继续」。
+  useAgentBrowserStateSync(
+    sessionBrowserId ?? '',
+    visible && isRegistered && Boolean(sessionBrowserId),
+    page?.element?.ownerDocument.defaultView ?? window
+  );
 
   // #7191 页签开在哪条会话里,一并告诉主进程:那条会话的 agent 只拿得到它自己会话的页签。
   const owningSessionId = session?.sessionId;
@@ -392,6 +400,7 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
         onFocusUrl={(focus) => {
           focusUrlRef.current = focus;
         }}
+        agentBrowserId={sessionBrowserId}
       />
       <div className="emlight relative min-h-0 flex-1 bg-background">
         {pageMount && isRegistered ? (

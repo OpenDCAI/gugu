@@ -21,7 +21,15 @@ vi.mock('./browser-webcontents-registry', () => ({
   },
 }));
 
+// controller.ts 拉进来的这些依赖都绑着 Electron;下面「真实 RPC 层」那条用例只用 agent-browser 与 controller 本身。
+vi.mock('@main/core/browser/browser-cookie-import', () => ({ defaultBrowser: vi.fn(), importDefaultBrowserCookies: vi.fn() }));
+vi.mock('@main/core/browser/browser-profile-session', () => ({ configureBrowserProfileSession: vi.fn() }));
+vi.mock('@main/core/browser/browser-page-views', () => ({}));
+vi.mock('@main/core/browser/webview-security', () => ({ isBrowserPartition: vi.fn() }));
+vi.mock('@main/core/settings/settings-service', () => ({ appSettingsService: {} }));
+
 import {
+  agentBrowserStateOf,
   agentBrowserToolFinished,
   agentBrowserToolStarting,
   agentCursorArrived,
@@ -31,6 +39,7 @@ import {
   setAgentBrowserInitialUrl,
 } from './agent-browser';
 import { agentSessionContext } from '@main/core/extensions/extension-agent-context';
+import { createRPCClient, registerRPCRouter, type RpcIpcMainLike } from '@shared/lib/ipc/rpc';
 import { openAgentBrowserPane } from '@main/core/sessions/session-orchestration';
 
 /** 网页的 webContents:只做 transport 碰得到的那几样。debugger 的每个命令都记下来。 */
@@ -347,6 +356,50 @@ describe('#7191 人接管:agent 在用的页签被人点了就暂停', () => {
     resumeAgentBrowser('b2');
     expect(agentBrowserToolStarting('s2')).toEqual({ ok: true });
     agentBrowserToolFinished('s2');
+  });
+
+  it('OpenDCAI/gugu#56 界面晚挂上来(或错过了事件)时,能补问页签上 agent 当前的状态', () => {
+    const { wc } = fakeGuest(56);
+    connect('s56', 'b56', wc);
+    expect(agentBrowserStateOf('b56')).toBe('idle');
+    agentBrowserToolStarting('s56');
+    expect(agentBrowserStateOf('b56')).toBe('driving');
+    registry.observer?.('b56');
+    expect(agentBrowserStateOf('b56')).toBe('paused');
+    agentBrowserToolFinished('s56');
+    // 暂停是粘住的:界面没收到事件也得问得出来,否则人永远找不到「让 agent 继续」。
+    expect(agentBrowserStateOf('b56')).toBe('paused');
+    resumeAgentBrowser('b56');
+    expect(agentBrowserStateOf('b56')).toBe('idle');
+    expect(agentBrowserStateOf('no-such-tab')).toBe('idle');
+  });
+
+  it('OpenDCAI/gugu#56 走真实 RPC 层(客户端 → 注册器 → controller):人接管后 agent 被拒,补问得到 paused,点「继续」后 agent 又能动', async () => {
+    const { browserController } = await import('./controller');
+    const handlers = new Map<string, Parameters<RpcIpcMainLike['handle']>[1]>();
+    registerRPCRouter({ browser: browserController }, { handle: (channel, listener) => void handlers.set(channel, listener) });
+    const rpc = createRPCClient<{ browser: typeof browserController }>(async (channel, ...args) => {
+      const listener = handlers.get(channel);
+      if (!listener) throw new Error(`no rpc handler registered for ${channel}`);
+      return listener({ sender: { id: 1 } }, ...args);
+    });
+
+    const { wc } = fakeGuest(57);
+    connect('s57', 'b57', wc);
+    expect(await rpc.browser.agentState('b57')).toEqual({ state: 'idle' });
+
+    agentBrowserToolStarting('s57');
+    registry.observer?.('b57'); // 人点进了页面
+    agentBrowserToolFinished('s57');
+    // 界面此刻若没收到事件,靠补问也得知道:
+    expect(await rpc.browser.agentState('b57')).toEqual({ state: 'paused' });
+    const refused = agentBrowserToolStarting('s57');
+    expect(refused.ok).toBe(false);
+
+    expect(await rpc.browser.resumeAgent('b57')).toEqual({ success: true });
+    expect(await rpc.browser.agentState('b57')).toEqual({ state: 'idle' });
+    expect(agentBrowserToolStarting('s57')).toEqual({ ok: true });
+    agentBrowserToolFinished('s57');
   });
 
   it('agent 自己合成的点击(刚发过 Input.dispatchMouseEvent)不算人接管,也认作 agent 的(页签焦点不跟过去)', async () => {

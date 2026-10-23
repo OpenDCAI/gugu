@@ -209,6 +209,20 @@ export function agentBrowserToolFinished(sessionId: string): void {
   driven.idleTimer.unref?.();
 }
 
+/**
+ * 这个页签上 agent 现在的状态。事件只在状态变化的那一刻发一次,晚挂上来(或那一刻没在听)的界面只靠事件
+ * 永远不知道页签已经停在 paused —— 而 paused 是粘住的,只有界面上的「让 agent 继续」能解开(OpenDCAI/gugu#56)。
+ */
+export function agentBrowserStateOf(browserId: string): BrowserAgentState {
+  let state: BrowserAgentState = 'idle';
+  for (const driven of drivenBySession.values()) {
+    if (driven.browserId !== browserId) continue;
+    if (driven.state === 'paused') return 'paused';
+    if (driven.state === 'driving') state = 'driving';
+  }
+  return state;
+}
+
 /** 人在页签上按「停止」。 */
 export function pauseAgentBrowser(browserId: string): void {
   for (const driven of drivenBySession.values()) {

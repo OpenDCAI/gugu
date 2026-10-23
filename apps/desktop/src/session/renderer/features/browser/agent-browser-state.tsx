@@ -1,8 +1,10 @@
 import { observable, runInAction } from 'mobx';
 import { observer } from 'mobx-react-lite';
+import { useEffect } from 'react';
 import { events, rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { log } from '@renderer/utils/logger';
 import { browserAgentStateChannel, type BrowserAgentState } from '@shared/events/browserEvents';
 
 /**
@@ -10,13 +12,44 @@ import { browserAgentStateChannel, type BrowserAgentState } from '@shared/events
  * 页签据此画「agent 正在操作」的小条(画在盖着网页的那扇浮窗里,见 agent-browser-overlay.tsx)。
  */
 const states = observable.map<string, BrowserAgentState>();
+/** 每个页签收到过几次状态事件:补问(见 syncAgentBrowserState)的回复回来时,期间到过事件就以事件为准。 */
+const eventCount = new Map<string, number>();
+
+function record(browserId: string, state: BrowserAgentState): void {
+  if (state === 'idle') states.delete(browserId);
+  else states.set(browserId, state);
+}
 
 events.on(browserAgentStateChannel, ({ browserId, state }) => {
-  runInAction(() => {
-    if (state === 'idle') states.delete(browserId);
-    else states.set(browserId, state);
-  });
+  eventCount.set(browserId, (eventCount.get(browserId) ?? 0) + 1);
+  runInAction(() => record(browserId, state));
 });
+
+/**
+ * OpenDCAI/gugu#56 事件只在状态变化的那一刻发一次:界面晚挂上来、或那一刻页签不在屏上,就永远不知道页签已经停在 paused
+ * (paused 是粘住的,只有「让 agent 继续」能解开)。所以挂上来 / 露出来 / 窗口重新拿到焦点时主动问一次主进程。
+ */
+export async function syncAgentBrowserState(browserId: string): Promise<void> {
+  const before = eventCount.get(browserId) ?? 0;
+  try {
+    const { state } = await rpc.browser.agentState(browserId);
+    if ((eventCount.get(browserId) ?? 0) !== before) return; // 问的途中事件到了:事件更新,别拿旧回复盖掉
+    runInAction(() => record(browserId, state));
+  } catch (error) {
+    log.warn('[agent-browser-state] could not read the agent state', { browserId, error });
+  }
+}
+
+/** 页签在屏上时补问当前状态,并在宿主窗口重新拿到焦点时再问一次(人切去别的应用再回来)。 */
+export function useAgentBrowserStateSync(browserId: string, active: boolean, hostWindow: Window): void {
+  useEffect(() => {
+    if (!active) return;
+    void syncAgentBrowserState(browserId);
+    const onFocus = () => void syncAgentBrowserState(browserId);
+    hostWindow.addEventListener('focus', onFocus);
+    return () => hostWindow.removeEventListener('focus', onFocus);
+  }, [active, browserId, hostWindow]);
+}
 
 export function agentBrowserState(browserId: string): BrowserAgentState {
   return states.get(browserId) ?? 'idle';
@@ -54,5 +87,29 @@ export const AgentBrowserBadge = observer(function AgentBrowserBadge({ browserId
         {translate(driving ? 'browser.agentStop' : 'browser.agentResume')}
       </Button>
     </div>
+  );
+});
+
+/**
+ * 页签工具条里的「让 agent 继续」:人接管(paused)之后才出现。画在工具条这块普通界面里,不靠盖在网页上的那扇浮窗 ——
+ * 浮窗没开出来时(OpenDCAI/gugu#56),这里是人唯一能解开暂停的地方。
+ */
+export const AgentBrowserResumeButton = observer(function AgentBrowserResumeButton({ browserId }: { browserId: string }) {
+  const { translate } = useSessionMessages();
+  if (agentBrowserState(browserId) !== 'paused') return null;
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      data-testid="agent-browser-resume"
+      title={translate('browser.agentPaused')}
+      // 窄到 MIN_PANE_WIDTH_PX 的窗格里,让这枚按钮先缩(标签截断),❌ 把右边的「⋯」菜单挤出工具条;
+      // relative:网址栏缩到 0 宽时它的小地球图标(绝对定位)会溢出来,让按钮盖在上面。
+      className="relative min-w-0 shrink text-xs"
+      onClick={() => void rpc.browser.resumeAgent(browserId)}
+    >
+      <span className="truncate">{translate('browser.agentResume')}</span>
+    </Button>
   );
 });
