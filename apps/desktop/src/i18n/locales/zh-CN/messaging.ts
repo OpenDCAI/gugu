@@ -269,9 +269,6 @@ export default {
     "noResults": "未找到对话",
     "listLabel": "对话列表",
     "pin": "置顶",
-    "rowTag": {
-      "group": "群聊"
-    },
     "scan": "扫一扫",
     "search": "搜索",
     "unpin": "取消置顶"

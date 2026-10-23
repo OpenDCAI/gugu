@@ -1,6 +1,5 @@
 import { LeftSidebar } from '@renderer/features/sidebar/left-sidebar';
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
@@ -201,9 +200,7 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
       <PageShownContext.Provider value={shown}>
         <ScreenBlockContext.Provider value={place}>
           <sessionView.WrapView projectId={projectId} sessionId={sessionId}>
-            <SessionShellProvider>
-              <WorkspaceContentLayout titlebarSlot={<sessionView.TitlebarSlot />} mainPanel={<sessionView.MainPanel />} />
-            </SessionShellProvider>
+            <WorkspaceContentLayout titlebarSlot={<sessionView.TitlebarSlot />} mainPanel={<sessionView.MainPanel />} />
           </sessionView.WrapView>
         </ScreenBlockContext.Provider>
       </PageShownContext.Provider>
@@ -214,8 +211,6 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
 function WorkspaceViewContent() {
   const { TitlebarSlot, MainPanel } = useWorkspaceSlots();
   return (
-    <SessionShellProvider>
-      <WorkspaceContentLayout titlebarSlot={<TitlebarSlot />} mainPanel={<MainPanel />} />
-    </SessionShellProvider>
+    <WorkspaceContentLayout titlebarSlot={<TitlebarSlot />} mainPanel={<MainPanel />} />
   );
 }

@@ -102,7 +102,7 @@ export function createAccountRevisionRuntime(
 
   const readCursor = (): string => {
     const value = imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())
-    if (value === undefined) return '0'
+    if (value === undefined) throw new Error('account revision cursor requires a snapshot')
     const revision = (value as { revision?: unknown }).revision
     if (!isDecimalRevision(revision, true)) {
       throw new Error('account revision cursor is malformed')

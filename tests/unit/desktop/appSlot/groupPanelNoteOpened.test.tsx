@@ -40,7 +40,7 @@ afterEach(() => {
 
 const detailOf = (chatId: string, itemId: string) => ({
   chatId, itemId, name: `${itemId}.pptx`, typedName: `${itemId}.pptx`,
-  choice: { kind: 'one', candidate: { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公' }, onlyTab: true, claim: '.pptx' } },
+  choice: { kind: 'one', candidate: { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公' }, onlyTab: true, claim: '.pptx', suffix: '.pptx' } },
 })
 let request = 7400_000
 const slot = (props: Partial<ComponentProps<typeof GroupAppSlot>>) =>

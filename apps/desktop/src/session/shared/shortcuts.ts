@@ -179,12 +179,6 @@ export const APP_SHORTCUTS = defineShortcuts({
     description: 'Show or hide the left sidebar',
     category: 'View',
   },
-  toggleRightSidebar: {
-    defaultHotkey: 'Mod+.',
-    label: 'Toggle Right Sidebar',
-    description: 'Show or hide the right sidebar',
-    category: 'View',
-  },
   zenMode: {
     defaultHotkey: 'Control+Z',
     label: 'Zen Mode',

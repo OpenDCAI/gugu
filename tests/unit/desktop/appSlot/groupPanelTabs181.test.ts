@@ -1,10 +1,75 @@
 // gugu-dev#181 第 ⑥ 步:群右栏从「一个槽」变成「开着的一串 + 正看着的那一枚」。右栏(GroupAppSlot)照旧只画正看着的那一枚 ——
 // opened() 的意思没变,对话页、手机看起来和以前一样;块的页签条按 tabs() 列出开着的几枚。
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { groupSlotMemory, type OpenedWith } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 
 const board: OpenedWith = { kind: 'kanban.board', title: 'Board', opening: 1 }
 const deck: OpenedWith = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx', opening: 2 }
+
+describe('leaving an object tab', () => {
+  const file = (id: string): OpenedWith => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, opening: Number(id) })
+
+  it('Back removes the file and returns to the folder in one notification', () => {
+    const item = file('101')
+    groupSlotMemory.setOpened('exit-folder', item)
+    const changed = vi.fn()
+    const off = groupSlotMemory.subscribe(changed)
+    groupSlotMemory.close('exit-folder', item)
+    off()
+    expect(groupSlotMemory.tabs('exit-folder')).toEqual([null])
+    expect(groupSlotMemory.opened('exit-folder')).toBeNull()
+    expect(changed).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the App source after switching tabs and does not revive a source closed by the user', () => {
+    const app: OpenedWith = { kind: 'board.main', title: 'Board', opening: 102 }
+    const first = file('103')
+    const second = file('104')
+    groupSlotMemory.setOpened('exit-source', app)
+    groupSlotMemory.setOpened('exit-source', first)
+    groupSlotMemory.setOpened('exit-source', second)
+    groupSlotMemory.activate('exit-source', app)
+    groupSlotMemory.activate('exit-source', second)
+    groupSlotMemory.close('exit-source', second)
+    expect(groupSlotMemory.opened('exit-source')).toBe(first)
+    groupSlotMemory.close('exit-source', app)
+    groupSlotMemory.close('exit-source', first)
+    expect(groupSlotMemory.tabs('exit-source')).toEqual([null])
+  })
+
+  it('reopening the same file retains its source rather than adding itself to the trail', () => {
+    const first = file('105')
+    groupSlotMemory.setOpened('exit-reopen', first)
+    const again = { ...first, opening: 106 }
+    groupSlotMemory.setOpened('exit-reopen', again)
+    expect(again.trail).toEqual([])
+    groupSlotMemory.close('exit-reopen', again)
+    expect(groupSlotMemory.tabs('exit-reopen')).toEqual([null])
+  })
+
+  it('Close removes a message file before closing the panel and restoring the message', () => {
+    const order: string[] = []
+    const item = { ...file('107'), restore: () => {
+      expect(groupSlotMemory.tabs('exit-message')).not.toContain(item)
+      order.push('message')
+    } }
+    groupSlotMemory.setOpened('exit-message', item)
+    groupSlotMemory.close('exit-message', item, () => order.push('panel'))
+    expect(order).toEqual(['panel', 'message'])
+  })
+
+  it('closing one preview leaves another item open and does not close the whole panel', () => {
+    const preview = { ...file('108'), kind: null }
+    const other = file('109')
+    groupSlotMemory.setOpened('exit-preview', other)
+    groupSlotMemory.setOpened('exit-preview', preview)
+    const closePanel = vi.fn()
+    groupSlotMemory.close('exit-preview', preview, closePanel)
+    expect(groupSlotMemory.opened('exit-preview')).toBe(other)
+    expect(groupSlotMemory.tabs('exit-preview')).toEqual([null, other])
+    expect(closePanel).not.toHaveBeenCalled()
+  })
+})
 
 describe('the group panel keeps what is open and shows one of it', () => {
   it('opening another keeps the one shown before as a tab; the panel shows only the newest', () => {
