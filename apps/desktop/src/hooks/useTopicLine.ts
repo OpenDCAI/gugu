@@ -138,13 +138,14 @@ export function useTopicLine(
       const fresh = older.filter((message) => !known.has(message.id))
       if (fresh.length === 0) return
       writeMessages(target, (prev) => [...fresh, ...prev])
+      await revalidate(target, false)
     } catch (error) {
       // ❌ 不静默:翻不出来与「真的到头了」是两件事,后者才能置 reachedOldest。
       topicLineLog.error({ error, chatId: target }, 'topic line reveal older failed')
     } finally {
       revealingOlderRef.current = false
     }
-  }, [messagesOf, userId, writeMessages])
+  }, [messagesOf, userId, writeMessages, revalidate])
 
   const appendOwn = useCallback((message: MessageItem) => {
     writeMessages(message.chat_id, (prev) => upsertMessageById(prev, message))

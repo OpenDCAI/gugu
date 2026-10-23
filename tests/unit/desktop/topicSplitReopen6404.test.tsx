@@ -18,6 +18,7 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
     getMessages: (chatId: string) => getMessages(chatId),
     markRead: () => Promise.resolve(),
     getOtherMembersReadSeqs: () => Promise.resolve({}),
+    revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
   },
 }))
 
@@ -45,7 +46,7 @@ afterEach(() => harness.cleanup())
 
 async function open(chatId: string, toggle = false) {
   await act(async () => { surface?.openSplit({ chatId, name: chatId }, toggle) })
-  await act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve() })
+  await act(async () => { await vi.dynamicImportSettled() })
   return surface?.splitMessages.map((row) => row.id) ?? []
 }
 

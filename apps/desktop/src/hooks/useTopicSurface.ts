@@ -11,7 +11,7 @@ import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/type
 import { chatService } from '@/lib/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
-import { writeIdempotentChatMessage } from '@/lib/chatMessageWriter'
+import { useChatStore } from '@/store/chatContext'
 import { sendAttachmentBatch } from '@/components/chat/sendAttachmentBatch'
 import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
 import { useTopicLine } from './useTopicLine'
@@ -89,6 +89,7 @@ export function useTopicSurface({
   subscribeAccountRevision,
   onCreateFailed,
 }: UseTopicSurfaceArgs): TopicSurface {
+  const { sendMessageToChat } = useChatStore('sendMessageToChat')
   const chatId = chat?.id ?? null
   // 调用方传的是内联箭头;直接进依赖会让 openTopicFromMessage 每次渲染换身份 ——
   // 它原样下传给每条消息气泡,于是任何一次面板重渲都打穿全部气泡的 memo。只在事件时刻取最新的那个。
@@ -181,23 +182,12 @@ export function useTopicSurface({
     async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null) => {
       const body = text.trim()
       if (!body || !splitChatId || !userId) return
-      const sent = await writeIdempotentChatMessage({
-        id: crypto.randomUUID(),
-        chatId: splitChatId,
-        senderUserId: userId,
-        // 「参与:靠在里面说话,或被 @ 进来」——@ 到谁就把谁投给谁,拉不拉得进来由服务端的
-        // join_topic_participants 判(它只放行来源线的成员)。这里❌ 不做第二道判断。
-        toUserIds: toUserIds && toUserIds.length > 0 ? [...toUserIds] : null,
-        content: body,
-        contentType: 'text',
+      await sendMessageToChat(splitChatId, body, {
+        toUserIds: toUserIds?.length ? [...toUserIds] : null,
         replyToMessageId: replyToMessageId ?? null,
-        threadRootId: null,
-        isThreadRoot: false,
-        isWhisper: false,
       })
-      appendOwn(sent)
     },
-    [splitChatId, userId, appendOwn],
+    [splitChatId, userId, sendMessageToChat],
   )
 
   const openTopicFromMessage = useCallback(

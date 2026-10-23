@@ -74,12 +74,12 @@ const { chatService } = await import('../../../../apps/desktop/src/lib/chat')
 const { createMemoryLocalSyncDb } = await import('../../../../apps/desktop/src/lib/localSyncDb')
 const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/imRepository')
 
-type Frame = Pick<ChatContextValue, 'activeChatId' | 'messages' | 'loadingMessages' | 'messageWindow'>
+type Frame = Pick<ChatContextValue, 'activeChatId' | 'messages' | 'loadingMessages' | 'messageWindow' | 'memberReadSeqs'>
 const frames: Frame[] = []
 function Probe() {
-  const { activeChatId, messages, loadingMessages, messageWindow } = useChatStore('activeChatId', 'messages', 'loadingMessages', 'messageWindow')
+  const { activeChatId, messages, loadingMessages, messageWindow, memberReadSeqs } = useChatStore('activeChatId', 'messages', 'loadingMessages', 'messageWindow', 'memberReadSeqs')
   // 记**提交了的**帧(layout 阶段),不是渲染尝试:提交了的才会被画出来。
-  useLayoutEffect(() => { frames.push({ activeChatId, messages, loadingMessages, messageWindow }) })
+  useLayoutEffect(() => { frames.push({ activeChatId, messages, loadingMessages, messageWindow, memberReadSeqs }) })
   return null
 }
 let select: (id: string | null) => void = () => { throw new Error('store not mounted') }
@@ -170,6 +170,25 @@ describe('打开会话的第一帧', () => {
     expect(scopedFrames.every((frame) => frame.chatId === 'chatA' && !frame.ids.includes('msgB1'))).toBe(true)
     network.resolve()
     harness.cleanup()
+  })
+
+  it('does not attach the previous chat’s watermarks to bodies painted before the new watermarks arrive', async () => {
+    network.resolve()
+    const watermarks = deferred<Record<string, number>>()
+    vi.mocked(chatService.getOtherMembersReadSeqs).mockImplementation((chatId) => chatId === 'chatA' ? Promise.resolve({ a1: 99 }) : watermarks.promise)
+    const harness = await mount()
+    try {
+      await act(async () => { select('chatA') })
+      await vi.waitFor(() => expect(framesOf('chatA').at(-1)?.memberReadSeqs).toEqual({ a1: 99 }), WAIT)
+      await act(async () => { select('chatB') })
+      await vi.waitFor(() => expect(framesOf('chatB').at(-1)?.messages.map((row) => row.id)).toEqual(['msgB1']), WAIT)
+      expect(framesOf('chatB').at(-1)?.memberReadSeqs).toEqual({})
+      await act(async () => { watermarks.resolve({ b1: 1 }) })
+      expect(framesOf('chatB').at(-1)?.memberReadSeqs).toEqual({ b1: 1 })
+    } finally {
+      watermarks.resolve({ b1: 1 })
+      harness.cleanup()
+    }
   })
 
 })

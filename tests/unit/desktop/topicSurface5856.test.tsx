@@ -16,7 +16,7 @@ import { createNode, createReactHarness, message, renderWithAppProviders } from 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.fn<(chatId: string, seq: number) => Promise<unknown>>()
-const writeMessage = vi.fn()
+const sendMessageToChat = vi.fn()
 const onCreateFailed = vi.fn()
 
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -33,11 +33,9 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
     revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
   },
 }))
+
 vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
-  writeIdempotentChatMessage: (row: unknown) => {
-    writeMessage(row)
-    return Promise.resolve({ ...(row as Record<string, unknown>), seq: 99 })
-  },
+  writeIdempotentChatMessage: () => { throw new Error('topic bypassed shared send queue') },
 }))
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
@@ -92,18 +90,18 @@ beforeEach(() => {
   listTopicsOfChat.mockReset().mockResolvedValue([topic()])
   getMessages.mockReset().mockResolvedValue([])
   markRead.mockReset().mockResolvedValue(undefined)
-  writeMessage.mockReset()
+  sendMessageToChat.mockReset().mockResolvedValue('client-id')
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
 
 async function mount() {
-  await renderWithAppProviders(harness, createNode(Probe, {}))
+  await renderWithAppProviders(harness, createNode(Probe, {}), { chat: { sendMessageToChat } })
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
 async function openSplit() {
-  await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })))
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+  await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: { sendMessageToChat } })
+  await act(async () => { await vi.dynamicImportSettled() })
 }
 
 describe('分栏里读过的东西要推已读水位', () => {
@@ -169,16 +167,25 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
   it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
     await openSplit()
     await act(async () => { await surface?.sendInSplit('@所有人 看一下', ['*']) })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({
-      chatId: 'topic-1', toUserIds: ['*'], content: '@所有人 看一下', threadRootId: null,
-    }))
+    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '@所有人 看一下', { toUserIds: ['*'], replyToMessageId: null })
   })
 
-  it('有收件人时原样带上,没有时是 null(❌ 不发空数组)', async () => {
+  it('keeps explicit recipients and replies on the shared optimistic outbox path', async () => {
     await openSplit()
-    await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9']) })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: 'topic-1', toUserIds: ['agent-9'] }))
-    await act(async () => { await surface?.sendInSplit('我先看看') })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ toUserIds: null }))
+    await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9'], 'original-message') })
+    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '小柯 看一下', { toUserIds: ['agent-9'], replyToMessageId: 'original-message' })
+    await act(async () => { await surface?.sendInSplit('我先看看', []) })
+    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '我先看看', { toUserIds: null, replyToMessageId: null })
+  })
+
+  it('does not send an empty or closed topic and preserves shared queue failures', async () => {
+    await mount()
+    await surface?.sendInSplit('not open')
+    expect(sendMessageToChat).not.toHaveBeenCalled()
+    await openSplit()
+    await surface?.sendInSplit('   ')
+    expect(sendMessageToChat).not.toHaveBeenCalled()
+    sendMessageToChat.mockRejectedValueOnce(new Error('queue unavailable'))
+    await expect(surface?.sendInSplit('keep my draft')).rejects.toThrow('queue unavailable')
   })
 })

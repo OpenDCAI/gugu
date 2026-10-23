@@ -77,7 +77,7 @@ function OpenSplit() {
 }
 async function openSplit() {
   await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, {})))
-  await act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve() })
+  await act(async () => { await vi.dynamicImportSettled() })
 }
 
 /** 我在话题里 @ agent-9 的那一条(发送方视角 is_mine)。 */
@@ -120,12 +120,13 @@ describe('#6470 话题里 @ agent,它读了 ⇒ 不刷新、不重进,已读当�
 
     // ① agent 读了:水位被前面别人的未读卡住,只有逐条读行 ⇒ delivery_changed
     const fetchesBefore = getMessages.mock.calls.length
+    const revalidationsBefore = revalidateWindow.mock.calls.length
     await emit('delivery_changed', { chat_id: 'topic-1', entity_id: 'mine', device_id: 'gugu-agent:agent-9', status: 'read' })
     expect(receiptOf('mine').receipt).toMatchObject({ readCount: 1, totalRecipients: 1, readerIds: ['agent-9'] })
     expect(receiptOf('mine').state).toBe('read')
     // 回执直接打在行上:❌ 不为一条回执重拉整页
     expect(getMessages.mock.calls.length).toBe(fetchesBefore)
-    expect(revalidateWindow).not.toHaveBeenCalled()
+    expect(revalidateWindow).toHaveBeenCalledTimes(revalidationsBefore)
   })
 
   it('水位推进(member_read_changed)同样当场生效', async () => {
