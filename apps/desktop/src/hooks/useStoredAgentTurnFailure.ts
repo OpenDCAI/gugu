@@ -3,6 +3,7 @@ import { readStoredAgentTurnFailures, type StoredAgentTurnFailure } from '../lib
 import { subscribePrivateUserEventBus, unsubscribePrivateUserEventBus } from '../lib/realtimeChannel'
 import { rendererLogger } from '../lib/log'
 import { useAuth } from '../store/auth'
+import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 
 const log = rendererLogger('agent/stored-turn-failure')
 const EMPTY: StoredAgentTurnFailure[] = []
@@ -29,7 +30,7 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
         for (const row of rows) if (dismissed.current.has(row.commandId) && dismissed.current.get(row.commandId) === null) dismissed.current.set(row.commandId, row.revision)
         setSnapshot({ subject, rows, readFailed: false })
       }).catch((error: unknown) => {
-        if (!live || current !== generation) return
+        if (!live || current !== generation || isLifecycleCancellation(error)) return
         log.error({ chatId, error: String(error) }, 'could not read agent reply outcome')
         setSnapshot((previous) => ({ subject, rows: previous.subject === subject ? previous.rows : [], readFailed: true }))
       })

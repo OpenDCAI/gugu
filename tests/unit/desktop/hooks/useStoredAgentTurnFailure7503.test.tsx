@@ -59,4 +59,20 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     await ui.render(createNode(Probe, {})); await emit()
     expect(current()).toBe('cmd'); expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('true')
   })
+  it.each([
+    new DOMException('The user aborted a request.', 'AbortError'),
+    new Error('AbortError: The user aborted a request.'),
+  ])('keeps verified outcomes without a read warning after lifecycle cancellation: %s', async (error) => {
+    read.mockResolvedValueOnce([failure()]).mockRejectedValueOnce(error).mockResolvedValue([])
+    await ui.render(createNode(Probe, {})); await emit()
+    expect(current()).toBe('cmd')
+    expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('false')
+    await act(async () => window.dispatchEvent(new Event('online')))
+    expect(current()).toBe('')
+  })
+  it('still reports a request deadline as a real read failure', async () => {
+    read.mockRejectedValue(Object.assign(new Error('REST request timed out after 30000 ms'), { name: 'TimeoutError', code: 'ABORT_ERR' }))
+    await ui.render(createNode(Probe, {}))
+    expect(ui.container.querySelector('[data-read-failed]')?.textContent).toBe('true')
+  })
 })
