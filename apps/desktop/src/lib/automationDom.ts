@@ -106,8 +106,6 @@ export const AUTOMATION_TEST_IDS = {
   messageTargetingBadge: 'message-targeting-badge',
   messageForwardedBadge: 'message-forwarded-badge',
   messageViaAppBadge: 'message-via-app-badge',
-  toastItem: 'toast-item',
-  toastDismiss: 'toast-dismiss',
   chatHeaderAgentRuntimeOpenButton: 'chat-header-agent-runtime-open-button',
   contactAgentRuntimeOpenButton: 'contact-agent-runtime-open-button',
   settingsDeviceCapabilities: 'settings-device-capabilities',
