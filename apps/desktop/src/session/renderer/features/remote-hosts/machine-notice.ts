@@ -48,6 +48,31 @@ const users = new Map<string, number>();
 /** 提示已经出现过、还没结束的机器:恢复时才说「已连上」;用户亲手关掉的不再打扰。 */
 const live = new Set<string>();
 const closedByUser = new Set<string>();
+/** 在等「会不会自己好」的机器:最新的内容 + 那一个计时。内容变了只换内容,❌ 重新计时(第几次每拨一次就变)。 */
+const pending = new Map<string, { spec: MachineNoticeSpec; timer: ReturnType<typeof setTimeout> }>();
+
+function clearPending(deviceId: string): void {
+  const waiting = pending.get(deviceId);
+  if (!waiting) return;
+  clearTimeout(waiting.timer);
+  pending.delete(deviceId);
+}
+
+function show(deviceId: string, spec: MachineNoticeSpec): void {
+  live.add(deviceId);
+  notify({
+    key: noticeKey(deviceId),
+    title: spec.title,
+    description: spec.description,
+    tier: spec.tier,
+    waiting: spec.waiting,
+    ongoing: true,
+    onDismiss: () => {
+      // 我们自己收的(换机器 / 恢复)时 live 已经清了,不是用户关的。
+      if (live.delete(deviceId)) closedByUser.add(deviceId);
+    },
+  });
+}
 
 /**
  * 把选着的机器的状况挂到统一提示条上。须在每次渲染都读到最新读数的地方调用(observer 组件里)。
@@ -61,41 +86,44 @@ export function useMachineNotice(deviceId: string | null, label: string, spec: M
       const left = (users.get(deviceId) ?? 1) - 1;
       if (left > 0) return void users.set(deviceId, left);
       users.delete(deviceId);
-      closedByUser.delete(deviceId);
-      // 先记下「是我要收」,onDismiss 才分得出这不是用户关的。
-      if (live.delete(deviceId)) dismissNotice(noticeKey(deviceId));
+      // 同一次提交里旧新建框卸载、新的接上(比如整页换成对话页的创建草稿):别在这中间把提示收了又立刻重发 ——
+      // sonner 的收是排队执行的,重发不会取消它,新的那条会连同「用户关的」标记一起被误杀。等这一拍过完再看还有没有人在用。
+      queueMicrotask(() => {
+        if (users.has(deviceId)) return;
+        clearPending(deviceId);
+        closedByUser.delete(deviceId);
+        // 先记下「是我要收」,onDismiss 才分得出这不是用户关的。
+        if (live.delete(deviceId)) dismissNotice(noticeKey(deviceId));
+      });
     };
   }, [deviceId]);
 
   const signature = spec ? JSON.stringify([spec.title, spec.description ?? null, spec.tier, spec.waiting]) : null;
   useEffect(() => {
     if (!deviceId) return;
-    const key = noticeKey(deviceId);
     if (!spec) {
+      clearPending(deviceId);
       // 出现过的问题好了:在原来那一条上换成「已连上」。用户关掉了的、根本没出现过的(一眨眼就好了)不说。
-      if (live.delete(deviceId)) notify({ key, title: translate('remoteHost.status.connected', { device: label }), tier: 'success' });
+      if (live.delete(deviceId)) notify({ key: noticeKey(deviceId), title: translate('remoteHost.status.connected', { device: label }), tier: 'success' });
       closedByUser.delete(deviceId);
       return;
     }
     if (closedByUser.has(deviceId)) return;
-    const show = () => {
-      live.add(deviceId);
-      notify({
-        key,
-        title: spec.title,
-        description: spec.description,
-        tier: spec.tier,
-        waiting: spec.waiting,
-        ongoing: true,
-        onDismiss: () => {
-          // 我们自己收的(换机器 / 恢复)时 live 已经清了,不是用户关的。
-          if (live.delete(deviceId)) closedByUser.add(deviceId);
-        },
-      });
-    };
-    if (!spec.delayed || live.has(deviceId)) return show();
-    const timer = setTimeout(show, CONNECTING_NOTICE_DELAY_MS);
-    return () => clearTimeout(timer);
-    // 按提示的内容重发;spec / translate 每次渲染都是新对象,signature 才是变没变。
+    if (!spec.delayed || live.has(deviceId)) {
+      clearPending(deviceId);
+      return show(deviceId, spec);
+    }
+    const waiting = pending.get(deviceId);
+    if (waiting) {
+      waiting.spec = spec;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const latest = pending.get(deviceId);
+      pending.delete(deviceId);
+      if (latest) show(deviceId, latest.spec);
+    }, CONNECTING_NOTICE_DELAY_MS);
+    pending.set(deviceId, { spec, timer });
+    // 按提示的内容重跑;spec / translate 每次渲染都是新对象,signature 才是变没变。
   }, [deviceId, signature]);
 }

@@ -60,6 +60,21 @@ describe('notice appearance and reduced motion (#7333, #137)', () => {
     }
   })
 
+  it('the product tokens win over sonner\'s own light/dark colors, whatever order the stylesheets load in', async () => {
+    await mount()
+    await click([...harness.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'error')!)
+    await until('the error toast appears', () => toast('error') !== null)
+    const probe = document.body.appendChild(document.createElement('div'))
+    probe.style.background = 'var(--surface-white)'
+    const surface = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    const toaster = document.querySelector<HTMLElement>('[data-sonner-toaster]')!
+    for (const theme of ['light', 'dark']) {
+      toaster.setAttribute('data-sonner-theme', theme)
+      expect(getComputedStyle(toast('error')!).backgroundColor, theme).toBe(surface)
+    }
+  })
+
   it('the same key updates one notice in place instead of stacking, and the waiting look is the product loading indicator', async () => {
     await mount()
     await act(async () => { notify({ key: 'machine:d1', title: 'Reconnecting Mac 1', tier: 'info', ongoing: true, waiting: true }) })
@@ -72,6 +87,22 @@ describe('notice appearance and reduced motion (#7333, #137)', () => {
     expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(1)
     await act(async () => { dismissNotice('machine:d1') })
     await until('the keyed notice is dismissed', () => document.querySelector('[data-sonner-toast]') === null)
+  })
+
+  it('a reused key carries nothing over from its earlier life: a click-through success never makes the next ongoing notice unclosable', async () => {
+    await mount()
+    await act(async () => { notify({ key: 'machine:d1', title: 'Connected', tier: 'success' }) })
+    await until('the success notice appears', () => toast('success') !== null)
+    expect(getComputedStyle(toast('success')!).pointerEvents).toBe('none')
+    await act(async () => { dismissNotice('machine:d1') })
+    await until('the success notice leaves', () => document.querySelector('[data-sonner-toast]') === null)
+    await act(async () => { notify({ key: 'machine:d1', title: 'Mac 1 is offline', tier: 'error', ongoing: true, onDismiss: () => {} }) })
+    await until('the ongoing notice appears', () => toast('error') !== null)
+    const ongoing = toast('error')!
+    expect(getComputedStyle(ongoing).pointerEvents).toBe('auto')
+    expect(dismissOf(ongoing)).not.toBeNull()
+    await click(dismissOf(ongoing)!)
+    await until('the user closes it', () => toast('error') === null)
   })
 
   it('a media change after mount reaches subscribers without an app interaction, and toasts stop animating', async () => {

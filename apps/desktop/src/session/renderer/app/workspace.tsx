@@ -72,8 +72,8 @@ export function Workspace() {
       />
       {/* #6264「下次免密」做完的回执(装好了 / 没做成)。 */}
       <SshKeyInstallToasts />
-      {/* 提示条:嵌在主 app 里时主 app 已经认领,这里什么也不画;会话页单独成文档时由它画(#137)。 */}
-      <NoticeHost />
+      {/* 提示条:嵌在主 app 里时主 app 画,这里什么也不画;会话页单独成文档时由它画(#137)。 */}
+      <NoticeHost embedded />
     </>
   );
 }

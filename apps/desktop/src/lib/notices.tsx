@@ -50,14 +50,17 @@ const SONNER_BY_TIER = {
 export function notify({ key, title, description, tier, variant, ongoing, waiting, action, icon, duration, onDismiss }: Notice): string | number {
   // 转瞬的确认(成功 / 提示、没有动作、不常驻)点击穿透,别挡住下面的按钮一个停留周期。
   const passthrough = !ongoing && !action && (tier === 'success' || tier === 'info')
+  // 每个字段都显式给(没有就是 undefined):sonner 更新同 id 的提示时是 `{...旧的, ...新的}`,省略的字段会沿用上一次 ——
+  // 上一次是转瞬的成功(点击穿透)的话,下一次同 key 的常驻提示就会继承它,关闭钮点不到。
   const options = {
     ...(key !== undefined && { id: key }),
     description,
     icon: waiting ? <LoadingIndicator size="inline" /> : icon,
-    ...(action && { action: { label: action.label, onClick: action.onClick } }),
-    ...(onDismiss && { onDismiss }),
-    ...(passthrough && { className: 'gugu-notice-passthrough' }),
-    ...(ongoing ? { duration: Infinity, closeButton: true } : duration !== undefined ? { duration } : {}),
+    action: action ? { label: action.label, onClick: action.onClick } : undefined,
+    onDismiss,
+    className: passthrough ? 'gugu-notice-passthrough' : undefined,
+    duration: ongoing ? Infinity : duration,
+    closeButton: ongoing ? true : undefined,
   }
 
   // 没显式给档位的调用行为一字不变。
@@ -68,7 +71,7 @@ export function notify({ key, title, description, tier, variant, ongoing, waitin
 
   return SONNER_BY_TIER[tier](title ?? '', {
     ...options,
-    duration: ongoing ? Infinity : (duration ?? TOAST_DWELL_MS[tier]),
+    duration: options.duration ?? TOAST_DWELL_MS[tier],
     // 要读要复制的那两档必须能当场关掉 —— 停留翻倍之后,「不可关闭」比「短暂遮挡」更难受。
     closeButton: ongoing || isReadableTier(tier),
   })

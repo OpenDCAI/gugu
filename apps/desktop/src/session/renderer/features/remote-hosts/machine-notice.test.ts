@@ -59,9 +59,9 @@ describe('一台机器一条提示:原地换,不叠', () => {
   let harness: ReturnType<typeof createReactHarness>;
   const reconnecting = (dials: number) => spec({ connection: 'reconnecting', dials }) as MachineNoticeSpec;
   const offline = () => spec({ connection: 'offline' }) as MachineNoticeSpec;
-  async function show(deviceId: string | null, notice: MachineNoticeSpec | null) {
+  async function show(deviceId: string | null, notice: MachineNoticeSpec | null, instance = 'a') {
     await act(async () => {
-      await harness.render(createElement(Probe, { deviceId, notice }));
+      await harness.render(createElement(Probe, { key: instance, deviceId, notice }));
     });
   }
   function Probe({ deviceId, notice }: { deviceId: string | null; notice: MachineNoticeSpec | null }) {
@@ -103,6 +103,19 @@ describe('一台机器一条提示:原地换,不叠', () => {
     expect(notices.dismissNotice).not.toHaveBeenCalled();
   });
 
+  it('第几次每拨一次就变:延迟只从头一次算起,❌ 每变一次重新数 2.5 秒(快速失败时提示永远不出来)', async () => {
+    await show('d1', reconnecting(1));
+    await act(async () => void vi.advanceTimersByTime(1_000));
+    await show('d1', reconnecting(2));
+    await act(async () => void vi.advanceTimersByTime(1_000));
+    await show('d1', reconnecting(3));
+    expect(notices.notify).not.toHaveBeenCalled();
+    await act(async () => void vi.advanceTimersByTime(CONNECTING_NOTICE_DELAY_MS - 2_000));
+    // 到点时出现的是最新的那一版
+    expect(notices.notify).toHaveBeenCalledTimes(1);
+    expect(lastNotify()).toMatchObject({ description: '第 3 次尝试' });
+  });
+
   it('离线这类「已经是结论」的状态不等,马上出现', async () => {
     await show('d1', offline());
     expect(notices.notify).toHaveBeenCalledTimes(1);
@@ -138,6 +151,21 @@ describe('一台机器一条提示:原地换,不叠', () => {
     await show('d2', null);
     await show(null, null);
     expect(notices.dismissNotice).not.toHaveBeenCalled();
+  });
+
+  it('同一次提交里旧新建框卸载、新的接上:提示不被收掉、也不被标成用户关的', async () => {
+    await show('d1', offline(), 'a');
+    await show('d1', offline(), 'b');
+    expect(notices.dismissNotice).not.toHaveBeenCalled();
+    // 没被标成用户关的:后面的变化照常换在那一条上
+    notices.notify.mockClear();
+    await show('d1', reconnecting(1), 'b');
+    expect(notices.notify).toHaveBeenCalledTimes(1);
+    // 新的那条照常能被用户关
+    await act(async () => lastNotify().onDismiss());
+    notices.notify.mockClear();
+    await show('d1', reconnecting(2), 'b');
+    expect(notices.notify).not.toHaveBeenCalled();
   });
 
   it('收的时候发出的 onDismiss 不算用户关的', async () => {

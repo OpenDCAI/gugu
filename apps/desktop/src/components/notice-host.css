@@ -1,5 +1,9 @@
-/* 提示条的外观:sonner 的变量接产品自己的 token,明暗跟主题走;❌ 在这里另定色值。 */
-.gugu-notices {
+/*
+ * 提示条的外观:sonner 的变量接产品自己的 token,明暗跟主题走;❌ 在这里另定色值。
+ * 选择器一律叠到比 sonner 自带的高一级:sonner 的样式表是运行时插进 <head> 的(会话页还另带一份),
+ * 与本文件谁先谁后取决于加载顺序,同权重就是靠运气 —— 明暗主题那两条(`[data-sonner-theme]`)更是天然比 `.class` 高。
+ */
+.gugu-notices[data-sonner-toaster][data-sonner-theme] {
   --normal-bg: var(--surface-white);
   --normal-text: var(--text-on-white);
   --normal-border: transparent;
@@ -7,7 +11,7 @@
   font-family: inherit;
 }
 
-.gugu-notices [data-sonner-toast] {
+.gugu-notices [data-sonner-toast][data-styled='true'] {
   box-shadow: var(--shadow-toast-card);
   font-size: var(--font-body);
   line-height: var(--lh-body);

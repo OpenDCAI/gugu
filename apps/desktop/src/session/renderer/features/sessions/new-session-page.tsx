@@ -200,7 +200,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
           {effectiveBlockReason}
         </p>
       ) : null}
-      {effectiveBlockReason ? null : remoteInstall.note}
+      {blocked || effectiveBlockReason ? null : remoteInstall.note}
       <CreateDeliveryError failure={deliveryError} />
     </div>
   );
