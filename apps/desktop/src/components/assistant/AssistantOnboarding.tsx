@@ -10,11 +10,9 @@ import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { BODY_COLORS } from '../agentAvatar/engine/identity'
 import {
   AssistantSetupError,
-  ASSISTANT_NAME_MAX,
   claimCloudAssistant,
   draftAvatarUrl,
   pendingLocalAssistant,
-  randomRestFace,
   resumeLocalAssistant,
   setUpAssistantOnThisComputer,
   type AssistantSetupDraft,
@@ -22,6 +20,8 @@ import {
 import { offerCustomizeCard, writeSetupStep } from '../../lib/assistantSetupState'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
+import { AssistantSetupIdentity } from './AssistantSetupIdentity'
+import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { reloadMyAssistant } from '../../lib/myAssistant'
 import { rendererLogger } from '../../lib/log'
 import { getMembership } from '../../lib/billing/membership'
@@ -44,13 +44,9 @@ function openMembership() {
   window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'usage' } }))
 }
 
-function randomIndex(max: number): number {
-  return Math.floor(Math.random() * max)
-}
-
 /**
  * 开通咕咕的前半(product spec 开通那段,#7349,照 ChatGPT dots):「认识咕咕」→ 起名 → 住在哪 → 安家。
- * 名字在安家前确认；形象先给默认值，之后可改。称呼与身份用账号上的那一份，开通时写进它的记忆。
+ * 名字在安家前确认；形象在安家前可自定义，未选择时为素色且不戴装扮。称呼与身份用账号上的那一份，开通时写进它的记忆。
  * 安好之后「连应用 → 它先开口」由会话页那一侧画(它要读它家那台的集成),这里只记「下一步是连应用」。
  * 从首次引导的「开通我的咕咕」进来 = 介绍已经看过,从起名开始(takeAssistantStartAtHome)。
  */
@@ -76,8 +72,7 @@ export function AssistantOnboarding({
   const [draft, setDraft] = useState<AssistantSetupDraft>(() => ({
     // owner 10-16 夜:助理默认名就是「咕咕」(不再叫「个人助理」);人可以改成别的
     name: t('setup.defaultName'),
-    color: randomIndex(BODY_COLORS.length),
-    rest: randomRestFace(),
+    ...DEFAULT_ASSISTANT_LOOK,
     owner: { preferredName: ownerName?.trim() ?? '', about: '' },
   }))
   const { t: tMain } = useTranslation('main')
@@ -205,25 +200,9 @@ export function AssistantOnboarding({
             </p>
           </>
         ) : step === 'intro' ? (
-          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} />
+          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />
         ) : step === 'name' ? (
-          <>
-            <Avatar name={displayName} avatarUrl={draftAvatarUrl(draft)} seed="assistant-draft" size={88} isAgent harnessBadge={false} />
-            <h1 className="ta-onb-title">{t('setup.nameTitle')}</h1>
-            <input
-              className="gg-settings-input window-no-drag-region"
-              aria-label={t('setup.nameTitle')}
-              value={draft.name}
-              maxLength={ASSISTANT_NAME_MAX}
-              onChange={(event) => setDraft((previous) => ({ ...previous, name: event.target.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter' && draft.name.trim()) setStep('home') }}
-              data-testid="assistant-setup-name"
-            />
-            <div className="ta-onb-actions">
-              <Button variant="secondary" size="lg" className="rounded-full flex-1" onClick={() => setStep('intro')}>{t('setup.back')}</Button>
-              <Button variant="primary" size="lg" className="rounded-full flex-1" disabled={!draft.name.trim()} onClick={() => setStep('home')}>{t('setup.continue')}</Button>
-            </div>
-          </>
+          <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
         ) : memberError ? (
           <>
             <p className="ta-onb-error" role="alert">{t('setup.membershipUnreadable')}</p>
