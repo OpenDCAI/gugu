@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { Pause, Play } from '@/lib/icons';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -38,13 +39,21 @@ export const AgentBrowserAssistant = observer(function AgentBrowserAssistant({
     }
   };
   return (
-    <Button type="button" variant="ghost" size="sm" disabled={sending}
+    <div
       data-testid="agent-browser-assistant" data-state={driving ? 'driving' : 'idle'}
-      className="h-8 gap-2 rounded-full border border-border/60 bg-background px-3 text-xs font-normal text-foreground shadow-sm hover:bg-background-secondary-2"
-      title={translate(driving ? 'browser.assistantPauseHint' : 'browser.assistantContinueHint', { name: agentName })}
-      onClick={() => void send(driving ? 'pause' : 'continue')}>
-      <span aria-hidden className={driving ? 'size-1.5 shrink-0 rounded-full bg-foreground-success' : 'size-1.5 shrink-0 rounded-full border border-foreground-muted'} />
-      <span className="max-w-80 truncate">{translate(driving ? 'browser.assistantOperatingShortcut' : 'browser.assistantContinueShortcut', { name: agentName })}</span>
-    </Button>
+      className="inline-flex h-10 items-center gap-3 rounded-full border border-border/60 bg-background pl-3 pr-1 text-xs font-normal text-foreground shadow-sm">
+      <span className="flex min-w-0 items-center gap-2">
+        <span aria-hidden className={driving ? 'size-1.5 shrink-0 rounded-full bg-foreground-success' : 'size-1.5 shrink-0 rounded-full border border-foreground-muted'} />
+        <span className="max-w-80 truncate">{driving ? translate('browser.assistantOperatingIdentity', { name: agentName }) : agentName}</span>
+      </span>
+      <Button type="button" size="sm" disabled={sending}
+        className="h-8 gap-1.5 rounded-full px-3 text-xs font-medium"
+        aria-label={translate(driving ? 'browser.assistantPauseHint' : 'browser.assistantContinueHint', { name: agentName })}
+        title={translate(driving ? 'browser.assistantPauseHint' : 'browser.assistantContinueHint', { name: agentName })}
+        onClick={() => void send(driving ? 'pause' : 'continue')}>
+        {driving ? <Pause aria-hidden className="size-3.5" /> : <Play aria-hidden className="size-3.5" />}
+        {translate(driving ? 'browser.assistantPauseAction' : 'browser.assistantContinueAction')}
+      </Button>
+    </div>
   );
 });

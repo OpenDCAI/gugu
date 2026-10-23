@@ -43,8 +43,9 @@ export const enUSProjectMessages = {
   // ── browser: pane, tab, start page, diagnostics ────────────────────────
   'browser.sessionUnavailable': 'Browser session unavailable',
   'browser.preparingSession': 'Preparing browser session',
-  'browser.assistantOperatingShortcut': '{name} is operating · Ask to pause',
-  'browser.assistantContinueShortcut': 'Let {name} continue',
+  'browser.assistantOperatingIdentity': '{name} is operating',
+  'browser.assistantPauseAction': 'Ask to pause',
+  'browser.assistantContinueAction': 'Continue',
   'browser.assistantNameFallback': 'This session’s Agent',
   'browser.assistantPauseHint': 'Send a pause request to {name}',
   'browser.assistantContinueHint': 'Ask {name} to continue',
@@ -327,8 +328,9 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   // ── browser: pane, tab, start page, diagnostics ────────────────────────
   'browser.sessionUnavailable': '浏览器会话不可用',
   'browser.preparingSession': '正在准备浏览器会话',
-  'browser.assistantOperatingShortcut': '{name} 正在操作 · 请暂停',
-  'browser.assistantContinueShortcut': '让 {name} 继续',
+  'browser.assistantOperatingIdentity': '{name} 正在操作',
+  'browser.assistantPauseAction': '请暂停',
+  'browser.assistantContinueAction': '继续',
   'browser.assistantNameFallback': '当前会话的 Agent',
   'browser.assistantPauseHint': '向 {name} 发送暂停请求',
   'browser.assistantContinueHint': '请 {name} 继续操作',

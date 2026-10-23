@@ -47,9 +47,10 @@ it('does not claim the Agent is working merely because Continue was requested', 
   await harness.render(<AgentBrowserAssistant owner={owner} agentName="Codex 118" />);
   await act(async () => button('继续').click());
   expect(mocks.sendMessage.mock.calls[0][0].text).toBe('请继续操作这个浏览器网页。');
-  expect(harness.container.textContent).toContain('让 Codex 118 继续');
+  expect(harness.container.textContent).toContain('Codex 118');
+  expect(harness.container.textContent).not.toContain('正在操作');
   await emit('another-page', 'driving');
-  expect(harness.container.textContent).toContain('让 Codex 118 继续');
+  expect(harness.container.textContent).not.toContain('正在操作');
   await emit(owner.browserId, 'driving');
   expect(harness.container.textContent).toContain('正在操作');
 });
