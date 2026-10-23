@@ -23,9 +23,10 @@ describe('FrontendPty history replay (#5872)', () => {
       return Promise.resolve({ success: true, data: {} });
     });
     vi.stubGlobal('electronAPI', {
-      eventOn: vi.fn((_channel: string, callback: (data: unknown) => void) => {
+      eventOn: vi.fn((channel: string, callback: (data: unknown) => void) => {
+        if (!channel.startsWith('pty:data.')) return () => {};
         liveDataListener = callback as (data: string) => void;
-        return () => {};
+        return () => { liveDataListener = null; };
       }),
       eventSend: vi.fn(),
       invoke,
@@ -55,6 +56,41 @@ describe('FrontendPty history replay (#5872)', () => {
     invoke.mock.calls
       .filter(([channel]) => channel === 'pty.sendInput')
       .map(([, , data]) => String(data));
+
+  it('does not recreate a data listener when a closed view receives its pending subscription', async () => {
+    let reply!: (value: unknown) => void;
+    invoke.mockImplementation((channel: string) => channel === 'pty.subscribe'
+      ? new Promise((resolve) => { reply = resolve; })
+      : Promise.resolve({ success: true, data: {} }));
+    const { FrontendPty } = await getPtyModule();
+    const pty = new FrontendPty('closed-before-subscribe');
+    const write = vi.spyOn(pty.terminal, 'write');
+    const pending = pty.connect();
+    pty.dispose();
+    reply({ success: true, data: subscribeData });
+    await pending;
+    expect(liveDataListener).toBeNull();
+    expect(write).not.toHaveBeenCalled();
+    expect(FrontendPty.all.has(pty)).toBe(false);
+    expect(pty.ownedContainer.isConnected).toBe(false);
+  });
+
+  it('does not write the buffered live tail after the view closes during replay', async () => {
+    subscribeData = { buffer: 'history', live: 'live tail', size: null };
+    const { FrontendPty } = await getPtyModule();
+    const pty = new FrontendPty('closed-during-replay');
+    let parsed: (() => void) | undefined;
+    const write = vi.spyOn(pty.terminal, 'write').mockImplementation((_data, callback) => { parsed = callback; });
+    const pending = pty.connect();
+    await until('history write is pending', () => parsed !== undefined);
+    pty.dispose();
+    const errors = vi.spyOn(console, 'error');
+    parsed?.();
+    await pending;
+    expect(errors).not.toHaveBeenCalled();
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(FrontendPty.all.has(pty)).toBe(false);
+  });
 
   it('does not send terminal replies generated while replaying history', async () => {
     const { FrontendPty } = await getPtyModule();

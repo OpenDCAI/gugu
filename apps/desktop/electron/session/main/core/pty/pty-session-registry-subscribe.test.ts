@@ -27,6 +27,26 @@ function fakePty() {
 const settle = () => new Promise<void>((r) => setTimeout(r, 25));
 
 describe('PtySessionRegistry.subscribe', () => {
+  it.each([undefined, 10_000])('restores the configured scrollback (%s) while keeping the agent default bounded', async (scrollback) => {
+    const registry = new PtySessionRegistry();
+    const pty = fakePty();
+    const size = { cols: 135, rows: 41 };
+    registry.register('shell', pty, { size, scrollback });
+    pty.out(Array.from({ length: 10_000 }, (_, i) => `line ${i}\r\n`).join(''));
+    await settle();
+    const { buffer, live } = await registry.subscribe('shell');
+    const term = new Terminal({ ...size, scrollback: 10_000, allowProposedApi: true });
+    try {
+      await new Promise<void>((resolve) => term.write(buffer + live, resolve));
+      const rows = Array.from({ length: term.buffer.active.length }, (_, i) => term.buffer.active.getLine(i)?.translateToString(true) ?? '');
+      expect(rows.filter((row) => row.startsWith('line '))).toHaveLength(Math.min(10_000, (scrollback ?? 1_000) + size.rows - 1));
+      expect(rows).toContain('line 9999');
+    } finally {
+      term.dispose();
+      registry.unregister('shell');
+    }
+  });
+
   it('后打开的视图拿到的是屏幕与模式,❌ 一段字节尾巴:全屏 TUI 早早进的备用屏照样还在', async () => {
     const registry = new PtySessionRegistry();
     const pty = fakePty();
