@@ -3353,7 +3353,7 @@ function crossMachine(): CrossMachineSessions {
     },
     listDevices: async () => {
       const auth = await requireAuth()
-      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId)
+      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { includePhones: true })
     },
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()

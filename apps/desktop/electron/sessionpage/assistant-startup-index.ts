@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import type { AssistantLocalSource } from './assistant-local-index'
 
 const deviceSchema = z.object({
@@ -8,6 +9,12 @@ const deviceSchema = z.object({
   task_runtime: z.object({ capability: z.number(), runtimes: z.array(z.string()) }).optional(),
   cloud_computer: z.enum(['asleep', 'waking', 'awake']).optional(),
 })
+// Map the discovery projection back to the shared host rule, including legacy computers.
+const isTaskHost = (device: z.infer<typeof deviceSchema>) => isAgentHostDevice({ capabilities: {
+  terminals: [], runtimes: device.task_runtime?.runtimes ?? [],
+  host_kind: device.kind === 'phone' ? 'phone' : undefined,
+  host_runtime_capability: device.task_runtime?.capability,
+} })
 const actionDeviceSchema = deviceSchema.extend({ groups: z.array(z.object({
   group: z.string(), available: z.boolean(), actions: z.array(z.string()),
 })).nullable().optional() })
@@ -103,14 +110,14 @@ export async function assistantStartupIndex(deps: AssistantStartupIndexDeps): Pr
     lines.push(json({ ...device, device_id: id,
       // Only group identity/count: action schemas and individual grants stay on demand.
       groups: actionDevice?.groups?.map(group => ({ group: group.group, available: group.available, actions: group.actions.length })) ?? null,
-      ...(device.task_runtime?.capability && device.task_runtime.runtimes.length
+      ...(isTaskHost(device)
         ? { delegate: { tool: 'session_spawn', args: { device: id } }, read: { tool: 'session_devices' } }
         : { read: { tool: 'device_actions', args: { device: id } } }),
     }))
   }
 
   // The same local/remote action router as the tools; skip hosts reported offline in the snapshot.
-  const sources = hosts.status === 'read' ? hosts.value : []
+  const sources = hosts.status === 'read' ? hosts.value.filter(isTaskHost) : []
   const scoped = await Promise.all([
     ...sources.map(async device => {
       const scope = { device: `device:${device.device_id}`, label: device.label, this_machine: device.this_machine }
