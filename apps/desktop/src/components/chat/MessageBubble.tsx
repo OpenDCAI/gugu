@@ -494,7 +494,7 @@ export const MessageBubble = memo(function MessageBubble({
                 alignItems: 'center',
                 cursor: onShowReadReceipt ? 'pointer' : 'default',
                 flexShrink: 0,
-                ...(compactMobile ? { position: 'absolute', right: '100%', bottom: -14, marginRight: -8, justifyContent: 'center', zIndex: 1 } : {}), // 44px 浮层不占气泡宽;锚在下层收成气泡宽的那一行上贴气泡左侧(原 left:-14px 锚整列,环离短气泡半屏)
+                position: 'absolute', right: '100%', bottom: compactMobile ? -14 : 0, marginRight: compactMobile ? -8 : 4, justifyContent: 'center', zIndex: 1, // 回执晚到不挤窄正文;仍锚在气泡左侧,手机保留44px点击区。
               }}
             >
               <ReadReceiptRing read={readReceiptRead} total={readReceiptTotal} />
