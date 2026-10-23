@@ -16,7 +16,9 @@ import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSp
 import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
 const resourceChat = vi.hoisted(() => vi.fn())
-vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', () => ({ resourceChatIdOf: resourceChat }))
+vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', async (original) => ({
+  ...await original<object>(), resourceChatIdOf: resourceChat,
+}))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', async (original) => ({
   ...await original<object>(), getRendererAccessToken: () => 'layout-token',
 }))

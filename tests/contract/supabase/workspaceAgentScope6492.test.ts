@@ -244,6 +244,7 @@ describe('topic resources use the source container through the real App SDK and 
     const w = await world()
     await join(w)
     const topic = await topicOf(w.group, w.owner)
+    await db.query("UPDATE chat.chat_members SET role=CASE WHEN user_id=$2 THEN 'owner' ELSE 'member' END WHERE chat_id=$1 AND user_id=ANY($3::text[])", [w.group, w.peer, [w.owner, w.peer]])
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
     const { files, surface } = agentFiles(w)
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
