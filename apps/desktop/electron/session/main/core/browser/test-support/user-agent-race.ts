@@ -26,6 +26,10 @@ async function run(): Promise<void> {
       ? '<!doctype html><title>UA test</title><iframe src="/form"></iframe>'
       : '<!doctype html><title>Form</title><input aria-label="Account">');
   });
+  server.on('error', (error) => {
+    process.stderr.write(`UA_PROBE_SERVER_ERROR=${String(error)}\n`);
+    app.exit(1);
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
   const base = `http://127.0.0.1:${address.port}`;
