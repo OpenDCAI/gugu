@@ -66,6 +66,12 @@ export interface GroupAppSlotProps {
   kind: string
   title: string
   onClose: () => void
+  /**
+   * In a block, whose tab strip lists what the panel has open (gugu-dev#181 第 ⑥ 步): the tab is its title, its × and its
+   * 展开 / 还原; the panel keeps only a slim row for what belongs to the page — 返回, the App's commands, its badge, its
+   * error — and none when there is none of them.
+   */
+  tabbed?: boolean
   /** The panel takes the whole chat (desktop; the session page's right panel does the same): given, the header has the switch. */
   full?: boolean
   onToggleFull?: () => void
@@ -174,6 +180,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   shownNow.current = opened
   const showOpened = useCallback(
     (next: OpenedWith | null) => {
+      shownNow.current = next
       groupSlotMemory.setOpened(props.chatId, next)
       setOpenedState(next)
       if (next?.itemId) noteOpened(next.itemId)
@@ -291,6 +298,15 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     setOpenedState(groupSlotMemory.opened(props.chatId))
     setPrompt(null)
   }, [props.chatId])
+  // Another tab picked on the block's tab strip, or the shown one closed there (gugu-dev#181 第 ⑥ 步): show that one.
+  // What this panel opened itself comes back here too and is already shown.
+  useEffect(() => groupSlotMemory.subscribe(() => {
+    const next = groupSlotMemory.opened(props.chatId)
+    if (next === shownNow.current) return
+    trail.current = []
+    shownNow.current = next
+    setOpenedState(next)
+  }), [props.chatId])
 
   // Back from a file: that page is gone, and so is what it said — to what it was opened from (G2), else the folder.
   const back = () => {
@@ -536,44 +552,60 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     }
   }, [peekingSession, props.full])
   const badge = shown.badge
+  const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
+  const backButton = opened ? (
+    <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={back} aria-label={t('chatArea.openWith.back')}>
+      <ChevronLeft />
+    </IconButton>
+  ) : null
+  const commands = (
+    <>
+      {inline.map((command) => (
+        <Button key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
+          {command.title}
+        </Button>
+      ))}
+      {folded.length > 0 ? (
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger className="gg-ghost" data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
+            <MoreHorizontal size={16} />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end">
+            {folded.map((command) => (
+              <DropdownMenu.Item key={command.id} className={menuRowClassName} data-command={command.id} onClick={() => runCommand(command.id)}>
+                {command.title}
+              </DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      ) : null}
+    </>
+  )
+  const marks = (
+    <>
+      {hasBadge ? <Chip data-testid="group-app-slot-badge">{badge}</Chip> : null}
+      {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
+    </>
+  )
+  const slimRow = Boolean(opened) || inline.length + folded.length > 0 || hasBadge || Boolean(appError)
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
-      {opened?.file ? null : <PaneHeader
+      {opened?.file ? null : props.tabbed ? (slimRow ? (
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="group-app-slot-bar">
+          {backButton}
+          {marks}
+          <span className="ml-auto flex items-center gap-1">{commands}</span>
+        </div>
+      ) : null) : <PaneHeader
         title={shown.title ?? opened?.title ?? props.title}
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
         {...(mobile ? { mobile: true } : {})}
-        leading={
-          opened ? (
-            <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={back} aria-label={t('chatArea.openWith.back')}>
-              <ChevronLeft />
-            </IconButton>
-          ) : mobile ? (
-            <RightPanelBackButton onBack={props.onClose} />
-          ) : undefined
-        }
+        leading={backButton ?? (mobile ? <RightPanelBackButton onBack={props.onClose} /> : undefined)}
         actions={
           <>
-            {inline.map((command) => (
-              <Button key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
-                {command.title}
-              </Button>
-            ))}
-            {folded.length > 0 ? (
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger className="gg-ghost" data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
-                  <MoreHorizontal size={16} />
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Content align="end">
-                  {folded.map((command) => (
-                    <DropdownMenu.Item key={command.id} className={menuRowClassName} data-command={command.id} onClick={() => runCommand(command.id)}>
-                      {command.title}
-                    </DropdownMenu.Item>
-                  ))}
-                </DropdownMenu.Content>
-              </DropdownMenu.Root>
-            ) : null}
+            {commands}
             {mobile || !props.onToggleFull ? null : (
               <IconButton size="sm" data-testid="group-app-slot-full" aria-pressed={props.full === true} onClick={props.onToggleFull} aria-label={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
                 {props.full ? <Minimize2 /> : <Maximize2 />}
@@ -587,10 +619,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           </>
         }
       >
-        {badge !== null && badge !== '' ? (
-          <Chip data-testid="group-app-slot-badge">{badge}</Chip>
-        ) : null}
-        {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
+        {marks}
       </PaneHeader>}
       {appError && errorShown ? <AppErrorDetails error={appError} testId="group-app-slot-error-details" /> : null}
       {update && held === updateKey ? (

@@ -16,6 +16,15 @@ const ended = (extra: Partial<Extract<AgentStatusEvent, { kind: 'Stopped' }>> = 
 const read = (...events: AgentStatusEvent[]) => reduceAgentStatus(S, events);
 
 describe('reduceAgentStatus', () => {
+  it('gugu-dev#181 ⑨ 问了一个不阻塞的问题(会话级的 question wait):回合已结束也是 needs_user/question;答了或撤了就回到原来的状态', () => {
+    const asked: AgentStatusEvent = { kind: 'WaitStarted', sessionId: S, id: 'host-ask:agent-question:q1', waitKind: 'question', scope: 'session' };
+    const closed: AgentStatusEvent = { kind: 'WaitEnded', sessionId: S, id: 'host-ask:agent-question:q1' };
+    expect(read(started(), asked, ended())).toMatchObject({ status: 'needs_user', detail: 'question' });
+    expect(read(started(), asked, ended(), closed)).toMatchObject({ status: 'idle' });
+    expect(read(started(), asked)).toMatchObject({ status: 'needs_user', detail: 'question' });
+    expect(read(started(), asked, closed)).toMatchObject({ status: 'working' });
+  });
+
   it('在干活 = working/running;正常停下且什么都不剩 = idle/done + 做完的边', () => {
     expect(read(started())).toMatchObject({ status: 'working', detail: 'running', running: true, finished: false });
     expect(read(started(), ended())).toMatchObject({

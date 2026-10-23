@@ -4,8 +4,8 @@
 // 通讯录里的个人助理、设置里的聊天渠道 / 设备授权页 / 云电脑开关。两棵树是同一个 document 里各自的 React 根,
 // 壳的 context 到不了会话页。于是:
 //   · 壳 → 会话页:壳把「此刻的样子」发布在这里(有没有云电脑、它的状态、个人助理是谁、主人叫什么);
-//   · 会话页 → 壳:会话页在自己页面上留一个空格子(slot)登记在这里,壳把自己的组件 portal 进去 ——
-//     这些组件照旧在壳的 context 里跑(聊天渠道、设备授权页、云电脑设置),❌ 在会话页里另写一份。
+//   · 会话页 → 壳:会话页在自己页面上留一个空格子(slot),壳把自己的组件 portal 进去 —— 格子登记在公共的
+//     lib/shellSlots.ts(键 `assistant:<格>`),这些组件照旧在壳的 context 里跑,❌ 在会话页里另写一份。
 // 桥只由壳装(AssistantShellHost 挂上时);会话页 bundle 只读写 window 上那一个对象,❌ 自己装(会装上一个永远空的副本)。
 import type { CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { AssistantHomePlace } from './assistantHome'
@@ -53,7 +53,7 @@ export type AssistantShellSnapshot = {
   preparing: boolean
 }
 
-/** 壳往会话页里画的那几格。新增一格 = 这里加一个名字 + AssistantShellHost 里配一个组件。 */
+/** 壳往会话页里画的那几格(在 lib/shellSlots.ts 里登记为 `assistant:<格>`)。新增一格 = 这里加一个名字 + AssistantShellHost 里配一个组件。 */
 export type AssistantShellSlot = 'onboarding' | 'chat' | 'task-chat' | 'devices' | 'connectors' | 'connectors-device' | 'connectors-other' | 'settings'
 // 连接应用复用全局设置的同一个组件,在助理资料页直接展开;聊天工具与状态仍走设置。
 // ⚠ 'connectors-device' / 'connectors-other' 只为「助理安家」的 assistant-capabilities.tsx(安好家之后的「连应用」一步,设置重做把它删了)暂时编得过,
@@ -85,10 +85,6 @@ export type AssistantVoiceNoteHandler = {
 export interface AssistantShellBridge {
   getSnapshot(): AssistantShellSnapshot | null
   subscribe(listener: () => void): () => void
-  /** 会话页:这一格的 DOM 节点挂上 / 摘掉(null)。 */
-  setSlot(slot: AssistantShellSlot, element: HTMLElement | null): void
-  getSlots(): ReadonlyMap<AssistantShellSlot, HTMLElement>
-  subscribeSlots(listener: () => void): () => void
   /** 会话页:把这句话(和要带上的文件,如「分析健康报告」选的那份)填进和个人助理那条私聊的输入框(只填不发,人看过再发)。 */
   fillChatDraft(text: string, files?: File[]): void
   /** 壳:取走还没填进去的那句(那条私聊就绪时取);没有 = null。 */
@@ -112,8 +108,6 @@ type BridgeWindow = Window & { [ASSISTANT_SHELL_BRIDGE_KEY]?: AssistantShellBrid
 
 let current: AssistantShellSnapshot | null = null
 const listeners = new Set<() => void>()
-let slots = new Map<AssistantShellSlot, HTMLElement>()
-const slotListeners = new Set<() => void>()
 let pendingDraft: AssistantChatDraft | null = null
 let actions: AssistantShellActions | null = null
 const draftListeners = new Set<() => void>()
@@ -126,21 +120,6 @@ const bridge: AssistantShellBridge = {
     listeners.add(listener)
     return () => {
       listeners.delete(listener)
-    }
-  },
-  setSlot: (slot, element) => {
-    if ((slots.get(slot) ?? null) === element) return
-    const next = new Map(slots)
-    if (element) next.set(slot, element)
-    else next.delete(slot)
-    slots = next
-    for (const listener of slotListeners) listener()
-  },
-  getSlots: () => slots,
-  subscribeSlots: (listener) => {
-    slotListeners.add(listener)
-    return () => {
-      slotListeners.delete(listener)
     }
   },
   fillChatDraft: (text, files = []) => {
@@ -208,3 +187,6 @@ function sameSnapshot(a: AssistantShellSnapshot, b: AssistantShellSnapshot): boo
 export function readAssistantShellBridge(w: Window = window): AssistantShellBridge | null {
   return (w as BridgeWindow)[ASSISTANT_SHELL_BRIDGE_KEY] ?? null
 }
+
+/** 助理这一格在公共格子表里的键。 */
+export const assistantSlotKey = (slot: AssistantShellSlot) => `assistant:${slot}`

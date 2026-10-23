@@ -24,6 +24,7 @@ export async function rememberAgentCreateDevice(deviceId: string): Promise<Agent
 export async function rememberAgentCreateProject(
   deviceId: string,
   projectId: string | null,
+  chatId?: string | null,
 ): Promise<AgentCreateDefaults> {
-  return rememberCoreAgentCreateProject(settingsClient, await getCurrentAuthUserId(), deviceId, projectId)
+  return rememberCoreAgentCreateProject(settingsClient, await getCurrentAuthUserId(), deviceId, projectId, chatId)
 }

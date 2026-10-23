@@ -196,11 +196,11 @@ export function SessionRowShell({
           {/* 折叠箭头的车道 —— 与项目行同一个原语、同一条车道,两条纪律都写在 sidebar-twisty.tsx。 */}
           <SidebarTwistyLane
             expanded={expanded}
-            label={expanded ? 'Collapse child sessions' : 'Expand child sessions'}
+            label={translate(expanded ? 'sidebar.collapseChildSessions' : 'sidebar.expandChildSessions')}
             onToggle={hasChildren ? () => onToggle?.() : undefined}
           />
           <SidebarMenuAction
-            aria-label={`Open conversation ${title || 'conversation'}`}
+            aria-label={translate('sidebar.openConversation', { title })}
             className="gap-1.5 overflow-hidden"
             allowNativeDrag
           >
@@ -300,8 +300,8 @@ export function SessionRowShell({
                 <span className="flex size-5 items-center justify-center">
                   <span
                     className="size-2 rounded-full bg-[var(--agent-tone-needs-user)]"
-                    aria-label="Session tree needs attention"
-                    title="Session tree needs attention"
+                    aria-label={translate('sidebar.sessionTreeNeedsAttention')}
+                    title={translate('sidebar.sessionTreeNeedsAttention')}
                   />
                 </span>
               ) : statusUnavailable ? (

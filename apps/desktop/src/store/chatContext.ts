@@ -55,6 +55,8 @@ export interface ChatContextValue {
   loadingChats: boolean
   /** 最近一次会话列表读失败了(取消不算):列表空着时不是「没有」,是「没读到」(#2118)。 */
   chatsLoadFailed: boolean
+  /** 这个号的会话列表读成过(首读完成):之前那份空列表是「还不知道」,不是「没有」。 */
+  chatsRead: boolean
   loadingMessages: boolean
   // #7199 这条线这次没读出来(读库报错):消息列表据此说「读不到 + 重试」,❌ 空列表落成首次对话欢迎页。读成了 / 换线 = null。
   messagesError: Error | null
@@ -140,6 +142,7 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   messages: [],
   loadingChats: false,
   chatsLoadFailed: false,
+  chatsRead: false,
   loadingMessages: false,
   messagesError: null,
   hasMoreOlder: false,

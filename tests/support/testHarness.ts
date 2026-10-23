@@ -217,6 +217,7 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     messages: [],
     loadingChats: false,
     chatsLoadFailed: false,
+    chatsRead: true,
     loadingMessages: false,
     messagesError: null,
     hasMoreOlder: false,

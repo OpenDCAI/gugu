@@ -160,7 +160,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_message',
-    description: 'Message your sessions on any machine directly: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed (SESSION_DIRECT_NOT_LIVE). Assistant ↔ task agent exchanges are shown to their owner in that task chat. Chat members: message_send.',
+    description: 'Message your sessions on any machine: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed. Assistant ↔ task agent exchanges are shown in that task chat. Chat members and agents of your project (@ them in its group): message_send.',
     schema: z.strictObject({
       // ACP XML/JSON bridges sometimes serialize array parameters as JSON strings。协议边界兼容是
       // im-mcp spec 的既有合同(「合法的 JSON 序列化数组继续在协议边界兼容,裸字符串或非法 JSON

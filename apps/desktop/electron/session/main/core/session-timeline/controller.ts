@@ -139,6 +139,11 @@ export const sessionTimelineController = createRPCController({
   sessionCreateOptions: () => create.createOptions(),
   /** 选定的 harness 在这台机器上能跑哪些模型。 */
   sessionCreateModels: (input: SessionpageSessionCreateModelsRequest) => create.createModels(input),
+  /**
+   * 起一条建好了、还没开起来的会话(「再试一次」那一步;第一句话随之投递)。gugu-dev#181:建完不打开的创建
+   * (项目里、聊天里派任务)没有会话页去起它,建完就调这一句。已经起过的什么都不做。
+   */
+  sessionStart: (input: { conversationId: string }) => create.startSession(input.conversationId),
   /** 在这台机器上开一条新会话;应答带上列表里那一行,调用方不必再列一遍。 */
   sessionCreate: async (input: SessionpageSessionCreateRequest) => {
     const created = await create.createSession(input);

@@ -3,6 +3,9 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
 import { i18n } from '@/i18n'
 import { toUserFacingError } from './userFacingError'
+import { rendererLogger } from './log'
+
+const writerLog = rendererLogger('chat/message-writer')
 
 // @@@4891 发消息失败会经 InputArea 的 composer.sendFailed 原样弹给用户 ⇒ 这里抛出的
 // message 就是用户读到的那句。开发者要的细节(RPC 名、漂掉的行结构)一律走 cause。
@@ -58,6 +61,12 @@ export async function writeIdempotentChatMessage(
       new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } }),
       sendFailed(),
     )
+  }
+  // gugu-dev#181 ⑨ a reply to an agent's question card is its answer (questionCardAnswer.ts). The reply is sent either way;
+  // an answer that does not land leaves the card waiting, where the owner sees it.
+  if (message.reply_to_message_id) {
+    void import('./questionCardAnswer').then(({ answerIfQuestionReply }) => answerIfQuestionReply(message, input.senderUserId))
+      .catch((cause: unknown) => writerLog.error({ messageId: message.id, error: cause instanceof Error ? cause.message : String(cause) }, 'question card answer failed'))
   }
   return message
 }

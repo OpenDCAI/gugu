@@ -22,10 +22,13 @@ import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteNotificationsGroup } from './palette-notifications-group';
 import { PaletteProjectsGroup } from './palette-projects-group';
+import { PaletteChatGroups } from './palette-chats';
 import { PaletteSessionItem } from './palette-session-item';
 import { applyContextAffinity, getPaletteFileDisplayPath } from './search-utils';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import type { SessionMessageKey } from '@renderer/localization/messages';
+import { i18n } from '@/i18n';
 
 interface CommandPaletteProps {
   projectId?: string;
@@ -55,18 +58,8 @@ const GROUP_CLASS = cn(
   '[&_[cmdk-group-heading]]:text-foreground/50'
 );
 
-// Ordered allowlists for the "Suggested Actions" empty-state group. Defined at
-// module scope so the arrays keep stable references across renders.
-const SESSION_SUGGESTED = [
-  'session.sideSession',
-  'session.sidebarChanges',
-  'session.sidebarFiles',
-  'session.toggleTerminalDrawer',
-  'resource-monitor',
-  'app.giveFeedback',
-];
-const PROJECT_SUGGESTED = ['app.newSession', 'app.settings', 'resource-monitor', 'app.giveFeedback'];
-const APP_SUGGESTED = ['app.newProject', 'app.settings', 'resource-monitor', 'app.giveFeedback'];
+// gugu-dev#181 ⑯ 空着时的「建议操作」:两页顶上那几个入口,在哪一页都是这几个、这个次序。
+const SUGGESTED = ['app.newSession', 'app.newGroupChat', 'app.addContact', 'app.newProject', 'app.sessionHistory', 'app.scheduled'];
 
 function PaletteItem({
   value,
@@ -167,6 +160,10 @@ export function CommandPaletteModal({
     enabled: debouncedQuery.length === 0 || debouncedQuery.length >= 3,
   });
 
+  // 和侧栏 / 壳里那个入口叫同一个名字(CommandDef.labelKey),跟着界面语言走;没给的照旧写 label。
+  const commandTitle = (def: CommandDef | undefined, fallback: string) =>
+    !def?.labelKey ? fallback : def.labelKey.startsWith('main:') ? i18n.t(def.labelKey.slice('main:'.length), { ns: 'main' }) : translate(def.labelKey as SessionMessageKey);
+
   const registryActions = useObserver((): PaletteAction[] =>
     commandRegistry.activeCommands
       .filter((cmd) => cmd.enabled !== false && !cmd.hideFromPalette)
@@ -175,7 +172,7 @@ export function CommandPaletteModal({
         return {
           kind: 'action' as const,
           id: cmd.id,
-          title: cmd.label,
+          title: commandTitle(def, cmd.label),
           subtitle: cmd.description,
           shortcut: cmd.shortcutKey ? getEffectiveHotkey(cmd.shortcutKey, keyboard) : null,
           icon: getCommandIcon(def?.iconKey),
@@ -203,16 +200,11 @@ export function CommandPaletteModal({
   );
 
   const actions = useMemo(() => {
-    // Empty state: show the ordered context-specific suggested actions only.
-    const suggestedIds = sessionId ? SESSION_SUGGESTED : projectId ? PROJECT_SUGGESTED : APP_SUGGESTED;
-    const pool = resourceMonitorAction
-      ? [...registryActions, resourceMonitorAction]
-      : registryActions;
-    return pool
-      .filter((a) => suggestedIds.includes(a.id))
-      .sort((a, b) => suggestedIds.indexOf(a.id) - suggestedIds.indexOf(b.id))
-      .slice(0, 7);
-  }, [registryActions, resourceMonitorAction, projectId, sessionId]);
+    // Empty state: the suggested actions, in their order.
+    return registryActions
+      .filter((a) => SUGGESTED.includes(a.id))
+      .sort((a, b) => SUGGESTED.indexOf(a.id) - SUGGESTED.indexOf(b.id));
+  }, [registryActions]);
 
   const rankedDb = applyContextAffinity(dbResults, { projectId });
   const actionResults = actions;
@@ -295,7 +287,7 @@ export function CommandPaletteModal({
                 const displayItem: PaletteAction = {
                   kind: 'action',
                   id: item.id,
-                  title: live.label,
+                  title: commandTitle(def, live.label),
                   subtitle: live.description,
                   shortcut,
                   icon: getCommandIcon(def?.iconKey),
@@ -349,6 +341,7 @@ export function CommandPaletteModal({
                 />
               );
             })}
+            <PaletteChatGroups query={query} groupClassName={GROUP_CLASS} onClose={handleClose} />
           </>
         ) : (
           <>
@@ -393,6 +386,7 @@ export function CommandPaletteModal({
                 navigate={navigate}
               />
             )}
+            <PaletteChatGroups query="" groupClassName={GROUP_CLASS} onClose={handleClose} />
           </>
         )}
       </Command.List>

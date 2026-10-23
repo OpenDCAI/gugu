@@ -54,7 +54,6 @@ interface CreateContextBridge {
   selectDevice(deviceId: string): void;
   selectProject(projectId: string | null): void;
   reportAvailableProjects(projectIds: string[]): void;
-  clearBirthGroup(): void;
 }
 
 const PENDING_SNAPSHOT: CreateContextSnapshot = {
@@ -237,7 +236,7 @@ export const ComposerEmbedRoot = observer(function ComposerEmbedRoot() {
               />
               {projectPicker}
               {snapshot.birthGroup ? (
-                <ComposerBirthGroupChip name={snapshot.birthGroup.name} onClear={() => bridge?.clearBirthGroup()} />
+                <ComposerBirthGroupChip name={snapshot.birthGroup.name} />
               ) : null}
             </div>
             <div className={sessionComposerFrameLiftClassName}>
