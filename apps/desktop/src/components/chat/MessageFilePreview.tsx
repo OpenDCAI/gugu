@@ -45,7 +45,7 @@ async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promis
 }
 
 /** The host's preview wherever a file opens: messages, the chat's folder and an App's peek. */
-export function MessageFilePreview({ file, mobile = false, fill = false, message, onForward, onBack, full, onToggleFull, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; full?: boolean; onToggleFull?: () => void; onClose: () => void }) {
+export function MessageFilePreview({ file, mobile = false, fill = false, tabbed = false, message, onForward, onBack, full, onToggleFull, onClose }: { file: PreviewFile; mobile?: boolean; fill?: boolean; tabbed?: boolean; message?: MessageItem; onForward?: (message: MessageItem) => void; onBack?: () => void; full?: boolean; onToggleFull?: () => void; onClose: () => void }) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const downloadFailed = t('chatArea.downloadFailed')
@@ -71,5 +71,5 @@ export function MessageFilePreview({ file, mobile = false, fill = false, message
   }
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch(() => toast(downloadFailed, 'error'))
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
-  return <MessageFilePreviewPanel fill={fill} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

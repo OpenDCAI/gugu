@@ -110,6 +110,12 @@ export class InstalledExtensionsStore {
     subscribeLocale(() => runInAction(() => { this.locale = getLocaleSnapshot().resolvedLocale; }));
   }
 
+  /** A default App page uses its localized name; specifically named subpages keep their contribution title. */
+  tabTitle(kind: string): string | undefined {
+    const tab = this.allTabContributions.find((entry) => entry.kind === kind);
+    return tab && (this.mainTabOf(tab.extensionId)?.kind === kind ? tab.extensionName : tab.title);
+  }
+
   /** Every declared tab, preinstalled Apps' included — what a lookup by kind reads. */
   get allTabContributions(): ExtensionTabContributionEntry[] {
     return this.manifests.flatMap((manifest) => {
