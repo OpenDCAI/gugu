@@ -53,6 +53,36 @@ describe('FrameSessionHost over a device-shaped link', () => {
     client = null;
   });
 
+  it('sends no broadcasts before the first subscription, even when opening never finishes', () => {
+    const host = new FrameSessionHost();
+    const frames: Array<string | Uint8Array> = [];
+    let receive: (frame: string | Uint8Array) => void = () => { throw new Error('not attached'); };
+    const detach = host.attach({
+      send: (frame) => { frames.push(frame); },
+      close: () => undefined,
+      onFrame: (handler) => { receive = handler; },
+      onClose: () => undefined,
+    });
+    try {
+      frames.length = 0; // The host hello is a direct protocol message.
+      host.broadcast('pty:data.other', 'unsolicited');
+      expect(frames).toEqual([]);
+
+      receive(JSON.stringify({ t: 'sub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.other', 'still unrelated');
+      host.broadcast('pty:data.mine', 'subscribed');
+      expect(frames.map((frame) => JSON.parse(String(frame)))).toEqual([
+        { t: 'event', channel: 'pty:data.mine', data: 'subscribed' },
+      ]);
+
+      receive(JSON.stringify({ t: 'unsub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.mine', 'after unsub');
+      expect(frames).toHaveLength(1);
+    } finally {
+      detach();
+    }
+  });
+
   it('pushes only the channels the client subscribed to', async () => {
     const host = new FrameSessionHost({ appVersion: () => '9.9.9' });
     const link = memoryLink(host);

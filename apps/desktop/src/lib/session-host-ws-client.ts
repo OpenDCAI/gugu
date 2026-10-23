@@ -138,6 +138,7 @@ export function createSessionHostWsClient(
   const client = createSessionHostClient(openWebSocketPipe(endpoint), {
     messages: options.messages,
     staleMs: options.staleMs,
+    subscribeEvents: true,
     // 与 preload 的 window.postMessage({kind: '<ch>:port'}, '*', [port]) 同构:端口交给页面(session-wire 的 awaitWirePort 在等)。
     deliverPortToPage: (channel, port) => window.postMessage({ kind: channel }, '*', [port]),
   })
