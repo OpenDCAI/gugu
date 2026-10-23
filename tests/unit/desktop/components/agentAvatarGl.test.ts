@@ -103,4 +103,27 @@ describe('共用 GL 画布', () => {
     gl.flush()
     expect(draws, '没攒着的就不画').toHaveLength(2)
   })
+
+  it('肩部覆盖使用网格顶点的不透明度,普通素材保持原有不透明度', async () => {
+    vi.stubGlobal('Image', class { src = ''; decode() { return Promise.resolve() } })
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 8, height: 8, close() {} }))
+    const uploaded: Float32Array[] = []
+    const context = new Proxy(fakeContext(), {
+      get(target, key) {
+        if (key === 'bufferData') return (_target: number, data: unknown) => {
+          if (data instanceof Float32Array) uploaded.push(data.slice())
+        }
+        return Reflect.get(target, key)
+      },
+    })
+    const gl = GuguGL.on(canvasWith(context))!
+    await gl.loadTexture('body', 'body.webp', { w: 8, h: 8 })
+    gl.begin(64, 64)
+    gl.drawSprite('body', 0, 1, 0.8, null, 1, 1)
+    gl.drawSprite('body', 0, 1, 0.8, null, 1, 1, new Float32Array([0, 0.25, 0.5, 1]))
+    gl.flush()
+    expect(uploaded).toHaveLength(1)
+    const opacity = Array.from(uploaded[0]).filter((_, i) => i % 6 === 4)
+    expect(opacity.map((a) => Math.round(a * 100))).toEqual([80, 80, 80, 80, 0, 20, 40, 80])
+  })
 })

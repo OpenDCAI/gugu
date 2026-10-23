@@ -66,6 +66,8 @@ export interface PiecePose {
 /** 部件这一帧的动作。wl / wr = 翅膀位置(单位见 WING_DEG),yaw = 转圈角度(度),fx / fy = 脸区随视线滑的位移 */
 export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; yaw: number; fx: number; fy: number }, out: PiecePose): PiecePose {
   let sx = 1
+  let span = 1
+  let fan = 1
   let rot = 0
   let dx = 0
   let dy = 0
@@ -81,6 +83,10 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
     depth = Math.cos(phi)
   }
   if (pc.kind === 'wing') {
+    const open = clamp(pc.side < 0 ? b.wl : b.wr)
+    const spread = open * open * (3 - 2 * open)
+    span += 0.8 * spread
+    fan += 0.3 * spread
     // 翅膀是绕肩转的一片:转圈时向外伸的长度随 sin φ 变,过了正面翻到另一侧;毛绒翅膀有厚度,最窄也留 32%。
     // 越接近正对 / 背对镜头,抬起的角度越小(不从头顶竖出去)
     const raw = b.yaw !== 0 ? Math.sin(phi) / Math.sin(phi0) : 1
@@ -102,10 +108,10 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
   }
   const c = Math.cos(rot * DEG),
     s = Math.sin(rot * DEG)
-  out.m[0] = c * sx
-  out.m[1] = -s * sx
-  out.m[2] = s
-  out.m[3] = c
+  out.m[0] = c * sx * fan
+  out.m[1] = -s * sx * span
+  out.m[2] = s * fan
+  out.m[3] = c * span
   out.dx = dx
   out.dy = dy
   out.depth = depth
@@ -115,6 +121,15 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
 }
 
 export const newPose = (): PiecePose => ({ m: [1, 0, 0, 1], dx: 0, dy: 0, depth: 1, alpha: 1, shade: 1 })
+
+/** The body covers the lifted root; its original texture and mesh keep the shoulder continuous. */
+export function shoulderCover(pc: RigPiece, ps: PiecePose, lift: number, x: number, y: number): number {
+  if (pc.kind !== 'wing' || ps.depth < 0) return 0
+  const raised = clamp(lift * 4)
+  const horizontal = clamp((pc.box.w - Math.abs(x - pc.at.x - ps.dx)) / (pc.box.w * 0.25))
+  const vertical = clamp((pc.box.h * 0.8 - Math.abs(y - pc.at.y - pc.box.h * 0.25)) / (pc.box.h * 0.2))
+  return raised * raised * (3 - 2 * raised) * ps.alpha * horizontal * vertical
+}
 
 /** 一只翅膀的铰点与握点。没有翅膀的 rig 是角色包写错了:当场报 */
 export function wingOf(rig: Rig, side: -1 | 1): { piece: RigPiece; at: { x: number; y: number }; grip: { x: number; y: number } } {
