@@ -49,11 +49,12 @@ export class ActivityJournal {
   /**
    * The project an event belongs to, derived here from its subject; producers cannot supply it. A session's project
    * never changes (no path moves a session to another project; deleting a project deletes its sessions), so the
-   * record the database writes with every session row (activity_session_projects, migration 0038) gives the same
+   * record the database writes with every session row (activity_session_projects, migration 0039) gives the same
    * answer before and after the session is deleted. An automation run belongs to its automation's project at the
    * time of the run. A subject this machine never had belongs to no project.
    */
   private projectOf(event: ActivityObservation): string | null {
+    if (event.kind.startsWith('project.')) return event.object_id ?? null;
     if (event.session_id !== undefined) {
       const row = this.sql.prepare('SELECT project_id FROM activity_session_projects WHERE session_id = ?')
         .get(event.session_id) as { project_id: string } | undefined;
@@ -111,8 +112,9 @@ export class ActivityJournal {
       next_cursor: rows.length > q.limit ? Buffer.from(JSON.stringify({ v: 1, signature, after: page.at(-1)!.seq, high })).toString('base64url') : null,
       order: 'observation_sequence',
       coverage: { scope: 'this_machine', queried_at: this.now(), collector_running: this.segmentId !== null, segments,
-        untracked: ['external_cli_without_adapter', 'foreground_dwell', 'device_call_history'],
-        note: 'Only the recorded segments are covered; earlier history and gaps are unknown. Agent done is a turn ending, not task acceptance.' },
+        untracked: ['terminal_input_submission', 'external_cli_without_adapter', 'foreground_dwell', 'device_call_history',
+          'app_source_edits_without_host_operation', 'model_changes_without_runtime_confirmation'],
+        note: 'Only the recorded segments are covered; earlier history and gaps are unknown. Terminal bytes are not interpreted as input submissions. Agent done is a turn ending, not task acceptance.' },
     };
   }
 }

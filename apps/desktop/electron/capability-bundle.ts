@@ -1174,11 +1174,17 @@ export const GUGU_APPS_SEARCH_LINE = [
 export function guguAppsBlock(apps: readonly ExtensionCatalogApp[], skills: readonly ExtensionSkill[]): string {
   if (apps.length === 0 && skills.length === 0) return ''
   const parts: string[] = []
-  // #7317 Computer Use on: the one thing to know, said before an agent reaches for osascript or a browser's mouse.
+  // Computer Use stays on the device API path, independently of App tool disclosure.
   if (apps.some((app) => app.computerUse)) parts.push(COMPUTER_USE_LINE)
   const catalogApps = apps.filter((app) => !app.computerUse)
   if (catalogApps.length > 0) {
-    parts.push(['Apps installed on this computer whose tools are in the catalog (run them with catalog_call):', ...appLines(catalogApps)].join('\n'))
+    parts.push(['Apps available in this session (use their listed tools, or catalog_list / catalog_call):', ...appLines(catalogApps)].join('\n'))
+  }
+  // Standing behavior is not an App summary: keep the complete authorized rule.
+  for (const app of apps) {
+    if (app.agentInstructions) {
+      parts.push(`Standing instructions from App ${app.extensionId} (apply while its tools remain available; user instructions take precedence):\n${app.agentInstructions}`)
+    }
   }
   if (skills.length > 0) {
     const lines = skills.map((skill) => `- ${skill.name} (App ${skill.extensionId}): ${skill.description}\n  ${join(skill.dir, 'SKILL.md')}`)

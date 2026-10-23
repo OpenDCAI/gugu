@@ -17,8 +17,11 @@ import { PhoneAgentSetupGate } from '../../mobile/local-agent/PhoneAgentSetupGat
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
+import { ProductTour } from '../productTour/ProductTour'
+import type { ProductTourPosition } from '../../lib/productTour'
 import { FirstRunHarness } from './FirstRunHarness'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
+import { UI_EVENTS } from '../../lib/uiEvents'
 
 const log = rendererLogger('first-run')
 
@@ -29,7 +32,7 @@ type GateState =
   | { kind: 'loading' }
   | { kind: 'unreadable' }
   | { kind: 'profile'; occupation: Occupation | null }
-  | { kind: 'intro' }
+  | { kind: 'intro'; tour?: ProductTourPosition | null }
   | { kind: 'harness' }
   | { kind: 'done' }
 
@@ -53,7 +56,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     readFirstRunProgress(user.id)
       .then((progress) => {
         if (progress.stage === 'done') setState({ kind: 'done' })
-        else if (progress.stage === 'intro') setState({ kind: platform.kind === 'electron' && !progress.harness ? 'harness' : 'intro' })
+        else if (progress.stage === 'intro') setState(platform.kind === 'electron' && !progress.harness ? { kind: 'harness' } : { kind: 'intro', tour: progress.tour })
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
       .catch((e: unknown) => {
@@ -64,7 +67,16 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
 
   useEffect(load, [load])
 
+  useEffect(() => {
+    if (platform.kind !== 'electron') return
+    const reopen = () => setState({ kind: 'intro', tour: { phase: 'modules', index: 0 } })
+    window.addEventListener(UI_EVENTS.reopenProductTour, reopen)
+    return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
+  }, [])
+
   if (state.kind === 'done') return <PhoneAgentSetupGate key={user.id} ownerId={user.id}>{children}</PhoneAgentSetupGate>
+  if (state.kind === 'intro' && platform.kind === 'electron') return <>{children}<ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={() => setState({ kind: 'done' })} /></>
+
   if (state.kind === 'loading') return <FullScreenLoader />
   return (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>

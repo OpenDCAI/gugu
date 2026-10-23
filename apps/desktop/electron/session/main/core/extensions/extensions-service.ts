@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -348,7 +349,10 @@ export class ExtensionsService {
         this.dockFile.write([...firstInstall.dock, manifest.id]);
       }
     }
-    return this.get(manifest.id);
+    const installed = this.get(manifest.id);
+    if (origin !== 'preinstalled') activitySignal({ event_id: randomUUID(), kind: firstInstall ? 'app.installed' : 'app.replaced',
+      object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
+    return installed;
   }
 
   /** Who published each App installed from a chat (摩擦单 F66); throws on a file it cannot read, like the origins. */

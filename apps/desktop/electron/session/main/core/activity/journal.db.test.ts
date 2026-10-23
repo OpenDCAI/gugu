@@ -30,6 +30,14 @@ describe('activity journal: real SQLite, no transcript storage or reader', () =>
     expect(restarted.list({ since, until }).events).toMatchObject([{ event_id: 'receipt', occurred_at: null }]);
     expect(restarted.list({ since, until }).events).toHaveLength(1);
   });
+  it('derives a project operation from its subject without accepting a producer project override', () => {
+    journal.append({ event_id: 'detached-folder', kind: 'project.folder_detached', object_id: 'p-deleted',
+      related_object_id: 'folder-gone', occurred_at: now, observed_at: now });
+    expect(journal.list({ since, until, project_id: 'p-deleted' }).events).toMatchObject([
+      { project_id: 'p-deleted', object_id: 'p-deleted', related_object_id: 'folder-gone' },
+    ]);
+    expect(() => journal.append({ event_id: 'missing-project', kind: 'project.deleted', occurred_at: now, observed_at: now })).toThrow(/subject project/);
+  });
   it('rejects bodies, free-form payloads and non-metadata additions before writing', () => {
     expect(() => journal.append({ ...event('bad'), content: 'secret input' } as ActivityObservation)).toThrow();
     expect(() => journal.append({ ...event('bad'), payload: { text: 'secret output' } } as ActivityObservation)).toThrow();

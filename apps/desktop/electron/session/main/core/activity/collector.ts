@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sqlite } from '@main/db/client';
 import { log } from '@main/lib/logger';
 import { sessionEvents } from '@main/core/sessions/session-events';
+import { projectEvents } from '@main/core/projects/project-events';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { sqliteTextToMs } from '@main/core/usage/local-day';
 import { ActivityJournal } from './journal';
@@ -27,6 +28,10 @@ export function installActivityCollector(): () => void {
   };
   const observe: Parameters<typeof onActivitySignal>[0] = e => safely(() => recorder.append({ ...e, observed_at: Date.now() }));
   const offs = [onActivitySignal(observe),
+    projectEvents.on('project:created', project => observe({ event_id: randomUUID(), kind: 'project.created',
+      object_id: project.id, occurred_at: sqliteTextToMs(project.createdAt) })),
+    projectEvents.on('project:deleted', projectId => observe({ event_id: randomUUID(), kind: 'project.deleted',
+      object_id: projectId, occurred_at: null })),
     agentStatusWriter.on('agent:status', change => {
       if (change.activityAt === undefined) return; // Read/unread changes are not work activity.
       observe({ event_id: randomUUID(), kind: 'agent.status', session_id: change.sessionId,
@@ -44,8 +49,6 @@ export function installActivityCollector(): () => void {
       kind: 'session.archived', session_id: sessionId, occurred_at: null })),
     sessionEvents.on('session:deleted', sessionId => observe({ event_id: randomUUID(),
       kind: 'session.deleted', session_id: sessionId, occurred_at: null })),
-    sessionEvents.on('session:input-submitted', input => observe({ event_id: randomUUID(),
-      kind: 'session.input_submitted', session_id: input.sessionId, occurred_at: null })),
   ];
   const timer = setInterval(() => safely(() => recorder.heartbeat()), 60_000);
   timer.unref();

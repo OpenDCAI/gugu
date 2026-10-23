@@ -567,6 +567,8 @@ export const extensionManifestSchema = z
        * session as-is — text the agent reads, nothing gugu runs.
        */
       skills: bundlePathSchema.optional(),
+      /** Standing behavior delivered in the session platform prompt, independently of skill discovery. */
+      agentInstructions: z.string().trim().min(1).max(8000).optional(),
       /**
        * The App's own choice of how its programs' tools reach agents (owner 10-06「本身一个 app 自己初始化的时候也给自己
        * 抉择啊」): listed in every new session's tool list instead of the catalog (D-10's default). Read once, at the
@@ -648,13 +650,16 @@ export const extensionManifestSchema = z
     if (subtitled && manifest.apiVersion < 8) {
       ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'subtitle requires apiVersion 8' });
     }
-    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined;
+    if (manifest.contributes.agentInstructions && servers.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'agentInstructions'], message: 'standing instructions require an MCP program' });
+    }
+    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined || manifest.contributes.agentInstructions !== undefined;
     const offersTools = (declared as readonly string[]).includes('agents:tools');
     if (extendsAgents && !offersTools) {
       ctx.addIssue({
         code: 'custom',
         path: ['permissions', 'capabilities'],
-        message: 'an App that gives agents MCP servers or skills must declare "agents:tools", so the install sheet says so',
+        message: 'an App that gives agents MCP servers, skills or standing instructions must declare "agents:tools", so the install sheet says so',
       });
     }
     if (offersTools && !extendsAgents) {
@@ -662,7 +667,7 @@ export const extensionManifestSchema = z
         code: 'custom',
         path: ['permissions', 'capabilities'],
         // app_create takes these same fields, in its manifest (S1), so one name serves both.
-        message: '"agents:tools" is declared but there are no contributes.mcpServers or contributes.skills',
+        message: '"agents:tools" is declared but there are no contributes.mcpServers, contributes.skills or contributes.agentInstructions',
       });
     }
     if (manifest.contributes.toolsListed && servers.length === 0) {

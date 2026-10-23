@@ -184,6 +184,17 @@ describe('an App opened in the group (「在本群打开」)', () => {
   const installTabs = (tabs: { name: string; title: string; opensFiles?: Record<string, string[]> }[]) =>
     act(() => installedExtensionsStore.applyList({ extensions: [{ id: 'board', name: 'Board', version: '1.0.0', contributes: { tabs } }], invalid: [] } as unknown as InstalledExtensionsList))
 
+  it('a folder request replaces a remembered App with the folder root, without a back trail', async () => {
+    const chatId = 'folder-entry-7590'
+    groupSlotMemory.setOpened(chatId, { kind: 'day-calendar.main', title: '日历', opening: 7590 })
+    await harness.render(slot({ chatId }))
+    expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe('day-calendar.main')
+    await harness.render(slot({ chatId, appToOpen: { chatId, extensionId: 'workspace', request: 759001 } }))
+    expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    expect(groupSlotMemory.opened(chatId)).toBeNull()
+  })
+
   it('opens its own page here, with no file', async () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
     vi.mocked(appsHere!.groupFilesOpenedBy).mockClear()
