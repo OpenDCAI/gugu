@@ -278,7 +278,7 @@ export async function groupFileOpener(args: { chatId: string; itemId: string; at
     const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered)
     // App 引用 pill: the place, for the page about to open the file — main's `deliverToOpeningPage` on the desktop.
     const place = placeFor(choice, args.at)
-    if (place) holdPlaceForOpeningPage(args.chatId, target.itemId, place.candidate, place.at)
+    if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
     return { success: true, data: { ...target, choice } }
   } catch (error) {
     return failure(error)
@@ -365,7 +365,8 @@ export function hostAppFrame(
   /** And the chat itself (`getContext().chat`), read with them; undefined until read — `files.chat()` throws when it cannot be. */
   let chat: ExtensionChat | null | undefined
   const readMembers = async () => {
-    const chatId = hosted.binding.chatId
+    const chatId = hosted.binding.chatId ? await files.resourceChat(hosted.binding.chatId) : null
+    hosted.binding.chatId = chatId
     // A page in a session is in no chat: its context says so (no `chat`), never a chat read for nothing.
     if (!chatId) {
       members = []
@@ -380,7 +381,7 @@ export function hostAppFrame(
     chat = await files.chat(chatId)
   }
   /** The chats this page asked to hear about (`files.onChanged({ chat }, fn)`): a phone has no working copies. */
-  const watched = new Set<string>()
+  const watched = new Map<string, string>()
   /** A chat's files read for the page (#7257), one read at a time per chat; a failed one's ids go with the next. */
   const readFiles = coalescedReads((chatId, error) =>
     log.error({ error: error instanceof Error ? error.message : String(error), chatId }, 'reading the files a revision named failed twice; they go with its next read'),
@@ -388,8 +389,9 @@ export function hostAppFrame(
   const readChanged = (chatId: string, ids: readonly string[]): Promise<void> =>
     readFiles.want(chatId, ids, async (wanted) => {
       const change = await files.groupChange(chatId, wanted)
-      const told = watched.has(chatId) && hosted.binding.capabilities.includes('files:read')
-      if (told && (change.entries.length > 0 || change.gone.length > 0)) event({ type: 'filesChanged', place: { chat: chatId }, change: { kind: 'entries', ...change } })
+      if (hosted.binding.capabilities.includes('files:read') && (change.entries.length > 0 || change.gone.length > 0)) {
+        for (const [named, source] of watched) if (source === chatId) event({ type: 'filesChanged', place: { chat: named }, change: { kind: 'entries', ...change } })
+      }
     })
   const peek = (target: PeekTarget) => {
     if (!hooks.peek) refused('invalid', 'Nothing opens beside this page here')
@@ -431,7 +433,7 @@ export function hostAppFrame(
   })
 
   /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
-  const answer = (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
+  const answer = async (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
     // Once, from the verb's row (BRIDGE_VERBS), in the words every host says it — a phone frame is a page.
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)
@@ -587,11 +589,12 @@ export function hostAppFrame(
       case 'filesReadVersion':
         return files.readVersion(surface(), { ref: chatRef(args.ref), n: Number(args.n) })
       case 'filesWatch': {
-        const chatId = chatPlace(args.place)
+        const named = chatPlace(args.place)
+        const chatId = await files.resourceChat(named)
         if (args.on === false) {
-          watched.delete(chatId)
-          readFiles.forget(chatId)
-        } else watched.add(chatId)
+          watched.delete(named)
+          if (![...watched.values()].includes(chatId)) readFiles.forget(chatId)
+        } else watched.set(named, chatId)
         return Promise.resolve(undefined)
       }
       case 'filesUpload': {
@@ -686,7 +689,7 @@ export function hostAppFrame(
     /** These chats' files changed (the account revision bus names them): the ones the page asked about are told how those files are now. */
     filesChanged(changes) {
       if (!hosted.binding.capabilities.includes('files:read')) return Promise.resolve()
-      return Promise.all(changes.filter(({ chatId }) => watched.has(chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
+      return Promise.all(changes.filter(({ chatId }) => [...watched.values()].includes(chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
     },
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {

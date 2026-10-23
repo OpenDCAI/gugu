@@ -14,6 +14,7 @@ import { until } from '../../../support/awaitCondition'
 const ORIGIN = 'https://board.acct.apps.gugu.invalid'
 const CHAT = '0b000000-0000-4000-8000-000000007257'
 const OTHER_CHAT = '0b000000-0000-4000-8000-000000007258'
+const TOPIC = '0b000000-0000-4000-8000-000000007259'
 const [A, B, C] = ['0f000000-0000-4000-8000-00000000000a', '0f000000-0000-4000-8000-00000000000b', '0f000000-0000-4000-8000-00000000000c']
 const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '0a000000-0000-4000-8000-000000007257' })).toString('base64url')}.s` }))
 /**
@@ -41,6 +42,7 @@ vi.mock('@gugu/core/cloud/supabase', () => {
         return query
       },
       rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: args.p_chat_id === TOPIC ? 'topic' : 'group', source_chat_id: args.p_chat_id === TOPIC ? CHAT : null }], error: null }
         if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
         // Every file of the chat: A.
         if (name === 'workspace_list_as') {
@@ -106,6 +108,20 @@ const changes = () =>
     .filter((message) => message.t === 'event' && message.event?.type === 'filesChanged').map((message) => message.event!.change)
 
 describe('a watched chat\'s files changed: the page hears those files (#7257)', () => {
+  it('topic and source subscriptions both follow source revisions, with their original event addresses', async () => {
+    expect(await call('filesWatch', { place: { chat: TOPIC } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    const places = posted.mock.calls.map(([message]) => message as { t?: string; event?: { type: string; place?: unknown } })
+      .filter((message) => message.t === 'event' && message.event?.type === 'filesChanged').map((message) => message.event!.place)
+    expect(places).toEqual([{ chat: TOPIC }, { chat: CHAT }])
+    expect(db.reads).toEqual([[A]])
+    expect(await call('filesWatch', { place: { chat: TOPIC }, on: false })).toMatchObject({ ok: true })
+    posted.mockClear()
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toHaveLength(1)
+  })
+
   it('the named files as they are now and the ids not there — one read; an unwatched chat, nothing', async () => {
     expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [A, B, C] }, { chatId: OTHER_CHAT, itemIds: [A] }])

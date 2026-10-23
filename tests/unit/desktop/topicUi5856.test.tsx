@@ -262,6 +262,7 @@ describe('TopicBreadcrumb:双向连接上行的那一半 + 来源消息被删的
 describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   const baseProps = {
     topic: { chatId: 'topic-1', name: '分片下载失败' },
+    sourceChatId: 'source-1',
     messages: [],
     loading: false,
     memberProfiles: {},
@@ -334,7 +335,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   // R A/B 10-06: a topic's App panel covers the topic's list, and its gugu.showMessage of a topic line moved nothing —
   // no scroll, no flash, no toast (both builds). Control (b22032f777): the panel stays and no row flashes.
-  it('gugu.showMessage of a line in this topic: the App panel gives the list back, and that line flashes', async () => {
+  it('gugu.showMessage keeps the topic address and flashes its line', async () => {
     const originalCheckVisibility = HTMLElement.prototype.checkVisibility
     const originalScrollTo = HTMLElement.prototype.scrollTo
     HTMLElement.prototype.checkVisibility = () => false // jsdom has none; an unseen slot claims no page
@@ -342,8 +343,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     try {
       const messages = ['t-1', 't-2', 't-3'].map((id, index) => message({ id, seq: index + 1, content: `line ${id}` }))
       await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, messages }))
-      await clickElement(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]') as HTMLElement)
-      expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the App panel is open').toBeTruthy()
+      expect(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]')).toBeNull()
       await act(async () => {
         window.dispatchEvent(new CustomEvent('gugu:app-show-message', { detail: { chatId: 'topic-1', messageId: 't-1' } }))
       })
@@ -690,7 +690,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 170 10-19:页头 ⋯ 打开本机的 App(#7469)只在群和私聊的页头,话题的分栏与手机整页一直没有 —— 话题里要开 App 只能靠卡片。
   // 现在话题用同一份菜单项(OpenAppMenuItems):点一下 = openApp(它, 这个话题)。手机的 ⋯ 里先是附件、文件夹,再是 App。
   for (const mobile of [false, true]) {
-    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在这个话题的右栏打开`, async () => {
+    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在来源的共享栏打开`, async () => {
       runInAction(() => {
         installedExtensionsStore.manifests = [parseExtensionManifest({ id: 'turtle-soup', name: '海龟汤', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '海龟汤' }] } })]
       })
@@ -701,9 +701,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['附件', '文件夹', '海龟汤'] : ['海龟汤'])
+        expect(rows).toEqual(mobile ? ['附件', '海龟汤'] : ['海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
-        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'topic-1' })
+        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
       } finally {
         window.removeEventListener(UI_EVENTS.openApp, listen)
         runInAction(() => { installedExtensionsStore.manifests = [] })

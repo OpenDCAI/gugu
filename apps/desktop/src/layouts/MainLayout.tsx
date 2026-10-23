@@ -82,6 +82,8 @@ import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
 import { addFilePills } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, APP_SHOW_MESSAGE_EVENT, GROUP_FILE_OPEN_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail, type AppShowMessageDetail, type GroupFileOpenDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { askReveal } from '../hooks/useSourceMessageReveal'
+import { resourceChatIdOf } from '../session/shared/extensions/app-files-core'
+import { getRendererAccessToken } from '../lib/sessionPublication'
 import { resolveQrScanRoute, type QrScanRoute } from '../lib/qrScanRoute'
 import { describeBarcodeScanError } from '../lib/barcodeScanError'
 import { PlatformError } from '../platform/errors'
@@ -803,8 +805,9 @@ function InnerLayout({
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
   useEffect(() => {
-    const bringUp = (chatId: string | null, ask: (chatId: string) => void): boolean => {
-      const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
+    const bringUp = (chatId: string | null, ask: (chatId: string) => void, resource = false): boolean => {
+      const addressed = chatsRef.current.find((candidate) => candidate.id === chatId)
+      const chat = resource && addressed?.kind === 'topic' ? chatsRef.current.find((candidate) => candidate.id === addressed.source_chat_id) : addressed
       if (!chat) {
         toast(t('groupFile.notInGroup'), 'error')
         return false
@@ -825,7 +828,7 @@ function InnerLayout({
     const onFile = (event: Event) => {
       const detail = (event as CustomEvent<GroupFileOpenDetail>).detail
       if (!detail || typeof detail.itemId !== 'string') return
-      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message, detail.restore))) event.preventDefault()
+      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message, detail.restore), true)) event.preventDefault()
     }
     // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
@@ -861,26 +864,34 @@ function InnerLayout({
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, undefined, detail))
+      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, undefined, detail), true)
     }
     // A link's or a banner's click naming a chat: it comes up, and its panel opens the App (useOpenApp takes it).
     const onOpenInChat = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenInChatDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.askApp(chatId, detail.extensionId))
+      const named = detail?.chatId ?? activeChatIdRef.current
+      if (!named || !detail) return
+      const token = getRendererAccessToken()
+      if (!token) { toast(t('groupFile.notInGroup'), 'error'); return }
+      void resourceChatIdOf(token, named, user.id)
+        .then((chatId) => bringUp(chatId, (id) => groupSlotMemory.askApp(id, detail.extensionId), true))
+        .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
     }
     window.addEventListener(GROUP_FILE_OPEN_EVENT, onFile)
     window.addEventListener(APP_COMPOSE_EVENT, onCompose)
     window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
     window.addEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
     window.addEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
+    window.addEventListener(UI_EVENTS.openApp, onOpenInChat)
     return () => {
       window.removeEventListener(GROUP_FILE_OPEN_EVENT, onFile)
       window.removeEventListener(APP_COMPOSE_EVENT, onCompose)
       window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
       window.removeEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
+      window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatBlock, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
+  }, [focusComposerForUserEntry, openChatBlock, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast, user.id])
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
   // 从前靠 agent 运行态广播代劳;各入口内联的同名调用保留,免掉一帧闪烁。

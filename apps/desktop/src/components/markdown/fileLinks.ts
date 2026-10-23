@@ -6,7 +6,7 @@ import { openAppLink } from '../../lib/inAppLinks'
 let opening = 0
 
 /**
- * A file of a group or topic, opened where the person is (摩擦单 F10): the chat it is in is read from the file (F112 — the
+ * A file of a source group or private chat, opened where the person is (摩擦单 F10): the chat it is in is read from the file (F112 — the
  * person sees only the files of chats they are in), then the chat shell brings that chat up and takes it. False when it
  * could not (the person is not in that chat, or the file is gone; they were told so). `at`: the place in it a pill points
  * at (its link's `#…`), handed to the App that opens the file as a `link` event.

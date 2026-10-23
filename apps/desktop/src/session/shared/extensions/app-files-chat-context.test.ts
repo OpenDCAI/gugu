@@ -75,11 +75,11 @@ describe('getContext().chat (extensionChatOf)', () => {
   });
 
   it('a topic goes by the group it grew out of', async () => {
-    await expect(extensionChatOf('token', TOPIC, A, people)).resolves.toEqual({ id: TOPIC, name: '周六路线', kind: 'topic', groupId: GROUP });
+    await expect(extensionChatOf('token', TOPIC, A, people)).resolves.toEqual({ id: GROUP, name: '周末出游', kind: 'group', groupId: GROUP });
   });
 
   it('a topic of a private chat belongs to no group', async () => {
-    await expect(extensionChatOf('token', DM_TOPIC, A, people)).resolves.toEqual({ id: DM_TOPIC, name: '私聊里的话题', kind: 'topic', groupId: null });
+    await expect(extensionChatOf('token', DM_TOPIC, A, people)).resolves.toEqual({ id: DM, name: '小北', kind: 'dm', groupId: null });
   });
 
   it('a private chat is a chat of no group, called by the other one in it — each side sees the other', async () => {
@@ -105,7 +105,7 @@ describe('getContext().chat (extensionChatOf)', () => {
       filesUrl: () => 'http://files.invalid',
       warn: () => undefined,
     });
-    await expect(files.chat(TOPIC)).resolves.toMatchObject({ kind: 'topic', groupId: GROUP });
+    await expect(files.chat(TOPIC)).resolves.toMatchObject({ id: GROUP, kind: 'group', groupId: GROUP });
     await expect(files.chat(DM)).resolves.toMatchObject({ kind: 'dm', name: '小北' });
   });
 });

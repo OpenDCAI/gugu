@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const BOARD_CHAT = '0c4a7e10-0000-4000-8000-00000000b0a2';
 const FOLDER_CHAT = '0c4a7e10-0000-4000-8000-00000000f01d';
 const OTHER_CHAT = '0c4a7e10-0000-4000-8000-0000000000e2';
+const TOPIC = '0c4a7e10-0000-4000-8000-0000000000e3';
 
 /**
  * 摩擦单 F16 An App's program answered as a caller of its App: the frames `gugu-program.mjs` (L3) sends over the
@@ -57,6 +58,7 @@ const changedGroupFiles = vi.fn(async (chatId: string, _reader: string | null, w
 const chatsOf = vi.fn(async () => []);
 const chatMembersOf = vi.fn(async () => []);
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId === TOPIC ? FOLDER_CHAT : chatId,
   changedGroupFiles,
   chatsOf,
   chatMembersOf,
@@ -108,6 +110,25 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('a handed topic grants its source files while message history keeps the topic address', async () => {
+    granted.add('files:read');
+    granted.add('chat:read');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    const release = surface.hand('topic-call', 'agent-1', [], [{ chatId: TOPIC, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const page = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' };
+    expect(await call(child, 801, 'filesList', { place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
+    expect(listAppFiles).toHaveBeenLastCalledWith(page, { place: { chat: TOPIC } });
+    expect(await call(child, 802, 'filesOpen', { ref: { chat: FOLDER_CHAT, id: 'source-file' } }, 'topic-call')).toMatchObject({ ok: true });
+    expect(openAppFile).toHaveBeenLastCalledWith(page, { ref: { chat: FOLDER_CHAT, id: 'source-file' } });
+    expect(await call(child, 803, 'messagesHistory', { chat: TOPIC }, 'topic-call')).toMatchObject({ ok: true });
+    expect(messagesHistory).toHaveBeenLastCalledWith({ chat: TOPIC }, { asAgent: 'agent-1' });
+    expect(await call(child, 804, 'messagesHistory', { chat: FOLDER_CHAT }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
+    expect(await call(child, 805, 'filesList', { place: { chat: OTHER_CHAT } }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
+    await release();
+    surface.close();
+  });
+
   it('opens the file a call handed it with no capability, in that file\'s group, on its own relay page', async () => {
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
@@ -181,7 +202,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:read');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const release = surface.hand('call-1', 'agent-1', [HANDED], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const release = surface.hand('call-1', 'agent-1', [HANDED], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const asPage = { pageId: surface.pageId, extensionId: 'board', handed: null };
     await call(child, 44, 'filesOpen', { ref: { id: 'item-board' } });
     expect(openAppFile).toHaveBeenLastCalledWith(asPage, { ref: { id: 'item-board' } });
@@ -196,7 +217,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('chat:read');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     expect(await call(child, 50, 'messagesHistory', { chat: FOLDER_CHAT }, 'call-1')).toMatchObject({ ok: true });
     expect(messagesHistory).toHaveBeenLastCalledWith({ chat: FOLDER_CHAT }, { asAgent: 'agent-1' });
     expect(await call(child, 51, 'messagesHistory', { chat: OTHER_CHAT }, 'call-1')).toMatchObject({ ok: false, code: 'denied' });
@@ -231,7 +252,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('chat:read');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const handing = surface.hand('call-1', 'agent-1', [HANDED], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const handing = surface.hand('call-1', 'agent-1', [HANDED], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const bare = surface.hand('call-2', 'agent-2', []);
     const nobody = surface.hand('call-3', null, []);
     expect(await call(child, 60, 'chatsList', {}, 'call-1')).toEqual(expect.objectContaining({ ok: true, value: { chats: [] } }));
@@ -321,7 +342,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:write');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const asAgent = { pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' };
     const asPerson = { pageId: surface.pageId, extensionId: 'board', handed: null };
     expect(await call(child, 50, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-1')).toMatchObject({ ok: true });
@@ -350,7 +371,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:write');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const release = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const ref = { ref: { chat: FOLDER_CHAT, id: 'item-notes' } };
     expect(await call(child, 70, 'filesOpen', ref, 'call-1')).toMatchObject({ ok: true });
     expect(openAppFile).toHaveBeenLastCalledWith({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: 'agent-1' }, ref);
@@ -371,8 +392,8 @@ describe('an App program as a caller of its App (F16)', () => {
 
   it('what an agent opened by the capability words stays while another call of that agent runs, and goes when the last one ends', async () => {
     const surface = attachProgramSurface('board', fakeChild() as unknown as ChildProcess);
-    const first = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
-    const second = surface.hand('call-2', 'agent-1', [], [{ chatId: OTHER_CHAT, agentUserId: 'agent-1' }]);
+    const first = surface.hand('call-1', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const second = surface.hand('call-2', 'agent-1', [], [{ chatId: OTHER_CHAT, resourceChatId: OTHER_CHAT, agentUserId: 'agent-1' }]);
     await first();
     expect(fileSync.revoke).not.toHaveBeenCalled();
     await second();
@@ -385,7 +406,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:read');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    const first = surface.hand('call-a', 'agent-1', [], [{ chatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
+    const first = surface.hand('call-a', 'agent-1', [], [{ chatId: FOLDER_CHAT, resourceChatId: FOLDER_CHAT, agentUserId: 'agent-1' }]);
     const second = surface.hand('call-b', 'agent-2', [{ itemId: 'item-folder', chatId: FOLDER_CHAT, agentUserId: 'agent-2' }]);
     const asAgent = (agent: string) => ({ pageId: surface.pageId, extensionId: 'board', handed: null, asAgent: agent });
     expect(await call(child, 60, 'filesList', { place: { chat: FOLDER_CHAT } }, 'call-b')).toMatchObject({ ok: true });

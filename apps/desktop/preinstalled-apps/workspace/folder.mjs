@@ -11,7 +11,7 @@ import { basename, isAbsolute, join } from 'node:path'
 const CHAT = {
   type: 'string',
   format: 'gugu-chat',
-  description: 'The chat whose folder it is: the chat= of your delivery, <project_group>\'s chat_id, or the number people see.',
+  description: 'The source group or private chat whose folder it is. A topic address uses its source folder. Use the delivery chat=, <project_group>\'s chat_id, or the number people see.',
 }
 const ITEM = { type: 'string', format: 'gugu-file', description: 'A file of a chat\'s folder: its id, as list or a gugu-file:// link gives it.' }
 /** 子文件夹: a folder of a chat's folder, as the tools take it — by its path from the top, or its id. */

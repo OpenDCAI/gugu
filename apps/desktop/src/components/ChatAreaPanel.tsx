@@ -1617,7 +1617,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
 
         {topicSurface.splitTopic && (
           <TopicSplitPane
-            topic={topicSurface.splitTopic}
+            topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
             messages={topicSurface.splitMessages}
             loading={topicSurface.splitLoading}
             memberProfiles={messageMemberProfiles}

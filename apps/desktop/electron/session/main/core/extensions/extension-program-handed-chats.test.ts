@@ -31,6 +31,7 @@ const client = {
   },
   rpc: async (name: string, args: Record<string, unknown>) => {
     doors.push({ name, args });
+    if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null };
     return statusError ? { data: null, error: statusError } : { data: [{ total: 0, documents: 0, files: 0 }], error: null };
   },
 };
@@ -67,14 +68,14 @@ describe('handedChatsAs: a chat is handed only as the agent, and only one the ag
   });
 
   it('③ a chat\'s own id as it is, a public id that names one chat as that chat\'s id: the door asked as the agent — never the person', async () => {
-    expect(await handedChatsAs(AGENT, [CHAT])).toEqual([{ chatId: CHAT, agentUserId: AGENT }]);
+    expect(await handedChatsAs(AGENT, [CHAT])).toEqual([{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]);
     expect(lookups).toEqual([]);
-    expect(doors).toEqual([{ name: 'workspace_status_as', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }]);
+    expect(doors).toEqual([{ name: 'workspace_status_as', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }, { name: 'chat_facts', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }]);
     publicRows = [{ id: CHAT }];
-    expect(await handedChatsAs(AGENT, ['207957'])).toEqual([{ chatId: CHAT, agentUserId: AGENT }]);
+    expect(await handedChatsAs(AGENT, ['207957'])).toEqual([{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]);
     expect(lookups).toEqual([{ table: 'chats', column: 'public_id', value: '207957' }]);
     const door = { name: 'workspace_status_as', args: { p_chat_id: CHAT, p_as_user_id: AGENT } };
-    expect(doors).toEqual([door, door]);
+    expect(doors).toEqual([door, { name: 'chat_facts', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }, door, { name: 'chat_facts', args: { p_chat_id: CHAT, p_as_user_id: AGENT } }]);
   });
 
   it('④ a door that could not answer (an expired token): said as what it was — never as "not a chat you are in"', async () => {

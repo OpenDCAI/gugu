@@ -30,6 +30,7 @@ function injected({ members = [AGENT, BOB], visibleItem = true } = {}) {
           if (!visibleItem) throw new Error(`command RPC HTTP 400: workspace item not found: ${String(body.p_item_id)}`)
           return [{ id: ITEM, chat_id: CHAT, filename: 'friday.vote.json' }]
         }
+        if (name === 'chat_facts') return [{ id: body.p_chat_id, kind: 'group', source_chat_id: null }]
         if (name === 'list_member_ids') return members.map((user_id) => ({ user_id }))
         throw new Error(`unexpected rpc ${name}`)
       },

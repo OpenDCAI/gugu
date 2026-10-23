@@ -39,7 +39,6 @@ const { ExtensionBundleCard } = await import('../../../../apps/desktop/src/compo
 const { ChatStoreProvider } = await import('../../../../apps/desktop/src/store/chatContext')
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { UI_EVENTS } = await import('../../../../apps/desktop/src/lib/uiEvents')
-const { useTopicWorkspace } = await import('../../../../apps/desktop/src/components/appSlot/useTopicWorkspace')
 const { groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
 const { grantableBy } = await import('../../../../apps/desktop/src/session/shared/extensions/attachment-install')
 const { PHONE_CAPABILITIES } = await import('../../../../apps/desktop/src/components/appSlot/phoneApps')
@@ -92,16 +91,16 @@ describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => 
     openPanel.mockClear()
   })
 
-  it('a topic opens it in its panel', async () => {
-    await harness.render(createElement(Chat, { id: 'topic-1' }))
-    act(() => openApp('board', 'topic-1'))
+  it('a source chat opens its requested App in the shared panel', async () => {
+    await harness.render(createElement(Chat, { id: 'source-1' }))
+    act(() => { groupSlotMemory.askApp('source-1', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
     expect(openPanel).toHaveBeenCalledTimes(1)
-    expect(answered).toMatchObject({ chatId: 'topic-1', extensionId: 'board' })
+    expect(answered).toMatchObject({ chatId: 'source-1', extensionId: 'board' })
   })
 
   it('another chat than the one on screen is not answered here', async () => {
     await harness.render(createElement(Chat, { id: 'group-1' }))
-    act(() => openApp('board', 'group-2'))
+    act(() => { groupSlotMemory.askApp('group-2', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
     expect(openPanel).not.toHaveBeenCalled()
     expect(answered).toBeNull()
   })
@@ -112,7 +111,7 @@ describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => 
     try {
       install(app([OWN_PAGE]))
       await harness.render(createElement(Chat, { id: 'dm-1' }))
-      act(() => openApp('board', 'dm-1'))
+      act(() => { groupSlotMemory.askApp('dm-1', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
       expect(openPanel).toHaveBeenCalledTimes(1)
       expect(revealed).not.toHaveBeenCalled()
       expect(answered).toMatchObject({ chatId: 'dm-1', extensionId: 'board' })
@@ -212,28 +211,5 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     } finally {
       window.removeEventListener(UI_EVENTS.openApp, opened)
     }
-  })
-})
-
-describe('a topic beside its group answers for itself (useTopicWorkspace)', () => {
-  const originalCheckVisibility = HTMLElement.prototype.checkVisibility
-  beforeEach(() => {
-    // jsdom has no checkVisibility: an unseen slot claims no page, which is all this needs of it.
-    HTMLElement.prototype.checkVisibility = () => false
-  })
-  afterEach(() => {
-    HTMLElement.prototype.checkVisibility = originalCheckVisibility
-  })
-
-  it("a card in the topic opens the App in the topic's own pane — the group on screen does not answer for it", async () => {
-    install(app([OWN_PAGE]))
-    const Pane = () => useTopicWorkspace('topic-9', false, () => {}).view as never
-    await harness.render(createElement(Pane))
-    const pane = () => harness.container.querySelector('[data-testid="topic-split-workspace"]')
-    expect(pane()).toBeNull()
-    act(() => openApp('board', 'topic-9'))
-    await act(async () => {})
-    expect(pane()).not.toBeNull()
-    expect(groupSlotMemory.opened('topic-9')).toMatchObject({ kind: 'board.main' })
   })
 })

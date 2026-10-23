@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, LayoutGrid, MessageSquare, Paperclip, Users, X } from '@/lib/icons'
+import { ChevronLeft, MessageSquare, Paperclip, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -15,7 +15,6 @@ import { Menu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
-import { useTopicWorkspace } from '../appSlot/useTopicWorkspace'
 import { useBackLayer } from '../ui/sheetStack'
 import { InputArea } from './InputArea'
 import { RunningTokenBar, type RunningToken } from '../RunningTokenBar'
@@ -29,9 +28,8 @@ import { MemberListPanel } from './MemberListPanel'
 import { RightPanel, RightPanelBackButton } from './RightPanel'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from './MessageList'
 import { useToast } from '../toastContext'
-import { askReveal, useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
-import type { FlowListHandle, ListLanding } from '@/lib/flowList'
-import { APP_SHOW_MESSAGE_EVENT, type AppShowMessageDetail } from '@/session/shared/extensions/app-runtime-protocol'
+import { useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
+import type { FlowListHandle } from '@/lib/flowList'
 import {
   TOPIC_SPLIT_MAX_WIDTH,
   TOPIC_SPLIT_MIN_WIDTH,
@@ -60,6 +58,7 @@ import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 export type TopicSplitPaneProps = {
   visible?: boolean
   topic: { chatId: string; name: string }
+  sourceChatId: string
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
@@ -205,6 +204,7 @@ const TOPIC_SPLIT_EMPTY_STYLE: React.CSSProperties = { textAlign: 'center', colo
 
 export function TopicSplitPane({
   topic,
+  sourceChatId,
   messages,
   loading,
   memberProfiles,
@@ -287,26 +287,24 @@ export function TopicSplitPane({
   // 名册开着时换的是**这一栏的内容**,不是右边再开一栏 —— 分栏最宽 720,再挤一栏进去谁都读不了。
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
-  const workspace = useTopicWorkspace(topic.chatId, mobile, () => { setFilesForChatId(null); setMembersForChatId(null) }, { visible, onForward }) // 摩擦单 F23
-  const closeWorkspace = workspace.close
   const membersOpen = membersForChatId === topic.chatId
   const setMembersOpen = useCallback(
     (next: boolean | ((open: boolean) => boolean)) => {
       setMembersForChatId((current) => {
         const open = typeof next === 'function' ? next(current === topic.chatId) : next
-        if (open) { setFilesForChatId(null); closeWorkspace() }
+        if (open) setFilesForChatId(null)
         return open ? topic.chatId : null
       })
     },
-    [topic.chatId, closeWorkspace],
+    [topic.chatId],
   )
   const toggleFiles = useCallback(() => {
     setFilesForChatId((current) => {
       if (current === topic.chatId) return null
-      setMembersForChatId(null); closeWorkspace()
+      setMembersForChatId(null)
       return topic.chatId
     })
-  }, [topic.chatId, closeWorkspace])
+  }, [topic.chatId])
 
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
@@ -317,33 +315,15 @@ export function TopicSplitPane({
     () => messages.map((message) => ({ type: 'message' as const, message })),
     [messages],
   )
-  // gugu.showMessage of a message in this topic (R A/B 10-06: the topic's App asked, nothing moved): this list goes to
-  // it and flashes it, as a group's does. The topic's App panel covers the list, so a reveal for this topic closes the
-  // panel; the list comes back landed on that line (a list that mounts lands once, after any scroll asked before it) and
-  // the hook takes the reveal.
+  // gugu.showMessage keeps its topic address; the topic's list owns its reveal.
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
   const [followingTail, setFollowingTail] = useState(true)
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
-  const workspaceOpen = workspace.open
-  const [revealLanding, setRevealLanding] = useState<ListLanding | null>(null)
-  useEffect(() => { if (revealLanding) setRevealLanding(null) }, [revealLanding]) // read once, by the list that mounted
-  useEffect(() => {
-    const onShow = (event: Event) => {
-      const detail = (event as CustomEvent<AppShowMessageDetail>).detail
-      if (!workspaceOpen || detail?.chatId !== topic.chatId) return
-      const index = rows.findIndex((row) => row.message.id === detail.messageId)
-      if (index >= 0) setRevealLanding({ index, align: 'start', offset: -96 })
-      askReveal(topic.chatId, detail.messageId)
-      closeWorkspace()
-    }
-    window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
-    return () => window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
-  }, [workspaceOpen, closeWorkspace, topic.chatId, rows])
   useSourceMessageReveal({
-    activeChatId: workspaceOpen ? null : topic.chatId,
+    activeChatId: topic.chatId,
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef,
     // Older lines of a topic load as its list reaches the top; one not loaded yet is said, as the group's.
     revealMessage: () => Promise.reject(new Error('not loaded in this topic')),
@@ -388,7 +368,7 @@ export function TopicSplitPane({
   }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
-  const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : workspace.open ? workspace.close : onClose
+  const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : onClose
   // 手机整页:安卓返回键 = 左上返回(先退附件/成员子视图,再回群),❌ 越过群退到会话列表。
   useBackLayer(goBack, mobile)
   // 名册那条头自带「话题成员 + 改名框」,名字在那儿写着了 ⇒ 这里就不再写一遍。
@@ -413,10 +393,9 @@ export function TopicSplitPane({
   const headerToggles = mobile ? (
     <>
       {membersToggle}
-      <TopicMoreMenu chatId={topic.chatId} mobile items={(
+      <TopicMoreMenu chatId={sourceChatId} mobile items={(
         <>
           <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
-          <MenuItem data-testid="topic-split-workspace-toggle" onClick={workspace.show} icon={<LayoutGrid size={16} />}>{workspace.folderName}</MenuItem>
         </>
       )} />
     </>
@@ -434,8 +413,7 @@ export function TopicSplitPane({
         <Paperclip size={16} />
       </IconButton>
       {membersToggle}
-      {workspace.toggle}
-      <TopicMoreMenu chatId={topic.chatId} mobile={false} />
+      <TopicMoreMenu chatId={sourceChatId} mobile={false} />
     </>
   )
   const page = (
@@ -514,7 +492,7 @@ export function TopicSplitPane({
               />
             </RightPanel>
           </div>
-        ) : workspace.open ? workspace.view : (
+        ) : (
         <>
         <div
           data-testid="topic-split-messages"
@@ -541,7 +519,6 @@ export function TopicSplitPane({
               rows={rows}
               rowProps={rowProps}
               listRef={listRef}
-              initialTopMostItemIndex={revealLanding ?? undefined}
               followTail={followingTail}
               onAtBottomChange={(atBottom) => { isAtBottomRef.current = atBottom; if (atBottom) setFollowingTail(true) }}
               style={MESSAGE_LIST_STYLE}
@@ -612,12 +589,12 @@ export function TopicSplitPane({
       <TopicTab
         name={topic.name}
         chatId={topic.chatId}
+        sourceChatId={sourceChatId}
         onClose={onClose}
         items={(
           <>
             <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
             <MenuItem data-testid="topic-split-members-toggle" onClick={() => setMembersOpen((open) => !open)} icon={<Users size={16} />}>{t('topic.pane.members')}</MenuItem>
-            <MenuItem data-testid="topic-split-workspace-toggle" onClick={workspace.show} icon={<LayoutGrid size={16} />}>{workspace.folderName}</MenuItem>
           </>
         )}
       />,
@@ -652,7 +629,7 @@ export function TopicSplitPane({
  * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
  * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
  */
-export function TopicTab({ name, chatId, onClose, onPick, items }: { name: string; chatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
+export function TopicTab({ name, chatId, sourceChatId, onClose, onPick, items }: { name: string; chatId: string; sourceChatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
   const { t } = useTranslation('messaging')
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   return (
@@ -676,7 +653,7 @@ export function TopicTab({ name, chatId, onClose, onPick, items }: { name: strin
       {menuAt ? (
         <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
           {items}
-          <OpenAppMenuItems chatId={chatId} separated />
+          <OpenAppMenuItems chatId={sourceChatId} separated />
         </Menu>
       ) : null}
     </TabSlot>

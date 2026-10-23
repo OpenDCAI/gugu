@@ -36,6 +36,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Every file of the chat, as it is now: one, claimed by the App just installed.
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId,
   changedGroupFiles: async (chatId: string, _reader: string | null, wanted: { all: boolean }) =>
     wanted.all ? { entries: [{ id: `${chatId}-board`, chat: chatId, name: 'x.board.json', claimedBy: { app: { id: 'board' } } }], gone: [] } : { entries: [], gone: [] },
 }));

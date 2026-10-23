@@ -51,7 +51,7 @@ import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extension
 import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
-import { changedGroupFiles, type DesktopFilePage } from '@main/core/extensions/app-files';
+import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/core/extensions/app-files';
 
 /**
  * The host side of the extension bridge.
@@ -130,7 +130,7 @@ export interface BridgeCaller {
   /** Its id with the file relay: a page's webContents id, a program's own (negative). */
   pageId: number;
   /** As the files code sees this call: which file it may open without a capability (`ctx.file`; a program's, handed). */
-  filePage(args: Record<string, unknown>): DesktopFilePage;
+  filePage(args: Record<string, unknown>, resource?: boolean): DesktopFilePage;
   /** Where its events go (`filesChanged`). */
   hear(event: ExtensionHostEvent): void;
   /**
@@ -333,7 +333,7 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
  * background page, a program — by `placeKey`: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
-const pageWatches = new Map<number, { caller: BridgeCaller; places: Map<string, { place: AppPlace; disk: WorkspaceWatch | null }> }>();
+const pageWatches = new Map<number, { caller: BridgeCaller; places: Map<string, { place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }> }>();
 
 /** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
 const forumWatches = new Map<number, Map<string, () => void>>();
@@ -362,18 +362,19 @@ export function stopPageWatches(pageId: number): void {
   const watching = pageWatches.get(pageId);
   for (const watch of watching?.places.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
-  for (const { place } of watching?.places.values() ?? []) forgetUnheard(place, watching!.caller);
+  for (const { resource } of watching?.places.values() ?? []) forgetUnheard(resource, watching!.caller);
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
 async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): Promise<void> {
+  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
   const key = placeKey(place);
   const watching = pageWatches.get(caller.pageId);
   const existing = watching?.places.get(key);
   if (!on) {
     existing?.disk?.stop();
     watching?.places.delete(key);
-    if (existing) forgetUnheard(existing.place, caller);
+    if (existing) forgetUnheard(resource, caller);
     return;
   }
   if (existing) return;
@@ -387,12 +388,12 @@ async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): P
     });
   }
   if (!watching) {
-    pageWatches.set(caller.pageId, { caller, places: new Map([[key, { place, disk }]]) });
+    pageWatches.set(caller.pageId, { caller, places: new Map([[key, { place, resource, disk }]]) });
     // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
     if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
     return;
   }
-  watching.places.set(key, { place, disk });
+  watching.places.set(key, { place, resource, disk });
 }
 
 /**
@@ -511,8 +512,9 @@ export async function bindExtensionSurface(input: {
   const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
+  const chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: input.operator?.kind === 'agent' ? input.operator.id.replace(/^user:/, '') : null }) : null;
   const previous = bindings.get(input.webContentsId);
-  if (previous && (previous.chatId !== (input.chatId ?? null) || previous.itemId !== (input.itemId ?? null))) {
+  if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   bindings.set(input.webContentsId, {
@@ -522,7 +524,7 @@ export async function bindExtensionSurface(input: {
     tabName,
     filePath,
     projectId,
-    chatId: input.chatId ?? null,
+    chatId,
     itemId: input.itemId ?? null,
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
@@ -721,7 +723,7 @@ export async function retargetExtensionSurface(input: {
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.projectId = null;
-  binding.chatId = input.chatId ?? null;
+  binding.chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: binding.operator.kind === 'agent' ? binding.operator.id.replace(/^user:/, '') : null }) : null;
   binding.itemId = input.itemId ?? null;
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
@@ -773,17 +775,27 @@ function asCallingAgent(caller: BridgeCaller, page: DesktopFilePage, args: Recor
   throw Object.assign(new Error('An agent\'s call works as that agent: hand it the file (a "gugu-file" parameter) or its chat ("gugu-chat")'), { code: 'denied' });
 }
 
+/** File scope compares resource containers; message scope still compares the handed discussion addresses. */
+async function resourcePage(caller: BridgeCaller, args: Record<string, unknown>): Promise<DesktopFilePage> {
+  const ref = args.ref === undefined ? null : fileRefOf(args.ref);
+  const place = args.place === undefined ? null : placeOf(args.place);
+  const named = ref ?? place;
+  if (!named || !('chat' in named) || named.chat === undefined) return caller.filePage(args, true);
+  const actor = caller.callingAgent ?? caller.filePage(args, true).asAgent ?? null;
+  const chat = await resourceChatOf(named.chat, { asAgent: actor });
+  return caller.filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, true);
+}
+
 /** Who reads a chat's files for a caller: the person, or the agent its page works as (`*_as`). */
-const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }).asAgent ?? null;
+const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }, true).asAgent ?? null;
 const hearsFiles = (caller: BridgeCaller) => extensionsService().hasCapability(caller.extensionId, 'files:read');
 const readKey = (chatId: string, reader: string | null) => `${chatId}:${reader ?? 'person'}`;
 
 /** A chat no caller hears as `caller`'s reader any more (it stopped, or its page went): what was kept for it goes. */
 function forgetUnheard(place: AppPlace, caller: BridgeCaller): void {
   if (!('chat' in place)) return;
-  const key = placeKey(place);
   const reader = readerOf(caller, place.chat);
-  for (const { caller: other, places } of pageWatches.values()) if (places.has(key) && readerOf(other, place.chat) === reader) return;
+  for (const { caller: other, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === placeKey(place)) && readerOf(other, place.chat) === reader) return;
   groupReads.forget(readKey(place.chat, reader));
 }
 
@@ -803,7 +815,7 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
   for (const { chatId, itemIds } of changes) {
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
-    for (const { caller, places } of pageWatches.values()) if (places.has(key) && hearsFiles(caller)) readers.add(readerOf(caller, chatId));
+    for (const { caller, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === key) && hearsFiles(caller)) readers.add(readerOf(caller, chatId));
     for (const reader of readers) {
       reads.push(groupReads.want(readKey(chatId, reader), itemIds, async (wanted) => {
         const change = await changedGroupFiles(chatId, reader, wanted);
@@ -817,9 +829,8 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
   for (const { caller, places } of pageWatches.values()) {
-    const watched = places.get(key);
-    if (!watched || !hearsFiles(caller) || readerOf(caller, chatId) !== reader) continue;
-    caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
+    if (!hearsFiles(caller) || readerOf(caller, chatId) !== reader) continue;
+    for (const watched of places.values()) if (placeKey(watched.resource) === key) caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
   }
 }
 
@@ -848,7 +859,7 @@ export function notifyInstalledAppsChanged(): Promise<void> {
     }
   }
   const chats = new Set<string>();
-  for (const { places } of pageWatches.values()) for (const { place } of places.values()) if ('chat' in place) chats.add(place.chat);
+  for (const { places } of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
   return notifyGroupWorkspaceChanged([...chats].map((chatId) => ({ chatId, itemIds: 'all' as const })));
 }
 
@@ -1706,7 +1717,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
-      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, caller.filePage(args), args);
+      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await resourcePage(caller, args), args);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1727,13 +1738,13 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'filesWatch':
-      if (args.on !== false) asCallingAgent(caller, caller.filePage(args), args);
+      if (args.on !== false) asCallingAgent(caller, await resourcePage(caller, args), args);
       await watchFiles(caller, placeOf(args.place), args.on !== false);
       return undefined;
 
     case 'filesUpload': {
       const files = await import('@main/core/extensions/app-files');
-      const page = asCallingAgent(caller, caller.filePage(args), args);
+      const page = asCallingAgent(caller, await resourcePage(caller, args), args);
       const place = placeOf(args.place);
       // `pick` only ever arrives from the preload's gesture-checked path — a page's: a background page or a program
       // uploads bytes it has (G5), it never opens the person's picker.
@@ -1757,7 +1768,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'showMessage': {
       const files = await import('@main/core/extensions/app-files');
       const shown = thePage(caller);
-      const page = caller.filePage(args);
+      const page = method === 'showMessage' ? caller.filePage(args) : await resourcePage(caller, args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
