@@ -125,7 +125,13 @@ describe('an App program as a caller of its App (F16)', () => {
     expect(messagesHistory).toHaveBeenLastCalledWith({ chat: TOPIC }, { asAgent: 'agent-1' });
     expect(await call(child, 804, 'messagesHistory', { chat: FOLDER_CHAT }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
     expect(await call(child, 805, 'filesList', { place: { chat: OTHER_CHAT } }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
+    expect(await call(child, 806, 'filesWatch', { place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
+    await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['source-file'] }]);
+    expect(changedGroupFiles).toHaveBeenLastCalledWith(FOLDER_CHAT, 'agent-1', { ids: ['source-file'], all: false });
     await release();
+    changedGroupFiles.mockClear();
+    await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['source-file'] }]);
+    expect(changedGroupFiles).not.toHaveBeenCalled();
     surface.close();
   });
 

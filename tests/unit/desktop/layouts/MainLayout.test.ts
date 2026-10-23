@@ -862,7 +862,7 @@ describe('MainLayout', () => {
 describe('MainLayout: files.openWith', () => {
   const detail = { chatId: 'g-open', itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } }
 
-  it.each([false, true])('a topic file opens its source and split before the request is taken (blocks=%s)', async (blocks) => {
+  it.each([false, true])('a topic file opens the shared source slot before the request is taken (blocks=%s)', async (blocks) => {
     platformMock.capabilities.sessionHost = blocks
     chatStoreMock.chats = [{ id: 'source', kind: 'group' }, { id: 'topic-file', kind: 'topic', source_chat_id: 'source', name: 'Topic' }] as never
     const restore = vi.fn()
@@ -870,9 +870,9 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'topic-file', itemId: 'F1', restore } })) })
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
-    expect(drainTopicSplitRequest('source')).toMatchObject({ chatId: 'topic-file', sourceChatId: 'source', name: 'Topic' })
-    expect(groupSlotMemory.takeFile('topic-file')).toEqual({ itemId: 'F1', restore })
-    expect(groupSlotMemory.takeFile('source')).toBeNull()
+    expect(drainTopicSplitRequest('source')).toBeNull()
+    expect(groupSlotMemory.takeFile('source')).toEqual({ itemId: 'F1', restore })
+    expect(groupSlotMemory.takeFile('topic-file')).toBeNull()
   })
 
   it('the file\'s chat comes up and its panel is asked for the file, with the host\'s answer', async () => {
@@ -906,8 +906,7 @@ describe('MainLayout: files.openWith', () => {
   })
 })
 
-// Links and notifications use the chat door. A file request opens the source and split first,
-// so a temporary topic block cannot consume its file before normalizing to the source.
+// Links and notifications retain the topic address. Files open the shared source slot.
 describe('MainLayout: opening a topic on the desktop', () => {
   // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
   const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
@@ -925,6 +924,6 @@ describe('MainLayout: opening a topic on the desktop', () => {
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
-    if (target === SRC) expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
+    if (target === SRC) expect(drainTopicSplitRequest(SRC)).toBeNull()
   })
 })

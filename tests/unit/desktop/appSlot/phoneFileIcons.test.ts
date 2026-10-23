@@ -34,7 +34,8 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     // The folder's doors, as the person: a file by its id, the chat's list, who may delete what (everyone, everything).
     const placed = (row: (typeof rows)[number]) => ({ ...row, parent_id: null, system_role: null, path: row.filename })
     const rpc = async (name: string, args: Record<string, unknown>) => {
-      if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
+      if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null };
+  if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
       if (name === 'workspace_list_as') return { data: rows.map(placed), error: null }
       const row = rows.find((candidate) => candidate.id === args.p_item_id)
       return row ? { data: [placed(row)], error: null } : { data: null, error: { message: 'workspace item not found', hint: 'workspace_item_not_found' } }

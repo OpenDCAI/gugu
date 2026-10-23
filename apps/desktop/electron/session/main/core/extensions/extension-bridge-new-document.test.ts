@@ -48,6 +48,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     get: () => ({ manifest: { name: '论文共读' } }),
   }),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost } = await import('./extension-bridge');

@@ -199,6 +199,21 @@ async function topicOf(source: string, creator: string): Promise<string> {
 }
 
 describe('topic resources use the source container through the real App SDK and database', () => {
+  it('normal agent invitation joins the source; leaving the topic keeps that source seat and file access', async () => {
+    const w = await world()
+    const topic = await topicOf(w.group, w.owner)
+    const { files } = agentFiles(w)
+    const made = await files.create(w.group, { name: 'shared-with-invited-agent.md', content: 'Source membership' })
+    await expect(files.groupFiles(topic, { asAgent: w.agent })).rejects.toMatchObject({ code: 'denied' })
+    expect((await client.rpc('add_group_agent', { p_chat_id: topic, p_agent_user_id: w.agent, p_message: 'Join this topic', p_as_user_id: w.owner, p_as_task: false })).error).toBeNull()
+    const seats = async () => (await db.query<{ chat_id: string }>('SELECT chat_id FROM chat.chat_members WHERE user_id=$1 AND chat_id=ANY($2::text[]) ORDER BY chat_id', [w.agent, [w.group, topic]])).rows.map((row) => row.chat_id).sort()
+    expect(await seats()).toEqual([w.group, topic].sort())
+    expect((await files.groupFiles(topic, { asAgent: w.agent })).map((entry) => entry.id)).toContain(made.id)
+    expect((await client.rpc('remove_group_member_as', { p_chat_id: topic, p_member_user_id: w.agent, p_as_user_id: w.owner })).error).toBeNull()
+    expect(await seats()).toEqual([w.group])
+    expect((await files.groupFiles(w.group, { asAgent: w.agent })).map((entry) => entry.id)).toContain(made.id)
+  })
+
   it.each(['group', 'dm'] as const)('%s topics create/list/open the source file, and reject another source', async (kind) => {
     const w = await world()
     if (kind === 'dm') {

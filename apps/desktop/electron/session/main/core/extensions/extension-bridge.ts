@@ -788,7 +788,8 @@ async function resourcePage(caller: BridgeCaller, args: Record<string, unknown>)
 
 /** Who reads a chat's files for a caller: the person, or the agent its page works as (`*_as`). */
 const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }, true).asAgent ?? null;
-const hearsFiles = (caller: BridgeCaller) => extensionsService().hasCapability(caller.extensionId, 'files:read');
+const hearsFiles = (caller: BridgeCaller, chatId: string) => extensionsService().hasCapability(caller.extensionId, 'files:read')
+  && (caller.callingAgent === undefined || readerOf(caller, chatId) !== null);
 const readKey = (chatId: string, reader: string | null) => `${chatId}:${reader ?? 'person'}`;
 
 /** A chat no caller hears as `caller`'s reader any more (it stopped, or its page went): what was kept for it goes. */
@@ -815,7 +816,7 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
   for (const { chatId, itemIds } of changes) {
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
-    for (const { caller, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === key) && hearsFiles(caller)) readers.add(readerOf(caller, chatId));
+    for (const { caller, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === key) && hearsFiles(caller, chatId)) readers.add(readerOf(caller, chatId));
     for (const reader of readers) {
       reads.push(groupReads.want(readKey(chatId, reader), itemIds, async (wanted) => {
         const change = await changedGroupFiles(chatId, reader, wanted);
@@ -829,7 +830,7 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
   for (const { caller, places } of pageWatches.values()) {
-    if (!hearsFiles(caller) || readerOf(caller, chatId) !== reader) continue;
+    if (!hearsFiles(caller, chatId) || readerOf(caller, chatId) !== reader) continue;
     for (const watched of places.values()) if (placeKey(watched.resource) === key) caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
   }
 }

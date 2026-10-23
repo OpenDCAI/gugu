@@ -44,6 +44,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     get: () => ({ manifest: { name: 'Board' } }),
   }),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Whose composer, and what goes in, is extension-send's (its own test); here: what the bridge does with its answer.
 const composeTarget = vi.fn(async (args: { text: unknown; chat?: unknown; session?: unknown }) => {
