@@ -191,13 +191,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     (next: OpenedWith | null) => {
       // Opened over what is open (a file from an App) goes on the trail; the folder itself starts it over.
       const now = shownNow.current
-      if (!next) trail.current = []
+      if (!next || next.restore) trail.current = []
       else if (now && next.opening !== now.opening) trail.current.push(now)
       showOpened(next)
     },
     [showOpened],
   )
-  const [prompt, setPrompt] = useState<AppOpenWithDetail | null>(null)
+  const [prompt, setPrompt] = useState<(AppOpenWithDetail & { restore?: () => void }) | null>(null)
   const [always, setAlways] = useState(false)
   /** The App's error spelled out under the header, when the person asked (摩擦单 F63). */
   const [errorShown, setErrorShown] = useState(false)
@@ -287,7 +287,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       if (asked !== asking.current) return
       const choice = openerChoice(typedName, manifests, 'chat', rememberedOpener)
       if (choice.kind === 'one' && choice.candidate.tabKind !== opened.kind) {
-        setOpened({ kind: choice.candidate.tabKind, itemId: opened.itemId, typedName: opened.typedName, title: choice.candidate.tabTitle, opening: ++openings })
+        setOpened({ kind: choice.candidate.tabKind, itemId: opened.itemId, typedName: opened.typedName, title: choice.candidate.tabTitle, opening: ++openings, restore: opened.restore })
       }
     })
   }, [opened, setOpened])
@@ -308,35 +308,47 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     setOpenedState(next)
   }), [props.chatId])
 
-  // Back from a file: that page is gone, and so is what it said — to what it was opened from (G2), else the folder.
+  const fromMessage = !!opened?.restore && trail.current.length === 0
+  const restore = opened?.restore ?? trail.current.find((page) => page.restore)?.restore
+  const close = () => {
+    if (restore) {
+      if (opened) extensionSurfaceStore.forget(null, pageSlot(slotId, opened))
+      for (const page of [...trail.current, ...(opened ? [opened] : [])]) groupSlotMemory.close(props.chatId, page)
+      trail.current = []
+    }
+    props.onClose()
+    restore?.()
+  }
+  // Back within an App keeps its trail; a message entry closes back to its message surface.
   const back = () => {
+    if (fromMessage) { close(); return }
     if (opened) extensionSurfaceStore.forget(null, pageSlot(slotId, opened))
     showOpened(trail.current.pop() ?? null)
   }
   // On the phone the panel is a whole page (#6815): its way out is the top-left back — to the list from a file, else out
   // of the panel — and the back key does the same.
   const mobile = useMobileShell()
-  useBackLayer(opened ? back : props.onClose, mobile)
+  useBackLayer(opened ? back : close, mobile)
   useSlotMakesWay(props, mobile)
 
   // The file asked last is the one opened: a pill clicked, then another (or a file in an App's list), before the first's
   // answer is back — whichever answer comes last, the panel ends on the later ask (#7257: it ended on the first when that
   // answer was slower). Each ask takes the next number; an answer to one that is not the latest is dropped.
   const openWith = useCallback(
-    (detail: AppOpenWithDetail, message?: MessageItem) => {
+    (detail: AppOpenWithDetail, message?: MessageItem, restore?: () => void) => {
       if (detail.chatId !== props.chatId) return
       if (detail.choice.kind === 'none') {
-        setOpened({ kind: null, file: detail.file, message, itemId: detail.itemId, title: detail.name, typedName: detail.typedName, opening: ++openings })
+        setOpened({ kind: null, file: detail.file, message, itemId: detail.itemId, title: detail.name, typedName: detail.typedName, opening: ++openings, restore })
         return
       }
       if (detail.choice.kind === 'one') {
         const { candidate } = detail.choice
-        setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings })
+        setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings, restore })
         return
       }
       // 摩擦单 F73: a default already kept for this kind of file shows as a ticked 「Always」 (and a mark on its App).
       setAlways(detail.choice.kind === 'choose' && rememberedOpener(openWithKey('chat', detail.choice.suffix)) !== null)
-      setPrompt(detail)
+      setPrompt({ ...detail, restore })
     },
     [props.chatId, setOpened],
   )
@@ -346,13 +358,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
    * every `files.openWith` the desktop's main resolves does.
    */
   const openAsked = useCallback(
-    (detail: AppOpenWithDetail, message?: MessageItem) => {
+    (detail: AppOpenWithDetail, message?: MessageItem, restore?: () => void) => {
       if (detail.chatId !== props.chatId) {
         window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail }))
         return
       }
       asking.current += 1
-      openWith(detail, message)
+      openWith(detail, message, restore)
     },
     [openWith, props.chatId],
   )
@@ -364,7 +376,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const [unopened, setUnopened] = useState<string | null>(null)
   useEffect(() => setUnopened(null), [props.chatId])
   const openGroupFile = useCallback(
-    async (itemId: string, at?: Record<string, string>, message?: MessageItem) => {
+    async (itemId: string, at?: Record<string, string>, message?: MessageItem, restore?: () => void) => {
       if (!appsHere) return
       const asked = ++asking.current
       // `at`: the App that opens it gets the place as a `link` event, from the host that resolves who opens it.
@@ -377,7 +389,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       }
       setUnopened(null)
       setAppFiles(null)
-      openWith(result.data, message)
+      openWith(result.data, message, restore)
     },
     [openWith, props.chatId],
   )
@@ -414,8 +426,8 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     if (!appsHere || !ask || ask.chatId !== props.chatId || answeredOpens.has(ask.request)) return
     answeredOpens.add(ask.request)
     // 「用 X 打开」 its host resolved already (who opens it, or among which to ask): opened as it said.
-    if (ask.opener) openAsked(ask.opener, ask.message)
-    else void openGroupFile(ask.itemId, ask.at, ask.message)
+    if (ask.opener) openAsked(ask.opener, ask.message, ask.restore)
+    else void openGroupFile(ask.itemId, ask.at, ask.message, ask.restore)
   }, [openAsked, openGroupFile, props.fileToOpen, props.chatId])
   useEffect(() => {
     const ask = props.appToOpen
@@ -455,7 +467,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     // `request`: each 「Open」 is asked anew, even for the same App.
   }, [openGroupFile, props.appToOpen, props.chatId, setOpened])
 
-  const pick = (detail: AppOpenWithDetail, candidate: Candidate) => {
+  const pick = (detail: AppOpenWithDetail & { restore?: () => void }, candidate: Candidate) => {
     // Ticked: this App from now on. Unticked where a default was kept (the box came ticked): no default any more.
     const key = detail.choice.kind === 'choose' ? openWithKey('chat', detail.choice.suffix) : null
     const next = key === null ? undefined : always ? candidate.tabKind : rememberedOpener(key) !== null ? null : undefined
@@ -465,7 +477,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       void appsHere.setOpenWithDefault({ key, tabKind: next })
     }
     setPrompt(null)
-    setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings })
+    setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings, restore: detail.restore })
   }
 
   const kind = opened ? opened.kind : props.kind
@@ -477,7 +489,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const shownApp = kind ? parseExtensionTabKind(kind)?.extensionId ?? null : null
   // #7050 左栏「退出」了这里开着的 App:它的这一格跟着收掉 —— 开着的文件回到列表,整格开着它的就关上。
   const closeQuit = useRef(() => {})
-  closeQuit.current = opened ? back : props.onClose
+  closeQuit.current = opened ? back : close
   useEffect(() => {
     if (!shownApp) return undefined
     return reaction(
@@ -554,11 +566,12 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
-  const backButton = opened ? (
+  const backButton = opened && !fromMessage ? (
     <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={back} aria-label={t('chatArea.openWith.back')}>
       <ChevronLeft />
     </IconButton>
   ) : null
+  const closeButton = <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
   const commands = (
     <>
       {inline.map((command) => (
@@ -595,14 +608,14 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="group-app-slot-bar">
           {backButton}
           {marks}
-          <span className="ml-auto flex items-center gap-1">{commands}</span>
+          <span className="ml-auto flex items-center gap-1">{commands}{fromMessage ? closeButton : null}</span>
         </div>
       ) : null) : <PaneHeader
         title={shown.title ?? opened?.title ?? props.title}
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
         {...(mobile ? { mobile: true } : {})}
-        leading={backButton ?? (mobile ? <RightPanelBackButton onBack={props.onClose} /> : undefined)}
+        leading={backButton ?? (mobile && !fromMessage ? <RightPanelBackButton onBack={close} /> : undefined)}
         actions={
           <>
             {commands}
@@ -611,11 +624,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
                 {props.full ? <Minimize2 /> : <Maximize2 />}
               </IconButton>
             )}
-            {mobile ? null : (
-              <IconButton size="sm" data-testid="group-app-slot-close" onClick={props.onClose} aria-label={t('common.close')}>
-                <X />
-              </IconButton>
-            )}
+            {mobile && !fromMessage ? null : closeButton}
           </>
         }
       >
@@ -679,7 +688,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
       <AppPeekSlot sessionId={null} tabId={pageSlot(slotId, opened)} narrow={mobile}>
-        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={back} full={props.full} onToggleFull={props.onToggleFull} onClose={props.onClose} /> : null}
+        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={fromMessage ? undefined : back} full={props.full} onToggleFull={props.onToggleFull} onClose={close} /> : null}
         {desktop ? opened?.file ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />

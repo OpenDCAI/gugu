@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { chatLinks, openGroupFileLink } from '../../../../apps/desktop/src/components/markdown/fileLinks'
+import { chatLinks, openGroupFile, openGroupFileLink } from '../../../../apps/desktop/src/components/markdown/fileLinks'
 import { GROUP_FILE_OPEN_EVENT, type GroupFileOpenDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 
 /**
@@ -28,6 +28,11 @@ async function asked(open: () => unknown): Promise<GroupFileOpenDetail[]> {
 }
 
 describe('opening a group file from a pill’s link carries the place', () => {
+  it('a message entry carries its caller\'s restore callback without running it while opening', async () => {
+    const restore = vi.fn()
+    expect(await asked(() => openGroupFile(ITEM, undefined, undefined, restore))).toEqual([{ chatId: 'chat-1', itemId: ITEM, restore }])
+    expect(restore).not.toHaveBeenCalled()
+  })
   it('a chat link: the file, its chat, and the place (as written in the link)', async () => {
     const href = `gugu-file://${ITEM}?v=7#slide=3&shape=12`
     expect(await asked(() => chatLinks(undefined)(href))).toEqual([{ chatId: 'chat-1', itemId: ITEM, at: { slide: '3', shape: '12' } }])

@@ -11,7 +11,7 @@ let opening = 0
  * could not (the person is not in that chat, or the file is gone; they were told so). `at`: the place in it a pill points
  * at (its link's `#…`), handed to the App that opens the file as a `link` event.
  */
-export async function openGroupFile(itemId: string, at?: Record<string, string>, message?: MessageItem): Promise<boolean> {
+export async function openGroupFile(itemId: string, at?: Record<string, string>, message?: MessageItem, restore?: () => void): Promise<boolean> {
   // The file asked last is the one opened (#7257): two links clicked one after the other, their chats read in either
   // order — the earlier click's answer coming back later is dropped (true: nothing to tell the person).
   const asked = ++opening
@@ -21,7 +21,7 @@ export async function openGroupFile(itemId: string, at?: Record<string, string>,
   const { data, error } = await chatDb.from('workspace_items').select('chat_id').eq('id', itemId).maybeSingle()
   if (asked !== opening) return true
   if (error) throw new Error(`the file's chat could not be read: ${error.message}`)
-  const detail: GroupFileOpenDetail = { chatId: (data?.chat_id as string | undefined) ?? null, itemId, ...(at ? { at } : {}), ...(message ? { message } : {}) }
+  const detail: GroupFileOpenDetail = { chatId: (data?.chat_id as string | undefined) ?? null, itemId, ...(at ? { at } : {}), ...(message ? { message } : {}), ...(restore ? { restore } : {}) }
   return !window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail, cancelable: true }))
 }
 

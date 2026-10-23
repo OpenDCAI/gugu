@@ -65,7 +65,8 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
             }}
             onClose={() => {
               groupSlotMemory.close(chatId, item)
-              if (groupSlotMemory.tabs(chatId).length === 0) onClosePanel()
+              if (item?.restore || groupSlotMemory.tabs(chatId).length === 0) onClosePanel()
+              item?.restore?.()
             }}
             closeLabel={t('common.close')}
           />

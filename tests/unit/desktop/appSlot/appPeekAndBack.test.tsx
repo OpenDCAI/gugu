@@ -78,6 +78,77 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
   })
 })
 
+describe('message attachment entry', () => {
+  const slot = (chatId: string, props: Record<string, unknown>) =>
+    createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
+      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), ...props }))
+  const file = (chatId: string, itemId: string) => ({ chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf } })
+
+  it.each([false, true])('a message file has Close without Back and restores its caller (tabbed=%s)', async (tabbed) => {
+    const chatId = `message-entry-${tabbed}`
+    const restore = vi.fn()
+    const onClose = vi.fn()
+    await harness.render(slot(chatId, { tabbed, onClose, fileToOpen: { chatId, itemId: 'message-file', request: tabbed ? 9202 : 9201, restore, opener: file(chatId, 'message-file') } }))
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    const close = harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement
+    expect(close).not.toBeNull()
+    act(() => close.click())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(restore).toHaveBeenCalledTimes(1)
+    expect(groupSlotMemory.tabs(chatId).some((item) => item?.itemId === 'message-file')).toBe(false)
+  })
+
+  it('the same file from a folder keeps Back and returns to its list', async () => {
+    const chatId = 'folder-entry'
+    const onClose = vi.fn()
+    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'message-file', request: 9203, opener: file(chatId, 'message-file') } }))
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
+    expect(groupSlotMemory.opened(chatId)).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('an App opened from a message keeps its internal trail before closing to the message', async () => {
+    const chatId = 'message-trail'
+    const restore = vi.fn()
+    const onClose = vi.fn()
+    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'first', request: 9204, restore, opener: file(chatId, 'first') } }))
+    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'second', request: 9205, opener: file(chatId, 'second') } }))
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
+    expect(groupSlotMemory.opened(chatId)?.itemId).toBe('first')
+    expect(restore).not.toHaveBeenCalled()
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+
+  it('the host preview also closes a message attachment instead of showing the folder', async () => {
+    const chatId = 'message-raw'
+    const restore = vi.fn()
+    const onClose = vi.fn()
+    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'raw', request: 9206, restore, opener: {
+      chatId, itemId: 'raw', name: 'raw.opaque', typedName: 'raw.opaque', choice: { kind: 'none' },
+      file: { document: false, contentType: 'application/octet-stream', version: 1, size: 3 },
+    } } }))
+    const header = harness.container.querySelector('[data-testid="message-file-preview-panel"] header')!
+    expect(header.querySelectorAll('button')).toHaveLength(1)
+    act(() => (header.querySelector('button') as HTMLButtonElement).click())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+
+  it('choosing an App for a message file keeps the message entry', async () => {
+    const chatId = 'message-choice'
+    const restore = vi.fn()
+    await harness.render(slot(chatId, { fileToOpen: { chatId, itemId: 'choice', request: 9207, restore, opener: {
+      ...file(chatId, 'choice'), choice: { kind: 'choose', suffix: '.pdf', candidates: [pdf] },
+    } } }))
+    act(() => (harness.container.querySelector('[data-open-with="pdf.viewer"]') as HTMLButtonElement).click())
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('G1: something opened over a page keeps the page', () => {
   it('a page made for a file, covered by a peek: its claim is kept (not released), and it is the same element after', async () => {
     const page = createElement(ClaimedPage, { slotId: 'slot-x', chatId: 'c-1', kind: 'pdf.viewer', itemId: 'f-1' })
