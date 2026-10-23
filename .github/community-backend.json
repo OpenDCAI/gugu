@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "32d83806b009c67f2ec8bbf47f57ca2ca7e949e8",
-  "status": "Account snapshot bootstrap (OpenDCAI/gugu-supabase#26); update to the backend merge commit before merging this client change."
+  "ref": "04b685d335ace928603631bfde2a1824d1b3e564",
+  "status": "Account snapshot bootstrap contract merged in OpenDCAI/gugu-supabase#26."
 }
