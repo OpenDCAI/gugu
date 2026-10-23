@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * #7274 页签的网页是主进程持有的 WebContentsView。这里钉住它在窗口里的样子随页签走:
- * 露着挂在窗口上;被界面浮层盖住 / 不在屏上就停进那扇窗的停放窗(从不显示、大小照旧 —— agent 在后台操作它时
- * 视口对、截得到图);页签挪走留一会儿、关了当场收,界面整页重载 / 窗关了一并收;
+ * 同一宿主内按页签状态显示或隐藏,前后台切换不改变原生窗口归属;页签挪走留一会儿、关了当场收,界面整页重载 / 窗关了一并收;
  * 以及盖在它上面的 agent 鼠标、小条两层(窗口里的层,❌ 子窗)跟着网页摆、叠在网页上面。
  */
 
@@ -14,7 +13,6 @@ const state = vi.hoisted(() => ({
   emitted: [] as any[],
   registered: new Map<string, string>(),
   adopted: [] as Array<{ browserId: string; placement: { window: () => unknown; origin: () => { x: number; y: number } } }>,
-  parkings: [] as any[],
   boxes: [] as Array<{ parent: unknown; options: any }>,
 }));
 
@@ -42,6 +40,10 @@ vi.mock('electron', async () => {
       this.url = url;
       return Promise.resolve();
     }
+    setBackgroundThrottling = vi.fn();
+    capturePage = vi.fn(async () => ({ isEmpty: () => false, toJPEG: () => Buffer.from([1, 2]) }));
+    beginFrameSubscription = vi.fn((_dirty: boolean, callback: (image: { isEmpty: () => boolean }) => void) => { queueMicrotask(() => callback({ isEmpty: () => false })); });
+    endFrameSubscription = vi.fn();
     setVisualZoomLevelLimits() {
       return Promise.resolve();
     }
@@ -85,35 +87,9 @@ vi.mock('electron', async () => {
       this.background = color;
     }
   }
-  /** 停放窗:记下它的选项、内容区、挂在里面的网页;❌ 有 show。 */
-  class BaseWindow {
-    destroyed = false;
-    contentBounds: unknown = null;
-    children: unknown[] = [];
-    contentView = {
-      addChildView: (view: unknown) => {
-        this.children = [...this.children.filter((v) => v !== view), view];
-      },
-      removeChildView: (view: unknown) => {
-        this.children = this.children.filter((v) => v !== view);
-      },
-    };
-    constructor(readonly options: Record<string, unknown>) {
-      state.parkings.push(this);
-    }
-    isDestroyed() {
-      return this.destroyed;
-    }
-    destroy() {
-      this.destroyed = true;
-    }
-    setContentBounds(bounds: unknown) {
-      this.contentBounds = bounds;
-    }
-  }
   return {
     WebContentsView,
-    BaseWindow,
+    BaseWindow: class { constructor() { throw new Error('browser pages must not create windows'); } },
     BrowserWindow: { getAllWindows: () => state.windows },
     dialog: {
       showMessageBox: (parent: unknown, options: any) => {
@@ -188,6 +164,7 @@ import {
   toDip,
   visibleHostOfPage,
 } from './browser-page-views';
+import { acquireBrowserPage } from './browser-page-runtime';
 import { windowLayerResponse } from '../../../../window-layers';
 import { agentOverlayOfFrame, agentOverlayWindowName, buildTagWindowName, isBuildTagWindowName } from '@shared/aux-window';
 
@@ -200,6 +177,13 @@ function mount(browserId: string, url = 'https://example.com', windowName = '') 
   return { result, view: state.views.at(-1) };
 }
 
+async function settled(view: any) {
+  const lease = acquireBrowserPage(view.webContents)!;
+  await lease.ready;
+  lease.dispose();
+  await Promise.resolve();
+}
+
 beforeEach(() => {
   mainWindow = fakeWindow();
   state.windows = [mainWindow];
@@ -207,19 +191,16 @@ beforeEach(() => {
   state.emitted.length = 0;
   state.adopted.length = 0;
   state.registered.clear();
-  state.parkings.length = 0;
   state.boxes.length = 0;
 });
 
-/** 这扇窗的停放窗(还没建过就是 undefined)。 */
-const parking = () => state.parkings.at(-1);
 afterEach(() => {
   for (const browserId of ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9']) destroyBrowserPage(browserId);
   vi.useRealTimers();
 });
 
 describe('#7274 建网页', () => {
-  it('收紧过的独立 view:沙盒、不嵌 webview、换页不抢焦点;载入页签的首个地址', () => {
+  it('收紧过的独立 view:沙盒、不嵌 webview、换页不抢焦点;载入页签的首个地址', async () => {
     const { result, view } = mount('b1');
     expect(result).toMatchObject({ success: true, reused: false });
     expect(view.options.webPreferences).toMatchObject({
@@ -230,6 +211,7 @@ describe('#7274 建网页', () => {
       webviewTag: false,
       focusOnNavigation: false,
     });
+    await settled(view);
     expect(view.webContents.loaded).toEqual(['https://example.com/']);
     expect(state.adopted.map((a) => a.browserId)).toEqual(['b1']);
   });
@@ -281,37 +263,37 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
     expect(state.boxes[0]).toMatchObject({ parent: mainWindow, options: { message: 'later' } });
   });
 
-  it('停放窗:从不显示、不能聚焦、不进任务栏,内容区和那扇窗一样大;窗挪动 / 改大小跟着', () => {
-    mount('b1');
+  it('切换显示状态只改变 view,不创建或移动到额外原生窗口', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(view.visible).toBe(true);
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });
-    expect(parking().options).toMatchObject({ show: false, focusable: false, skipTaskbar: true, frame: false });
-    expect(parking().contentBounds).toEqual({ x: 100, y: 50, width: 1200, height: 800 });
-    mainWindow.getContentBounds = () => ({ x: 0, y: 0, width: 900, height: 700 });
-    mainWindow.emit('resize');
-    expect(parking().contentBounds).toEqual({ x: 0, y: 0, width: 900, height: 700 });
+    expect(view.visible).toBe(false);
+    expect(mainWindow.children).toContain(view);
+    expect(state.windows).toEqual([mainWindow]);
   });
 
-  it('从没露过面的页签(人在别的会话里):建好就停进停放窗、大小跟着页签 —— agent 在后台操作它时视口是对的', () => {
+  it('从没露过面的页签(人在别的会话里):建好就隐藏在所属宿主、大小跟着页签 —— agent 在后台操作它时视口是对的', () => {
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });
-    expect(parking().children).toContain(view);
-    expect(mainWindow.children).not.toContain(view);
+    expect(view.visible).toBe(false);
+    expect(mainWindow.children).toContain(view);
     expect(view.bounds).toEqual(RECT);
   });
 
-  it('被界面浮层盖住:停进停放窗、大小不变;浮层走了挂回窗口', () => {
+  it('被界面浮层盖住:留在所属宿主隐藏、大小不变;浮层走了在原宿主显示', () => {
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'occluded' });
-    expect(mainWindow.children).not.toContain(view);
-    expect(parking().children).toContain(view);
+    expect(mainWindow.children).toContain(view);
+    expect(view.visible).toBe(false);
     expect(view.bounds).toEqual(RECT);
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     expect(mainWindow.children).toContain(view);
-    expect(parking().children).not.toContain(view);
+    expect(view.visible).toBe(true);
   });
 
-  it('要当面问人一句(选通行密钥)时它露在哪扇窗:露着 → 那扇窗;停放 / 窗收起 / 最小化 → null;不是页签的网页 → undefined', () => {
+  it('要当面问人一句(选通行密钥)时它露在哪扇窗:露着 → 那扇窗;隐藏 / 窗收起 / 最小化 → null;不是页签的网页 → undefined', () => {
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     expect(visibleHostOfPage(view.webContents)).toBe(mainWindow);
@@ -326,26 +308,35 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
     expect(visibleHostOfPage({} as never)).toBeUndefined();
   });
 
-  it('切到后台:停进停放窗;大小仍跟着页签(窗口改了大小,后台的网页也跟着)', () => {
+  it('切到后台:留在所属宿主隐藏;大小仍跟着页签(窗口改了大小,后台的网页也跟着)', () => {
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: { ...RECT, width: 500 }, mode: 'background' });
-    expect(mainWindow.children).not.toContain(view);
-    expect(parking().children).toContain(view);
+    expect(mainWindow.children).toContain(view);
+    expect(view.visible).toBe(false);
     expect(view.bounds).toEqual({ ...RECT, width: 500 });
   });
 
-  it('一扇窗只配一扇停放窗', () => {
+  it('多会话后台页不创建额外窗口', () => {
     mount('b1');
     mount('b2');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'background' });
     layoutBrowserPage({ browserId: 'b2', windowName: '', rect: RECT, mode: 'occluded' });
-    expect(state.parkings).toHaveLength(1);
+    expect(state.windows).toEqual([mainWindow]);
   });
 
   it('截图(浮层压上来时换上的那张):从没摆好过的网页不截(视口 0×0,Chromium 会一直等)', async () => {
     mount('b1');
     expect(await snapshotBrowserPage('b1')).toBeNull();
+  });
+
+  it('首次就被浮层盖住的网页,界面截图也经过完整运行时准备', async () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'occluded' });
+    expect(await snapshotBrowserPage('b1')).toBe('data:image/jpeg;base64,AQI=');
+    expect(view.visible).toBe(false);
+    expect(view.webContents.beginFrameSubscription).toHaveBeenCalledOnce();
+    expect(view.webContents.endFrameSubscription).toHaveBeenCalledOnce();
   });
 
   it('网页要全屏(视频):铺满窗口内容区、叠到最上面(分栏的另一张网页压不着它);退出回到页签那一块', () => {
@@ -382,20 +373,33 @@ describe('#7274 网页在窗口里的样子跟着页签走', () => {
 });
 
 describe('#7274 生命周期', () => {
-  it('页签挪了位置:先停进停放窗、留着;在新位置挂回来接着用原来那张(❌ 重新载入)', () => {
+  it('页签挪了位置:先留在所属宿主隐藏、留着;在新位置挂回来接着用原来那张(❌ 重新载入)', async () => {
     vi.useFakeTimers();
     const { view } = mount('b1');
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     releaseBrowserPage('b1');
-    expect(mainWindow.children).not.toContain(view);
-    expect(parking().children).toContain(view);
+    expect(mainWindow.children).toContain(view);
+    expect(view.visible).toBe(false);
     vi.advanceTimersByTime(1_000);
     const again = mountBrowserPage({ browserId: 'b1', partition: PARTITION, url: 'https://other.test', windowName: '' });
     expect(again).toMatchObject({ success: true, reused: true });
     expect(state.views).toHaveLength(1);
+    await settled(view);
     expect(view.webContents.loaded).toEqual(['https://example.com/']);
     vi.advanceTimersByTime(10_000);
     expect(view.webContents.destroyed).toBe(false);
+  });
+
+  it('展示占位卸下时,连接中的执行者保有页面;最后释放时再回收', async () => {
+    vi.useFakeTimers();
+    const { view } = mount('b1');
+    const lease = acquireBrowserPage(view.webContents)!;
+    await lease.ready;
+    releaseBrowserPage('b1');
+    vi.advanceTimersByTime(5_100);
+    expect(view.webContents.destroyed).toBe(false);
+    lease.dispose();
+    expect(view.webContents.destroyed).toBe(true);
   });
 
   it('卸下后没人再要:过一会儿关掉', () => {
@@ -415,7 +419,7 @@ describe('#7274 生命周期', () => {
     const parked = mount('b2').view;
     layoutBrowserPage({ browserId: 'b2', windowName: '', rect: RECT, mode: 'background' });
     destroyBrowserPage('b2');
-    expect(parking().children).not.toContain(parked);
+    expect(mainWindow.children).not.toContain(parked);
     expect(layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' })).toBe(false);
   });
 
@@ -426,7 +430,7 @@ describe('#7274 生命周期', () => {
     expect(view.webContents.destroyed).toBe(true);
   });
 
-  it('单独成窗的那扇关了:网页先放手、留一会儿(页签挪回主窗接着用),没人要就关掉;它的停放窗一并关掉', () => {
+  it('单独成窗的那扇关了:网页先放手、留一会儿(页签挪回主窗接着用),没人要就关掉;不创建额外窗口', () => {
     vi.useFakeTimers();
     const aux = fakeWindow('gugu-aux:7');
     state.windows = [mainWindow, aux];
@@ -434,10 +438,8 @@ describe('#7274 生命周期', () => {
     const dropped = mount('b2', 'https://example.com', 'gugu-aux:7').view;
     layoutBrowserPage({ browserId: 'b1', windowName: 'gugu-aux:7', rect: RECT, mode: 'shown' });
     layoutBrowserPage({ browserId: 'b2', windowName: 'gugu-aux:7', rect: RECT, mode: 'background' });
-    const auxParking = parking();
     aux.destroyed = true;
     aux.emit('closed');
-    expect(auxParking.destroyed).toBe(true);
     mountBrowserPage({ browserId: 'b1', partition: PARTITION, url: 'https://example.com', windowName: '' });
     layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
     vi.advanceTimersByTime(5_100);
@@ -454,8 +456,9 @@ describe('#7274 生命周期', () => {
 });
 
 describe('#7274 网页事件报给页签(带着此刻的导航状态)', () => {
-  it('子框架的失败 / 页内跳转不算整页的;console 级别换成原先 webview 的数字', () => {
+  it('子框架的失败 / 页内跳转不算整页的;console 级别换成原先 webview 的数字', async () => {
     const { view } = mount('b1');
+    await settled(view);
     const wc = view.webContents;
     wc.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://ads.test/', false);
     wc.emit('did-navigate-in-page', {}, 'https://ads.test/#x', false);

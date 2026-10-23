@@ -10,6 +10,7 @@ import {
   type BrowserAgentState,
 } from '@shared/events/browserEvents';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
+import { acquireBrowserPage } from './browser-page-runtime';
 import { cloudAgentBrowserBridge, isCloudBrowserHost } from './cloud/cloud-browser';
 import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
 
@@ -28,10 +29,8 @@ import type { ExtensionAgentStatus } from '@shared/extensions/agent-status';
  *    所以这里原样转发,❌ 打字前去聚焦网页、❌ 借 / 还焦点。
  * 3. **运行控制归 Agent 会话。** 浏览器没有独立暂停锁;人点网页、输入、滚动都不改变 Agent 的运行状态。
  *    会话取消当前调用时断开 transport,未发出的动作一起取消,页签与登录仍保留。
- * 4. **后台也要出帧,停手就不出。** 不在屏上的网页停在一扇不显示的停放窗里、大小照旧(browser-page-views.ts)。
- *    Playwright 连上时开的 focus emulation 让 Chromium 把网页当作看得见(emulation_handler.cc 里 IncrementCapturerCount)
- *    —— 停放着也照常出帧,截图、点击、等元素稳定都不卡(exp11 / exp12 实测)。但它连着就一直开着,agent 停手了后台页签
- *    还在出帧 ⇒ 这一项由这里接管:Playwright 要开就记下,只在 agent 操作期间(driving)真开着,停手就关掉。
+ * 4. **渲染需求由页面生命周期管理。** transport 取得当前页面的使用租约,原生视口就绪后才接收协议请求。
+ *    只有 Agent 工作期间关闭后台节流;空闲、取消或断开后恢复。focus emulation 同样只在 driving 期间生效。
  * 5. **人看得见 agent 的鼠标。** Playwright 的每一下点击、悬停、滚动,以及打字前落进的那个输入框,先让页签上 agent 的
  *    鼠标移过去、到了再交给网页(owner 10-15:「最好是有一个鼠标能够停在哪儿的那种效果」)。鼠标飞的
  *    那半秒里调用被取消,这一下就不落下去。
@@ -253,6 +252,9 @@ export function createPaneTransport(
   let targetInfo: Record<string, unknown> | null = null;
   let closed = false;
   const transport: AgentBrowserTransport = { send, close };
+  const page = acquireBrowserPage(webContents);
+  // Observe rejection immediately, including a connection cancelled before its first request.
+  void page?.ready.catch(() => {});
 
   const previous = drivenBySession.get(sessionId);
   if (previous?.idleTimer) clearTimeout(previous.idleTimer);
@@ -287,6 +289,7 @@ export function createPaneTransport(
   function finish(reason: string) {
     if (closed) return;
     closed = true;
+    page?.dispose();
     dbg.removeListener('message', onMessage);
     dbg.removeListener('detach', onDetach);
     if (drivenBySession.get(sessionId) === driven) {
@@ -316,7 +319,11 @@ export function createPaneTransport(
       log.warn('Agent browser: switching focus emulation failed', { browserId, on, error: String(error) });
     });
   };
-  driven.onStateChange = applyFocusEmulation;
+  driven.onStateChange = () => {
+    page?.setActive(driven.state === 'driving');
+    applyFocusEmulation();
+  };
+  page?.setActive(driven.state === 'driving');
 
   // 交给网页的上一条命令发出去了没有(send 里按到达顺序排队用)。
   let dispatchGate: Promise<void> = Promise.resolve();
@@ -375,6 +382,8 @@ export function createPaneTransport(
     const reply = (result: unknown) => emit({ id, sessionId: cdpSession, result });
     const fail = (message: string) => emit({ id, sessionId: cdpSession, error: { message } });
     try {
+      if (closed || webContents.isDestroyed()) return fail('the browser tab was closed');
+      await page?.ready;
       if (closed || webContents.isDestroyed()) return fail('the browser tab was closed');
       if (!cdpSession) {
         // 浏览器级:全由这里应答,❌ 转给网页。
@@ -463,7 +472,9 @@ export function createPaneTransport(
           return;
         }
         if (synthetic) driven.syntheticInputUntil = Number.POSITIVE_INFINITY;
-        result = dbg.sendCommand(method, params, cdpSession === PAGE_SESSION ? undefined : cdpSession);
+        result = method === 'Page.captureScreenshot' && cdpSession === PAGE_SESSION && page
+          ? page.capture(params)
+          : dbg.sendCommand(method, params, cdpSession === PAGE_SESSION ? undefined : cdpSession);
       } finally {
         release();
       }
