@@ -24,6 +24,7 @@ describe('commitHealedMessages (R6)', () => {
   it('接进修订派发:补洞被取代时这条 message_created 不被确认,退避后重补并落窗', async () => {
     vi.useFakeTimers()
     const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    await repository.transaction((tx) => tx.putSyncState('account-revision-cursor', { revision: '0' }))
     const syncSince = vi.fn<AccountRevisionSource['syncSince']>()
       .mockResolvedValueOnce({ operations: [{ revision: '1', event: 'message_created', payload: { chat_id: 'chat-1', entity_id: 'm-9' } }], hasMore: false })
       .mockResolvedValue({ operations: [], hasMore: false })

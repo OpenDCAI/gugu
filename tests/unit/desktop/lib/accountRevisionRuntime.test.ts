@@ -56,6 +56,15 @@ describe('AccountRevisionRuntime', () => {
     }
   })
 
+  it('requires a snapshot before a missing cursor can consume any journal page', async () => {
+    const repository = await openRawRepository('account-a', { adapter: createMemoryLocalSyncDb() })
+    const runtime = createAccountRevisionRuntime('account-a', repository, source)
+    runtime.start()
+    await expect(runtime.whenIdle()).rejects.toThrow('requires a snapshot')
+    expect(syncSince).not.toHaveBeenCalled()
+    runtime.stop()
+  })
+
   it('applies ordered pages atomically and leaves the cursor at the first failed revision', async () => {
     const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })
     syncSince
