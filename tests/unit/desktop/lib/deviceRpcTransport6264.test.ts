@@ -103,7 +103,7 @@ vi.mock('@/lib/realtimeChannel', () => ({
 
 type Listener = (data: unknown) => void
 
-function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: string) => unknown }) {
+function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: string) => unknown; tunnels?: { ready: string[]; problems: Record<string, string> } }) {
   const listeners = new Map<string, Set<Listener>>()
   const sent: Array<{ deviceId: string; message: { payload: { type: string; request_id: string; payload: unknown } } }> = []
   const opened: string[] = []
@@ -113,6 +113,7 @@ function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: str
   const api = {
     invoke: async (channel: string, arg: unknown) => {
       if (channel === 'server-ssh-machines:list') return options.sshMachines
+      if (channel === 'tunnel-machines:want') return options.tunnels
       if (channel === 'ssh-link:open') {
         opened.push(arg as string)
         records.note()
@@ -336,6 +337,68 @@ describe('设备 RPC 按机器挑通道', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // 开机时隧道还在连:先在咕咕云上开、隧道一通就换,换的那一下在途的调用全被拒(会话页停在「连不上」)。正在连就等它出结果再挑。
+  describe('远程隧道正在连:开管道前等它出结果', () => {
+    const TUN = 'tun-box'
+    async function boot(tunnels: { ready: string[]; problems: Record<string, string> }) {
+      vi.useFakeTimers()
+      const main = fakeMainProcess({ sshMachines: [], tunnels })
+      const rpc = await load(main)
+      const channel = await import('@/lib/sshLinkChannel')
+      channel.wantTunnels([{ deviceId: TUN, label: 'Tunnel box' }])
+      await vi.advanceTimersByTimeAsync(0)
+      void rpc.callDeviceRpc(TUN, 'taskpage.sessions.list', {}, { timeoutMs: 5_000 }).catch(() => undefined)
+      await vi.advanceTimersByTimeAsync(0)
+      return main
+    }
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('通了:走设备连接,咕咕云一条频道都没开', async () => {
+      const main = await boot({ ready: [], problems: {} })
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(cloud.channels).toEqual([])
+      expect(main.opened).toEqual([])
+      main.emit('tunnel-machines:changed', { ready: [TUN], problems: {} })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(main.opened).toEqual([TUN])
+      expect(main.sent.map((m) => m.message.payload.type)).toEqual(['taskpage.sessions.list'])
+      expect(cloud.channels).toEqual([])
+    })
+
+    it('报了连不上的原因:当场走咕咕云', async () => {
+      const main = await boot({ ready: [], problems: {} })
+      main.emit('tunnel-machines:changed', { ready: [], problems: { [TUN]: 'relayDown' } })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(cloud.channels[0]).toBe(`gugu:${TUN}:rpc`)
+      expect(main.opened).toEqual([])
+    })
+
+    it('到上限还在连:走咕咕云', async () => {
+      const main = await boot({ ready: [], problems: {} })
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect(cloud.channels).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(cloud.channels[0]).toBe(`gugu:${TUN}:rpc`)
+      expect(main.opened).toEqual([])
+    })
+
+    it('已经报过原因的(上一次没连上):不等,当场走咕咕云', async () => {
+      await boot({ ready: [], problems: { [TUN]: 'visitorFailed' } })
+      expect(cloud.channels[0]).toBe(`gugu:${TUN}:rpc`)
+    })
+
+    it('没要隧道的机器:不等,当场走咕咕云', async () => {
+      vi.useFakeTimers()
+      const main = fakeMainProcess({ sshMachines: [], tunnels: { ready: [], problems: {} } })
+      const { callDeviceRpc } = await load(main)
+      void callDeviceRpc('cloud-box', 'taskpage.sessions.list', {}, { timeoutMs: 5_000 }).catch(() => undefined)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(cloud.channels[0]).toBe('gugu:cloud-box:rpc')
+    })
   })
 
   // 冷启动实撞(手机点进一台机器晚 5 s):频道头一回订上被当成「重接」,开线那一问被放弃。头一回订上 rejoin=false,

@@ -95,6 +95,8 @@ export function _setSshMachineIdsForTesting(ids: readonly string[]): void {
 
 let tunnelState: TunnelState = { ready: [], problems: {} }
 let tunnelReady: ReadonlySet<string> = new Set()
+/** 交给主进程去连的那些(wantTunnels 最近一次的单子)。 */
+let tunnelWanted: ReadonlySet<string> = new Set()
 const tunnelListeners = new Set<(state: TunnelState) => void>()
 let tunnelWired = false
 
@@ -134,6 +136,30 @@ export function usesDeviceLink(deviceId: string): boolean {
   return isSshMachine(deviceId) || isTunnelLinked(deviceId)
 }
 
+/** 主进程正在经远程隧道连它:要了、还没通、也没报连不上的原因。 */
+function tunnelConnecting(deviceId: string): boolean {
+  return !isSshMachine(deviceId) && tunnelWanted.has(deviceId) && !tunnelReady.has(deviceId) && !(deviceId in tunnelState.problems)
+}
+
+/** 这台的远程隧道正在连:等它出结果(通了 / 报了原因),最多等 capMs;不在连就当场返回。 */
+export function tunnelSettled(deviceId: string, capMs: number): Promise<void> {
+  if (!tunnelConnecting(deviceId)) return Promise.resolve()
+  return new Promise((resolve) => {
+    const check = () => {
+      if (tunnelConnecting(deviceId)) return
+      clearTimeout(timer)
+      tunnelListeners.delete(check)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      tunnelListeners.delete(check)
+      resolve()
+    }, capMs)
+    tunnelListeners.add(check)
+    check()
+  })
+}
+
 export function currentTunnelState(): TunnelState {
   return tunnelState
 }
@@ -153,6 +179,7 @@ export function wantTunnels(wants: readonly TunnelWant[]): void {
   const electron = bridge()
   if (!electron) return
   wireTunnel(electron)
+  tunnelWanted = new Set(wants.map((want) => want.deviceId))
   const key = JSON.stringify([...wants].sort((a, b) => a.deviceId.localeCompare(b.deviceId)))
   if (key === lastWant) return
   lastWant = key

@@ -25,6 +25,7 @@ import {
   sshMachinesReady,
   subscribeSshMachineIds,
   subscribeTunnelState,
+  tunnelSettled,
   usesDeviceLink,
 } from './sshLinkChannel'
 import { SshLinkError } from './sshLink'
@@ -113,8 +114,13 @@ const requester = createDeviceRpcRequester({
   keepAliveOnTimeout: (deviceId) => transports.get(deviceId) !== 'cloud' || hasEventListeners(deviceId),
 })
 
+/** 开管道前最多等远程隧道多久。上限:调用的缺省期限(5 s,含开管道)。 */
+const TUNNEL_SETTLE_MAX_MS = 3_000
+
 async function openPipe(deviceId: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
   await sshMachinesReady()
+  // 隧道正在连(开机、那台刚上线):等它出结果再挑,❌ 先开在咕咕云上、通了再换 —— 换的那一下在途的调用全被拒。
+  await tunnelSettled(deviceId, TUNNEL_SETTLE_MAX_MS)
   // 远程 SSH 的机器,以及经远程隧道连通了的机器:走设备连接(终端画面不进咕咕云的消息通道)。
   const transport = usesDeviceLink(deviceId) ? 'ssh' : 'cloud'
   const pipe = await (transport === 'ssh' ? openSshPipe : openCloudPipe)(deviceId, handlers)
