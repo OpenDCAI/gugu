@@ -1,3 +1,4 @@
+import './browser-user-agent-bootstrap'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
