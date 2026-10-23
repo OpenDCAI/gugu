@@ -31,11 +31,11 @@ beforeEach(() => {
   send.mockClear(); select.mockClear(); windows = chatWindowStub()
 })
 afterEach(() => harness.cleanup())
-const render = () => renderWithAppProviders(harness, <Parent />, { chat: {
+const render = async () => { await renderWithAppProviders(harness, <Parent />, { chat: {
   activeChatId: 'assistant', chats: [chat({ id: 'assistant' }), chat({ id: 'task' })],
   messages: [message({ chat_id: 'assistant', content: '助理消息' })],
   sendMessageToChat: send, setActiveChatId: select, ...windows,
-} })
+} }); await act(async () => { await vi.dynamicImportSettled() }) }
 describe('two visible assistant conversations', () => {
   it('loads and sends on the task line without taking or replacing the assistant line', async () => {
     await render()

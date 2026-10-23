@@ -49,6 +49,7 @@ import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { rendererLogger } from '../lib/log'
 
 const revisionLog = rendererLogger('chat/account-revision')
+const EMPTY_READ_SEQS: Record<string, number> = {}
 
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth(), user = active ? authenticatedUser : null
@@ -166,7 +167,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
           typeof updater === 'function'
             ? (updater as (p: MessageItem[]) => MessageItem[])(prev)
             : updater
-        messagesCacheRef.current.set(chatId, next)
+        messagesCacheRef.current.set(chatId, messagesCacheRef.current.isObserved(chatId) ? next : trimToMessageWindow(next))
         return
       }
       historyWindow.update(updater)
@@ -392,21 +393,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     return true
   }, [applyFreshMessageSnapshot, historyWindow, memberReadSeqsChatRef, patchChat, setMemberReadSeqs, user])
 
-  const refreshMessages = useCallback(async (chatId = activeChatIdRef.current ?? undefined) => {
-    if (!chatId || !user) return
-    const epoch = getMessageSnapshotEpoch(chatId)
-    revalidateInFlightRef.current.add(chatId)
-    try {
-      const [msgs, readSeqs] = await trackMessageRead(chatId, Promise.all([
-        chatService.getMessages(chatId, user.id, 'initialLoad', INITIAL_PAGE),
-        chatService.getOtherMembersReadSeqs(chatId, user.id),
-      ]))
-      applyMessagesSnapshot(chatId, msgs, readSeqs, epoch)
-    } finally {
-      revalidateInFlightRef.current.delete(chatId)
-    }
-  }, [applyMessagesSnapshot, getMessageSnapshotEpoch, trackMessageRead, user])
-
   // ── #621 incremental spine ────────────────────────────────────────────────
   const windowRowsOf = useCallback((chatId: string) => messagesCacheRef.current.get(chatId), [])
   // maxSeqOf: the spine cursor ("new messages?" = expectedTail > maxSeq), cache-derived so it can't drift.
@@ -429,12 +415,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const revalidateWindowOverlays = useCallback(
     async (chatId: string, throwOnError = false) => {
       if (!user) return
+      const epoch = getMessageSnapshotEpoch(chatId)
       const cached = messagesCacheRef.current.get(chatId)
       if (!cached || cached.length === 0) return
       const ids = cached.filter((m) => m.seq >= 0).map((m) => m.id)
       if (ids.length === 0) return
       try {
         const revalidation = await chatService.revalidateWindow(ids, user.id)
+        if (epoch !== getMessageSnapshotEpoch(chatId) || imRepositoryScope.disposed) return
         const queriedIds = new Set(ids)
         // Pure transform applied to a window: drop ids gone from presentIds, patch overlays/mutations, keep
         // optimistic rows. Used for BOTH the state update and the L2 write-through so the persisted window is
@@ -452,8 +440,24 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         if (throwOnError) throw err
       }
     },
-    [persistWindowToLocalSync, setMessagesAndCache, user],
+    [getMessageSnapshotEpoch, imRepositoryScope, persistWindowToLocalSync, setMessagesAndCache, user],
   )
+  const refreshMessages = useCallback(async (chatId = activeChatIdRef.current ?? undefined) => {
+    if (!chatId || !user) return
+    const epoch = getMessageSnapshotEpoch(chatId)
+    revalidateInFlightRef.current.add(chatId)
+    try {
+      const [msgs, readSeqs] = await trackMessageRead(chatId, Promise.all([
+        chatService.getMessages(chatId, user.id, 'initialLoad', INITIAL_PAGE),
+        chatService.getOtherMembersReadSeqs(chatId, user.id),
+      ]))
+      applyMessagesSnapshot(chatId, msgs, readSeqs, epoch)
+      await revalidateWindowOverlays(chatId)
+    } finally {
+      revalidateInFlightRef.current.delete(chatId)
+    }
+  }, [applyMessagesSnapshot, getMessageSnapshotEpoch, trackMessageRead, revalidateWindowOverlays, user])
+
   // @@@1888 — resubscribe = 重验证:增量 delta(seq > 主线缓存 max)直接问服务端,**结果即真值**——
   // 空 = 无 gap;短页 = 补齐;整页 = 断档可能超一页 → 交给 refreshMessages 权威重载(#621 既有
   // degrade 原语,判定在结果侧,不做预测)。此前用 chatsRef 的 next_message_seq 做客户端 gap 预测,
@@ -504,13 +508,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         way === 'newer' ? chatService.getMessages(chatId, user.id, 'loadNewer', limit, undefined, cursor)
           : chatService.getMessages(chatId, user.id, way === 'older' ? 'loadOlder' : 'initialLoad', limit, way === 'older' ? cursor : undefined))
       const window = historyWindow.getSnapshot()
-      if (changed && window.chatId) { cacheHistoryWindow(); persistWindowToLocalSync(window.chatId, window.messages) }
+      if (changed && window.chatId) { cacheHistoryWindow(); persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId) }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
       throw err
     }
-  }, [user, cacheHistoryWindow, historyWindow, noteFreshMessageRead, persistWindowToLocalSync])
+  }, [user, cacheHistoryWindow, historyWindow, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
   const loadOlderMessages = useCallback(() => loadHistoryPage('older'), [loadHistoryPage])
   const loadNewerMessages = useCallback(() => loadHistoryPage('newer'), [loadHistoryPage])
   const loadMessageAnchor = useCallback(async (messageId: string) => {
@@ -526,8 +530,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (!messages.some((row) => row.id === messageId)) throw new Error('Saved conversation message is no longer visible')
       return { messages, hasNewer: newer.length === 20 }
     })
-    if (changed) cacheHistoryWindow()
-  }, [user, cacheHistoryWindow, historyWindow])
+    if (changed) { cacheHistoryWindow(); const chatId = historyWindow.getSnapshot().chatId; if (chatId) await revalidateWindowOverlays(chatId) }
+  }, [user, cacheHistoryWindow, historyWindow, revalidateWindowOverlays])
   const returnToLatestMessages = useCallback(() => {
     const chatId = activeChatIdRef.current
     if (chatId) invalidateMessageSnapshots(chatId)
@@ -612,7 +616,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         commit: (rows, replaceTail, hasOlder) => {
           if (replaceTail) {
             if (activeChatIdRef.current === chatId) { historyWindow.establishTail(rows); cacheHistoryWindow() }
-            else messagesCacheRef.current.set(chatId, rows)
+            else messagesCacheRef.current.set(chatId, mergeMessagesById(rows, (messagesCacheRef.current.get(chatId) ?? []).filter((row) => row.seq < 1 || row.seq > maxMainlineSeq(rows)), chatId))
           }
           if (activeChatIdRef.current === chatId && hasOlder !== undefined) setHasMoreOlder(hasOlder)
           applyMessagesSnapshot(chatId, rows, null, epoch)
@@ -838,8 +842,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       await chatService.toggleReaction(messageId, user.id, emoji)
       const msgs = await chatService.getMessages(chatId, user.id, 'toggleReaction')
       applyFreshMessageSnapshot(chatId, msgs, epoch)
+      await revalidateWindowOverlays(chatId)
     },
-    [applyFreshMessageSnapshot, getMessageSnapshotEpoch, user],
+    [applyFreshMessageSnapshot, getMessageSnapshotEpoch, revalidateWindowOverlays, user],
   )
 
   const createGroupChat = useGroupCreation({ userId, loadChats, setChats, toast })
@@ -908,8 +913,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     // global `messages` when msg.chat_id is active, otherwise updates only that chat's cache.
     setMessagesAndCache((prev) => upsertMessageById(prev, msg), msg.chat_id)
     // @@@4439 — settled 权威行(ack/附件回读/sessionpage host)合并后调度跳号重验证;机制、竞态让位与降级链见 chatSeqJumpRepair 卫星。
-    if (msg.seq >= 0) void repairSeqJumpAfterIngest({ userId: () => userRef.current?.id ?? null, windowRows: windowRowsOf, snapshotEpoch: getMessageSnapshotEpoch, revalidateInFlight: revalidateInFlightRef.current, applyMessagesSnapshot, refreshMessages }, msg)
-  }, [applyMessagesSnapshot, getMessageSnapshotEpoch, refreshMessages, setMessagesAndCache, windowRowsOf])
+    if (msg.seq >= 0) void repairSeqJumpAfterIngest({ userId: () => userRef.current?.id ?? null, windowRows: windowRowsOf, snapshotEpoch: getMessageSnapshotEpoch, revalidateInFlight: revalidateInFlightRef.current, applyMessagesSnapshot, refreshMessages, revalidateWindowOverlays }, msg)
+  }, [applyMessagesSnapshot, getMessageSnapshotEpoch, refreshMessages, revalidateWindowOverlays, setMessagesAndCache, windowRowsOf])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!user) throw new Error('Not authenticated')
@@ -997,7 +1002,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         hasMoreOlder,
         loadingOlder,
         messageWindow, unreadNavigationPending: unreadNavigation.navigationPending, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible,
-        memberReadSeqs,
+        memberReadSeqs: activeChatId === memberReadSeqsChatRef.current ? memberReadSeqs : EMPTY_READ_SEQS,
         activeThreadRootId,
         threadMessages,
         loadingThread,

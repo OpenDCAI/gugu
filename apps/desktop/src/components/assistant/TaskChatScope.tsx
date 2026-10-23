@@ -45,7 +45,8 @@ export function TaskChatScope({ chatId, children }: { chatId: string; children: 
       chatService.getMessages(chatId, user.id, 'loadNewer', 20, undefined, anchor.seq),
     ])
     applyLocalWrite([...older, ...newer])
-  }, [user, chatId, applyLocalWrite])
+    await revalidate()
+  }, [user, chatId, applyLocalWrite, revalidate])
   const markMessageVisible = useCallback<ChatContextValue['markMessageVisible']>((message) => {
     if (message.chat_id === chatId && message.seq > 0 && !message.is_mine && !message.thread_root_id)
       advanceReadWatermark(store.chats, chatId, message.seq, patchChat)

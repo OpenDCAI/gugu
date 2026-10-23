@@ -3,8 +3,9 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { AccountImRepository } from '../lib/imRepository'
 import { chatService } from '../lib/chat'
 import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldStartFetch'
-import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
+import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq, trimToMessageWindow } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
+import { rendererLogger } from '../lib/log'
 
 type Listener = (rows: MessageItem[]) => void
 
@@ -26,6 +27,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     super.clear()
     for (const id of ids) this.publish(id, [])
   }
+  isObserved(chatId: string): boolean { return this.listeners.has(chatId) }
   private publish(chatId: string, rows: MessageItem[]): void {
     for (const listener of this.listeners.get(chatId) ?? []) listener(rows)
   }
@@ -36,7 +38,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     listener(this.get(chatId) ?? [])
     return () => {
       listeners.delete(listener)
-      if (listeners.size === 0) this.listeners.delete(chatId)
+      if (listeners.size === 0) { this.listeners.delete(chatId); const rows = this.get(chatId); if (rows) this.set(chatId, trimToMessageWindow(rows)) }
     }
   }
 }
@@ -88,32 +90,26 @@ export async function openCachedChatWindow(options: {
     // A topic visible to an observer may have no list row. Only a server delta proves its tail.
     hasPositiveUnread: options.hasPositiveUnread || options.expectedTailSeq === null,
   })
-  const finalize = async (rows: MessageItem[], seqs: Record<string, number>, replaceTail: boolean, hasMoreOlder?: boolean) => {
+  const readSeqs = chatService.getOtherMembersReadSeqs(chatId, userId)
+    .then((seqs) => { if (observer.current()) observer.readSeqs(seqs) })
+    .catch((error: unknown) => rendererLogger('chat/window').error({ error, chatId }, 'member read seqs load failed'))
+  const finalize = async (rows: MessageItem[], replaceTail: boolean, hasMoreOlder?: boolean) => {
     if (!observer.current()) return
     options.commit(rows, replaceTail, hasMoreOlder)
-    observer.readSeqs(seqs)
     observer.ready(hasMoreOlder)
+    await Promise.all([options.revalidate(), readSeqs])
   }
   if (plan.kind === 'paintRevalidateOnly') {
-    const seqs = await chatService.getOtherMembersReadSeqs(chatId, userId)
-    await finalize(cache.get(chatId) ?? [], seqs, false)
-    if (observer.current()) await options.revalidate()
+    await finalize(cache.get(chatId) ?? [], false)
     return
   }
   if (plan.kind === 'paintLoadNewerDelta') {
-    const [rows, seqs] = await Promise.all([
-      chatService.getMessages(chatId, userId, 'loadNewer', NEWER_PAGE, undefined, plan.sinceSeq),
-      chatService.getOtherMembersReadSeqs(chatId, userId),
-    ])
+    const rows = await chatService.getMessages(chatId, userId, 'loadNewer', NEWER_PAGE, undefined, plan.sinceSeq)
     if (!deltaResultRequiresDegrade(rows.length, NEWER_PAGE)) {
-      await finalize(rows, seqs, false)
-      if (observer.current()) await options.revalidate()
+      await finalize(rows, false)
       return
     }
   }
-  const [rows, seqs] = await Promise.all([
-    chatService.getMessages(chatId, userId, 'initialLoad', INITIAL_PAGE),
-    chatService.getOtherMembersReadSeqs(chatId, userId),
-  ])
-  await finalize(rows, seqs, painted, painted || rows.length >= INITIAL_PAGE)
+  const rows = await chatService.getMessages(chatId, userId, 'initialLoad', INITIAL_PAGE)
+  await finalize(rows, painted, painted || rows.length >= INITIAL_PAGE)
 }
