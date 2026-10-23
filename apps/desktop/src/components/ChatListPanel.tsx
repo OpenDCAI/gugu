@@ -369,12 +369,15 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
                 (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
             {hasBolt && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
             {topicsExpanded !== undefined && (
-              <IconButton size="sm" aria-label={t(topicsExpanded ? 'common.collapse' : 'common.expand')} aria-expanded={topicsExpanded}
-                onClick={(event) => { event.stopPropagation(); onToggleTopics() }}
-                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() }}
-              >
-                {topicsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-              </IconButton>
+              <span className="relative size-3.5 shrink-0">
+                <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                  aria-label={t(topicsExpanded ? 'common.collapse' : 'common.expand')} aria-expanded={topicsExpanded}
+                  onClick={(event) => { event.stopPropagation(); onToggleTopics() }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() }}
+                >
+                  {topicsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                </IconButton>
+              </span>
             )}
           </>
         }
