@@ -1,11 +1,11 @@
 // #6264 每台别的机器一个会话页宿主客户端(帧走那台机器的设备连接:远程 SSH → SSH,远程隧道 → 咕咕云)。
 // 线由咕咕壳经 remote-hosts 桥给(`openSessionHost`);客户端本身与本机网页形态同一份(session-host-client.ts)。
 //
-// 成本:连着的每台机器双向各一拍心跳(20s);断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
+// 成本:连着的每台机器,这边每 5 s 一拍心跳(兼探活,见 MACHINE_LINK_HEARTBEAT_MS)、那边每 20 s 一拍;
+// 断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
 import { findRemoteHostsBridge, remoteHostReachable } from '@shared/remote-hosts';
 import {
   createSessionHostClient,
-  SESSION_HOST_CLIENT_HEARTBEAT_MS,
   type SessionHostClient,
   type SessionHostConnectionState,
   type SessionHostPipeOpener,
@@ -23,6 +23,14 @@ type Entry = {
   tooOld: boolean;
   listeners: Set<() => void>;
 };
+
+/**
+ * 这边对每台机器的心跳拍子(#156)。心跳的应答就是探活(remoteSessionHost 的 HEARTBEAT_REPLY_TIMEOUT_MS):
+ * 那台机器死掉之后,下一拍(≤5 s)+ 等应答(≤8 s)就发现,机器的状态当场变成「重新连接」。
+ * ❌ 用宿主的半拍(10 s)加办事的应答期限:实测 32 s 才发现,中间那半分钟它还读成「已连接」,问它的东西全挂着。
+ * 只改这一边:每台机器收下一批就当场回,老版本的也一样。代价是咕咕云上每台连着的机器每分钟多十来条消息。
+ */
+const MACHINE_LINK_HEARTBEAT_MS = 5_000;
 
 const entries = new Map<string, Entry>();
 const createdListeners = new Set<(deviceId: string) => void>();
@@ -52,7 +60,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     listeners: new Set(),
     client: createSessionHostClient(openWhenReachable, {
       subscribeEvents: true,
-      heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
+      heartbeatMs: MACHINE_LINK_HEARTBEAT_MS,
       retryMaxMs: 60_000,
       // 连不上 / 断了时调用方拿到的那句话(界面可能原样摆出来):说哪台机器此刻连不上,❌ 英文的传输层原文。
       messages: () => {

@@ -182,6 +182,8 @@ export type MemoryCommandClientOptions = {
 
 export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
   upserts: Array<{ row: Record<string, unknown>; options?: { onConflict: string } }> = []
+  /** #156 退出时标成离线的那几次:设备 id + 写进去的值。 */
+  offlineUpdates: Array<{ deviceId: string; value: { status: 'offline'; updated_at: string } }> = []
   cleanupCalls: Record<string, unknown>[] = []
   rows: Array<{ device_id: string; user_id: string; hostname: string; machine_id?: string | null; tier?: string | null }> = []
 
@@ -195,6 +197,13 @@ export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
         this.upserts.push({ row: row as Record<string, unknown>, options })
         return { data: null, error: null }
       },
+      update: (value: { status: 'offline'; updated_at: string }) => ({
+        eq: async (_column: 'device_id', deviceId: string) => {
+          if (this.errorMessage) return { error: { message: this.errorMessage } }
+          this.offlineUpdates.push({ deviceId, value })
+          return { error: null }
+        },
+      }),
       select: (_columns: string) => ({
         eq: (_userColumn: 'user_id', userValue: string) => ({
           eq: (_machineColumn: 'machine_id', machineValue: string) => ({
@@ -347,15 +356,25 @@ export class MemoryDeviceCommandClient implements DeviceCommandTableClient {
   from(table: 'gugu_device_commands'): MemoryDeviceCommandTable
   from(table: 'runtime_instances'): MemoryRuntimeInstanceTable
   from(table: 'gugu_device_commands' | 'runtime_instances'): MemoryDeviceCommandTable | MemoryRuntimeInstanceTable {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     expect(table).toBe('gugu_device_commands')
     return new MemoryDeviceCommandTable(this.rows, this.options)
   }
 }
 
-/** #5041 — 只读的 runtime_instances 表:select(...).eq(...) 直接 await 出行。 */
+/** #5041 — runtime_instances 表:select(...).eq(...) 直接 await 出行;#156 停机时 delete().eq('instance_id') 删自己那一行。 */
 export class MemoryRuntimeInstanceTable {
-  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>) {}
+  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>, private live?: Set<string>) {}
+
+  delete() {
+    return {
+      eq: async (_column: 'instance_id', instanceId: string) => {
+        this.instances.delete(instanceId)
+        this.live?.delete(instanceId)
+        return { data: null, error: null }
+      },
+    }
+  }
 
   select(columns: string) {
     const filters: [string, string][] = []
@@ -379,6 +398,8 @@ export class MemoryRuntimeIdentityClient
   extends MemoryDeviceCommandClient
 {
   upserts: Array<{ row: Record<string, unknown>; options?: { onConflict: string } }> = []
+  /** #156 退出时标成离线的那几次:设备 id + 写进去的值。 */
+  offlineUpdates: Array<{ deviceId: string; value: { status: 'offline'; updated_at: string } }> = []
   cleanupCalls: Record<string, unknown>[] = []
   runtimeStateCalls: Record<string, unknown>[] = []
   markReadCalls: Record<string, unknown>[] = []
@@ -394,6 +415,7 @@ export class MemoryRuntimeIdentityClient
   from(table: 'runtime_instances'): MemoryRuntimeInstanceTable
   from(table: 'gugu_devices'): {
     upsert: (row: never, options?: { onConflict: string }) => Promise<{ data: null; error: null }>
+    update: (value: { status: 'offline'; updated_at: string }) => { eq: (col: 'device_id', value: string) => Promise<{ error: null }> }
     select: (columns: string) => {
       eq: (col: 'user_id', value: string) => {
         eq: (col: 'machine_id', value: string) => {
@@ -407,13 +429,19 @@ export class MemoryRuntimeIdentityClient
     }
   }
   from(table: 'gugu_device_commands' | 'gugu_devices' | 'runtime_instances'): unknown {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     if (table === 'gugu_devices') {
       return {
         upsert: async (row: never, options?: { onConflict: string }) => {
           this.upserts.push({ row: row as Record<string, unknown>, options })
           return { data: null, error: null }
         },
+        update: (value: { status: 'offline'; updated_at: string }) => ({
+          eq: async (_column: 'device_id', deviceId: string) => {
+            this.offlineUpdates.push({ deviceId, value })
+            return { error: null }
+          },
+        }),
         // @@@5912 这一条就是 identity lookup(`GET gugu_devices`);数它,三刀之二判的是它的次数。
         select: (_columns: string) => (this.deviceIdentityLookups += 1, {
           eq: (_userColumn: 'user_id', _userValue: string) => ({

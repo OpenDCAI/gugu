@@ -27,6 +27,7 @@ import { loginShellEnv } from '@main/utils/userEnv';
 import { err, ok, type Result } from '@gugu/session-shared';
 import type { AgentConfigAuthError } from '@gugu/session-core/workspace-server';
 import { createHarnessConnection, listHarnessConnections, removeHarnessConnection, selectHarnessConnection, sessionHarnessConnectionId } from '@main/core/agents/harness-connections';
+import { connectionFailure } from '@main/core/sessions/subscription-sessions-busy';
 
 const AGENT_CONFIG_WIRE_CHANNEL = 'agent-config-wire';
 
@@ -217,7 +218,7 @@ function withHostResolvedCli(
 
 async function connectionOperation<T>(operation: () => Promise<T>): Promise<Result<T, AgentConfigAuthError>> {
   try { return ok(await operation()); }
-  catch (error) { return err({ type: 'invalid-state', message: error instanceof Error ? error.message : String(error) }); }
+  catch (error) { return err(connectionFailure(error)); }
 }
 
 function subscriptionRunContext(providerId: string, connectionId?: string) {

@@ -35,6 +35,24 @@ export function useSubscriptionPlan(machine: string | null, agentId: string, con
   });
 }
 
+/** 连接动作被主进程拒绝:带着线上的原始错误,界面认得的就按自己的语言写,不认得的照 `message` 显示。 */
+export class ConnectionActionError extends Error {
+  constructor(readonly failure: unknown) {
+    super(errorText(failure));
+    this.name = 'ConnectionActionError';
+  }
+}
+
+/** 因有会话正在工作而没切成:哪一家、几个。旧主进程不带这个字段,返回 null。 */
+export function sessionsBusyOf(error: unknown): { providerId: string; count: number } | null {
+  if (!(error instanceof ConnectionActionError)) return null;
+  const failure = error.failure;
+  if (!failure || typeof failure !== 'object' || !('sessionsBusy' in failure)) return null;
+  const busy = failure.sessionsBusy;
+  if (!busy || typeof busy !== 'object' || !('providerId' in busy) || !('count' in busy)) return null;
+  return typeof busy.providerId === 'string' && typeof busy.count === 'number' ? { providerId: busy.providerId, count: busy.count } : null;
+}
+
 export function errorText(error: unknown): string {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
   return JSON.stringify(error);

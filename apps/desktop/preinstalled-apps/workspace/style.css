@@ -6,9 +6,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 
 /* One two-line list at every width. */
 .files { display: flex; flex-direction: column; min-height: 0; }
-.files-head { display: flex; flex-direction: column; gap: var(--em-spacing-md); padding: var(--em-spacing-lg); flex: none; }
-.filter { width: 100%; min-width: 0; }
-.files-actions { display: flex; justify-content: flex-end; gap: var(--em-spacing-sm); }
+.files-head { flex-wrap: nowrap; padding: var(--em-spacing-lg); flex: none; }
+.filter { flex: 1; width: 0; min-width: 0; }
 .file-list { margin: 0; padding: 0 var(--em-spacing-md) var(--em-spacing-md); gap: var(--em-spacing-xs); overflow: auto; flex: 1; min-height: 0; }
 .file-open {
   flex: 1; min-width: 0; min-height: var(--em-control-h-md); display: grid;

@@ -120,8 +120,8 @@ class HostPort implements MessagePortMainLike {
 class Connection {
   readonly ports = new Map<number, HostPort>();
   readonly sender: HostIpcInvokeEvent['sender'];
-  /** 对端报过订阅之后只推它订的频道(别的桌面经网络连进来时,不能把整台机器的事件都推过去)。 */
-  private subscriptions: Set<string> | null = null;
+  /** 只推对端明确订阅的频道,包括还没完成开窗的连接。 */
+  private readonly subscriptions = new Set<string>();
 
   constructor(
     readonly id: number,
@@ -143,15 +143,15 @@ class Connection {
   }
 
   wants(channel: string): boolean {
-    return this.subscriptions === null || this.subscriptions.has(channel);
+    return this.subscriptions.has(channel);
   }
 
   subscribe(channel: string): void {
-    (this.subscriptions ??= new Set()).add(channel);
+    this.subscriptions.add(channel);
   }
 
   unsubscribe(channel: string): void {
-    (this.subscriptions ??= new Set()).delete(channel);
+    this.subscriptions.delete(channel);
   }
 
   send(message: HostWsServerMessage): void {

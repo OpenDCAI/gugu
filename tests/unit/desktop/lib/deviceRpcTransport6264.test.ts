@@ -107,6 +107,7 @@ function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: str
   const listeners = new Map<string, Set<Listener>>()
   const sent: Array<{ deviceId: string; message: { payload: { type: string; request_id: string; payload: unknown } } }> = []
   const opened: string[] = []
+  const closed: string[] = []
   const emit = (channel: string, data: unknown) => {
     for (const listener of listeners.get(channel) ?? []) listener(data)
   }
@@ -123,6 +124,10 @@ function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: str
         records.note()
         return true
       }
+      if (channel === 'ssh-link:close') {
+        closed.push(arg as string)
+        records.note()
+      }
       return undefined
     },
     eventOn: (channel: string, cb: Listener) => {
@@ -132,7 +137,7 @@ function fakeMainProcess(options: { sshMachines: string[]; open?: (deviceId: str
       return () => set.delete(cb)
     },
   }
-  return { api, sent, opened, emit }
+  return { api, sent, opened, closed, emit }
 }
 
 /** 咕咕云上发出去的、某一类的请求(报到不算)。 */
@@ -334,6 +339,76 @@ describe('设备 RPC 按机器挑通道', () => {
       expect(resubscribed.mock.calls).toEqual([[false], [false]])
       expect(cloud.channels).toEqual([])
     } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not tear down an SSH handshake that has not become an application pipe yet', async () => {
+    vi.useFakeTimers()
+    let cleanup: (() => void) | undefined
+    try {
+      let finish!: () => void
+      const ready = new Promise<void>((resolve) => { finish = resolve })
+      const main = fakeMainProcess({ sshMachines: ['opening-box'], open: () => ready.then(() => ({ ok: true })) })
+      const { callDeviceRpc, _resetDeviceRpcForTesting } = await load(main)
+      cleanup = _resetDeviceRpcForTesting
+      const first = callDeviceRpc('opening-box', 'taskhost.open', {}, { timeoutMs: 200 }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(await first).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+      expect(main.closed).toEqual([])
+      expect(main.sent).toEqual([])
+      finish()
+      await vi.advanceTimersByTimeAsync(0)
+
+      const second = callDeviceRpc('opening-box', 'taskhost.open', {})
+      await vi.advanceTimersByTimeAsync(0)
+      expect(main.opened).toEqual(['opening-box'])
+      expect(main.sent).toHaveLength(1)
+      const request = main.sent[0]!.message.payload
+      main.emit('ssh-link:message', { deviceId: 'opening-box', message: { payload: { type: 'taskhost.open:reply', request_id: request.request_id, result: { ok: true } } } })
+      await expect(second).resolves.toMatchObject({ result: { ok: true } })
+    } finally {
+      cleanup?.()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retires a ready SSH application pipe on timeout, fails its other calls, and reopens for event listeners without replay', async () => {
+    vi.useFakeTimers()
+    let cleanup: (() => void) | undefined
+    try {
+      const main = fakeMainProcess({ sshMachines: ['stalled-box'] })
+      const { callDeviceRpc, subscribeDeviceRpcEvents, _resetDeviceRpcForTesting } = await load(main)
+      const events = vi.fn()
+      const resubscribed = vi.fn()
+      const off = subscribeDeviceRpcEvents('stalled-box', events, { onChannelResubscribed: resubscribed })
+      cleanup = () => { off(); _resetDeviceRpcForTesting() }
+      await vi.advanceTimersByTimeAsync(0)
+      expect(main.opened).toEqual(['stalled-box'])
+
+      const timedOut = callDeviceRpc('stalled-box', 'taskhost.open', {}, { timeoutMs: 200 }).catch((error: unknown) => error)
+      const inFlight = callDeviceRpc('stalled-box', 'taskpage.session.send', { text: 'once' }, { timeoutMs: 5_000 }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(main.sent).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(await timedOut).toMatchObject({ name: 'DeviceRpcTimeoutError' })
+      expect(await inFlight).toMatchObject({ name: 'DeviceRpcChannelError', reason: 'closed' })
+      expect(main.closed).toEqual(['stalled-box'])
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(main.opened).toEqual(['stalled-box', 'stalled-box'])
+      expect(resubscribed.mock.calls).toEqual([[false], [false]])
+      expect(main.sent).toHaveLength(2)
+      main.emit('ssh-link:message', { deviceId: 'stalled-box', message: { payload: { type: 'taskpage.session.event' } } })
+      expect(events).toHaveBeenCalledTimes(1)
+      const next = callDeviceRpc('stalled-box', 'taskhost.open', {})
+      await vi.advanceTimersByTimeAsync(0)
+      const request = main.sent[2]!.message.payload
+      main.emit('ssh-link:message', { deviceId: 'stalled-box', message: { payload: { type: 'taskhost.open:reply', request_id: request.request_id, result: { ok: true } } } })
+      await expect(next).resolves.toMatchObject({ result: { ok: true } })
+      expect(cloud.channels).toEqual([])
+    } finally {
+      cleanup?.()
       vi.useRealTimers()
     }
   })
