@@ -125,7 +125,8 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
     network = deferred<void>()
-    vi.mocked(chatService.getMessages).mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
+    vi.mocked(chatService.getMessages).mockClear().mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
+    vi.mocked(chatService.getMessageById).mockResolvedValue(null)
     scopedFrames.length = 0
     vi.mocked(chatService.revalidateWindow).mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
     messagesByChat = { chatA: [msgA1], chatB: [msgB1] }
@@ -153,7 +154,7 @@ describe('打开会话的第一帧', () => {
     await replaceMessageWindow(repository, 'chatA', [msgA1], false)
     const harness = createReactHarness()
     const render = (active: boolean) => renderWithAppProviders(harness,
-      createElement(ChatProvider, { active }, createElement(Probe), createElement(Selector)), { auth: { id: 'user1' } })
+      createElement(ChatProvider, { active, children: [createElement(Probe, { key: 'probe' }), createElement(Selector, { key: 'selector' })] }), { auth: { id: 'user1' } })
     await render(false)
     await render(true)
     await vi.waitFor(() => expect(openImRepositoryMock).toHaveBeenCalled(), WAIT)
@@ -257,7 +258,7 @@ describe('打开会话的第一帧', () => {
     await vi.waitFor(() => expect(repository.snapshot().message.map((row) => row.id).sort()).toEqual(['msgA1', 'msgB1']), WAIT)
     await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe)), { auth: { id: 'user1' } })
     network = deferred<void>()
-    vi.mocked(chatService.getMessages).mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
+    vi.mocked(chatService.getMessages).mockClear().mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
     scopedFrames.length = 0
     await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(ScopedProbe, { chatId: 'chatA' })), { auth: { id: 'user1' } })
     expect(scopedFrames[0]?.ids).toEqual(['msgA1'])

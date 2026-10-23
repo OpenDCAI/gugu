@@ -150,6 +150,12 @@ export function useConversationScrollMemory({
     positions.set(owner.chatId, { atBottom: false, ...anchor })
   }, [positions])
 
+  // Capture before React replaces this viewport's rows; another surface selecting a chat is irrelevant.
+  if (scrollerOwnerRef.current && scrollerOwnerRef.current.chatId !== chatId) {
+    capturePosition(scrollerOwnerRef.current)
+    scrollerOwnerRef.current = null
+  }
+
   const setScrollerRef = useCallback((value: HTMLElement | Window | null) => {
     const element = value instanceof HTMLElement ? value : null
     if (!element && scrollerOwnerRef.current) capturePosition(scrollerOwnerRef.current)
