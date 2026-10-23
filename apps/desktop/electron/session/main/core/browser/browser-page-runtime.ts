@@ -15,6 +15,7 @@ export class BrowserPageRuntime {
   readonly contents: WebContents;
   host: BrowserWindow | null = null;
   private shown = false;
+  private viewport = { width: 1024, height: 768 };
   private state: 'new' | 'initializing' | 'ready' | 'failed' | 'closed' = 'new';
   private throttled = true;
   private subscribed = false;
@@ -26,12 +27,13 @@ export class BrowserPageRuntime {
   private destinationStarted = false;
   private captureTail: Promise<unknown> = Promise.resolve();
   private navigation = 0;
+  private stoppedStartup = -1;
   private attached: (() => void) | null = null;
   private attachment = new Promise<void>(resolve => { this.attached = resolve; });
 
   constructor(readonly view: WebContentsView, private readonly onUnused: () => void = () => {}) {
     this.contents = view.webContents;
-    view.setBounds({ x: 0, y: 0, width: 1024, height: 768 });
+    view.setBounds({ x: 0, y: 0, ...this.viewport });
     view.setVisible(false);
     runtimes.set(this.contents, this);
     this.contents.once('destroyed', () => this.finish(false));
@@ -73,8 +75,16 @@ export class BrowserPageRuntime {
   layout(rect: Rectangle | null, shown: boolean): void {
     if (this.closed || this.contents.isDestroyed()) return;
     this.shown = shown;
-    if (rect && rect.width > 0 && rect.height > 0) this.view.setBounds(rect);
-    this.view.setVisible(shown);
+    let resized = false;
+    if (rect && rect.width > 0 && rect.height > 0) {
+      resized = rect.width !== this.viewport.width || rect.height !== this.viewport.height;
+      this.viewport = { width: rect.width, height: rect.height };
+      this.view.setBounds(rect);
+    }
+    // Hidden native views defer child layout. Commit a new viewport immediately so site
+    // layout, input coordinates and the next screenshot agree even before the tab is shown.
+    if (resized && !shown && this.state === 'ready') this.prepareViewport();
+    else this.view.setVisible(shown);
   }
 
   /** Navigation cannot run site scripts until the native viewport exists. Newer requests supersede old ones. */
@@ -85,7 +95,11 @@ export class BrowserPageRuntime {
     this.assertLive();
     if (revision !== this.navigation) return;
     this.destinationStarted = true;
-    await this.contents.loadURL(url);
+    const loading = this.contents.loadURL(url);
+    // Chromium creates its initial frame when navigation starts. A queued stop must abort
+    // that native navigation, rather than leave a target with no renderer to reconnect to.
+    if (this.stoppedStartup === revision) this.contents.stop();
+    await loading;
   }
 
   async reload(ignoringCache = false): Promise<void> {
@@ -102,7 +116,8 @@ export class BrowserPageRuntime {
   }
 
   stop(): void {
-    this.navigation += 1;
+    if (!this.destinationStarted) this.stoppedStartup = this.navigation;
+    else this.navigation += 1;
     if (!this.closed && !this.contents.isDestroyed()) this.contents.stop();
   }
 
@@ -159,9 +174,13 @@ export class BrowserPageRuntime {
 
   private async initialize(): Promise<void> {
     await this.bounded(this.attachment);
+    this.prepareViewport();
+  }
+
+  private prepareViewport(): void {
     this.assertLive();
-    // Initialize the native viewport while the contents are still empty. This synchronous
-    // transition cannot paint a destination page or add a bootstrap navigation to history.
+    // Commit native child layout synchronously, restoring presentation before yielding.
+    // Initial preparation happens before destination scripts and adds no navigation history.
     this.view.setVisible(true);
     this.view.setVisible(this.shown);
   }

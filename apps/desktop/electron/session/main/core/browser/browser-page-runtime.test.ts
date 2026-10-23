@@ -49,16 +49,38 @@ describe('browser page runtime', () => {
     runtime.close();
   });
 
-  it('supersedes a destination changed during startup, and stop cancels pending navigation', async () => {
+  it('supersedes a destination changed during startup', async () => {
     const first = surface();
     await Promise.all([first.runtime.navigate('https://old.test/'), first.runtime.navigate('https://new.test/')]);
     expect(first.contents.loadURL.mock.calls).toEqual([['https://new.test/']]);
     first.runtime.close();
+  });
+
+  it('commits resized hidden viewports before input or capture without changing presentation', async () => {
+    const { runtime, view, contents } = surface();
+    await runtime.ready;
+    view.setVisible.mockClear();
+    runtime.layout({ x: 10, y: 20, width: 420, height: 540 }, false);
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 20, width: 420, height: 540 });
+    expect(view.setVisible.mock.calls).toEqual([[true], [false]]);
+    expect(contents.beginFrameSubscription).not.toHaveBeenCalled();
+    view.setVisible.mockClear();
+    runtime.layout({ x: 20, y: 30, width: 420, height: 540 }, false);
+    expect(view.setVisible.mock.calls).toEqual([[false]]);
+    runtime.close();
+  });
+
+  it('aborts the initial native navigation when stopped during viewport startup, preserving a connectable frame', async () => {
     const second = surface();
     const pending = second.runtime.navigate('https://stopped.test/');
     second.runtime.stop();
     await pending;
-    expect(second.contents.loadURL).not.toHaveBeenCalled();
+    expect(second.contents.loadURL.mock.calls).toEqual([['https://stopped.test/']]);
+    expect(second.contents.stop).toHaveBeenCalledTimes(2);
+    expect(second.contents.loadURL.mock.invocationCallOrder[0]).toBeLessThan(second.contents.stop.mock.invocationCallOrder[1]);
+    await second.runtime.navigate('https://next.test/');
+    expect(second.contents.loadURL).toHaveBeenLastCalledWith('https://next.test/');
+    expect(second.contents.stop).toHaveBeenCalledTimes(2);
     second.runtime.close();
   });
 
