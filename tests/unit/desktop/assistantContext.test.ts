@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -190,6 +190,7 @@ it('retains an explicit reasoning choice', () => {
 
 it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through native SessionStart, including on resume', async kind => {
   const root = await mkdtemp(join(tmpdir(), 'assistant-start-'))
+  vi.stubEnv('GUGU_CLOUD_COMPUTER', kind === 'cloud' ? '1' : '0')
   try {
     const cwd = join(root, 'assistant'); await mkdir(cwd); await mkdir(join(root, '.claude'))
     let name = 'first-project'
@@ -208,6 +209,7 @@ it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through nat
     expect(options.systemPrompt).not.toContain('first-project')
     expect(hookIndex(start)).toContain('first-project')
     const devices = hookIndex(start).split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    expect(devices[0].execution_environment).toBe(kind === 'cloud' ? 'cloud' : 'user_device')
     const executionHost = devices.find(row => row.device_id === 'device:execution-host')
     expect(executionHost).toMatchObject({ this_machine: true })
     if (kind === 'cloud') expect(executionHost).toHaveProperty('cloud_computer', 'awake')
@@ -233,7 +235,7 @@ it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through nat
     })
     // Dynamic account data must not be persisted into a shared instruction file.
     expect(await readFile(assistantHomePaths(root, cwd, kind).instructions, 'utf8')).not.toContain('renamed-project')
-  } finally { await rm(root, { recursive: true, force: true }) }
+  } finally { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }) }
 })
 
 it('uses a native context hook while retaining explicit string and preset system prompts', () => {

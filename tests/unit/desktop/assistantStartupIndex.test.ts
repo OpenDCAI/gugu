@@ -1,10 +1,13 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { assistantStartupIndex, type AssistantStartupIndexDeps } from '../../../apps/desktop/electron/sessionpage/assistant-startup-index'
 
 const host = { device_id: 'host', label: '助理的家', platform: 'linux', online: true, last_seen_at: '2026-10-20T12:00:00Z', this_machine: true, kind: 'server' }
 const mac = { ...host, device_id: 'mac', label: '主人的 Mac', platform: 'darwin', this_machine: false, kind: 'desktop' }
 const offline = { ...mac, device_id: 'offline', label: '离线电脑', online: false }
 const phone = { ...mac, device_id: 'phone', label: '手机', platform: 'ios', kind: undefined }
+
+beforeEach(() => vi.stubEnv('GUGU_CLOUD_COMPUTER', '0'))
+afterEach(() => vi.unstubAllEnvs())
 
 function fixture() {
   const run = vi.fn<AssistantStartupIndexDeps['run']>(async action => {
@@ -29,7 +32,7 @@ it('injects account devices and registered projects with unambiguous ownership a
   const deps = fixture()
   const index = await assistantStartupIndex(deps)
   const rows = records(index)
-  expect(rows[0]).toEqual({ account: 'user:owner-a', collected_at: '2026-10-20T12:30:00.000Z' })
+  expect(rows[0]).toEqual({ account: 'user:owner-a', collected_at: '2026-10-20T12:30:00.000Z', execution_environment: 'user_device' })
   expect(rows.find(row => row.device_id === 'device:host')).toMatchObject({ this_machine: true, label: '助理的家' })
   expect(rows.find(row => row.device_id === 'device:mac')).toMatchObject({ this_machine: false, label: '主人的 Mac' })
   expect(rows.find(row => row.device_id === 'device:phone')).toMatchObject({ groups: [{ group: 'calendar', available: true, actions: 2 }] })
@@ -71,6 +74,20 @@ it.each(['awake', 'waking', 'asleep'] as const)('preserves verified cloud hostin
   expect(rows.find(row => row.device_id === 'device:host')).toMatchObject({ this_machine: true, cloud_computer: cloudState })
   expect(rows.find(row => row.device_id === 'device:mac')).not.toHaveProperty('cloud_computer')
   expect(rows.find(row => row.device_id === 'device:phone')).toBeDefined()
+})
+
+it('retains the cloud host’s own environment when both device discovery paths fail', async () => {
+  vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => {
+    if (action.action === 'devices' || action.action === 'device_actions') throw new Error('Device discovery is unavailable')
+    return original(action, signal)
+  })
+  const rows = records(await assistantStartupIndex(deps))
+  expect(rows[0]).toMatchObject({ execution_environment: 'cloud' })
+  expect(rows.filter(row => row.status === 'unavailable').map(row => row.source)).toEqual(expect.arrayContaining(['session_devices', 'device_actions']))
+  expect(rows.some(row => row.device_id)).toBe(false)
 })
 
 it('bounds a non-answering remote read, cancels it and records an unavailable source', async () => {
