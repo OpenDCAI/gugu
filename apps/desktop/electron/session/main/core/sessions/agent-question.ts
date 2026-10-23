@@ -18,7 +18,7 @@ export async function postAgentQuestion(input: {
     itemId, kind: 'question', title: questions[0].question, questions, options: questions[0].options, askedAt: Date.now(),
     host: { kind: 'agent-question', payload: questionDeliveryPayload(input.sourceLink, answerMessageId) },
   } as const;
-  const answer = askHost(input.sessionId, request, { signal: new AbortController().signal, background: true });
+  const answer = askHost(input.sessionId, request, { signal: new AbortController().signal });
   const immediate = await Promise.race([answer, Promise.resolve(undefined)]);
   if (typeof immediate === 'string') throw new Error(`Question could not be published: ${immediate}`);
   deliverAgentQuestionAnswer(input.sessionId, input.projectId, request, answerMessageId, answer);

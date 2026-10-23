@@ -1177,20 +1177,22 @@ describe('session timeline service', () => {
       expect(state.permissionChannelError).not.toHaveBeenCalled();
     });
 
-    it('a detached question stays answerable without blocking the assistant and is withdrawn on interruption', async () => {
+    it('a question keeps the session waiting on the person (a question wait) until it is withdrawn on interruption', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       const answered = service.askHost('conv-1', {
         itemId: 'agent-question:async', kind: 'question', title: 'Which?',
         questions: [{ question: 'Which?', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
         options: [], host: { kind: 'agent-question', payload: {} },
-      }, { signal: new AbortController().signal, background: true });
+      }, { signal: new AbortController().signal });
       await service.snapshot({ conversationId: 'conv-1' });
       await vi.dynamicImportSettled();
-      expect(state.hostWaits).toEqual([]);
+      expect(state.hostWaits).toEqual([{ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: true, waitKind: 'question' }]);
       expect(await settled(answered)).toBe('still asked');
       service.withdrawHostQuestions('conv-1');
       await expect(answered).resolves.toBe('withdrawn');
+      await vi.dynamicImportSettled();
+      expect(state.hostWaits.at(-1)).toEqual({ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: false, waitKind: 'question' });
       expect(await service.respond({ conversationId: 'conv-1', itemId: 'agent-question:async', kind: 'question', answers: [{ selected: ['one'] }], by: 'desktop' }))
         .toMatchObject({ ok: true, value: { accepted: false, settlement: { state: 'cancelled' } } });
     });
