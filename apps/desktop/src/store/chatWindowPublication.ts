@@ -71,7 +71,7 @@ export async function openCachedChatWindow(options: {
   if (!painted) {
     await options.history.load('latest', fetchChatHistoryPage(userId))
     const window = options.history.getSnapshot()
-    await finalize(window.messages, false, window.hasOlder)
+    await finalize(window.messages, true, window.hasOlder)
   } else {
     const rows = await chatService.getMessages(chatId, userId, 'initialLoad', INITIAL_PAGE)
     await finalize(rows, true, true)

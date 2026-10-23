@@ -57,6 +57,7 @@ export function shallowEqualMessage(a: MessageItem, b: MessageItem): boolean {
     a.reply_to_message_id === b.reply_to_message_id &&
     a.sender_user_id === b.sender_user_id &&
     sameRecipientIds(a.to_user_ids, b.to_user_ids) &&
+    sameRecipientIds(a.readers ?? null, b.readers ?? null) &&
     a.is_mine === b.is_mine &&
     a.delivered === b.delivered &&
     a.delivery_status === b.delivery_status &&

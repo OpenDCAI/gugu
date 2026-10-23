@@ -9,7 +9,7 @@ export function chatWindowStub(_userId = 'user-1') {
     read: (chatId, viewport) => cache.view(chatId, viewport), subscribe: (id, listener, viewport) => cache.subscribe(id, listener, undefined, viewport), setFollowingTail: cache.setFollowingTail, errorOf: () => null,
     actions: () => conversationActions,
   }
-  return { conversations, write: (chatId: string, update: (rows: MessageItem[]) => MessageItem[]) => cache.set(chatId, update(cache.get(chatId) ?? [])) }
+  return { conversations, write: (chatId: string, update: (rows: MessageItem[]) => MessageItem[]) => cache.update(chatId, update) }
 }
 
 const conversationActions = {
