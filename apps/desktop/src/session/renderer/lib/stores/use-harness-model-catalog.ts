@@ -99,14 +99,16 @@ export function useHarnessModelCatalog(
   leg: SessionpageLeg
 ) {
   // #6264 会话 / 新建框在别的机器上:问那台机器的同一个控制器(一套工作台)。
-  const machine = useLibraryHost().remote?.deviceId ?? null;
+  const host = useLibraryHost().remote;
+  const machine = host?.deviceId ?? null;
   const remote = machine !== null;
   const query = useQuery<HarnessCatalogLookup>({
     queryKey: machine
       ? [...HARNESS_MODEL_CATALOG_QUERY_KEY, providerId ?? '', leg, 'remote', machine]
       : [...HARNESS_MODEL_CATALOG_QUERY_KEY, providerId ?? '', leg],
     queryFn: () => rpcOn(machine).agents.modelCatalog(providerId as string, leg) as Promise<HarnessCatalogLookup>,
-    enabled: !!providerId,
+    // 那台机器没连上就不问:问不到只会落一个「读取失败」,而那不是这家 agent 的问题;连上时变回 true、自己重取。
+    enabled: !!providerId && host?.online !== false,
     // ⚠️ 远端**不能**是 Infinity(#6264 实撞):本机那份作废归主进程管,可那台机器上的变化(人在它的终端里
     // 装了、登了)这边的主进程一无所知 —— Infinity 会把第一次读到的「没登录」钉到重启 app 为止。
     // 远端按 30s 过期、切回窗口时重问(人多半是去那台机器的终端里登完回来);在咕咕里登完的那条路另有作废。

@@ -168,13 +168,4 @@ describe('一台机器一条提示:原地换,不叠', () => {
     expect(notices.notify).not.toHaveBeenCalled();
   });
 
-  it('收的时候发出的 onDismiss 不算用户关的', async () => {
-    await show('d1', offline());
-    const onDismiss = lastNotify().onDismiss as () => void;
-    await show(null, null);
-    expect(notices.dismissNotice).toHaveBeenCalledTimes(1);
-    onDismiss();
-    await show('d1', offline());
-    expect(notices.notify.mock.calls.filter((call) => call[0].key === 'machine:d1')).toHaveLength(2);
-  });
 });

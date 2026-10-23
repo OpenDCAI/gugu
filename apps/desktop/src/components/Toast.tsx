@@ -21,8 +21,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   )
   return (
     <ToastContext.Provider value={value}>
-      {children}
+      {/* 排在子树前面:它的订阅要比子组件挂载时发的第一条提示先就位(effect 按兄弟顺序跑)。 */}
       <NoticeHost closeLabel={t('toast.dismiss')} />
+      {children}
     </ToastContext.Provider>
   )
 }

@@ -195,8 +195,12 @@ export function usePlatformModelCatalog(
   const keepCurrent = useRef(false);
   const retry = () => setRetryNonce((value) => value + 1);
   // #6264 会话 / 新建框在别的机器上:平台模型也问那台机器(它用自己的登录态与额度)。
-  const hostMachine = useLibraryHost().remote?.deviceId ?? null;
+  const host = useLibraryHost().remote;
+  const hostMachine = host?.deviceId ?? null;
   const machine = sessionId ? machineRegistry.machineOf(sessionId) : hostMachine;
+  // 那台机器此刻连没连上(只有这个框所在的那台知道;会话落在别处的照旧去问)。
+  const online = machine === null || machine !== hostMachine || host?.online !== false;
+  const wasOnline = useRef(online);
   const refresh = () => {
     keepCurrent.current = true;
     setRetryNonce((value) => value + 1);
@@ -238,12 +242,18 @@ export function usePlatformModelCatalog(
   }, []);
 
   useEffect(() => {
+    // 机器断开 / 连上本身不换目录也不换会话:列着的留着,别先清空再填。
+    if (online !== wasOnline.current) keepCurrent.current = true;
+    wasOnline.current = online;
+    // 列着的是哪一份(提供方 + 界面 + 机器)与连没连上无关:换了就清,❌ 离线时把上一台 / 上一家的模型留在下拉里。
     const sameCatalog = lastCatalogOf.current === catalogOf;
     lastCatalogOf.current = catalogOf;
     if (!sameCatalog) setCatalog(NO_PLATFORM_CATALOG);
     else if (!keepCurrent.current) setCatalog((prev) => ({ ...prev, agentDefault: null, sessionSelection: undefined }));
     keepCurrent.current = false;
-    if (!providerId) return;
+    // 机器没连上就不问:问不到只会落一个「模型列表尚未就绪」,而原因是机器离线(那由机器的提示说)。
+    // 连上时 online 变回 true、这里重跑 —— 机器回来,列表自己续上,❌ 停在「尚未就绪」等人点重试。
+    if (!online || !providerId) return;
     let live = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const load = (retry: boolean) => {
@@ -273,7 +283,7 @@ export function usePlatformModelCatalog(
       live = false;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [providerId, surface, sessionId, retryNonce, machine]);
+  }, [providerId, surface, sessionId, retryNonce, machine, online]);
 
   return { ...catalog, retry, refresh };
 }
