@@ -26,7 +26,7 @@ export function withSessionAttachments(text: string, files?: SessionAttachmentRe
   if (files.length > 8 || files.some(file => !/^[0-9a-f-]{36}$/i.test(file.attachment_id)
     || !/^[0-9a-f]{64}$/.test(file.sha256) || !Number.isSafeInteger(file.size_bytes) || file.size_bytes < 0
     || typeof file.file_name !== 'string' || typeof file.content_type !== 'string')) throw new Error('Invalid session attachment references')
-  return `${text}\n\n附件（仅元数据；用 message_download_file 的 source_attachment_id 下载完整原件）：\n${JSON.stringify(files)}`
+  return `${text}\n\n附件（原件引用与校验信息；仅元数据）：\n${JSON.stringify(files)}`
 }
 
 

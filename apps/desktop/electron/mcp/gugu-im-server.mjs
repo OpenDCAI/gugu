@@ -2128,10 +2128,11 @@ async function downloadAttachment(messageId, deps) {
   if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
   const safeName = attachment.fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
   const dir = joinPath(home, 'chat-media')
-  const path = joinPath(dir, `${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}-${safeName}`)
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  const path = joinPath(dir, `${sha256.slice(0, 24)}-${safeName}`)
   await mkdir(dir, { recursive: true })
   await writeFile(path, bytes, { mode: 0o600 })
-  return `saved ${attachment.fileName} (${bytes.length} bytes) to ${path}`
+  return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256 })
 }
 
 async function handleFile(args, deps) {
@@ -2370,7 +2371,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'message_download_file',
-    description: 'Download original bytes from a visible chat message (source_message_id) or a session-message attachment reference (source_attachment_id). Returns a local file path; session files include verified size and SHA-256.',
+    description: 'Download original bytes from a visible chat message (source_message_id) or a session-message attachment reference (source_attachment_id). Returns file_path, actual size_bytes and full sha256; session files are verified against their reference.',
     schema: z.object({ source_message_id: z.string().optional(), source_attachment_id: z.string().uuid().optional() }).refine(args => Boolean(args.source_message_id) !== Boolean(args.source_attachment_id), 'Give exactly one attachment source'),
     handler: (args, deps) => handleFile({ ...args, action: 'download-attachment' }, deps),
   },
