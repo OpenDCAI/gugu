@@ -101,10 +101,12 @@ export function PanelResizeHandle({
       )}
       style={{
         width: HIT_STRIP_PX,
-        // 骑在边界上:把手中线对准面板边缘,两侧各分一半命中带。
+        // 命中带整条落在边界**左边**,❌ 骑在边界上。两处把手(侧栏、工作区面板)在文档里都排在左栏之后、右栏之前;
+        // 窗口拖拽区按文档顺序叠,后来的盖前面的 —— 伸进右栏的那半截会被右栏的拖拽带(页签条、顶栏带)盖成「拖窗口」,
+        // 按下去拖走的是窗口(mac 原生指针实测)。落在左边,它的 no-drag 排在左栏后面,压得住;焦点顺序也不动。
         ...(edge === 'end'
-          ? { left: offset, marginLeft: -HIT_STRIP_PX / 2 }
-          : { right: offset, marginRight: -HIT_STRIP_PX / 2 }),
+          ? { left: offset, marginLeft: -HIT_STRIP_PX }
+          : { right: offset }),
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
