@@ -23,7 +23,7 @@ const TITLEBAR_ACTION_TOP_PX = (WINDOW_CONTROL_BAR_HEIGHT_PX - TITLEBAR_ACTION_S
 
 
 /**
- * The sidebar's layout and collapse controls, fixed at the workspace root on every platform.
+ * The sidebar's collapse and layout controls, fixed at the workspace root on every platform.
  *
  * 它挂在会话页根部(<WorkspaceLayout>),不在侧栏里、也不在主区里 —— 所以侧栏开合时它一动不动,
  * 侧栏是从它下面滑过去的。改造前是两枚:侧栏展开时那枚长在侧栏顶端靠右,收起时另换一枚浮到
@@ -57,8 +57,9 @@ export const ShellSidebarToggle = observer(function ShellSidebarToggle() {
       style={{ top: TITLEBAR_ACTION_TOP_PX, left: TITLEBAR_LEFT_EDGE_GAP_PX, gap: TITLEBAR_ACTION_SLOT_GAP_PX }}
       data-sidebar-header-controls=""
     >
-      <SidebarListLayoutButton />
+      {/* 开关在前、一直在;「显示方式」管的是那张列表,列表收起它就跟着走(owner 2026-10-23)。浮出预览时列表在,它也在。 */}
       <ListColumnToggle slot="list:sessions" />
+      {isLeftOpen || isLeftPeeking ? <SidebarListLayoutButton /> : null}
     </div>
   )
 })

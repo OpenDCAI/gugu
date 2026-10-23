@@ -41,8 +41,8 @@ export const TITLEBAR_ACTION_EDGE_GAP_PX = 8
 export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
 
 /**
- * Layout and collapse stay at the workspace's left edge when the sidebar is closed.
- * Reserve their two slots plus the shared edge and gap before title content or search.
+ * When the sidebar is closed only the collapse toggle stays at the workspace's left edge (the layout button belongs to the
+ * list and goes with it, owner 2026-10-23). Reserve its slot plus the shared edge and gap before title content.
  *
  * 不让开就是「浮动按钮压住内容」:实机(#4129 那张图)工作区面板全屏 + 侧栏收起时,首个页签的
  * 文件图标和这枚按钮叠成一团。会话栏 header 早就在让(session-chat-column.tsx),页签条没跟上。
@@ -50,6 +50,10 @@ export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
  * ❌ 别在调用点手写车道宽度:按钮改档时这里是唯一要动的地方。
  */
 export const SHELL_RESTORE_LANE_PX =
+  TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(1) + TITLEBAR_ACTION_SLOT_GAP_PX
+
+/** While the sidebar shows, its header row starts after both controls: collapse, then layout. */
+export const SIDEBAR_HEADER_CONTROLS_PX =
   TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(2) + TITLEBAR_ACTION_SLOT_GAP_PX
 
 /** n 个 28px 槽位 + (n-1) 道间距;n=0 时该组不占宽。 */
