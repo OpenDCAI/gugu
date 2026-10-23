@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { askHost } from '../session-timeline/service';
 import { deliverAgentQuestionAnswer, questionDeliveryPayload } from './agent-question-delivery';
 
-/** The card outlives its MCP request. Its explicit answer returns through the durable session inbox. */
+/**
+ * The card outlives its MCP request. Its explicit answer returns through the durable session inbox. The tool returns at
+ * once (the agent's turn goes on), but the session waits on the person until it is answered or withdrawn: a question wait,
+ * so the task card, the sidebar row and the rail read 「需要你」 meanwhile (gugu-dev#181 ⑨).
+ */
 export async function postAgentQuestion(input: {
   sessionId: string; projectId: string; sourceLink?: string;
   questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multi_select?: boolean }>;

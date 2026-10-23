@@ -127,11 +127,11 @@ describe('新建框那一句', () => {
     expect(machineBlockIsStatus('offline', null)).toBe(false);
     expect(machineBlockIsStatus('offline', undefined)).toBe(true);
   });
-  it('宿主自己的原因(默认值读不到)压过云电脑那句时,画成报错', () => {
-    const context = { projectId: undefined, blockReason: '小咕 在休息，开始输入就会叫醒它。', blockIsStatus: true, isContextPending: false, machine: { deviceId: 'cloud', label: '小咕' } } as unknown as MachineCreateContext;
-    expect(machineComposerProps(context, { projectId: undefined })).toMatchObject({ blockReason: context.blockReason, blockIsStatus: true });
-    expect(machineComposerProps(context, { projectId: undefined, blockReason: '读不到默认设置' })).toMatchObject({ blockReason: '读不到默认设置', blockIsStatus: false });
-    expect(machineComposerProps(null, { projectId: 'p1' })).toMatchObject({ blockReason: null, blockIsStatus: false });
+  it('所选机器用不了只挡发送(原因在提示条里说);宿主自己的原因(默认值读不到)照旧摆在新建框下面', () => {
+    const context = { projectId: undefined, blockReason: null, blocked: true, isContextPending: false, machine: { deviceId: 'cloud', label: '小咕' } } as unknown as MachineCreateContext;
+    expect(machineComposerProps(context, { projectId: undefined })).toMatchObject({ blockReason: null, blocked: true });
+    expect(machineComposerProps(context, { projectId: undefined, blockReason: '读不到默认设置' })).toMatchObject({ blockReason: '读不到默认设置', blocked: true });
+    expect(machineComposerProps(null, { projectId: 'p1' })).toMatchObject({ blockReason: null, blocked: false });
   });
 });
 

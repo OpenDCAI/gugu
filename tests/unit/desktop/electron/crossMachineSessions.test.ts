@@ -92,6 +92,14 @@ describe('reaching another machine', () => {
     ])
   })
 
+  it('advertises a phone task runtime even without native file actions', async () => {
+    const phone = device('phone', 'phone', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const { xm } = makeCrossMachine(undefined, { listDevices: async () => [phone] })
+    expect(await xm.listDeviceRows()).toEqual([expect.objectContaining({ device_id: 'phone',
+      task_runtime: { capability: 1, runtimes: ['pi'] } })])
+  })
+
   it('asks that machine\'s task-page router: agentSession.<action>(caller, action), one call, no window', async () => {
     const { xm, call } = makeCrossMachine()
     await expect(xm.call('dev-b', CALLER, { action: 'get', session_id: 's' })).resolves.toEqual({ ok: true })

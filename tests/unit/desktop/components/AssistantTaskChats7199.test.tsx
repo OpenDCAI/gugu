@@ -26,7 +26,8 @@ import type { PhonePageProps } from '../../../../apps/desktop/src/mobile/assista
 import { AssistantTasksPage } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-tasks'
 import type { AssistantContext } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-context'
 import { OPEN_ASSISTANT_TASK_CHAT, openAssistantTaskChat, readAssistantTaskChat, rememberAssistantTaskChat, showAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
-import { installAssistantShellBridge, readAssistantShellBridge } from '../../../../apps/desktop/src/lib/assistantShellBridge'
+import { installAssistantShellBridge } from '../../../../apps/desktop/src/lib/assistantShellBridge'
+import { installShellSlots, readShellSlots } from '../../../../apps/desktop/src/lib/shellSlots'
 import { useTaskChatRows } from '../../../../apps/desktop/src/components/assistant/useTaskChatRows'
 import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 
@@ -38,6 +39,7 @@ const assistant = { id: 'assistant', display_name: '咕咕', avatar: null, creat
 beforeEach(() => {
   harness = createReactHarness()
   installAssistantShellBridge()
+  installShellSlots()
   showAssistantTaskChat(null)
   mocks.localWorker = false
   mocks.identities.mockReset()
@@ -106,7 +108,7 @@ describe('assistant task rows open the task chat on both shells', () => {
   it('opens the task chat inside its pane without a modal or shell navigation, and returns to the same draft', async () => {
     const open = vi.fn()
     const contacts = [assistant, { id: 'task-agent', display_name: '报告任务', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }))
-    await renderWithAppProviders(harness, <><input data-testid="assistant-draft" defaultValue="未发完的交代" /><section data-testid="task-pane" ref={(node) => readAssistantShellBridge()?.setSlot('task-chat', node)} /><AssistantTaskChatOpener visible onOpenUserChat={open} /></>, { contacts: { contacts } })
+    await renderWithAppProviders(harness, <><input data-testid="assistant-draft" defaultValue="未发完的交代" /><section data-testid="task-pane" ref={(node) => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible onOpenUserChat={open} /></>, { contacts: { contacts } })
     act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
     expect(open).not.toHaveBeenCalled()
     const popup = document.querySelector<HTMLElement>('[data-testid="assistant-task-chat-window"]')!
@@ -134,7 +136,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     mocks.identities.mockReturnValue(new Promise(resolve => { finish = resolve }))
     const contacts = [{ ...assistant, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }]
     const toast = vi.fn()
-    await renderWithAppProviders(harness, <><section ref={node => readAssistantShellBridge()?.setSlot('task-chat', node)} /><AssistantTaskChatOpener visible /></>, { contacts: { contacts }, toast })
+    await renderWithAppProviders(harness, <><section ref={node => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible /></>, { contacts: { contacts }, toast })
     act(() => { openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows); openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows) })
     expect(mocks.identities).toHaveBeenCalledOnce()
     expect(mocks.identities).toHaveBeenCalledWith(['task-agent'])

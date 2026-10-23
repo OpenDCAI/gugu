@@ -21,7 +21,7 @@ import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
 import { useGroupChatSettings } from './useGroupChatSettings'
-import { GroupInviteLinkBlock, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
+import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
   settingsBodyStyle,
   settingsErrorStyle,
@@ -305,12 +305,7 @@ export function GroupMembersSection({
           <SettingsNavRow title={t('group.settings.rules')} testId="group-settings-rules" value={settings ? firstLine(settings.group_prompt) ?? t('group.settings.rulesUnset') : undefined} onClick={() => openTextPage('rules')} />
           <SettingsNavRow title={t('group.settings.description')} testId="group-settings-description" value={settings ? firstLine(settings.description) ?? t('group.settings.descriptionUnset') : undefined} onClick={() => openTextPage('description')} />
           {/* 邀请链接本身所有成员都能分享;管理者在「群管理」里看到同一块(连同开关)。 */}
-          {!viewerIsManager && settings?.invite_link_enabled && inviteLink ? (
-            <>
-              <div style={settingsSectionLabelStyle}>{t('group.settings.inviteLink')}</div>
-              <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={() => setShowSharePoster(true)} />
-            </>
-          ) : null}
+          <MemberInviteLink chatId={chatId} inviteLink={!viewerIsManager && settings?.invite_link_enabled ? inviteLink : null} onOpenPoster={() => setShowSharePoster(true)} />
           {viewerIsManager && settings ? (
             <SettingsNavRow title={t('group.settings.manage')} testId="group-settings-manage" onClick={() => push('manage')} />
           ) : null}

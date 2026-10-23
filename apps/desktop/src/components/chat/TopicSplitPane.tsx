@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, LayoutGrid, Paperclip, Users, X } from '@/lib/icons'
+import { ChevronLeft, LayoutGrid, MessageSquare, Paperclip, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -10,7 +11,9 @@ import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
-import { MenuItem } from '../ui/Menu'
+import { Menu, MenuItem } from '../ui/Menu'
+import { OpenAppMenuItems } from './OpenAppMenuItems'
+import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
 import { useTopicWorkspace } from '../appSlot/useTopicWorkspace'
 import { useBackLayer } from '../ui/sheetStack'
@@ -42,6 +45,7 @@ import { ResizablePane } from '@/layouts/ResizablePane'
 import { prioritizeTopicParticipants } from './topicMentionModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
+import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -113,6 +117,11 @@ export type TopicSplitPaneProps = {
   currentUserId: string | null
   /** 移动壳:整页盖住来源线、出口是左上返回,且不抢焦点(不弹软键盘)。 */
   mobile?: boolean
+  /**
+   * gugu-dev#181 画在会话页一块里:这一栏不画自己那条头,话题是块页签条上和群对话并排的一枚页签,画进这一格
+   * (× = 收起分栏;附件、成员、群文件夹、App 在这枚页签的右键菜单里)。格子还没挂上 = null。不给 = 对话页、手机,头照旧。
+   */
+  tabHost?: HTMLElement | null
   // ⚠️ 下面几个是 MessageBubble 的**必填** props,而这一栏自己拿不到它们的实现
   // (表情/转发/删除都要 ChatAreaPanel 那层的 handler)。做成可选透传而不是在内部写死
   // no-op:不接时这几个动作在分栏里点了没反应 = 静默失败,接上就跟主线同口径。
@@ -220,6 +229,7 @@ export function TopicSplitPane({
   onReaction,
   onForward, visible,
   onDelete,
+  tabHost,
 }: TopicSplitPaneProps) {
   const { t } = useTranslation('messaging')
   // #6004: the projection owns membership and chat_members_changed refreshes. Read this topic's
@@ -447,7 +457,7 @@ export function TopicSplitPane({
         {/* 这一条**常驻**:面板开着时它也在。曾经开面板就把它收起来,代价是
             ①「收起分栏」与另一颗切换键一起消失,②这一栏里再没有一个字说明你在哪条话题上
             (找茬第十轮)。嵌进来的那两个面板自带的头由 tokens.css 收掉,所以不会两条头叠着摆。 */}
-        {mobile ? (
+        {tabHost !== undefined ? null : mobile ? (
           <PaneHeader mobile divider title={headerTitle} actions={headerToggles} leading={(
             <IconButton size="lg" data-testid="topic-split-back" aria-label={t('common.back')} title={t('common.back')} onClick={goBack}><ChevronLeft /></IconButton>
           )} />
@@ -597,9 +607,25 @@ export function TopicSplitPane({
   )
   if (mobile) return page
   return (
-    // @@@5856 宽度归 ResizablePane —— owner 拿掉了「全宽打开」那颗键之后,
-    // 「想看大一点」这件事只剩这条分割线,所以它必须真能拖(拖拽那一套复用会话列表那一份,
-    // 见 ResizablePane 的注释:边界情形全在那儿踩过了)。
+    <>
+    {tabHost ? createPortal(
+      <TopicTab
+        name={topic.name}
+        chatId={topic.chatId}
+        onClose={onClose}
+        items={(
+          <>
+            <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
+            <MenuItem data-testid="topic-split-members-toggle" onClick={() => setMembersOpen((open) => !open)} icon={<Users size={16} />}>{t('topic.pane.members')}</MenuItem>
+            <MenuItem data-testid="topic-split-workspace-toggle" onClick={workspace.show} icon={<LayoutGrid size={16} />}>{workspace.folderName}</MenuItem>
+          </>
+        )}
+      />,
+      tabHost,
+    ) : null}
+    {/* @@@5856 宽度归 ResizablePane —— owner 拿掉了「全宽打开」那颗键之后,
+        「想看大一点」这件事只剩这条分割线,所以它必须真能拖(拖拽那一套复用会话列表那一份,
+        见 ResizablePane 的注释:边界情形全在那儿踩过了)。 */}
     <ResizablePane
       edge="left"
       hidden={false}
@@ -617,5 +643,42 @@ export function TopicSplitPane({
     >
       {page}
     </ResizablePane>
+    </>
+  )
+}
+
+/**
+ * 块里的话题页签(gugu-dev#181 第 ⑤⑥ 步):和群对话那一枚并排连成一对(排右),× = 收起分栏、页签也拿掉(话题不会关闭)。
+ * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
+ * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
+ */
+export function TopicTab({ name, chatId, onClose, onPick, items }: { name: string; chatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
+  const { t } = useTranslation('messaging')
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <TabSlot data-topic-tab={chatId}>
+      <TabChip
+        isActive={!onPick}
+        pairRole="end"
+        label={name}
+        preSlot={<MessageSquare size={14} />}
+        closeLabel={t('topic.pane.collapseSplitHint')}
+        onClick={onPick}
+        onClose={() => {
+          groupSlotMemory.closeTopic(chatId)
+          onClose?.()
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setMenuAt({ x: event.clientX, y: event.clientY })
+        }}
+      />
+      {menuAt ? (
+        <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
+          {items}
+          <OpenAppMenuItems chatId={chatId} separated />
+        </Menu>
+      ) : null}
+    </TabSlot>
   )
 }

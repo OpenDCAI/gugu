@@ -31,6 +31,10 @@ interface ChatHeaderActionsProps {
   mobile?: boolean
   /** 页头最右还摆着模式按钮(手机 Agent 私聊,#7197)。 */
   modeButton?: boolean
+  /** 画在会话页一块的页签条上时(没有标题后面的「(N)」):人数挂在成员按钮上。 */
+  memberCount?: number
+  /** 画在会话页一块的页签条上时:⋯ 里那几样(公告、设置、在本群打开 App)在这一块页签的右键菜单里,这里不画 ⋯。 */
+  moreInTabMenu?: boolean
   moreButtonRef: RefObject<HTMLButtonElement | null>
   onEnterSearchMode: () => void
   onOpenWorkspacePanel: () => void
@@ -55,6 +59,8 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   showHeaderMenu,
   mobile,
   modeButton,
+  memberCount,
+  moreInTabMenu,
   moreButtonRef,
   onEnterSearchMode,
   onOpenWorkspacePanel,
@@ -136,6 +142,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           }}
         >
           <Users />
+          {memberCount !== undefined && <span data-member-count="">{memberCount}</span>}
         </IconButton>
       )}
       {/* 历史 — @@@1366(owner 2026-06-20 撤销 #1161):历史=查看面板(线程/附件/导入历史),≠工作区,恢复
@@ -155,6 +162,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
           群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
           契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
+      {!moreInTabMenu && (
       <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
@@ -233,6 +241,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           </DropdownMenu.Content>
         )}
       </DropdownMenu.Root>
+      )}
     </>
   )
 })

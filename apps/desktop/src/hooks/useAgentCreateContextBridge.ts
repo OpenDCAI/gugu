@@ -20,6 +20,7 @@ import {
   agentCreateDeviceBlockMessage,
   EMPTY_AGENT_CREATE_DEFAULTS,
   resolveAgentCreateDevice,
+  rememberedAgentCreateProject,
   resolveAgentCreateProject,
   type AgentCreateDefaults,
 } from '@gugu/core/shared/ui/agentCreateDefaultsModels'
@@ -60,7 +61,6 @@ export interface AgentCreateContextController {
   selectDevice(deviceId: string): void
   selectProject(projectId: string | null): void
   reportAvailableProjects(projectIds: string[]): void
-  clearBirthGroup(): void
 }
 
 export function useAgentCreateContextBridge(
@@ -69,13 +69,10 @@ export function useAgentCreateContextBridge(
     allowRemoteDevice?: boolean
     /** 这次草稿生在哪个群里(群成员里点的「新建 Agent」);由壳持有,这里只放进快照。 */
     birthGroup?: CreateContextBirthGroup | null
-    onClearBirthGroup?: () => void
   } = {},
 ): AgentCreateContextController {
   const allowRemoteDevice = options.allowRemoteDevice === true
   const birthGroup = options.birthGroup ?? null
-  const onClearBirthGroupRef = useRef(options.onClearBirthGroup)
-  onClearBirthGroupRef.current = options.onClearBirthGroup
   const { devices, error: devicesError, cloudComputer } = useDevicesStore()
   const homeId = cloudComputer?.snapshot?.deviceId ?? null
   const [defaults, setDefaults] = useState<AgentCreateDefaults | null>(null)
@@ -161,7 +158,7 @@ export function useAgentCreateContextBridge(
       devices: visible,
       selectedDeviceId,
       selectedProjectId: projectsAvailable
-        ? resolveAgentCreateProject(defaults, selectedDeviceId, availableProjects)
+        ? resolveAgentCreateProject(defaults, selectedDeviceId, availableProjects, birthGroup?.chatId)
         : null,
       projectsAvailable,
       blockMessage,
@@ -174,7 +171,7 @@ export function useAgentCreateContextBridge(
   // #6264 远端机器上记住的目录只是个候选:先到那台机器上探一下它还在,再让它成为选择 ——
   // ❌ 不把一个已经不在的目录静默当默认。本机的项目由会话页自己上报(reportAvailableProjects)。
   const selectedRemote = snapshot.devices.find((device) => device.id === snapshot.selectedDeviceId && !device.isLocal && device.isOnline)
-  const rememberedRemotePath = selectedRemote ? defaults?.projectByDevice[selectedRemote.id] ?? null : null
+  const rememberedRemotePath = selectedRemote && defaults ? rememberedAgentCreateProject(defaults, selectedRemote.id, birthGroup?.chatId) : null
   useEffect(() => {
     if (!selectedRemote || !rememberedRemotePath || availableProjects.includes(rememberedRemotePath)) return
     const controller = new AbortController()
@@ -227,14 +224,19 @@ export function useAgentCreateContextBridge(
     (projectId: string | null) => {
       const deviceId = snapshotRef.current.selectedDeviceId
       if (!deviceId) return
+      // gugu-dev#181 在一个对话里派任务:这个对话记自己选的项目(birthGroup 就是那个对话)。
+      const chatId = snapshotRef.current.birthGroup?.chatId ?? null
       setDefaults((current) => {
         const base = current ?? EMPTY_AGENT_CREATE_DEFAULTS
         const projectByDevice = { ...base.projectByDevice }
         if (projectId) projectByDevice[deviceId] = projectId
         else delete projectByDevice[deviceId]
-        return { ...base, projectByDevice }
+        const projectByChat = { ...base.projectByChat }
+        if (chatId && projectId) projectByChat[chatId] = { deviceId, projectId }
+        else if (chatId) delete projectByChat[chatId]
+        return { ...base, projectByDevice, projectByChat }
       })
-      void persist(() => rememberAgentCreateProject(deviceId, projectId))
+      void persist(() => rememberAgentCreateProject(deviceId, projectId, chatId))
     },
     [persist],
   )
@@ -246,8 +248,6 @@ export function useAgentCreateContextBridge(
         : projectIds,
     )
   }, [])
-
-  const clearBirthGroup = useCallback(() => onClearBirthGroupRef.current?.(), [])
 
   useEffect(() => {
     const w = window as CreateContextBridgeWindow
@@ -262,16 +262,15 @@ export function useAgentCreateContextBridge(
       selectDevice,
       selectProject,
       reportAvailableProjects,
-      clearBirthGroup,
     }
     w[CREATE_CONTEXT_BRIDGE_KEY] = bridge
     return () => {
       if (w[CREATE_CONTEXT_BRIDGE_KEY] === bridge) delete w[CREATE_CONTEXT_BRIDGE_KEY]
     }
-  }, [selectDevice, selectProject, reportAvailableProjects, clearBirthGroup])
+  }, [selectDevice, selectProject, reportAvailableProjects])
 
   const rememberedProjectId = snapshot.selectedDeviceId && defaults
-    ? defaults.projectByDevice[snapshot.selectedDeviceId] ?? null
+    ? rememberedAgentCreateProject(defaults, snapshot.selectedDeviceId, birthGroup?.chatId)
     : null
 
   return useMemo(() => ({
@@ -280,6 +279,5 @@ export function useAgentCreateContextBridge(
     selectDevice,
     selectProject,
     reportAvailableProjects,
-    clearBirthGroup,
-  }), [clearBirthGroup, rememberedProjectId, reportAvailableProjects, selectDevice, selectProject, snapshot])
+  }), [rememberedProjectId, reportAvailableProjects, selectDevice, selectProject, snapshot])
 }

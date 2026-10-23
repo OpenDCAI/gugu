@@ -28,6 +28,7 @@ import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // mint a fresh task group. Fail-loud: any step that can't complete (no owner auth, no device id, group
 // insert error) THROWS so session start fails rather than launching a codex agent that silently can't
 // message back.
+import type { BirthGroup } from '../../src/session/shared/core/sessions/create-session'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '../lib/logger'
 import {
@@ -278,7 +279,7 @@ export interface SessionpageProvisionDeps {
    * spawn and taken here when its identity is first minted (birth-groups.ts) — once: an agent later removed from the
    * group, or that left it, is not put back.
    */
-  takeBirthGroup?: (sessionId: string) => Promise<string | null | undefined>
+  takeBirthGroup?: (sessionId: string) => Promise<BirthGroup | null | undefined>
   /**
    * #4277 老名册行没记 owner:问云端一次「这个 agent 归当前账号吗」。缺席 ⇒ 按「归我」认领(老行为,
    * 单账号机器上永远正确);在场 ⇒ 别家的行被停放、当前账号自己登记一个。
@@ -399,11 +400,12 @@ export function assertSessionpageIdentityForReattach(sessionId: string): void {
  * (cap, approval queue). Nothing here fails the identity: what happened is logged, and a pending approval is the
  * group's to settle.
  */
-async function joinBirthGroup(accessToken: string, ownerUserId: string, chatId: string | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
-  if (!chatId) return
+async function joinBirthGroup(accessToken: string, ownerUserId: string, group: BirthGroup | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
+  if (!group) return
+  const { chatId, asTask } = group
   try {
-    const data = await createGroupAdmin(makeChatClient(accessToken), ownerUserId).addAgent(chatId, agentUserId)
-    log.info({ agentUserId, chatId, status: data.status }, 'agent born in a chat: asked to join it, the group answered')
+    const data = await createGroupAdmin(makeChatClient(accessToken), ownerUserId).addAgent(chatId, agentUserId, { asTask })
+    log.info({ agentUserId, chatId, asTask, status: data.status }, 'agent born in a chat: asked to join it, the group answered')
   } catch (error) {
     log.warn({ agentUserId, chatId, error: error instanceof Error ? error.message : String(error) }, 'agent born in a chat could not join it')
   }
@@ -862,7 +864,7 @@ async function provisionLockedBody(
           afterBinding,
           provisionalLocalRow: false,
           // The creation's cloud send never landed, so this is still its first mint — it still joins where it was born.
-          ...(deps.takeBirthGroup ? { birthChatId: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+          ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
         })
       }
     }
@@ -1101,7 +1103,7 @@ async function provisionFreshLocalFirst(
     groupChatId,
     afterBinding,
     provisionalLocalRow: true,
-    ...(deps.takeBirthGroup ? { birthChatId: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+    ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
   })
   return { guguAgentUserId, displayName, groupChatId, projectName }
 }
@@ -1141,7 +1143,7 @@ function startCloudProvision(job: {
    */
   provisionalLocalRow: boolean
   /** The chat it was born in — given only while the identity has never landed (its creation, or a retry of it). */
-  birthChatId?: () => Promise<string | null | undefined>
+  birthGroup?: () => Promise<BirthGroup | null | undefined>
 }): void {
   const log = createLogger('sessionpage/provision')
   // 同一个身份只许有一发在途。❌ 少了这道闸就会并发铸两次:会话本体起了一发,平台令牌那条腿随后走
@@ -1203,7 +1205,7 @@ function startCloudProvision(job: {
     }
     // Born in a chat — joined now, once, while the identity is new: what reads this agent's groups waits for this
     // work (awaitSessionpageCloudIdentity), so its first session already counts that group.
-    if (job.birthChatId) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthChatId(), job.guguAgentUserId, log)
+    if (job.birthGroup) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthGroup(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
       ...patch,
@@ -1589,9 +1591,9 @@ async function joinProjectGroup(
   }
   const takeSeat = async (groupId: string): Promise<string> => {
     const admin = createGroupAdmin(chat, ownerUserId)
-    const result = await admin.addAgent(groupId, guguAgentUserId)
+    // 任务 agent 进项目群坐任务座位:主动、不发入群提示(gugu-dev#181)。
+    const result = await admin.addAgent(groupId, guguAgentUserId, { asTask: true })
     if (result.status === 'pending_approval') throw new Error('Project Agent join requires approval')
-    await admin.setListenMode(groupId, guguAgentUserId, 'active')
     await rememberProjectGroupId(projectId, groupId, ownerUserId, env)
     return groupId
   }
@@ -1619,6 +1621,7 @@ async function joinProjectGroup(
     ;({ error } = await createGroup(chatId))
   }
   if (error) throw new Error(`create project group failed: ${error.message}`)
+  // 建群时它是初始成员(建群不发入群提示);任务座位是主动档,与 takeSeat、provision_taskpage_agent 同一档。
   await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, guguAgentUserId, 'active')
   await rememberProjectGroupId(projectId, chatId, ownerUserId, env)
   return chatId

@@ -60,10 +60,12 @@ describe('app.newTask (⌘N / command palette "New Task")', () => {
     expect(mocks.showModal).not.toHaveBeenCalled();
   });
 
-  it('is not offered outside a project', () => {
+  // gugu-dev#181 ⑯ 哪一页都有(⌘K 面板的建议操作在哪一页都是那几项):不在项目里 = 侧栏「新建会话」那一行,去新建会话页。
+  it('outside a project goes to the new task page', () => {
     mocks.navigation.currentViewId = 'home';
     mocks.navigation.viewParamsStore = {};
 
-    expect(appCommands().some((command) => command.id === 'app.newSession')).toBe(false);
+    appCommands().find((command) => command.id === 'app.newSession')!.execute();
+    expect(mocks.navigate).toHaveBeenCalledWith('new-session');
   });
 });

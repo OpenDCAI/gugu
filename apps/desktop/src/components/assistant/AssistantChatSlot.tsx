@@ -1,3 +1,5 @@
+import { readShellSlots } from '@/lib/shellSlots'
+import { assistantSlotKey } from '@/lib/assistantShellBridge'
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { FilePreviewHost } from '../chat/filePreviewHost'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
@@ -111,9 +113,10 @@ function useIdeasAction(): ComposerAttachAction {
  */
 function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...handlers }: { dm: AssistantDm; assistantId: string; assistantName: string; visible: boolean } & AssistantChatHandlers) {
   const bridge = readAssistantShellBridge()
+  const slots = readShellSlots()
   const target = useSyncExternalStore(
-    (listener) => bridge?.subscribeSlots(listener) ?? (() => undefined),
-    () => bridge?.getSlots().get('file-preview') ?? null,
+    (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
+    () => slots?.getSlots().get(assistantSlotKey('file-preview')) ?? null,
   )
   const previewHost = useMemo(() => ({ target, onOpenChange: bridge?.setFilePreviewOpen }), [bridge, target])
   const { t } = useTranslation('assistant')

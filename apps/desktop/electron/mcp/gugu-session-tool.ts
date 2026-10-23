@@ -68,7 +68,7 @@ const SESSION_ROWS: SessionpageListSpec = {
 export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'session_devices',
-    description: 'List your machines — this one and the other computers and 咕咕 servers on your account — with whether each is online and when it was last seen. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
+    description: 'List your task hosts — this one and your other computers, phones with task hosting enabled, and 咕咕 servers — with online status, last seen time and task_runtime (capability and installed runtimes). Task hosting is separate from device_actions native-data grants. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
     schema: z.object({ ...listWindowShape }).strict(),
     action: 'devices',
     list: { namesOf: (row) => [row.label], catalog: true },
@@ -160,7 +160,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_message',
-    description: 'Message your sessions on any machine directly: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed (SESSION_DIRECT_NOT_LIVE). Assistant ↔ task agent exchanges are shown to their owner in that task chat. Chat members: message_send.',
+    description: 'Message your sessions on any machine: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed. Assistant ↔ task agent exchanges are shown in that task chat. Chat members and agents of your project (@ them in its group): message_send.',
     schema: z.strictObject({
       // ACP XML/JSON bridges sometimes serialize array parameters as JSON strings。协议边界兼容是
       // im-mcp spec 的既有合同(「合法的 JSON 序列化数组继续在协议边界兼容,裸字符串或非法 JSON

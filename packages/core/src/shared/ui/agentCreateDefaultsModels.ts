@@ -16,11 +16,17 @@ export interface AgentCreateDefaults {
   deviceId: string | null
   /** deviceId → 该设备上最近一次选的项目。项目默认「沿用所选设备最近使用的项目」，故按设备分桶。 */
   projectByDevice: Record<string, string>
+  /**
+   * gugu-dev#181 在聊天里派任务:每个对话记自己选的项目(连同那台设备,项目 id 只在那台设备上有意义)。
+   * 这个对话没选过 = 回落到 projectByDevice(你最近一次选的)。
+   */
+  projectByChat: Record<string, { deviceId: string; projectId: string }>
 }
 
 export const EMPTY_AGENT_CREATE_DEFAULTS: AgentCreateDefaults = Object.freeze({
   deviceId: null,
   projectByDevice: Object.freeze({}) as Record<string, string>,
+  projectByChat: Object.freeze({}) as AgentCreateDefaults['projectByChat'],
 })
 
 function readString(value: unknown): string | null {
@@ -44,7 +50,17 @@ export function parseAgentCreateDefaults(config: unknown): AgentCreateDefaults {
       if (deviceId && id) projectByDevice[deviceId] = id
     }
   }
-  return { deviceId: readString(row.device_id), projectByDevice }
+  const projectByChat: AgentCreateDefaults['projectByChat'] = {}
+  const chats = row.project_by_chat
+  if (chats && typeof chats === 'object' && !Array.isArray(chats)) {
+    for (const [chatId, choice] of Object.entries(chats as Record<string, unknown>)) {
+      const entry = choice && typeof choice === 'object' ? (choice as Record<string, unknown>) : null
+      const deviceId = readString(entry?.device_id)
+      const projectId = readString(entry?.project_id)
+      if (chatId && deviceId && projectId) projectByChat[chatId] = { deviceId, projectId }
+    }
+  }
+  return { deviceId: readString(row.device_id), projectByDevice, projectByChat }
 }
 
 function serialize(defaults: AgentCreateDefaults): Record<string, unknown> {
@@ -52,6 +68,8 @@ function serialize(defaults: AgentCreateDefaults): Record<string, unknown> {
     [AGENT_CREATE_DEFAULTS_KEY]: {
       device_id: defaults.deviceId,
       project_by_device: defaults.projectByDevice,
+      project_by_chat: Object.fromEntries(Object.entries(defaults.projectByChat)
+        .map(([chatId, choice]) => [chatId, { device_id: choice.deviceId, project_id: choice.projectId }])),
     },
   }
 }
@@ -65,17 +83,24 @@ export function mergeAgentCreateDeviceChoice(
   return { ...config, ...serialize({ ...current, deviceId }) }
 }
 
-/** 记住某设备下的项目选择；null = 用户显式选了「不使用项目」，该设备的记忆被清掉而不是留着。 */
+/**
+ * 记住某设备下的项目选择；null = 用户显式选了「不使用项目」，该设备的记忆被清掉而不是留着。
+ * 在一个对话里选的(`chatId`)同时记成这个对话的选择 —— 它也是「最近一次选的」。
+ */
 export function mergeAgentCreateProjectChoice(
   config: Record<string, unknown>,
   deviceId: string,
   projectId: string | null,
+  chatId?: string | null,
 ): Record<string, unknown> {
   const current = parseAgentCreateDefaults(config)
   const projectByDevice = { ...current.projectByDevice }
   if (projectId) projectByDevice[deviceId] = projectId
   else delete projectByDevice[deviceId]
-  return { ...config, ...serialize({ ...current, projectByDevice }) }
+  const projectByChat = { ...current.projectByChat }
+  if (chatId && projectId) projectByChat[chatId] = { deviceId, projectId }
+  else if (chatId) delete projectByChat[chatId]
+  return { ...config, ...serialize({ ...current, projectByDevice, projectByChat }) }
 }
 
 // ── 设备解析 ──────────────────────────────────────────────────────────────────
@@ -159,9 +184,20 @@ export function resolveAgentCreateProject(
   defaults: AgentCreateDefaults,
   deviceId: string | null,
   availableProjectIds: readonly string[],
+  chatId?: string | null,
 ): string | null {
   if (!deviceId) return null
-  const remembered = defaults.projectByDevice[deviceId]
+  const remembered = rememberedAgentCreateProject(defaults, deviceId, chatId)
   if (!remembered) return null
   return availableProjectIds.includes(remembered) ? remembered : null
+}
+
+/** 记着的那个项目(还没对照可用列表):这个对话在这台设备上选过的,否则这台设备上最近一次选的。 */
+export function rememberedAgentCreateProject(
+  defaults: AgentCreateDefaults,
+  deviceId: string,
+  chatId?: string | null,
+): string | null {
+  const inChat = chatId ? defaults.projectByChat[chatId] : undefined
+  return (inChat?.deviceId === deviceId ? inChat.projectId : defaults.projectByDevice[deviceId]) ?? null
 }

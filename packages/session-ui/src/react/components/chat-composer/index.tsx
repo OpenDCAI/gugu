@@ -384,6 +384,12 @@ export interface ChatComposerProps {
   onDeleteQueuedPrompt?: (id: string) => void;
   onReorderQueuedPrompts?: (ids: string[]) => void;
   onSendQueuedPromptNow?: (id: string) => void;
+  /**
+   * 这一框此刻不是发消息而是新任务:框整张换成那件事的色,`leading` 那枚标签
+   * 排在输入行的最前面、紧挨占位文字。
+   */
+  tone?: 'task';
+  leading?: React.ReactNode;
   className?: string;
 }
 
@@ -457,6 +463,8 @@ export function ChatComposer({
   onReorderQueuedPrompts,
   onSendQueuedPromptNow,
   getPromptHistory,
+  tone,
+  leading,
   className,
 }: ChatComposerProps) {
   const { translate } = useMessages();
@@ -695,6 +703,35 @@ export function ChatComposer({
       ? translate('composer.followUpPlaceholder')
       : (placeholder ?? translate('composer.messagePlaceholder'));
 
+  const promptEditor = (
+    <PromptEditor
+      ref={(handle) => {
+        editorRef.current = handle;
+        if (editorApiRef) {
+          if (typeof editorApiRef === 'function') {
+            editorApiRef(handle);
+          } else {
+            (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
+          }
+        }
+      }}
+      placeholder={resolvedPlaceholder}
+      disabled={disabled || !!queueEdit?.pending}
+      onChange={queueEdit ? changeQueueEdit : onInputChange}
+      onPasteText={queueEdit ? undefined : handlePastedText}
+      clearOnSubmit={!queueEdit}
+      hostDropTypes={onDataDropped ? dataDropTypes : undefined}
+      onSubmit={shouldHandleSubmitAttempt ? handleSubmit : undefined}
+      onMentionInsert={onMentionInsert}
+      mentionProvider={mentionProvider}
+      renderMentionIcon={renderMentionIcon}
+      queryMentions={queryMentions}
+      queryCommands={queryCommands}
+      onCommand={onCommand}
+      getPromptHistory={queueEdit ? undefined : getPromptHistory}
+    />
+  );
+
   return (
     <div data-slot="composer" className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
@@ -742,7 +779,7 @@ export function ChatComposer({
       <div
         data-slot="composer-bar"
         data-drag-active={dragActive || undefined}
-        className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
         onPaste={queueEdit ? undefined : handlePaste}
         onDragOver={queueEdit ? undefined : handleDragOver}
         onDragLeave={handleDragLeave}
@@ -780,32 +817,12 @@ export function ChatComposer({
             editorRef.current?.focus();
           }}
         >
-          <PromptEditor
-            ref={(handle) => {
-              editorRef.current = handle;
-              if (editorApiRef) {
-                if (typeof editorApiRef === 'function') {
-                  editorApiRef(handle);
-                } else {
-                  (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
-                }
-              }
-            }}
-            placeholder={resolvedPlaceholder}
-            disabled={disabled || !!queueEdit?.pending}
-            onChange={queueEdit ? changeQueueEdit : onInputChange}
-            onPasteText={queueEdit ? undefined : handlePastedText}
-            clearOnSubmit={!queueEdit}
-            hostDropTypes={onDataDropped ? dataDropTypes : undefined}
-            onSubmit={shouldHandleSubmitAttempt ? handleSubmit : undefined}
-            onMentionInsert={onMentionInsert}
-            mentionProvider={mentionProvider}
-            renderMentionIcon={renderMentionIcon}
-            queryMentions={queryMentions}
-            queryCommands={queryCommands}
-            onCommand={onCommand}
-            getPromptHistory={queueEdit ? undefined : getPromptHistory}
-          />
+          {leading ? (
+            <div className={styles.editorLeadRow}>
+              <span className={styles.editorLead}>{leading}</span>
+              <div className={styles.editorLeadBody}>{promptEditor}</div>
+            </div>
+          ) : promptEditor}
         </div>
 
         {/* Toolbar */}

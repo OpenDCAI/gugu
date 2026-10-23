@@ -14,8 +14,8 @@ interface CopyValueProps {
   ellipsis?: boolean
   message: string
   /**
-   * 反馈落在哪:默认 'toast'(全局右上角)。浮层/弹层里的复制要用 'inline' —— 确认应该长在**被点的
-   * 那个东西**上,而不是飞到屏幕角上跟别的浮层抢位置(实机:右上 toast 盖住会话页顶栏的动作按钮)。
+   * 反馈落在哪:默认 'toast'(全局右下角)。浮层/弹层里的复制要用 'inline' —— 确认应该长在**被点的
+   * 那个东西**上,而不是飞到屏幕角上跟别的浮层抢位置(实机:toast 盖住了它旁边的按钮)。
    */
   feedback?: 'toast' | 'inline'
 }

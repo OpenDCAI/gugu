@@ -77,8 +77,9 @@ export interface TabChipProps extends Omit<ComponentPropsWithoutRef<'div'>, 'tit
   labelSlot?: ReactNode;
   /** 压在关闭钮底下的状态(脏点、git 状态图标)。 */
   statusSlot?: ReactNode;
-  closeLabel: string;
-  onClose: () => void;
+  /** 关不掉的页签(项目块的项目群那一枚)不给这两样:没有关闭钮,状态照画。 */
+  closeLabel?: string;
+  onClose?: () => void;
 }
 
 /**
@@ -114,9 +115,9 @@ export function TabChip({
   // (App 页签的角标、编辑器的脏点):状态照画,只是点不到 ×。
   // 摩擦单 F98:56px 的 App 页签上 × 紧挨图标、几乎在正中,透明也照样接点击 —— 想切过去就关掉了它(L6 两次)。
   // 中键、右键菜单照样能关。
-  const iconClose = density.value === 'icon' && !statusSlot && isActive;
-  const noClose = density.value === 'icon' && !isActive;
-  const closeFloats = !isActive && density.value === 'compact' && !statusSlot;
+  const iconClose = !!onClose && density.value === 'icon' && !statusSlot && isActive;
+  const noClose = !onClose || (density.value === 'icon' && !isActive);
+  const closeFloats = !!onClose && !isActive && density.value === 'compact' && !statusSlot;
   return (
     <div
       ref={density.ref}
@@ -182,12 +183,12 @@ export function TabChip({
           </TabTitle>
         )}
         {/* 窄到只剩图标的活动页签:关闭钮也浮起来,图标居中(全名在悬浮提示里)。非活动的那种没有钮,状态照画。 */}
-        {noClose ? (
+        {noClose || !onClose ? (
           statusSlot ? <div className="relative flex size-5 shrink-0 items-center justify-center">{statusSlot}</div> : null
         ) : (
           <TabCloseButton
             onClose={onClose}
-            ariaLabel={closeLabel}
+            ariaLabel={closeLabel ?? label}
             statusIndicator={statusSlot}
             floating={closeFloats || iconClose}
             centered={iconClose}

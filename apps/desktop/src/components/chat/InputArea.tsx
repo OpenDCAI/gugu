@@ -1,8 +1,7 @@
 import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, FileText, X } from '@/lib/icons'
-import { Button } from '../ui/Button'
+import { FileText, Plus, X } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { ComposerAttachButton, type ComposerAttachAction } from './ComposerAttachButton'
 export type { ComposerAttachAction } from './ComposerAttachButton'
@@ -12,6 +11,12 @@ import { formatAttachmentSize, inferAttachmentKind } from '@gugu/core/shared/ui/
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 // @@@1924 草稿状态(text/@-mention/附件)单源化：以 per-chat store 为权威源、本地薄镜像，同步编排收进 useChatDraft。
 import { useChatDraft, revokeAttachmentPreviewUrls, withPreviewUrl, makePendingAttachment } from './useChatDraft'
+import { ComposerVerbs } from './ComposerVerbs'
+import { ComposerSendButton } from './ComposerSendButton'
+import { ComposerSlotToolbar } from './ComposerSlotToolbar'
+import { useComposerVerbTakeover } from './useComposerVerbTakeover'
+import { useChatSlotProjectName, useInChatSlot } from '../../lib/shellSlots'
+import { sessionComposerBox, sessionComposerCardClassName, sessionComposerDockedWidthClassName, sessionComposerEmptyHeightPx } from '../../session/renderer/features/sessions/session-composer-styles'
 // App 引用 pill:pills held in the row above the input (A, owner 10-14), sent under the words.
 import { DraftRefPills } from './DraftRefPills'
 import { withFilePills } from '../markdown/filePills'
@@ -111,7 +116,10 @@ export function InputArea({
   // 三个 300ms 防抖存 / ref 镜像 / currentChatRef 追踪）全部收进 useChatDraft，塌成一条同步 effect——切换
   // 隔离(#1872) / mention round-trip(#951) / 外部写入(#1870) 都从「一切按 chatId 键于 store」天然得到。
   const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush } = useChatDraft(chatId)
-  // 发失败回滚判「是否还在发送时那个会话」用（异步 send 期间用户可能切走 → 失败要回原会话而非当前会话，#1872）。
+  const inChatSlot = useInChatSlot()
+  const slotProjectName = useChatSlotProjectName()
+  const verbTakesOver = useComposerVerbTakeover(chatId, setText)
+  // 发失败回滚判「是否还在发送时那个会话」用(异步 send 期间可能切走,#1872)。
   const activeChatIdRef = useRef<string | null>(chatId ?? null)
   activeChatIdRef.current = chatId ?? null
 
@@ -293,11 +301,11 @@ export function InputArea({
   // Grow with the content, then scroll only after the composer reaches its height cap.
   useEffect(() => {
     const ta = textareaRef.current
-    if (!ta || hidden) return
+    if (!ta || hidden || verbTakesOver) return // 收起时量出来是 0:等框回来再量
     ta.style.height = 'auto'
     ta.style.height = `${Math.min(ta.scrollHeight, 110)}px`
     ta.style.overflowY = ta.scrollHeight > ta.clientHeight ? 'auto' : 'hidden'
-  }, [text, hidden])
+  }, [text, hidden, verbTakesOver])
 
   useEffect(() => {
     if (quoteContent) scheduleComposerFocus('quote-attached', { target: () => textareaRef.current })
@@ -542,9 +550,14 @@ export function InputArea({
     ? (placeholder || disabledReason || t('composer.disabled'))
     : whisperTarget
       ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName })
-      : (placeholder || t('composer.placeholder'))
+      : (placeholder || (slotProjectName && !mobileShell ? t('composer.projectGroupPlaceholder', { name: slotProjectName }) : t('composer.placeholder')))
   const disabledHint = disabledReason || (disabled ? t('composer.disabled') : undefined)
 
+  // gugu-dev#181 格子里(项目块、对话块)的排法:「+ 新任务 定时任务 … 发送」进框内底排(手机、格子外照旧:两坞在框外)。
+  const inBar = inChatSlot && !mobileShell
+  const attachButton = <ComposerAttachButton glyph={attachGlyph ?? (inBar ? <Plus /> : undefined)} actions={attachMenu} disabled={disabled} mobile={mobileShell} onPickFile={() => fileInputRef.current?.click()} />
+  const verbs = surface === 'main' && !mobileShell && <ComposerVerbs chatId={chatId} isGroupChat={!!isGroupChat} draft={text} onCarried={() => setText('')} />
+  const sendButton = <ComposerSendButton sendable={canSend && !disabled && !sending} mobile={mobileShell} onSend={handleSend} />
   return (
     <div
       ref={composerRootRef}
@@ -697,12 +710,8 @@ export function InputArea({
     {/* @@@1322 composer 外层 = 纯布局列容器（附件/悄悄话/引用条堆叠在 .box 上方）。
         边框/药丸/focus 态移到内层单行 .box（见下）。 */}
     <div
-      style={{
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '6px',
-      }}
+      className={inBar ? sessionComposerDockedWidthClassName : undefined} // 格子里与新任务框同宽(同一个常量)
+      style={{ flexShrink: 0, display: verbTakesOver ? 'none' : 'flex', flexDirection: 'column', gap: '6px' }}
     >
       <input
         ref={fileInputRef}
@@ -840,35 +849,31 @@ export function InputArea({
         </div>
       )}
 
-      {/* @@@1697 三分离(owner override 单-pill，对齐已合设计 SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：
-          外层 row align-items:flex-end + 左右 dock(h=42 固定)夹中间只裹 textarea 的 box(--r-lg 12px)；多行时
-          box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动。逆转 #933 单-pill 回退、复原 #1459 结构。 */}
+      {/* @@@1697 三分离(SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：外层 row align-items:flex-end + 左右 dock(h=42 固定)
+          夹中间只裹 textarea 的 box；多行时 box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动(复原 #1459 结构)。 */}
       <div data-chat-composer-row="" className={mobileShell ? 'gg-mobile-composer-row' : undefined} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
-        {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152：30×30 透明、回形针、hover bg --hover)。
-            @@@4292 mobile:回形针命中框为 44×44，dock 高与之匹配；桌面维持原尺寸。 */}
-        <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>
-          <ComposerAttachButton
-            glyph={attachGlyph}
-            actions={attachMenu}
-            disabled={disabled}
-            mobile={mobileShell}
-            onPickFile={() => fileInputRef.current?.click()}
-          />
-        </div>
+        {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152)。@@@4292 mobile:命中框 44×44，dock 高与之匹配。 */}
+        {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>{attachButton}</div>}
+        {!inBar && verbs}
+
 
         {/* 中间框：只裹 textarea——border/圆角(--r-lg 12px)/focus/bg 在此层，独立增高(SSOT `.box` L148-149)。 */}
         <div
+          className={inBar ? sessionComposerCardClassName : undefined} // 格子里:会话框那张卡(描边、无投影)
           style={{
             flex: 1,
             minWidth: 0,
-            display: 'flex',
+            display: 'flex', flexDirection: inBar ? 'column' : undefined, minHeight: inBar ? sessionComposerEmptyHeightPx : undefined, // 格子里是一个大框:上面输入、下面一排按钮,空着时和会话框同高
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。
-            border: '1px solid transparent', boxShadow: mobileShell ? 'none' : composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
+            ...(inBar ? {} : {
+              border: '1px solid transparent', boxShadow: mobileShell ? 'none' : composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
+              background: mobileShell ? 'transparent' : 'var(--card)',
+            }),
             borderRadius: 'var(--radius-thread)',
-            background: mobileShell ? 'transparent' : 'var(--card)',
-            padding: mobileShell ? '7px 0' : '5px 10px',
+            padding: mobileShell ? '7px 0' : inBar ? 0 : '5px 10px', // 格子里的内距在文字和底排身上,同会话框
+
           }}
         >
           {/* SSOT `.box textarea` L150：flex:1 / border:none / 13.5px / lineHeight 1.5 / padding 5px 0 / max-height 110。 */}
@@ -920,41 +925,21 @@ export function InputArea({
               fontSize: 'var(--font-prose)', // #7333 输入与消息正文同一档 16(行高 1.5 = 24)
               // @@@1697 SSOT `.box textarea` L150: line-height 1.5 / max-height 110。
               lineHeight: 1.5,
-              padding: '5px 0',
+              padding: inBar ? `${sessionComposerBox.textTopPx}px ${sessionComposerBox.textInsetPx}px ${sessionComposerBox.textBottomPx}px` : '5px 0',
               fontFamily: 'inherit',
               color: 'var(--text-primary)',
               opacity: disabled ? 0.55 : 1,
               overflow: 'hidden',
-              maxHeight: '110px',
+              ...(inBar ? { minHeight: sessionComposerBox.editorMinHeightPx, maxHeight: sessionComposerBox.editorMaxHeightPx } : { maxHeight: '110px' }),
               boxSizing: 'border-box',
             }}
           />
+          {/* 格子里的底排:和会话框的底排同一套位置和间距(sessionComposerBox)。 */}
+          {inBar && <ComposerSlotToolbar start={<>{attachButton}{verbs}</>} end={sendButton} />}
         </div>
 
-        {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154：30×30 --accent(==--primary) 圆 + 上箭头)。
-            常驻：空态 opacity+pointer-events 不卸载(防布局抖、移动端可 tap)。 */}
-        <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 46 } : COMPOSER_BTN_DOCK}>
-          {(() => {
-            const sendable = canSend && !disabled && !sending
-            // @@@ui-ruler 发送钮 = ui/Button 的 primary 实底 + 药丸半径(--primary 与旧的 --accent 同值,
-            // --primary-fg 与 --text-on-accent 同值 → 可发送态像素不变;尺寸 30 → --control-h-md 32、
-            // 移动 44 由 size="icon" 自带)。手写的 onMouseEnter/onMouseLeave 改 style 那套 hover 删掉:
-            // Button 自带 hover/press/disabled 三态。空态维持原来的「安静灰圆」而非淡掉的实底。
-            return (
-              <Button
-                variant="primary"
-                size="icon"
-                className="shrink-0 rounded-[var(--radius-capsule)] data-[disabled]:bg-[var(--muted)] data-[disabled]:text-[var(--faint-fg)]"
-                onClick={handleSend}
-                disabled={!sendable}
-                aria-label={t('common.send')}
-                title={t('common.send')}
-              >
-                <ArrowUp size={mobileShell ? 18 : 16} />
-              </Button>
-            )
-          })()}
-        </div>
+        {/* 右坞：发送按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.snd` L154)。常驻：空态不卸载(防布局抖、移动端可 tap)。 */}
+        {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 46 } : COMPOSER_BTN_DOCK}>{sendButton}</div>}
       </div>
     </div>
     </div>

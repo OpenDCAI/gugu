@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MainLayout } from '../../../../apps/desktop/src/layouts/MainLayout'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import { openConversationLink } from '../../../../apps/desktop/src/lib/conversationLinks'
+import { conversationLink } from '@gugu/core/shared/ui/conversationLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
@@ -208,6 +210,8 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
     useContactsStore: () => ({ contacts: [], pendingRequests: [] })
   }
 })
+// gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
+const sessionPageViewRequests = { request: vi.fn(), openChat: vi.fn(), openSession: vi.fn() }
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
@@ -292,6 +296,8 @@ beforeEach(() => {
   phoneAssistantMock.state.chatId = null
   phoneAssistantMock.state.stage = { stage: 'cloud-loading' }
   delete (window as Window & { electronAPI?: unknown }).electronAPI
+  sessionPageViewRequests.openChat.mockReset()
+  ;(window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__ = sessionPageViewRequests
   Object.defineProperty(window, '__guguNativeBackHandled', {
     configurable: true,
     writable: true,
@@ -300,6 +306,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  delete (window as unknown as Record<string, unknown>).__GUGU_SESSIONPAGE_VIEW_REQUESTS__
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -355,6 +362,9 @@ describe('MainLayout', () => {
     expect(mainShell?.style.background).toBe('var(--shell-bg)')
   })
   it('opens user settings as a modal without replacing the current page', async () => {
+    // 有聊天页的形态(网页:没有会话页宿主)。桌面上没有单独的聊天页(gugu-dev#181)。
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
@@ -435,9 +445,8 @@ describe('MainLayout', () => {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    const chatEntry = harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement | null
-    expect(chatEntry, 'positive control: Electron offers the same entry').toBeTruthy()
-    await clickElement(chatEntry!)
+    // gugu-dev#181 有会话页的桌面上没有单独的聊天页:建 agent 只走会话页那一个新建会话,聊天页的创建入口与 ACP 装配都不在。
+    expect(harness.container.querySelector('[data-testid="mock-chat-create-agent"]')).toBeNull()
     expect(
       harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]'),
       'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
@@ -457,17 +466,14 @@ describe('MainLayout', () => {
     await harness.render(createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
     }))
-    // #6158 聊天面常驻:「没导航」= 那一格仍是隐藏的,而不是不在树里。
-    expect(chatSurfaceOf(harness.container)?.style.visibility).toBe('hidden')
+    // gugu-dev#181 桌面上没有单独的聊天页可切过去。
+    expect(chatSurfaceOf(harness.container)).toBeNull()
     await act(async () => {
       window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
       await Promise.resolve()
     })
-    expect(
-      chatSurfaceOf(harness.container)?.style.visibility,
-      'agent started while on Tasks — the page must not switch to Messages',
-    ).toBe('hidden')
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat, 'agent started — nothing is opened for it').not.toHaveBeenCalled()
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     await act(async () => {
       window.dispatchEvent(new CustomEvent('agent-conversation-started', { detail: activity }))
@@ -481,8 +487,9 @@ describe('MainLayout', () => {
       host!.openAgentChat({ chatId: 'agent-dm', agentUserId: 'agent-1' })
       await Promise.resolve()
     })
-    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('agent-dm')
-    expect(harness.container.textContent).toContain('chat-area-panel')
+    // gugu-dev#181 桌面上没有单独的聊天页:新建 agent 的那条对话在会话页这屏打开(一块),❌ 换壳的当前对话。
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('agent-dm', false)
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
   })
   it('publishes the exact ordinary sendMessageToChat API to the taskpage composer', async () => {
     await renderMainLayoutWithToast()
@@ -554,36 +561,39 @@ describe('MainLayout', () => {
     expect(harness.container.querySelectorAll(navSelector)).toHaveLength(1)
   })
   it('keeps the chats surface mounted and merely hidden while another tab is active (#6158)', async () => {
+    // 有聊天页的形态(网页:没有会话页宿主);落地就在聊天页。
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     chatStoreMock.chats = [{ id: 'chat-1' }]
     chatStoreMock.activeChatId = 'chat-1'
     await renderMainLayoutWithToast()
-    // 冷启动落在会话页(有 sessionHost):聊天面此刻就已挂着,只是藏在会话页后面。
     const surface = chatSurfaceOf(harness.container)
-    expect(surface, 'the chats surface mounts at boot, hidden behind the tasks tab').not.toBeNull()
+    expect(surface, 'the chats surface mounts at boot').not.toBeNull()
+    expect(surface!.style.visibility).toBe('')
+    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
+    expect(chatArea.getAttribute('data-bumps')).toBe('2')
+    await clickElement(harness.container.querySelector('[data-testid="mock-open-contacts"]') as HTMLElement)
+    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'switching to contacts must not unmount the chat area').toBe(chatArea)
+    expect(chatArea.getAttribute('data-active-tab')).toBe('contacts')
     expect(surface!.style.visibility).toBe('hidden')
     expect(surface!.style.position).toBe('absolute')
     expect(surface!.style.pointerEvents).toBe('none')
     expect(surface!.hasAttribute('inert')).toBe(true)
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    expect(chatSurfaceOf(harness.container)).toBe(surface)
-    expect(surface!.style.visibility).toBe('')
-    expect(surface!.style.position).toBe('')
-    expect(surface!.hasAttribute('inert')).toBe(false)
-    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    expect(chatArea.getAttribute('data-bumps')).toBe('2')
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-tasks"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'switching to tasks must not unmount the chat area').toBe(chatArea)
-    expect(chatArea.getAttribute('data-active-tab')).toBe('tasks')
-    expect(surface!.style.visibility).toBe('hidden')
-    expect(surface!.style.position).toBe('absolute')
-    expect(surface!.hasAttribute('inert')).toBe(true)
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)
-    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the tasks round trip').toBe('2')
+    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the contacts round trip').toBe('2')
     expect(surface!.style.visibility).toBe('')
-    expect(chatAreaProbe.mounts, 'exactly one mount across boot → chats → tasks → chats').toBe(1)
+    expect(surface!.hasAttribute('inert')).toBe(false)
+    expect(chatAreaProbe.mounts, 'exactly one mount across boot → contacts → chats').toBe(1)
+  })
+
+  it('has no separate chat page on the desktop with a session page (gugu-dev#181)', async () => {
+    await renderMainLayoutWithToast()
+    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
+    expect(chatSurfaceOf(harness.container)).toBeNull()
+    expect(harness.container.textContent).not.toContain('chat-list-panel')
   })
   // 创建面(新建 agent)盖在聊天区上时,聊天区只隐藏不卸载:从前条件卸载,关掉创建面回来整个面板重挂
   // (消息列表、滚动位置、分栏、群协作状态全部重来 = 那一下白闪)。
@@ -844,6 +854,8 @@ describe('MainLayout', () => {
   })
   // 桌面壳不分页:两层包裹都是 display:contents,聊天面照旧直接参与主区 flex 布局。
   it('keeps the desktop layout flat around the pager wrappers', async () => {
+    platformMock.kind = 'web'
+    platformMock.capabilities.sessionHost = false
     await renderMainLayoutWithToast()
     expect(harness.container.querySelector('[data-mobile-tab-pager]')).toBeNull()
     const page = chatSurfaceOf(harness.container)?.parentElement as HTMLElement
@@ -871,7 +883,8 @@ describe('MainLayout: files.openWith', () => {
     chatStoreMock.chats = [{ id: 'g-open', kind: 'group', name: 'G' } as never]
     await renderMainLayoutWithToast()
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
-    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('g-open')
+    // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
     expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', opener: detail })
   })
 
@@ -891,6 +904,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     expect(toast).toHaveBeenCalledTimes(1)
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
     expect(groupSlotMemory.takeFile('g-open')).toBeNull()
   })
 })
@@ -937,5 +951,28 @@ describe('MainLayout: personal assistant destinations', () => {
     expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
     expect(harness.container.querySelector('nav')).not.toBeNull()
     expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('phone-file')
+  })
+})
+
+// gugu-dev#181 链接(⌘K 面板选中一条话题也走它)、通知、App 点名打开一条话题:都只是把它摆成一块,同一扇门
+// (sessionPage.openChat)。话题变成「源对话 + 话题分栏」只在 ChatAreaPanel 一处(那边的单测钉住)。
+describe('MainLayout: opening a topic on the desktop', () => {
+  // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
+  const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
+  const TOPIC = '0b1e7c1a-0000-4000-8000-000000000002'
+  const ways: Array<[string, () => void]> = [
+    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }],
+    ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }],
+    ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }],
+  ]
+  it.each(ways)('from %s, through the one door', async (_way, open) => {
+    chatStoreMock.chats = [{ id: SRC, kind: 'group', name: '咕咕内测群' }, { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: SRC }] as never
+    await renderMainLayoutWithToast()
+    await act(async () => {
+      open()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    })
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(TOPIC, false)
+
   })
 })

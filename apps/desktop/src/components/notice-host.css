@@ -1,0 +1,23 @@
+/*
+ * 提示条的外观:sonner 的变量接产品自己的 token,明暗跟主题走;❌ 在这里另定色值。
+ * 选择器一律叠到比 sonner 自带的高一级:sonner 的样式表是运行时插进 <head> 的(会话页还另带一份),
+ * 与本文件谁先谁后取决于加载顺序,同权重就是靠运气 —— 明暗主题那两条(`[data-sonner-theme]`)更是天然比 `.class` 高。
+ */
+.gugu-notices[data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--surface-white);
+  --normal-text: var(--text-on-white);
+  --normal-border: transparent;
+  --border-radius: var(--radius-surface);
+  font-family: inherit;
+}
+
+.gugu-notices [data-sonner-toast][data-styled='true'] {
+  box-shadow: var(--shadow-toast-card);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+
+/* 成功 / 提示是转瞬的确认:点击穿透,❌ 把下面的按钮挡住一个停留周期。要读的两档、常驻的、带动作的不在此列。 */
+.gugu-notices [data-sonner-toast].gugu-notice-passthrough {
+  pointer-events: none;
+}

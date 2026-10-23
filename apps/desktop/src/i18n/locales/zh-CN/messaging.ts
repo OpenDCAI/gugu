@@ -32,7 +32,6 @@ export default {
       "openFailed": "无法在任务中打开：{{reason}}",
       "mode": {
         "menu": "模式：{{mode}}",
-        "chat": "聊天",
         "code": "编程",
         "general": "通用",
         "switchToCode": "切换为编程模式",
@@ -372,10 +371,14 @@ export default {
     "mentionMembers": "@ 提及成员",
     "mentionNoMatch": "没有匹配的成员",
     "placeholder": "发送消息… 输入 / 唤起命令",
+    "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
     "removeFilePill": "移除 {{label}}",
     "sendFailed": "发送失败：{{reason}}",
     "slashCommands": "斜杠命令",
+    "verb": {
+      "task": "新任务"
+    },
     "whisperBanner": "悄悄话给 {{name}} · 仅你与对方可见",
     "whisperPlaceholder": "悄悄话给 {{name}}…"
   },
@@ -409,6 +412,7 @@ export default {
     "title": "转发"
   },
   "group": {
+    "projectGroupNoInvite": "项目群只有你和你的 agent。要与其他人协作，请在对话中新建群聊。",
     "addMember": "添加成员",
     "agentFlood": {
       "ledgerLoadFailed": "读不到这条自动调档的台账，撤回入口暂时给不出来。过一会儿重开这条线再试。",
@@ -446,6 +450,7 @@ export default {
       "notParticipant": "你还不是这条话题的参与者，所以看不到成员名单。在里面说一句就进来了。",
       "sectionAgents": "Agent",
       "sectionPeople": "人",
+      "myAgents": "我的 agent · {{count}}",
       "title": "群成员",
       "titleTopic": "话题成员"
     },
@@ -607,6 +612,7 @@ export default {
     }
   },
   "header": {
+    "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
     "history": "历史记录",
     "memberList": "成员列表",
@@ -687,6 +693,23 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "sending": "发送中"
+    },
+    "showQuoted": "跳到被引用的消息",
+    "taskCard": {
+      "task": "新任务",
+      "schedule": "已安排",
+      "handedTo": "交给",
+      "onMachine": "在 {{machine}} 上",
+      "onColleagueComputer": "在 {{name}} 的电脑上",
+      "awaitingApproval": "等群主同意它进群",
+      "rejected": "群主没有同意它进群，结果在它的会话里",
+      "open": "打开这个会话",
+      "line": "新任务：{{text}}",
+      "scheduleLine": "已安排：{{text}}",
+      "question": "需要你确认",
+      "questionLine": "需要你确认：{{text}}",
+      "questionAnswered": "已回答：{{answer}}",
+      "questionInSession": "到任务里回答"
     },
     "unread": "未读",
     "aiSent": "AI 发送",

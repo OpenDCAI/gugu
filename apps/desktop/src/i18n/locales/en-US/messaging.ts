@@ -32,7 +32,6 @@ export default {
       "openFailed": "Could not open in Tasks: {{reason}}",
       "mode": {
         "menu": "Mode: {{mode}}",
-        "chat": "Chat",
         "code": "Code",
         "general": "Work",
         "switchToCode": "Switch to Code mode",
@@ -372,10 +371,14 @@ export default {
     "mentionMembers": "Mention a member",
     "mentionNoMatch": "No matching members",
     "placeholder": "Write a message… Type / for commands",
+    "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
     "removeFilePill": "Remove {{label}}",
     "sendFailed": "Could not send: {{reason}}",
     "slashCommands": "Slash commands",
+    "verb": {
+      "task": "New task"
+    },
     "whisperBanner": "Whisper to {{name}} · only visible to you both",
     "whisperPlaceholder": "Whisper to {{name}}…"
   },
@@ -409,6 +412,7 @@ export default {
     "title": "Forward"
   },
   "group": {
+    "projectGroupNoInvite": "A project group holds only you and your agents. To work with others, start a group chat in Chats.",
     "addMember": "Add member",
     "agentFlood": {
       "ledgerLoadFailed": "Could not read the ledger for this automatic change, so undo is unavailable. Reopen this line in a moment and try again.",
@@ -446,6 +450,7 @@ export default {
       "notParticipant": "You are not in this topic yet, so its member list is not visible. Say something in it to join.",
       "sectionAgents": "Agents",
       "sectionPeople": "People",
+      "myAgents": "My agents · {{count}}",
       "title": "Group members",
       "titleTopic": "Topic members"
     },
@@ -607,6 +612,7 @@ export default {
     }
   },
   "header": {
+    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "history": "History",
     "memberList": "Members",
@@ -687,6 +693,23 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "sending": "Sending"
+    },
+    "showQuoted": "Go to the quoted message",
+    "taskCard": {
+      "task": "New task",
+      "schedule": "Scheduled",
+      "handedTo": "Assigned to",
+      "onMachine": "on {{machine}}",
+      "onColleagueComputer": "on {{name}}’s computer",
+      "awaitingApproval": "Waiting for the group owner to let it in",
+      "rejected": "Not let into the group; its result is in its session",
+      "open": "Open this session",
+      "line": "New task: {{text}}",
+      "scheduleLine": "Scheduled: {{text}}",
+      "question": "Your input",
+      "questionLine": "Your input: {{text}}",
+      "questionAnswered": "Answered: {{answer}}",
+      "questionInSession": "Answer in the task"
     },
     "unread": "Unread",
     "aiSent": "AI sent",

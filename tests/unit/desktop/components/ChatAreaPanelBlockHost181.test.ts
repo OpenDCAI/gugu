@@ -1,0 +1,166 @@
+// @vitest-environment jsdom
+// gugu-dev#181 群聊画在会话页一块里(blockHost):块的页签条就是头 —— 这里不画群聊头,头上那排图标画进页签条右端那一格,
+// 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
+import { sessionComposerDockBandClassName } from '../../../../apps/desktop/src/session/renderer/features/sessions/session-composer-styles'
+import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
+import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
+import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
+import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
+import { chat, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
+import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+
+const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
+
+vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
+vi.mock('../../../../apps/desktop/src/lib/topics', () => ({
+  topicService: {
+    createTopic: vi.fn(),
+    listTopicsOfChat: vi.fn(async () => []),
+    getSourceState: vi.fn(async () => ({ kind: 'gone' as const })),
+    getAgentFloodAdjustment: vi.fn(async () => null),
+    undoAgentFloodAdjustment: vi.fn(async () => 0),
+  },
+}))
+vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
+  chatService: {
+    getMessages: vi.fn(async () => []),
+    getGroupCollab: vi.fn(async () => ({
+      snapshot: {
+        scheduler: { chat_id: 'group-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-10-22T00:00:00.000Z' },
+        humans: [
+          { id: 'user-1', role: 'owner', type: 'human', account_status: null },
+          { id: 'user-2', role: 'member', type: 'human', account_status: null },
+        ],
+        agents: [], tasks: [], outputs: [],
+      },
+      identities: [],
+    })),
+    markMessageRead: vi.fn(async () => {}),
+    getOtherMembersReadSeqs: vi.fn(async () => ({})),
+    getThreadMessages: vi.fn(async () => []),
+    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
+    listGroupJoinRequests: vi.fn(async () => []),
+  },
+}))
+
+let harness: ReturnType<typeof createReactHarness>
+let repository: AccountImRepository
+let actions: HTMLElement
+let title: HTMLElement
+
+beforeEach(async () => {
+  harness = createReactHarness()
+  repository = await openImRepository('user-1', { adapter: createMemoryLocalSyncDb() })
+  getImRepositoryMock.mockReset()
+  getImRepositoryMock.mockResolvedValue(repository)
+  actions = document.body.appendChild(document.createElement('span'))
+  title = document.body.appendChild(document.createElement('span'))
+})
+
+afterEach(() => {
+  repository.close()
+  harness.cleanup()
+  actions.remove()
+  title.remove()
+})
+
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }) {
+  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost }), {
+    chat: {
+      getImRepository: getImRepositoryMock,
+      activeChatId: 'group-1',
+      activeChat: chat({ id: 'group-1', kind: 'group', name: '设计评审' }),
+      identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2') },
+      messages: [],
+    },
+  })
+}
+
+const header = () => harness.container.querySelector('[data-chat-area-header]')
+const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
+
+describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
+  it('without blockHost keeps its own header with the title and the action icons', async () => {
+    await renderPanel()
+    expect(header(), 'chat page / phone / web: the header row is still there').not.toBeNull()
+    expect(header()?.textContent).toContain('设计评审')
+    expect(membersButtonIn(header()!)).not.toBeNull()
+    expect(harness.container.querySelector('[data-member-count]'), 'the count stays after the title, not on the button').toBeNull()
+  })
+
+  it('in a block draws no header; the icons go to the tab strip slot and the name to the tab slot', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    expect(header(), 'the block tab strip is the header').toBeNull()
+    expect(membersButtonIn(actions), 'the action icons are painted into the tab strip').not.toBeNull()
+    expect(actions.querySelector('[data-member-count]')?.textContent).toBe('2')
+    expect(title.textContent).toContain('设计评审')
+  })
+
+  it('in a block the ⋯ is not on the strip (its items are in the tab\'s context menu); on the chat page it is', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).toBeNull()
+    await renderPanel()
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
+  })
+
+  it('a tab menu asks one chat for its settings: only that chat\'s panel opens them', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    const before = harness.container.textContent?.length ?? 0
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'another-group', page: 'settings' } })) })
+    expect(harness.container.textContent?.length, 'another chat was named: this panel stays as it was').toBe(before)
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId: 'group-1', page: 'settings' } })) })
+    expect(harness.container.textContent?.length ?? 0, 'its own chat was named: the settings open').toBeGreaterThan(before)
+  })
+
+  it('in a block the strip gets the「+」for the group folder and Apps (第 ⑥ 步); the chat page has no strip and none', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    await renderPanel({ actions, title, tabs })
+    expect(tabs.querySelector('[data-testid="block-panel-plus"]')).not.toBeNull()
+    expect(tabs.querySelector('[data-panel-tab]'), 'the panel is closed: no tabs for it').toBeNull()
+    tabs.remove()
+    await renderPanel()
+    expect(document.querySelector('[data-testid="block-panel-plus"]')).toBeNull()
+    expect(document.querySelector('[data-panel-tab]')).toBeNull()
+  })
+
+  it('in a block the composer sits in the session composer\'s band (核对 21); the chat page keeps its own padding', async () => {
+    await renderPanel({ actions, title, tabs: null })
+    const band = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
+    expect(band.className.split(/\s+/)).toEqual(expect.arrayContaining(sessionComposerDockBandClassName.split(/\s+/)))
+    expect(band.style.padding).toBe('')
+    await renderPanel()
+    const page = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
+    expect(page.className).toBe('')
+    expect(page.style.padding).toBe('12px 22px 18px')
+  })
+
+  it('in a block the group tab gives the chat the room: the panel goes, its tab stays and brings it back (第 ⑥ 步)', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    await renderPanel({ actions, title, tabs })
+    await act(async () => { tabs.querySelector<HTMLButtonElement>('[data-testid="block-panel-plus"]')!.click() })
+    await act(async () => { document.querySelector<HTMLElement>('[role="menuitem"]')!.click() })
+    // 右栏收起时要等动画放完才卸下(SidePanelSplit),jsdom 里不放动画 ⇒ 判「正显示」看那一枚亮不亮(读的是同一份右栏样子)。
+    const folderTab = () => tabs.querySelector<HTMLElement>('[data-panel-tab="folder"] [data-tab-label]')
+    const shown = () => folderTab()?.hasAttribute('data-tab-active')
+    expect(harness.container.querySelector('[data-testid="group-app-slot"]'), 'the folder picked from「+」is up').not.toBeNull()
+    expect(shown()).toBe(true)
+    expect(harness.container.querySelector('[data-testid="group-app-slot-close"]'), 'in a block the tab is its title and its ×').toBeNull()
+    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'another-group' }) })
+    expect(shown(), 'another chat\'s tab: this panel stays').toBe(true)
+    await act(async () => { requestShellChatAction({ kind: 'show-chat-alone', chatId: 'group-1' }) })
+    expect(folderTab(), 'its own group tab: the right side gives way, the folder stays open').not.toBeNull()
+    expect(shown(), 'not shown').toBe(false)
+    await act(async () => { folderTab()!.click() })
+    expect(shown(), 'its tab brings it back').toBe(true)
+    tabs.remove()
+  })
+
+  it('in a block whose slots are not mounted yet still draws no header', async () => {
+    await renderPanel({ actions: null, title: null, tabs: null })
+    expect(header()).toBeNull()
+    expect(membersButtonIn(harness.container)).toBeNull()
+  })
+})

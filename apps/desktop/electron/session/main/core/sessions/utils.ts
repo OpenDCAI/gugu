@@ -134,5 +134,6 @@ export function mapSessionRowToSession(
     firstUtterance: config?.initialPrompt?.trim() || config?.firstUtterance?.trim() || undefined,
     startupOrigin: config?.startupOrigin,
     initialMessageId: config?.initialMessageId,
+    taskChatId: config?.taskChatId,
   };
 }

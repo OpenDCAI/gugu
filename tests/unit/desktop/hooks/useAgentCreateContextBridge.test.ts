@@ -56,7 +56,7 @@ beforeEach(() => {
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   mocks.devices = []
   mocks.devicesError = null
-  mocks.readAgentCreateDefaults.mockResolvedValue({ deviceId: null, projectByDevice: {} })
+  mocks.readAgentCreateDefaults.mockResolvedValue({ deviceId: null, projectByDevice: {}, projectByChat: {} })
 })
 afterEach(() => {
   harness.cleanup()
@@ -110,24 +110,21 @@ describe('useAgentCreateContextBridge device axis', () => {
     expect(snapshot.blockMessage, 'the raw reason belongs in the log, not the sentence').not.toContain('boom')
   })
 })
-// 群成员里点的「新建 Agent」:群由壳持有,桥只把它放进快照、把「不进群」转回给壳。
+// 群成员里点的「新建 Agent」/ 在群里派任务:群由壳持有,桥只把它放进快照。gugu-dev#181:不进群结果回不来,没有「不加入」。
 describe('useAgentCreateContextBridge birth group', () => {
-  function GroupProbe({ birthGroup, onClearBirthGroup }: { birthGroup: { chatId: string; name: string } | null; onClearBirthGroup: () => void }) {
-    seen = useAgentCreateContextBridge(true, { allowRemoteDevice: true, birthGroup, onClearBirthGroup }).snapshot
+  function GroupProbe({ birthGroup }: { birthGroup: { chatId: string; name: string } | null }) {
+    seen = useAgentCreateContextBridge(true, { allowRemoteDevice: true, birthGroup }).snapshot
     return null
   }
-  it('carries the group into the snapshot and hands "do not join" back to the shell', async () => {
-    const onClearBirthGroup = vi.fn()
-    await harness.render(createNode(GroupProbe, { birthGroup: { chatId: 'chat-g', name: '产品群' }, onClearBirthGroup }))
+  it('carries the group into the snapshot', async () => {
+    await harness.render(createNode(GroupProbe, { birthGroup: { chatId: 'chat-g', name: '产品群' } }))
     await act(async () => { await Promise.resolve() })
     expect(seen?.birthGroup).toEqual({ chatId: 'chat-g', name: '产品群' })
-    const bridge = (window as unknown as { __GUGU_CREATE_CONTEXT__?: { getSnapshot(): CreateContextSnapshot; clearBirthGroup(): void } }).__GUGU_CREATE_CONTEXT__
+    const bridge = (window as unknown as { __GUGU_CREATE_CONTEXT__?: { getSnapshot(): CreateContextSnapshot } }).__GUGU_CREATE_CONTEXT__
     expect(bridge?.getSnapshot().birthGroup, 'the session-page side reads the same group').toEqual({ chatId: 'chat-g', name: '产品群' })
-    bridge?.clearBirthGroup()
-    expect(onClearBirthGroup).toHaveBeenCalledTimes(1)
   })
   it('no group = null, never a leftover', async () => {
-    await harness.render(createNode(GroupProbe, { birthGroup: null, onClearBirthGroup: vi.fn() }))
+    await harness.render(createNode(GroupProbe, { birthGroup: null }))
     await act(async () => { await Promise.resolve() })
     expect(seen?.ready).toBe(true)
     expect(seen?.birthGroup).toBeNull()

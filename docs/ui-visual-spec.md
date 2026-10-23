@@ -639,7 +639,7 @@ bg-background-quaternary + rounded-[--radius-surface | --radius-xl] + shadow-lif
 | `modal-renderer.tsx:145` | `rounded-xl` 无 shadow | 统一 |
 | `popover.tsx:41` | 用 `border` 而不是 `ring-1` | 改 `ring-1`（`ring` 不占布局，`border` 占） |
 | `sheet.tsx:56` | `shadow-lg` | `shadow-sm` |
-| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一 |
+| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一(该文件已随 #137 删除,提示条样式在 `notice-host.css`) |
 
 > 上一版本文写的是「现存 `shadow-md` 与 `rounded-xl` 由 P1 chrome 车道收敛」——上表就是它兑现后的读数。
 > ⚠️ 表里的 `shadow-sm` 与 `ring-1` 两列**已被 design.md 裁决覆盖**(见本节开头的新公式);

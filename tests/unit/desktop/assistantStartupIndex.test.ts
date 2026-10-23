@@ -129,3 +129,15 @@ it('keeps arbitrary resource text inside JSON data without allowing it to close 
   expect(index.match(/<\/gugu_resource_index>/g)).toHaveLength(1)
   expect(records(index).find(row => row.source === 'projects')!.items![0].name).toBe(name)
 })
+
+it('preserves phone task hosting independently of native file authorization', async () => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => action.action === 'devices'
+    ? Promise.resolve([{ ...phone, task_runtime: { capability: 1, runtimes: ['pi'] } }])
+    : action.action === 'device_actions'
+      ? Promise.resolve({ devices: [{ ...phone, groups: [{ group: 'files', available: false, actions: [] }] }] })
+      : original(action, signal))
+  expect(records(await assistantStartupIndex(deps)).find(row => row.device_id === 'device:phone'))
+    .toMatchObject({ task_runtime: { capability: 1, runtimes: ['pi'] }, groups: [{ group: 'files', available: false }] })
+})

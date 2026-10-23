@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { hasWindowTitlebarRow, readRendererPlatform } from '@/lib/window-chrome';
 
 /**
@@ -11,10 +12,23 @@ import { hasWindowTitlebarRow, readRendererPlatform } from '@/lib/window-chrome'
  * ⚠️ 这里原先还放着一枚右对齐的折叠钮 —— 侧栏展开时用它、收起时换成主区左上角那枚。同一个功能
  * 两个坐标,点完一下手就得去别处找。owner 2026-09-10 定:同一枚按钮在任何状态下都必须落在同一个
  * 屏幕坐标。❌ 别再往这条带里加第二枚开关。
+ *
+ * 右端放侧栏自己的「显示方式」(gugu-dev#181):它不是开关,落在开关的对面。Windows 上这条带本来只剩一道边距,
+ * 放了它就长成一行的高度。
  */
-export function SidebarSpace() {
+export function SidebarSpace({ end }: { end?: ReactNode }) {
   if (hasWindowTitlebarRow(readRendererPlatform())) {
-    return <div className="h-3 w-full shrink-0" data-sidebar-space="" />;
+    return end ? (
+      <div className="flex h-10 w-full shrink-0 items-center justify-end px-3" data-sidebar-space="">
+        {end}
+      </div>
+    ) : (
+      <div className="h-3 w-full shrink-0" data-sidebar-space="" />
+    );
   }
-  return <div className="h-10 w-full shrink-0 [-webkit-app-region:drag]" data-sidebar-space="" />;
+  return (
+    <div className="flex h-10 w-full shrink-0 items-center justify-end px-3 [-webkit-app-region:drag]" data-sidebar-space="">
+      {end}
+    </div>
+  );
 }

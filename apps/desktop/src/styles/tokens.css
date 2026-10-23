@@ -196,8 +196,8 @@
 
 /* 顶栏右上是「动作车道」:会话页的工作区面板开关常驻在那儿(TitlebarActions,top 6px + 28px 按钮;
    分享与待办已归消息栏动作组,跟着聊天栏走,见 titlebar-actions.tsx)。
-   任何飘在右上的转瞬层(toast、分享浮层)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
-   那正是实机看到的「组件堆叠」:全局 toast 正好盖住会话页顶栏那排按钮。
+   任何飘在右上的转瞬层(分享浮层等)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
+   那正是实机看到的「组件堆叠」:浮层正好盖住会话页顶栏那排按钮。(提示条 #137 起在右下角,不走这里。)
    有标题栏行的平台(Windows)车道整体下移一行:main.tsx 按 window-chrome 的 titlebarActionsLane 写真值,
    这里的 40px 只是 JS 执行前与 web 的默认。 */
 :root {
@@ -700,6 +700,7 @@
   --hover: color-mix(in oklab, var(--fg) 4%, transparent);
   /* @@@selected-neutral-7333 — 选中 = 前景 7.5% 的中性层(用户裁决);live 蓝只留给运行/连接/链接这类真实语义。 */
   --selected: color-mix(in oklab, var(--fg) 7.5%, transparent);
+  --rail-selected: color-mix(in oklab, var(--fg) 5%, transparent); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
   --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
   /* @@@state-ladder-mix (#2322) 上面三档的「实色配方」。--hover/--press/--selected 是半透明叠色,
@@ -854,6 +855,7 @@
   --border-strong: color-mix(in oklab, var(--fg) 12%, transparent);
   --hover: color-mix(in oklab, var(--fg) 4%, transparent);
   --selected: color-mix(in oklab, var(--fg) 7.5%, transparent); /* @@@selected-neutral-7333 */
+  --rail-selected: color-mix(in oklab, var(--fg) 5%, transparent); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
   --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
   /* @@@state-ladder-mix 浅色配方(说明见 :root),#7333 起与暗色侧同一组数。 */
@@ -1480,6 +1482,7 @@ body.barcode-scanner-active #root {
     /* 同一条阶梯的**实色**版:把叠色就地 mix 进它所在的面,而不是另拍两个 hex。 */
     --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
     --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+    --rail-selected: color-mix(in oklab, var(--fg) 5%, var(--bg)); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   }
 
   [data-theme='light'] {
@@ -1489,6 +1492,7 @@ body.barcode-scanner-active #root {
     --glass-bg: var(--card);
     --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
     --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+    --rail-selected: color-mix(in oklab, var(--fg) 5%, var(--bg)); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   }
 }
 
@@ -1782,6 +1786,8 @@ body.barcode-scanner-active #root {
   inset: calc((var(--control-h-sm) - var(--control-h-touch)) / 2);
 }
 .gg-icon-btn[data-shape='pill'] { border-radius: var(--radius-capsule); }
+/* 图标后面跟一个数(块页签条上的成员按钮「👥 4」):宽度让给那个数,图标与数一行排开。 */
+.gg-icon-btn:has(> [data-member-count]) { width: auto; grid-auto-flow: column; gap: 4px; padding: 0 6px; font-size: var(--font-caption); }
 .gg-icon-btn > svg { display: block; width: var(--icon-md); height: var(--icon-md); }
 .gg-icon-btn[data-size='sm'] > svg { width: var(--icon-sm); height: var(--icon-sm); }
 .gg-icon-btn[data-size='lg'] > svg { width: var(--icon-lg); height: var(--icon-lg); }
