@@ -49,7 +49,7 @@ describe('joinGroupAgent 走 add_group_agent,需审批 ⇒ 已提交审批', () 
   it('pending_approval:不直插 chat_members、不写 agent 状态,返回 pending_approval', async () => {
     mocks.rpc.mockResolvedValueOnce({ data: { chat_id: 'g1', status: 'pending_approval', request_id: 'r1' }, error: null })
     await expect(chatService.joinGroupAgent('g1', 'agent-1', 'member')).resolves.toBe('pending_approval')
-    expect(mocks.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'g1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1' })
+    expect(mocks.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'g1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1', p_as_task: false })
     expect(mocks.writes).toEqual([])
   })
 

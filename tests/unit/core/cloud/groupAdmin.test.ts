@@ -13,14 +13,14 @@ describe('the common group transport', () => {
   it.each([null, [], { chat_id: 'other', user_id: 'target', status: 'removed' }, { chat_id: 'group', user_id: 'target', status: 'pending' }])('rejects non-authoritative removal receipts %j', async (data) => {
     await expect(createGroupAdmin({ rpc: async () => ({ data, error: null }) }, 'actor').remove('group', 'target')).rejects.toThrow()
   })
-  // gugu-dev#181 任务座位不发入群提示:只在要的时候带 p_as_task,其余入口照旧(出入群提示)。
-  it('asks for a task seat only when told to', async () => {
+  // gugu-dev#181 任务座位不发入群提示。参数表每次都一样(发布闸要能静态读出它):任务座位 p_as_task true,其余 false。
+  it('asks for a task seat only when told to, with the same argument shape every time', async () => {
     const rpc = vi.fn(async () => ({ data: { chat_id: 'group', status: 'joined' }, error: null }))
     const admin = createGroupAdmin({ rpc }, 'owner')
     await admin.addAgent('group', 'agent-1', { asTask: true })
     await admin.addAgent('group', 'agent-2')
     expect(rpc).toHaveBeenNthCalledWith(1, 'add_group_agent', { p_chat_id: 'group', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner', p_as_task: true })
-    expect(rpc).toHaveBeenNthCalledWith(2, 'add_group_agent', { p_chat_id: 'group', p_agent_user_id: 'agent-2', p_message: null, p_as_user_id: 'owner' })
+    expect(rpc).toHaveBeenNthCalledWith(2, 'add_group_agent', { p_chat_id: 'group', p_agent_user_id: 'agent-2', p_message: null, p_as_user_id: 'owner', p_as_task: false })
   })
   it('propagates the database permission error without inventing success', async () => {
     await expect(createGroupAdmin({ rpc: async () => ({ data: null, error: { message: 'group_manager_required' } }) }, 'agent')
