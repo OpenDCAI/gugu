@@ -107,12 +107,6 @@ function projectAgents(roster: LocalAgentRecord[], subject: ProjectGroupSubject,
   })
 }
 
-/** 项目里的 agent 是任务 agent:在群里只接 @ 它的话(gugu-dev#181,与第一个会话进群时同一个设定)。 */
-async function listenPassively(chat: ChatClient, chatId: string, agentUserId: string, ownerUserId: string): Promise<void> {
-  try { await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, agentUserId, 'passive') }
-  catch (error) { throw new ProjectGroupCloudError((error as Error).message) }
-}
-
 /**
  * 建一个只有群主的项目群,答它建完之后的样子:建成 = 'active';这个 id 刚被别处建出来(第一个会话抢先)= 按云端读到的
  * 答(当前账号在里面就是 'active',别人的群照 RLS 读成 'missing')。
@@ -296,7 +290,6 @@ export function createSessionpageProjectGroupHost(deps: SessionpageProjectGroupH
               pendingApproval++
               continue
             }
-            await listenPassively(chat, chatId, agent.gugu_user_id, userId)
             joined.add(agent.gugu_user_id)
           }
         }

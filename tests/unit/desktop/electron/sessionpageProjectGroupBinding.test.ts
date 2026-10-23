@@ -304,10 +304,10 @@ describe('建群(建项目即建群,gugu-dev#181)', () => {
 })
 
 describe('并进来(owner 2026-10-17 选 A)', () => {
-  it('这个项目的 agent 都加进那个群、被动(只接 @ 它的);对照与名册改指它;原来的群不动,作为 previousChatId 回来', async () => {
+  it('这个项目的 agent 都加进那个群(座位就是加人给的那一档);对照与名册改指它;原来的群不动,作为 previousChatId 回来', async () => {
     const { rememberProjectGroupId, readProjectGroupId } = await import(MAPPING)
     const old = seedGroup('chat-old', { members: [OWNER, 'agent-1', 'agent-2'] })
-    const target = seedGroup('chat-target')
+    seedGroup('chat-target')
     await rememberProjectGroupId('proj-a', 'chat-old', OWNER, env)
     seedAgent('agent-1', 's-1', { sessionpage_group_chat_id: 'chat-old' })
     seedAgent('agent-2', 's-2', { sessionpage_group_chat_id: 'chat-old' })
@@ -319,8 +319,8 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
 
     expect(result).toEqual({ success: true, data: { movedAgents: 2, previousChatId: 'chat-old', changed: true } })
     expect(rpcCalls.filter((c) => c.name === 'add_group_agent').map((c) => c.args.p_agent_user_id)).toEqual(['agent-1', 'agent-2'])
-    expect(target.members.get('agent-1')?.listen_mode).toBe('passive')
-    expect(target.members.get('agent-2')?.listen_mode).toBe('passive')
+    // 座位就是 add_group_agent 给的那一档(和手动拉的一样),这里不再改档。
+    expect(rpcCalls.some((c) => c.name === 'set_agent_listen_mode_as')).toBe(false)
     expect(await readProjectGroupId('proj-a', OWNER, env)).toBe('chat-target')
     expect(pinOf('agent-1')).toBe('chat-target')
     expect(pinOf('agent-2')).toBe('chat-target')
@@ -361,9 +361,8 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
     const result = await (await makeHost()).bindToGroup(subjectA, 'chat-reserved-on-a')
     // 名册钉着的 chat-old 云端从没建出来(预留了、没落地)⇒ 没有「原来的群」可留作历史。
     expect(result).toMatchObject({ success: true, data: { movedAgents: 1, previousChatId: null } })
-    expect(rpcCalls.map((c) => c.name)).toEqual(['create_gugu_group', 'add_group_agent', 'set_agent_listen_mode_as'])
+    expect(rpcCalls.map((c) => c.name)).toEqual(['create_gugu_group', 'add_group_agent'])
     expect(rpcCalls[0]!.args).toMatchObject({ p_chat_id: 'chat-reserved-on-a', p_name: '咕咕', p_owner_user_id: OWNER, p_initial_members: [] })
-    expect(groups.get('chat-reserved-on-a')?.members.get('agent-1')?.listen_mode).toBe('passive')
     expect(pinOf('agent-1')).toBe('chat-reserved-on-a')
   })
 
@@ -382,8 +381,7 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
     }
     const result = await (await makeHost()).bindToGroup(subjectA, 'chat-raced')
     expect(result).toMatchObject({ success: true, data: { movedAgents: 1 } })
-    expect(rpcCalls.map((c) => c.name), '建群撞主键之后走了「加人」那一支').toEqual(['create_gugu_group', 'add_group_agent', 'set_agent_listen_mode_as'])
-    expect(groups.get('chat-raced')?.members.get('agent-1')?.listen_mode).toBe('passive')
+    expect(rpcCalls.map((c) => c.name), '建群撞主键之后走了「加人」那一支').toEqual(['create_gugu_group', 'add_group_agent'])
     expect(pinOf('agent-1')).toBe('chat-raced')
   })
 
