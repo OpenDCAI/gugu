@@ -2,10 +2,8 @@
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
  *
  * 定性：手机/桌面看到的「同一份时间线」来自 harness 自己留在机器上的会话记录，
- * 不来自咕咕怎么把它拉起来。三家的记录形态不同（Claude / Codex 是 JSONL 文件，
- * opencode 是 SQLite 库），但都被解码成 **ACP `SessionUpdate`** 形状喂进现有的
- * `AcpTranscriptParser`（packages/session-core/src/acp/reducer），产出同一种
- * `TranscriptTurn[]`。❌ 不另造一套消息模型，❌ 不改 reducer。
+ * 不来自咕咕怎么把它拉起来。各家的 JSONL / SQLite 原生记录直接解码成领域事件，
+ * 喂进 `AcpTranscriptParser`，产出同一种 `TranscriptTurn[]`。记录源不构造 ACP 通知。
  *
  * 分层：
  *   SessionRecordSource（一家一个：定位文件/库、尾读、解码成 RecordEntry）
@@ -15,7 +13,7 @@
  *
  * 只写 JSON 可序列化的东西：每一个类型都会经 Realtime 广播到手机。
  */
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import type { QueuedPrompt } from '../acp/models/prompt';
 import type { SessionLiveReply } from './live-reply';
@@ -134,12 +132,12 @@ export type RecordBoundary =
  *   opencode → `opencode:<message id>` / `opencode:<part id>`
  * `at` 是 provider 自己的时钟（epoch ms），拿不到就不填，❌ 拿 Date.now() 冒充。
  *
- * 两种形态二选一：带 `update` 的是**内容**（喂 reducer），带 `boundary` 的是**边界**
+ * 两种形态二选一：带 `event` 的是**内容**（喂 reducer），带 `boundary` 的是**边界**
  * （不进时间线，只关掉当前这一轮）。❌ 不许一条同时是两者 —— 那样"这条要不要去重"没有答案。
  */
 export type RecordEntry =
-  | { key: string; at?: number; update: SessionUpdate; boundary?: never }
-  | { key: string; at?: number; boundary: RecordBoundary; update?: never };
+  | { key: string; at?: number; event: NormalizedEvent; boundary?: never }
+  | { key: string; at?: number; boundary: RecordBoundary; event?: never };
 
 export interface SessionRecordSourceEvents {
   /** 新解码出的记录，按记录里的先后顺序。 */

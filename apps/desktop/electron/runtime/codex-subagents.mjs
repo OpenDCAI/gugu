@@ -1,5 +1,3 @@
-import { subagentUpdate } from '../../../../packages/core/src/shared/subagentUpdates.mjs'
-
 const terminalState = (status) => ({ completed: 'completed', failed: 'failed', errored: 'failed', interrupted: 'cancelled', shutdown: 'cancelled', notFound: 'disconnected' })[status]
 
 // A child's prompt is its task, not its name: keep the list label short (a real nickname from thread/started overrides it).
@@ -12,21 +10,21 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
   const streamed = new Map()
   const finished = new Set()
 
-  const state = (id, value, extra = {}) => emit(subagentUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: value, ...extra }))
-  const stream = (id, update) => emit(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: id, update }))
+  const state = (id, value, extra = {}) => emit({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: value, ...extra })
+  const stream = (id, update) => emit({ sessionUpdate: 'subagent_stream', subagentSessionId: id, update })
 
   function register(id, parent, info = {}) {
     if (!id || id === rootId() || (parent !== rootId() && !children.has(parent))) return
     const previous = children.get(id)
     const child = { ...previous, id, parent, ...Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined)) }
     children.set(id, child)
-    emit(subagentUpdate({
+    emit({
       sessionUpdate: 'subagent_spawned', subagentSessionId: id, background: true,
       name: child.name, task: child.task, model: child.model, request: child.request,
       launchToolCallId: child.launchToolCallId,
       ...(parent !== rootId() ? { parentToolCallId: parent } : {}),
       capabilities: { cancel: Boolean(child.turnId) },
-    }))
+    })
     for (const [pendingId, thread] of pendingThreads) {
       if (thread.parent === id) { pendingThreads.delete(pendingId); register(pendingId, id, thread.info) }
     }

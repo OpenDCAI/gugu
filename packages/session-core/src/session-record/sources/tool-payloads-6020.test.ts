@@ -16,7 +16,7 @@ it.each([false, true])('#6020 Claude history preserves image results (with text:
   const entries = decodeClaudeRecord({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'image', content }] } }, 'record');
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
   parser.push({ sessionUpdate: 'tool_call', toolCallId: 'image', title: 'screenshot', rawInput: { tab: 1 } });
-  for (const entry of entries) if (entry.update) parser.push(entry.update);
+  for (const entry of entries) if (entry.event) parser.pushEvent(entry.event);
   const item = parser.activeTurn?.items[0];
   // 148 10-14: the picture has its own channel now — an image block the card draws (`images`), as the live ACP stream
   // has it — instead of the whole result dumped as JSON text so that the picture was not hidden.
@@ -35,7 +35,7 @@ it('#6020 a Claude result with a block that is neither text nor a picture stays 
   const entries = decodeClaudeRecord({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'doc', content }] } }, 'record');
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
   parser.push({ sessionUpdate: 'tool_call', toolCallId: 'doc', title: 'read', rawInput: {} });
-  for (const entry of entries) if (entry.update) parser.push(entry.update);
+  for (const entry of entries) if (entry.event) parser.pushEvent(entry.event);
   expect(parser.activeTurn?.items[0]).toMatchObject({
     rawOutput: JSON.stringify(content, null, 2),
     outputText: JSON.stringify(content, null, 2),
@@ -64,7 +64,7 @@ it('#6020 OpenCode observes late arguments, errors and attachments through SQLit
   try {
     await source.start({ onEntries: (batch) => {
       entries.push(...batch);
-      for (const entry of batch) if (entry.update) parser.push(entry.update);
+      for (const entry of batch) if (entry.event) parser.pushEvent(entry.event);
     }, onReset: () => { throw new Error('unexpected reset'); } });
     const update = writer.prepare('UPDATE part SET data = ?, time_updated = ? WHERE id = ?');
     update.run(data({ status: 'running', input: { query: 'LATE_ARGUMENT' } }), 2, 'part');
@@ -84,10 +84,11 @@ it('#6020 OpenCode observes late arguments, errors and attachments through SQLit
     const screenshot = parser.activeTurn?.items.find((item) => 'toolCallId' in item && item.toolCallId === 'screenshot');
     expect(screenshot).toHaveProperty('outputText', JSON.stringify({ output: 'CAPTION', attachments }, null, 2));
     expect(JSON.stringify(parser.activeTurn?.items)).toContain('CAPTION');
-    const replay = AcpTranscriptParser.replay(entries.flatMap((entry) => entry.update ? [entry.update] : []), { sessionId: 'opencode' });
-    expect(JSON.stringify(replay.committed)).toContain('LATE_ARGUMENT');
-    expect(JSON.stringify(replay.committed)).toContain('FAILURE_REASON');
-    expect(JSON.stringify(replay.committed)).toContain('IMAGE_ATTACHMENT');
+    const replay = new AcpTranscriptParser({ sessionId: 'opencode' });
+    for (const entry of entries) if (entry.event) replay.pushEvent(entry.event);
+    expect(JSON.stringify(replay.activeTurn)).toContain('LATE_ARGUMENT');
+    expect(JSON.stringify(replay.activeTurn)).toContain('FAILURE_REASON');
+    expect(JSON.stringify(replay.activeTurn)).toContain('IMAGE_ATTACHMENT');
   } finally {
     vi.useRealTimers();
     await source.stop();

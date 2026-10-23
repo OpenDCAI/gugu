@@ -1,10 +1,9 @@
 /**
  * The internal normalized event type consumed by the AcpTranscriptParser reducer.
  *
- * NormalizedEvent is a delta/chunk — it represents a single ACP notification
- * after baseline decoding and optional provider enrichment. It is NEVER stored,
- * transported, or exported to consumers; it is the parser's private intermediate
- * type between the baseline decoder, optional EnrichHook, and the item fold.
+ * NormalizedEvent is a decoded domain delta, shared by transport and native
+ * history ingress. The reducer never inspects a protocol notification.
+ * TranscriptItem is the accumulated materialized state.
  *
  * Contrast with TranscriptItem (accumulated materialized state).
  */
@@ -335,6 +334,8 @@ export type NormalizedEvent =
     }
   | {
       kind: 'tool_update';
+      /** Native result contained a completed, nonempty answer map before display formatting. */
+      recordedAnswers?: boolean;
       toolCallId: string;
       title: string | null;
       /** 同 tool_call 的 `toolName`。 */

@@ -142,12 +142,11 @@ describe('codex rollout 记录源', () => {
     const entries = await start(
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
-    const kinds = entries.map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
-    expect(kinds).toContain('agent_thought_chunk');
+    const kinds = entries.map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('thinking');
     expect(kinds).toContain('tool_call');
-    expect(kinds).toContain('tool_call_update');
+    expect(kinds).toContain('tool_update');
     for (const entry of entries) {
       expect(entry.key).toMatch(new RegExp(`^codex:${THREAD_ID}:\\d+:\\d+$`));
       expect(typeof entry.at).toBe('number');
@@ -184,7 +183,7 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const assistantChunks = entries.filter(
-      (entry) => entry.update.sessionUpdate === 'agent_message_chunk'
+      (entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant')
     );
     expect(assistantChunks).toHaveLength(assistantResponseItems);
   });
@@ -199,17 +198,17 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(userTexts.length).toBeGreaterThan(0);
     expect(userTexts.some((text) => text.startsWith('<'))).toBe(false);
 
     const thoughts = entries.filter(
-      (entry) => entry.update.sessionUpdate === 'agent_thought_chunk'
+      (entry) => (entry.event.kind === 'thinking')
     );
     expect(thoughts).toHaveLength(1); // 两条 reasoning，只有带明文摘要的那条算数
     expect(
-      (thoughts[0].update as { content: { text: string } }).content.text
+      (thoughts[0].event as { text: string }).text
     ).not.toContain('REDACTED_BLOB');
   });
 
@@ -233,8 +232,8 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const thoughts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_thought_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'thinking'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(thoughts.slice(-2)).toEqual(['We need execute.', '**Timing the trip**\n\nMoving time is 202.']);
   });
 
@@ -264,8 +263,8 @@ describe('codex rollout 记录源', () => {
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(userTexts).toEqual(['真实用户问题']);
   });
 
@@ -285,7 +284,7 @@ describe('codex rollout 记录源', () => {
     const entries = await start(
       createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }),
     );
-    expect(entries.map((entry) => (entry.update as { content?: { text?: string } }).content?.text)).toContain(delivery);
+    expect(entries.map((entry) => (entry.event as { text?: string }).text)).toContain(delivery);
   });
 
   describe('接到 timeline 上', () => {
@@ -576,6 +575,7 @@ describe('codex rollout 记录源', () => {
       ['Default 模式下不能问(mac1 7 次)', 'request_user_input is unavailable in Default mode', 'cancelled'],
       ['咕咕适配器渲染不出来,如实回的空答案(2 次)', '{"answers":{}}', 'cancelled'],
       ['只有根线程能问', 'request_user_input can only be used by the root thread', 'cancelled'],
+      ['fenced JSON is display text, not a recorded answer', '```json\n{"answers":{"color":{"answers":["Blue"]}}}\n```', 'cancelled'],
       ['真回答(1 次)', '{"answers":{"color":{"answers":["Blue"]}}}', 'resolved'],
     ] as const)('没人认领、codex 做完:%s ⇒ %s', async (_case, output, state) => {
       const { file, timeline, settlement } = await open([asked], true);

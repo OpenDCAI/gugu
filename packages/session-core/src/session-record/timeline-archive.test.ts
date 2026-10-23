@@ -97,19 +97,24 @@ describe('时间线存档', () => {
     expect(resumed.epoch).toBe(archive!.epoch);
   });
 
-  it('存档版本对不上就整份重放，内容一条不少', async () => {
+  it.each([1, TIMELINE_ARCHIVE_VERSION + 1])('rejects archive version %s and rebuilds from native history', async (version) => {
     const lines = await fixtureLines();
     const staged = await stage(lines);
     const before = await open(staged.root);
     const archive = await before.archive?.();
     before.dispose();
 
-    const stale = { ...archive!, version: TIMELINE_ARCHIVE_VERSION + 1 } as TimelineArchive;
+    const stale = { ...archive!, version } as TimelineArchive;
     const reopened = await open(staged.root, stale);
     const full = await open((await stage(lines)).root);
 
     expect(shape(reopened)).toBe(shape(full));
     expect(reopened.epoch).not.toBe(archive!.epoch);
+    const rebuilt = await reopened.archive?.();
+    expect(rebuilt?.version).toBe(TIMELINE_ARCHIVE_VERSION);
+    const resumed = await open(staged.root, rebuilt);
+    expect(resumed.epoch).toBe(rebuilt!.epoch);
+    expect(shape(resumed)).toBe(shape(full));
   });
 
   it('记录被改写后不拿旧偏移量往下接，整份重放而不是缺一段', async () => {

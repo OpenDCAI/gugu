@@ -88,24 +88,23 @@ describe('claude jsonl 记录源', () => {
     await expect(start(source)).rejects.toBeInstanceOf(SessionRecordNotFoundError);
   });
 
-  it('把真实记录解码成 ACP SessionUpdate', async () => {
+  it('把真实记录解码成领域事件', async () => {
     const { root } = await stage();
     const entries = await start(
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
 
-    const kinds = entries.map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
-    expect(kinds).toContain('agent_thought_chunk');
+    const kinds = entries.map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('thinking');
     expect(kinds).toContain('tool_call');
-    expect(kinds).toContain('tool_call_update');
+    expect(kinds).toContain('tool_update');
 
     for (const entry of entries) {
       expect(entry.key.startsWith('claude:')).toBe(true);
       expect(typeof entry.at).toBe('number');
       // 每一条都要能原样过 JSON —— 它们要经 Realtime 广播到手机。
-      expect(() => JSON.stringify(entry.update)).not.toThrow();
+      expect(() => JSON.stringify(entry.event)).not.toThrow();
     }
   });
 
@@ -115,21 +114,21 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const read = entries.find(
-      (entry) => entry.update.sessionUpdate === 'tool_call' && entry.update.title === 'Read'
+      (entry) => (entry.event.kind === 'tool_call') && entry.event.title === 'Read'
     );
     expect(read).toBeDefined();
-    const call = read!.update as { kind?: string; rawInput?: unknown };
-    expect(call.kind).toBe('read');
-    expect(call.rawInput).toMatchObject({ file_path: expect.any(String) });
+    const call = read!.event as { toolKind?: string; rawInput?: string };
+    expect(call.toolKind).toBe('read');
+    expect(JSON.parse(call.rawInput!)).toMatchObject({ file_path: expect.any(String) });
 
     // ACP 的 ToolKind 是封闭枚举：MCP 工具没有对应档位，只能落 'other'，
     // ❌ 不许为了好看塞一个语义不对的 kind。
     const mcp = entries.find(
       (entry) =>
-        entry.update.sessionUpdate === 'tool_call' && entry.update.title.startsWith('mcp__')
+        (entry.event.kind === 'tool_call') && entry.event.title.startsWith('mcp__')
     );
     expect(mcp).toBeDefined();
-    expect((mcp!.update as { kind?: string }).kind).toBe('other');
+    expect((mcp!.event as { toolKind?: string }).toolKind).toBe('other');
   });
 
   it('机器注入的 user 记录不算用户消息', async () => {
@@ -138,8 +137,8 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const userTexts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))
+      .map((entry) => (entry.event as { text: string }).text);
 
     expect(userTexts.length).toBeGreaterThan(0);
     expect(userTexts.some((text) => text.startsWith('<command-name>'))).toBe(false);
@@ -165,7 +164,7 @@ describe('claude jsonl 记录源', () => {
     const entries = await start(
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] }),
     );
-    expect(entries.map((entry) => (entry.update as { content?: { text?: string } }).content?.text)).toContain(delivery);
+    expect(entries.map((entry) => (entry.event as { text?: string }).text)).toContain(delivery);
   });
 
   it('AskUserQuestion 能被上层认成提问', async () => {
@@ -173,7 +172,7 @@ describe('claude jsonl 记录源', () => {
     const entries = await start(
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
-    const asked = entries.map((entry) => readQuestion(entry.update)).filter((q) => q !== null);
+    const asked = entries.map((entry) => entry.event.kind === 'tool_call' ? readQuestion(entry.event) : null).filter((q) => q !== null);
     expect(asked).toHaveLength(1);
     expect(asked[0]!.toolName).toBe('AskUserQuestion');
     expect(asked[0]!.kind).toBe('question');
@@ -188,9 +187,10 @@ describe('claude jsonl 记录源', () => {
 
     // 阴控：普通工具调用不许被认成提问。
     const read = entries.find(
-      (entry) => entry.update.sessionUpdate === 'tool_call' && entry.update.title === 'Read'
+      (entry) => (entry.event.kind === 'tool_call') && entry.event.title === 'Read'
     );
-    expect(readQuestion(read!.update)).toBeNull();
+    if (read?.event.kind !== 'tool_call') throw new Error('Read call missing');
+    expect(readQuestion(read.event)).toBeNull();
   });
 
   it('多字节字符横跨读取块边界时不被切成替换字符', async () => {
@@ -234,8 +234,8 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const texts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(texts).toHaveLength(2);
     expect(texts[1]).toBe(TEXT);
     expect(texts.join('')).not.toContain('\uFFFD');
@@ -276,8 +276,8 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const texts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(texts.join('\n')).toContain('分叉之后说的话');
     // 抄录的那一段只算一次：条目数 = 单读本体的条目数 + 分叉新增的那一条，一条不多。
     expect(new Set(entries.map((entry) => entry.key)).size).toBe(entries.length);
@@ -352,8 +352,8 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const texts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(texts.join('\n')).toContain('压缩之后接着说');
   });
 
@@ -397,8 +397,8 @@ describe('claude jsonl 记录源', () => {
       createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] })
     );
     const texts = entries
-      .filter((entry) => entry.update.sessionUpdate === 'agent_message_chunk')
-      .map((entry) => (entry.update as { content: { text: string } }).content.text);
+      .filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'assistant'))
+      .map((entry) => (entry.event as { text: string }).text);
     expect(texts.join('\n')).not.toContain('这是另一条对话');
   });
 
@@ -783,9 +783,9 @@ describe('claude jsonl 记录源', () => {
     });
     // 阴性对照:那句话没有变成一条用户内容。
     const userTexts = contentEntries(all)
-      .map((entry) => entry.update)
-      .filter((update) => update.sessionUpdate === 'user_message_chunk')
-      .map((update) => (update.content as { text?: string }).text ?? '');
+      .map((entry) => entry.event)
+      .filter((update) => (update.kind === 'message' && update.role === 'user'))
+      .map((update) => (update as { text?: string }).text ?? '');
     expect(userTexts.some((text) => text.includes('interrupted by user'))).toBe(false);
   });
 

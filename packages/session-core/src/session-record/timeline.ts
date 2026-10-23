@@ -1,5 +1,5 @@
 import type { SessionLiveReply } from './live-reply';
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 
 import type { QueuedPrompt } from '../acp/models/prompt';
 import { toolCallName } from '../acp/models/turns/tool-calls';
@@ -37,7 +37,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 1;
+export const TIMELINE_ARCHIVE_VERSION = 2;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -565,9 +565,9 @@ class RecordTimeline implements SessionTimeline {
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
-        this.parser.push(entry.update, at);
+        this.parser.pushEvent(entry.event, at);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
-        this.trackSettlement(entry.update, at);
+        this.trackSettlement(entry.event, at);
       }
       changed = true;
     }
@@ -582,8 +582,8 @@ class RecordTimeline implements SessionTimeline {
    * ⇒ 有人答了 = 已经在别处答了（终端里直接答的);没答(拒答、超时、这一轮被停、codex 回「这一问用不了」)= 本地这条作废。
    * 答没答按工具判,判据只在 `questionAnswered`。
    */
-  private trackSettlement(update: SessionUpdate, at: number): void {
-    if (update.sessionUpdate === 'tool_call') {
+  private trackSettlement(update: NormalizedEvent, at: number): void {
+    if (update.kind === 'tool_call') {
       const question = readQuestion(update);
       if (!question || this.settlements.has(question.itemId)) return;
       if (question.kind === 'question' && !question.questions) this.questionsAwaitingInput.set(question.itemId, question.toolName);
@@ -604,10 +604,10 @@ class RecordTimeline implements SessionTimeline {
       });
       return;
     }
-    if (update.sessionUpdate === 'tool_call_update') {
+    if (update.kind === 'tool_update') {
       const awaiting = this.questionsAwaitingInput.get(update.toolCallId);
       if (awaiting !== undefined && update.rawInput !== undefined) {
-        const late = readQuestion({ sessionUpdate: 'tool_call', toolCallId: update.toolCallId, title: awaiting, rawInput: update.rawInput });
+        const late = readQuestion({ toolCallId: update.toolCallId, title: awaiting, rawInput: update.rawInput });
         if (late?.questions) {
           this.questionsAwaitingInput.delete(update.toolCallId);
           const pending = this.settlements.get(update.toolCallId);

@@ -1,9 +1,8 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readCodexRecord, type CodexRecord, type CodexRecordItem } from '@gugu/core/local/agent/transcriptSources/codex';
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
 
 import type { RecordEntry, SessionRecordLocator, SessionRecordSource, SessionRecordResume } from '../contract';
 import { createJsonlTailSource } from './jsonl-tail-source';
@@ -12,8 +11,8 @@ import {
   asRecord,
   boundaryEntry,
   parseTimestamp,
-  toJsonValue,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -58,18 +57,14 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
     children.set(child.id, source);
     const read = source.start({
       onEntries(entries) {
-        const mapped: RecordEntry[] = entries.flatMap((entry): RecordEntry[] => {
-          if (entry.boundary) return [{ key: entry.key, at: entry.at, update: subagentUpdate({
-            sessionUpdate: 'subagent_state_update', subagentSessionId: child.id,
-            state: entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'cancelled' : 'completed',
-          }) }];
-          const inner = entry.update._meta?.['gugu.draftSessionUpdate'] as { sessionUpdate?: string; parentToolCallId?: string } | undefined;
-          if (inner?.sessionUpdate === 'subagent_spawned' && !inner.parentToolCallId) inner.parentToolCallId = child.id;
-          if (inner) return [entry];
-          if (entry.update.sessionUpdate === 'user_message_chunk') return [{ key: entry.key, at: entry.at, update: subagentUpdate({
-            sessionUpdate: 'subagent_state_update', subagentSessionId: child.id, state: 'running', canCancel: false,
-          }) }];
-          return [{ ...entry, update: subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: child.id, update: entry.update }) }];
+        const mapped: RecordEntry[] = entries.map((entry): RecordEntry => {
+          if (entry.boundary) return { key: entry.key, at: entry.at, event: childState(child.id,
+            entry.boundary.kind === 'turn_failed' ? 'failed' : entry.boundary.kind === 'turn_aborted' ? 'stopped' : 'completed') };
+          const event = entry.event;
+          if (event.kind === 'subagent') return event.parentToolCallId ? entry : { ...entry, event: { ...event, parentToolCallId: child.id } };
+          if (event.kind === 'subagent_update' || event.kind === 'subagent_done' || event.kind === 'subagent_stream') return entry;
+          if (event.kind === 'message' && event.role === 'user') return { key: entry.key, at: entry.at, event: childState(child.id, 'in_progress') };
+          return { ...entry, event: { kind: 'subagent_stream', subagentSessionId: child.id, event } };
         });
         if (!stopped) sink?.onEntries(mapped);
       },
@@ -90,7 +85,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
     decode(record, ordinals) {
       currentState = ordinals;
       const codex = readCodexRecord(record);
-      // 序号按**每一条记录**推进，不按「解出了 update 的记录」推进:
+      // 序号按**每一条记录**推进，不按「解出了 event 的记录」推进:
       // 这样以后给某个记录类型补上解码，已有 key 不会整体错位。
       ordinals.item += 1;
       if (codex.turnStart) {
@@ -98,9 +93,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         ordinals.item = 0;
       }
       const key = `codex:${locator.providerSessionId}:${ordinals.turn}:${ordinals.item}`;
-      if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), update: subagentUpdate({
-        sessionUpdate: 'subagent_state_update', subagentSessionId: locator.providerSessionId, state: 'running', canCancel: false,
-      }) }];
+      if (nativeChild && codex.turnStart) return [{ key, at: parseTimestamp(codex.timestamp), event: childState(locator.providerSessionId, 'in_progress') }];
       const item = codex.item;
       if (item?.kind === 'tool_call' && item.namespace === 'collaboration') {
         let input = item.input;
@@ -119,14 +112,17 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         const first = !ordinals.children[item.threadId];
         ordinals.children[item.threadId] = child;
         const at = parseTimestamp(codex.timestamp);
-        const updates: SessionUpdate[] = [];
-        if (first) updates.push(subagentUpdate({ sessionUpdate: 'subagent_spawned', subagentSessionId: child.id,
-          name: child.name, task: child.task ?? child.name, request: child.task, model: child.model,
-          launchToolCallId: child.callId, background: true, capabilities: { cancel: false },
-        }));
-        // Lifecycle comes from the child's own task boundaries below. Replaying the parent's
-        // activity summary as well would complete it before its history, then complete it twice.
-        return updates.map((update, index) => ({ key: `${key}#${index}`, at, update }));
+        // The child's own task boundaries provide lifecycle; the parent's summary does not complete it.
+        if (!first) return [];
+        return [{ key: `${key}#0`, at, event: {
+          kind: 'subagent', toolCallId: child.id, subagentSessionId: child.id,
+          ...(child.name ? { title: child.name } : {}),
+          ...((child.task ?? child.name) ? { inputSummary: child.task ?? child.name } : {}),
+          status: 'completed', parentToolCallId: null, canCancel: false, background: true,
+          ...(child.model ? { model: child.model } : {}),
+          ...(child.callId ? { agentToolUseId: child.callId } : {}),
+          ...(child.task ? { rawInput: child.task } : {}),
+        } }];
       }
       const entry = decode(codex, key);
       return entry ? [entry] : [];
@@ -147,9 +143,9 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
         events.onEntries(entries);
         // Spawn records are delivered before the child's records, so the shared parser can resolve their owner.
         if (!initializing && currentState) for (const child of Object.values(currentState.children)) {
-          void ensureChild(child).catch((error: unknown) => events.onEntries([{ key: `codex-child-error:${child.id}`, update: subagentUpdate({
-            sessionUpdate: 'subagent_state_update', subagentSessionId: child.id, state: 'disconnected', summary: String(error),
-          }) }]));
+          void ensureChild(child).catch((error: unknown) => events.onEntries([{
+            key: `codex-child-error:${child.id}`, event: childState(child.id, 'disconnected', String(error)),
+          }]));
         }
       } }, rootResume);
       const point = await root.resumePoint?.();
@@ -188,7 +184,7 @@ function decode(record: CodexRecord, key: string): RecordEntry | null {
     );
   }
   if (!record.item) return null;
-  return { key, ...(at !== undefined ? { at } : {}), update: toUpdate(record.item, key) };
+  return { key, ...(at !== undefined ? { at } : {}), event: toEvent(record.item, key) };
 }
 
 // ─── 定位 ────────────────────────────────────────────────────────────────────
@@ -241,18 +237,14 @@ async function findBySuffix(root: string, suffix: string): Promise<string | null
 }
 
 // ─── 映射 ────────────────────────────────────────────────────────────────────
-// 一行记录是什么意思由 core 的 `readCodexRecord` 读（导入清单读的是同一份）；这里只映射成 ACP update。
+// 一行记录是什么意思由 core 的 `readCodexRecord` 读（导入清单读的是同一份）；这里只解码成领域事件。
 
-function toUpdate(item: CodexRecordItem, messageId: string): SessionUpdate {
+function toEvent(item: CodexRecordItem, messageId: string): NormalizedEvent {
   switch (item.kind) {
-    case 'text': {
-      const content = { type: 'text' as const, text: item.text };
-      return item.role === 'user'
-        ? { sessionUpdate: 'user_message_chunk', content, messageId }
-        : { sessionUpdate: 'agent_message_chunk', content, messageId };
-    }
+    case 'text':
+      return item.text ? { kind: 'message', role: item.role, messageId, text: item.text } : { kind: 'ignored' };
     case 'thinking':
-      return { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: item.text }, messageId };
+      return item.text ? { kind: 'thinking', messageId, text: item.text } : { kind: 'ignored' };
     case 'subagent':
       throw new Error('Codex subagent activity must be decoded with its source state');
     case 'tool_call':
@@ -266,17 +258,12 @@ function toUpdate(item: CodexRecordItem, messageId: string): SessionUpdate {
       // pictures stored twice, review 10f3ea946c); one with an item no block carries stays disclosed whole, as the
       // claude source does (#6020).
       const carried = Array.isArray(item.output) && blocks.length > 0 && blocks.length === item.output.length;
-      return {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: item.callId,
-        status: item.failed ? 'failed' : 'completed',
-        ...(text !== null
-          ? { content: [{ type: 'content' as const, content: { type: 'text' as const, text } }] }
-          : blocks.length > 0
-            ? { content: blocks.map((block) => ({ type: 'content' as const, content: block })) }
-            : {}),
-        ...(item.output !== undefined && text === null && !carried ? { rawOutput: toJsonValue(item.output) } : {})
-      };
+      const texts = blocks.filter((block) => block.type === 'text').map((block) => block.text);
+      return toolCallResult(item.callId, item.failed ? 'failed' : 'completed', {
+        ...(text !== null ? { text } : texts.length ? { text: texts.join('\n') } : {}),
+        images: blocks.filter((block) => block.type === 'image'),
+        ...(item.output !== undefined && text === null && !carried ? { rawOutput: item.output } : {}),
+      });
     }
   }
 }
@@ -292,3 +279,15 @@ function codexResultBlock(item: unknown): Array<{ type: 'text'; text: string } |
 
 /** codex 的工具名 → ACP ToolKind。名单外一律 'other'，理由同 claude 侧。 */
 const codexToolKind = toolKindTable({ execute: ['shell', 'local_shell', 'exec_command'], edit: ['apply_patch', 'write_file'], read: ['read_file'], fetch: ['web_search', 'web_fetch'] });
+
+/** Recorded children cannot be interrupted; their own boundaries decide their outcome. */
+function childState(id: string, status: 'in_progress' | 'completed' | 'failed' | 'stopped' | 'disconnected', summary?: string): NormalizedEvent {
+  if (status === 'in_progress') return {
+    kind: 'subagent_update', toolCallId: id, agentId: id, subagentSessionId: id,
+    status, canCancel: false,
+  };
+  return {
+    kind: 'subagent_done', toolCallId: id, agentId: id, subagentSessionId: id,
+    ...(summary ? { summary } : {}), status,
+  };
+}

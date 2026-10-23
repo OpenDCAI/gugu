@@ -3,7 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
-import type { SessionUpdate, ToolCallStatus } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/transcriptSources/claudeCode';
 
 import {
@@ -22,10 +22,10 @@ import {
   parseJson,
   parseTimestamp,
   pollInterval,
-  toJsonValue,
   warnOf,
   type RecordSourceWarn,
   type SessionRecordSourceOptions,
+  toolCallResult,
   toolCallStart,
   toolKindTable
 } from './shared';
@@ -325,7 +325,7 @@ async function resolveSessionFile(locator: SessionRecordLocator): Promise<string
 }
 
 // ─── 映射 ────────────────────────────────────────────────────────────────────
-// 一行记录是什么意思由 core 的 `readClaudeRecord` 读（导入清单读的是同一份）；这里只映射成 ACP update。
+// 一行记录是什么意思由 core 的 `readClaudeRecord` 读（导入清单读的是同一份）；这里只解码成领域事件。
 
 export function decodeClaudeRecord(
   line: Record<string, unknown>,
@@ -335,12 +335,12 @@ export function decodeClaudeRecord(
   if (record.sidechain) return [];
   const at = parseTimestamp(record.timestamp);
   const stamp = at !== undefined ? { at } : {};
-  const updates = record.items.map((item) => toUpdate(item, record.messageId));
-  const entries: RecordEntry[] = updates.map((update, index) => ({
-    // 一条记录出多条 update 时按块序号加后缀：块数由记录本身定死，重读同一份记录得到同一批 key。
-    key: updates.length === 1 ? `claude:${uuid}` : `claude:${uuid}#${index}`,
+  const events = record.items.map((item) => toEvent(item, record.messageId));
+  const entries: RecordEntry[] = events.map((event, index) => ({
+    // 一条记录出多条 event 时按块序号加后缀：块数由记录本身定死，重读同一份记录得到同一批 key。
+    key: events.length === 1 ? `claude:${uuid}` : `claude:${uuid}#${index}`,
     ...stamp,
-    update
+    event
   }));
   if (record.end) {
     entries.push(
@@ -358,20 +358,16 @@ export function decodeClaudeRecord(
   return entries;
 }
 
-function toUpdate(item: ClaudeRecordItem, messageId: string | null): SessionUpdate {
+function toEvent(item: ClaudeRecordItem, messageId: string | null): NormalizedEvent {
   switch (item.kind) {
-    case 'text': {
-      const content = { type: 'text' as const, text: item.text };
-      return item.role === 'user'
-        ? { sessionUpdate: 'user_message_chunk', content, messageId }
-        : { sessionUpdate: 'agent_message_chunk', content, messageId };
-    }
+    case 'text':
+      return item.text ? { kind: 'message', role: item.role, messageId, text: item.text } : { kind: 'ignored' };
     case 'thinking':
-      return { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: item.text }, messageId };
+      return item.text ? { kind: 'thinking', messageId, text: item.text } : { kind: 'ignored' };
     case 'tool_use':
       return toolCallStart(item.id, item.name, claudeToolKind(item.name), item.input);
     case 'tool_result': {
-      const status: ToolCallStatus = item.isError ? 'failed' : 'completed';
+      const status = item.isError ? 'failed' : 'completed';
       const text = toolResultText(item.content);
       // The result's pictures go as ACP image blocks, as the live ACP stream has them (148 10-14): the card draws them.
       const images = Array.isArray(item.content) ? item.content.flatMap(toolResultImage) : [];
@@ -381,17 +377,11 @@ function toUpdate(item: ClaudeRecordItem, messageId: string | null): SessionUpda
         ? item.content.some((block) => !['text', 'image'].includes(String(asRecord(block)?.type)))
         : typeof item.content !== 'string' && item.content !== undefined;
       const displayed = hasOther ? JSON.stringify(item.content, null, 2) : text;
-      const content = [
-        ...(displayed !== null ? [{ type: 'content' as const, content: { type: 'text' as const, text: displayed } }] : []),
-        ...images.map((image) => ({ type: 'content' as const, content: { type: 'image' as const, ...image } }))
-      ];
-      return {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: item.toolUseId,
-        status,
-        ...(hasOther ? { rawOutput: toJsonValue(item.content) } : {}),
-        ...(content.length > 0 ? { content } : {})
-      };
+      return toolCallResult(item.toolUseId, status, {
+        ...(displayed != null ? { text: displayed } : {}),
+        images,
+        ...(hasOther ? { rawOutput: item.content } : {}),
+      });
     }
   }
 }

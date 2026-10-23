@@ -1,13 +1,13 @@
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
-import { AcpTranscriptParser } from '@gugu/session-core/acp';
+import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
 import { codexReasoningText } from '@gugu/core/shared/reasoningText.mjs';
 import { describe, expect, it, vi } from 'vitest';
-import { createCodexSubagents } from './codex-subagents.mjs';
+import { createCodexSubagents, type CodexChildUpdate } from './codex-subagents.mjs';
 
 function rig() {
-  const updates: SessionUpdate[] = [];
+  const updates: CodexChildUpdate[] = [];
   const request = vi.fn(async () => ({}));
-  const controller = createCodexSubagents({ rootId: () => 'root', emit: (update: SessionUpdate) => updates.push(update),
+  const controller = createCodexSubagents({ rootId: () => 'root', emit: (update: CodexChildUpdate) => updates.push(update),
     request, reasoningText: codexReasoningText,
     itemTool: (item: Record<string, unknown>) => item.type === 'commandExecution' ? { title: item.command, kind: 'execute' } : null,
   });
@@ -23,14 +23,15 @@ describe('native Codex child-thread consumption', () => {
     const r = rig();
     r.controller.replayItem({ type: 'subAgentActivity', id: 'spawn', kind: 'completed', agentThreadId: 'child', agentPath: '/root/audit' });
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
-    for (const update of r.updates) parser.push(update);
+    for (const update of r.updates) parser.pushEvent(decodeSessionUpdate(update as unknown as SessionUpdate));
     expect(parser.agents[0].status).toBe('running');
     r.request.mockResolvedValue({ thread: { id: 'child', turns: [{ id: 'child-turn', status: 'completed', items: [
       { type: 'agentMessage', id: 'answer', text: 'HISTORICAL_RESULT' },
     ] }] } });
+    expect(r.updates.every((update) => update.sessionUpdate !== ('tool_call_update' as string) && !('_meta' in update))).toBe(true);
     const before = r.updates.length;
     await r.controller.replayChildren();
-    for (const update of r.updates.slice(before)) parser.push(update);
+    for (const update of r.updates.slice(before)) parser.pushEvent(decodeSessionUpdate(update as unknown as SessionUpdate));
     expect(parser.agents[0]).toMatchObject({ status: 'completed', output: 'HISTORICAL_RESULT', canCancel: false });
     expect(parser.activeTurn!.items.filter((item) => item.kind === 'subagent-done-tool-call')).toEqual([
       expect.objectContaining({ outputText: 'HISTORICAL_RESULT' }),
@@ -47,7 +48,7 @@ describe('native Codex child-thread consumption', () => {
     r.send('item/completed', { threadId: 'child', item: { type: 'agentMessage', id: 'a', text: 'CHILD_RESULT' } });
     r.send('turn/completed', { threadId: 'child', turn: { id: 'child-turn', status: 'completed' } });
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
-    for (const update of r.updates) parser.push(update);
+    for (const update of r.updates) parser.pushEvent(decodeSessionUpdate(update as unknown as SessionUpdate));
     const data = JSON.stringify({ history: parser.history, active: parser.activeTurn, agents: parser.agents });
     expect(data).toContain('CHILD_RESULT');
     expect(data).toContain('CHILD_THOUGHT');
@@ -76,7 +77,7 @@ describe('native Codex child-thread consumption', () => {
       senderThreadId: 'root', receiverThreadIds: ['child'], prompt: 'Audit permissions', model: 'worker-model', agentsStates: {} } });
     r.send('item/completed', { threadId: 'child', item: { type: 'subAgentActivity', id: 'nested-call', kind: 'started', agentThreadId: 'grandchild', agentPath: '/root/audit/nested' } });
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
-    for (const update of r.updates) parser.push(update);
+    for (const update of r.updates) parser.pushEvent(decodeSessionUpdate(update as unknown as SessionUpdate));
     expect(parser.agents).toHaveLength(2);
     const items = parser.activeTurn!.items;
     expect(items.filter((item) => item.kind === 'spawn-subagent-tool-call')).toHaveLength(1);
@@ -88,7 +89,7 @@ describe('native Codex child-thread consumption', () => {
     const longPrompt = 'Audit every permission prompt in the settings pages and report the ones that block\nsecond line';
     r.send('item/completed', { threadId: 'root', item: { type: 'collabAgentToolCall', id: 'call', tool: 'spawnAgent',
       senderThreadId: 'root', receiverThreadIds: ['child'], prompt: longPrompt, agentsStates: {} } });
-    const drafts = () => r.updates.map((u) => Object.values((u as { _meta?: Record<string, { sessionUpdate?: string; name?: string; task?: string }> })._meta ?? {})[0]);
+    const drafts = () => r.updates;
     const spawned = () => drafts().filter((d) => d?.sessionUpdate === 'subagent_spawned').at(-1);
     // Before thread/started the list shows the first line of the task, shortened; the full prompt stays the task.
     expect(spawned()).toMatchObject({ name: 'Audit every permission prompt …', task: longPrompt });

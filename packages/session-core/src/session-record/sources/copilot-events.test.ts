@@ -74,8 +74,8 @@ describe('copilot events.jsonl 记录源', () => {
       createCopilotEventsSource({ harness: 'copilot', providerSessionId: id, roots: [join(root, 'missing'), root] })
     );
     await started;
-    const kinds = contentEntries(entries).map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toEqual(expect.arrayContaining(['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update']));
+    const kinds = contentEntries(entries).map((entry) => entry.event.kind);
+    expect(kinds).toEqual(expect.arrayContaining(['message', 'thinking', 'tool_call', 'tool_update']));
     for (const entry of entries) expect(entry.key.startsWith('copilot:')).toBe(true);
 
     await expect(
@@ -118,13 +118,13 @@ describe('copilot events.jsonl 记录源', () => {
     const { entries, started } = collect(createCopilotEventsSource({ harness: 'copilot', providerSessionId: id, roots: [root] }));
     await started;
     const content = contentEntries(entries);
-    expect(content.filter((entry) => entry.update.sessionUpdate === 'user_message_chunk')).toHaveLength(1);
+    expect(content.filter((entry) => (entry.event.kind === 'message' && entry.event.role === 'user'))).toHaveLength(1);
     const texts = content.flatMap((entry) =>
-      entry.update.sessionUpdate === 'agent_message_chunk' && entry.update.content.type === 'text' ? [entry.update.content.text] : []
+      (entry.event.kind === 'message' && entry.event.role === 'assistant') && entry.event.kind === 'message' ? [entry.event.text] : []
     );
     expect(texts).not.toContain('SUBDONE');
     expect(texts).toContain('T-70-46fx8');
-    const toolIds = content.flatMap((entry) => (entry.update.sessionUpdate === 'tool_call' ? [entry.update.toolCallId] : []));
+    const toolIds = content.flatMap((entry) => ((entry.event.kind === 'tool_call') ? [entry.event.toolCallId] : []));
     expect(toolIds).toContain('call_7556ad8fe66c4d8c9237818c');
     expect(toolIds).not.toContain('call_3e8fb627d18b45628912e4f9');
   });
