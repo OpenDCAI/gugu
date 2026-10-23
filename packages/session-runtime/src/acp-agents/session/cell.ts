@@ -2008,7 +2008,7 @@ export class SessionCell {
   private dispatchAgentsChangedIfNeeded(previousRunningAgentCount: number): void {
     this.dispatchBackgroundCommandsChangedIfNeeded();
     const nextRunningAgentCount = this.transcript.agents.filter(
-      (agent) => agent.background === true && agent.status === 'running'
+      (agent) => outlivesTurn(agent) && agent.status === 'running'
     ).length;
     if (nextRunningAgentCount === previousRunningAgentCount) return;
     this.lastRunningAgentCount = nextRunningAgentCount;
@@ -2029,9 +2029,10 @@ export class SessionCell {
   }
 
   private settleRunningAgents(scope: 'turn' | 'all', status: 'completed' | 'failed'): void {
+    // 一轮结束只替「活在这一轮里」的子智能体收尾,能比这一轮活得久的由它自己报结局(见 `outlivesTurn`)。
     const runningAgents = this.transcript.agents.filter((agent) => {
       if (agent.status !== 'running') return false;
-      return scope === 'all' || agent.background !== true;
+      return scope === 'all' || !outlivesTurn(agent);
     });
 
     for (const agent of runningAgents) {
@@ -2307,3 +2308,12 @@ function toStopReason(reason: TranscriptTurnOutcome['reason']): StopReason {
 }
 
 export { SESSION_PLAN_ID };
+
+/**
+ * 这个子智能体能不能比派它的那一轮活得久:后台的,和有自己会话的(结局由它自己的 `subagent_update` /
+ * `subagent_state_update` 报 —— ACP v2 的父回合在自己的结果处就结束,子智能体照跑)。
+ * 一轮结束不替它们收尾,它们在跑时会话是 park。
+ */
+function outlivesTurn(agent: { background?: boolean; subagentSessionId?: string }): boolean {
+  return agent.background === true || agent.subagentSessionId !== undefined;
+}

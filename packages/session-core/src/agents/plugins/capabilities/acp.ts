@@ -200,6 +200,11 @@ export interface AcpProcessIo {
  * structurally — only the methods the session backend actually uses are required here.
  */
 export interface AcpAgentApi {
+  /**
+   * 这条连接讲的 ACP 版本:2 = v2 传输(`connectStdioAcpV2`),缺省 = v1。宿主按它声明
+   * initialize 的能力;一轮的结局对两版都是 `prompt()` 的结果(v2 由传输在前台 idle 时给出)。
+   */
+  readonly protocolVersion?: 2;
   initialize(params: InitializeRequest): Promise<InitializeResponse>;
   newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
