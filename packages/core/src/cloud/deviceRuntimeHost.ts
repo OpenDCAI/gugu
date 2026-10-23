@@ -23,6 +23,7 @@ import {
 import {
   readDeviceRuntimeInstances,
   reportRuntimeInstanceHeartbeat,
+  retireRuntimeInstance,
   type DeviceCommandTableClient,
   type ProcessDeviceCommandResult,
   RUNTIME_INSTANCE_STALE_MS,
@@ -1402,6 +1403,8 @@ export function createDeviceRuntimeHostLoop(
       const auth = await options.authProvider.getAuth()
       if (!auth?.accessToken || auth.userId !== ownerUserId) return
       const client = options.makeIdentityClient(auth.accessToken)
+      // 先注销自己这个实例,再看兄弟:两个一起停(关机)时,后看的那个一定看得见先走的已经走了,至少有一个说离线。
+      await retireRuntimeInstance(client, instanceId, options.operationTimeouts)
       // 同账号同机的别的实例共用这一行(#5041):它还活着,这台机器就没走 ——
       // ❌ 替它说离线(要等它下一拍心跳才写回在线,中间别的设备都读成离线)。
       const instances = await readDeviceRuntimeInstances(client, deviceId, options.operationTimeouts)

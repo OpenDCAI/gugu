@@ -356,15 +356,25 @@ export class MemoryDeviceCommandClient implements DeviceCommandTableClient {
   from(table: 'gugu_device_commands'): MemoryDeviceCommandTable
   from(table: 'runtime_instances'): MemoryRuntimeInstanceTable
   from(table: 'gugu_device_commands' | 'runtime_instances'): MemoryDeviceCommandTable | MemoryRuntimeInstanceTable {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     expect(table).toBe('gugu_device_commands')
     return new MemoryDeviceCommandTable(this.rows, this.options)
   }
 }
 
-/** #5041 — 只读的 runtime_instances 表:select(...).eq(...) 直接 await 出行。 */
+/** #5041 — runtime_instances 表:select(...).eq(...) 直接 await 出行;#156 停机时 delete().eq('instance_id') 删自己那一行。 */
 export class MemoryRuntimeInstanceTable {
-  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>) {}
+  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>, private live?: Set<string>) {}
+
+  delete() {
+    return {
+      eq: async (_column: 'instance_id', instanceId: string) => {
+        this.instances.delete(instanceId)
+        this.live?.delete(instanceId)
+        return { data: null, error: null }
+      },
+    }
+  }
 
   select(columns: string) {
     const filters: [string, string][] = []
@@ -419,7 +429,7 @@ export class MemoryRuntimeIdentityClient
     }
   }
   from(table: 'gugu_device_commands' | 'gugu_devices' | 'runtime_instances'): unknown {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     if (table === 'gugu_devices') {
       return {
         upsert: async (row: never, options?: { onConflict: string }) => {
