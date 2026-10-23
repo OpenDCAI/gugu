@@ -269,9 +269,6 @@ export default {
     "noResults": "No chats found",
     "listLabel": "Chats",
     "pin": "Pin",
-    "rowTag": {
-      "group": "Group chat"
-    },
     "scan": "Scan",
     "search": "Search",
     "unpin": "Unpin"

@@ -13,8 +13,7 @@ export function SidebarSearchTrigger() {
   const { translate } = useSessionMessages();
   const showCommandPalette = useShowModal('commandPaletteModal');
   return (
-    // 组离侧栏边多远归 list body(sidebar-primitives 的 sidebarGroupInsetX);内容列与下面那三个
-    // 按钮共用 sidebarRowContentInsetX —— 两级都同源,图标才落在同一条竖线上(e2e 3480 ②)。
+    // The header owns placement; reuse the existing search surface and content inset.
     // 底色和别处的搜索框同一个输入面(--em-surface-input,#132):它长得就是一个搜索框。
     <button
       type="button"
@@ -22,7 +21,7 @@ export function SidebarSearchTrigger() {
       aria-label={translate('sidebar.searchConversations')}
       data-testid="sidebar-search-trigger"
       className={cn(
-        'group/row flex h-8 w-full items-center gap-2 rounded-full bg-[var(--em-surface-input)] text-sm text-foreground-tertiary-muted',
+        'group/row flex h-8 min-w-0 w-full items-center gap-2 rounded-full bg-[var(--em-surface-input)] text-sm text-foreground-tertiary-muted [-webkit-app-region:no-drag]',
         sidebarRowContentInsetX
       )}
     >

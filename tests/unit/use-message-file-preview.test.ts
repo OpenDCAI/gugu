@@ -103,7 +103,7 @@ describe('useMessageFilePreview', () => {
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(deck) })
     expect(appMocks.openGroupFile).toHaveBeenCalledTimes(toApp ? 1 : 0)
-    if (toApp) expect(appMocks.openGroupFile).toHaveBeenCalledWith('item-1', undefined, undefined)
+    if (toApp) expect(appMocks.openGroupFile).toHaveBeenCalledWith('item-1', undefined, undefined, expect.any(Function))
     expect(closeRightSurfaces).toHaveBeenCalledTimes(toApp ? 0 : 1)
     expect(container.querySelector('[data-testid="preview-content"]') !== null).toBe(!toApp)
   })
@@ -113,8 +113,10 @@ describe('useMessageFilePreview', () => {
     const message = { id: 'origin', content: 'attachment' } as MessageItem
     const attachment = { ...file, source: { kind: 'item' as const, itemId: 'group-file', version: 1 } }
     await act(async () => { root.render(React.createElement(Probe)) })
-    await act(async () => { openPreview?.(attachment, message) })
-    expect(appMocks.openGroupFile).toHaveBeenCalledWith('group-file', undefined, message)
+    const restore = vi.fn()
+    await act(async () => { openPreview?.(attachment, message, restore) })
+    expect(appMocks.openGroupFile).toHaveBeenCalledWith('group-file', undefined, message, restore)
+    expect(restore).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="preview-content"]')).toBeNull()
   })
 

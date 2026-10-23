@@ -47,6 +47,22 @@ function key(sessionId: string | null, tabId: string): string {
 /** 常驻页说过的话(标题 / 角标 / 错误):它跟着页走,不跟着格(页见 extension-view-store 的 `residentPages`)。 */
 export type ExtensionSharedPresentation = Pick<ExtensionSurfaceState, 'title' | 'badge' | 'error'>;
 
+/** One title rule in task tabs, chat tabs, blocks and windows: files keep their own name first. */
+export function extensionTabTitle(
+  surface: ExtensionSharedPresentation,
+  appTitle: string,
+  file?: { name: string; path: string; hint?: string },
+): { label: string; hint?: string; tooltip: string } {
+  const title = surface.title ?? appTitle;
+  const detail = file && title !== file.name && title !== file.path ? title : undefined;
+  const hint = file ? [file.hint, detail].filter(Boolean).join(' · ') || undefined : undefined;
+  return {
+    label: file?.name ?? title,
+    hint,
+    tooltip: surface.error ?? (file ? [file.path, detail].filter(Boolean).join(' · ') : title),
+  };
+}
+
 const EMPTY_SHARED: ExtensionSharedPresentation = { title: null, badge: null, error: null };
 
 class ExtensionSurfaceStore {

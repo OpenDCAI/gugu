@@ -94,7 +94,7 @@
 .ta-onb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* 首次引导是整页(登录之后、主界面之前):卡片居中,底色同咕咕中性底。 */
-.ta-first-run { display: flex; min-height: 100dvh; width: 100%; align-items: center; justify-content: center; padding: 24px 16px; background: var(--ta-app-bg); overflow-y: auto; }
+.ta-first-run { display: flex; min-height: 100dvh; width: 100%; align-items: center; justify-content: center; padding: 24px 16px; background: var(--page); overflow-y: auto; }
 
 /* 开通后聊天里的「自定义」卡(AssistantCustomizeCard):接在消息流末尾,一颗胶囊按钮 + 一个小叉,照 dots「自定义你的 dot ›」。 */
 .ta-customize-card { display: flex; align-items: center; gap: 6px; padding: 4px 16px 12px; }

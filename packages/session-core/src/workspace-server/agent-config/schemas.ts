@@ -109,6 +109,8 @@ export const agentConfigUnknownProviderErrorSchema = z.object({
 export const agentConfigInvalidStateErrorSchema = z.object({
   type: z.literal('invalid-state'),
   message: z.string(),
+  // 因「这一家有会话正在工作」没切订阅:界面据此按自己的语言写提示;没有这个字段(旧主机)就照 `message` 显示。
+  sessionsBusy: z.object({ providerId: z.string(), count: z.number().int() }).optional(),
 });
 export const agentConfigIoErrorSchema = z.object({
   type: z.literal('io'),

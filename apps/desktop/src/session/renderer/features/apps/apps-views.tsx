@@ -7,7 +7,7 @@ import type { ViewDefinition } from '@renderer/app/view-registry';
 import { SquareArrowOutUpRight } from '@/lib/icons';
 import { openAppInWindow } from '@renderer/features/extensions/app-dock';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
-import { extensionSurfaceStore } from '@renderer/features/extensions/extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { ExtensionsLibraryPage } from '@renderer/features/library/extensions-library-page';
 import { LibraryHostProvider } from '@renderer/features/library/library-host';
@@ -75,13 +75,14 @@ const AppTitlebar = observer(function AppTitlebar() {
   const { params } = useParams('app');
   const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main ? pageError() : null;
+  const heading = main ? extensionTabTitle(extensionSurfaceStore.said(null, 'dock'), main.extensionName) : null;
   const openInWindowLabel = translate('tabs.openInWindow');
   return (
     <ShellTitlebar
       leftSlot={
         main ? (
           <span className="flex min-w-0 items-center gap-1">
-            <span className="text-sm font-medium">{main.extensionName}</span>
+            <span className="text-sm font-medium" title={heading?.tooltip}>{heading?.label}</span>
             {error ? <AppErrorMark error={error} onToggle={() => toggleErrorDetails(main.kind)} testId="app-page-error" /> : null}
           </span>
         ) : null
@@ -89,7 +90,7 @@ const AppTitlebar = observer(function AppTitlebar() {
     >
       {main?.enabled && params.appId ? (
         <div className="absolute top-0 right-0 flex" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }}>
-          <TabBarActionRow atWindowEdge fixedCluster={false}>
+          <TabBarActionRow atWindowEdge>
             <Button
               variant="ghost"
               size="icon-sm"

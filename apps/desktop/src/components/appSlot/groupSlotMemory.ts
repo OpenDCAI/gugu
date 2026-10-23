@@ -1,5 +1,6 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { PanelForm, SidePanelWidths } from '../../session/renderer/lib/layout/side-panel-split'
+import { extensionSurfaceStore } from '../../session/renderer/features/extensions/extension-surface-store'
 import type { AppOpenWithDetail, ChatPeekFile } from '../../session/shared/extensions/app-runtime-protocol'
 
 /** The group's panel beside the messages: 520 wide at first, never under 360 (the slot's INLINE_COMMANDS), as wide as last dragged. */
@@ -11,12 +12,18 @@ export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPane
  */
 export interface OpenedWith {
   message?: MessageItem
+  /** Present only for a file opened from a message, whose caller owns the way back. */
+  restore?: () => void
   /** No App claims it: the host's file preview. */
   kind: string | null
   file?: ChatPeekFile
   /** The file it was handed; none for an App's own page. */
   itemId?: string
   title: string
+  /** Original file name for downloads and tooltips; title is its display name. */
+  fileName?: string
+  /** The existing App trail belongs to this tab, including while another tab is active. */
+  trail?: OpenedWith[]
   /** What kind of file it is (`typedFileName`): who opens it is decided by this. None without a file. */
   typedName?: string
   /** Counts the opens: each is a page of its own, never one left from before (摩擦单 F28). */
@@ -29,6 +36,7 @@ export interface OpenedWith {
  */
 export interface AskedFile {
   message?: MessageItem
+  restore?: () => void
   itemId: string
   at?: Record<string, string>
   opener?: AppOpenWithDetail
@@ -49,9 +57,12 @@ export interface FileToOpen extends AskedFile {
  *
  * The right side shows one thing at a time (#1312): the panel, or the topic opened beside the group. The other one
  * stays open as a tab, not shown — so the panel's things are listed while the panel is closed, and `topic` is the
- * topic open beside the group, `shown` while its pane is up. Only a tab's × closes it.
+ * topic open beside the group, `shown` while its pane is up. Leaving an object through Back or × closes its tab.
  */
 type PanelItem = OpenedWith | null
+
+/** The same slot identity for its page and every host drawing its title. */
+export const groupPageSlot = (chatId: string, item: PanelItem) => `group-app-slot:${chatId}${item ? `#${item.opening}` : ''}`
 export interface OpenTopicTab { chatId: string; name: string; shown: boolean }
 const remembered = new Map<string, { form: PanelForm; open: PanelItem[]; active: PanelItem; topic?: OpenTopicTab | null }>()
 /** The same thing opened again (the same App's page, the same file in the same App) is the same tab. */
@@ -71,8 +82,8 @@ export const groupSlotMemory = {
     changed()
   },
   /** A file of this group asked to be opened (a link, 摩擦单 F10): its panel opens it when it next shows the group. */
-  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem) {
-    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}) })
+  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem, restore?: () => void) {
+    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}), ...(restore ? { restore } : {}) })
     const entry = entryOf(chatId)
     remembered.set(chatId, { ...entry, form: entry.form === 'closed' ? 'side' : entry.form })
     changed()
@@ -94,7 +105,7 @@ export const groupSlotMemory = {
     askedApps.delete(chatId)
     return extensionId
   },
-  /** The panel came up: what it shows is open — the folder too, when nothing else was — a tab until its ×. */
+  /** The panel came up: what it shows is open — the folder too, when nothing else was — a tab until it is closed. */
   noteShown(chatId: string) {
     const entry = entryOf(chatId)
     if (entry.open.length > 0) return
@@ -111,6 +122,10 @@ export const groupSlotMemory = {
     const entry = remembered.get(chatId)
     const shown = entry ? entry.active : null
     let open = entry ? [...entry.open] : []
+    if (opened) {
+      const previous = open.find((item) => sameItem(item, opened))
+      opened.trail = opened.restore ? [] : previous ? previous.trail ?? [] : opened.trail ?? (shown ? [...(shown.trail ?? []), shown] : [])
+    }
     if (!open.some((item) => sameItem(item, shown))) open.push(shown)
     open = open.some((item) => sameItem(item, opened)) ? open.map((item) => (sameItem(item, opened) ? opened : item)) : [...open, opened]
     remembered.set(chatId, { ...entry, form: entry?.form ?? 'side', open, active: opened })
@@ -153,16 +168,20 @@ export const groupSlotMemory = {
     remembered.set(chatId, { ...entry, open, active: found, form: entry.form === 'closed' ? 'side' : entry.form })
     changed()
   },
-  /** A tab's ×: it leaves the open ones; the one shown goes to its neighbour; the last one closes the panel. */
-  close(chatId: string, item: PanelItem) {
+  /** Back and × leave the object tab: restore its open source, or its neighbour; the last closes the panel. */
+  close(chatId: string, item: PanelItem, onClosePanel?: () => void) {
     const entry = entryOf(chatId)
     const open = entry.open.length > 0 ? entry.open : [null]
     const at = open.findIndex((candidate) => sameItem(candidate, item))
     if (at < 0) return
     const rest = open.filter((_, index) => index !== at)
-    const active = sameItem(entry.active, item) ? (rest[at] ?? rest[at - 1] ?? null) : entry.active
+    const source = [...(item?.trail ?? [])].reverse().map((page) => rest.find((candidate) => sameItem(candidate, page))).find((page) => page !== undefined)
+    const active = sameItem(entry.active, item) ? (source ?? (item && rest.includes(null) ? null : rest[at] ?? rest[at - 1] ?? null)) : entry.active
     remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { ...entry, form: 'closed', open: [], active: null })
+    extensionSurfaceStore.forget(null, groupPageSlot(chatId, item))
     changed()
+    if (item?.restore || rest.length === 0) onClosePanel?.()
+    item?.restore?.()
   },
   subscribe(listener: () => void): () => void {
     listeners.add(listener)

@@ -1,3 +1,4 @@
+import './browser-user-agent-bootstrap'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -126,6 +127,7 @@ import { TUNNEL_MACHINES_CHANNELS, type TunnelWant } from '../src/lib/tunnelMach
 import { machineDisplayName } from '@gugu/core/device/machineDisplayName'
 import {
   createDeviceRuntimeHostLoop,
+  stopRuntimeHostWithTimeout,
   runtimeAuthFromSupabaseTokens,
   clearHumanAuthSession,
   detectDeviceCapabilities,
@@ -3048,14 +3050,25 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-done  label=${label}\n`)
   } catch { /* 同上 */ }
 }
-process.on('SIGINT', () => {
-  killEnginesOnCrash('SIGINT')
-  process.exit(130) // 128 + SIGINT(2):同步收组后立退,不等异步(信号=立即终止)
-})
-process.on('SIGTERM', () => {
-  killEnginesOnCrash('SIGTERM')
-  process.exit(143) // 128 + SIGTERM(15)
-})
+// #156 server 模式下这两个信号就是「停掉服务」(`gugu-server stop`、systemd、守护进程收账号进程):先停设备循环 ——
+// 它最后把设备行标成离线,名下别的设备当场看见,❌ 等两分钟租约过期、看起来和崩溃一样 —— 再同步收组退出。
+// 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
+const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
+let signalStopping = false
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  const finish = (): void => {
+    killEnginesOnCrash(label)
+    process.exit(code)
+  }
+  const host = deviceRuntimeHost
+  if (!SERVER_MODE || !host || signalStopping) return finish()
+  signalStopping = true
+  void stopRuntimeHostWithTimeout(host, SERVER_SIGNAL_STOP_TIMEOUT_MS)
+    .catch((error: unknown) => shutdownLogger.warn({ label, error: String(error) }, 'device runtime stop on signal failed'))
+    .finally(finish)
+}
+process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
+process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.

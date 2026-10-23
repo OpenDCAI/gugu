@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { openImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { openImRepository as openRawRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createAccountRevisionCoordinator, PRESENCE_TRAILING_DRAIN_MS, readDeliveryRevision, readMemberReadRevision, readMemberRosterRevision, readMessageCreatedRevision, readRevisionResourceKey, readWorkspaceChanges } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { AccountRevisionPage, AccountRevisionSource } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
 import { entityKey, membershipId, operationKeys } from '../../../../apps/desktop/src/lib/chatProjectionAlgebra'
+
+async function openImRepository(...args: Parameters<typeof openRawRepository>) {
+  const repository = await openRawRepository(...args)
+  if (!repository.snapshot().sync_state.some((row) => row.key === 'account-revision-cursor')) {
+    await repository.transaction((transaction) => transaction.putSyncState('account-revision-cursor', { revision: '0' }))
+  }
+  return repository
+}
 
 function page(revision: string, event = 'chat_changed'): AccountRevisionPage {
   return { operations: [{ revision, event, payload: { chat_id: 'chat-1' } }], hasMore: false }
@@ -229,7 +237,7 @@ describe('AccountRevisionCoordinator', () => {
       expect.objectContaining({ revision: '3' }),
     ])
     expect(presence).toHaveBeenCalledWith([expect.objectContaining({ revision: '2' })])
-    expect(commit).toHaveBeenCalledTimes(2)
+    expect(commit).toHaveBeenCalledTimes(3) // bootstrap fixture + page + acknowledgement
     expect(repository.snapshot().view).toEqual([])
     coordinator.stop()
   })

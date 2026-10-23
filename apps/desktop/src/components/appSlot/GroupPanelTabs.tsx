@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LayoutGrid, Maximize2, Minimize2, Paperclip, Plus } from '@/lib/icons'
 import { subscribeShellChatActions, takeShellChatAction, type ShellChatAction } from '@/lib/sidebarChatsBridge'
+import { extensionSurfaceStore, extensionTabTitle } from '../../session/renderer/features/extensions/extension-surface-store'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { parseExtensionTabKind } from '../../session/shared/extensions/manifest'
 import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
@@ -12,7 +13,7 @@ import { TopicTab } from '../chat/TopicSplitPane'
 import { RailAppIcon } from '../RailAppIcon'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
-import { groupSlotMemory, type OpenedWith } from './groupSlotMemory'
+import { groupPageSlot, groupSlotMemory, type OpenedWith } from './groupSlotMemory'
 
 /**
  * 群右栏开着的东西在块页签条上的那几枚(gugu-dev#181 第 ⑥ 步):群文件夹、App 的页、在 App 里开的文件,按打开先后排,
@@ -63,10 +64,7 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
               groupSlotMemory.activate(chatId, item)
               if (as || form === 'closed') onShowPanel(as ?? 'side')
             }}
-            onClose={() => {
-              groupSlotMemory.close(chatId, item)
-              if (groupSlotMemory.tabs(chatId).length === 0) onClosePanel()
-            }}
+            onClose={() => groupSlotMemory.close(chatId, item, onClosePanel)}
             closeLabel={t('common.close')}
           />
         )
@@ -114,12 +112,19 @@ const PanelTab = observer(function PanelTab({ chatId, item, active, full, onPick
   const folderName = useChatFolderName(chatId)
   const extensionId = item?.kind ? parseExtensionTabKind(item.kind)?.extensionId : undefined
   const app = extensionId ? installedExtensionsStore.openableApps.find((candidate) => candidate.extensionId === extensionId) : undefined
-  const label = item ? item.title : folderName
+  const presentation = extensionTabTitle(
+    extensionSurfaceStore.said(null, groupPageSlot(chatId, item)),
+    item?.kind ? installedExtensionsStore.tabTitle(item.kind) ?? item.title : item?.title ?? folderName,
+    item?.itemId ? { name: item.title, path: item.fileName ?? item.title } : undefined,
+  )
+  const { label, hint, tooltip } = presentation
   return (
     <TabSlot data-panel-tab={item ? item.kind ?? 'preview' : 'folder'}>
       <TabChip
         isActive={active}
         label={label}
+        hint={hint}
+        title={tooltip}
         preSlot={item === null ? <LayoutGrid size={14} /> : app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />}
         closeLabel={`${closeLabel} ${label}`}
         onClose={onClose}
