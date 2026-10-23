@@ -792,7 +792,7 @@ describe('MainLayout', () => {
     expect(target('mock-assistant-tab')).toBe('true')
     expect(target('mock-chat-area')).toBe('false')
     // A remains the main selection while its list is shown; an unread arrival then reopens A via this same route.
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
+    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileMessagesNav}"]`) as HTMLElement)
     expect(live()).toEqual(['chats'])
     const previousRequest = request()
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)

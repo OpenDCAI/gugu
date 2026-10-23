@@ -206,7 +206,7 @@ describe('打开会话的第一帧', () => {
 
   it('sends from a full off-bottom viewport without cutting off its ACK or reloading the tail', async () => {
     network.resolve()
-    projectionStub.rows = [{ ...chatA, peer_user_id: 'a1' }, chatB]
+    projectionStub.rows = [{ ...chatA, kind: 'group' }, chatB]
     const ack = deferred<MessageItem>()
     vi.mocked(chatService.sendMessage).mockImplementation(() => ack.promise)
     const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
