@@ -244,6 +244,8 @@ export function usePlatformModelCatalog(
   useEffect(() => {
     // 机器断开 / 连上本身不换目录也不换会话:列着的留着,别先清空再填。
     if (online !== wasOnline.current) keepCurrent.current = true;
+    // 回来了:断开前那次没问到的失败作废(它是机器那头没应答),❌ 重取回来之前再亮一下「尚未就绪」。
+    if (online && !wasOnline.current) setCatalog((prev) => (prev.catalogError ? { ...prev, catalogError: null } : prev));
     wasOnline.current = online;
     // 列着的是哪一份(提供方 + 界面 + 机器)与连没连上无关:换了就清,❌ 离线时把上一台 / 上一家的模型留在下拉里。
     const sameCatalog = lastCatalogOf.current === catalogOf;
