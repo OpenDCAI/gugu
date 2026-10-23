@@ -12,6 +12,7 @@ import { clickElement, createNode, createReactHarness } from '../../../support/t
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
@@ -861,6 +862,19 @@ describe('MainLayout', () => {
 describe('MainLayout: files.openWith', () => {
   const detail = { chatId: 'g-open', itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } }
 
+  it.each([false, true])('a topic file opens its source and split before the request is taken (blocks=%s)', async (blocks) => {
+    platformMock.capabilities.sessionHost = blocks
+    chatStoreMock.chats = [{ id: 'source', kind: 'group' }, { id: 'topic-file', kind: 'topic', source_chat_id: 'source', name: 'Topic' }] as never
+    const restore = vi.fn()
+    await renderMainLayoutWithToast()
+    await act(async () => { window.dispatchEvent(new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'topic-file', itemId: 'F1', restore } })) })
+    if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
+    else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
+    expect(drainTopicSplitRequest('source')).toMatchObject({ chatId: 'topic-file', sourceChatId: 'source', name: 'Topic' })
+    expect(groupSlotMemory.takeFile('topic-file')).toEqual({ itemId: 'F1', restore })
+    expect(groupSlotMemory.takeFile('source')).toBeNull()
+  })
+
   it('the file\'s chat comes up and its panel is asked for the file, with the host\'s answer', async () => {
     chatStoreMock.chats = [{ id: 'g-open', kind: 'group', name: 'G' } as never]
     await renderMainLayoutWithToast()
@@ -874,10 +888,11 @@ describe('MainLayout: files.openWith', () => {
     chatStoreMock.chats = [{ id: 'g-open', kind: 'group', name: 'G' } as never]
     const message = { id: 'message-origin', content: 'attachment', retracted_at: null }
     await renderMainLayoutWithToast()
-    const event = new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'g-open', itemId: 'F1', message } })
+    const restore = vi.fn()
+    const event = new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'g-open', itemId: 'F1', message, restore } })
     await act(async () => { window.dispatchEvent(event) })
     expect(event.defaultPrevented).toBe(true)
-    expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message })
+    expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message, restore })
   })
 
   it('a chat the person is not in: said, and nothing asked of any panel', async () => {
@@ -891,24 +906,25 @@ describe('MainLayout: files.openWith', () => {
   })
 })
 
-// gugu-dev#181 链接(⌘K 面板选中一条话题也走它)、通知、App 点名打开一条话题:都只是把它摆成一块,同一扇门
-// (sessionPage.openChat)。话题变成「源对话 + 话题分栏」只在 ChatAreaPanel 一处(那边的单测钉住)。
+// Links and notifications use the chat door. A file request opens the source and split first,
+// so a temporary topic block cannot consume its file before normalizing to the source.
 describe('MainLayout: opening a topic on the desktop', () => {
   // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
   const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
   const TOPIC = '0b1e7c1a-0000-4000-8000-000000000002'
-  const ways: Array<[string, () => void]> = [
-    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }],
-    ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }],
-    ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }],
+  const ways: Array<[string, () => void, string]> = [
+    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }, TOPIC],
+    ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
+    ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
-  it.each(ways)('from %s, through the one door', async (_way, open) => {
+  it.each(ways)('from %s, through the one door', async (_way, open, target) => {
     chatStoreMock.chats = [{ id: SRC, kind: 'group', name: '咕咕内测群' }, { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: SRC }] as never
     await renderMainLayoutWithToast()
     await act(async () => {
       open()
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(TOPIC, false)
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
+    if (target === SRC) expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
   })
 })

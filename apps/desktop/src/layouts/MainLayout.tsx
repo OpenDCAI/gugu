@@ -74,6 +74,7 @@ import { useNotificationSettings } from '../lib/notificationSettings'
 import { pushToHost as pushTrayBadgeEnabled } from '../lib/trayBadgeSetting'
 import { hydrateSidebarTint } from '../lib/sidebarTint'
 import { UI_EVENTS } from '../lib/uiEvents'
+import { requestTopicSplit } from '../lib/topicSplitRequest'
 import type { CreateContextBirthGroup } from '../lib/agentCreateContextBridge'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
@@ -768,7 +769,7 @@ function InnerLayout({
   }, [focusComposerForUserEntry, openChatBlock, setActiveChatId])
 
   // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
-  // line with the topic as the split, which ChatAreaPanel makes of any topic put up), and what was asked of it is left with
+  // line with the topic as the split), and what was asked of it is left with
   // the view that shows it (`UI_EVENTS.chatAsked`): a file (groupSlotMemory.askFile), a message (askReveal), the text for
   // its composer (its draft). A chat the person is not in is said so, not opened into nothing.
   const chatsRef = useRef(chats)
@@ -809,19 +810,22 @@ function InnerLayout({
         return false
       }
       ask(chat.id)
-      if (!openChatBlock(chat.id)) {
+      const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
+      const shownChatId = topic?.source_chat_id ?? chat.id
+      if (!openChatBlock(shownChatId)) {
         setAgentCreateDraftOpen(false)
         setActiveTab('chats')
         setMobilePane('chat')
-        setActiveChatId(chat.id)
+        setActiveChatId(shownChatId)
       }
+      if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
     const onFile = (event: Event) => {
       const detail = (event as CustomEvent<GroupFileOpenDetail>).detail
       if (!detail || typeof detail.itemId !== 'string') return
-      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message))) event.preventDefault()
+      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message, detail.restore))) event.preventDefault()
     }
     // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).

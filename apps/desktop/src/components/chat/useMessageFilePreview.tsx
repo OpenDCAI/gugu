@@ -23,10 +23,10 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
   const [preview, setPreview] = useState<{ file: PreviewFile; message?: MessageItem; opening: number } | null>(null)
   const opening = useRef(0)
   const restoreRef = useRef<(() => void) | null>(null)
-  const open = useCallback((file: PreviewFile, message?: MessageItem, restore?: () => void) => {
+  const open = useCallback((file: PreviewFile, message?: MessageItem, restore: () => void = () => {}) => {
     // Every group file uses the same App-first decision as files.openWith and file links.
     if (file.source.kind === 'item' && platform.kind !== 'web') {
-      void openGroupFile(file.source.itemId, undefined, message).catch((error) => {
+      void openGroupFile(file.source.itemId, undefined, message, restore).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
         toast(messageForUser(error, downloadFailed), 'error')
       })
