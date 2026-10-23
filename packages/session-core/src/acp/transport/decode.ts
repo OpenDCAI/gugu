@@ -16,6 +16,7 @@
 
 import type { SessionUpdate, ToolCallContent, ToolCallLocation } from '@agentclientprotocol/sdk';
 import { DRAFT_UPDATE_META_KEY } from '@gugu/core/shared/subagentUpdates.mjs';
+import { serializePayload, toolOutputText } from '../models/tool-payload';
 import type { ToolImage } from '../models/turns/tool-calls';
 import type {
   NormalizedDiff,
@@ -65,12 +66,6 @@ function collectTextPayload(value: unknown, parts: string[]): void {
   collectTextPayload(raw.content, parts);
 }
 
-function stripSingleCodeFence(text: string): string {
-  const trimmed = text.trim();
-  const match = /^```[^\n]*\n([\s\S]*?)\n```$/.exec(trimmed);
-  return match ? match[1] : text;
-}
-
 function extractTextOutput(
   content: ReadonlyArray<ToolCallContent> | null | undefined
 ): string | undefined {
@@ -85,7 +80,7 @@ function extractTextOutput(
     }
   }
   const text = parts.join('\n');
-  return text ? stripSingleCodeFence(text) : undefined;
+  return toolOutputText(text);
 }
 
 /**
@@ -132,25 +127,6 @@ function extractTerminalId(update: SessionUpdate): string | undefined {
     if (raw.type === 'terminal' && typeof raw.terminalId === 'string') return raw.terminalId;
   }
   return undefined;
-}
-
-/**
- * Serialize an ACP `rawInput` / `rawOutput` payload for display.
- *
- * ACP types both as free-form JSON, so a string arrives already readable and
- * anything else is pretty-printed once here rather than at each render — the
- * canonical form is a decode concern, how much of it is shown is not.
- * Non-serializable values (cycles) are dropped rather than thrown on: a payload
- * we cannot print must not take the whole tool call's decode down with it.
- */
-export function serializePayload(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === 'string') return value.length > 0 ? value : undefined;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return undefined;
-  }
 }
 
 function extractRawInput(update: SessionUpdate): string | undefined {
