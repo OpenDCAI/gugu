@@ -333,6 +333,14 @@ export default {
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
   },
+  "composePick": {
+    "title": "Choose where to send",
+    "search": "Search chats and tasks",
+    "chats": "Chats",
+    "tasks": "My tasks",
+    "empty": "No chats or tasks to choose",
+    "action": "Add to composer"
+  },
   "composer": {
     "agent": {
       "disabledReason": {
@@ -769,6 +777,7 @@ export default {
       "assignTitle": "Assign an agent",
       "assignBody": "Pick one of your agents to answer this post. It gets the post now, and what the poster or you say there later.",
       "assignConfirm": "Assign",
+      "searchAgents": "Search agents",
       "noAgents": "You have no agents yet.",
       "failed": "That did not go through. Please try again.",
       "error": {

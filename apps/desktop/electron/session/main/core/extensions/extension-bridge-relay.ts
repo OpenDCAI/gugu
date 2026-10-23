@@ -4,8 +4,10 @@ import {
   setExtensionBridgeHost,
   type ExtensionBridgeHost,
 } from '@main/core/extensions/extension-bridge';
+import type { ComposePickAsk, ComposePlace } from '@shared/extensions/app-send-core';
 import {
   EXTENSION_HOST_ACTION_METHOD,
+  EXTENSION_PICK_COMPOSE_TARGET_METHOD,
   INSTALLED_NOT_SHOWN_NOTE,
   type ExtensionInstallConsentRequest,
   type ExtensionInstallConsentResult,
@@ -192,6 +194,12 @@ export function drawMemberFaces(people: readonly { id: string; avatar: string | 
 /** The project the task list has another computer's session under, or null, asked of the window (`gugu.showSession`). */
 export function listedSessionProject(sessionId: string): Promise<string | null> {
   return Promise.resolve().then(() => requireHostWindow().listedSession(sessionId));
+}
+
+/** `gugu.compose(text)` naming no place: the window that draws the page lets the person pick one (null: they cancelled). */
+export function pickComposeTarget(embedderId: number | null, ask: ComposePickAsk): Promise<ComposePlace | null> {
+  if (embedderId === null) return Promise.reject(new Error('This surface is not embedded in a renderer that can act on its behalf'));
+  return Promise.resolve().then(() => requireHostWindow().invokeRendererExtensions(EXTENSION_PICK_COMPOSE_TARGET_METHOD, ask, embedderId) as Promise<ComposePlace | null>);
 }
 
 /** How long an install waits for the window to take the new set in before answering anyway (摩擦单 F52). */

@@ -53,6 +53,9 @@ const composeTarget = vi.fn(async (args: { text: unknown; chat?: unknown; sessio
     : { chatId: String(args.chat), text: `${String(args.text)}\n` };
 });
 vi.mock('@main/core/extensions/extension-send', () => ({ composeTarget }));
+// The window's sheet (ComposeTargetPicker): what the person picked, or null — asked only when the call named no place.
+const pickComposeTarget = vi.fn(async (_embedderId: number | null, _ask: unknown): Promise<unknown> => null);
+vi.mock('@main/core/extensions/extension-bridge-relay', () => ({ pickComposeTarget }));
 
 const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost, recentExtensionErrors } = await import('./extension-bridge');
 const { events } = await import('@main/lib/events');
@@ -133,5 +136,29 @@ describe('what a page says about itself: one way out of main', () => {
     deliver.mockClear();
     expect(await call(GROUP_PAGE, 'compose', { text: '   ', chat: CHAT })).toMatchObject({ ok: false, code: 'invalid' });
     expect(deliver).not.toHaveBeenCalled();
+  });
+
+  // Control (the parent commit): naming no place was refused (`Say where`) and the App drew its own list of targets.
+  it('compose naming no place asks the window where — the page\'s own session ticked — and tells the App only what was picked', async () => {
+    pickComposeTarget.mockResolvedValueOnce({ session: 'task-2' });
+    expect(await call(SESSION_TAB, 'compose', { text: 'ask about this' })).toEqual({ ok: true, value: { session: 'task-2' } });
+    expect(pickComposeTarget).toHaveBeenLastCalledWith(42, { tasks: true, current: 'task-1' });
+    expect(deliver).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'task-1' }), { kind: 'compose', sessionId: 'task-2', text: 'ask about this\n' });
+
+    // Images go into a chat's composer only: the sheet offers chats.
+    pickComposeTarget.mockResolvedValueOnce({ chat: CHAT });
+    expect(await call(GROUP_PAGE, 'compose', { text: 'look', images: [] })).toEqual({ ok: true, value: { chat: CHAT } });
+    expect(pickComposeTarget).toHaveBeenLastCalledWith(42, { tasks: false, current: null });
+
+    // Cancelled: nothing goes anywhere, and the App hears so.
+    deliver.mockClear();
+    pickComposeTarget.mockResolvedValueOnce(null);
+    expect(await call(DOCK_PAGE, 'compose', { text: 'never mind' })).toEqual({ ok: true, value: { cancelled: true } });
+    expect(deliver).not.toHaveBeenCalled();
+
+    // Nothing to compose is said before any sheet opens.
+    pickComposeTarget.mockClear();
+    expect(await call(DOCK_PAGE, 'compose', { text: '  ' })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(pickComposeTarget).not.toHaveBeenCalled();
   });
 });

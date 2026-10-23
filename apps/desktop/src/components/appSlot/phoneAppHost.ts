@@ -3,7 +3,8 @@ import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
 import { AppFileError, contentTypeOf, createAppFiles, rosterMoved, tooLargeError, type ChatFileRef, type FileSurface, type MemberChange } from '../../session/shared/extensions/app-files-core'
-import { AppSendError, composeInChat, createAppSend, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { AppSendError, composeInChat, composeNamesPlace, createAppSend, pickComposePlace, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { pickComposeTarget } from '../chat/composeTargetAsk'
 import { chatOf, createAppMessages } from '../../session/shared/extensions/app-messages-core'
 import { createAppForum, type ForumChannel } from '../../session/shared/extensions/app-forum-core'
 import { dataClient } from '../../lib/supabase'
@@ -517,11 +518,15 @@ export function hostAppFrame(
       }
       case 'compose': {
         // Into the composer of the chat the call names, as on the desktop (the chat shell takes it): the person sends it.
-        // A phone has no sessions: one named is not here.
+        // A phone has no sessions: one named is not here. Naming none, the person picks a chat in the shell's sheet.
         if (args.session !== undefined && args.session !== null) refused('not-found', 'No sessions on the phone')
-        return composeInChat(sendPlatform, { text: args.text, chat: args.chat, refs: args.refs, about: args.about, images: args.images }).then((detail) => {
+        return (async () => {
+          const picked = composeNamesPlace(args) ? null : await pickComposePlace(args, () => pickComposeTarget({ tasks: false, current: null }))
+          if (picked && 'cancelled' in picked) return picked
+          const detail = await composeInChat(sendPlatform, { text: args.text, chat: args.chat, refs: args.refs, about: args.about, images: args.images, ...picked })
           window.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail }))
-        })
+          return picked ?? undefined
+        })()
       }
       case 'showMessage':
         return files.messageToShow(args as never).then((detail) => hooks.showMessage(detail))
