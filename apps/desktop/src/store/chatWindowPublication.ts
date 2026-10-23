@@ -1,47 +1,15 @@
 import { useState } from 'react'
+import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { AccountImRepository } from '../lib/imRepository'
 import { chatService } from '../lib/chat'
 import { decideColdStartFetch, deltaResultRequiresDegrade } from '../lib/coldStartFetch'
-import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq, trimToMessageWindow } from './chatMessageWindow'
+import { INITIAL_PAGE, NEWER_PAGE, maxMainlineSeq } from './chatMessageWindow'
 import { seedCacheFromDisk } from './chatDiskWindow'
 import { rendererLogger } from '../lib/log'
 
-type Listener = (rows: MessageItem[]) => void
-
-/** The existing message cache owns publication; every mutation reaches its visible surfaces. */
-export class ChatWindowCache extends Map<string, MessageItem[]> {
-  private readonly listeners = new Map<string, Set<Listener>>()
-  override set(chatId: string, rows: MessageItem[]): this {
-    super.set(chatId, rows)
-    this.publish(chatId, rows)
-    return this
-  }
-  override delete(chatId: string): boolean {
-    const deleted = super.delete(chatId)
-    if (deleted) this.publish(chatId, [])
-    return deleted
-  }
-  override clear(): void {
-    const ids = [...this.keys()]
-    super.clear()
-    for (const id of ids) this.publish(id, [])
-  }
-  isObserved(chatId: string): boolean { return this.listeners.has(chatId) }
-  private publish(chatId: string, rows: MessageItem[]): void {
-    for (const listener of this.listeners.get(chatId) ?? []) listener(rows)
-  }
-  readonly subscribe = (chatId: string, listener: Listener): (() => void) => {
-    let listeners = this.listeners.get(chatId)
-    if (!listeners) this.listeners.set(chatId, listeners = new Set())
-    listeners.add(listener)
-    listener(this.get(chatId) ?? [])
-    return () => {
-      listeners.delete(listener)
-      if (listeners.size === 0) { this.listeners.delete(chatId); const rows = this.get(chatId); if (rows) this.set(chatId, trimToMessageWindow(rows)) }
-    }
-  }
-}
+import { ChatWindowCache } from './chatWindowCache'
+import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
 
 export function useChatWindowCache() {
   const [cache] = useState(() => new ChatWindowCache())
@@ -57,6 +25,9 @@ export type WindowObserver = {
 
 /** Operations on the account's existing window, independent of the primary view selection. */
 export type ChatWindowAccess = {
+  window: (chatId: string) => ChatHistoryWindow
+  load: (chatId: string, direction: 'older' | 'newer' | 'latest') => Promise<void>
+  anchor: (chatId: string, messageId: string) => Promise<void>
   read: (chatId: string) => MessageItem[] | undefined
   write: (chatId: string, updater: (rows: MessageItem[]) => MessageItem[]) => void
   persist: (chatId: string, rows: MessageItem[]) => void
@@ -67,7 +38,7 @@ export type ChatWindowAccess = {
 
 /** The main window's L1/L2, delta and result-side degrade path also opens topics and blocks. */
 export async function openCachedChatWindow(options: {
-  chatId: string; userId: string; cache: Map<string, MessageItem[]>
+  chatId: string; userId: string; cache: Map<string, MessageItem[]>; history: ChatHistoryWindow
   getRepository: () => Promise<AccountImRepository>
   expectedTailSeq: number | null; hasPositiveUnread: boolean
   observer: WindowObserver
@@ -110,6 +81,34 @@ export async function openCachedChatWindow(options: {
       return
     }
   }
-  const rows = await chatService.getMessages(chatId, userId, 'initialLoad', INITIAL_PAGE)
-  await finalize(rows, painted, painted || rows.length >= INITIAL_PAGE)
+  if (!painted) {
+    await options.history.load('latest', fetchChatHistoryPage(userId))
+    const window = options.history.getSnapshot()
+    await finalize(window.messages, false, window.hasOlder)
+  } else {
+    const rows = await chatService.getMessages(chatId, userId, 'initialLoad', INITIAL_PAGE)
+    await finalize(rows, true, true)
+  }
+}
+
+/** The existing history controller owns both primary and scoped pagination. */
+export function fetchChatHistoryPage(userId: string): FetchHistoryPage {
+  return (chatId, way, cursor, limit) => way === 'newer'
+    ? chatService.getMessages(chatId, userId, 'loadNewer', limit, undefined, cursor)
+    : way === 'older' ? chatService.getMessages(chatId, userId, 'loadOlder', limit, cursor)
+      : chatService.getMessages(chatId, userId, 'initialLoad', limit)
+}
+
+export function restoreChatHistoryAnchor(window: ChatHistoryWindow, userId: string, messageId: string): Promise<boolean> {
+  return window.restoreAnchor(async (chatId) => {
+    const anchor = await chatService.getMessageById(messageId, userId)
+    if (!anchor || anchor.chat_id !== chatId || anchor.thread_root_id) throw new Error('Saved conversation message is no longer available')
+    const [older, newer] = await Promise.all([
+      chatService.getMessages(chatId, userId, 'loadOlder', 20, anchor.seq + 1),
+      chatService.getMessages(chatId, userId, 'loadNewer', 20, undefined, anchor.seq),
+    ])
+    const messages = mergeMessagesById(older, newer, chatId)
+    if (!messages.some((row) => row.id === messageId)) throw new Error('Saved conversation message is no longer visible')
+    return { messages, hasNewer: newer.length === 20 }
+  })
 }

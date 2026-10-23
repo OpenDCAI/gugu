@@ -47,6 +47,10 @@ import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
 import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 import { ChatBottomDock } from './ChatBottomDock'
+import type { TopicLine } from '@/hooks/useTopicLine'
+import { useFollowingTail } from './useFollowingTail'
+import { useChatHistoryPagination } from './useChatHistoryPagination'
+import { useConversationScrollMemory } from './useConversationScrollMemory'
 
 /**
  * @@@5856 话题分栏 —— 右侧那条独立收发的话题线(product spec)。
@@ -61,6 +65,7 @@ import { ChatBottomDock } from './ChatBottomDock'
 export type TopicSplitPaneProps = {
   visible?: boolean
   topic: { chatId: string; name: string }
+  history: Pick<TopicLine, 'messageWindow' | 'setFollowingTail' | 'revealOlder' | 'loadNewer' | 'loadMessageAnchor'>
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
@@ -108,11 +113,6 @@ export type TopicSplitPaneProps = {
   runningTokens?: RunningToken[]
   /** 运行条详情卡读哪条会话(来源群)。 */
   runningPreviewChatId?: string | null
-  /**
-   * 往上翻一页。不接它 = 分栏永远只有最新一页,滚到顶是一堵墙且不报错 ——
-   * owner 报的「消息列表不会滚动」里的另一半。
-   */
-  onRevealOlder: () => void
   onClose: () => void
   /** 发言人的 id —— InputArea 的 @ 候选与自指要用它。 */
   currentUserId: string | null
@@ -223,7 +223,7 @@ export function TopicSplitPane({
   agentStatuses,
   runningTokens,
   runningPreviewChatId = null,
-  onRevealOlder,
+  history,
   onClose,
   currentUserId,
   mobile = false,
@@ -314,7 +314,7 @@ export function TopicSplitPane({
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
-  // 列表要的两样:行数据,和每一行怎么画。分栏没有分页、没有多选,所以那几项是定值;
+  // 列表行与主线共用历史窗口和分页;分栏没有多选。
   // 已读环有 —— 水位由 useTopicLine 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
   const rows = useMemo<ChatListRowItem[]>(
     () => messages.map((message) => ({ type: 'message' as const, message })),
@@ -326,7 +326,7 @@ export function TopicSplitPane({
   // the hook takes the reveal.
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
-  const [followingTail, setFollowingTail] = useState(true)
+  const { messageWindow, setFollowingTail, loadMessageAnchor } = history
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
@@ -345,11 +345,19 @@ export function TopicSplitPane({
     window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
     return () => window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
   }, [workspaceOpen, closeWorkspace, topic.chatId, rows])
+  const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
+  const { scrollerEl, setScrollerRef, isPreservingPosition, openLocation, revealMessage } = useConversationScrollMemory({
+    chatId: topic.chatId, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen,
+    messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
+  })
+  const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: false,
+    hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen,
+    scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.revealOlder, loadNewer: history.loadNewer, window: messageWindow, onError: onHistoryError })
   useSourceMessageReveal({
     activeChatId: workspaceOpen ? null : topic.chatId,
-    rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef,
-    // Older lines of a topic load as its list reaches the top; one not loaded yet is said, as the group's.
-    revealMessage: () => Promise.reject(new Error('not loaded in this topic')),
+    rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
   const rowProps = useMemo<MessageListRowProps>(() => ({
@@ -540,16 +548,16 @@ export function TopicSplitPane({
             // 自己撸的那份滚不动不是少写了一行 scrollTop,是主线列表的贴底与
             // totalListHeightChanged 那一套(markdown 异步撑高之后再钳底)根本不在。
             <MessageList
-              resetKey={topic.chatId}
+              resetKey={chatResetKey}
+              scrollerRef={setScrollerRef}
               rows={rows}
               rowProps={rowProps}
               listRef={listRef}
-              initialTopMostItemIndex={revealLanding ?? undefined}
-              followTail={followingTail}
-              onAtBottomChange={(atBottom) => { isAtBottomRef.current = atBottom; if (atBottom) setFollowingTail(true) }}
+              initialTopMostItemIndex={revealLanding ?? openLocation()}
+              followTail={!messageWindow.hasNewer && messageWindow.change !== 'newer'}
+              onAtBottomChange={onAtBottomChange}
               style={MESSAGE_LIST_STYLE}
               surface="aside"
-              onStartReached={onRevealOlder}
             />
           )}
         </div>

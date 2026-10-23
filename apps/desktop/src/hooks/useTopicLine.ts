@@ -2,28 +2,32 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
-import { chatService } from '@/lib/chat'
 import { subscribeChatLineRevisions } from '@/lib/accountRevisionListeners'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { rendererLogger } from '@/lib/log'
 import { reconcileMemberReadSeqs } from '@/store/chatRealtimeMutations'
-import { OLDER_PAGE, maxMainlineSeq } from '@/store/chatMessageWindow'
+import { maxMainlineSeq } from '@/store/chatMessageWindow'
 import { useMemberReadSeqs } from './useMemberReadSeqs'
 import { useChatStore } from '@/store/chatContext'
+import { ChatHistoryWindow, type HistoryWindow } from '@/store/chatHistoryWindow'
 
 const topicLineLog = rendererLogger('chat/topic-line')
 
 const NO_MESSAGES: MessageItem[] = []
+const EMPTY_HISTORY = new ChatHistoryWindow().getSnapshot()
 /** 还没读到(或表还属于上一条话题)时是空表 —— 空表 ⇒ computeReadReceipt 返回 undefined ⇒ 不画环。 */
 const NO_READ_SEQS: Record<string, number> = {}
 
 export type TopicLine = {
   messages: MessageItem[]
+  messageWindow: HistoryWindow
+  setFollowingTail: (following: boolean) => void
+  loadNewer: () => Promise<void>
+  returnToLatest: () => Promise<void>
+  loadMessageAnchor: (messageId: string) => Promise<void>
   loading: boolean
   /** 这条话题自己的对端水位。❌ 不能拿来源线(activeChat)那一格画 —— 那是另一条线的读数。 */
   memberReadSeqs: Record<string, number>
-  /** 已经翻到头了没有 —— 到头就不再拉。 */
-  reachedOldest: boolean
   revealOlder: () => Promise<void>
   /** 本端刚写成功的一条(发送/附件)先落窗口,回声到了按 id 合并。 */
   appendOwn: (message: MessageItem) => void
@@ -41,22 +45,23 @@ export function useTopicLine(
 ): TopicLine {
   const { messageWindows, subscribeChatWindow } = useChatStore('messageWindows', 'subscribeChatWindow')
   const subscribe = useCallback((listener: () => void) => chatId ? subscribeChatWindow(chatId, listener) : () => undefined, [chatId, subscribeChatWindow])
-  const snapshot = useCallback(() => chatId ? messageWindows.read(chatId) ?? NO_MESSAGES : NO_MESSAGES, [chatId, messageWindows])
-  const messages = useSyncExternalStore(subscribe, snapshot)
+  const snapshot = useCallback(() => {
+    if (!chatId) return EMPTY_HISTORY
+    messageWindows.read(chatId)
+    return messageWindows.window(chatId).getSnapshot()
+  }, [chatId, messageWindows])
+  const messageWindow = useSyncExternalStore(subscribe, snapshot)
+  const messages = messageWindow.messages
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // #7199 这条线最近发出的那一次读(首读与「重试」共用一个号):只有最新那次的结局能写读失败 ——
   // 较早发出、较晚失败的那次 ❌ 盖掉较新那次的成功(读失败由消息列表说「读不到 + 重试」)。
   const readGenRef = useRef(0)
-  const [reachedOldest, setReachedOldest] = useState(false)
   const { memberReadSeqs, memberReadSeqsChatRef, setMemberReadSeqs, readMemberReadSeqs } = useMemberReadSeqs()
   const chatIdRef = useRef(chatId)
   chatIdRef.current = chatId
   // 换一次话题 +1。在途的旧读取(A → B → A 时第一次 A 的那一发)拿着旧号回来,一律不落。
   const epochRef = useRef(0)
-  const revealingOlderRef = useRef(false)
-  const reachedOldestRef = useRef(false)
-  reachedOldestRef.current = reachedOldest
 
   const messagesOf = useCallback((target: string): MessageItem[] => messageWindows.read(target) ?? NO_MESSAGES, [messageWindows])
   const writeMessages = useCallback((target: string, updater: (prev: MessageItem[]) => MessageItem[]) => {
@@ -82,7 +87,6 @@ export function useTopicLine(
 
   useEffect(() => {
     const epoch = ++epochRef.current
-    setReachedOldest(false)
     setError(null)
     if (!chatId || !userId) { setLoading(false); return }
     let cancelled = false
@@ -91,8 +95,8 @@ export function useTopicLine(
     setLoading(!messagesOf(chatId).length)
     void messageWindows.open(chatId, {
       current,
-      painted: (_rows, hasOlder) => { setLoading(false); if (hasOlder !== undefined) setReachedOldest(!hasOlder && messagesOf(chatId).some((row) => row.seq === 1)) },
-      ready: (hasOlder) => { setLoading(false); if (hasOlder !== undefined) setReachedOldest(!hasOlder && messagesOf(chatId).some((row) => row.seq === 1)) },
+      painted: (_rows, hasOlder) => { setLoading(false); if (hasOlder !== undefined) messageWindows.window(chatId).setHasOlder(hasOlder) },
+      ready: (hasOlder) => { setLoading(false); if (hasOlder !== undefined) messageWindows.window(chatId).setHasOlder(hasOlder) },
       readSeqs: (seqs) => acceptReadSeqs(chatId, seqs),
     }).catch((error: unknown) => {
       if (current() && readGen === readGenRef.current) setError(error)
@@ -123,29 +127,11 @@ export function useTopicLine(
     })
   }, [open, userId, subscribeAccountRevision, applyMessagesSnapshot, healMessageGap, memberReadSeqsChatRef, messagesOf, readMemberReadSeqs, revalidate, setMemberReadSeqs, writeMessages, messageWindows])
 
-  // 往上翻一页。话题也是一条真的 chat,聊长了就有「之前说过什么」要翻 —— 只拿最新一页的话,滚到顶就是一堵墙。
-  const revealOlder = useCallback(async () => {
-    const target = chatIdRef.current
-    if (!target || !userId || revealingOlderRef.current || reachedOldestRef.current) return
-    const oldest = messagesOf(target)[0]
-    if (!oldest) return
-    revealingOlderRef.current = true
-    try {
-      const older = await chatService.getMessages(target, userId, 'loadOlder', OLDER_PAGE, oldest.seq)
-      if (chatIdRef.current !== target) return
-      if (older.length < OLDER_PAGE) setReachedOldest(true)
-      const known = new Set(messagesOf(target).map((message) => message.id))
-      const fresh = older.filter((message) => !known.has(message.id))
-      if (fresh.length === 0) return
-      writeMessages(target, (prev) => [...fresh, ...prev])
-      await revalidate(target, false)
-    } catch (error) {
-      // ❌ 不静默:翻不出来与「真的到头了」是两件事,后者才能置 reachedOldest。
-      topicLineLog.error({ error, chatId: target }, 'topic line reveal older failed')
-    } finally {
-      revealingOlderRef.current = false
-    }
-  }, [messagesOf, userId, writeMessages, revalidate])
+  const revealOlder = useCallback(async () => { if (chatId) await messageWindows.load(chatId, 'older') }, [chatId, messageWindows])
+  const loadNewer = useCallback(async () => { if (chatId) await messageWindows.load(chatId, 'newer') }, [chatId, messageWindows])
+  const returnToLatest = useCallback(async () => { if (chatId) await messageWindows.load(chatId, 'latest') }, [chatId, messageWindows])
+  const loadMessageAnchor = useCallback(async (id: string) => { if (chatId) await messageWindows.anchor(chatId, id) }, [chatId, messageWindows])
+  const setFollowingTail = useCallback((following: boolean) => { if (chatId) messageWindows.window(chatId).setFollowingTail(following) }, [chatId, messageWindows])
 
   const appendOwn = useCallback((message: MessageItem) => {
     writeMessages(message.chat_id, (prev) => upsertMessageById(prev, message))
@@ -173,7 +159,7 @@ export function useTopicLine(
     loading,
     // 表属于哪条 chat 由 reconcile 同步写在 ref 上、先于那次 setState ⇒ 渲染期读它就是这张表的主体。
     memberReadSeqs: chatId && memberReadSeqsChatRef.current === chatId ? memberReadSeqs : NO_READ_SEQS,
-    reachedOldest,
+    messageWindow, setFollowingTail, loadNewer, returnToLatest, loadMessageAnchor,
     revealOlder,
     appendOwn,
     revalidate: revalidateOpen,

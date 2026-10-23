@@ -54,7 +54,7 @@ describe('shared message cache publication', () => {
     const repository = await openImRepository('user', { adapter: createMemoryLocalSyncDb() })
     const ready = vi.fn(), readSeqs = vi.fn()
     const read = openCachedChatWindow({
-      chatId: 'topic', userId: 'user', cache: first.cache, getRepository: async () => repository,
+      chatId: 'topic', userId: 'user', cache: first.cache, history: first.cache.history('topic'), getRepository: async () => repository,
       expectedTailSeq: null, hasPositiveUnread: false,
       observer: { current: () => true, painted: vi.fn(), ready, readSeqs },
       commit: (rows) => { first.cache.set('topic', rows) },

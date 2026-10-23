@@ -134,7 +134,7 @@ export interface ChatContextValue {
 }
 
 const EMPTY_CHAT_STORE: ChatContextValue = {
-  messageWindows: { read: () => undefined, write: () => undefined, persist: () => undefined, open: async () => { throw new Error('ChatProvider window is unavailable') }, heal: async () => undefined, revalidate: async () => undefined },
+  messageWindows: { window: () => { throw new Error('ChatProvider window is unavailable') }, load: async () => undefined, anchor: async () => undefined, read: () => undefined, write: () => undefined, persist: () => undefined, open: async () => { throw new Error('ChatProvider window is unavailable') }, heal: async () => undefined, revalidate: async () => undefined },
   getImRepository: async () => { throw new Error('ChatProvider repository is unavailable') },
   subscribeAccountRevision: () => () => undefined,
   subscribeChatWindow: () => () => undefined,

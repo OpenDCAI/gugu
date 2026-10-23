@@ -84,9 +84,9 @@ async function openSplit() {
 const mention = message({ id: 'mine', chat_id: 'topic-1', sender_user_id: 'user-1', to_user_ids: ['agent-9'], seq: 5, is_mine: true })
 
 function receiptOf(id: string) {
-  const row = surface?.splitMessages.find((item) => item.id === id)
+  const row = surface?.splitLine.messages.find((item) => item.id === id)
   if (!row) throw new Error(`message ${id} is not in the topic line`)
-  const seqs = surface!.splitMemberReadSeqs
+  const seqs = surface!.splitLine.memberReadSeqs
   const messageReaders = row.readers?.length ? { [row.id]: new Set(row.readers) } : {}
   return {
     receipt: deriveReadReceipt(row, seqs, { messageReaders }),
@@ -108,7 +108,7 @@ afterEach(() => harness.cleanup())
 describe('#6470 话题里 @ agent,它读了 ⇒ 不刷新、不重进,已读当场翻', () => {
   it('被 @ 进来的 agent 进分母,它的逐条读行到达后环翻成 1/1、发送态翻成已读', async () => {
     await openSplit()
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['mine'])
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['mine'])
     // 开分栏时 agent 还不是这条话题的成员:分母里没有它
     expect(receiptOf('mine').receipt.totalRecipients).toBe(0)
 
@@ -142,7 +142,7 @@ describe('#6470 话题里 @ agent,它读了 ⇒ 不刷新、不重进,已读当�
     getOtherMembersReadSeqs.mockClear()
     await emit('delivery_changed', { chat_id: 'chat-A', entity_id: 'mine', device_id: 'gugu-agent:agent-9', status: 'read' })
     await emit('chat_members_changed', { chat_id: 'chat-A', user_id: 'agent-9' })
-    expect(surface?.splitMessages[0]?.readers ?? []).toEqual([])
+    expect(surface?.splitLine.messages[0]?.readers ?? []).toEqual([])
     expect(getOtherMembersReadSeqs).not.toHaveBeenCalled()
     expect(receiptOf('mine').receipt.totalRecipients).toBe(0)
   })
@@ -160,7 +160,7 @@ describe('#6470 成员变动只在分母真变了时才回读', () => {
     expect(getOtherMembersReadSeqs).not.toHaveBeenCalled()
 
     await emit('chat_members_changed', { chat_id: 'topic-1', user_id: 'user-2', tombstone: true })
-    expect(surface?.splitMemberReadSeqs).toEqual({ 'agent-9': 0 })
+    expect(surface?.splitLine.memberReadSeqs).toEqual({ 'agent-9': 0 })
     expect(getOtherMembersReadSeqs).not.toHaveBeenCalled()
   })
 })
@@ -180,23 +180,23 @@ describe('#6470 话题线收得到全部线级事件(与主线同一份订阅)',
     await openSplit()
     fetchMessageOverlays.mockResolvedValueOnce(new Map([['mine', { reactions: [{ emoji: '👍', count: 1, my_reaction: false }] }]]))
     await emit('reaction_changed', { chat_id: 'topic-1', entity_id: 'mine' })
-    expect(surface?.splitMessages.find((row) => row.id === 'mine')?.reactions).toEqual([{ emoji: '👍', count: 1, my_reaction: false }])
+    expect(surface?.splitLine.messages.find((row) => row.id === 'mine')?.reactions).toEqual([{ emoji: '👍', count: 1, my_reaction: false }])
 
     await emit('message_deleted', { chat_id: 'topic-1', entity_id: 'peer', tombstone: true })
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['mine'])
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['mine'])
   })
 
   it('带消息本体的新消息直接落窗口,❌ 不再整页替换(往上翻出来的旧页不许被冲掉)', async () => {
     await openSplit()
     getMessages.mockResolvedValueOnce([message({ id: 'old', chat_id: 'topic-1', seq: 4 })])
-    await act(async () => { await surface?.revealOlderInSplit() })
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['old', 'mine'])
+    await act(async () => { await surface?.splitLine.revealOlder() })
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['old', 'mine'])
     const fetchesBefore = getMessages.mock.calls.length
 
     await emit('message_created', { chat_id: 'topic-1', entity_id: 'reply', message: {
       id: 'reply', chat_id: 'topic-1', sender_user_id: 'agent-9', seq: 6, content: '收到', content_type: 'text', created_at: '2026-09-25T00:00:06Z',
     } })
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['old', 'mine', 'reply'])
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['old', 'mine', 'reply'])
     expect(getMessages.mock.calls.length).toBe(fetchesBefore)
   })
 
@@ -207,11 +207,11 @@ describe('#6470 话题线收得到全部线级事件(与主线同一份订阅)',
     await emit('message_created', { chat_id: 'topic-1', entity_id: 'reply', message: {
       id: 'reply', chat_id: 'topic-1', sender_user_id: 'agent-9', seq: 6, content: '收到', content_type: 'text', created_at: '2026-09-25T00:00:06Z',
     } })
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['reply'])
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['reply'])
     await act(async () => {
       resolvePage([mention])
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
-    expect(surface?.splitMessages.map((row) => row.id)).toEqual(['mine', 'reply'])
+    expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['mine', 'reply'])
   })
 })

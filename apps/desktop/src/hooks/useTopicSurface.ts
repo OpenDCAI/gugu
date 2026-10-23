@@ -7,14 +7,14 @@
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
+import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { chatService } from '@/lib/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
 import { useChatStore } from '@/store/chatContext'
 import { sendAttachmentBatch } from '@/components/chat/sendAttachmentBatch'
 import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
-import { useTopicLine } from './useTopicLine'
+import { useTopicLine, type TopicLine } from './useTopicLine'
 import { rendererLogger } from '@/lib/log'
 
 const topicSurfaceLog = rendererLogger('chat/topic-surface')
@@ -54,10 +54,7 @@ export type TopicSurface = {
   reloadTopics: () => void
   /** 右侧分栏里那条话题(null = 没开分栏)。 */
   splitTopic: OpenTopic | null
-  splitMessages: MessageItem[]
-  splitLoading: boolean
-  /** 分栏那条话题自己的对端已读水位(来源线那一格是另一条线的读数)。 */
-  splitMemberReadSeqs: Record<string, number>
+  splitLine: TopicLine
   openSplit: (topic: OpenTopic, toggle?: boolean) => void
   closeSplit: () => void
   /** @param toUserIds 正文里 @ 到的人 —— 被 @ 就是被拉进来(服务端触发器只认来源线成员)。 */
@@ -69,15 +66,6 @@ export type TopicSurface = {
    * 文件凭空消失、一声不响。所以这一口必须接上。
    */
   sendAttachmentsInSplit: (files: File[], opts?: { toUserIds?: string[] | null; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
-  /** 在分栏里改过消息(表情/删除)之后重验证这一栏,不等修订绕一圈回来。 */
-  refreshSplit: () => Promise<void>
-  /**
-   * 往上翻一页。话题也是一条真的 chat,聊长了就有「之前说过什么」要翻 ——
-   * 只拿最新一页的话,滚到顶就是一堵墙,而且不报错。
-   */
-  revealOlderInSplit: () => Promise<void>
-  /** 已经翻到头了没有 —— 到头就不再拉。 */
-  splitReachedOldest: boolean
   /** 从一条消息开一条话题:建完直接分栏打开,这就是 spec 的「建立是一步」。 */
   openTopicFromMessage: (sourceMessageId: string) => Promise<void>
 }
@@ -216,16 +204,11 @@ export function useTopicSurface({
     topics,
     reloadTopics,
     splitTopic,
-    splitMessages,
-    splitLoading: line.loading,
-    splitMemberReadSeqs: line.memberReadSeqs,
+    splitLine: line,
     openSplit,
     closeSplit,
     sendInSplit,
     sendAttachmentsInSplit,
-    refreshSplit: line.revalidate,
-    revealOlderInSplit: line.revealOlder,
-    splitReachedOldest: line.reachedOldest,
     openTopicFromMessage,
   }
 }

@@ -221,6 +221,7 @@ export class ChatHistoryWindow {
     if (direction === 'latest') this.invalidate()
     else if (this.state.loading || (direction === 'newer' && !this.state.hasNewer)) return false
     const before = this.state
+    const cold = !before.messages.some((row) => row.seq > 0)
     if (direction === 'older' && (!before.hasOlder || oldestSeq(before.messages) === 1)) return false
     const cursor = direction === 'older' ? oldestSeq(before.messages) : maxMainlineSeq(before.messages)
     if (direction !== 'latest' && (!Number.isFinite(cursor) || cursor < 1)) return false
@@ -235,15 +236,15 @@ export class ChatHistoryWindow {
       if (!current()) return false
       // C3 — 拉取在途时尾巴又长了(比如自己刚发的消息确认了):这一页读的是旧尾,再读一次最新页。
       // 从前直接收下旧页并亮 hasNewer,「回到最新」之后仍不在最新、也不跟尾。
-      if (direction === 'latest' && this.state.latestSeen > maxMainlineSeq(page)) {
+      if (direction === 'latest' && !cold && this.state.latestSeen > maxMainlineSeq(page)) {
         page = await fetchPage(chatId, direction, cursor, INITIAL_PAGE)
         if (!current()) return false
       }
       const live = this.state
       if (direction === 'latest') {
-        // 乐观行,以及拉取期间落地、比页尾更新的自己的行(确认行)并进最新页,不先消失再出现。
+        // 保留乐观行与比页尾更新的确认行;冷首读还保留在途到达的对端行。
         const pageTail = maxMainlineSeq(page)
-        const pending = live.messages.filter((row) => row.seq < 1 || (pageTail > 0 && row.is_mine && row.seq > pageTail))
+        const pending = live.messages.filter((row) => row.seq < 1 || (pageTail > 0 && (row.is_mine || cold) && row.seq > pageTail))
         const messages = boundRows(mergeMessagesById(page, pending, chatId), MESSAGE_WINDOW)
         const hasNewer = live.latestSeen > maxMainlineSeq(messages)
         this.followingTail = !hasNewer

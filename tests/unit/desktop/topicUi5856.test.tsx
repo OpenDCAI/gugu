@@ -5,6 +5,7 @@
 //   1. 「可见 / 参与 / 通知是三件事」在锚点卡上真的看得出来(is_participant=false ⇒ 「只看得见」);
 //      判据能判假 —— 同一份数据把 is_participant 翻成 true,那条断言必须反过来。
 //   2. useTopicsOfChat 的竞态守卫:切线之后,上一条线的慢响应 ❌ 不许落进新线的状态。
+import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
@@ -274,7 +275,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     onSendAttachments: vi.fn(async () => {}),
     onClose: vi.fn(),
     currentUserId: 'user-1',
-    onRevealOlder: vi.fn(),
+    history: topicHistoryStub(),
     mentionMembers: [],
   } satisfies Parameters<typeof TopicSplitPane>[0]
 
@@ -449,7 +450,6 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 名单之外出现新的差异 = 红。
   const JUSTIFIED_OMISSIONS: Record<string, Record<string, string>> = {
     MessageList: {
-      scrollerRef: '主线用它读实测滚动几何(翻页门与钳底门);分栏用组件自带的那份缺省实现',
       onTotalListHeightChanged: '不传 = 组件缺省的贴底钳位,与主线同形',
       unreadAbove: '#6530 从会话列表点开主线时记下的第一条未读(「↑ N 条新消息」);话题从列表打开是分栏,不走这条路,分栏没有这枚标签',
       topInset: '给 agent 单聊头栏里探出头栏的那只小鸟让位(滚到最上时第一条不被它的脚压住);分栏没有 agent 头栏,也就没有探出的部分',
@@ -541,13 +541,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   // 接完一页视口钉在原处:列表在头部插行的那次提交里把读者正看着的那一行放回原处(几何用例见 flowList.test.tsx)。
   it('分栏滚到顶附近就去要下一页', async () => {
-    const onRevealOlder = vi.fn()
+    const onRevealOlder = vi.fn(async () => {})
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps,
-      messages: [message({ id: 'm1', content: '第一句' })],
-      onRevealOlder,
+      messages: [message({ id: 'm1', seq: 2, content: '第一句' })],
+      history: { ...baseProps.history, revealOlder: onRevealOlder },
     }))
     const scroller = harness.container.querySelector('[data-unread-stream-surface="aside"]') as HTMLElement
+    Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, value: 0, writable: true } })
     await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
     expect(onRevealOlder).toHaveBeenCalledTimes(1)
   })

@@ -47,7 +47,7 @@ afterEach(() => harness.cleanup())
 async function open(chatId: string, toggle = false) {
   await act(async () => { surface?.openSplit({ chatId, name: chatId }, toggle) })
   await act(async () => { await vi.dynamicImportSettled() })
-  return surface?.splitMessages.map((row) => row.id) ?? []
+  return surface?.splitLine.messages.map((row) => row.id) ?? []
 }
 
 describe('@@@6404 同一条话题连点', () => {

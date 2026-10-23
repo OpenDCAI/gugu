@@ -1615,13 +1615,13 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         {topicSurface.splitTopic && (
           <TopicSplitPane
             topic={topicSurface.splitTopic}
-            messages={topicSurface.splitMessages}
-            loading={topicSurface.splitLoading}
+            messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
+            loading={topicSurface.splitLine.loading}
             memberProfiles={messageMemberProfiles}
             visibleChats={chats}
             sourceMessagePreview={topicSourceMessagePreview}
             focusComposerToken={splitFocusToken}
-            memberReadSeqs={topicSurface.splitMemberReadSeqs}
+            memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
             onOpenFile={(file) => {
               if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
               else { const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined) }
@@ -1638,7 +1638,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             onOpenMemberProfile={Object.keys(messageMemberProfiles).length > 0
               ? (member, anchor, side) => openMessageMemberProfile(member, anchor, side, 'aside')
               : undefined}
-            onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
+            onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }}
             onClose={topicSurface.closeSplit}
             tabHost={blockHost ? topicTabHost : undefined}
             currentUserId={user?.id ?? null}
@@ -1647,11 +1647,11 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             // 必拿旧快照;修订回来时线级实时还会再落一次,这一下只是不等它,#6470)。❌ 不用 store 的 toggleReaction:
             // 它按 activeChatId 整体重拉并 trim 主线窗口。❌ 也不许 `user?.id ?? ''`。
             onReaction={(id, emoji) => { if (!user) return
-              void chatService.toggleReaction(id, user.id, emoji).then(() => topicSurface.refreshSplit())
+              void chatService.toggleReaction(id, user.id, emoji).then(() => topicSurface.splitLine.revalidate())
                 .catch(() => toast(t('chatArea.operationFailed'), 'error')) }}
             onForward={handleForward} visible={surfaceVisible}
             onDelete={(id) => void deleteMessage(id)
-              .then(() => topicSurface.refreshSplit())
+              .then(() => topicSurface.splitLine.revalidate())
               .catch(() => toast(t('chatArea.operationFailed'), 'error'))}
           />
         )}

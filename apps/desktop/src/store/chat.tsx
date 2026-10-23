@@ -26,7 +26,7 @@ import { ChatStoreProvider, type SendMessageOptions, useDraftAttachmentsStore, u
 import { advanceReadWatermark, applyThreadSnapshot, fetchOpenThreadSnapshot, patchChatRows, reconcileMemberReadSeqs, type PatchChat } from './chatRealtimeMutations'; import { subscribeChatLineRevisions } from '../lib/accountRevisionListeners'; import { useMemberReadSeqs } from '../hooks/useMemberReadSeqs'; import { chatOnScreen } from '../lib/onScreenChat'
 import { useMessageReadFailures, useMessageSnapshotEpochs } from './chatMessageReads'
 import { deriveThreadScope } from './threadScope'
-import { useActiveChatTransitionState } from './activeChatTransition'; import { openCachedChatWindow, useChatWindowCache, type ChatWindowAccess } from './chatWindowPublication'
+import { useActiveChatTransitionState } from './activeChatTransition'; import { fetchChatHistoryPage, restoreChatHistoryAnchor, openCachedChatWindow, useChatWindowCache, type ChatWindowAccess } from './chatWindowPublication'
 import { ChatHistoryWindow } from './chatHistoryWindow'
 import {
   INITIAL_PAGE,
@@ -167,7 +167,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
           typeof updater === 'function'
             ? (updater as (p: MessageItem[]) => MessageItem[])(prev)
             : updater
-        messagesCacheRef.current.set(chatId, messagesCacheRef.current.isObserved(chatId) ? next : trimToMessageWindow(next))
+        messagesCacheRef.current.set(chatId, next)
         return
       }
       historyWindow.update(updater)
@@ -247,9 +247,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const persistWindowToLocalSync = useCallback(
     (chatId: string, messages: MessageItem[]): void => {
-      const hasMoreOlder = activeChatIdRef.current === chatId ? hasMoreOlderRef.current : messages.some((row) => row.seq > 1) && !messages.some((row) => row.seq === 1)
       void getImRepository()
-        .then((repository) => publishMessageWindow(repository, chatId, messages, hasMoreOlder))
+        .then((repository) => {
+          // Mutators can request persistence inside their updater, before the history controller commits.
+          const rows = messagesCacheRef.current.get(chatId) ?? messages
+          const hasMoreOlder = activeChatIdRef.current === chatId ? hasMoreOlderRef.current : rows.some((row) => row.seq > 1) && !rows.some((row) => row.seq === 1)
+          return publishMessageWindow(repository, chatId, rows, hasMoreOlder)
+        })
         .catch((err) => console.error('[ChatStore] persist repository message window failed', err))
     },
     [getImRepository],
@@ -350,13 +354,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setChats((prev) => upsertChatRow(prev, chat))
   }, [loadChats])
 
-  const mergeMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[]): MessageItem[] => {
-    const base = messagesCacheRef.current.get(chatId) ?? (
-      activeChatIdRef.current === chatId ? messagesRef.current : []
-    )
-    return mergeMessagesById(base, msgs, chatId)
-  }, [messagesRef])
-
   const { epochOf: getMessageSnapshotEpoch, bump: bumpMessageSnapshotEpoch } = useMessageSnapshotEpochs()
 
   const invalidateMessageSnapshots = useCallback((chatId: string): number => {
@@ -367,18 +364,17 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const applyFreshMessageSnapshot = useCallback((chatId: string, msgs: MessageItem[], epoch: number): MessageItem[] | null => {
     if (epoch !== getMessageSnapshotEpoch(chatId)) return null
-    // @@@chat-isolation - a fresh load establishes the window; trim to MESSAGE_WINDOW so the
-    // cache + rendered list hold only the recent window (isolation contract). initialLoad returns ≤60.
+    // Visible windows use their history controller; closed cached chats retain the recent window.
     const nextMessages = activeChatIdRef.current === chatId
       ? (historyWindow.update((previous) => mergeMessagesById(previous, msgs, chatId)), historyWindow.getSnapshot().messages)
-      : trimToMessageWindow(mergeMessagesSnapshot(chatId, msgs))
+      : (setMessagesAndCache((rows) => mergeMessagesById(rows, msgs, chatId), chatId), messagesCacheRef.current.get(chatId) ?? [])
     messagesCacheRef.current.set(chatId, nextMessages)
     // @@@msg-cache (#621/P2/#947) - write-through L2: this is the canonical window-commit point for
     // initialLoad / loadNewer / toggleReaction / refreshMessages, so persisting here keeps the durable
     // cache in lockstep with L1 (same contract as messagesCacheRef.set above).
     persistWindowToLocalSync(chatId, nextMessages)
     return nextMessages
-  }, [getMessageSnapshotEpoch, historyWindow, mergeMessagesSnapshot, persistWindowToLocalSync])
+  }, [getMessageSnapshotEpoch, historyWindow, setMessagesAndCache, persistWindowToLocalSync])
 
   /** 返回 false = 未落窗(未登录或快照 epoch 已变被拒收)。 */
   const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number): boolean => {
@@ -424,17 +420,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         const revalidation = await chatService.revalidateWindow(ids, user.id)
         if (epoch !== getMessageSnapshotEpoch(chatId) || imRepositoryScope.disposed) return
         const queriedIds = new Set(ids)
-        // Pure transform applied to a window: drop ids gone from presentIds, patch overlays/mutations, keep
-        // optimistic rows. Used for BOTH the state update and the L2 write-through so the persisted window is
-        // computed deterministically — NOT read back from the cache (the active-chat cache.set runs inside the
-        // setMessages updater, so reading it back synchronously here would persist the STALE pre-drop window).
-        const applyRevalidation = (list: MessageItem[]): MessageItem[] =>
-          applyMessageWindowRevalidation(list, queriedIds, revalidation)
-        setMessagesAndCache((prev) => applyRevalidation(prev), chatId)
-        // @@@msg-cache (#621/P2/#947) - persist the revalidated window so the durable cache reflects the
-        // patched/dropped rows (this path doesn't go through applyFreshMessageSnapshot's write-through).
-        // Compute from the window we revalidated (`cached`) rather than reading the not-yet-applied cache back.
-        persistWindowToLocalSync(chatId, applyRevalidation(messagesCacheRef.current.get(chatId) ?? cached))
+        setMessagesAndCache((rows) => applyMessageWindowRevalidation(rows, queriedIds, revalidation), chatId)
+        persistWindowToLocalSync(chatId, messagesCacheRef.current.get(chatId) ?? [])
       } catch (err) {
         if (!isLifecycleCancellation(err)) console.error('[ChatStore] revalidateWindowOverlays failed', err) // #2187 取消≠失败
         if (throwOnError) throw err
@@ -501,42 +488,29 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     },
     [applyMessagesSnapshot, getMessageSnapshotEpoch, maxSeqOf, memberReadSeqsChatRef, noteFreshMessageRead, patchChat, refreshMessages, revalidateWindowOverlays, setMemberReadSeqs, user],
   )
-  const loadHistoryPage = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
-    if (!user) return
+  const loadHistoryPage = useCallback(async (direction: 'older' | 'newer' | 'latest', chatId = activeChatIdRef.current) => {
+    if (!user || !chatId) return
+    if (direction === 'latest') invalidateMessageSnapshots(chatId)
+    const targetWindow = chatId === activeChatIdRef.current ? historyWindow : messagesCacheRef.current.history(chatId)
     try {
-      const changed = await historyWindow.load(direction, (chatId, way, cursor, limit) =>
-        way === 'newer' ? chatService.getMessages(chatId, user.id, 'loadNewer', limit, undefined, cursor)
-          : chatService.getMessages(chatId, user.id, way === 'older' ? 'loadOlder' : 'initialLoad', limit, way === 'older' ? cursor : undefined))
-      const window = historyWindow.getSnapshot()
-      if (changed && window.chatId) { cacheHistoryWindow(); persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId) }
+      const changed = await targetWindow.load(direction, fetchChatHistoryPage(user.id))
+      const window = targetWindow.getSnapshot()
+      if (changed && window.chatId) { messagesCacheRef.current.set(window.chatId, window.messages); persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId) }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
       throw err
     }
-  }, [user, cacheHistoryWindow, historyWindow, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
+  }, [user, historyWindow, invalidateMessageSnapshots, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
   const loadOlderMessages = useCallback(() => loadHistoryPage('older'), [loadHistoryPage])
   const loadNewerMessages = useCallback(() => loadHistoryPage('newer'), [loadHistoryPage])
-  const loadMessageAnchor = useCallback(async (messageId: string) => {
-    if (!user) return
-    const changed = await historyWindow.restoreAnchor(async (chatId) => {
-      const anchor = await chatService.getMessageById(messageId, user.id)
-      if (!anchor || anchor.chat_id !== chatId || anchor.thread_root_id) throw new Error('Saved conversation message is no longer available')
-      const [older, newer] = await Promise.all([
-        chatService.getMessages(chatId, user.id, 'loadOlder', 20, anchor.seq + 1),
-        chatService.getMessages(chatId, user.id, 'loadNewer', 20, undefined, anchor.seq),
-      ])
-      const messages = mergeMessagesById(older, newer, chatId)
-      if (!messages.some((row) => row.id === messageId)) throw new Error('Saved conversation message is no longer visible')
-      return { messages, hasNewer: newer.length === 20 }
-    })
-    if (changed) { cacheHistoryWindow(); const chatId = historyWindow.getSnapshot().chatId; if (chatId) await revalidateWindowOverlays(chatId) }
-  }, [user, cacheHistoryWindow, historyWindow, revalidateWindowOverlays])
-  const returnToLatestMessages = useCallback(() => {
-    const chatId = activeChatIdRef.current
-    if (chatId) invalidateMessageSnapshots(chatId)
-    return loadHistoryPage('latest')
-  }, [invalidateMessageSnapshots, loadHistoryPage])
+  const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
+    if (!user || !targetChatId) return
+    const targetWindow = targetChatId === activeChatIdRef.current ? historyWindow : messagesCacheRef.current.history(targetChatId)
+    const changed = await restoreChatHistoryAnchor(targetWindow, user.id, messageId)
+    if (changed) { const window = targetWindow.getSnapshot(); messagesCacheRef.current.set(targetChatId, window.messages); persistWindowToLocalSync(targetChatId, window.messages); await revalidateWindowOverlays(targetChatId) }
+  }, [user, historyWindow, persistWindowToLocalSync, revalidateWindowOverlays])
+  const returnToLatestMessages = useCallback(() => loadHistoryPage('latest'), [loadHistoryPage])
   const setFollowingTail = useCallback((following: boolean) => {
     historyWindow.setFollowingTail(following)
     cacheHistoryWindow()
@@ -611,12 +585,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     try {
       await openCachedChatWindow({
         chatId, userId: user.id, cache: messagesCacheRef.current, getRepository: getImRepository,
+        history: activeChatIdRef.current === chatId ? historyWindow : messagesCacheRef.current.history(chatId),
         expectedTailSeq: chat ? expectedTailSeq(chatId) : null, hasPositiveUnread: (chat?.unread_count ?? 0) > 0,
         observer: { ...observer, current },
         commit: (rows, replaceTail, hasOlder) => {
           if (replaceTail) {
             if (activeChatIdRef.current === chatId) { historyWindow.establishTail(rows); cacheHistoryWindow() }
-            else messagesCacheRef.current.set(chatId, mergeMessagesById(rows, (messagesCacheRef.current.get(chatId) ?? []).filter((row) => row.seq < 1 || row.seq > maxMainlineSeq(rows)), chatId))
+            else messagesCacheRef.current.history(chatId).establishTail(rows)
           }
           if (activeChatIdRef.current === chatId && hasOlder !== undefined) setHasMoreOlder(hasOlder)
           applyMessagesSnapshot(chatId, rows, null, epoch)
@@ -626,10 +601,13 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     } finally { revalidateInFlightRef.current.delete(chatId) }
   }, [applyMessagesSnapshot, cacheHistoryWindow, expectedTailSeq, getImRepository, getMessageSnapshotEpoch, historyWindow, imRepositoryScope, revalidateWindowOverlays, setHasMoreOlder, user])
   const messageWindows = useMemo<ChatWindowAccess>(() => ({
+    window: (chatId) => messagesCacheRef.current.history(chatId),
+    load: (chatId, direction) => loadHistoryPage(direction, chatId),
+    anchor: (chatId, messageId) => loadMessageAnchor(messageId, chatId),
     read: readChatWindow, open: openMessageWindow, heal: healMessageGap, revalidate: revalidateWindowOverlays,
     write: (chatId, updater) => { setMessagesAndCache(updater, chatId); persistWindowToLocalSync(chatId, messagesCacheRef.current.get(chatId) ?? []) },
     persist: persistWindowToLocalSync,
-  }), [readChatWindow, openMessageWindow, healMessageGap, revalidateWindowOverlays, setMessagesAndCache, persistWindowToLocalSync])
+  }), [readChatWindow, openMessageWindow, healMessageGap, revalidateWindowOverlays, setMessagesAndCache, persistWindowToLocalSync, loadHistoryPage, loadMessageAnchor])
 
   // Selection owns view state; all surfaces open their explicit chat through the same account window.
   useEffect(() => {
@@ -785,9 +763,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       } else {
         // C3 发送把窗口钉回底部:含尾的窗口立即恢复跟尾(确认行按尾巴接上,不被当成窗口外丢掉);
         // 离尾的历史段先拉最新页(页里保留这条乐观行及其确认行)。已在拉就不重开。
-        if (activeChatIdRef.current === targetChatId && !historyWindow.followForSend()
-          && historyWindow.getSnapshot().loading !== 'latest') {
-          void returnToLatestMessages().catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
+        const targetWindow = activeChatIdRef.current === targetChatId ? historyWindow : messagesCacheRef.current.getHistory(targetChatId)
+        if (targetWindow && !targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
+          void loadHistoryPage('latest', targetChatId).catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
         }
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)
       }
@@ -819,7 +797,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       // @@@threads (#957) — 返回消息 id,供「新建话题」首条发完后 openThread(它) 进入话题。
       return id
     },
-    [user, setMessagesAndCache, messagesRef, historyWindow, returnToLatestMessages],
+    [user, setMessagesAndCache, messagesRef, historyWindow, loadHistoryPage],
   )
 
   const sendMessage = useCallback(
