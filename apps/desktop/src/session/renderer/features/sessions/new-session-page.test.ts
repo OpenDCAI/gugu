@@ -473,8 +473,8 @@ describe('NewSessionPage', () => {
 
     expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
     expect(container.querySelector('[data-open-in-row]')).toBeNull();
-    // 窗口 chrome 那层不受影响 —— 它跟项目无关,任何视图都该在。
-    expect(container.querySelector('[data-titlebar-actions]')).not.toBeNull();
+    // The shared window drag region remains available without project actions.
+    expect(container.querySelector('[data-session-titlebar-drag-region]')).not.toBeNull();
   });
 
   it('keeps concrete-session empty states and tab menus on the same contextual order', () => {
