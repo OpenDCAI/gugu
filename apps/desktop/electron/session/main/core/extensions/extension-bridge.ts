@@ -282,6 +282,7 @@ function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Pro
 function newDocument(webContentsId: number): void {
   const binding = bindings.get(webContentsId);
   if (!binding) return;
+  stopPageWatches(webContentsId);
   void sayAboutPage(binding, { kind: 'newDocument' }).catch((error: unknown) => {
     log.warn('A page\'s new document was not told to its window', { webContentsId, error: String(error) });
   });

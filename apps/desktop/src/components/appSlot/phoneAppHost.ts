@@ -647,6 +647,8 @@ export function hostAppFrame(
     // What the old document said about itself (title, badge, error) goes with it: the new one starts from the manifest's
     // title, as main's `newDocument` on the desktop (extension-bridge.ts `sayAboutPage`).
     if (message.t === 'hello') {
+      for (const { source } of watched.values()) readFiles.forget(source)
+      watched.clear()
       relay.pageGone(pageId)
       heldPort = null
       portWanted = false

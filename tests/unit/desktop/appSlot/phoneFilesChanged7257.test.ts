@@ -108,6 +108,17 @@ const changes = () =>
     .filter((message) => message.t === 'event' && message.event?.type === 'filesChanged').map((message) => message.event!.change)
 
 describe('a watched chat\'s files changed: the page hears those files (#7257)', () => {
+  it('a new document stops the old watches and can register the same subscription id again', async () => {
+    const args = { watchId: 'source-watch', place: { chat: CHAT } }
+    expect(await call('filesWatch', args)).toMatchObject({ ok: true })
+    window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'hello' }, source: frame.contentWindow, origin: ORIGIN }))
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toEqual([])
+    expect(await call('filesWatch', args)).toMatchObject({ ok: true })
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toHaveLength(1)
+  })
+
   it('topic and source subscriptions both follow source revisions, with their original event addresses', async () => {
     expect(await call('filesWatch', { watchId: 'topic-watch', place: { chat: TOPIC } })).toMatchObject({ ok: true })
     expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })

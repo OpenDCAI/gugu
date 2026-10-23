@@ -43,7 +43,7 @@ vi.mock('@main/core/extensions/extension-session', () => ({
 vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgroundWebContentsId: () => null }));
 vi.mock('@main/core/extensions/extensions-root', () => ({
   extensionsService: () => ({
-    grantedCapabilities: () => [],
+    grantedCapabilities: () => ['files:read'],
     hasCapability: () => true,
     get: () => ({ manifest: { name: '论文共读' } }),
   }),
@@ -73,6 +73,13 @@ beforeEach(async () => {
 });
 
 describe('what a page says about itself goes with its document', () => {
+  it('the old document\'s watches stop, allowing the new runtime to register its subscription id again', async () => {
+    const args = { watchId: '1', place: { chat: CHAT }, on: true };
+    expect(await call(READER, 'filesWatch', args)).toMatchObject({ ok: true });
+    navigate(READER);
+    expect(await call(READER, 'filesWatch', args)).toMatchObject({ ok: true });
+  });
+
   it('reader → shelf: the reader named the slot; the shelf’s document takes it back, and names it again only if it says so', async () => {
     expect(await call(READER, 'setTabTitle', { title: 'Attention Is All You Need' })).toMatchObject({ ok: true });
     expect(await call(READER, 'setTabBadge', { badge: 2 })).toMatchObject({ ok: true });

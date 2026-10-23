@@ -54,7 +54,7 @@ const renameAppFile = vi.fn(async () => ({ id: 'renamed' }));
 const replaceAppFile = vi.fn(async () => ({ id: 'replaced', version: 2 }));
 // #7257: the files a revision named, as the program reads them.
 const changedGroupFiles = vi.fn(async (chatId: string, _reader: string | null, wanted: { ids: readonly string[]; all: boolean }) =>
-  ({ entries: (wanted.all ? [] : wanted.ids).map((id) => ({ id, chat: chatId, name: 'board.json', version: 3 })), gone: [] }));
+  ({ entries: (wanted.all ? [] : wanted.ids).map((id) => ({ id, chat: chatId, name: 'board.json', version: 3 })), gone: [] as string[] }));
 const chatsOf = vi.fn(async () => []);
 const chatMembersOf = vi.fn(async () => []);
 vi.mock('@main/core/extensions/app-files', () => ({
