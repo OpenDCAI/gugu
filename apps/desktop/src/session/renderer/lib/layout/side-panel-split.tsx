@@ -226,9 +226,11 @@ export function SidePanelSplit({
       >
         {/* 内容层绝对定位到右缘,宽度由 panelContentLayout 给:占位宽以上跟着缩(内容完整,
             左右两端都在),窄过最小宽度才贴着右缘整块往右滑走并淡出。贴**右**缘是方向性的
-            —— 面板从右侧滑出。❌ 别把宽度钉成整宽由外层裁:那是 #5578 在左侧栏上的那个洞的镜像。 */}
+            —— 面板从右侧滑出。❌ 别把宽度钉成整宽由外层裁:那是 #5578 在左侧栏上的那个洞的镜像。
+            旁边是聊天栏时左边让出 1px 给下面那条分隔线:App 的页是按占位元素的位置盖上来的一层(extension-view-layer),
+            占位从面板左缘起就会把线盖掉(gugu-dev#181 群文件夹实拍:线在、opacity 1,顶上是 App 的页)。盖满了没有线,不让。 */}
         <motion.div
-          className={cn('absolute inset-y-0 right-0 flex min-h-0 flex-col', isResizing && 'select-none')}
+          className={cn('absolute inset-y-0 right-0 flex min-h-0 flex-col', !covering && 'pl-px', isResizing && 'select-none')}
           style={{ width: contentWidth, x: contentX, opacity: contentOpacity }}
         >
           {isPanelMounted || !unmountWhenClosed ? workspacePanel : null}
