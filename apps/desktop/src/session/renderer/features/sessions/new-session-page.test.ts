@@ -27,6 +27,8 @@ import { SessionTitlebar } from './session-titlebar';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
 
 const mocks = vi.hoisted(() => ({
+  notify: vi.fn(),
+  dismissNotice: vi.fn(),
   showAddProjectModal: vi.fn(),
   orderedProjects: [] as Array<{ id: string; state: 'mounted' }>,
   createSessionStateProjectId: undefined as string | undefined,
@@ -47,7 +49,7 @@ const mocks = vi.hoisted(() => ({
   setProjectView: vi.fn(),
   navigate: vi.fn(),
   currentView: 'project' as 'project' | 'task',
-  sessionFieldProps: null as null | { showAutoApproveToggle?: boolean },
+  sessionFieldProps: null as null | { showAutoApproveToggle?: boolean; canSubmit?: boolean },
   deliveryError: null as SessionFailure | null,
   // null = 输入框里就是挂上时读到的那份(真 hook 的 useState(initialPrompt));字符串 = 用户打进去的。
   prompt: null as string | null,
@@ -99,6 +101,9 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionPageStore: vi.fn()
 }));
 
+// 提示走全 app 唯一的出口(#137);这里只看「发了什么」,不挂提示条。
+vi.mock('@/lib/notices', () => ({ notify: mocks.notify, dismissNotice: mocks.dismissNotice }));
+
 vi.mock('@renderer/features/sessions/create-session-modal/use-create-session-callback', () => ({
   useCreateSessionCallback: ({ selectedProjectId, onCreated }: {
     selectedProjectId?: string;
@@ -144,7 +149,7 @@ vi.mock('@renderer/features/sessions/hooks/useSessionSettings', () => ({
 }));
 
 vi.mock('@renderer/features/sessions/session-config/session-field', () => ({
-  SessionField: (props: { showAutoApproveToggle?: boolean }) => {
+  SessionField: (props: { showAutoApproveToggle?: boolean; canSubmit?: boolean }) => {
     mocks.sessionFieldProps = props;
     return React.createElement('div', { 'data-testid': 'active-task-composer' });
   }
@@ -250,6 +255,8 @@ describe('NewSessionPage', () => {
 
   beforeEach(() => {
     mocks.showAddProjectModal.mockReset();
+    mocks.notify.mockReset();
+    mocks.dismissNotice.mockReset();
     mocks.orderedProjects = [];
     mocks.createSessionStateProjectId = undefined;
     mocks.createSessionStateOptions = undefined;
@@ -801,7 +808,10 @@ describe('NewSessionPage', () => {
       expect(container.querySelector('[data-testid="project-device-scope"]')?.textContent).toContain('device-9');
       expect(container.textContent).toContain('离线');
       expect(container.querySelector('[data-testid="composer-device-picker"]')).toBeNull();
-      expect(container.querySelector('[role="alert"]')).not.toBeNull();
+      // 那台机器用不了:输入框下面没有行内字(它一变输入框就动),原因在统一提示条里说,发送照样挡住。
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ key: 'machine:device-9', tier: 'error', ongoing: true }));
+      expect(mocks.sessionFieldProps?.canSubmit).toBe(false);
       const projects = Array.from(container.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent?.trim());
       expect(projects).toContain('project-remote');
       expect(projects).toContain('project-1');
