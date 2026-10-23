@@ -28,6 +28,7 @@ vi.mock('./session-orchestration', () => ({
 }));
 
 const { switchSubscription } = await import('./subscription-switch');
+const { SubscriptionSessionsBusyError, connectionFailure } = await import('./subscription-sessions-busy');
 
 function summary(sessionId: string, overrides: Record<string, unknown> = {}) {
   mocks.summaries.set(sessionId, {
@@ -71,6 +72,25 @@ it('refuses while a session of that provider is mid-turn and touches nothing', a
   summary('claude-busy', { providerId: 'claude', pendingPermissionCount: 1 });
   await expect(switchSubscription('claude', 'work', {})).rejects.toThrow('1 Claude session is still working');
   expect(mocks.calls).toEqual([]);
+});
+
+it('says which provider and how many sessions are working, so the UI can word it itself', async () => {
+  summary('a', { isGenerating: true });
+  summary('b', { queuedPromptCount: 2 });
+  summary('idle');
+  const refusal = await switchSubscription('codex', 'work', {}).catch((error: unknown) => error);
+  expect(refusal).toBeInstanceOf(SubscriptionSessionsBusyError);
+  expect(refusal).toMatchObject({ providerId: 'codex', count: 2 });
+  expect(connectionFailure(refusal)).toEqual({
+    type: 'invalid-state',
+    message: (refusal as Error).message,
+    sessionsBusy: { providerId: 'codex', count: 2 },
+  });
+});
+
+it('keeps every other connection failure a plain message', () => {
+  expect(connectionFailure(new Error('login missing'))).toEqual({ type: 'invalid-state', message: 'login missing' });
+  expect(connectionFailure('boom')).toEqual({ type: 'invalid-state', message: 'boom' });
 });
 
 it('still hands stopped sessions back when the credential switch fails', async () => {
