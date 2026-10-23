@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useState } from 'react'
+import { act, useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
 import { chat, createNode, createReactHarness, message as messageItem, waitForCondition } from '../../../support/testHarness'
@@ -168,6 +168,8 @@ function Probe() {
   const [, bump] = useState(0)
   shell.rerender = () => bump((n) => n + 1)
   useReportChatOnScreen(shell.offScreen ? null : latestStore.activeChatId)
+  const { activeChatId, setFollowingTail } = latestStore
+  useEffect(() => { setFollowingTail(!shell.offScreen) }, [activeChatId, setFollowingTail, shell.offScreen])
   return createNode('div', { 'data-testid': 'probe' })
 }
 async function flushReact(): Promise<void> {
@@ -199,6 +201,9 @@ async function settleLocatorOpen(promise: Promise<void>): Promise<void> {
     await flushReact()
     for (let index = pendingReveals.length - 1; index >= 0; index -= 1) {
       const request = pendingReveals[index]
+      if (request.streamKind === 'main' && request.commit) {
+        await act(async () => { await latestStore!.loadMessageAnchor(request.messageId, request.commit) })
+      }
       if (streamRowsInStore(request).some((row) => row.id === request.messageId)) {
         pendingReveals.splice(index, 1)
         request.confirm(request.messageId)

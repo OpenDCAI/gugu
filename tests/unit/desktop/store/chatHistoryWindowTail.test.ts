@@ -31,9 +31,9 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
   it('不跟尾但窗口含尾:自己消息的确认行替换乐观行后留在屏上,别人的新消息也进来并计入未读泡', () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.setFollowingTail(false) // 读者往上滚了一点
     const optimistic = row(-1, { id: 'mine', is_mine: true, local_send_state: 'sending' })
     w.update((prev) => [...prev, optimistic])
+    w.setFollowingTail(false) // 本视口已发出,等待 ACK 时往上滚
     expect(w.getSnapshot().messages.at(-1)?.id).toBe('mine')
 
     // 送达:权威行(同 id,seq=11)替换乐观行
