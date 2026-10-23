@@ -322,7 +322,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const applyFreshMessageSnapshot = useCallback((chatId: string, msgs: MessageItem[], epoch: number): MessageItem[] | null => {
     if (epoch !== getMessageSnapshotEpoch(chatId)) return null
-    setMessagesAndCache((previous) => mergeMessagesById(previous, msgs, chatId), chatId)
+    cache.set(chatId, msgs)
     const nextMessages = cache.get(chatId) ?? []
     // @@@msg-cache (#621/P2/#947) - write-through L2: this is the canonical window-commit point for
     // initialLoad / loadNewer / toggleReaction / refreshMessages, so persisting here keeps the durable
@@ -367,7 +367,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     async (chatId: string, throwOnError = false) => {
       if (!user) return
       const epoch = getMessageSnapshotEpoch(chatId)
-      const cached = cache.get(chatId)
+      const cached = cache.rows(chatId)
       if (!cached || cached.length === 0) return
       const ids = cached.filter((m) => m.seq >= 0).map((m) => m.id)
       if (ids.length === 0) return
@@ -448,7 +448,11 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     try {
       const changed = await targetWindow.load(direction, fetchChatHistoryPage(user.id))
       const window = targetWindow.getSnapshot()
-      if (changed && window.chatId) { cache.set(window.chatId, window.messages); persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId) }
+      if (changed && window.chatId) {
+        if (direction === 'latest') cache.establishTail(window.chatId, window.messages)
+        else cache.update(window.chatId, (rows) => mergeMessagesById(rows, window.messages, window.chatId!))
+        persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId)
+      }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
@@ -459,7 +463,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!user || !targetChatId) return
     const targetWindow = cache.history(targetChatId, viewport)
     const changed = commit ? await targetWindow.restoreAnchor(async () => ({ messages: commit.rows, hasNewer: !commit.reachedTail })) : await restoreChatHistoryAnchor(targetWindow, user.id, messageId)
-    if (changed) { const window = targetWindow.getSnapshot(); cache.set(targetChatId, window.messages); persistWindowToLocalSync(targetChatId, window.messages); await revalidateWindowOverlays(targetChatId) }
+    if (changed) {
+      const window = targetWindow.getSnapshot()
+      if (!window.hasNewer) cache.establishTail(targetChatId, window.messages)
+      else cache.update(targetChatId, (rows) => mergeMessagesById(rows, window.messages, targetChatId))
+      persistWindowToLocalSync(targetChatId, window.messages); await revalidateWindowOverlays(targetChatId)
+    }
   }, [user, cache, persistWindowToLocalSync, revalidateWindowOverlays])
   const markMessageVisible = useCallback((message: MessageItem) => {
     const chatId = message.chat_id
@@ -546,7 +555,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         expectedTailSeq: chat ? expectedTailSeq(chatId) : null, hasPositiveUnread: (chat?.unread_count ?? 0) > 0,
         observer: { ...observer, current },
         commit: (rows, replaceTail, hasOlder) => {
-          if (replaceTail) cache.history(chatId).establishTail(rows)
+          if (replaceTail) cache.establishTail(chatId, rows)
           if (hasOlder !== undefined) cache.history(chatId).setHasOlder(hasOlder)
           applyMessagesSnapshot(chatId, rows, null, epoch)
         },
@@ -603,7 +612,6 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setActiveThreadRootId: (rootId, id) => cache.patchView(id, { activeThreadRootId: rootId }),
     setLoadingThread: (loading, id) => cache.patchView(id, { loadingThread: loading }),
     setThreadMessages: (update, id) => setThreadMessagesFor(id, update),
-    setMessagesAndCache: (update, chatId) => { cache.update(chatId, update); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) },
     loadChats, cancelChatOpenRef })
   unreadNavigationRef.current = unreadNavigation
   // @@@threads — 打开/关闭话题视图。传 rootId 打开并拉取该话题的 root+回复；传 null 回主时间线。

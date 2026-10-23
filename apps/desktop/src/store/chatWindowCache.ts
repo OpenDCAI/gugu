@@ -11,7 +11,7 @@ export type ConversationSnapshot = {
   threadMessages: MessageItem[]
   loadingThread: boolean
 }
-export type ConversationViewport = { owner?: ChatWindowCache; following?: boolean; window?: ChatHistoryWindow; snapshot?: ConversationSnapshot; shared?: ConversationSnapshot }
+export type ConversationViewport = { chatId?: string | null; owner?: ChatWindowCache; following?: boolean; window?: ChatHistoryWindow; snapshot?: ConversationSnapshot; shared?: ConversationSnapshot }
 type Listener = (rows: MessageItem[]) => void
 
 /** Account data and receipts are shared; each presenter owns its history range and navigation. */
@@ -20,18 +20,29 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; stopReading?: () => void; receipts: Set<string>; view: ConversationSnapshot }>()
   private readonly listeners = new Map<string, Map<Listener, ConversationViewport>>()
   override set(chatId: string, rows: MessageItem[]): this {
-    return this.update(chatId, (previous) => mergeMessagesById(previous, rows, chatId))
+    const merge = (previous: MessageItem[]) => mergeMessagesById(previous, rows, chatId)
+    const history = this.getHistory(chatId)
+    if (history) history.update(merge)
+    else { super.set(chatId, trimToMessageWindow(merge(this.get(chatId) ?? []))); this.publish(chatId) }
+    for (const viewport of this.listeners.get(chatId)?.values() ?? []) viewport.window?.update(merge)
+    return this
   }
   update(chatId: string, updater: MessageItem[] | ((previous: MessageItem[]) => MessageItem[])): this {
     const previous = this.rows(chatId)
     const next = typeof updater === 'function' ? updater(previous) : mergeMessagesById(previous, updater, chatId)
     const retained = new Set(next.map((row) => row.id))
-    const apply = (rows: MessageItem[]) => mergeMessagesById(rows.filter((row) => retained.has(row.id)), next, chatId)
+    const before = new Map(previous.map((row) => [row.id, row]))
+    const changed = next.filter((row) => before.get(row.id) !== row)
+    const apply = (rows: MessageItem[]) => mergeMessagesById(rows.filter((row) => retained.has(row.id)), changed, chatId)
     const history = this.histories.get(chatId)?.window
     if (history) history.update(apply)
     else { super.set(chatId, trimToMessageWindow(next)); this.publish(chatId) }
     for (const viewport of this.listeners.get(chatId)?.values() ?? []) viewport.window?.update(apply)
     return this
+  }
+  establishTail(chatId: string, rows: MessageItem[]): void {
+    this.history(chatId).establishTail(rows)
+    for (const viewport of this.listeners.get(chatId)?.values() ?? []) viewport.window?.establishTail(rows)
   }
   override delete(chatId: string): boolean {
     this.getHistory(chatId)?.reset(chatId)

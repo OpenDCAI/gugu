@@ -29,7 +29,6 @@ type Deps = {
   setActiveThreadRootId: (rootId: string | null, chatId: string) => void
   setLoadingThread: (loading: boolean, chatId: string) => void
   setThreadMessages: (value: SetStateAction<MessageItem[]>, chatId: string) => void
-  setMessagesAndCache: (value: SetStateAction<MessageItem[]>, chatId: string, commit: UnreadLocatorCommit) => void
   loadChats: (options?: { acceptEmpty?: boolean }) => Promise<void>
   cancelChatOpenRef: CancelChatOpenRef
 }
@@ -126,7 +125,6 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           }
           const commit = await loadWindow()
           assertCurrent()
-          deps.setMessagesAndCache((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId), currentTarget.chatId, commit)
           return commit
         },
         revealMessage: async (currentTarget, commit) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent, viewport, commit) },

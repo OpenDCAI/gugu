@@ -82,7 +82,7 @@ export function useUnreadLocatorNavigation(input: {
         if (previous && previous.token !== detail.token) previous.reject(new Error('Unread navigation was superseded'))
         return detail as UnreadMessageRevealRequest
       })
-      if (detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).then(activate, detail.reject)
+      if (detail.streamKind === 'main' && detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).then(activate, detail.reject)
       else activate()
     }
     window.addEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
