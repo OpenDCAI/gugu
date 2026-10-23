@@ -142,6 +142,8 @@ export function providerEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 interface GuguMcpContextBase {
   expectedOwnerUserId: string
   subjectId: string
+  /** Explicit provision role, never inferred from workspace or inherited by executors. */
+  personalAssistant?: true
   runSessionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 `gugu_session` 的 app_* 动作:写一个会话页 tab 扩展并装上。不需要 owner 令牌。 */
@@ -206,7 +208,8 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         : new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
       // session_* 与 app_* 两个域(#4191)与社交域同 server 注册:
       // 一条 grant 只要拿得到其中任一半就两个域全部注册,缺的那一半在调用时报错 —— 工具清单不随
-      // grant 变,否则每种组合都是一份新的模型前缀。
+      // 同角色的 grant 变,否则每种组合都是一份新的模型前缀。个人助理只排除 device_call;
+      // 这是两种固定角色工具面,不是按会话的动态授权清单。
       if (getContext().runSessionAction || getContext().runExtensionAction) {
         const sessionDispatcher: SessionDispatcher | undefined = getContext().runSessionAction
           ? (action, requestSignal) => {
@@ -215,7 +218,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
               return run(action, AbortSignal.any([grantSignal, requestSignal]))
             }
           : undefined
-        registerGuguSessionTools(server, sessionDispatcher, trackRequest)
+        registerGuguSessionTools(server, sessionDispatcher, trackRequest, initial.personalAssistant === true)
         registerGuguProjectTools(server, sessionDispatcher, trackRequest)
         registerGuguLibraryTools(server, sessionDispatcher, trackRequest)
         if (sessionDispatcher) registerAssistantResource(server, {
@@ -280,11 +283,12 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       subjectId: context.subjectId,
       // 分叉的 IM 工具「注册但不可执行」—— 台账要照实记,否则一条不能收发消息的 grant 会以
       // 「gugu+session」的面目留在审计里。
-      toolScope: context.kind !== 'social'
+      toolScope: (context.kind !== 'social'
         ? 'session-only'
         : context.forkOf !== undefined
           ? (context.runSessionAction ? 'runtime-fork+session' : 'runtime-fork')
-          : (context.runSessionAction ? 'gugu+session' : 'gugu'),
+          : (context.runSessionAction ? 'gugu+session' : 'gugu'))
+        + (context.personalAssistant ? ':assistant' : ''),
     }),
     persistence,
   )
@@ -295,6 +299,7 @@ export interface BuildSocialBridgeDeps {
   getSupabaseAnonKey?: () => string
   host: DesktopGuguMcpHost
   grantKey: string
+  personalAssistant?: true
   runHostAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   runSessionAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   readAssistantResources?: () => Promise<AssistantLocalSource[]>
@@ -337,6 +342,7 @@ export async function buildSocialBridge(
       threadRootId: threadRootId ?? null,
       guguHome: resolveGuguHome(context.env),
       grantKey: deps.grantKey,
+      ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
       ...(deps.readAssistantResources ? { readAssistantResources: async () => {

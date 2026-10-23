@@ -30,7 +30,8 @@ export const GUGU_LISTED_TOOLS: ReadonlySet<string> = new Set([
   'message_conversations', 'message_rules', 'message_invite', 'contact_friend', 'owner_friends_list',
   'topic_open', 'topic_list', 'profile_whoami',
   'session_message', 'session_spawn', 'session_open_in_tab', 'session_get', 'session_peers', 'session_children',
-  // #7199 第二步:云端助理调用户设备上的单个动作。个人助理最常用的就是这两个,放进原生列表。
+  // Native device inspection/execution. The coordinator role does not register device_call;
+  // executors keep it. This set only selects from tools that their server actually registered.
   'device_actions', 'device_call',
   // #7221 「明早 8 点提醒我」:答应了以后的事,得在当场就找得到这把工具 —— 藏进目录,agent 会改用自己 harness 的定时器,
   // 进程一停就没了。看与取消不常用,留在目录。

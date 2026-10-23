@@ -5273,6 +5273,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
+            ...(assistantRole ? { personalAssistant: true as const } : {}),
             ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,

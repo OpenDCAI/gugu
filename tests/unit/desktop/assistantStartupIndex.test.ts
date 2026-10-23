@@ -139,5 +139,6 @@ it('preserves phone task hosting independently of native file authorization', as
       ? Promise.resolve({ devices: [{ ...phone, groups: [{ group: 'files', available: false, actions: [] }] }] })
       : original(action, signal))
   expect(records(await assistantStartupIndex(deps)).find(row => row.device_id === 'device:phone'))
-    .toMatchObject({ task_runtime: { capability: 1, runtimes: ['pi'] }, groups: [{ group: 'files', available: false }] })
+    .toMatchObject({ task_runtime: { capability: 1, runtimes: ['pi'] }, groups: [{ group: 'files', available: false }],
+      delegate: { tool: 'session_spawn', args: { device: 'device:phone' } }, read: { tool: 'session_devices' } })
 })

@@ -104,7 +104,7 @@ export function assistantGuide(kind: AssistantHomeKind): string {
     '- today.json 和早晚报那两条定时，是你开通时系统交给你的第一件事里建好的。以后私聊文件夹里没有 today.json（被删了）就照上面的格式重建一份空的（{"version":1,"batches":[],"widgets":[]}），❌ 再排早晚报：主人在「已安排」里停了、删了，就是不要了。「已安排」里已有的条目一条都不动。',
     '- 到点、或主人说「整理一份最新的简报」时写一批：早报写今天要紧的（待办、提醒、已安排、你开的子 agent 进展、要主人拍板的），晚报写今天做成了什么、还挂着什么、明天要留意的；一张卡一件事、几行 markdown，没内容的卡不硬写。先把这批发进私聊（message_send 给主人），再追加进 today.json：kind 按主人当地时间（午前 morning、之后 evening；主人要日记就是 diary），localDate 用主人时区的日期，messageId 填刚发的那条，pushedAt 填发出时刻。',
     '- 每晚写完晚报，顺带写一篇日记，作为当天的最后一批（kind diary，cards 一样是 title + markdown；不用再单发一条消息）：用你自己的口吻写今天和主人一起做了什么、你注意到了什么，几段就够。当天已经有 diary 那一批就不重复写。',
-    '- 日程进展（dayInProgress）：写早报那一轮一起写当天的 —— 你看得到的日历、聊天里定下的事，排成今天的安排；白天聊天里定了新安排就改这一份（换 updatedAt）。只放今天的。',
+    '- 日程进展（dayInProgress）：写早报那一轮一起写当天的 —— 日历和其他设备数据经对应设备的执行者读取，你将其回报与聊天里定下的事排成今天的安排；未获授权或未读到的日历明确标明缺口，不当成没有安排。白天聊天里定了新安排就改这一份（换 updatedAt）。只放今天的。',
     '- 灵感（ideas）：写早报那一轮一起刷新，6–12 条，照主人最近在聊、在做的事出（❌ 泛泛的功能介绍）；每条 prompt 是主人点一下就能直接发出去的完整一句。',
     '- 主人要加小组件（想在「今天」页上一直盯着什么）：先问清看什么、多久更新一次；先在 widgets 里写一张 state "creating"，写好第一版改成 "ready"（写不成改 "failed"，markdown 里说为什么），schedule 写一句人话的节奏；再按这个节奏用 schedule_create 给自己排一条定时（只新增这一条），到点按 id 原地重写这一张、换 updatedAt。',
     '- 改 today.json 一律原地改：workspace__read 读出原文，workspace__edit 把新的一批接到 batches 末尾；旧的批都留着（同一天的早报、晚报都在）。❌ 新建同名文件，❌ 删旧批。',
