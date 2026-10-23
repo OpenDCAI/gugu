@@ -68,7 +68,7 @@ export function AssistantViewWrapper({ children }: { children: ReactNode } & Ass
   return <>{children}</>;
 }
 
-/** 没开云电脑、正在开、还没有助理:整页一块居中的(与首屏同一块渐变底)。 */
+/** 没开云电脑、正在开、还没有助理:整页一块居中的(与首屏同一块中性底)。 */
 function Centered({ children, testId }: { children: ReactNode; testId: string }) {
   return (
     <div className="ta-app ta-centered" data-testid={testId}>

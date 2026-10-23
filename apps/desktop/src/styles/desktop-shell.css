@@ -67,7 +67,7 @@
   [data-desktop-shell] .gugu-skin [data-workspace-content-surface]
 ) {
   --workspace-chrome-inset: 0px;
-  margin: var(--desktop-surface-inset) var(--desktop-surface-inset) var(--desktop-surface-inset) 0;
+  margin: 0;
   max-height: 100%;
   border-radius: 0;
   box-shadow: none;

@@ -86,7 +86,34 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
 });
 
 for (const material of ['native', 'opaque']) {
-  it(`full-width embedded pages expose the ${material} shell outside their rounded surface`, async () => {
+  it(`the light ${material} desktop uses one outer frame without a second content gutter`, async () => {
+    document.documentElement.dataset.windowMaterial = material;
+    harness = createReactHarness();
+    await harness.render(<div data-desktop-shell="" style={{ position: 'fixed', inset: 0, display: 'flex' }}>
+      <nav className="gg-sidebar-rail" />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+        <div className="gg-session-frame" style={{ flex: 1 }}><div className="gg-session-frame-host"><div className="gugu-skin emlight" style={{ height: '100%', width: '100%' }}>
+          <SessionLocalizationProvider><WorkspaceLayoutContextProvider>
+            <WorkspaceLayout sidebarHidden leftSidebar={<div>retained list</div>} mainContent={<WorkspaceContentLayout titlebarSlot={null} mainPanel={<div>full-width page</div>} />} />
+          </WorkspaceLayoutContextProvider></SessionLocalizationProvider>
+        </div></div></div>
+      </div>
+    </div>);
+    const desktop = harness.container.querySelector<HTMLElement>('[data-desktop-shell]')!;
+    const outer = desktop.querySelector<HTMLElement>('.gg-sidebar-rail + div')!;
+    const surface = desktop.querySelector<HTMLElement>('[data-workspace-content-surface]')!;
+    const frame = outer.getBoundingClientRect();
+    const content = surface.getBoundingClientRect();
+    expect(content.width).toBeGreaterThan(700);
+    expect(frame.top - desktop.getBoundingClientRect().top).toBe(5);
+    expect(content.top).toBe(frame.top);
+    expect(content.right).toBe(frame.right);
+    expect(content.bottom).toBe(frame.bottom);
+    expect(getComputedStyle(surface).borderRadius).toBe('0px');
+    expect(getComputedStyle(surface).boxShadow).toBe('none');
+  });
+
+  it(`full-width embedded pages share the ${material} workspace interior without another inset`, async () => {
     document.documentElement.dataset.windowMaterial = material;
     harness = createReactHarness();
     await harness.render(<div data-desktop-shell="" style={{ position: 'fixed', inset: 0 }}>
@@ -107,7 +134,7 @@ for (const material of ['native', 'opaque']) {
     const shell = harness.container.querySelector<HTMLElement>('[data-workspace-shell]')!;
     const surface = harness.container.querySelector<HTMLElement>('[data-workspace-content-surface]')!;
     expect(surface.getBoundingClientRect().width).toBeGreaterThan(900);
-    expect(surface.getBoundingClientRect().top - shell.getBoundingClientRect().top).toBe(5);
+    expect(surface.getBoundingClientRect().top).toBe(shell.getBoundingClientRect().top);
   });
 }
 

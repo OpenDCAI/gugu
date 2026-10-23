@@ -102,4 +102,16 @@ describe('usePlatformModelCatalog —— 跟着那台机器连没连上走', () 
     await render(false);
     expect(state?.agentDefault).toEqual({ modelId: 'glm-5.3-flash' });
   });
+
+  it('断开前那次没问到(落成「尚未就绪」),机器回来:那句当场作废,❌ 重取回来之前再亮一下', async () => {
+    invoke.mockReset().mockRejectedValue(new Error('no answer within 15000 ms'));
+    await render(true);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    expect(state?.catalogError).not.toBeNull();
+    await render(false);
+    invoke.mockReset().mockReturnValue(new Promise(() => {}));
+    await render(true);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(state?.catalogError).toBeNull();
+  });
 });
