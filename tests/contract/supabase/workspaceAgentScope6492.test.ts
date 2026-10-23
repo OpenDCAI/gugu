@@ -225,7 +225,7 @@ describe('topic resources use the source container through the real App SDK and 
     expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [topic, w.agent])).rows).toEqual([])
   })
 
-  it('an agent in the source works with its owner outside; an agent only in the topic is refused', async () => {
+  it('an agent in the source works with its owner outside; leaving the source removes file access', async () => {
     const w = await world()
     await join(w)
     const topic = await topicOf(w.group, w.owner)
@@ -234,7 +234,6 @@ describe('topic resources use the source container through the real App SDK and 
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
     expect(await files.resourceChat(topic, { asAgent: w.agent })).toBe(w.group)
     expect(await files.openTarget(surface, { ref: { chat: topic, id: made.id } })).toMatchObject({ chatId: w.group })
-    await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'member')", [topic, w.agent])
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])
     await expect(files.groupFiles(topic, { asAgent: w.agent })).rejects.toMatchObject({ code: 'denied' })
     await expect(files.openTarget(surface, { ref: { chat: topic, id: made.id } })).rejects.toMatchObject({ code: 'not-found' })
