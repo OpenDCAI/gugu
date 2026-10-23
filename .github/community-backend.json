@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "ed831645d528ff959676002f0dabd2fc5ce5884c",
-  "status": "Task seats, quiet card replies and owner-only project groups (OpenDCAI/gugu-supabase#19, #20, #24) merged to dev; pinned to the merge commit."
+  "ref": "32d83806b009c67f2ec8bbf47f57ca2ca7e949e8",
+  "status": "Account snapshot bootstrap (OpenDCAI/gugu-supabase#26); update to the backend merge commit before merging this client change."
 }

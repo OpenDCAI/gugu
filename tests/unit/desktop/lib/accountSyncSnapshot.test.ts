@@ -16,6 +16,20 @@ function serverSnapshot(revision = '422010') {
   return { account_id: 'account-a', revision, chats: [], memberships: [], identities: [identity],
     previews: [], unread: [], overrides: [], presence: {} }
 }
+function populatedSnapshot() {
+  const at = '2026-10-23T00:00:00Z'
+  return { ...serverSnapshot(),
+    chats: [{ id: 'chat-1', public_id: null, kind: 'group', status: 'active', name: 'Remote group',
+      avatar_url: null, created_at: at, next_message_seq: 4, pinned_message_id: null, source_chat_id: null, source_message_id: null }],
+    memberships: ['account-a', 'peer'].map((user_id) => ({ chat_id: 'chat-1', user_id, last_read_seq: 1,
+      is_marked_unread: false, version: 2, notification_level: 'all', is_pinned: false,
+      updated_at: at, joined_at: at, inbox_published_at: at, role: user_id === 'peer' ? 'member' : 'owner' })),
+    identities: [identity, { ...identity, id: 'peer', display_name: 'Remote peer' }],
+    previews: [{ chat_id: 'chat-1', id: 'remote-message', created_at: at, preview: 'Remote text', seq: 3, content_type: 'text', sender_user_id: 'peer', client_message_id: 'remote-message' }],
+    unread: [{ chat_id: 'chat-1', stream_id: 'main:chat-1', stream_kind: 'main', thread_root_id: null,
+      message_id: 'remote-message', message_seq: 3, unread_count: 2, cursor_seq: 1, version: 2, is_marked_unread: false }],
+  }
+}
 const pending: OutboxRecord = { clientMessageId: 'unsent', chatId: 'chat-1', senderUserId: 'account-a',
   payload: { content: 'keep this input', contentType: 'text', toUserIds: null, replyToMessageId: null,
     threadRootId: null, isThreadRoot: false, isWhisper: false },
@@ -44,6 +58,7 @@ describe('account snapshot bootstrap and repair', () => {
   })
 
   it('discards a missing-stream cache and preserves unsent input atomically', async () => {
+    rpc.mockReturnValue({ abortSignal: vi.fn().mockResolvedValue({ data: populatedSnapshot(), error: null }) })
     const cached = await openImRepository('account-a', { adapter })
     await cached.transaction((tx) => {
       tx.putMessage(message({ id: 'cached-message', chat_id: 'chat-1', sender_user_id: 'account-a', seq: 1 }))
@@ -55,6 +70,10 @@ describe('account snapshot bootstrap and repair', () => {
     expect(repaired.snapshot().message).toEqual([])
     expect(repaired.snapshot().outbox[0]!.value).toEqual(pending)
     expect(repaired.snapshot().sync_state[0]!.value).toEqual({ revision: '422010' })
+    expect(repaired.snapshot().chat[0]!.value).toMatchObject({ id: 'chat-1', name: 'Remote group',
+      last_read_seq: 1, unread_count: 2, last_message_preview: 'Remote text', member_user_ids: ['account-a', 'peer'] })
+    expect(repaired.snapshot().identity.find((row) => row.id === 'peer')!.value.display_name).toBe('Remote peer')
+    expect(repaired.snapshot().membership.map((row) => row.identityId).sort()).toEqual(['account-a', 'peer'])
     const durable = await adapter.loadAccount('account-a')
     expect(durable.identity[0]!.id).toBe('account-a')
     expect(durable.outbox[0]!.value).toEqual(pending)
