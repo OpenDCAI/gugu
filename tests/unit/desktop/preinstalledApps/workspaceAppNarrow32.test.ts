@@ -125,7 +125,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect($('doc-message').textContent).not.toMatch(/pick a file/i)
     const files = document.querySelector('.files')!
     // 子文件夹: the crumbs sit between the head and the list (hidden at the top), then the list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.className).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
   })
 
   // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.
