@@ -824,7 +824,7 @@ export function ChatListPanel({
 
   // 手机整行只导航;桌面重复激活当前来源行才收起/展开,⌘ 点照常拼到右边。
   const activateChatRow = (chat: ChatItem, beside = false) => {
-    if (mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
+    if (chat.unread_locator || mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
       selectChat(chat, 'composer', beside)
       return
     }
