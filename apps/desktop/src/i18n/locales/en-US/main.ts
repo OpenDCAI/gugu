@@ -508,7 +508,6 @@ export default {
         "messages": "Messages",
         "contacts": "Contacts",
         "toggleSidebar": "Show/Hide sidebar",
-        "toggleFilePanel": "Show/Hide Files panel",
         "actualSize": "Actual size",
         "zoomIn": "Zoom in",
         "zoomOut": "Zoom out",

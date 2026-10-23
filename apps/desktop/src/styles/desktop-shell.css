@@ -90,9 +90,7 @@
  */
 :root[data-window-material][data-theme='light'] [data-desktop-shell] :is(
   [data-app-shell-focus-area='right-panel'],
-  [data-testid='new-session-right-panel'],
   #file-tab-tree > div,
-  #draft-workspace-tree > div,
   [data-testid='editor-file-tree']:not(.bg-background-1),
   [data-testid='editor-file-tree'] > .gg-panel-header,
   [data-app-shell-focus-area='right-panel'] .gg-panel-header

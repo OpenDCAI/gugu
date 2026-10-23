@@ -7,7 +7,6 @@ import { NAV_COLUMN_WIDTH } from '@/lib/uiRuler';
 import { WorkspaceLayout, WorkspaceContentLayout } from '@renderer/lib/layout/workspace-layout';
 import { WorkspaceLayoutContextProvider, useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
-import { TitlebarActions } from '@renderer/features/sessions/titlebar-actions';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import '@/styles/tokens.css';
 import '@/components/sessionpage/EmdashSessionFrame.css';
@@ -39,7 +38,7 @@ afterEach(() => {
   delete document.documentElement.dataset.windowMaterial;
 });
 
-it('the real workspace keeps an opaque rounded reading surface inset from material, with fixed and local chrome aligned through collapse', async () => {
+it('the real workspace keeps an opaque rounded reading surface inset from material, with local chrome retained through collapse', async () => {
   harness = createReactHarness();
   await harness.render(
     <div className="gugu-skin emlight" style={{ position: 'fixed', inset: 0 }}>
@@ -47,9 +46,7 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
         <WorkspaceLayout
           leftSidebar={<div>project list</div>}
           mainContent={<WorkspaceContentLayout
-            titlebarSlot={<ShellTitlebar leftSlot={<button aria-label="project menu" style={{ height: 28 }}>project</button>}>
-              <TitlebarActions actions={{ 'workspace-panel': <button aria-label="workspace panel">panel</button> }} />
-            </ShellTitlebar>}
+            titlebarSlot={<ShellTitlebar leftSlot={<button aria-label="project menu" style={{ height: 28 }}>project</button>} />}
             mainPanel={<Body />}
           />}
         />
@@ -72,9 +69,8 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
   expect(style.boxShadow).not.toBe('none');
   expect(shell.querySelector('aside > .bg-border'), 'no full-height line may protrude into the rounded frame gutter').toBeNull();
   const local = harness.container.querySelector<HTMLElement>('[aria-label="project menu"]')!;
-  const fixed = harness.container.querySelector<HTMLElement>('[data-titlebar-action-slot]')!;
   const center = (element: HTMLElement) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
-  expect(center(fixed)).toBeCloseTo(center(local));
+  const localCenter = center(local);
   const draft = harness.container.querySelector<HTMLInputElement>('[aria-label="retained draft"]')!;
   await userEvent.click([...harness.container.querySelectorAll('button')].find((button) => button.textContent === 'toggle list')!);
   await until('the real list collapse completes', () => shell.querySelector('aside')!.getBoundingClientRect().width < 0.5);
@@ -82,7 +78,7 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
   expect(draft.value).toBe('keep this draft');
   expect(mounted).toHaveBeenCalledTimes(1);
   expect(surface.getBoundingClientRect().top - shell.getBoundingClientRect().top).toBeCloseTo(5);
-  expect(center(fixed)).toBeCloseTo(center(local));
+  expect(center(local)).toBeCloseTo(localCenter);
 });
 
 for (const material of ['native', 'opaque']) {

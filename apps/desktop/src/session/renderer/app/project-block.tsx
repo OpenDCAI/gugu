@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
 import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import { TabStripShell } from '@renderer/features/tabs/tab-bar';
 import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
@@ -61,7 +60,7 @@ export const ProjectBlock = observer(function ProjectBlock({
       <TabStripShell
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
             {blockActions}
           </TabBarActionRow>
@@ -90,9 +89,7 @@ export const ProjectBlock = observer(function ProjectBlock({
             {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : null}
           </>
         ) : chatId || projectGroupsStore.bindingKnown(projectId) ? (
-          <SessionShellProvider>
-            <ProjectMainPanel projectId={projectId} />
-          </SessionShellProvider>
+          <ProjectMainPanel projectId={projectId} />
         ) : null}
       </div>
     </>

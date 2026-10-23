@@ -20,7 +20,8 @@ import {
 
 /** 一条接上了的线。send 在线已断时抛错。 */
 export type SessionHostPipe = {
-  send(frame: string | Uint8Array): void
+  /** `heartbeat` = 这一帧只是心跳:管道可以按「探活」对待它(例如等应答等得更短),❌ 当成要办的事。 */
+  send(frame: string | Uint8Array, kind?: 'heartbeat'): void
   close(): void
 }
 
@@ -169,6 +170,16 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       send(message)
     } catch {
       /* 断着:重连时订阅会重报 */
+    }
+  }
+
+  // 心跳标明是心跳:管道据此把它当探活(设备连接上那一问回得慢 = 对面没了,见 remoteSessionHost)。
+  const sendHeartbeat = (): void => {
+    if (!pipe || state !== 'open') return
+    try {
+      pipe.send(encodeHostWsMessage({ t: 'hb' }), 'heartbeat')
+    } catch {
+      /* 断着:重连之后照常 */
     }
   }
 
@@ -369,7 +380,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         watchdog = setInterval(() => {
           if (gen === generation && !dropIfSilent()) lastTickAt = now()
         }, Math.max(1000, Math.floor(Math.min(staleMs, frozenMs) / 4)))
-        if (heartbeatMs > 0) beat = setInterval(() => trySend({ t: 'hb' }), heartbeatMs)
+        if (heartbeatMs > 0) beat = setInterval(sendHeartbeat, heartbeatMs)
         setState('open')
         opening = null
         abandonOpening = null

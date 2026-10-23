@@ -17,7 +17,7 @@ import { tunnelFacts, wantsTunnel, type TunnelState } from '../lib/tunnelMachine
 import { sshLinkFacts } from '../lib/sshLinkOnline'
 import { useSshLinkProblems } from './useSshLinkProblems'
 import { useDevicesStore } from '../store/devicesContext'
-import { openRemoteSessionHostPipe } from '../lib/remoteSessionHost'
+import { openMachineSessionHostPipe } from '../lib/remoteSessionHost'
 import { retryServerVersionMatch } from '../lib/serverVersionRetry'
 import { chatService } from '../lib/chat'
 import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
@@ -125,7 +125,7 @@ export function useRemoteHostsBridge(
         }
       },
       // 那台机器的整套会话页宿主(一套工作台):线同上,在 deviceRpc.ts 里按机器挑。
-      openSessionHost: (deviceId) => openRemoteSessionHostPipe(deviceId),
+      openSessionHost: (deviceId) => openMachineSessionHostPipe(deviceId),
       pickFolder: (deviceId, initialPath) => pickFolderRef.current(deviceId, initialPath),
       openAddMachine: () => openAddMachineRef.current?.(),
       signInSsh: async (deviceId) => (await signInSshMachine(deviceId)).ok,

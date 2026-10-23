@@ -13,7 +13,6 @@ import type { ComposerVerbLook } from '@renderer/features/sessions/session-confi
 import { useInitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
 import { SessionStateProvider } from '@renderer/features/sessions/session-config/session-state-context';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { SidePanelSplit } from '@renderer/lib/layout/side-panel-split';
 import { ComposerProjectPicker } from './composer-context-tray';
 import { describeImplicitProjectFailure, machineComposerProps } from './use-machine-create-target';
 import { useNewSessionMachine } from '@renderer/features/remote-hosts/use-new-session-machine';
@@ -21,7 +20,6 @@ import { useWakeCloudOnInput } from '@renderer/features/remote-hosts/use-wake-cl
 import { machineLibraryHost } from '@renderer/features/library/library-host';
 import { ComposerTray } from './composer-tray';
 import { useRemoteInstallBeforeCreate } from './remote-install-before-create';
-import { DraftWorkspacePanel } from './draft-workspace-panel';
 import {
   ImplicitSessionHomeProjectError,
   ensureImplicitSessionHomeProjectId
@@ -31,7 +29,6 @@ import {
   sessionComposerDockBandClassName,
   sessionComposerDockedWidthClassName
 } from './session-composer-styles';
-import { useSessionShellContext } from './session-shell-context';
 import { CreateDeliveryError } from './create-session-modal/create-delivery-error';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts } from './composer-drafts';
 import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
@@ -46,7 +43,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 // gugu #2549: exported so the composer-only embed root (对话页原地创建 Agent,
 // app/composer-embed-root.tsx) can reuse this exact createSession input and submission path.
 // gugu #2525: 上下文托盘的控件也已共用（composer-context-tray.tsx）——对话页那条托盘比这里多一个
-// 设备选择器。仍留在会话页独有的只剩 title 与 DraftWorkspacePanel。
+// 设备选择器。新建页在这份共享 composer 上加标题。
 export const NewSessionComposer = observer(function NewSessionComposer({
   projectId,
   blockReason,
@@ -230,7 +227,6 @@ export const NewSessionPage = observer(function NewSessionPage({
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [implicitProjectId, setImplicitProjectId] = useState<string | undefined>(undefined);
   const [implicitProjectFailure, setImplicitProjectFailure] = useState<unknown>(null);
-  const { isNewSessionWorkspaceOpen, setNewSessionWorkspaceOpen } = useSessionShellContext();
 
   // An unselected project is a real first-class state, not an alias for projects[0]. Prepare the
   // hidden app-owned execution context in the background while keeping the composer editable.
@@ -254,7 +250,7 @@ export const NewSessionPage = observer(function NewSessionPage({
         setImplicitProjectFailure(error);
       });
     return () => {
-      cancelled = true;
+    cancelled = true;
     };
   }, []);
 
@@ -281,55 +277,37 @@ export const NewSessionPage = observer(function NewSessionPage({
   );
 
   return (
-    // @@@draft-split — 右侧面板与会话页是**同一个**分栏组件(lib/layout/side-panel-split.tsx):
-    // 通高分隔线、贴边命中带、同一条弹簧、同一份存下来的宽度。
-    // ❌ 别再为新建页另写一套:原来那套 react-resizable-panels 分栏被 #6303 把把手缩成 40px
-    // 居中一截,分隔线也跟着只剩这一截 —— owner 2026-09-25:「一个没有分界线的悬空把手」。
-    <SidePanelSplit
-      form={isNewSessionWorkspaceOpen ? 'side' : 'closed'}
-      resizeLabel={translate('task.resizeWorkspacePanel')}
-      onCollapseWorkspace={() => setNewSessionWorkspaceOpen(false)}
-      workspacePanel={
-        <DraftWorkspacePanel
-          projectId={effectiveProjectId}
-          visible={isNewSessionWorkspaceOpen}
-          remoteDeviceId={remote?.deviceId ?? null}
-        />
-      }
-      chatColumn={
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 items-center justify-center px-4">
-          {/* 去掉入场滑入(不解释状态变化,只是每次开页都要看的表演)与 `text-xl font-semibold`
-              (`.gg-type-page-title` 现在真有定义 20/28/600,别写两遍)。规格 §2 */}
-          <h1 className="gg-type-page-title">
-            {translate('task.newTask')}
-          </h1>
-        </div>
-        <div className={sessionComposerDockBandClassName}>
-          <div className={sessionComposerDockedWidthClassName}>
-            <ComposerTray
-              projectPicker={projectPicker}
-              devicePicker={devicePicker}
-              host={machineContext?.host ?? machineLibraryHost(null)}
-            >
-              <NewSessionComposer
-                // 换机器 = 换一个创建目标:整棵重挂,上一台机器的选择(agent、模型)不带到下一台;
-                // 写好的话经 draftKey 那一格跟着走。
-                key={remote?.deviceId ?? 'local'}
-                draftKey={NEW_SESSION_DRAFT_KEY}
-                {...machineComposerProps(machineContext, { projectId: effectiveProjectId })}
-                onSessionCreated={onSessionCreated}
-              />
-            </ComposerTray>
-            {implicitProjectError && !selectedId ? (
-              <p className="mt-3 text-center text-xs text-foreground-destructive">
-                {implicitProjectError}
-              </p>
-            ) : null}
-          </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-4">
+        {/* 去掉入场滑入(不解释状态变化,只是每次开页都要看的表演)与 `text-xl font-semibold`
+            (`.gg-type-page-title` 现在真有定义 20/28/600,别写两遍)。规格 §2 */}
+        <h1 className="gg-type-page-title">
+          {translate('task.newTask')}
+        </h1>
+      </div>
+      <div className={sessionComposerDockBandClassName}>
+        <div className={sessionComposerDockedWidthClassName}>
+          <ComposerTray
+            projectPicker={projectPicker}
+            devicePicker={devicePicker}
+            host={machineContext?.host ?? machineLibraryHost(null)}
+          >
+            <NewSessionComposer
+              // 换机器 = 换一个创建目标:整棵重挂,上一台机器的选择(agent、模型)不带到下一台;
+              // 写好的话经 draftKey 那一格跟着走。
+              key={remote?.deviceId ?? 'local'}
+              draftKey={NEW_SESSION_DRAFT_KEY}
+              {...machineComposerProps(machineContext, { projectId: effectiveProjectId })}
+              onSessionCreated={onSessionCreated}
+            />
+          </ComposerTray>
+          {implicitProjectError && !selectedId ? (
+            <p className="mt-3 text-center text-xs text-foreground-destructive">
+              {implicitProjectError}
+            </p>
+          ) : null}
         </div>
       </div>
-      }
-    />
+    </div>
   );
 });

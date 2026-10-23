@@ -15,7 +15,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
 import { createSessionCommandProvider } from './commands';
 import { SessionMainPanel } from './main-panel';
-import { SessionTitlebar } from './session-titlebar';
+import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 
 /** 到那台机器的线从断变通了几次(本机 = 0):让「线通了再准备」那一下重算。 */
 function useLinkOpenings(machine: string | null): number {
@@ -91,7 +91,7 @@ const SessionViewWrapperWithProviders = observer(function SessionViewWrapperWith
 
 export const sessionView = {
   WrapView: SessionViewWrapperWithProviders,
-  TitlebarSlot: SessionTitlebar,
+  TitlebarSlot: ShellTitlebar,
   MainPanel: SessionMainPanel,
   commandProvider: ({ projectId, sessionId }: { projectId: string; sessionId: string }) =>
     createSessionCommandProvider(projectId, sessionId),

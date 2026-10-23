@@ -111,12 +111,13 @@ describe('the slot header', () => {
       expect(harness.container.querySelector('[data-testid="group-app-slot-error"]')).toBeNull()
 
       // A page opened for a file: its own slot, its own words; the group's page untouched.
-      groupSlotMemory.setOpened('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'Workspace', typedName: 'plan.json', opening: 4 })
+      groupSlotMemory.setOpened('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'plan', fileName: 'plan.json', typedName: 'plan.json', opening: 4 })
       // (Its page waits for the group's shared packages to be read — a signed-in person's.)
       await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never }, slot({ chatId: 'group-4' })))
       await act(async () => {})
-      act(() => extensionSurfaceStore.say(null, claimOf('group-4', 'item-4').tabId, { title: 'plan.json · Board' }))
-      expect(harness.container.textContent).toContain('plan.json · Board')
+      act(() => extensionSurfaceStore.say(null, claimOf('group-4', 'item-4').tabId, { title: 'Board' }))
+      expect(harness.container.querySelector('[title="plan.json · Board"]')?.textContent).toBe('plan')
+      expect(harness.container.textContent).not.toContain('Board')
       expect(extensionSurfaceStore.sharedState(residentPageKey(WORKSPACE_APP_KIND, residentPlace({ chatId: 'group-4' }))).title).toBeNull()
     } finally {
       stop()

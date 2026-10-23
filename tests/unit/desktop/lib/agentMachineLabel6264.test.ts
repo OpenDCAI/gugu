@@ -9,7 +9,8 @@ vi.mock('@/i18n', async (importOriginal) => {
 
 import type { Device } from '@gugu/core/shared/types/chat'
 import { agentLocationText, resolveAgentLocation } from '../../../../apps/desktop/src/lib/agentRunningStatusModels'
-import { agentDeviceTag } from '../../../../apps/desktop/src/lib/chatRowTag'
+import { agentDeviceTag, chatRowTag } from '../../../../apps/desktop/src/lib/chatRowTag'
+import { chat } from '../../../support/testHarness'
 
 const row = (over: Partial<Device>): Device => ({
   device_id: 'x', label: 'x', hostname: 'x', platform: 'linux', status: 'online', last_seen_at: '', capabilities: null,
@@ -24,6 +25,13 @@ const devices = [
 const words = (key: string) => (key === 'chatArea.agentLocation.local' ? '本机' : '咕咕云')
 
 describe('agent 所在机器', () => {
+  it('omits group tags while preserving agent device tags', () => {
+    const agent = { type: 'agent' as const, device_id: 'linux2' }
+    expect(chatRowTag(chat({ kind: 'group' }), agent, devices)).toBeNull()
+    expect(chatRowTag(chat({ kind: 'ai' }), agent, devices)).toBe('Linux 2')
+    expect(chatRowTag(chat({ kind: 'dm' }), undefined, devices)).toBeNull()
+  })
+
   it('本机、同一台电脑的另一条设备行、别的机器、咕咕云', () => {
     expect(agentLocationText(resolveAgentLocation('mbp', devices), words)).toBe('本机')
     expect(agentLocationText(resolveAgentLocation('mbp-beta', devices), words)).toBe('本机')

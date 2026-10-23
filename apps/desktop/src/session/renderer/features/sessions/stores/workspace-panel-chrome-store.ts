@@ -7,7 +7,6 @@ import { action, makeObservable, observable } from 'mobx';
  * 所以也没有全屏 —— 想让一格占满就把别的格关掉或拖开。
  *
  * 第一次装好默认收起(先把注意力留给输入框),之后以用户上一次的操作为准。
- * 「空面板要收起」那条不在这里:它取决于草稿页有没有内容,由 SessionShellProvider 推导。
  */
 const STORAGE_KEY = 'gugu.workspace-panel-chrome.v1';
 

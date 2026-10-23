@@ -2,12 +2,10 @@ import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
 import { i18n } from '@/i18n'
 import { agentLocationText, resolveAgentLocation } from './agentRunningStatusModels'
 
-// Derive a type tag for a chat row — design line 597–600.
-// Groups → "群聊"; agents → 真实运行设备归属(咕咕云 / 设备名 / 本机)取代无脑「本机」(#1759);
-// plain DM → no tag。
+// agents → 真实运行设备归属(咕咕云 / 设备名 / 本机);groups / plain DM → no tag。
 // @@@1759 老语义下 agent 只能在本机、「本机」是对的;现在有咕咕云 + 跨设备,按 peer_device_id 解析真实归属。
 export function chatRowTag(chat: ChatItem, identity: { type: 'human' | 'agent'; device_id: string | null } | undefined, devices: Device[]): string | null {
-  if (chat.kind === 'group') return i18n.t('chatList.rowTag.group', { ns: 'messaging' })
+  if (chat.kind === 'group') return null
   if (chat.kind !== 'ai' && identity?.type !== 'agent') return null
   return agentDeviceTag(identity?.device_id ?? null, devices)
 }
