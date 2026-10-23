@@ -38,7 +38,12 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
   });
 }
 
-export function SubscriptionConnections({ agent, machine }: { agent: AgentPayload; machine: string | null }) {
+/** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
+export function SubscriptionConnections({ agent, machine, onError }: {
+  agent: AgentPayload;
+  machine: string | null;
+  onError?: (message: string | null) => void;
+}) {
   const { translate } = useSessionMessages();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -53,6 +58,8 @@ export function SubscriptionConnections({ agent, machine }: { agent: AgentPayloa
     void queryClient.invalidateQueries({ queryKey: harnessModelCredentialKey(agent.id) });
   };
   const action = useMutation({
+    onMutate: () => onError?.(null),
+    onError: (error) => onError?.(errorText(error)),
     mutationFn: async ({ kind, id }: { kind: 'select' | 'remove' | 'refresh'; id: string }) => {
       if (agent.id !== 'claude' && agent.id !== 'codex') throw new Error('Unsupported harness');
       const client = await getAgentConfigRuntimeClient(machine);
@@ -106,7 +113,6 @@ export function SubscriptionConnections({ agent, machine }: { agent: AgentPayloa
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {action.error && <p className="subscription-error" role="alert">{errorText(action.error)}</p>}
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>{translate('subscriptions.connections.addTitle', { provider: agent.name })}</DialogTitle></DialogHeader>
