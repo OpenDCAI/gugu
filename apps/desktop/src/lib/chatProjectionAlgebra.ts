@@ -9,6 +9,7 @@
 // 与到达顺序无关这三件事就是这个代数的**定理**(见 spec 的 I1–I4),不再是调用点要守的纪律。
 
 import { IN_FILTER_CHUNK } from '@gugu/core/shared/inChunks'
+import type { AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import type { ChatItem, ChatKind, ChatStatus, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { compareChatsByActivityDesc, fallbackChatName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 
@@ -122,7 +123,7 @@ export type IdentityValue = { id: string } & Record<string, unknown>
 export type UnreadValue = ChatUnreadLocator & { chat_id: string }
 export type PresenceValue = { id: string; online: boolean }
 /** viewer-scoped 最后一条可见消息:gated 成员看到的活动可能与 chat 行不同。 */
-export type PreviewValue = { chat_id: string; created_at: string | null; preview: string | null }
+export type PreviewValue = { chat_id: string; created_at: string | null; preview: string | null; failure: AgentFailureReason | null }
 export type OverrideValue = { contact_user_id: string; alias: string | null }
 
 export type EntityValue =
@@ -502,6 +503,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
       created_at: chat.created_at,
       last_message_at: preview ? preview.created_at : chat.last_message_at,
       last_message_preview: preview ? preview.preview : chat.last_message_preview,
+      last_message_failure: preview?.failure ?? null,
       unread_count: locator?.unread_count ?? 0,
       unread_locator: locator,
       pinned_message_id: chat.pinned_message_id,

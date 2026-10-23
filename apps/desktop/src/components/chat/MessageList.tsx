@@ -16,7 +16,7 @@ import { MessageRow } from './MessageRow'
 import { MessageBubble } from './MessageBubble'
 import { AgentFloodSystemNotice } from './AgentFloodSystemNotice'
 import { MemberJoinNotice, type MentionTarget } from '../groups/MemberJoinNotice'
-import { parseMemberJoinNotice } from '@gugu/core/shared/ui/memberJoinNotice'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { TopicAnchorCard } from './TopicAnchorCard'
 import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
@@ -214,7 +214,7 @@ const MessageListRow = memo(function MessageListRow({
   const anchoredTopics = topicAnchors?.get(msg.id)
   // @@@5856 自动调档那条系统消息用专门的版式渲染:居中、说清改了哪几个、就地一键全撤。
   const isAgentFloodNotice = msg.id === agentFloodNoticeMessageId && msg.content_type === 'system'
-  const joinedUserIds = parseMemberJoinNotice(msg) // @@@6386 服务端落的「X 加入了群聊」
+  const notice = parseSystemNotice(msg) // @@@6386 服务端落的「X 加入了群聊」;回合失败那种由气泡里的 SystemMessageNotice 画
   // 右键群聊里的发送者头像 → 输入框 @ 他:与点运行中头像同一条插入链路;能 @ 谁同入群灰字(在群、不是自己)。
   const mentionFromAvatar = (event: MouseEvent<HTMLDivElement>) => {
     if (!isGroupChat || !onMentionMember || !memberProfile || msg.is_mine || memberProfile.membership === 'former') return
@@ -286,8 +286,8 @@ const MessageListRow = memo(function MessageListRow({
         </div>
       ) : isAgentFloodNotice ? (
         <AgentFloodSystemNotice messageId={msg.id} content={msg.content ?? ''} onUndone={onAgentFloodUndone} />
-      ) : joinedUserIds ? (
-        <MemberJoinNotice userIds={joinedUserIds} content={msg.content ?? ''} memberProfiles={memberProfiles} onMention={onMentionMember} />
+      ) : notice?.kind === 'member-joined' ? (
+        <MemberJoinNotice userIds={notice.userIds} content={msg.content ?? ''} memberProfiles={memberProfiles} onMention={onMentionMember} />
       ) : bubble}
       {/* @@@5856 锚点:这条消息长出来的话题挂在它底下(它是这条消息的附件,所以跟气泡同侧同缩进),
           双向连接的另一端是分栏标题块里那句「引自…」。正文要传进去:话题名默认就是从这条正文截的,

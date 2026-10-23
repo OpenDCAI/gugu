@@ -1075,7 +1075,7 @@ async function discloseForumUndeliverable(
       agentUserId: input.agentUserId,
       postId: input.postId,
       state: 'undelivered',
-      error: '暂未送达:这台设备上没有运行中的咕咕实例持有这个 agent。打开运行它的那个咕咕实例后,由它读取。',
+      error: 'undelivered',
     })
     return true
   } catch (error) {
@@ -1101,10 +1101,8 @@ async function discloseUndeliverable(
   const post = options.readerDeps?.postDisclosure
     ?? ((row: Parameters<typeof postDeliveryDisclosureRow>[0]) => postDeliveryDisclosureRow(row, options.accessToken!))
   const key = `undeliverable:${input.agentUserId}:${input.messageId}`
-  const disclosure = `消息暂未送达(${encodeTypedId('msg', input.messageId)}):这台设备上没有运行中的咕咕实例持有这个 agent。`
-    + `消息仍留在云端未读;打开运行它的那个咕咕实例后,由它读取。`
   try {
-    await post({ agentUserId: input.agentUserId, chatId: input.chatId, threadRootId: input.threadRootId, key, text: disclosure })
+    await post({ agentUserId: input.agentUserId, chatId: input.chatId, threadRootId: input.threadRootId, key, reason: 'undelivered' })
     return true
   } catch (error) {
     log.error(
