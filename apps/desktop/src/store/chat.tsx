@@ -329,7 +329,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     // cache in lockstep with L1 (same contract as cache.set above).
     persistWindowToLocalSync(chatId, nextMessages)
     return nextMessages
-  }, [cache, getMessageSnapshotEpoch, setMessagesAndCache, persistWindowToLocalSync])
+  }, [cache, getMessageSnapshotEpoch, persistWindowToLocalSync])
 
   /** 返回 false = 未落窗(未登录或快照 epoch 已变被拒收)。 */
   const applyMessagesSnapshot = useCallback((chatId: string, msgs: MessageItem[], readSeqs: Record<string, number> | null, epoch: number): boolean => {
@@ -451,7 +451,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (changed && window.chatId) {
         if (direction === 'latest') cache.establishTail(window.chatId, window.messages)
         else cache.update(window.chatId, (rows) => mergeMessagesById(rows, window.messages, window.chatId!))
-        persistWindowToLocalSync(window.chatId, window.messages); await revalidateWindowOverlays(window.chatId)
+        persistWindowToLocalSync(window.chatId, cache.get(window.chatId) ?? []); await revalidateWindowOverlays(window.chatId)
       }
       if (direction !== 'older' && window.chatId) noteFreshMessageRead(window.chatId) // #7199 往新翻 / 回到最新成了:读得到最新的了
     } catch (err) {
@@ -467,7 +467,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       const window = targetWindow.getSnapshot()
       if (!window.hasNewer) cache.establishTail(targetChatId, window.messages)
       else cache.update(targetChatId, (rows) => mergeMessagesById(rows, window.messages, targetChatId))
-      persistWindowToLocalSync(targetChatId, window.messages); await revalidateWindowOverlays(targetChatId)
+      persistWindowToLocalSync(targetChatId, cache.get(targetChatId) ?? []); await revalidateWindowOverlays(targetChatId)
     }
   }, [user, cache, persistWindowToLocalSync, revalidateWindowOverlays])
   const markMessageVisible = useCallback((message: MessageItem) => {

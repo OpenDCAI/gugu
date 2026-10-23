@@ -219,17 +219,17 @@ describe('打开会话的第一帧', () => {
         } }])
         scopedLines.get('chatA')!.setFollowingTail(false)
       })
-      const before = sharedAccess.read('chatA').messageWindow
+      const before = scopedLines.get('chatA')!.messageWindow
       expect(before.messages).toHaveLength(120)
       vi.mocked(chatService.getMessages).mockClear()
       await act(async () => { await scopedLines.get('chatA')!.sendMessage('full-window-send') })
-      const pending = sharedAccess.read('chatA').messageWindow.messages.find((row) => row.content === 'full-window-send')!
+      const pending = scopedLines.get('chatA')!.messageWindow.messages.find((row) => row.content === 'full-window-send')!
       expect(pending).toMatchObject({ seq: -1, local_send_state: 'sending' })
-      expect(sharedAccess.read('chatA').messageWindow).toMatchObject({ hasNewer: false, viewVersion: before.viewVersion,
+      expect(scopedLines.get('chatA')!.messageWindow).toMatchObject({ hasNewer: false, viewVersion: before.viewVersion,
         navigation: 'latest', navigationVersion: before.navigationVersion + 1 })
       await act(async () => { ack.resolve({ ...pending, seq: 122, local_send_state: undefined }) })
-      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.at(-1)).toMatchObject({ id: pending.id, seq: 122 }), WAIT)
-      expect(sharedAccess.read('chatA').messageWindow.viewVersion).toBe(before.viewVersion)
+      await vi.waitFor(() => expect(scopedLines.get('chatA')!.messageWindow.messages.at(-1)).toMatchObject({ id: pending.id, seq: 122 }), WAIT)
+      expect(scopedLines.get('chatA')!.messageWindow.viewVersion).toBe(before.viewVersion)
       expect(chatService.getMessages).not.toHaveBeenCalled()
     } finally { harness.cleanup() }
   })
@@ -248,14 +248,14 @@ describe('打开会话的第一帧', () => {
     const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
     let send: Promise<unknown> = Promise.resolve()
     try {
-      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.at(-1)?.seq).toBe(200), WAIT)
-      await act(async () => { await sharedAccess.actions('chatA').loadMessageAnchor('att-20') })
-      expect(sharedAccess.read('chatA').messageWindow.hasNewer).toBe(true)
-      await act(async () => { send = sharedAccess.actions('chatA').sendAttachments([new File(['body'], 'topic.txt')]).catch((error) => error) })
-      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.some((row) => row.seq < 0 && row.content_type === 'attachment')).toBe(true), WAIT)
-      expect(sharedAccess.read('chatA').messageWindow.hasNewer).toBe(false)
+      await vi.waitFor(() => expect(scopedLines.get('chatA')!.messageWindow.messages.at(-1)?.seq).toBe(200), WAIT)
+      await act(async () => { await scopedLines.get('chatA')!.loadMessageAnchor('att-20') })
+      expect(scopedLines.get('chatA')!.messageWindow.hasNewer).toBe(true)
+      await act(async () => { send = scopedLines.get('chatA')!.sendAttachments([new File(['body'], 'topic.txt')]).catch((error) => error) })
+      await vi.waitFor(() => expect(scopedLines.get('chatA')!.messageWindow.messages.some((row) => row.seq < 0 && row.content_type === 'attachment')).toBe(true), WAIT)
+      expect(scopedLines.get('chatA')!.messageWindow.hasNewer).toBe(false)
       await act(async () => { upload.reject(new Error('upload failed')); await send })
-      expect(sharedAccess.read('chatA').messageWindow.messages.some((row) => row.seq < 0)).toBe(false)
+      expect(scopedLines.get('chatA')!.messageWindow.messages.some((row) => row.seq < 0)).toBe(false)
       expect(uploads.commit).not.toHaveBeenCalled()
     } finally { upload.resolve('unused'); harness.cleanup() }
   })
@@ -281,7 +281,9 @@ describe('打开会话的第一帧', () => {
     expect(revisionListeners.get('message_created')?.size).toBe(2)
     await act(async () => { network.resolve() })
     await vi.waitFor(() => expect(frames.at(-1)?.messages.map((row) => row.id)).toContain('msgA1'), WAIT)
-    expect(frames.at(-1)?.messageWindow).toBe(sharedAccess.read('chatA').messageWindow)
+    expect(frames.at(-1)?.messageWindow).not.toBe(scopedLines.get('chatA')!.messageWindow)
+    expect(frames.at(-1)?.messages).toEqual(scopedLines.get('chatA')!.messages)
+    expect(scopedLines.get('chatA')!.messages.map((row) => row.id)).toEqual(['msgA1'])
     harness.cleanup()
   })
 
