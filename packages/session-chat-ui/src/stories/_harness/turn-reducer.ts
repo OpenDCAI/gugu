@@ -1,3 +1,4 @@
+import type { SessionPatch } from '@gugu/session-core/acp';
 import type { ChatItem, TranscriptTurn } from '@session-chat/model';
 
 export type ActiveTurnEvent =
@@ -35,12 +36,10 @@ export type ActiveTurnEvent =
   | {
       type: 'diff_start';
       id: string;
-      path: string;
-      oldText: string | null;
-      newText: string;
+      patches: SessionPatch[];
       parentId?: string;
     }
-  | { type: 'diff_update'; id: string; newText?: string; status?: 'running' | 'done' | 'error' | 'unknown' }
+  | { type: 'diff_update'; id: string; patches?: SessionPatch[]; status?: 'running' | 'done' | 'error' | 'unknown' }
   | {
       type: 'plan_update';
       id: string;
@@ -159,9 +158,7 @@ export function applyTurnEvent(
       return upsert({
         kind: 'diff',
         id: event.id,
-        path: event.path,
-        oldText: event.oldText,
-        newText: event.newText,
+        patches: event.patches,
         status: 'running',
         parentId: event.parentId,
       } as ChatItem);
@@ -169,9 +166,7 @@ export function applyTurnEvent(
       return upsert({
         kind: 'diff',
         id: event.id,
-        newText:
-          event.newText ??
-          (typeof existingRecord?.newText === 'string' ? existingRecord.newText : ''),
+        patches: event.patches ?? existingRecord?.patches ?? [],
         status: event.status ?? existingStatus,
       } as ChatItem);
     case 'plan_update':

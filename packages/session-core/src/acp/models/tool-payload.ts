@@ -1,3 +1,4 @@
+import type { SessionPatch } from '../session-protocol';
 import type { EntityContent } from './entity-content';
 import type { ToolImage } from './turns/tool-calls';
 
@@ -34,7 +35,7 @@ export function projectToolContent(content: readonly EntityContent[]) {
   const texts: string[] = [];
   const images: ToolImage[] = [];
   let terminalId: string | undefined;
-  const diffs: Array<{ path: string; oldText: string | null; newText: string }> = [];
+  const diffs: SessionPatch[] = [];
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) { value.forEach(visit); return; }
     if (!value || typeof value !== 'object') return;
@@ -43,7 +44,7 @@ export function projectToolContent(content: readonly EntityContent[]) {
     else if (block.type === 'image' && typeof block.data === 'string' && block.data && typeof block.mimeType === 'string' && block.mimeType.startsWith('image/')) images.push({ data: block.data, mimeType: block.mimeType });
     else if (block.type === 'terminal' && typeof block.terminalId === 'string') terminalId ??= block.terminalId;
     else if (block.content !== undefined) visit(block.content);
-    else if (block.type === 'diff' && typeof block.path === 'string' && typeof block.newText === 'string') diffs.push({ path: block.path, oldText: typeof block.oldText === 'string' ? block.oldText : null, newText: block.newText });
+    else if (block.type === 'diff' && Array.isArray(block.changes)) diffs.push(block as unknown as SessionPatch);
   };
   content.forEach(visit);
   return { outputText: toolOutputText(texts.join('\n')), images, diffs, terminalId };

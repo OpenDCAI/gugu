@@ -1,15 +1,6 @@
+import type { SessionPatch } from '../acp/session-protocol';
+
 /** Pure line diff shared by text-based ingress and display callers. */
-
-export type DiffRowType = 'context' | 'add' | 'remove';
-
-export type DiffRow = {
-  type: DiffRowType;
-  text: string;
-  /** Index into the old lines array (present on 'context' and 'remove' rows). */
-  oldIdx?: number;
-  /** Index into the new lines array (present on 'context' and 'add' rows). */
-  newIdx?: number;
-};
 
 // ── Myers diff ────────────────────────────────────────────────────────────────
 
@@ -96,36 +87,23 @@ function myersDiff(a: string[], b: string[]): EditOp[] {
   return ops;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Compute a line-level diff between `oldText` and `newText`.
- *
- * When `oldText` is null (new file), every line in `newText` is an 'add' row.
- * Pure — no internal cache. Memoization lives in ChatCaches (core/caches.ts).
- */
-export function computeDiffRows(oldText: string | null, newText: string): DiffRow[] {
-  if (oldText === null) {
-    return newText.split('\n').map((text, i) => ({ type: 'add' as const, text, newIdx: i }));
+/** Encode supplied bytes as one located file or an explicitly unlocated fragment. */
+export function textFilePatch(path: string, before: string | null, after: string | null, scope: SessionPatch['scope'] = 'fragment'): SessionPatch & { type: 'diff' } {
+  const lines = (value: string | null): string[] => value?.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const aLines = lines(before);
+  const bLines = lines(after);
+  const a = JSON.stringify('a/' + path);
+  const b = JSON.stringify('b/' + path);
+  const body: string[] = [];
+  for (const op of myersDiff(aLines, bLines)) {
+    const line = op.op === 'insert' ? bLines[op.bIdx]! : aLines[op.aIdx]!;
+    body.push((op.op === 'insert' ? '+' : op.op === 'delete' ? '-' : ' ') + (line.endsWith('\n') ? line.slice(0, -1) : line));
+    if (!line.endsWith('\n')) body.push('\\ No newline at end of file');
   }
-
-  const aLines = oldText.split('\n');
-  const bLines = newText.split('\n');
-  const ops = myersDiff(aLines, bLines);
-
-  return ops.map((op) => {
-    if (op.op === 'keep') {
-      return {
-        type: 'context' as const,
-        text: aLines[op.aIdx]!,
-        oldIdx: op.aIdx,
-        newIdx: op.bIdx,
-      };
-    }
-    if (op.op === 'delete') {
-      return { type: 'remove' as const, text: aLines[op.aIdx]!, oldIdx: op.aIdx };
-    }
-    return { type: 'add' as const, text: bLines[op.bIdx]!, newIdx: op.bIdx };
-  });
+  const operation = before === null ? 'add' : after === null ? 'delete' : 'modify';
+  const mode = operation === 'add' ? 'new file mode 100644\n' : operation === 'delete' ? 'deleted file mode 100644\n' : '';
+  return {
+    type: 'diff', changes: [{ operation, path }], scope: before === null || after === null ? 'file' : scope,
+    patch: { format: 'git_patch', text: `diff --git ${a} ${b}\n${mode}--- ${before === null ? '/dev/null' : a}\n+++ ${after === null ? '/dev/null' : b}\n${body.length ? `@@ -${aLines.length ? 1 : 0},${aLines.length} +${bLines.length ? 1 : 0},${bLines.length} @@\n${body.join('\n')}\n` : ''}` },
+  };
 }
-

@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+import { textFilePatch } from '@gugu/session-core/lib';
+
 /**
  * #4981 —— `diff` / `file-op` 两个行族的失败原因(与 subagent 同一个死路径)。
  *
@@ -17,8 +19,8 @@ import type { SegmentCtx } from '@session-chat/core/units';
 import { defaultChatTranslator } from '@session-chat/localization';
 import { describe, expect, it } from 'vitest';
 import type { ToolNode } from '@session-chat/model';
-import { createFileDiffFromItem, modifyFileDiffFromItem } from './diff/diff.def';
-import { readFileOpFromItem, deleteFileOpFromItem } from './file-op/file-op.def';
+import { patchDiffFromItem } from './diff/diff.def';
+import { readFileOpFromItem } from './file-op/file-op.def';
 
 function ctx(): SegmentCtx {
   return {
@@ -33,59 +35,58 @@ function ctx(): SegmentCtx {
   };
 }
 
-type CreateFileToolCall = Extract<ToolNode, { kind: 'create-file-tool-call' }>;
-type ModifyFileToolCall = Extract<ToolNode, { kind: 'modify-file-tool-call' }>;
+type CreateFileToolCall = Extract<ToolNode, { kind: 'patch-tool-call' }>;
+type ModifyFileToolCall = Extract<ToolNode, { kind: 'patch-tool-call' }>;
 type ReadToolCall = Extract<ToolNode, { kind: 'read-tool-call' }>;
-type DeleteFileToolCall = Extract<ToolNode, { kind: 'delete-file-tool-call' }>;
+type DeleteFileToolCall = Extract<ToolNode, { kind: 'patch-tool-call' }>;
 
 const FAILED = "EACCES: permission denied, open '/etc/hosts'";
 
 describe('#4981 写文件失败要说得出原因', () => {
   it('create-file 失败时把 outputText 当原因交出来', () => {
     const item: CreateFileToolCall = {
-      kind: 'create-file-tool-call',
+      kind: 'patch-tool-call',
       id: 'd1',
       seq: 0,
       toolCallId: 'c1',
       title: 'Write',
-      path: 'src/a.ts',
-      content: 'x',
+      contentBlocks: [textFilePatch('src/a.ts', null, 'x')],
+
       status: 'error',
       outputText: FAILED,
     };
-    expect(createFileDiffFromItem(item, ctx()).error).toBe(FAILED);
+    expect(patchDiffFromItem(item, ctx()).error).toBe(FAILED);
   });
 
   it('modify-file 失败时退而求其次读 rawOutput', () => {
     const item: ModifyFileToolCall = {
-      kind: 'modify-file-tool-call',
+      kind: 'patch-tool-call',
       id: 'd2',
       seq: 0,
       toolCallId: 'c2',
       title: 'Edit',
-      path: 'src/b.ts',
-      oldText: 'a',
-      newText: 'b',
+      contentBlocks: [textFilePatch('src/b.ts', 'a', 'b')],
+
       status: 'error',
       rawOutput: '{"code":"ENOENT"}',
     };
-    expect(modifyFileDiffFromItem(item, ctx()).error).toBe('{"code":"ENOENT"}');
+    expect(patchDiffFromItem(item, ctx()).error).toBe('{"code":"ENOENT"}');
   });
 
   it('没失败就不把输出当错误 —— 成功的写入不该顶着一行红字', () => {
     // 阴控:只改 status 这一个自由度。
     const item: CreateFileToolCall = {
-      kind: 'create-file-tool-call',
+      kind: 'patch-tool-call',
       id: 'd3',
       seq: 0,
       toolCallId: 'c3',
       title: 'Write',
-      path: 'src/c.ts',
-      content: 'x',
+      contentBlocks: [textFilePatch('src/c.ts', null, 'x')],
+
       status: 'done',
       outputText: '写入成功',
     };
-    expect(createFileDiffFromItem(item, ctx()).error).toBeUndefined();
+    expect(patchDiffFromItem(item, ctx()).error).toBeUndefined();
   });
 });
 
@@ -106,16 +107,16 @@ describe('#4981 读/删文件失败要说得出原因', () => {
 
   it('delete 失败时同样交得出原因', () => {
     const item: DeleteFileToolCall = {
-      kind: 'delete-file-tool-call',
+      kind: 'patch-tool-call',
       id: 'f2',
       seq: 0,
       toolCallId: 'c5',
       title: 'Delete',
-      path: 'src/gone.ts',
+      contentBlocks: [textFilePatch('src/gone.ts', '', null)],
       status: 'error',
       outputText: FAILED,
     };
-    expect(deleteFileOpFromItem(item, ctx()).error).toBe(FAILED);
+    expect(patchDiffFromItem(item, ctx()).error).toBe(FAILED);
   });
 
   it('成功的读取不带错误', () => {

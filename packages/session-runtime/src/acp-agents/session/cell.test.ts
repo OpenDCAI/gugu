@@ -872,7 +872,7 @@ describe('SessionCell prompts', () => {
 
     const first = cell.prompt({ text: 'long task' });
     await flushDrains();
-    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, locations: [] };
     cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
 
     const steer = await cell.prompt({ text: 'mid-turn message' }, { steerIfBusy: true });
@@ -924,7 +924,7 @@ describe('SessionCell prompts', () => {
 
     const first = cell.prompt({ text: 'long task' });
     await flushDrains();
-    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, locations: [] };
     cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
     await cell.prompt({ text: 'mid-turn message' }, { steerIfBusy: true });
 
@@ -983,8 +983,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'in_progress',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
 
     await expect(cell.prompt({ text: 'add a marker' }, { steerIfBusy: true })).resolves.toMatchObject({
@@ -1218,8 +1217,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
     cell.push({
       kind: 'async_task',
@@ -1263,8 +1261,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
     cell.push({ kind: 'async_task_progress', asyncTaskId: 'task-1', toolCallId: 'bash-1' });
     cell.endReplay();
@@ -1578,7 +1575,7 @@ describe('SessionCell permissions', () => {
     await flushDrains();
     cell.push({
       kind: 'tool_call', toolCallId: 'call-plan', title: 'ExitPlanMode', toolName: 'exit_plan_mode', toolKind: 'switch_mode',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{}',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',
     });
 
     void cell.requestPermission(qwenPlanRequest);
@@ -1604,7 +1601,7 @@ describe('SessionCell permissions', () => {
     await flushDrains();
     cell.push({
       kind: 'tool_call', toolCallId: 'call-plan', title: 'Approve Plan', toolName: 'ExitPlanMode', toolKind: 'switch_mode',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{"plan":"from the stream"}', outputText: 'stream text',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{"plan":"from the stream"}', outputText: 'stream text',
     });
 
     void cell.requestPermission(qwenPlanRequest);
@@ -1656,7 +1653,7 @@ describe('SessionCell permissions', () => {
     });
     cell.push({
       kind: 'tool_call', toolCallId: 'qoder-plan', title: 'Ready to start implementation?', toolKind: 'other',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{}',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',
     });
 
     const row = cell.transcript.activeTurn?.items.find((item) => 'toolCallId' in item && item.toolCallId === 'qoder-plan');
@@ -2968,7 +2965,6 @@ describe('SessionCell arrival order between typed prompts and deliveries', () =>
     expect(cell.sessionState.lifecycle).toBe('ready');
   });
 });
-
 
 describe('native in-place conversation revert', () => {
   it('keeps the native ID, removes the suffix, and holds admission until display history is committed', async () => {

@@ -40,8 +40,7 @@ function launchBackgroundCommand(p: AcpTranscriptParser): void {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     } as never,
     2
   );

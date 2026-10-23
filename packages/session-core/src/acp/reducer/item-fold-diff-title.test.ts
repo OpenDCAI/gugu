@@ -1,3 +1,4 @@
+import { textFilePatch } from '../../lib/text-diff';
 import { describe, expect, it } from 'vitest';
 import { foldItem, type FoldEvent } from './item-fold';
 
@@ -8,7 +9,6 @@ const call: FoldEvent = {
   toolKind: 'edit',
   status: 'pending',
   parentToolCallId: null,
-  diffs: [],
   locations: [],
 };
 
@@ -17,7 +17,7 @@ const call: FoldEvent = {
 const preview: FoldEvent = {
   kind: 'tool_update',
   toolCallId: 'w1',
-  diffs: [{ path: '/work/plan.txt', oldText: null, newText: 'hello' }],
+  contentBlocks: [textFilePatch('/work/plan.txt', null, 'hello')],
 };
 
 const titles = (items: ReturnType<typeof foldItem>) => items.map((it) => ('title' in it ? it.title : undefined));
@@ -32,6 +32,6 @@ describe('a diff update without a title', () => {
   });
 
   it('names a diff that arrives with nothing before it generically', () => {
-    expect(titles(foldItem([], preview, 't1', 1))).toEqual(['Edit file']);
+    expect(titles(foldItem([], preview, 't1', 1))).toEqual(['']);
   });
 });

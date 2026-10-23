@@ -27,14 +27,12 @@ import { planFromItem, planUnitDef } from '@session-chat/components/rows/plan/pl
 import { resourceLinkUnitDef } from '@session-chat/components/rows/resource-link/resource-link.def';
 import { thinkingUnitDef } from '@session-chat/components/rows/thinking/thinking.def';
 import {
-  createFileDiffFromItem,
+  patchDiffFromItem,
   diffUnitDef,
-  modifyFileDiffFromItem,
 } from '@session-chat/components/rows/tools/diff/diff.def';
 import { executeFromItem, executeUnitDef } from '@session-chat/components/rows/tools/execute/execute.def';
 import { planReviewFromItem, planReviewUnitDef } from '@session-chat/components/rows/tools/plan-review/plan-review.def';
 import {
-  deleteFileOpFromItem,
   fileOpUnitDef,
   readFileOpFromItem,
 } from '@session-chat/components/rows/tools/file-op/file-op.def';
@@ -148,12 +146,8 @@ function toUnitData(item: ToolNode, ctx: SegmentCtx): ToolPresentationData {
       return executeFromItem(item, ctx);
     case 'read-tool-call':
       return readFileOpFromItem(item, ctx);
-    case 'create-file-tool-call':
-      return createFileDiffFromItem(item, ctx);
-    case 'modify-file-tool-call':
-      return modifyFileDiffFromItem(item, ctx);
-    case 'delete-file-tool-call':
-      return deleteFileOpFromItem(item, ctx);
+    case 'patch-tool-call':
+      return patchDiffFromItem(item, ctx);
     case 'create-plan-tool-call':
       return planFromItem(item, ctx);
     case 'spawn-subagent-tool-call':
@@ -220,9 +214,7 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
   'resource-link': nativePassthrough<ChatItem>('resource-link', (item) => item, COMPOSITE_CHROME),
   'execute-tool-call': toolNodeSegment('execute-tool-call'),
   'read-tool-call': toolNodeSegment('read-tool-call'),
-  'create-file-tool-call': toolNodeSegment('create-file-tool-call'),
-  'modify-file-tool-call': toolNodeSegment('modify-file-tool-call'),
-  'delete-file-tool-call': toolNodeSegment('delete-file-tool-call'),
+  'patch-tool-call': toolNodeSegment('patch-tool-call'),
   'search-tool-call': toolNodeSegment('search-tool-call'),
   'mcp-tool-call': toolNodeSegment('mcp-tool-call'),
   'web-fetch-tool-call': toolNodeSegment('web-fetch-tool-call'),

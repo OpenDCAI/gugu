@@ -81,9 +81,7 @@ function stateOfTool(node: ToolNode): MessagePreviewStateKey {
     case 'search-tool-call':
     case 'web-fetch-tool-call':
       return 'searching';
-    case 'create-file-tool-call':
-    case 'modify-file-tool-call':
-    case 'delete-file-tool-call':
+    case 'patch-tool-call':
       return 'editing';
     case 'execute-tool-call':
       return 'executing';

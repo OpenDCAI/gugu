@@ -286,25 +286,13 @@ export type ChatExecute = {
   parentId?: string;
 };
 
-/**
- * A diff preview row — produced by ACP `kind: 'edit'` tool calls.
- *
- * Renders a compact, non-scrollable preview of the first changed region
- * (capped at 12 lines with ±1 context), with syntax + diff highlighting.
- * One `ChatDiff` is created per changed file within a single tool call.
- *
- * `oldText` is the replaced region (old_string). `null` means a new file —
- * all `newText` lines are additions.
- */
+/** One tool's canonical patch blocks, projected without rebuilding file contents. */
 export type ChatDiff = {
   kind: 'diff';
-  /** `${toolCallId}:${path}` — unique per file within a tool call. */
+  /** The same tool identity in preview and result. */
   id: string;
-  /** Full path; basename and extension derived in the component. */
-  path: string;
-  /** The replaced region, or null for new files. */
-  oldText: string | null;
-  newText: string;
+  /** Full canonical blocks; this view never reconstructs file contents. */
+  patches: import('@gugu/session-core/acp').SessionPatch[];
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
@@ -406,7 +394,6 @@ export type TurnOutcomeItem = {
    */
   prompt?: string;
 };
-
 
 /**
  * 一轮交出来的一份东西,画成一张附件卡,挂在这一轮最后那条回复下面。
@@ -590,7 +577,9 @@ export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
   id: string;
   turnId: string;
-  files: { path: string; diffs: ChatDiff[]; adds: number; dels: number }[];
+  files: { path: string; diffs: ChatDiff[]; adds: number | null; dels: number | null }[];
+  adds: number | null;
+  dels: number | null;
 };
 
 export type SyntheticItem =

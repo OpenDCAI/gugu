@@ -16,9 +16,7 @@
 import { SESSION_PLAN_ID } from '../models/plan';
 import type { TerminalExit } from '../models/terminals';
 import type {
-  CreateFileToolCall,
   CreatePlanToolCall,
-  ModifyFileToolCall,
   TranscriptCompaction,
   TranscriptContextReset,
   TranscriptSessionNotice,
@@ -35,7 +33,6 @@ import {
   makeCompactionId,
   makeContextResetId,
   makeSessionNoticeId,
-  makeDiffId,
   makeMessageId,
   makePlanId,
   makeThinkingId,
@@ -43,7 +40,6 @@ import {
   makeToolId,
 } from './ids';
 import type {
-  NormalizedDiff,
   NormalizedEvent,
   NormalizedToolLocation,
   NormalizedToolStatus,
@@ -96,14 +92,7 @@ function isReadKind(toolKind: string | null | undefined, title?: string | null):
   return toolKind === 'read' || toolKind === 'read_file' || title?.startsWith('Read ') === true;
 }
 
-/**
- * ACP 的 `delete` 档(协议枚举里有,`node_modules/@agentclientprotocol/sdk` 的 ToolKind)。
- *
- * gugu 早就有 `delete-file-tool-call` 这个 kind、file-op 行族也早就画得出它
- * （`file-op.def.tsx` 的 `deleteFileOpFromItem`、`unit-registry.ts` 里也登记了）——
- * **只是没有任何地方产出它**（改造前全仓 0 处）。于是一次删除掉进 unknown,行上只剩一个
- * 原始函数名。这是 #4981 里第五次遇到同一个形状:**字段有、UI 读、产品路径没人填**。
- */
+/** A declared deletion can name a file even when no renderable patch was supplied. */
 function isDeleteKind(toolKind: string | null | undefined): boolean {
   return toolKind === 'delete' || toolKind === 'delete_file';
 }
@@ -248,6 +237,7 @@ export function createToolCallItem(params: {
   terminalId?: string;
   exitStatus?: TerminalExit;
   locations: ReadonlyArray<NormalizedToolLocation>;
+  contentBlocks?: import('../models/entity-content').EntityContent[];
   /**
    * 这条调用是什么时候到的(墙钟)。目前只有子智能体那一支要它 —— 卡上那句「跑了多久」
    * 从它算起。
@@ -272,7 +262,9 @@ export function createToolCallItem(params: {
     ...toolPayloadFields(params),
     toolKind: params.toolKind,
     locations: [...params.locations],
+    ...(params.contentBlocks !== undefined ? { contentBlocks: params.contentBlocks } : {}),
   };
+  if (projectToolContent(params.contentBlocks ?? []).diffs.length) return { kind: 'patch-tool-call', ...base };
   const { title, toolKind } = params;
   if (isSubagentKind(toolKind)) {
     return {
@@ -307,10 +299,10 @@ export function createToolCallItem(params: {
   }
   if (isDeleteKind(toolKind)) {
     const path = params.locations[0]?.path;
-    // ⚠️ 没有路径就**不认**:`DeleteFileToolCall.path` 是必填的,硬塞一个空串等于在行上
+    // ⚠️ 没有路径就**不认**:删除事实必须有文件身份,硬塞一个空串等于在行上
     // 摆一个不存在的文件名。宁可留在 unknown —— 那一行至少还说得出自己叫什么。
     if (path !== undefined) {
-      return { kind: 'delete-file-tool-call', ...base, path };
+      return { kind: 'patch-tool-call', ...base, contentBlocks: [{ type: 'diff', changes: [{ operation: 'delete', path }], scope: 'unknown' }] };
     }
   }
   if (isExecuteKind(toolKind)) {
@@ -466,85 +458,6 @@ function finalizeOpenThinking(items: TranscriptItem[], now: number): TranscriptI
     return item;
   });
   return changed ? result : items;
-}
-
-function upsertFileOperations(
-  items: TranscriptItem[],
-  toolId: string,
-  toolCallId: string,
-  /** Null = the update leaves the title unchanged (ACP: an omitted field is unchanged). */
-  title: string | null,
-  parentToolCallId: string | undefined,
-  diffs: NormalizedDiff[],
-  status: NormalizedToolStatus | null
-): TranscriptItem[] {
-  // 差异行的 id 是 `makeDiffId(toolId, path)`,与工具行自己的 `toolId` **不是同一个**
-  // ⇒ 两者会并存成重复的两行。改造前是靠「edit 类一律不建工具行」躲开这件事的,代价是
-  // 差异没到时那次调用整个看不见(#4981,owner 2026-09-05「担心有 tool 不渲染」)。
-  // 现在改成:照常建行,差异一到就把那行占位赶走 —— 可见性与不重复两头都要。
-  const placeholder = items.find((it) => isToolCallItem(it) && it.id === toolId) as ToolCallItem | undefined;
-  let result = items.filter((it) => !(isToolCallItem(it) && it.id === toolId));
-  for (const d of diffs) {
-    const id = makeDiffId(toolId, d.path);
-    const mapped = mapToolStatus(status);
-    const idx = result.findIndex((it) => isToolCallItem(it) && it.id === id);
-    const base = {
-      id,
-      seq: nextSeq(result),
-      toolCallId,
-      title: title ?? placeholder?.title ?? 'Edit file',
-      path: d.path,
-      status: mapped ?? 'running',
-      ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
-    };
-    if (idx >= 0) {
-      const existing = result[idx] as ToolCallItem;
-      const updated: ToolCallItem =
-        d.oldText === null
-          ? ({
-              ...existing,
-              kind: 'create-file-tool-call',
-              content: d.newText,
-              path: d.path,
-              title: title ?? existing.title,
-              toolCallId,
-              ...(mapped !== undefined ? { status: mapped } : {}),
-              ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
-            } satisfies CreateFileToolCall)
-          : ({
-              ...existing,
-              kind: 'modify-file-tool-call',
-              oldText: d.oldText,
-              newText: d.newText,
-              path: d.path,
-              title: title ?? existing.title,
-              toolCallId,
-              ...(mapped !== undefined ? { status: mapped } : {}),
-              ...(parentToolCallId !== undefined ? { parentToolCallId } : {}),
-            } satisfies ModifyFileToolCall);
-      result = result.map((it, i) => (i === idx ? updated : it));
-    } else if (d.oldText === null) {
-      result = [
-        ...result,
-        {
-          kind: 'create-file-tool-call',
-          ...base,
-          content: d.newText,
-        } satisfies CreateFileToolCall,
-      ];
-    } else {
-      result = [
-        ...result,
-        {
-          kind: 'modify-file-tool-call',
-          ...base,
-          oldText: d.oldText,
-          newText: d.newText,
-        } satisfies ModifyFileToolCall,
-      ];
-    }
-  }
-  return result;
 }
 
 function planStatus(entries: Extract<NormalizedEvent, { kind: 'plan' }>['entries']): ToolStatus {
@@ -706,19 +619,6 @@ function foldToolEntity(
     title: '', toolKind: null, status: null, parentToolCallId: undefined, locations: [], startedAt: at,
   });
   const merged = patchToolEntity(initial, event);
-  const diffs = event.contentBlocks !== undefined
-    ? projectToolContent(merged.contentBlocks ?? []).diffs
-    : event.diffs;
-  if (diffs?.length) {
-    const paths = new Set(diffs.map(diff => diff.path));
-    const base = items.filter(item => !isToolCallItem(item) || item.toolCallId !== event.toolCallId || !('path' in item) || typeof item.path !== 'string' || paths.has(item.path));
-    return upsertFileOperations(base, toolId, event.toolCallId, event.title === undefined && !previous ? null : merged.title, merged.parentToolCallId, diffs, event.status ?? null)
-      .map(item => isToolCallItem(item) && item.toolCallId === event.toolCallId ? { ...item, ...patchToolEntity(item, event), status: merged.status } : item);
-  }
-  // A status/name patch keeps file sections; replacing their content removes stale sections.
-  if (owned.some(item => item.id !== toolId) && event.contentBlocks === undefined && event.diffs !== null) {
-    return items.map(item => isToolCallItem(item) && item.toolCallId === event.toolCallId ? patchToolEntity(item, event) : item);
-  }
   // A provider-owned specialized event already classified this entity; a sparse patch keeps that classification.
   const fresh = previous && merged.toolKind === undefined && event.toolKind === undefined ? merged : createToolCallItem({
     ...merged, id: toolId, seq: initial.seq, toolKind: merged.toolKind ?? null,
@@ -727,6 +627,9 @@ function foldToolEntity(
   });
   const next = { ...(fresh.kind === merged.kind ? merged : {}), ...fresh, status: merged.status } as ToolCallItem;
   if (merged.contentBlocks !== undefined) next.contentBlocks = merged.contentBlocks;
+  if (projectToolContent(next.contentBlocks ?? []).diffs.length) {
+    return upsertToolCallItem(items, { ...next, kind: 'patch-tool-call' });
+  }
   if (merged._meta !== undefined) next._meta = merged._meta;
   const first = items.findIndex(item => isToolCallItem(item) && item.toolCallId === event.toolCallId);
   if (first < 0) return [...items, next];
@@ -1065,9 +968,7 @@ export function finalizeItems(items: TranscriptItem[], at: number): TranscriptIt
         return item;
       case 'execute-tool-call':
       case 'read-tool-call':
-      case 'create-file-tool-call':
-      case 'modify-file-tool-call':
-      case 'delete-file-tool-call':
+      case 'patch-tool-call':
       case 'search-tool-call':
       case 'mcp-tool-call':
       case 'web-fetch-tool-call':

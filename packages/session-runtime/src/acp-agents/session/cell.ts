@@ -2187,11 +2187,12 @@ export class SessionCell {
     const patch = {
       ...(isEmptyPayload(existing.rawInput) && source.rawInput !== undefined && { rawInput: source.rawInput }),
       ...(!existing.outputText && source.outputText !== undefined && { outputText: source.outputText }),
+      ...(!existing.contentBlocks?.length && !existing.outputText && !existing.images?.length && source.contentBlocks?.length && { contentBlocks: source.contentBlocks }),
       ...(existing.toolName === undefined && source.toolName !== undefined && { toolName: source.toolName }),
     };
     if (Object.keys(patch).length === 0) return;
     const { toolCallId } = source;
-    this.push({ kind: 'tool_update', toolCallId, title: null, toolKind: null, status: null, parentToolCallId: null, diffs: [], ...patch });
+    this.push({ kind: 'tool_update', toolCallId, ...patch });
   }
 
   private buildPermissionToolCall(
@@ -2214,6 +2215,7 @@ export class SessionCell {
       title: rawToolCall?.title ?? 'Permission request',
       ...(fromRequest?.toolName != null ? { toolName: fromRequest.toolName } : {}),
       ...(fromRequest?.outputText != null ? { outputText: fromRequest.outputText } : {}),
+      ...(fromRequest?.contentBlocks != null ? { contentBlocks: fromRequest.contentBlocks } : {}),
       toolKind: rawToolCall?.kind ?? null,
       status: 'pending',
       parentToolCallId: undefined,
@@ -2242,7 +2244,7 @@ function isInvalidToken(error: { message?: string; cause?: { message?: string } 
 
 type ToolUpdateEvent = Extract<NormalizedEvent, { kind: 'tool_update' }>;
 /** 补流里那一行的来源:请求解码出的那条更新，或待批请求里的那一行。 */
-type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'>;
+type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'> & { contentBlocks?: ToolUpdateEvent['contentBlocks'] };
 
 /** 请求自带的 toolCall 按流里同一种 `tool_call_update` 解码:rawInput、正文、供应商工具名取法与流里一致。 */
 function requestToolUpdate(rawToolCall: AcpPermissionParams['toolCall'] | undefined): ToolUpdateEvent | null {

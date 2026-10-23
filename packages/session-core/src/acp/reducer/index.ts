@@ -1,10 +1,8 @@
 export type {
-  CreateFileToolCall,
+  PatchToolCall,
   CreatePlanToolCall,
-  DeleteFileToolCall,
   ExecuteToolCall,
   McpToolCall,
-  ModifyFileToolCall,
   ReadToolCall,
   SearchToolCall,
   SpawnSubagentToolCall,
@@ -34,13 +32,11 @@ export type {
 
 export type {
   EnrichHook,
-  NormalizedDiff,
   NormalizedEvent,
   NormalizedToolStatus,
 } from './normalized-event';
 
 export {
-  makeDiffId,
   makeMessageId,
   makeParentId,
   makePlanId,

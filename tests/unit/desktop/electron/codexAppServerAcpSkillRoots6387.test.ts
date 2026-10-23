@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -66,10 +67,10 @@ function start(env: Record<string, string>) {
   })
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: { message?: string } }>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -84,7 +85,7 @@ function start(env: Record<string, string>) {
 }
 
 const opened = async (rig: ReturnType<typeof start>) => {
-  await rig.reply(rig.send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await rig.reply(rig.send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   return rig.reply(rig.send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')
 }
 

@@ -16,19 +16,15 @@
 
 import type { SessionUpdate, ToolCallContent, ToolCallLocation } from '@agentclientprotocol/sdk';
 import { DRAFT_UPDATE_META_KEY } from '@gugu/core/shared/subagentUpdates.mjs';
+import { normalizeToolContent } from './file-patch';
 import { serializePayload, projectToolContent } from '../models/tool-payload';
 import { messageContentText, type EntityContent, type EntityMeta } from '../models/entity-content';
 import type { ToolImage } from '../models/turns/tool-calls';
 import type {
-  NormalizedDiff,
   NormalizedEvent,
   NormalizedToolLocation,
   NormalizedToolStatus,
 } from '../reducer/normalized-event';
-
-function extractDiffs(content: ReadonlyArray<ToolCallContent> | null | undefined): NormalizedDiff[] {
-  return projectToolContent((content ?? []) as readonly EntityContent[]).diffs;
-}
 
 function normalizeLocations(
   locations: ReadonlyArray<ToolCallLocation> | null | undefined
@@ -533,7 +529,7 @@ function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | nul
     return { kind: 'plan', planId: plan.planId, entries: plan.type === 'items' ? plan.entries as Extract<NormalizedEvent, {kind: 'plan'}>['entries'] : [], body: plan, ...(raw._meta !== undefined ? { _meta: raw._meta } : {}) };
   }
   if (raw.sessionUpdate === 'tool_call_content_chunk') {
-    return { kind: 'tool_update', toolCallId: raw.toolCallId, contentBlocks: [raw.content as EntityContent], contentMode: 'append' };
+    return { kind: 'tool_update', toolCallId: raw.toolCallId, contentBlocks: normalizeToolContent([raw.content as EntityContent]) as EntityContent[], contentMode: 'append' };
   }
   return null;
 }
@@ -598,7 +594,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
       const images = extractImages(update.content);
       return {
         kind: 'tool_call',
-        ...(update.content !== undefined ? { contentBlocks: update.content as EntityContent[] } : {}),
+        ...(update.content !== undefined ? { contentBlocks: normalizeToolContent(update.content as EntityContent[], update.kind) as EntityContent[] } : {}),
         ...(update._meta !== undefined ? { _meta: update._meta } : {}),
         toolCallId: update.toolCallId,
         title: update.title,
@@ -606,7 +602,6 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
         toolKind: update.kind ?? null,
         status: (update.status as NormalizedToolStatus | undefined) ?? null,
         parentToolCallId: null,
-        diffs: extractDiffs(update.content),
         locations: normalizeLocations(update.locations) ?? [],
         ...(inputSummary !== undefined ? { inputSummary } : {}),
         ...(rawInput !== undefined ? { rawInput } : {}),
@@ -632,8 +627,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
         ...(name !== undefined ? { toolName: name } : {}),
         ...(raw.kind !== undefined ? { toolKind: raw.kind } : {}),
         ...(raw.status !== undefined ? { status: raw.status as NormalizedToolStatus | null } : {}),
-        ...(content !== undefined ? { contentBlocks: content as EntityContent[] | null, contentMode: 'replace' } : {}),
-        ...(content !== undefined ? { diffs: extractDiffs(content ?? undefined) } : {}),
+        ...(content !== undefined ? { contentBlocks: normalizeToolContent(content as EntityContent[] | null, raw.kind), contentMode: 'replace' } : {}),
         ...(locations !== undefined ? { locations } : {}),
         ...(outputText !== undefined ? { outputText } : {}),
         ...(images !== undefined ? { images } : {}),

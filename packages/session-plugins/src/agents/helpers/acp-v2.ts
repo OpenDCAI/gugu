@@ -12,7 +12,6 @@ import type {
 } from '@agentclientprotocol/sdk';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import type { AcpAgentApi, AcpClientFactory, AcpProcessIo } from '@gugu/session-core/agents/plugins';
-import { unifiedDiffTexts } from '@gugu/core/shared/unifiedDiff.mjs';
 import { nodeReadableToWeb } from './acp-stdio';
 
 /**
@@ -29,7 +28,7 @@ import { nodeReadableToWeb } from './acp-stdio';
  * holds on both versions. An adapter that keeps doing background work (a subagent) reports it
  * after `idle`; the host is free to send the next prompt from there.
  *
- * Everything else maps shapes that both versions have (config options, commands, plans, diffs,
+ * Everything else maps shapes that both versions have (config options and commands; message, plan and patch upserts pass through,
  * permission requests, auth methods, MCP servers). Display terminals have no v1 form the host
  * renders, so a command's output is reported as the text content of the tool call that shows the
  * terminal, which is how the host shows a command's output on v1.
@@ -295,7 +294,6 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): Sessi
           if (report) reports.push(report);
           return [];
         }
-        if (item.type === 'diff') return v1Diffs(item as v2.Diff);
         return [item];
       });
       return [
@@ -318,26 +316,6 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): Sessi
     default:
       return [update as unknown as SessionUpdate];
   }
-}
-
-/**
- * v1 diffs (path, old text, new text) for a v2 diff, one per changed path. v2 carries the change as
- * a git patch, one file section per path in order; each section's hunks become its old and new
- * text, which is what a v1 adapter sends for an edit too (the edited span, not the whole file).
- */
-function v1Diffs({ changes, patch }: v2.Diff): unknown[] {
-  const sections = patch?.text.split(/^(?=diff --git )/m).filter((section) => section.trim()) ?? [];
-  return changes.flatMap((change, index) => {
-    const { path } = change as { path?: unknown };
-    if (typeof path !== 'string') return [];
-    const text = unifiedDiffTexts(sections[index]);
-    return [{
-      type: 'diff',
-      path,
-      oldText: change.operation === 'add' ? null : (text?.oldText ?? ''),
-      newText: change.operation === 'delete' ? '' : (text?.newText ?? ''),
-    }];
-  });
 }
 
 function v1CommandsUpdate(commands: v2.AvailableCommand[]): SessionUpdate {

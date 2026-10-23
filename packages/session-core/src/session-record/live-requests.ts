@@ -1,3 +1,5 @@
+import { changedFilePaths } from '../acp/models/file-patch';
+import { projectToolContent } from '../acp/models/tool-payload';
 import { permissionTitle, permissionDescription, type AcpPermissionRequest } from '../acp/models/permissions';
 import { type ToolCallItem } from '../acp/models/turns/tool-calls';
 import type { PendingRequest, SettlementOption } from './contract';
@@ -32,10 +34,8 @@ function describeToolCall(toolCall: ToolCallItem): string | undefined {
       return toolCall.command ?? toolCall.inputSummary;
     case 'read-tool-call':
       return toolCall.path ?? toolCall.resource ?? toolCall.inputSummary;
-    case 'create-file-tool-call':
-    case 'modify-file-tool-call':
-    case 'delete-file-tool-call':
-      return toolCall.path;
+    case 'patch-tool-call':
+      return changedFilePaths(projectToolContent(toolCall.contentBlocks ?? []).diffs).join(', ') || toolCall.inputSummary;
     case 'search-tool-call':
       return toolCall.query;
     case 'web-fetch-tool-call':

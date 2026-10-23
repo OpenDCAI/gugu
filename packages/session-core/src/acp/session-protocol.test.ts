@@ -41,7 +41,7 @@ describe('session domain contracts', () => {
 
   it('keeps structured file changes without requiring patch text or a baseline', () => {
     expectTypeOf<{
-      changes: [{ operation: 'move'; oldPath: string; newPath: string }];
+      changes: [{ operation: 'move'; oldPath: string; path: string }];
       scope: 'unknown';
     }>().toExtend<SessionPatch>();
   });

@@ -286,7 +286,7 @@ describe('connectStdioAcpV2', () => {
     ]);
   });
 
-  it('gives a v2 diff to the host as a v1 diff of the hunks of its patch', async () => {
+  it('preserves a v2 diff block and every raw patch byte', async () => {
     const pair = agentPair();
     await initialize(pair.api);
     await pair.send({
@@ -307,7 +307,7 @@ describe('connectStdioAcpV2', () => {
     expect(pair.updates[0]!.update).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'edit-1',
-      content: [{ type: 'diff', path: '/w/a.txt', oldText: 'keep\nold', newText: 'keep\nnew' }],
+      content: [{ type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt', fileType: 'text' }], patch: { format: 'git_patch', text: 'diff --git a/w/a.txt b/w/a.txt\n--- a/w/a.txt\n+++ b/w/a.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n' } }],
     });
   });
 

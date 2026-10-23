@@ -93,23 +93,9 @@ export interface ReadToolCall extends BaseToolCallItem {
   resource?: string;
 }
 
-export interface FileToolCallBase extends BaseToolCallItem {
-  path: string;
-}
-
-export interface CreateFileToolCall extends FileToolCallBase {
-  kind: 'create-file-tool-call';
-  content: string;
-}
-
-export interface ModifyFileToolCall extends FileToolCallBase {
-  kind: 'modify-file-tool-call';
-  oldText: string;
-  newText: string;
-}
-
-export interface DeleteFileToolCall extends FileToolCallBase {
-  kind: 'delete-file-tool-call';
+/** File changes live once, as canonical diff blocks in contentBlocks. */
+export interface PatchToolCall extends BaseToolCallItem {
+  kind: 'patch-tool-call';
 }
 
 export interface SearchToolCall extends BaseToolCallItem {
@@ -233,9 +219,7 @@ export interface ToolGroup {
 export type ToolCallItem =
   | ExecuteToolCall
   | ReadToolCall
-  | CreateFileToolCall
-  | ModifyFileToolCall
-  | DeleteFileToolCall
+  | PatchToolCall
   | SearchToolCall
   | McpToolCall
   | WebFetchToolCall
@@ -353,24 +337,7 @@ export const readToolCallSchema = baseToolCallItemSchema.extend({
   resource: z.string().optional(),
 });
 
-export const fileToolCallBaseSchema = baseToolCallItemSchema.extend({
-  path: z.string(),
-});
-
-export const createFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('create-file-tool-call'),
-  content: z.string(),
-});
-
-export const modifyFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('modify-file-tool-call'),
-  oldText: z.string(),
-  newText: z.string(),
-});
-
-export const deleteFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('delete-file-tool-call'),
-});
+export const patchToolCallSchema = baseToolCallItemSchema.extend({ kind: z.literal('patch-tool-call') });
 
 export const searchToolCallSchema = baseToolCallItemSchema.extend({
   kind: z.literal('search-tool-call'),
@@ -441,9 +408,7 @@ export const unknownToolCallSchema = baseToolCallItemSchema.extend({
 export const toolCallItemSchema = z.discriminatedUnion('kind', [
   executeToolCallSchema,
   readToolCallSchema,
-  createFileToolCallSchema,
-  modifyFileToolCallSchema,
-  deleteFileToolCallSchema,
+  patchToolCallSchema,
   searchToolCallSchema,
   mcpToolCallSchema,
   webFetchToolCallSchema,
@@ -469,9 +434,7 @@ export const toolNodeSchema: z.ZodType<ToolNode> = z.lazy(() =>
   z.discriminatedUnion('kind', [
     executeToolCallSchema,
     readToolCallSchema,
-    createFileToolCallSchema,
-    modifyFileToolCallSchema,
-    deleteFileToolCallSchema,
+    patchToolCallSchema,
     searchToolCallSchema,
     mcpToolCallSchema,
     webFetchToolCallSchema,

@@ -1,3 +1,4 @@
+import { textFilePatch } from '../../lib/text-diff';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import { describe, expect, it } from 'vitest';
 import type { NormalizedEvent } from '../reducer/normalized-event';
@@ -39,8 +40,8 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
     },
     event: {
       kind: 'tool_call', toolCallId: 'write', title: 'Write note', toolName: 'Write', toolKind: 'edit', status: 'pending',
-      contentBlocks: [{ type: 'diff', path: '/note.txt', oldText: null, newText: 'one\n' }, { type: 'terminal', terminalId: 'terminal' }], _meta: { toolName: 'Write' },
-      parentToolCallId: null, diffs: [{ path: '/note.txt', oldText: null, newText: 'one\n' }], locations: [], terminalId: 'terminal',
+      contentBlocks: [textFilePatch('/note.txt', null, 'one\n'), { type: 'terminal', terminalId: 'terminal' }], _meta: { toolName: 'Write' },
+      parentToolCallId: null, locations: [], terminalId: 'terminal',
     },
   },
   {
@@ -51,7 +52,7 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
         { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aW1n' } }],
     },
     event: {
-      kind: 'tool_update', toolCallId: 'browser', status: 'completed', diffs: [], contentMode: 'replace',
+      kind: 'tool_update', toolCallId: 'browser', status: 'completed', contentMode: 'replace',
       contentBlocks: [{ type: 'content', content: { type: 'text', text: '```text\nvisible\n```' } }, { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aW1n' } }],
       outputText: 'visible', images: [{ mimeType: 'image/png', data: 'aW1n' }], rawOutput: '{\n  "ok": true\n}',
     },

@@ -54,7 +54,7 @@ describe('Claude ACP: the tool name rides from `_meta` onto the transcript item'
   });
 
   it('enrich adds only the name: an update that carries nothing else stays the same object without it', () => {
-    const event: NormalizedEvent = { kind: 'tool_call', toolCallId: 't', title: 'Read', toolKind: 'read', status: null, parentToolCallId: null, diffs: [], locations: [] };
+    const event: NormalizedEvent = { kind: 'tool_call', toolCallId: 't', title: 'Read', toolKind: 'read', status: null, parentToolCallId: null, locations: [] };
     const raw = { sessionUpdate: 'tool_call', toolCallId: 't', title: 'Read' } as never;
     expect(enrichClaudeUpdate(event, raw)).toBe(event);
     expect(enrichClaudeUpdate(event, { ...(raw as object), _meta: { claudeCode: { toolName: 'Read' } } } as never)).toEqual({ ...event, toolName: 'Read' });

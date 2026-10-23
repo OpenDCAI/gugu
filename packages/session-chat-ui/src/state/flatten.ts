@@ -80,7 +80,6 @@ export function isDeliveredFromAgent(item: ChatItem): boolean {
   return isDeliveryEnvelope((item as ChatMessage).text);
 }
 
-
 /**
  * 这一轮的原始用户指令，给 turn-outcome 行的「取回指令」用。
  *
@@ -110,7 +109,6 @@ export type ItemNode = {
   item: ChatItem;
   children: ItemNode[];
 };
-
 
 // ── flattenTier ───────────────────────────────────────────────────────────────
 
@@ -373,7 +371,7 @@ export function flattenTier(
     if (!ctx.active) {
       let runEnd = turnIndex + 1;
       while (runEnd < turns.length && absorbed[runEnd]) runEnd++;
-      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id, ctx.caches.computeDiff);
+      const summary = fileChangeSummary(turns.slice(turnIndex, runEnd), turn.id);
       if (summary) processItem(summary);
     }
 
@@ -427,7 +425,6 @@ export function flattenTier(
   return out;
 }
 
-
 /** 一段连续工具调用的摘要行 id：锚在段首那一行上（段首不变，展开状态就跟着不丢）。 */
 export function toolRunId(turnId: string, firstItemId: string): string {
   return `${turnId}:run:${firstItemId}`;
@@ -455,7 +452,6 @@ export function turnDiscardedId(turnId: string): string {
 export function turnOutcomeDetailId(turnId: string): string {
   return `${turnId}:outcome-detail`;
 }
-
 
 // ── UnitsView ─────────────────────────────────────────────────────────────────
 

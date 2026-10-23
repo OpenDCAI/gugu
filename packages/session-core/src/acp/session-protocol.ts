@@ -22,13 +22,16 @@ export type SessionForegroundState = {
 
 export type SessionFileChange =
   | { operation: 'add' | 'delete' | 'modify'; path: string }
-  | { operation: 'move' | 'copy'; oldPath: string; newPath: string };
+  | { operation: 'move' | 'copy'; oldPath: string; path: string }
+  | { operation: string; path?: unknown; [key: string]: unknown };
 
 /** A patch stays a patch; an unlocated replacement region is not a whole file. */
 export interface SessionPatch {
+  [key: string]: unknown;
   changes: readonly SessionFileChange[];
   patch?: { format: string; text: string } | null;
   scope: 'file' | 'fragment' | 'unknown';
+  _meta?: Readonly<Record<string, unknown>> | null;
 }
 
 /**

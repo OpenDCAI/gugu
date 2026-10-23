@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -31,6 +32,7 @@ let turnSeq = 0
 const waiting = new Map()
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, content: m.params.input } } }) + '\\n')
   if (m.id !== undefined && !m.method) {
     // the bridge's answer to our reverse request
     record({ reverseAnswer: m.result ?? null, error: m.error ?? null })
@@ -108,10 +110,10 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   })
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: { code: number; message: string } }>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -126,7 +128,7 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
 const GUGU_SERVER = { name: 'gugu', url: 'http://127.0.0.1:9/mcp/session-token', headers: [] }
 
 async function open(rig: ReturnType<typeof start>, mcpServers: unknown[]) {
-  await rig.reply(rig.send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await rig.reply(rig.send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   const created = (await rig.reply(rig.send('session/new', { cwd: dir, mcpServers }), 'session/new')).result as { sessionId: string }
   return created.sessionId
 }

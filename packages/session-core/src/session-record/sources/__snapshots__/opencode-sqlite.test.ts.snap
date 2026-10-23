@@ -5,7 +5,7 @@ exports[`opencode sqlite 记录源 > preserves the native fixture event and tran
   "agents": [],
   "records": [
     "{"key":"opencode:prt_fb454ff830012Jwb9habkmuNw1","at":1785436897410,"event":{"kind":"message","role":"user","messageId":"opencode:prt_fb454ff830012Jwb9habkmuNw1","text":"\\"Read the file a.txt in the current directory and reply with only the single word it contains.\\""}}",
-    "{"key":"opencode:prt_fb4550f80001R0CkJeEOVbXnpR","at":1785436901249,"event":{"kind":"tool_call","toolCallId":"call_Ty8MGpEGAmqyRCgajFpX7S6v","title":"read","toolKind":"read","status":"completed","parentToolCallId":null,"diffs":[],"locations":[],"rawInput":"{\\n  \\"filePath\\": \\"/tmp/tmp.DA0wGcB63e/a.txt\\",\\n  \\"limit\\": 10,\\n  \\"offset\\": 1\\n}","outputText":"<path>/tmp/tmp.DA0wGcB63e/a.txt</path>\\n<type>file</type>\\n<content>\\n1: gravitas\\n\\n(End of file - total 1 lines)\\n</content>"}}",
+    "{"key":"opencode:prt_fb4550f80001R0CkJeEOVbXnpR","at":1785436901249,"event":{"kind":"tool_call","toolCallId":"call_Ty8MGpEGAmqyRCgajFpX7S6v","title":"read","toolKind":"read","status":"completed","parentToolCallId":null,"locations":[],"rawInput":"{\\n  \\"filePath\\": \\"/tmp/tmp.DA0wGcB63e/a.txt\\",\\n  \\"limit\\": 10,\\n  \\"offset\\": 1\\n}","outputText":"<path>/tmp/tmp.DA0wGcB63e/a.txt</path>\\n<type>file</type>\\n<content>\\n1: gravitas\\n\\n(End of file - total 1 lines)\\n</content>"}}",
     "{"key":"opencode:prt_fb4551c6c001uwrxG6Ar4WIPTN","at":1785436904557,"event":{"kind":"message","role":"assistant","messageId":"opencode:prt_fb4551c6c001uwrxG6Ar4WIPTN","text":"gravitas"}}",
     "{"key":"opencode:msg_fb45512f1001d1dug7LR32eirc#end","at":1785436904877,"boundary":{"kind":"turn_end","stopReason":"end_turn"}}",
   ],

@@ -8,7 +8,7 @@ export * from './models';
 export * from './provider-session';
 export type * from './session-protocol';
 export { decodeSessionUpdate, DRAFT_UPDATE_META_KEY } from './transport/decode';
-export { serializePayload } from './models/tool-payload';
+export { serializePayload, projectToolContent } from './models/tool-payload';
 export { createToolCallItem } from './reducer/item-fold';
 export * from './reducer/index';
 export {

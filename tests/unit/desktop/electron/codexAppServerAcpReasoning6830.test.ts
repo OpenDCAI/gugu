@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -26,6 +27,7 @@ const TERRA = { type: 'reasoning', id: 'rs-terra', summary: ['**Timing the trip*
 const GLM = { type: 'reasoning', id: 'rs-glm', summary: [], content: ['We need execute.'] }
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: THREAD }, model: 'm' } })
   if (m.method === 'thread/turns/list') {
@@ -108,7 +110,7 @@ async function start() {
   const responses = new Map<number, unknown>()
   const updates: SessionUpdate[] = []
   const thoughts: Array<{ text: string; messageId?: string }> = []
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
     const update = m.method === 'session/update' ? m.params?.update : null
@@ -116,14 +118,14 @@ async function start() {
     if (update?.sessionUpdate === 'agent_thought_chunk') {
       thoughts.push({ text: update.content.text, ...(update.messageId ? { messageId: update.messageId } : {}) })
     }
-  })
+  }))
   let nextId = 1
   const call = (method: string, params: unknown) => {
     const id = nextId++
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     return awaitFact(method, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   }
-  await call('initialize', { protocolVersion: 1, clientCapabilities: {} })
+  await call('initialize', { protocolVersion: 2, capabilities: {} })
   return { call, thoughts, updates }
 }
 
@@ -150,17 +152,17 @@ describe('#6830 codex ACP bridge: reasoning reaches the desktop', () => {
     await call('session/prompt', { sessionId: 'th-6830', prompt: [{ type: 'text', text: 'go' }] })
     expect(thoughts).toEqual([
       { text: '**Timing the trip**\n\nMoving time is 202.', messageId: 'rs-terra' },
-      { text: 'We need ' },
-      { text: 'execute.' },
-      { text: '**Planning**' },
-      { text: ' the reply.' },
-      { text: '\n\n**Counting**' },
+      { text: 'We need ', messageId: 'rs-glm' },
+      { text: 'execute.', messageId: 'rs-glm' },
+      { text: '**Planning**', messageId: 'rs-parts' },
+      { text: ' the reply.', messageId: 'rs-parts' },
+      { text: '\n\n**Counting**', messageId: 'rs-parts' },
     ])
   })
 
   it('reopen: history replays both reasoning shapes, summary first, raw text when there is no summary', async () => {
     const { call, thoughts } = await start()
-    await call('session/load', { sessionId: 'th-6830', cwd: dir, mcpServers: [] })
+    await call('session/resume', { sessionId: 'th-6830', cwd: dir, mcpServers: [] })
     expect(thoughts).toEqual([
       { text: '**Timing the trip**\n\nMoving time is 202.', messageId: 'rs-terra' },
       { text: 'We need execute.', messageId: 'rs-glm' },

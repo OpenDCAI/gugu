@@ -1,3 +1,4 @@
+import { textFilePatch } from '../lib/text-diff';
 import { describe, expect, it } from 'vitest';
 
 import type { ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
@@ -50,13 +51,13 @@ describe('发给手机那一份的裁剪', () => {
     expect(trimTurnsForTransport(longer, LIMIT)).not.toBe(longer);
   });
 
-  it('四类大字段都裁：工具的入参/原始输出/文本输出，以及改文件的新旧文本', () => {
+  it('trims raw tool fields but preserves canonical patch bytes and structure', () => {
     const big = 'y'.repeat(LIMIT + 5);
     const [trimmed] = trimTurnsForTransport(
       [
         turn('t1', [
           execTool('a', { rawInput: big, rawOutput: big, outputText: big }),
-          { ...execTool('b'), kind: 'modify-file-tool-call', path: '/f', oldText: big, newText: big } as ToolNode
+          { ...execTool('b'), kind: 'patch-tool-call', contentBlocks: [textFilePatch('/f', 'before', big)] } as ToolNode
         ])
       ],
       LIMIT
@@ -69,7 +70,8 @@ describe('发给手机那一份的裁剪', () => {
       big.slice(0, LIMIT)
     ]);
     expect(exec.trimmedChars).toBe(15); // 三格各少 5
-    expect([modify.oldText, modify.newText]).toEqual([big.slice(0, LIMIT), big.slice(0, LIMIT)]);
+    expect(modify.contentBlocks).toEqual([textFilePatch('/f', 'before', big)]);
+    expect(modify.trimmedChars).toBeUndefined();
   });
 
   it('嵌在工具组里的子调用照裁 —— 大输出常常挂在某一条子调用上', () => {
@@ -132,7 +134,6 @@ describe('发给手机那一份的裁剪', () => {
     expect(TRANSPORT_TEXT_LIMIT).toBe(8_192);
   });
 });
-
 
 /**
  * 总量预算。逐字段裁只挡得住「一条输出几十万字」；导入进来的 CLI 会话是「单条不长、一轮里几十上百条」，

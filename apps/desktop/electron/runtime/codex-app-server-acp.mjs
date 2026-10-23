@@ -11,7 +11,7 @@ import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mj
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
 import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owned-child.ts'
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
-import { unifiedDiffTexts, withoutTrailingNewline } from '../../../../packages/core/src/shared/unifiedDiff.mjs'
+import { codexFilePatches } from './codex-file-changes.mjs'
 import { createCodexSubagents } from './codex-subagents.mjs'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
@@ -434,8 +434,9 @@ function permissionProfileDescription(profile) {
 }
 
 function permissionModeConfigOptions(selected, availableModes) {
+  if (!selected) return []
   return [{
-    id: 'mode',
+    configId: 'mode',
     name: 'Mode',
     category: 'mode',
     type: 'select',
@@ -550,9 +551,9 @@ function nearestSupportedEffort(wanted, supported) {
 }
 
 function modelConfigOptions(selected, models) {
-  if (models.length === 0) return []
+  if (models.length === 0 || !selected) return []
   return [{
-    id: 'model',
+    configId: 'model',
     name: 'Model',
     category: 'model',
     type: 'select',
@@ -573,9 +574,9 @@ function modelConfigOptions(selected, models) {
 function effortConfigOptions(selectedModelId, selectedEffortId, models) {
   const current = models.find((model) => model.id === selectedModelId)
   const efforts = current?.efforts ?? []
-  if (efforts.length === 0) return []
+  if (efforts.length === 0 || !selectedEffortId) return []
   return [{
-    id: 'effort',
+    configId: 'effort',
     name: 'Reasoning effort',
     category: 'thought_level',
     type: 'select',
@@ -884,6 +885,32 @@ async function startAppOnce(servers) {
   appReady = true
 }
 
+const promptInsertions = new Map()
+function expectPromptInsertion(id, content) {
+  let resolve
+  const promise = new Promise(done => { resolve = done })
+  const entry = { content, promise, resolve, messageId: null }
+  promptInsertions.set(id, entry)
+  return entry
+}
+function insertedUserMessage(item) {
+  const entry = [...promptInsertions.values()].find(value => value.messageId === null)
+  if (entry) {
+    entry.messageId = item.id
+    sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id, content: entry.content })
+    entry.resolve({ messageId: item.id })
+  } else {
+    sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id,
+      content: [{ type: 'text', text: joinPromptText(item.content) }] })
+  }
+}
+async function receipt(id, entry) {
+  const result = await entry.promise
+  promptInsertions.delete(id)
+  if (result.error) throw new Error(result.error)
+  respond(id, result)
+}
+
 function sessionUpdate(update) {
   notify('session/update', { sessionId, update })
 }
@@ -948,7 +975,7 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
   }
   const seen = new Set()
   // `/compact` 是这条腿自己实现的那一条(session/prompt 里交给 `thread/compact/start`)。
-  const availableCommands = [{ name: 'compact', description: 'Compact the conversation context', input: null }]
+  const availableCommands = [{ name: 'compact', description: 'Compact the conversation context' }]
   for (const entry of Array.isArray(response?.data) ? response.data : []) {
     for (const skill of Array.isArray(entry?.skills) ? entry.skills : []) {
       const raw = typeof skill?.name === 'string' ? skill.name.trim() : ''
@@ -959,47 +986,10 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
       availableCommands.push({
         name,
         description: String(skill?.shortDescription ?? skill?.description ?? raw),
-        input: null,
       })
     }
   }
   sessionUpdate({ sessionUpdate: 'available_commands_update', availableCommands })
-}
-
-/**
- * codex 的 `fileChange.changes[]` → ACP 的 diff 内容块。
- *
- * **不带 diff 的编辑类工具条目会被宿主整条丢弃**(session-core 的 `item-fold` 里 `isEditKind` 那一支)。
- * 那不是 bug,是「别画空占位、等 diff 到」的设计:标准 ACP 流程是 `tool_call` 先到(还没 diff)、
- * `tool_call_update` 带着 diff 后到,卡片以 diff 为钥匙才建。此前这里只给标题不给 diff,那张卡片
- * 于是永远等不到 —— agent 改过的文件在界面上**一行痕迹都没有**,live 与重放同病。
- *
- * codex 给的两种形状(实测 codex-cli 0.146.0):
- *  - `kind.type === 'add'`:`diff` 就是**文件全文**,可精确还原;
- *  - `kind.type === 'update'`:`diff` 是 unified diff 的 hunk,按 hunk 还原。
- */
-function fileChangeDiffs(item) {
-  const blocks = []
-  for (const change of Array.isArray(item?.changes) ? item.changes : []) {
-    const path = String(change?.path ?? '')
-    if (!path) continue
-    const kind = String(change?.kind?.type ?? '')
-    const raw = String(change?.diff ?? '')
-    if (kind === 'add') {
-      blocks.push({ type: 'diff', path, oldText: null, newText: withoutTrailingNewline(raw) })
-      continue
-    }
-    if (kind === 'delete') {
-      blocks.push({ type: 'diff', path, oldText: withoutTrailingNewline(raw), newText: '' })
-      continue
-    }
-    const texts = unifiedDiffTexts(raw)
-    // 认不出的形状宁可不发:发一个瞎猜的 diff,等于往这段历史里写没发生过的内容。
-    if (texts) {
-      blocks.push({ type: 'diff', path, ...texts })
-    }
-  }
-  return blocks
 }
 
 function itemTool(item) {
@@ -1021,7 +1011,7 @@ function itemTool(item) {
     }
   }
   if (type === 'fileChange') {
-    const content = fileChangeDiffs(item)
+    const content = codexFilePatches(item)
     return { title: 'Edit files', kind: 'edit', ...(content.length ? { content } : {}) }
   }
   if (type === 'mcpToolCall') {
@@ -1108,7 +1098,7 @@ function replayItem(item, fallbackId, revertAnchor) {
     // live 从不回声用户消息(客户端自己就有);重放时客户端手里是空的,这条只能由适配器补。
     // 复用 textPrompt:多段文本的连接方式必须和发送侧一致,否则重放出来的话和当初发出去的不一样。
     const text = joinPromptText(item?.content)
-    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(revertAnchor ? { _meta: { guguRevertAnchor: revertAnchor } } : {}) })
+    if (text) sessionUpdate({ sessionUpdate: 'user_message', messageId, content: [{ type: 'text', text }], ...(revertAnchor ? { _meta: { guguRevertAnchor: revertAnchor } } : {}) })
     return
   }
   if (type === 'agentMessage') {
@@ -1130,9 +1120,10 @@ function replayItem(item, fallbackId, revertAnchor) {
   // 历史只有终态,没有 `item/started` 那一拍。因此发 `tool_call`(建条目)而不是 `tool_call_update`
   // (改条目)—— 后者会是一条没有母体的更新。
   sessionUpdate({
-    sessionUpdate: 'tool_call',
+    sessionUpdate: 'tool_call_update',
     toolCallId: messageId,
     status: acpToolStatus(item.status, 'completed'),
+    name: item.type,
     ...tool,
   })
 }
@@ -1380,6 +1371,7 @@ function onAppNotification(message) {
     streamedItems.set(String(params.itemId ?? ''), 0)
     sessionUpdate({
       sessionUpdate: 'agent_message_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: String(params.delta ?? '') },
     })
     return
@@ -1392,6 +1384,7 @@ function onAppNotification(message) {
     streamedItems.set(itemId, part)
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${String(params.delta ?? '')}` },
     })
     return
@@ -1399,19 +1392,22 @@ function onAppNotification(message) {
   if (method === 'item/plan/delta') {
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: String(params.delta ?? '') },
     })
     return
   }
   if (method === 'item/started') {
+    if (params.item?.type === 'userMessage') { insertedUserMessage(params.item); return }
     trackRunningCommand(params, 'started')
     if (params.item?.type === 'contextCompaction') return compactionUpdate(params.item, 'in_progress')
     const tool = itemTool(params.item)
     if (tool) {
       sessionUpdate({
-        sessionUpdate: 'tool_call',
+        sessionUpdate: 'tool_call_update',
         toolCallId: String(params.item?.id ?? ''),
         status: acpToolStatus(params.item?.status, 'in_progress'),
+        name: params.item.type,
         ...tool,
       })
     }
@@ -1427,6 +1423,7 @@ function onAppNotification(message) {
     if (item.type === 'agentMessage' && item.text && !streamed) {
       sessionUpdate({
         sessionUpdate: 'agent_message_chunk',
+        messageId: String(item.id),
         content: { type: 'text', text: String(item.text) },
       })
     }
@@ -1437,16 +1434,20 @@ function onAppNotification(message) {
         sessionUpdate: 'tool_call_update',
         toolCallId: String(item.id ?? ''),
         status: outcome?.success === false ? 'failed' : acpToolStatus(item.status, 'completed'),
+        name: item.type,
         ...tool,
       })
     }
     return
   }
-  if (method === 'turn/started' && compactAcpId !== null) {
-    // `thread/compact/start` 不回轮次 id;压缩那一轮在这里报到。
-    const acpId = compactAcpId
-    compactAcpId = null
-    beginPrompt(acpId, String(params.turn?.id ?? ''))
+  if (method === 'turn/started') {
+    sessionUpdate({ sessionUpdate: 'state_update', state: 'running' })
+    if (compactAcpId !== null) {
+      const acpId = compactAcpId
+      compactAcpId = null
+      insertedUserMessage({ id: `compact:${params.turn.id}` })
+      beginPrompt(acpId, String(params.turn.id))
+    }
     return
   }
   if (method === 'turn/completed') {
@@ -1457,6 +1458,10 @@ function onAppNotification(message) {
         sessionUpdate: 'async_task_spawned', asyncTaskId: command.processId, toolCallId,
         name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
       })
+    }
+    sessionUpdate({ sessionUpdate: 'state_update', state: 'idle', ...turnOutcome(params.turn) })
+    for (const entry of promptInsertions.values()) {
+      if (entry.messageId === null) entry.resolve({ error: 'Codex completed without inserting the prompt' })
     }
     settlePrompt(params.turn)
   }
@@ -1537,35 +1542,21 @@ function settlePrompt(turn) {
   settleAcpIds(turn, promptIds, prompt)
 }
 
-function settleAcpIds(turn, promptIds, prompt) {
+function turnOutcome(turn) {
   const status = String(turn?.status ?? 'completed')
   const failure = toolOutcomesByTurn.get(String(turn?.id ?? ''))?.failure
+  const _meta = historyCanRevert ? { guguRevert: { before: String(turn.id) } } : undefined
+  if (status === 'interrupted') return { stopReason: 'cancelled', ...(_meta ? { _meta } : {}) }
+  if (status === 'completed' && !failure) return { stopReason: 'end_turn', ...(_meta ? { _meta } : {}) }
+  return { stopReason: 'error', error: { code: -32603,
+    message: status === 'failed' ? String(turn?.error?.message ?? 'local Codex turn failed')
+      : failure ? `local Codex turn had a failed Gugu tool call: ${failure.tool} (${failure.itemId}): ${failure.details}`
+      : `unexpected local Codex turn status: ${status}`,
+    data: turn?.error ?? failure ?? null } }
+}
+
+function settleAcpIds(turn, _promptIds, prompt) {
   toolOutcomesByTurn.delete(String(turn?.id ?? ''))
-  if (status === 'failed') {
-    for (const acpId of promptIds) {
-      respond(acpId, null, {
-        code: -32603,
-        message: String(turn?.error?.message ?? 'local Codex turn failed'),
-        data: turn?.error ?? null,
-      })
-    }
-  } else if (status === 'completed' && failure) {
-    for (const acpId of promptIds) {
-      respond(acpId, null, {
-        code: -32603,
-        message: `local Codex turn had a failed Gugu tool call: ${failure.tool} (${failure.itemId}): ${failure.details}`,
-        data: failure,
-      })
-    }
-  } else if (status === 'completed') {
-    for (const acpId of promptIds) respond(acpId, { stopReason: 'end_turn', ...(historyCanRevert ? { _meta: { guguRevert: { before: String(turn.id) } } } : {}) })
-  } else if (status === 'interrupted') {
-    for (const acpId of promptIds) respond(acpId, { stopReason: 'cancelled', ...(historyCanRevert ? { _meta: { guguRevert: { before: String(turn.id) } } } : {}) })
-  } else {
-    for (const acpId of promptIds) {
-      respond(acpId, null, { code: -32603, message: `unexpected local Codex turn status: ${status}` })
-    }
-  }
   prompt?.resolveCompletion?.()
 }
 
@@ -1721,13 +1712,13 @@ async function askHumanChoice(
   title,
   options,
   requestKey = options[0]?.optionId ?? 'choice',
-  { requireSelection = false, rawInput } = {},
+  { requireSelection = false, rawInput, subjectToolCall } = {},
 ) {
   if (options.length === 0) return null
   const outcome = await acpRequest('session/request_permission', {
     sessionId,
-    // `:ask:` keeps this synthetic request from cloning the triggering tool call over the title.
-    toolCall: { toolCallId: `${itemId}:ask:${requestKey}`, title, ...(rawInput !== undefined ? { rawInput } : {}) },
+    title,
+    subject: { type: 'tool_call', toolCall: subjectToolCall ?? { toolCallId: `${itemId}:ask:${requestKey}`, title, ...(rawInput !== undefined ? { rawInput } : {}) } },
     options: options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
   })
   if (outcome?.outcome?.outcome !== 'selected') {
@@ -2054,7 +2045,7 @@ async function answerApproval(message, method) {
     if (choices.length === 0) {
       throw new Error(`${method} did not provide a renderable decision`)
     }
-    const selected = await askHumanChoice(itemId, title, choices, `approval:${message.id}`)
+    const selected = await askHumanChoice(itemId, title, choices, `approval:${message.id}`, { subjectToolCall: { toolCallId: itemId } })
     if (method === 'item/permissions/requestApproval') {
       result = deniedPermissionResult()
       if (selected?.value === 'turn' || selected?.value === 'session') {
@@ -2175,15 +2166,9 @@ async function handleAcpRequest(message) {
   auditAcpRequest(method, params)
   if (method === 'initialize') {
     respond(id, {
-      protocolVersion: 1,
-      // promptCapabilities 照实报:图片块由 `promptInputItems` 映射成 app-server 的 image item
-      // 送进 codex。默认值是 image:false,不写就等于对客户端说「别发图片」。
-      agentCapabilities: {
-        loadSession: true,
-        promptCapabilities: { image: true },
-        sessionCapabilities: { fork: {}, close: {} },
-      },
-      agentInfo: { name: 'codex-app-server', version: 'local' },
+      protocolVersion: 2,
+      capabilities: { session: { prompt: { image: {} }, fork: {} } },
+      info: { name: 'codex-app-server', version: 'local' },
     })
     return
   }
@@ -2255,8 +2240,7 @@ async function handleAcpRequest(message) {
     const models = await modelCatalogOnce()
     respond(id, {
       sessionId,
-      ...(responseModes ? { modes: responseModes } : {}),
-      configOptions: withModelConfigOptions(
+            configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(forked?.configOptions, responseModes),
         selectedModel,
         selectedEffort,
@@ -2272,6 +2256,15 @@ async function handleAcpRequest(message) {
     const command = params.sessionId === sessionId && [...runningCommands.values()]
       .find((entry) => entry.turnId === null && entry.processId === params.asyncTaskId)
     respond(id, command ? await terminateCommand(command.processId) : { stopped: false })
+    return
+  }
+  if (method === 'session/list') {
+    await startApp([])
+    const page = await appRequest('thread/list', { cursor: params.cursor ?? null })
+    respond(id, { sessions: (page.data ?? []).map(thread => ({ sessionId: thread.id, cwd: thread.cwd,
+      ...(thread.name || thread.preview ? { title: thread.name || thread.preview } : {}),
+      ...(thread.updatedAt ? { updatedAt: new Date(thread.updatedAt * 1000).toISOString() } : {}) })),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) })
     return
   }
   if (method === 'session/close') {
@@ -2321,8 +2314,7 @@ async function handleAcpRequest(message) {
     const models = await modelCatalogOnce()
     respond(id, {
       sessionId,
-      ...(responseModes ? { modes: responseModes } : {}),
-      configOptions: withModelConfigOptions(
+            configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(started?.configOptions, responseModes),
         selectedModel,
         selectedEffort,
@@ -2333,7 +2325,7 @@ async function handleAcpRequest(message) {
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
     return
   }
-  if (method === 'session/load') {
+  if (method === 'session/resume') {
     const generation = ++loadGeneration
     const loadStartedAt = Date.now()
     await startApp(params.mcpServers)
@@ -2399,9 +2391,9 @@ async function handleAcpRequest(message) {
     }
     const responseModes = permissionModesWithRequestedProfile(modes, requestedPermission?.profile)
     const models = await modelCatalogOnce()
+    sessionUpdate({ sessionUpdate: 'state_update', state: activeTurnIdFromThread(resumed) ? 'running' : 'idle' })
     respond(id, {
-      ...(responseModes ? { modes: responseModes } : {}),
-      configOptions: withModelConfigOptions(
+            configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(resumed?.configOptions, responseModes),
         resumedModel,
         resumedEffort,
@@ -2438,8 +2430,10 @@ async function handleAcpRequest(message) {
     if (joinPromptText(params.prompt).trim() === '/compact') {
       if (activeTurnId) throw new Error('local Codex cannot compact while a turn is running')
       compactAcpId = id
+      const insertion = expectPromptInsertion(id, params.prompt)
       try {
         await appRequest('thread/compact/start', { threadId: sessionId })
+        await receipt(id, insertion)
       } catch (error) {
         compactAcpId = null
         throw error
@@ -2448,6 +2442,7 @@ async function handleAcpRequest(message) {
     }
     if (activeTurnId) {
       const busyPrompt = activePrompt?.turnId === activeTurnId ? activePrompt : null
+      const insertion = expectPromptInsertion(id, params.prompt)
       pendingSteersByTurn.set(activeTurnId, (pendingSteersByTurn.get(activeTurnId) ?? 0) + 1)
       try {
         // This ACP shim is the only client of its `--stdio` app-server (the chat UI renders
@@ -2464,11 +2459,13 @@ async function handleAcpRequest(message) {
           steeredAcpIds.push(id)
           steeredAcpIdsByTurn.set(activeTurnId, steeredAcpIds)
         }
+        await receipt(id, insertion)
         return
       } catch (error) {
         // The turn can finish between the active check and the steer RPC. Wait for the
         // original ACP request to settle before starting a replacement turn so its
         // response is not orphaned by an activePrompt overwrite.
+        promptInsertions.delete(id)
         process.stderr.write(`[codex-app-server-acp] turn/steer failed; retrying as turn/start: ${error?.message ?? error}\n`)
       } finally {
         const pending = pendingSteersByTurn.get(activeTurnId) - 1
@@ -2486,6 +2483,7 @@ async function handleAcpRequest(message) {
       // deadlock the original prompt or inherit its failure when starting a new turn.
       if (busyPrompt && activePrompt === busyPrompt) await busyPrompt.completion
     }
+    const insertion = expectPromptInsertion(id, params.prompt)
     const started = await appRequest('turn/start', {
       threadId: sessionId,
       input,
@@ -2502,6 +2500,7 @@ async function handleAcpRequest(message) {
     // (which left that prompt unanswered forever — the task stayed "working").
     if (activePrompt?.turnId === turnId) activePrompt.steeredAcpIds.push(id)
     else beginPrompt(id, turnId)
+    await receipt(id, insertion)
     return
   }
   if (method === 'session/set_config_option') {
@@ -2509,6 +2508,7 @@ async function handleAcpRequest(message) {
     // 选一档就掉到下面那条 -32601,界面上显示 "Failed to change session mode":
     // 档位列得出来、切不动。
     if (!established) throw new Error('no local Codex session')
+    if (params.type !== 'id') throw new Error('Codex config options require an id value')
     const configId = String(params.configId ?? '')
 
     // ── model / effort ────────────────────────────────────────────────────────
@@ -2654,6 +2654,7 @@ reader.on('line', (line) => {
   if (message.id !== undefined && message.method) {
     const run = () =>
       handleAcpRequest(message).catch((error) => {
+        promptInsertions.delete(message.id)
         respond(message.id, null, {
           code: typeof error.code === 'number' ? error.code : -32603,
           message: error.message || String(error),

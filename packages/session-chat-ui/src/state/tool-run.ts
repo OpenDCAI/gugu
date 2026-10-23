@@ -70,9 +70,7 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
       return 'search';
     case 'read-tool-call':
       return 'read';
-    case 'create-file-tool-call':
-    case 'modify-file-tool-call':
-    case 'delete-file-tool-call':
+    case 'patch-tool-call':
     case 'diff':
       return 'edit';
     case 'file-op':

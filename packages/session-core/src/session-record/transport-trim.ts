@@ -29,7 +29,7 @@ import type {
 export const TRANSPORT_TEXT_LIMIT = 8_192;
 
 /** 会被裁的那些格子：工具调用带回来的大块文本。❌ 不裁用户自己写的消息。 */
-const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content', 'oldText', 'newText'] as const;
+const TRIMMED_FIELDS = ['outputText', 'rawOutput', 'rawInput', 'content'] as const;
 
 /**
  * 工具交回来的图**不随记录走**:每张只留 `{ mimeType, chars }`(`imageRefs`),手机等那张图滚进视口、那一轮

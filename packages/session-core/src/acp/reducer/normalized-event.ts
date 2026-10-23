@@ -22,12 +22,6 @@ import type { ToolImage } from '../models/turns/tool-calls';
 import type { TerminalExit } from '../models/terminals';
 import type { EntityContent, EntityMeta } from '../models/entity-content';
 
-export type NormalizedDiff = {
-  path: string;
-  oldText: string | null;
-  newText: string;
-};
-
 export type NormalizedToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export type NormalizedToolLocation = Pick<ToolCallLocation, 'path' | 'line'>;
@@ -75,7 +69,6 @@ export type NormalizedEvent =
        * Null in the baseline; providers promote vendor _meta via EnrichHook.
        */
       parentToolCallId: string | null;
-      diffs: NormalizedDiff[];
       locations: NormalizedToolLocation[];
       inputSummary?: string;
       /** Serialized ACP `rawInput` — the arguments handed to the tool. */
@@ -355,7 +348,6 @@ export type NormalizedEvent =
       toolKind?: string | null;
       status?: NormalizedToolStatus | null;
       parentToolCallId?: string | null;
-      diffs?: NormalizedDiff[] | null;
       /** Undefined leaves the prior collection unchanged; null or [] clears it. */
       locations?: NormalizedToolLocation[] | null;
       outputText?: string | null;

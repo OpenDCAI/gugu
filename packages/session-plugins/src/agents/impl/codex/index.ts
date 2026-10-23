@@ -23,7 +23,7 @@ import {
   buildStandardCommand,
   miseDependency,
 } from '@gugu/session-core/agents/plugins/helpers';
-import { connectStdioAcp } from '../../helpers/acp-stdio';
+import { connectStdioAcpV2 } from '../../helpers/acp-v2';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
 import { authenticatedFromEnv, commandAuthStatus } from '../../helpers/auth';
 import {
@@ -414,7 +414,7 @@ export const provider = registerPluginBehavior(plugin, {
       };
     },
     connect: (io, toClient) => {
-      return connectStdioAcp(io, toClient);
+      return connectStdioAcpV2(io, toClient);
     },
     enrich: enrichCodexUpdate,
   },

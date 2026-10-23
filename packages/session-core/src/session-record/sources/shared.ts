@@ -180,7 +180,7 @@ export function toolCallStart(toolCallId: string, name: string, kind: string, in
   const rawInput = serializePayload(toJsonValue(input));
   return {
     kind: 'tool_call', toolCallId, title, toolKind: kind, status: 'in_progress',
-    parentToolCallId: null, diffs: [], locations: [],
+    parentToolCallId: null, locations: [],
     ...(rawInput !== undefined ? { rawInput } : {}),
   };
 }

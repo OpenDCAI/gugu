@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -59,17 +60,17 @@ async function threadConfig(mcpServers: unknown[], fragment: Record<string, Reco
   })
   adapter = child
   const responses = new Map<number, unknown>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
-  })
+  }))
   let nextId = 1
   const request = (method: string, params: unknown) => {
     const id = nextId++
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     return awaitFact(method, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   }
-  await request('initialize', { protocolVersion: 1, clientCapabilities: {} })
+  await request('initialize', { protocolVersion: 2, capabilities: {} })
   await request('session/new', { cwd: dir, mcpServers })
   return JSON.parse(readFileSync(recordPath, 'utf8')) as Record<string, unknown>
 }
@@ -100,6 +101,7 @@ const THREAD = 'th-6900'
 const item = { type: 'mcpToolCall', id: 'item-1', server: 'l3dice', tool: 'roll', arguments: { sides: 20 }, status: 'inProgress' }
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: THREAD }, model: 'm' } })
   if (m.method === 'turn/start') {
@@ -128,13 +130,13 @@ describe('#6900: codex names an MCP call the way the reducer reads one', () => {
     adapter = child
     const responses = new Map<number, unknown>()
     const toolTitles: string[] = []
-    let asked: { toolCall?: unknown } | undefined
-    createInterface({ input: child.stdout }).on('line', (line) => {
+    let asked: { title?: string; subject?: { type: string; toolCall: unknown } } | undefined
+    createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
       const m = JSON.parse(line)
-      if (m.method === 'session/update' && m.params?.update?.sessionUpdate === 'tool_call') toolTitles.push(m.params.update.title)
+      if (m.method === 'session/update' && m.params?.update?.sessionUpdate === 'tool_call_update') toolTitles.push(m.params.update.title)
       if (m.method === 'session/request_permission') asked = m.params
       if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
-    })
+    }))
     let nextId = 1
     const send = (method: string, params: unknown) => {
       const id = nextId++
@@ -142,11 +144,11 @@ describe('#6900: codex names an MCP call the way the reducer reads one', () => {
       return id
     }
     const reply = (id: number, what: string) => awaitFact(what, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
-    await reply(send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+    await reply(send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
     const created = (await reply(send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')) as { sessionId: string }
     send('session/prompt', { sessionId: created.sessionId, prompt: [{ type: 'text', text: 'roll' }] })
     await awaitFact('the approval reaches the client', () => asked, { producer: child })
     expect(toolTitles).toContain('mcp__l3dice__roll')
-    expect(asked?.toolCall).toMatchObject({ title: 'mcp__l3dice__roll', rawInput: { sides: 20 } })
+    expect(asked?.subject?.toolCall).toMatchObject({ title: 'mcp__l3dice__roll', rawInput: { sides: 20 } })
   })
 })
