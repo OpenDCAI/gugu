@@ -61,17 +61,18 @@ async function asUser(id: string): Promise<void> {
 }
 
 interface World { owner: string; peer: string; agent: string; group: string }
-async function world(): Promise<World> {
+async function world(peerOwnsGroup = false): Promise<World> {
   const owner = await human('Owner')
   const peer = await human('Peer')
   const agent = randomUUID()
   await db.query(`INSERT INTO identity.users (id,type,display_name,owner_user_id,device_id)
     VALUES ($1,'agent','Workspace Agent',$2,$3)`, [agent, owner, `dev-${owner}`])
   const group = randomUUID()
-  await asUser(owner)
-  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', owner, '[]'])
+  const groupOwner = peerOwnsGroup ? peer : owner
+  await asUser(groupOwner)
+  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', groupOwner, '[]'])
   await db.query('RESET role')
-  await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [group,peer])
+  await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [group, peerOwnsGroup ? owner : peer])
   await db.query('RESET role')
   return { owner, peer, agent, group }
 }
@@ -241,10 +242,9 @@ describe('topic resources use the source container through the real App SDK and 
   })
 
   it('an agent in the source works with its owner outside; leaving the source removes file access', async () => {
-    const w = await world()
+    const w = await world(true)
     await join(w)
-    const topic = await topicOf(w.group, w.owner)
-    await db.query("UPDATE chat.chat_members SET role=CASE WHEN user_id=$2 THEN 'owner' ELSE 'member' END WHERE chat_id=$1 AND user_id=ANY($3::text[])", [w.group, w.peer, [w.owner, w.peer]])
+    const topic = await topicOf(w.group, w.peer)
     await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
     const { files, surface } = agentFiles(w)
     const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })

@@ -5,8 +5,8 @@ import { createReactHarness } from '../../../support/testHarness'
 
 /**
  * 「在本群打开」(app-redesign §5, 统筹 10-05): one way to open an App from a chat. A card's 「打开」 asks it (`openApp`) and the
- * chat on screen answers (`useOpenApp`): in this chat's panel — a group's, a topic's or (主人 10-05「私聊也是得有面板的」)
- * a private chat's, on the desktop as on the phone. Whether a device can use an App at all is the host's to say by what it
+ * source chat on screen answers (`useOpenApp`): in the group or private chat's shared panel, also used by its topics.
+ * This holds on the desktop as on the phone. Whether a device can use an App at all is the host's to say by what it
  * can do (`phoneRuns`), never by which files the App opens. Control (the parent commit): a private chat answered nothing
  * and its card said to open the App in a group.
  */
@@ -34,7 +34,7 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 }))
 
 const { phoneRuns } = await import('../../../../apps/desktop/src/components/appSlot/phoneAppHost')
-const { openApp, useOpenApp } = await import('../../../../apps/desktop/src/components/appSlot/useOpenApp')
+const { useOpenApp } = await import('../../../../apps/desktop/src/components/appSlot/useOpenApp')
 const { ExtensionBundleCard } = await import('../../../../apps/desktop/src/components/extensionBundle/ExtensionBundleCard')
 const { ChatStoreProvider } = await import('../../../../apps/desktop/src/store/chatContext')
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
