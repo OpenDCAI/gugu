@@ -226,9 +226,7 @@ export function TabStripShell({
   return (
     <div
       ref={barRef}
-      // 页签条的空白处拖窗口,三个平台、每种块都一样(项目块、对话块、App 块原先这里什么都没有);
-      // 页签、按钮这些可交互的东西由 index.css 的 @@@4259 规则默认退订,照常能点。
-      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip [-webkit-app-region:drag]"
+      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip"
       data-testid={testId}
       data-strip-narrow={narrow ? '' : undefined}
       style={{
@@ -248,7 +246,10 @@ export function TabStripShell({
       ) : null}
       <div
         ref={scrollerRef}
-        className="flex h-full w-full items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // 页签条的空白处拖窗口,三个平台、每种块都一样;页签、按钮由 index.css 的 @@@4259 规则默认退订,照常能点。
+        // 拖拽区挂在滚动区上、❌ 挂在整条上:整条从块的左缘起,会压住侧栏拉伸手柄伸进来的那 2px(拖手柄变成拖窗口);
+        // 滚动区在左内距(≥ TAB_STRIP_LEADING_PX)之后才开始,让开手柄。
+        className="flex h-full w-full items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [-webkit-app-region:drag]"
         style={{ paddingBlockStart: `${WINDOW_CONTROL_BAR_HEIGHT_PX - SESSION_TAB_HEIGHT_PX}px` }}
       >
         {children}
