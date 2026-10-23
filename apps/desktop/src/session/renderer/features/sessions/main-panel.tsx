@@ -22,6 +22,7 @@ import { cloudWakeFailureText } from '@renderer/features/remote-hosts/connection
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useCloudComputerGate } from './use-cloud-computer-gate';
 import { workspaceReachLabel } from './workspace-backend/workspace-surface';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 
 const spinnerLog = rendererLogger('sessionpage/loading-span');
 
@@ -136,6 +137,10 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   // 别的机器上的会话、那台此刻够不着(离线 / 开机恢复时线刚通又断):说它离线,❌ 一直转「正在准备文件」或摆一块
   // 「准备失败」。线通了由 view.tsx 那一处照常准备(准备只有那一个入口)。
   const unreachable = workspaceReachLabel(projectId);
+  const deviceId = machineRegistry.machineOf(projectId);
+  const device = deviceId ? remoteHostsStore.device(deviceId) : null;
+  const tunnelProgress = device?.tunnel === 'connecting' && !device.directTerminal
+    ? translate('remoteWorkspace.tunnel.connecting') : null;
 
   if (kind === 'creating') {
     return (
@@ -187,7 +192,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   if (kind === 'project-mounting' || kind === 'provisioning') {
     // provisionProgressMessage 是主进程推来的实时进度原文，原样显示；缺省时才落到本地化外壳。
     const progressMessage =
-      sessionPageStore?.provisionProgressMessage ?? translate('task.settingUpWorkspace');
+      tunnelProgress ?? sessionPageStore?.provisionProgressMessage ?? translate('task.settingUpWorkspace');
     return (
       <div className="flex h-full w-full flex-col items-center justify-center text-foreground-muted">
         <LoadingIndicator ariaLabel={translate('task.settingUpWorkspace')} label={progressMessage} />
@@ -222,7 +227,7 @@ export const SessionContentGate = observer(function SessionContentGate({ childre
   if (kind === 'idle') {
     // provisionProgressMessage 是主进程推来的实时进度原文，原样显示；缺省时才落到本地化外壳。
     const progressMessage =
-      sessionPageStore?.provisionProgressMessage ?? translate('task.settingUpWorkspace');
+      tunnelProgress ?? sessionPageStore?.provisionProgressMessage ?? translate('task.settingUpWorkspace');
     return (
       <div className="flex h-full w-full flex-col items-center justify-center text-foreground-muted">
         <LoadingIndicator ariaLabel={translate('task.settingUpWorkspace')} label={progressMessage} />

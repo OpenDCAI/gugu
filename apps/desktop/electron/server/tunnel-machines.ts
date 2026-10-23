@@ -228,11 +228,8 @@ export function createTunnelMachines(deps: {
       teardown(tunnel)
       const userId = await deps.currentUserId()
       if (!current(tunnel)) return
-      // 登录态还没就绪 / 正在刷新凭证:过一会儿再试(❌ 一声不吭地停在「正在连接」)。
-      if (!userId) {
-        deps.log('tunnel: not signed in yet, retrying', { deviceId: tunnel.deviceId })
-        return scheduleRetry(tunnel)
-      }
+      // Without local auth, the cloud request cannot reach this machine; publish the existing failure state before retrying.
+      if (!userId) return fail(tunnel, 'unreachable', 'this computer is not signed in to Gugu')
       const binary = deps.frpcBinary()
       if (!binary) return fail(tunnel, 'local', '这台电脑的咕咕里缺 frpc')
       let key: { keyPath: string; publicKey: string }
