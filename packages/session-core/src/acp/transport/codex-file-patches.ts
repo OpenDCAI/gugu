@@ -1,7 +1,15 @@
 // Native Codex file facts enter ACP once. Patch bytes are never expanded into file contents.
-import { textFilePatch } from '../../../../packages/session-core/src/lib/text-diff.ts'
+import { textFilePatch } from '../../lib/text-diff.ts'
 
-export function codexFilePatches(item) {
+import type { SessionPatch } from '../session-protocol';
+
+export interface CodexFileChange {
+  path: string;
+  kind: { type: 'add' | 'delete' } | { type: 'update'; move_path: string | null };
+  diff: string;
+}
+
+export function codexFilePatches(item: { changes?: readonly CodexFileChange[] }): Array<SessionPatch & { type: 'diff' }> {
   return (item?.changes ?? []).map(change => {
     const { path, kind, diff } = change
     if (kind.type === 'add') return textFilePatch(path, null, diff)

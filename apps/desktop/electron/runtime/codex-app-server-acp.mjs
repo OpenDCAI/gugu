@@ -11,7 +11,7 @@ import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mj
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
 import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owned-child.ts'
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
-import { codexFilePatches } from './codex-file-changes.mjs'
+import { codexFilePatches } from '../../../../packages/session-core/src/acp/transport/codex-file-patches.ts'
 import { createCodexSubagents } from './codex-subagents.mjs'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { codexFilePatches } from '../../../../apps/desktop/electron/runtime/codex-file-changes.mjs';
+import { codexFilePatches } from '../../../../packages/session-core/src/acp/transport/codex-file-patches';
 
 it('preserves every supplied update hunk byte and the native Windows destination', () => {
   const diff = '@@ -2 +2 @@\r\n-old\r\n+new\r\n@@ -80 +80 @@\r\n-a\r\n+b\r\n\\ No newline at end of file\r\n';
