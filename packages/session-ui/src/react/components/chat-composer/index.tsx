@@ -385,10 +385,10 @@ export interface ChatComposerProps {
   onReorderQueuedPrompts?: (ids: string[]) => void;
   onSendQueuedPromptNow?: (id: string) => void;
   /**
-   * 这一框此刻不是发消息而是一件事(新任务 / 定时任务):框整张换成那件事的色,`leading` 那枚标签
+   * 这一框此刻不是发消息而是新任务:框整张换成那件事的色,`leading` 那枚标签
    * 排在输入行的最前面、紧挨占位文字。
    */
-  tone?: 'task' | 'schedule';
+  tone?: 'task';
   leading?: React.ReactNode;
   className?: string;
 }

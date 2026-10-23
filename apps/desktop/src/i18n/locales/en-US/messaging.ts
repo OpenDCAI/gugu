@@ -376,7 +376,6 @@ export default {
     "sendFailed": "Could not send: {{reason}}",
     "slashCommands": "Slash commands",
     "verb": {
-      "schedule": "Scheduled task",
       "task": "New task"
     },
     "whisperBanner": "Whisper to {{name}} · only visible to you both",

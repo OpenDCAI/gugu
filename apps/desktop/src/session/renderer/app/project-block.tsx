@@ -12,7 +12,6 @@ import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider'
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
-import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { cancelComposerVerb, composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
@@ -110,8 +109,8 @@ export const ProjectBlock = observer(function ProjectBlock({
         {chatId && hasMessages !== false ? (
           <>
             <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
-            {/* gugu-dev#181 群里输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(建在这个项目里)。 */}
-            {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : <ComposerVerbDock chatId={chatId} projectId={projectId} />}
+            {/* gugu-dev#181 群里输入框选了「新任务」:那个框收起,这里换上新任务的框(建在这个项目里)。 */}
+            {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : null}
           </>
         ) : chatId || projectGroupsStore.bindingKnown(projectId) ? (
           <SessionShellProvider>

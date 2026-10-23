@@ -1486,7 +1486,7 @@ function promptHasIssueMention(text: string, token: string): boolean {
 
 /** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag);标签上画所选 agent 的标,所以给成 agent 的函数。 */
 export interface ComposerVerbLook {
-  tone: 'task' | 'schedule';
+  tone: 'task';
   tag: (agentId: string | undefined) => ReactNode;
 }
 

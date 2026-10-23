@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// gugu-dev#181 ⑫:画在会话页格子里(项目块、对话块)的对话,输入框的「+ / 新任务 / 定时任务 / 发送」进框内底排;
+// gugu-dev#181 ⑫:画在会话页格子里(项目块、对话块)的对话,输入框的「+ / 新任务 / 发送」进框内底排;
 // 手机和格子外照旧是两坞在框外 —— 手机那一支不能跟着变。
 import { act, createElement, useCallback, useMemo, useState, type SetStateAction } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

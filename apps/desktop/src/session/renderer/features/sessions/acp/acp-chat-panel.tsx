@@ -1575,9 +1575,9 @@ const ComposerForStore = observer(function ComposerForStore({
 
   const a = store.affordances;
 
-  // gugu-dev#181 ⑫ 会话里也能派:选了「新任务 / 定时任务」,这一框换成那件事(卡落项目群;没有项目的落它的私聊)。
+  // gugu-dev#181 ⑫ 会话里也能派:选了「新任务」,这一框换成新任务的框(卡落项目群;没有项目的落它的私聊)。
   if (verb) {
-    return createPortal(<SessionVerbDock sessionId={store.sessionId} verb={verb} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
+    return createPortal(<SessionVerbDock sessionId={store.sessionId} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
   }
 
   return createPortal(

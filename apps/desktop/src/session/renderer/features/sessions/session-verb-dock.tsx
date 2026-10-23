@@ -1,6 +1,5 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
-import { Clock } from '@/lib/icons';
 import { PluginIcon } from '@renderer/lib/components/plugin-icon';
 import { useAgentIcon } from '@renderer/lib/stores/use-agents';
 import { useDefaultTaskProvider } from './use-default-task-provider';
@@ -12,16 +11,15 @@ import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { composerDrafts, projectDraftKey } from './composer-drafts';
 import { cancelComposerVerb, composerVerbLook } from './composer-verb-tag';
-import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
 import { TaskDispatchComposer } from './task-dispatch-composer';
 import { shellPort } from '@renderer/lib/shell-port';
 import { log } from '@renderer/utils/logger';
 
-/** 会话输入框上「新任务 / 定时任务」记在哪一格(composerVerbBridge 按字符串记;对话用对话 id)。 */
+/** 会话输入框上「新任务」记在哪一格(composerVerbBridge 按字符串记;对话用对话 id)。 */
 export const sessionVerbKey = (sessionId: string) => `session:${sessionId}`;
 
 /**
- * gugu-dev#181 ⑫「在会话里也能派」:每条会话的输入框底排那两个词。选了一个,这一框换成那件事(SessionVerbDock),
+ * gugu-dev#181 ⑫「在会话里也能派」:每条会话的输入框底排那个「新任务」。选了它,这一框换成新任务的框(SessionVerbDock),
  * 框里写着的话跟过去。
  */
 export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
@@ -38,9 +36,6 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
     <>
       <Button variant="ghost" size="sm" data-testid="session-verb-task" title={translate('taskDispatch.task')} onClick={() => pick('task')}>
         <DefaultTaskAgentMark />{translate('taskDispatch.task')}
-      </Button>
-      <Button variant="ghost" size="sm" data-testid="session-verb-schedule" title={translate('taskDispatch.schedule')} onClick={() => pick('schedule')}>
-        <Clock className="size-3.5" />{translate('taskDispatch.schedule')}
       </Button>
     </>
   );
@@ -63,12 +58,11 @@ export function DefaultTaskAgentPublisher() {
 }
 
 /**
- * 会话输入框选了「新任务」/「定时任务」时换上来的框:新任务就是项目首页那个框(ProjectTaskComposer),建在这条会话所在的项目里,
- * 任务卡和结果落项目群(❌ 塞进眼前这条会话的记录);建好的会话拼在右边一块。定时任务是对话里那一个,卡也落项目群。
+ * 会话输入框选了「新任务」时换上来的框:就是项目首页那个框(ProjectTaskComposer),建在这条会话所在的项目里,
+ * 任务卡和结果落项目群(❌ 塞进眼前这条会话的记录);建好的会话拼在右边一块。
  */
-export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, verb, projectId, chatId }: {
+export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, projectId, chatId }: {
   sessionId: string;
-  verb: ComposerVerb;
   projectId: string;
   /** 项目群;没有项目的会话 = undefined(它就是和这个 agent 的私聊,卡落那个私聊)。 */
   chatId: string | undefined;
@@ -78,7 +72,6 @@ export const SessionVerbDock = observer(function SessionVerbDock({ sessionId, ve
   const dmChatId = useSessionAgentChat(chatId ? null : { projectId, sessionId });
   const cardChatId = chatId ?? dmChatId;
   if (!cardChatId) return null;
-  if (verb === 'schedule') return <ScheduleDispatchComposer chatId={cardChatId} projectId={chatId ? projectId : undefined} verbKey={key} />;
   if (!chatId) {
     // gugu-dev#181 核对 #51:没有项目的会话里派 —— agent 进不了私聊(只能两个人),卡照样留在私聊里,结果回它自己的会话。
     return (

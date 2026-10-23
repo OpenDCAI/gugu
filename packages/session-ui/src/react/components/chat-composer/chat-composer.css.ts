@@ -162,7 +162,7 @@ export const composerShell = recipe({
       },
       false: {},
     },
-    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙、定时任务变蓝 —— 描边换色,外面一圈同色的浅环。
+    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙 —— 描边换色,外面一圈同色的浅环。
     // 悬停 / 聚焦也留在这个色上(base 里那两条会把描边换回灰)。
     tone: {
       task: {
@@ -170,13 +170,6 @@ export const composerShell = recipe({
         boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
         selectors: {
           '&:hover, &:focus-within': { borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})` },
-        },
-      },
-      schedule: {
-        borderColor: vars.borderInfo,
-        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundInfo} 10%, transparent)`,
-        selectors: {
-          '&:hover, &:focus-within': { borderColor: vars.borderInfo },
         },
       },
     },

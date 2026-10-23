@@ -1,4 +1,4 @@
-// 输入框此刻是不是「新任务 / 定时任务」(gugu-dev#181「输入框」:框里「+」右边两个词,选了一个,框就换成那件事)。
+// 输入框此刻是不是「新任务」(gugu-dev#181「输入框」:框里「+」右边那个词,选了它,框就换成新任务的框)。
 //
 // 按对话记:每个对话一格。壳那棵树的输入框(InputArea)写,会话页那棵读 —— 项目块据此把新任务的框摆在群聊底下、
 // 浮出文件夹卡;对话页也读,据此收起自己的框。同一个 window 对象 + 一个 window 事件(与 chatSummariesBridge 同一做法),
@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react'
 import type { AgentIconAsset } from '../session/shared/core/agents/agent-payload'
 
-export type ComposerVerb = 'task' | 'schedule'
+export type ComposerVerb = 'task'
 
 const KEY = '__GUGU_COMPOSER_VERBS__'
 const EVENT = 'gugu:composer-verb'

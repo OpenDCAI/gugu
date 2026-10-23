@@ -10,7 +10,6 @@ import { log } from '@renderer/utils/logger';
 import { ComposerBirthGroupChip, ComposerProjectPicker, mountedProjects } from './composer-context-tray';
 import { composerDrafts } from './composer-drafts';
 import { ComposerTray } from './composer-tray';
-import { ScheduleDispatchComposer } from './schedule-dispatch-composer';
 import { ensureImplicitSessionHomeProjectId } from './implicit-session-home-project';
 import { NewSessionComposer } from './new-session-page';
 import { sessionComposerDockBandClassName, sessionComposerDockedWidthClassName } from './session-composer-styles';
@@ -106,10 +105,10 @@ export const TaskDispatchComposer = observer(function TaskDispatchComposer({
 });
 
 /**
- * 对话底下那一格:输入框选了哪个词就摆哪个框(「新任务」/「定时任务」),没选 = 什么都不摆(对话自己的框在)。
- * 对话块放这一个;项目块的定时任务也是它(新任务是项目首页那个框),与 InputArea 收起自己是同一个读数(useComposerVerb)。
+ * 对话底下那一格:输入框选了「新任务」就摆新任务的框,没选 = 什么都不摆(对话自己的框在)。
+ * 对话块放这一个(项目块的新任务是项目首页那个框),与 InputArea 收起自己是同一个读数(useComposerVerb)。
  */
-export function ComposerVerbDock({ chatId, projectId }: { chatId: string; projectId?: string }) {
+export function ComposerVerbDock({ chatId }: { chatId: string }) {
   const verb = useComposerVerb(chatId);
   if (!verb) return null;
   // 群名、派出去的 agent 进不进得了这个对话,由选词的那个输入框记下(composerVerbBridge)。
@@ -117,9 +116,7 @@ export function ComposerVerbDock({ chatId, projectId }: { chatId: string; projec
   return (
     <div className={sessionComposerDockBandClassName}>
       <div className={sessionComposerDockedWidthClassName}>
-        {verb === 'task'
-          ? <TaskDispatchComposer chatId={chatId} chatName={chat?.name} joinChat={chat?.joinable} />
-          : <ScheduleDispatchComposer chatId={chatId} projectId={projectId} />}
+        <TaskDispatchComposer chatId={chatId} chatName={chat?.name} joinChat={chat?.joinable} />
       </div>
     </div>
   );

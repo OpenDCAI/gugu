@@ -1,4 +1,4 @@
-import { Clock, X } from '@/lib/icons';
+import { X } from '@/lib/icons';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { setComposerVerb } from '@/lib/composerVerbBridge';
 import { cn } from '@renderer/utils/utils';
@@ -8,12 +8,11 @@ import { composerDrafts } from './composer-drafts';
 
 const TAG_TONE = {
   task: 'bg-(--em-foreground-conflict)/12 text-[var(--em-foreground-conflict)]',
-  schedule: 'bg-[var(--em-background-info)] text-[var(--em-foreground-info)]',
 } as const;
 
 /**
- * gugu-dev#181「输入框」:框此刻是一件事时,输入行最前面那枚标签(「新任务 ×」「定时任务 ×」),框也跟着换成那件事的色。
- * 群里的框、项目首页的框、新任务 / 定时任务的框都用这一个;`onCancel` 缺省 = 不带 ×(项目首页本来就只能开新任务)。
+ * gugu-dev#181「输入框」:框此刻是一件事时,输入行最前面那枚标签(「新任务 ×」),框也跟着换成那件事的色。
+ * 群里的框、项目首页的框、新任务的框都用这一个;`onCancel` 缺省 = 不带 ×(项目首页本来就只能开新任务)。
  */
 /**
  * 点了标签上的 ×:框还原成发消息,这一框里写了的话交回去(composerVerbBridge 的 carry,发消息的框取走),
@@ -34,7 +33,7 @@ export function composerVerbLook(
 
 function ComposerVerbTag({ tone, agentId, label, onCancel, testId }: {
   tone: ComposerVerbLook['tone'];
-  /** 新任务:所选 agent 的标(与任务卡卡头、按钮上的同一枚);定时任务画时钟。 */
+  /** 所选 agent 的标(与任务卡卡头、按钮上的同一枚)。 */
   agentId: string | undefined;
   label: string;
   onCancel?: () => void;
@@ -46,7 +45,7 @@ function ComposerVerbTag({ tone, agentId, label, onCancel, testId }: {
       data-testid={testId ? `${testId}-verb` : undefined}
       className={cn('inline-flex h-6 items-center gap-1 rounded-full pl-2 text-xs whitespace-nowrap', onCancel ? 'pr-1' : 'pr-2', TAG_TONE[tone])}
     >
-      {tone === 'schedule' ? <Clock className="size-3 shrink-0" /> : agentId ? <AgentIcon id={agentId} size={12} /> : null}
+      {agentId ? <AgentIcon id={agentId} size={12} /> : null}
       <span>{label}</span>
       {onCancel ? (
         <button

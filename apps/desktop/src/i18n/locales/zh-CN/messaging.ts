@@ -376,7 +376,6 @@ export default {
     "sendFailed": "发送失败：{{reason}}",
     "slashCommands": "斜杠命令",
     "verb": {
-      "schedule": "定时任务",
       "task": "新任务"
     },
     "whisperBanner": "悄悄话给 {{name}} · 仅你与对方可见",
