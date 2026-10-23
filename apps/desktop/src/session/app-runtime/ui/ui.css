@@ -184,8 +184,8 @@
   border-color: var(--em-border); background-color: var(--em-background-3); color: var(--em-foreground-passive); cursor: default;
 }
 :where(input, select, textarea):disabled { opacity: 0.58; cursor: not-allowed; }
-/* 搜索框 = 咕咕 SearchField 的底：muted 底 + 常态 hairline */
-:where(input[type='search']) { border-color: var(--em-border); background-color: var(--em-background-3); }
+/* 搜索框 = 咕咕 SearchField 的输入底 + 常态 hairline */
+:where(input[type='search']) { border-color: var(--em-border); background-color: var(--em-surface-input); }
 :where(input[type='search'])::-webkit-search-cancel-button { display: none; }
 /* 下拉：去掉系统箭头，用两段渐变画一个跟随主题的小三角 */
 :where(select) {

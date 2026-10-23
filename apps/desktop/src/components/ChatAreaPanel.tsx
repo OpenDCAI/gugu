@@ -537,7 +537,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const drainSplitRequest = useCallback(() => {
     const request = drainTopicSplitRequest(surfaceVisible ? activeChatId : null)
     if (!request) return
-    openSplit({ chatId: request.chatId, name: request.name })
+    openSplit({ chatId: request.chatId, name: request.name }, request.toggle)
     if (request.focusComposer) setSplitFocusToken((token) => token + 1)
   }, [activeChatId, openSplit, surfaceVisible])
   useEffect(() => {

@@ -252,7 +252,7 @@ export function CommandPaletteModal({
 
   return (
     <Command className="flex flex-col overflow-hidden" shouldFilter={false} loop>
-      <div className="border-b border-foreground/10 px-1">
+      <div className="border-b border-foreground/10 bg-[var(--em-surface-input)] px-1">
         <Command.Input
           value={query}
           onValueChange={setQuery}

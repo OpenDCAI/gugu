@@ -31,7 +31,12 @@ import {
 
 const log = createLogger('acp-bridge/claude');
 
-export const CLAUDE_BRIDGE_KEY = 'claude-agent-acp';
+/**
+ * 配对表里管 Claude 桥的那一格:**ACP v2 的桥**(1.5.0 起)。这一版宿主只讲 v2(`connectStdioAcpV2`),
+ * 讲 v1 的桥留在冻结的旧格 `claude-agent-acp` 里,只给讲 v1 的旧宿主读 —— 新宿主看不见它们,
+ * 旧宿主也看不见这一格,两边都不会配到一座自己没见过协议的桥。
+ */
+export const CLAUDE_BRIDGE_KEY = 'claude-agent-acp-v2';
 
 export type ClaudeBridgeDeps = {
   /** 用户这份 Claude 的 `--version`;读不出 = null。 */
@@ -68,8 +73,8 @@ const installs = new Map<string, Promise<boolean>>();
 const refreshes = new Map<string, Promise<void>>();
 
 /**
- * 这次该用哪份桥接。返回入口路径;返回 `undefined` = 用随包的那份。❌ 不抛:
- * 起不来的聊天面板比「这一轮用了随包的桥接」更糟,但每一次退回都在日志里说清为什么。
+ * 这次该用哪份桥接。返回入口路径;返回 `undefined` = 用随包的那份。除了表里没有 v2 桥这一格(打包坏了,抛),
+ * ❌ 不抛:起不来的聊天面板比「这一轮用了随包的桥接」更糟,但每一次退回都在日志里说清为什么。
  * `wait` 只给真会话启动:要配的那一版还没下完就等它;不给 = 不等,先用随包的。
  */
 export async function resolveClaudeBridgeEntry(opts: {
@@ -98,8 +103,8 @@ export async function resolveClaudeBridgeEntry(opts: {
 
   const bridge = known.table.bridges[CLAUDE_BRIDGE_KEY];
   if (!bridge) {
-    log.warn({ compatVersion: known.compatVersion }, 'compat table has no claude bridge; using the bundled bridge');
-    return undefined;
+    // 随包的表就有这一格;连它都没有是打包坏了。❌ 退回哪座桥都不对:那座桥讲什么协议没人声明过。
+    throw new Error(`compat table ${known.compatVersion} has no ${CLAUDE_BRIDGE_KEY} releases`);
   }
 
   if (shouldRefreshCompat({ bridge, cliVersion, lastCheck: cache.lastCheck, now: deps.now() })) {

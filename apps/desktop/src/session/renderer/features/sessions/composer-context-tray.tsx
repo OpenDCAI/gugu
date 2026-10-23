@@ -57,7 +57,7 @@ function TrayMenuSearch({
   placeholder: string;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <div className="flex items-center gap-2 border-b border-border bg-[var(--em-surface-input)] px-3 py-2">
       <Search className="size-3.5 shrink-0 text-foreground-muted" />
       <input
         value={value}

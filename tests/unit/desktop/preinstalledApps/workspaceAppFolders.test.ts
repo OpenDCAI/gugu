@@ -167,7 +167,8 @@ describe('making, moving, uploading, deleting', () => {
     open('contracts')
     expect(names()).toEqual(['2026'])
     gugu.files.mkdir.mockClear()
-    $('new-folder').click()
+    $('new-doc').click()
+    menuItem('新建文件夹').click()
     await until('files.mkdir asked', () => gugu.files.mkdir.mock.calls.length > 0)
     expect(gugu.files.mkdir.mock.calls).toEqual([[{ chat: 'chat-1', path: '合同/新建文件夹' }]])
     await until('the name field', () => document.querySelector('.rename-input') !== null)
@@ -285,7 +286,7 @@ describe('making, moving, uploading, deleting', () => {
     open('void')
     expect(crumbs()).toEqual(['群文件夹', '空的'])
     expect($('files-empty').hidden).toBe(false)
-    expect($('files-empty').textContent).toBe('这个文件夹还是空的。')
+    expect($('files-empty-message').textContent).toBe('这个文件夹还是空的。')
   })
 
   test('a new folder\'s name field stays while a change is heard, and the folder is made where the list says it is now', async () => {
@@ -303,7 +304,8 @@ describe('making, moving, uploading, deleting', () => {
     }
     heard({ kind: 'entries', entries: [renamedParent], gone: [] })
     gugu.files.mkdir.mockClear()
-    $('new-folder').click()
+    $('new-doc').click()
+    menuItem('新建文件夹').click()
     await until('files.mkdir asked', () => gugu.files.mkdir.mock.calls.length > 0)
     expect(gugu.files.mkdir.mock.calls).toEqual([[{ chat: 'chat-1', path: '协议/2026/新建文件夹' }]])
     await until('the name field', () => document.querySelector('.rename-input') !== null)

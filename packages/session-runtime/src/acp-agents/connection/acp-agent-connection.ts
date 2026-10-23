@@ -42,8 +42,8 @@ export interface AcpAgentConnection {
   /** agent 在 initialize._meta 里声明 ACP steering 扩展。 */
   supportsSteering: boolean;
   /**
-   * agent 自己报状态(`agentCapabilities._meta.sessionState`,随后发 `state_update`):
-   * 在不在跑只听它的,谁开的工都一样。不报的家只有「prompt 请求还没答」这一个事实可用。
+   * agent 自己报状态(ACP v2 的 `state_update`):在不在跑只听它的,谁开的工都一样。
+   * v1 的家只有「prompt 请求还没答」这一个事实可用。
    */
   reportsState: boolean;
   /**
@@ -193,9 +193,7 @@ export async function createAcpAgentConnection(
     const supportsImagePrompt = initialized.agentCapabilities?.promptCapabilities?.image === true;
     const initializeMeta = (initialized as InitializeResponse & { _meta?: unknown })._meta;
     const supportsSteering = isSteeringCapability(initializeMeta);
-    const reportsState = isObject(
-      (initialized.agentCapabilities?._meta as Record<string, unknown> | undefined)?.sessionState,
-    );
+    const reportsState = initialized.protocolVersion >= 2;
     logger.debug('createAcpAgentConnection: initialized', {
       supportsLoadSession,
       supportsForkSession,
@@ -436,12 +434,6 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
         'gugu.mcp-input-preview': true,
         'terminal-auth': true,
         /**
-         * 请 agent 报自己的状态(ACP v2 草案 prompt 生命周期的 `state_update`,在 v1 上按这一位
-         * 选择加入;v1 的联合里没有这一种,`acp-stdio` 进门前裹信封)。咕咕判「在不在跑」只认状态,
-         * ❌ 不认「哪一轮还没结」—— agent 自己开工(后台任务完成的通知)时根本没有那一轮(#7087)。
-         */
-        'session-state': true,
-        /**
          * 上面 `subagents: {}` 是规范草案字段(agent-client-protocol#1992),已发布的
          * TypeScript SDK 还没保留它;在它落地之前,同一件事的过渡signal走 JetBrains AIR
          * 扩展。两个都发:规范字段一旦可用就**优先**(README:“The canonical field remains
@@ -458,12 +450,23 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
          * 形状不是猜的,来自 0.75.1 的 `air-extension.js`:`version` 必须是 ≥1 的整数,
          * `capabilities` 必须是数组且 `includes` 那个名字,三条全中才算声明过。
          */
-        jetbrains: {
-          air: {
-            version: 1,
-            capabilities: ['nativeSubagentSessions', 'asyncTasks'],
-          },
-        },
+        ...(agent.protocolVersion === 2
+          ? {
+              /**
+               * v2 的后台任务扩展(`_async_task_*` 与 `_session/async_task/stop`)。v2 的子智能体是
+               * 标准的子会话(取消走 `session/cancel`),后台命令没有标准形态,靠这个具名扩展。
+               * ⚠️ v2 上❌ 声明 AIR:AIR 客户端拿到的是 AIR 的子智能体形态,v2 那一层发不出来。
+               */
+              asyncTasks: {},
+            }
+          : {
+              jetbrains: {
+                air: {
+                  version: 1,
+                  capabilities: ['nativeSubagentSessions', 'asyncTasks'],
+                },
+              },
+            }),
       },
     },
   };
@@ -568,8 +571,4 @@ function redactSecrets(text: string): string {
     // 末尾的 `(?![:/])` 把 scp 形式的 git 远端(`git@github.com:owner/repo`)排除在外:
     // 那不是一个邮箱地址,而是一条有用的 stderr。
     .replace(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b(?![:/])/g, '<redacted>@$1');
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

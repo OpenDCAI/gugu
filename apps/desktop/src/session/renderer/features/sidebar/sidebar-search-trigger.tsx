@@ -15,14 +15,14 @@ export function SidebarSearchTrigger() {
   return (
     // 组离侧栏边多远归 list body(sidebar-primitives 的 sidebarGroupInsetX);内容列与下面那三个
     // 按钮共用 sidebarRowContentInsetX —— 两级都同源,图标才落在同一条竖线上(e2e 3480 ②)。
-    // 悬浮走全局那条阶梯(--hover),与侧栏的行、菜单项同深度;❌ 另挑容器色。
+    // 底色和别处的搜索框同一个输入面(--em-surface-input,#132):它长得就是一个搜索框。
     <button
       type="button"
       onClick={() => showCommandPalette({})}
       aria-label={translate('sidebar.searchConversations')}
       data-testid="sidebar-search-trigger"
       className={cn(
-        'group/row flex h-8 w-full items-center gap-2 rounded-full text-sm text-foreground-tertiary-muted transition-colors hover:bg-row-hover',
+        'group/row flex h-8 w-full items-center gap-2 rounded-full bg-[var(--em-surface-input)] text-sm text-foreground-tertiary-muted',
         sidebarRowContentInsetX
       )}
     >

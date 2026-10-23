@@ -84,19 +84,17 @@ beforeAll(async () => {
 })
 
 describe('workspace App: what the old workspace panel did', () => {
-  test('one list: the newest change first, each row saying who made it, when it changed and what it is — no second box', () => {
+  test('one list: the newest change first, with creator and changed time under each name', () => {
     expect(document.getElementById('activity'), '对照:父提交在列表下面还有一块「最近动态」').toBe(null)
     // plan.md was made an hour ago and edited a minute ago: its edit counts, so it sits above photo.png.
     expect(app().entries.map((li) => li.querySelector('.file-name')!.textContent)).toEqual(['old.md', 'plan.md', 'photo.png', 'cfg.json'])
     const cells = (id: string) => [...document.querySelector(`[data-id="${id}"] .file-meta`)!.children].map((cell) => cell.textContent)
     expect(cells('plan')[0]).toBe('张三')
     expect(cells('plan')[1]).not.toBe('')
-    expect(cells('plan')[2]).toBe('Markdown') // style.css says it only when wide (most files are markdown)
-    expect(cells('photo')).toEqual(['写手 (Agent)', expect.any(String), 'image/png'])
-    expect(cells('cfg')).toEqual(['系统', expect.any(String), 'JSON'])
+    expect(cells('plan')).toHaveLength(2)
+    expect(cells('photo')).toEqual(['写手 (Agent)', expect.any(String)])
+    expect(cells('cfg')).toEqual(['系统', expect.any(String)])
     expect(cells('old')[0], 'no creator: left blank').toBe('')
-    // The column names head the list (drawn when the pane is wide); the rows stay the list's options.
-    expect([...$('file-list').firstElementChild!.children].map((cell) => cell.textContent)).toEqual(['名称', '创建者', '改动', '类型'])
   })
 
   test('a file on screen shows its creator and source messages; a click asks the host to show one', async () => {
