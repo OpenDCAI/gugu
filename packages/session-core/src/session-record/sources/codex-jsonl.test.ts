@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { awaitPending } from '../../../../../tests/support/awaitFact';
 
 import type { RecordEntry, SessionRecordSource, TimelineAfterResult } from '../contract';
-import { createSessionTimeline } from '../timeline';
+import { createSessionTimeline, type TimelineArchive } from '../timeline';
 import {
   boundaryEntries,
   collectItems,
@@ -57,6 +57,51 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('codex rollout 记录源', () => {
+  it('resets an old client after restoring a stale archive, even after the publisher passes its old seq', async () => {
+    const { root, file } = await stage();
+    const open = async (epoch: string, archive?: TimelineArchive | null) => {
+      const source = createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] });
+      const timeline = await createSessionTimeline(source, { sessionId: 'cursor-owner', newEpoch: () => epoch, archive });
+      disposers.push(() => timeline.dispose());
+      return timeline;
+    };
+    const before = await open('publisher-before');
+    const savedCursor = before.getSnapshot().cursor;
+    const archive = JSON.parse(JSON.stringify(await before.archive!())) as TimelineArchive;
+    // These host updates were visible to a client, but never reached the last disk archive.
+    const hostUpdate = (timeline: typeof before, revision: number) => timeline.syncPendingRequests([
+      { itemId: 'host-card', kind: 'permission', title: `Revision ${revision}`, options: [] },
+    ]);
+    for (let revision = 0; revision < 12; revision++) hostUpdate(before, revision);
+    expect(before.getAfter(savedCursor).ok).toBe(true);
+    const clientCursor = before.getSnapshot().cursor;
+    expect(clientCursor.seq).toBeGreaterThan(archive.seq);
+    before.dispose();
+
+    const resumed = await open('publisher-after', archive);
+    const line = (type: string, payload: object) => JSON.stringify({ type, timestamp: '2026-06-18T08:00:00Z', payload });
+    await appendFile(file, [
+      line('event_msg', { type: 'task_started' }),
+      line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'AFTER_REOPEN' }] }),
+      line('event_msg', { type: 'task_complete' }),
+    ].join('\n') + '\n');
+    await resumed.catchUp();
+    // A numeric cursor-ahead check no longer detects the rollback once seq catches up.
+    for (let revision = 0; revision <= clientCursor.seq; revision++) hostUpdate(resumed, revision);
+    expect(resumed.getSnapshot().cursor.seq).toBeGreaterThan(clientCursor.seq);
+
+    const result = resumed.getAfter(clientCursor);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('stale client was given an incomplete incremental batch');
+    expect(result.reset).toBe('epoch_changed');
+    expect(result.snapshot.cursor.epoch).toBe('publisher-after');
+    expect(result.snapshot.turns.flatMap(turn => turn.items).filter(item => item.kind === 'message' && item.text === 'AFTER_REOPEN')).toHaveLength(1);
+    const delivered: TimelineAfterResult[] = [];
+    const unsubscribe = resumed.subscribe(clientCursor, update => delivered.push(update));
+    expect(delivered).toEqual([result]);
+    unsubscribe();
+  });
+
   it('preserves the native fixture event and transcript projection', async () => {
     const { root } = await stage();
     const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));

@@ -53,11 +53,7 @@ export type TimelineArchive = {
   readonly settlementSeq: readonly (readonly [string, number])[];
   readonly removed: readonly (readonly [string, number])[];
   readonly recentActions: readonly RecentActionEntry[];
-  /**
-   * 每一轮上次发布到哪个 seq。存了它，装回来之后**手机手里的游标仍然有效** ——
-   * 它只要「我那之后的增量」，不必整份重下一次快照。不存的话就只能换代重来，
-   * 那等于把省下来的机器时间又在传输上赔回去。
-   */
+  /** Cached publication indexes avoid publishing unchanged items again after the initial snapshot. */
   readonly published: readonly TurnPublishArchive[];
 };
 
@@ -249,7 +245,7 @@ class RecordTimeline implements SessionTimeline {
   private restoreArchive(archive: TimelineArchive | null): boolean {
     if (!archive || archive.version !== TIMELINE_ARCHIVE_VERSION) return false;
     this.parser.restoreState(archive.parser);
-    this.epochValue = archive.epoch;
+    // Keep this publisher's fresh epoch: an archive can predate frames already seen by a client.
     this.seq = archive.seq;
     this.lastAt = archive.lastAt;
     this.seenKeys = new Set(archive.seenKeys);
