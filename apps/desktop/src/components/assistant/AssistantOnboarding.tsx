@@ -200,7 +200,7 @@ export function AssistantOnboarding({
             </p>
           </>
         ) : step === 'intro' ? (
-          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} />
+          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />
         ) : step === 'name' ? (
           <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
         ) : memberError ? (

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Pencil, X } from '@/lib/icons'
 import { ASSISTANT_NAME_MAX, type AssistantSetupDraft } from '../../lib/assistantSetup'
 import { AgentAvatar } from '../agentAvatar/AgentAvatar'
+import { wornOf } from '../agentAvatar/look'
 import { AgentLookEditor } from '../agentsettings/AgentLookEditor'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
@@ -52,7 +53,7 @@ export function AssistantSetupIdentity({ draft, onChange, onBack, onContinue }: 
             name={name}
             current={draft}
             onSave={async (look) => {
-              onChange({ ...draft, color: look.color, rest: look.rest, wear: look.wear })
+              onChange({ ...draft, color: look.color, rest: look.rest, wear: wornOf(look, 'assistant-draft') })
               setEditing(false)
             }}
           /> : null}
