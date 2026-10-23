@@ -43,13 +43,25 @@ beforeEach(() => {
 })
 afterEach(() => harness.cleanup())
 
-async function open(chatId: string) {
-  await act(async () => { surface?.openSplit({ chatId, name: chatId }) })
+async function open(chatId: string, toggle = false) {
+  await act(async () => { surface?.openSplit({ chatId, name: chatId }, toggle) })
   await act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve() })
   return surface?.splitMessages.map((row) => row.id) ?? []
 }
 
 describe('@@@6404 同一条话题连点', () => {
+  it('sidebar reactivation closes and reopens the topic with its messages', async () => {
+    await renderWithAppProviders(harness, createNode(Probe, {}))
+    expect(await open('topic-1', true)).toEqual(['topic-1-m1'])
+    expect(await open('topic-1', true)).toEqual([])
+    expect(surface?.splitTopic).toBeNull()
+    expect(await open('topic-1', true)).toEqual(['topic-1-m1'])
+    expect(await open('topic-2', true)).toEqual(['topic-2-m1'])
+    expect(surface?.splitTopic?.chatId).toBe('topic-2')
+    expect(await open('topic-2', true)).toEqual([])
+    expect(getMessages.mock.calls.map(([chatId]) => chatId)).toEqual(['topic-1', 'topic-1', 'topic-2'])
+  })
+
   it('第二、三、四次点下去,分栏里还是那条话题的消息', async () => {
     await renderWithAppProviders(harness, createNode(Probe, {}))
     const seen = []
