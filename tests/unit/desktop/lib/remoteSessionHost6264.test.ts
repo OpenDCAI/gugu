@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 // 线本身由注入的 deps 替掉;真的 deviceRpc 模块在测试里不求值(它一加载就挂 Supabase / 渲染层全局)。
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: vi.fn(), subscribeDeviceRpcEvents: vi.fn() }))
 import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import { openRemoteSessionHostPipe, SessionHostTooOldError } from '@/lib/remoteSessionHost'
+import { HEARTBEAT_REPLY_TIMEOUT_MS, openRemoteSessionHostPipe, SessionHostTooOldError } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_FRAME_EVENT, SESSION_HOST_READY_EVENT } from '@/session/shared/lib/ipc/session-host-device-frames'
 
 type Call = { type: string; payload: Record<string, unknown> }
@@ -242,3 +242,47 @@ describe('remote task host pipe over device RPC', () => {
     unwatch()
   })
 })
+
+// #156 那台机器收下一批就当场回:只装着心跳的那一批回得慢 = 那台机器没了。
+describe('heartbeat-only batches are a liveness probe (#156)', () => {
+  function timedDevice(answer: (type: string) => Promise<Reply>) {
+    const frameTimeouts: Array<number | undefined> = []
+    const deps = {
+      ...fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } })).deps,
+      call: (async (_device: string, type: string, _payload: unknown, options?: { timeoutMs?: number }) => {
+        if (type === 'taskhost.open') return { result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }
+        if (type === 'taskhost.frame') frameTimeouts.push(options?.timeoutMs)
+        return answer(type)
+      }) as never,
+    }
+    return { deps, frameTimeouts }
+  }
+
+  it('waits only a few seconds for a heartbeat-only batch; a batch that carries work keeps the long wait', async () => {
+    const device = timedDevice(async () => ({ result: { ok: true } }))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    pipe.send('{"t":"sub","channel":"x"}')
+    await flush()
+    pipe.send('{"t":"sub","channel":"y"}')
+    await flush()
+    expect(device.frameTimeouts).toEqual([HEARTBEAT_REPLY_TIMEOUT_MS, 20_000, 20_000])
+    expect(HEARTBEAT_REPLY_TIMEOUT_MS).toBeLessThanOrEqual(5_000)
+  })
+
+  it('a heartbeat that gets no answer closes the link, so the client reconnects and the machine reads as reconnecting', async () => {
+    const device = timedDevice(async (type) => {
+      if (type === 'taskhost.frame') throw new Error(`no reply to ${type} within ${HEARTBEAT_REPLY_TIMEOUT_MS} ms (asked twice)`)
+      return { result: { ok: true } }
+    })
+    const closed: string[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (reason) => closed.push(reason) })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    await flush()
+    expect(closed).toEqual(['frame not delivered'])
+  })
+})
+

@@ -35,6 +35,12 @@ export class SessionHostTooOldError extends Error {
 /** 开线 / 发帧的一次设备 RPC 等多久(咕咕云一来一回 + 那台机器处理)。 */
 const OPEN_TIMEOUT_MS = 15_000
 const FRAME_TIMEOUT_MS = 20_000
+/**
+ * 只装着心跳的那一批等应答多久(#156)。那台机器收下一批就当场回(不等处理,device-session-host 的 `taskhost.frame`),
+ * 心跳又小:几秒没回 = 那台机器没了,断开让客户端重连,机器的状态随之变成「重新连接」。咕咕云上没回还会重新报到、
+ * 原样再问一次(#7233),所以最长 2 × 这个数。❌ 按办事的那一批等 20 s(再加一次重问):死掉的机器要 30 多秒才被发现。
+ */
+export const HEARTBEAT_REPLY_TIMEOUT_MS = 4_000
 
 export type DeviceRpcDeps = {
   call: typeof callDeviceRpc
@@ -193,14 +199,17 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
     live = true
     let outSeq = 0
     let outbox: (string | Uint8Array)[] = []
+    let outboxOnlyHeartbeats = true
     let flushScheduled = false
     const flush = () => {
       flushScheduled = false
       const frames = outbox
+      const timeoutMs = outboxOnlyHeartbeats ? HEARTBEAT_REPLY_TIMEOUT_MS : FRAME_TIMEOUT_MS
       outbox = []
+      outboxOnlyHeartbeats = true
       for (const pieces of toPieces(frames)) {
         const batch: SessionHostFrameBatch = { client, seq: outSeq++, frames: pieces }
-        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs: FRAME_TIMEOUT_MS }).then(
+        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs }).then(
           (reply) => {
             // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
             if (reply.error) shut(`frame rejected: ${reply.error.code}`)
@@ -210,9 +219,10 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
       }
     }
     const pipe: SessionHostPipe = {
-      send: (frame) => {
+      send: (frame, kind) => {
         if (closed) throw new Error('session host link closed')
         outbox.push(frame)
+        if (kind !== 'heartbeat') outboxOnlyHeartbeats = false
         if (!flushScheduled) {
           flushScheduled = true
           queueMicrotask(flush)

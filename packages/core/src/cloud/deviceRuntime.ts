@@ -71,6 +71,9 @@ type DeviceHeartbeatResult = {
 export interface DeviceHeartbeatTableClient {
   from(table: 'gugu_devices'): {
     upsert(value: never, options: { onConflict: string }): PromiseLike<DeviceHeartbeatResult>
+    update(value: { status: 'offline'; updated_at: string }): {
+      eq(column: 'device_id', value: string): PromiseLike<DeviceHeartbeatResult>
+    }
     select(columns: string): {
       eq(column: 'user_id', value: string): {
         eq(column: 'machine_id', value: string): {
@@ -827,6 +830,25 @@ export async function syncDeviceHeartbeat(
     'device heartbeat upsert',
     timeouts.heartbeatUpsertMs,
     () => client.from('gugu_devices').upsert(dbPayload(row), { onConflict: 'device_id' }),
+  )
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * 这台机器要走了(退出咕咕 / 停掉服务):当场把设备行标成离线,名下别的设备马上看见 ——
+ * ❌ 不说一声就走,让它们等租约过期(DEVICE_ONLINE_STALE_MS)由清扫者翻,那与崩溃看起来一模一样(#156)。
+ * 只改状态:last_seen_at 是心跳的事,不动。下一次心跳照常写回在线。
+ */
+export async function markDeviceOffline(
+  client: DeviceHeartbeatTableClient,
+  deviceId: string,
+  options: { nowIso?: () => string; operationTimeouts?: DeviceOperationTimeoutOverrides } = {},
+): Promise<void> {
+  const timeouts = resolveDeviceOperationTimeouts(options.operationTimeouts)
+  const { error } = await runDeviceRequest(
+    'device offline update',
+    timeouts.heartbeatUpsertMs,
+    () => client.from('gugu_devices').update({ status: 'offline', updated_at: (options.nowIso ?? nowIso)() }).eq('device_id', deviceId),
   )
   if (error) throw new Error(error.message)
 }
