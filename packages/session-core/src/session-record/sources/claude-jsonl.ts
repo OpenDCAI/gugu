@@ -3,6 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { claudeFilePatch } from '../../acp/transport/claude-file-patch';
 import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readClaudeRecord, type ClaudeRecordItem } from '@gugu/core/local/agent/transcriptSources/claudeCode';
 
@@ -33,7 +34,7 @@ import { TailReader, type TailResume } from './tail-reader';
 
 
 /** 续读点里那份 claude 自己的数据。形状或读法变了就升版本号,老存档一律作废重读。 */
-const CLAUDE_RESUME_VERSION = 3;
+const CLAUDE_RESUME_VERSION = 4;
 type ClaudeResumeData = {
   version: number;
   primaryPath: string;
@@ -378,6 +379,7 @@ function toEvent(item: ClaudeRecordItem, messageId: string | null): NormalizedEv
         : typeof item.content !== 'string' && item.content !== undefined;
       const displayed = hasOther ? JSON.stringify(item.content, null, 2) : text;
       return toolCallResult(item.toolUseId, status, {
+        ...(item.fileChange ? { contentBlocks: [claudeFilePatch(item.fileChange)] } : {}),
         ...(displayed != null ? { text: displayed } : {}),
         images,
         ...(hasOther ? { rawOutput: item.content } : {}),

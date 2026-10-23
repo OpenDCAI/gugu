@@ -1,4 +1,5 @@
 import type { NormalizedEvent, NormalizedToolStatus } from '../../acp/reducer/normalized-event';
+import type { EntityContent } from '../../acp/models/entity-content';
 import type { ToolImage } from '../../acp/models/turns/tool-calls';
 import { hasRecordedAnswers, serializePayload, toolOutputText } from '../../acp/models/tool-payload';
 
@@ -187,7 +188,7 @@ export function toolCallStart(toolCallId: string, name: string, kind: string, in
 
 /** A native result preserves display content and the unformatted answer's settlement fact. */
 export function toolCallResult(toolCallId: string, status: NormalizedToolStatus, result: {
-  text?: string; images?: ToolImage[]; rawInput?: unknown; rawOutput?: unknown;
+  text?: string; images?: ToolImage[]; rawInput?: unknown; rawOutput?: unknown; contentBlocks?: EntityContent[];
 } = {}): Extract<NormalizedEvent, { kind: 'tool_update' }> {
   const outputText = toolOutputText(result.text);
   const images = result.images?.filter((image) => image.data && image.mimeType.startsWith('image/')).map(({ mimeType, data }) => ({ mimeType, data }));
@@ -195,6 +196,7 @@ export function toolCallResult(toolCallId: string, status: NormalizedToolStatus,
   const rawOutput = serializePayload(toJsonValue(result.rawOutput));
   return {
     kind: 'tool_update', toolCallId, status,
+    ...(result.contentBlocks !== undefined ? { contentBlocks: result.contentBlocks } : {}),
     ...(outputText !== undefined ? { outputText } : {}),
     ...(images?.length ? { images } : {}),
     ...(rawInput !== undefined ? { rawInput } : {}),

@@ -15,11 +15,16 @@ import { isDeliveryEnvelope } from '../deliveryEnvelope'
 // 「记录里的一行是什么意思」只有 `readClaudeRecord` 这一份：导入清单（下面的 readFrame）与会话页时间线
 // （session-core 的 claude-jsonl 记录源）都从它取，各自只做自己那一层映射。
 
+/** Claude's recorded file result; no file contents are reconstructed from tool arguments. */
+export type ClaudeFileChange =
+  | { path: string; before: string | null; after: string }
+  | { path: string; hunks: Array<{ oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }> }
+
 export type ClaudeRecordItem =
   | { kind: 'text'; role: 'user' | 'assistant'; text: string }
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_use'; id: string; name: string; input: unknown }
-  | { kind: 'tool_result'; toolUseId: string; isError: boolean; content: unknown }
+  | { kind: 'tool_result'; toolUseId: string; isError: boolean; content: unknown; fileChange?: ClaudeFileChange }
 
 /** 这一行把这一轮收在哪。`aborted` = 用户按 Esc / 宿主发 cancel 打断;`error` = claude 自己记下的 API 报错(额度、4xx/5xx)。 */
 export type ClaudeRecordEnd = 'end_turn' | 'max_tokens' | 'refusal' | 'error' | 'aborted'
@@ -149,6 +154,25 @@ function readTitle(entry: Record<string, unknown>): ClaudeRecord['title'] {
   return text ? { text, userSet } : undefined
 }
 
+function recordedFileChange(value: unknown): ClaudeFileChange | undefined {
+  const result = asRecord(value)
+  const path = nonEmptyString(result?.filePath)
+  if (!result || !path) return undefined
+  if ((result.type === 'create' || result.type === 'update') && typeof result.content === 'string'
+    && (result.originalFile === null || typeof result.originalFile === 'string')) {
+    return { path, before: result.originalFile, after: result.content }
+  }
+  if (!Array.isArray(result.structuredPatch)) return undefined
+  const hunks: Extract<ClaudeFileChange, { hunks: unknown }>['hunks'] = []
+  for (const value of result.structuredPatch) {
+    const hunk = asRecord(value)
+    if (!hunk || !['oldStart', 'oldLines', 'newStart', 'newLines'].every(key => Number.isInteger(hunk[key]) && Number(hunk[key]) >= 0)
+      || !Array.isArray(hunk.lines) || !hunk.lines.every(line => typeof line === 'string')) return undefined
+    hunks.push({ oldStart: Number(hunk.oldStart), oldLines: Number(hunk.oldLines), newStart: Number(hunk.newStart), newLines: Number(hunk.newLines), lines: hunk.lines })
+  }
+  return { path, hunks }
+}
+
 export function readClaudeRecord(entry: Record<string, unknown>): ClaudeRecord {
   const uuid = nonEmptyString(entry.uuid) ?? null
   const record: ClaudeRecord = {
@@ -184,6 +208,12 @@ export function readClaudeRecord(entry: Record<string, unknown>): ClaudeRecord {
     record.messageId = uuid
     // 压缩后的摘要（"This session is being continued…"）是写给模型的续写上下文，终端腿和 ACP 腿都这样记。
     record.items = readItems(message.content, 'user', entry.isMeta === true || entry.isCompactSummary === true)
+  }
+  // The top-level result belongs to one tool result. Multiple result blocks provide no unambiguous owner.
+  const results = record.items.filter((item): item is Extract<ClaudeRecordItem, { kind: 'tool_result' }> => item.kind === 'tool_result')
+  if (results.length === 1 && !results[0]!.isError) {
+    const fileChange = recordedFileChange(entry.toolUseResult)
+    if (fileChange) results[0]!.fileChange = fileChange
   }
   return record
 }
