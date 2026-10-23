@@ -2687,26 +2687,18 @@ describe('AcpRuntime session manager', () => {
     });
 
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
-      { terminalId: created.terminalId, command: 'echo', exitStatus: null },
+      { terminalId: expect.any(String), command: 'echo', exitStatus: null },
     ]);
 
-    const log = rt.terminalOutputLog(created.terminalId);
-    if (!log) throw new Error('expected terminal log');
-    const updates: unknown[] = [];
-    const unsub = log.subscribe((update) => updates.push(update));
     terminal.pushOutput('hello');
-
     terminal.pushOutput(' world');
-
-    expect(log.snapshot().data.text).toBe('hello world');
-    expect(updates).toHaveLength(2);
-    expect(updates.at(-1)).toMatchObject({ delta: { chunk: ' world' } });
-
+    expect(rt.getTerminals('conv-terminal')[0]).toMatchObject({ output: 'hello world', owner: 'host', canKill: true });
     terminal.triggerExit({ exitCode: 0, signal: null });
     expect(rt.sessionLiveModels('conv-terminal')?.states.terminals.snapshot().data).toMatchObject([
-      { terminalId: created.terminalId, exitStatus: { exitCode: 0, signal: null } },
+      { terminalId: expect.any(String), exitStatus: { exitCode: 0, signal: null }, canKill: false },
     ]);
-    unsub();
+    await client.releaseTerminal!({ sessionId: providerSessionId, terminalId: created.terminalId });
+    expect(rt.getTerminals('conv-terminal')[0]).toMatchObject({ output: 'hello world', canKill: false });
   });
 
   it('keeps a session visible as lost when the adapter process closes', async () => {

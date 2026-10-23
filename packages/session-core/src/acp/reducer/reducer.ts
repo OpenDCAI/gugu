@@ -40,6 +40,7 @@ import { foldItem, finalizeItems, type FoldEvent } from './item-fold';
 import { projectSubagentProgress } from './subagent-progress';
 import type { NormalizedEvent } from './normalized-event';
 import { findEntityOwner } from './entity-owner';
+import { withReferencedTerminals } from '../models/terminals';
 
 type SynthesizedSegmentKind = 'message:user' | 'message:assistant' | 'thinking';
 
@@ -1037,8 +1038,15 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     case 'title':
       return { ...s, title: event.title };
     case 'agent_state':
+    case 'terminal_update':
+    case 'terminal_chunk':
     case 'ignored':
       return s;
+    case 'terminal_snapshots': {
+      const committed = s.transcript.committed.map(turn => withReferencedTerminals(turn, event.terminals));
+      return committed.some((turn, index) => turn !== s.transcript.committed[index])
+        ? { ...s, transcript: { ...s.transcript, committed } } : s;
+    }
     case 'subagent_update': {
       // ⚠️ 只更新登记册,**从不回头去改转录里那一行**。
       //

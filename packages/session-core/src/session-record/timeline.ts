@@ -1,3 +1,4 @@
+import type { TerminalState } from '../acp/models/terminals';
 import type { SessionLiveReply } from './live-reply';
 import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 
@@ -192,6 +193,8 @@ class RecordTimeline implements SessionTimeline {
   private queuedDirty = false;
   private liveReply: SessionLiveReply | null = null;
   private liveReplyDirty = false;
+  private terminals: readonly TerminalState[] = [];
+  private terminalsDirty = false;
   private liveReplyTimer: ReturnType<typeof setTimeout> | null = null;
   private subscribers = new Set<Subscriber>();
   /** 最近一条记录的 provider 时钟。没有时钟的记录跟着上一条走，❌ 别拿 Date.now() 冒充。 */
@@ -335,7 +338,8 @@ class RecordTimeline implements SessionTimeline {
       hasOlder: turns.length < all.length,
       ...this.recentActionsSnapshot(),
       queuedPrompts: [...this.queued],
-      liveReply: this.liveReply
+      liveReply: this.liveReply,
+      terminals: this.terminals
     };
   }
 
@@ -465,6 +469,13 @@ class RecordTimeline implements SessionTimeline {
     if (JSON.stringify(next) === JSON.stringify(this.queued)) return;
     this.queued = next;
     this.queuedDirty = true;
+    this.publish();
+  }
+
+  syncTerminals(terminals: readonly TerminalState[]): void {
+    if (this.disposed || JSON.stringify(this.terminals) === JSON.stringify(terminals)) return;
+    this.terminals = terminals;
+    this.terminalsDirty = true;
     this.publish();
   }
 
@@ -703,7 +714,7 @@ class RecordTimeline implements SessionTimeline {
     if (this.disposed || this.suspended) return;
     const turns = this.currentTurns();
     const nextSeq = this.seq + 1;
-    let changed = this.needsPublish || this.dirtySettlements.size > 0 || this.queuedDirty || this.liveReplyDirty;
+    let changed = this.needsPublish || this.dirtySettlements.size > 0 || this.queuedDirty || this.liveReplyDirty || this.terminalsDirty;
 
     // 先把要变的都算出来放一边，确认真有变化才提交 —— seq 只在有变化时前进。
     const staged = new Map<string, PublishedTurn>();
@@ -770,6 +781,7 @@ class RecordTimeline implements SessionTimeline {
     this.dirtySettlements.clear();
     this.queuedDirty = false;
     this.liveReplyDirty = false;
+    this.terminalsDirty = false;
     this.needsPublish = false;
 
     for (const subscriber of [...this.subscribers]) this.deliver(subscriber);
@@ -831,7 +843,8 @@ class RecordTimeline implements SessionTimeline {
       settlements,
       ...this.recentActionsSnapshot(),
       queuedPrompts: [...this.queued],
-      liveReply: this.liveReply
+      liveReply: this.liveReply,
+      terminals: this.terminals
     };
   }
 

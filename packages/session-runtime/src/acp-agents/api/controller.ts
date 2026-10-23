@@ -20,7 +20,6 @@ export function createAcpRuntimeController(
     ...procedures,
     sessions: runtime.sessionsLiveHost(),
     session: runtime.sessionLiveHost(),
-    terminalOutput: (key) => runtime.terminalOutputLog(key.terminalId),
     platformSessionClosed,
     turnCommitted,
   });

@@ -1,4 +1,4 @@
-import type { ToolImage, ToolImageRef, ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
+import type { TerminalState, ToolImage, ToolImageRef, ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
 import type {
   TimelineAfterResult,
   TimelineBatch,
@@ -173,16 +173,24 @@ function fitTurnsToBudget(
   return start === 0 ? { turns, dropped: false } : { turns: turns.slice(start), dropped: true };
 }
 
+function trimTerminals(terminals: readonly TerminalState[] | undefined, limit: number): readonly TerminalState[] | undefined {
+  if (!terminals?.some(terminal => terminal.output.length > limit)) return terminals;
+  return terminals.map(terminal => terminal.output.length > limit
+    ? { ...terminal, output: terminal.output.slice(0, limit), truncated: true } : terminal);
+}
+
 export function trimSnapshotForTransport(
   snapshot: TimelineSnapshot,
   limit = TRANSPORT_TEXT_LIMIT,
   budget = TRANSPORT_PAYLOAD_BUDGET,
 ): TimelineSnapshot {
+  const terminals = trimTerminals(snapshot.terminals, limit);
   const trimmed = trimTurnsForTransport(snapshot.turns, limit);
   const fitted = fitTurnsToBudget(trimmed, budget);
-  if (trimmed === snapshot.turns && !fitted.dropped) return snapshot;
+  if (trimmed === snapshot.turns && !fitted.dropped && terminals === snapshot.terminals) return snapshot;
   return {
     ...snapshot,
+    ...(terminals !== undefined ? { terminals } : {}),
     turns: fitted.turns as TranscriptTurn[],
     // 丢过就一定还有更早的,❌ 不许保留原来的 false —— 那会让手机以为已经翻到头了。
     hasOlder: snapshot.hasOlder || fitted.dropped,
@@ -194,7 +202,8 @@ export function trimBatchForTransport(
   limit = TRANSPORT_TEXT_LIMIT,
 ): TimelineBatch {
   const turns = trimPatches(batch.turns, limit);
-  return turns === batch.turns ? batch : { ...batch, turns };
+  const terminals = trimTerminals(batch.terminals, limit);
+  return turns === batch.turns && terminals === batch.terminals ? batch : { ...batch, turns, ...(terminals !== undefined ? { terminals } : {}) };
 }
 
 export function trimOlderForTransport(

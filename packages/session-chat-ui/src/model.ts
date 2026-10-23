@@ -275,10 +275,8 @@ export type ChatExecute = {
   /**
    * How the embedded terminal's process ended, once it has ended.
    *
-   * First-hand: the client spawns the process for `terminal/create`, so this is
-   * our own reading of our own child rather than anything the provider reports.
-   * Absent means "not known" — the command is still running, the agent never
-   * asked for a client terminal, or the exit landed outside this view's lifetime.
+   * Read from the shared snapshot, whether the agent or host owns the process.
+   * Missing means no exit was reported; it grants no control of that process.
    * Absent is never rendered as success.
    */
   exitStatus?: TerminalExit;

@@ -71,21 +71,21 @@ export function buildAgentClient(
     },
 
     terminalOutput: async (params: TerminalOutputRequest): Promise<TerminalOutputResponse> => {
-      return ports.terminals.terminalOutput(params);
+      return ports.terminals.terminalOutput(params, connection.key);
     },
 
     waitForTerminalExit: async (
       params: WaitForTerminalExitRequest
     ): Promise<WaitForTerminalExitResponse> => {
-      return ports.terminals.waitForTerminalExit(params);
+      return ports.terminals.waitForTerminalExit(params, connection.key);
     },
 
     killTerminal: async (params: KillTerminalRequest): Promise<KillTerminalResponse> => {
-      return ports.terminals.killTerminal(params);
+      return ports.terminals.killTerminal(params, connection.key);
     },
 
     releaseTerminal: async (params: ReleaseTerminalRequest): Promise<ReleaseTerminalResponse> => {
-      return ports.terminals.releaseTerminal(params);
+      return ports.terminals.releaseTerminal(params, connection.key);
     },
   };
 }

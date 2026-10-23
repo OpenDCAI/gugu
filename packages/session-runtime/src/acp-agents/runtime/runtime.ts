@@ -31,7 +31,6 @@ import type {
 import { acpErr } from '@gugu/session-core/acp';
 import type { Result } from '@gugu/session-shared';
 import { ok } from '@gugu/session-shared';
-import type { LiveLog } from '@gugu/session-wire';
 import { FsPort } from '../agent-ports/fs-port';
 import { AgentTerminalManager } from '../agent-ports/terminal-manager';
 import { TerminalPort } from '../agent-ports/terminal-port';
@@ -63,7 +62,7 @@ export class AcpRuntime {
       logger: deps.logger,
       onClosed: (key, exit) => manager?.onProcessClosed(key, exit),
     });
-    manager = new SessionManager(deps, this.connections, this.terminals, {
+    manager = new SessionManager(deps, this.connections, this.terminals, this.terminalLiveRegistry, {
       fs,
       terminals: terminalPort,
     });
@@ -285,10 +284,6 @@ export class AcpRuntime {
 
   sessionsLiveHost() {
     return this.manager.sessionsHost;
-  }
-
-  terminalOutputLog(terminalId: string): LiveLog | null {
-    return this.terminalLiveRegistry.getTerminalLog(terminalId);
   }
 
   async dispose(): Promise<void> {

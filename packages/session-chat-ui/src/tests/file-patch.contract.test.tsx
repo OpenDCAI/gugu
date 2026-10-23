@@ -16,7 +16,7 @@ function projected(block: unknown, pending = false) {
   const measure = makeContractCtx({ width: 320 });
   const ui = patchDiffFromItem(item, { caches: measure.caches, expanded: () => false, active: false,
     plan: () => null, translate: defaultChatTranslator, pendingToolCallIds: () => new Set(pending ? ['edit'] : []),
-    terminalOutputText: () => null, terminalExitStatus: () => null });
+    terminalSnapshot: () => null });
   return { ui, measure };
 }
 

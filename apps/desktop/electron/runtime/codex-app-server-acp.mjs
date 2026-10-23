@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { codexTerminalUpdate } from './codex-terminals.mjs'
 
 // Thin protocol adapter: preserve Gugu's ACP host contract while running the user's own Codex app-server.
 import { execFile } from 'node:child_process'
@@ -1021,22 +1022,14 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
   sessionUpdate({ sessionUpdate: 'available_commands_update', availableCommands })
 }
 
-function itemTool(item) {
+function itemTool(item, terminalId = item?.id) {
   const type = String(item?.type ?? '')
   if (type === 'commandExecution') {
-    const { type: _type, id: _id, status: _status, aggregatedOutput, exitCode, durationMs, ...input } = item
-    const hasResult = aggregatedOutput != null || exitCode != null || durationMs != null
+    const { type: _type, id: _id, status: _status, aggregatedOutput: _output, exitCode: _exit, durationMs, ...input } = item
     return {
-      title: item.command || 'Command',
-      kind: 'execute',
-      rawInput: input,
-      ...(hasResult ? { rawOutput: { aggregatedOutput, exitCode, durationMs } } : {}),
-      ...(typeof aggregatedOutput === 'string'
-        ? { content: [{ type: 'content', content: { type: 'text', text: aggregatedOutput } }] }
-        : {}),
-      ...(typeof exitCode === 'number'
-        ? { _meta: { terminal_exit: { terminal_id: item.id, exit_code: exitCode, signal: null } } }
-        : {}),
+      title: item.command || 'Command', kind: 'execute', rawInput: input,
+      content: [{ type: 'terminal', terminalId: String(terminalId) }],
+      ...(durationMs != null ? { _meta: { durationMs } } : {}),
     }
   }
   if (type === 'fileChange') {
@@ -1144,7 +1137,9 @@ function replayItem(item, fallbackId, revertAnchor) {
     sendWholeReasoning(item, messageId)
     return
   }
-  const tool = itemTool(item)
+  const terminal = codexTerminalUpdate(item, messageId, true)
+  if (terminal) sessionUpdate(terminal)
+  const tool = itemTool(item, messageId)
   if (!tool) return
   // 历史只有终态,没有 `item/started` 那一拍。因此发 `tool_call`(建条目)而不是 `tool_call_update`
   // (改条目)—— 后者会是一条没有母体的更新。
@@ -1418,6 +1413,10 @@ function onAppNotification(message) {
     })
     return
   }
+  if (method === 'item/commandExecution/outputDelta') {
+    sessionUpdate({ sessionUpdate: 'terminal_output_chunk', terminalId: String(params.itemId), data: Buffer.from(String(params.delta ?? ''), 'utf8').toString('base64') })
+    return
+  }
   if (method === 'item/plan/delta') {
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
@@ -1430,6 +1429,8 @@ function onAppNotification(message) {
     if (params.item?.type === 'userMessage') { insertedUserMessage(params.item); return }
     trackRunningCommand(params, 'started')
     if (params.item?.type === 'contextCompaction') return compactionUpdate(params.item, 'in_progress')
+    const terminal = codexTerminalUpdate(params.item ?? {})
+    if (terminal) sessionUpdate(terminal)
     const tool = itemTool(params.item)
     if (tool) {
       sessionUpdate({
@@ -1457,6 +1458,8 @@ function onAppNotification(message) {
       })
     }
     if (item.type === 'reasoning' && !streamed) sendWholeReasoning(item, String(item.id ?? ''))
+    const terminal = codexTerminalUpdate(item, item.id, true)
+    if (terminal) sessionUpdate(terminal)
     const tool = itemTool(item)
     if (tool) {
       sessionUpdate({

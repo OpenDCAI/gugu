@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { terminalStateSchema } from '../terminals';
 import { stopReasonSchema } from '../session';
 import { transcriptCompactionSchema } from './compaction';
 import { transcriptContextResetSchema } from './context-reset';
@@ -139,6 +140,8 @@ export const transcriptTurnSchema = z.object({
    */
   endedAt: z.number().optional(),
   items: z.array(transcriptItemSchema),
+  /** Bounded snapshots for terminals this turn actually references. */
+  terminals: z.array(terminalStateSchema).optional(),
   /** Durable settlement for the whole turn; absent for replayed history without an explicit end. */
   outcome: transcriptTurnOutcomeSchema.optional(),
 });

@@ -1,3 +1,4 @@
+import type { TerminalState } from '../acp/models/terminals';
 import type { PermissionSubject } from '../acp/models/permissions';
 /**
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
@@ -292,6 +293,8 @@ export type TimelineSnapshot = {
   queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
+  /** Live presentation only; not serialized into the native-record archive. */
+  terminals?: readonly TerminalState[];
 };
 
 /**
@@ -336,6 +339,8 @@ export type TimelineBatch = {
   queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
+  /** Live presentation only; not serialized into the native-record archive. */
+  terminals?: readonly TerminalState[];
 };
 
 export type TimelineAfterResult =
@@ -414,6 +419,7 @@ export interface SessionTimeline {
    */
   syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text'>[]): void;
   syncLiveReply(reply: SessionLiveReply | null): void;
+  syncTerminals(terminals: readonly TerminalState[]): void;
 
   /** 一个 item 已由 provider 侧了结（超时、取消）时由宿主调用。终态，❌ 不能再答。 */
   cancelSettlement(itemId: string): void;

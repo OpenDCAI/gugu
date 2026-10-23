@@ -20,6 +20,7 @@ import { normalizeToolContent } from './file-patch';
 import { serializePayload, projectToolContent } from '../models/tool-payload';
 import { messageContentText, type EntityContent, type EntityMeta } from '../models/entity-content';
 import type { ToolImage } from '../models/turns/tool-calls';
+import type { SessionTerminalUpdate, SessionTerminalChunk } from '../session-protocol';
 import type {
   NormalizedEvent,
   NormalizedToolLocation,
@@ -509,6 +510,15 @@ function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nul
  */
 /** Decode snapshot updates without passing them through append-only chunk shapes. */
 function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | null {
+  const terminal = update as unknown as { sessionUpdate: string };
+  if (terminal.sessionUpdate === 'terminal_update') {
+    const { sessionUpdate: _, ...fields } = update as unknown as SessionTerminalUpdate & { sessionUpdate: string };
+    return { kind: 'terminal_update', terminal: fields };
+  }
+  if (terminal.sessionUpdate === 'terminal_output_chunk') {
+    const { sessionUpdate: _, ...fields } = update as unknown as SessionTerminalChunk & { sessionUpdate: string };
+    return { kind: 'terminal_chunk', terminal: fields };
+  }
   const raw = update as unknown as {
     sessionUpdate: string; messageId: string; content?: EntityContent[] | EntityContent | null;
     toolCallId: string; _meta?: EntityMeta | null;

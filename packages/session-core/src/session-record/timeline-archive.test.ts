@@ -74,6 +74,26 @@ function shape(timeline: SessionTimeline): string {
 }
 
 describe('时间线存档', () => {
+  it('publishes independent terminal snapshots without adding a second durable archive', async () => {
+    const source = await stage(await fixtureLines());
+    const timeline = await open(source.root);
+    const cursor = timeline.getSnapshot().cursor;
+    const terminals = [{ terminalId: 'orphan', owner: 'agent' as const, canKill: false,
+      command: 'echo', args: [], cwd: '/w', output: 'UNREFERENCED_TERMINAL_BYTES', truncated: false,
+      exitStatus: { exitCode: 0, signal: null } }];
+    timeline.syncTerminals(terminals);
+    expect(timeline.getSnapshot().terminals).toEqual(terminals);
+    expect(timeline.getAfter(cursor)).toMatchObject({ ok: true, batch: { terminals } });
+    const archive = await timeline.archive?.();
+    expect(archive).toBeTruthy();
+    expect(JSON.stringify(archive)).not.toContain('UNREFERENCED_TERMINAL_BYTES');
+    const reopened = await open(source.root, archive);
+    expect(reopened.getSnapshot().terminals).toEqual([]);
+    // The retained live authority, rather than the native archive, hydrates a new view.
+    reopened.syncTerminals(terminals);
+    expect(reopened.getSnapshot().terminals).toEqual(terminals);
+  });
+
   it('装回存档后只读增量，拼出来的时间线与整份重读逐字一致', async () => {
     const lines = await fixtureLines();
     const half = Math.max(1, Math.floor(lines.length / 2));

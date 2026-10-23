@@ -28,10 +28,8 @@ import { nodeReadableToWeb } from './acp-stdio';
  * holds on both versions. An adapter that keeps doing background work (a subagent) reports it
  * after `idle`; the host is free to send the next prompt from there.
  *
- * Everything else maps shapes that both versions have (config options and commands; message, plan and patch upserts pass through,
- * permission requests, auth methods, MCP servers). Display terminals have no v1 form the host
- * renders, so a command's output is reported as the text content of the tool call that shows the
- * terminal, which is how the host shows a command's output on v1.
+ * Config options and commands still map their setup shapes. Message, plan, patch and terminal
+ * entities pass through unchanged; the host owns their presentation snapshots.
  */
 export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi {
   const stream = v2.ndJsonStream(
@@ -39,7 +37,6 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
     nodeReadableToWeb(io.stdout),
   );
   const turns = new PromptTurns();
-  const terminals = new DisplayTerminals();
   const deliver = (notification: SessionNotification) => client.sessionUpdate(notification);
 
   const app = v2
@@ -48,7 +45,7 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
       const { sessionId, update } = params;
       let v1: SessionUpdate[];
       try {
-        v1 = v1Updates(update, terminals);
+        v1 = v1Updates(update);
       } catch (error) {
         // An update the host cannot show ends the session's turns with that error, loudly.
         turns.failed(sessionId, error);
@@ -213,60 +210,8 @@ function pendingTurn(): PendingTurn {
   return turn;
 }
 
-/**
- * The display terminals of a connection (ids are the agent's, unique on the connection): which tool
- * call shows each one, and its output so far. A terminal's output reaches the host as the text
- * content of that tool call; a terminal is forgotten at its exit, its last report.
- */
-class DisplayTerminals {
-  private readonly byId = new Map<string, { toolCallId?: string; output: string }>();
-
-  /** A tool call that shows `terminalId`; returns the terminal's report when it has output. */
-  bind(terminalId: string, toolCallId: string): SessionUpdate | undefined {
-    const terminal = this.terminal(terminalId);
-    terminal.toolCallId = toolCallId;
-    return this.report(terminalId);
-  }
-
-  update({ terminalId, output, exitStatus }: v2.TerminalUpdate): SessionUpdate | undefined {
-    if (output) this.terminal(terminalId).output = decodeBase64(output.data);
-    if (!output && !exitStatus) return undefined;
-    return this.report(
-      terminalId,
-      exitStatus ? { exit_code: exitStatus.exitCode ?? null, signal: exitStatus.signal ?? null } : undefined,
-    );
-  }
-
-  chunk({ terminalId, data }: v2.TerminalOutputChunk): SessionUpdate | undefined {
-    this.terminal(terminalId).output += decodeBase64(data);
-    return this.report(terminalId);
-  }
-
-  private terminal(terminalId: string) {
-    let terminal = this.byId.get(terminalId);
-    if (!terminal) this.byId.set(terminalId, (terminal = { output: '' }));
-    return terminal;
-  }
-
-  private report(terminalId: string, exit?: { exit_code: number | null; signal: string | null }): SessionUpdate | undefined {
-    const { toolCallId, output } = this.terminal(terminalId);
-    if (exit) this.byId.delete(terminalId);
-    if (!toolCallId || (!output && !exit)) return undefined;
-    return {
-      sessionUpdate: 'tool_call_update',
-      toolCallId,
-      ...(output ? { content: [{ type: 'content', content: { type: 'text', text: output } }] } : {}),
-      ...(exit ? { _meta: { terminal_exit: exit } } : {}),
-    };
-  }
-}
-
-function decodeBase64(data: string): string {
-  return Buffer.from(data, 'base64').toString('utf8');
-}
-
-/** The v1 updates the host reads for one v2 update (none, one, or a terminal report too). */
-function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): SessionUpdate[] {
+/** Standard entity updates cross the transport boundary unchanged. */
+function v1Updates(update: v2.SessionUpdate): SessionUpdate[] {
   switch (update.sessionUpdate) {
     case 'config_option_update': {
       const { configOptions } = update as v2.ConfigOptionUpdate;
@@ -285,34 +230,6 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): Sessi
     case 'plan_update':
     case 'plan_removed':
       return [update as unknown as SessionUpdate];
-    case 'tool_call_update': {
-      const { content, ...fields } = update as v2.ToolCallUpdate;
-      const reports: SessionUpdate[] = [];
-      const v1Content = content?.flatMap((item): unknown[] => {
-        if (item.type === 'terminal') {
-          const report = terminals.bind((item as { terminalId: string }).terminalId, fields.toolCallId);
-          if (report) reports.push(report);
-          return [];
-        }
-        return [item];
-      });
-      return [
-        {
-          ...fields,
-          sessionUpdate: 'tool_call_update',
-          ...(content === null ? { content: null } : v1Content && (v1Content.length > 0 || content?.length === 0) ? { content: v1Content } : {}),
-        } as SessionUpdate,
-        ...reports,
-      ];
-    }
-    case 'terminal_update': {
-      const report = terminals.update(update as v2.TerminalUpdate);
-      return report ? [report] : [];
-    }
-    case 'terminal_output_chunk': {
-      const report = terminals.chunk(update as v2.TerminalOutputChunk);
-      return report ? [report] : [];
-    }
     default:
       return [update as unknown as SessionUpdate];
   }

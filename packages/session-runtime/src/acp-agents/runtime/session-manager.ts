@@ -76,6 +76,7 @@ import { buildAgentClient, type InboundRouter } from '../agent-ports/agent-clien
 import type { FsPort } from '../agent-ports/fs-port';
 import type { AgentTerminalManager } from '../agent-ports/terminal-manager';
 import type { TerminalPort } from '../agent-ports/terminal-port';
+import type { TerminalLiveRegistry } from './terminal-live-registry';
 import {
   isAcpConnectionError,
   makeAcpConnectionKey,
@@ -374,6 +375,7 @@ export class SessionManager implements InboundRouter {
     private readonly deps: AcpRuntimeDeps & { logger: Logger },
     private readonly connections: AcpConnectionSource,
     private readonly terminals: AgentTerminalManager,
+    private readonly terminalLiveRegistry: TerminalLiveRegistry,
     private readonly ports: { fs: FsPort; terminals: TerminalPort }
   ) {}
 
@@ -1724,7 +1726,7 @@ export class SessionManager implements InboundRouter {
   }
 
   getTerminals(sessionId: string): TerminalState[] {
-    return this.terminals.listBySession(sessionId);
+    return this.terminalLiveRegistry.snapshotSession(sessionId);
   }
 
   getHostTerminals(): TerminalState[] {
@@ -1741,6 +1743,7 @@ export class SessionManager implements InboundRouter {
     const terminals = this.getTerminals(sessionId);
     publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
     record.lastSynced.terminals = terminals;
+    this.emitCommittedTurns(record);
   }
 
   killAllTerminals(): void {
@@ -1780,6 +1783,9 @@ export class SessionManager implements InboundRouter {
       update: params.update,
     });
     this.applyRawMeta(record.cell, params.update);
+    const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
+    if (!scoped) return;
+    event = scoped;
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
     // (`unregisterRoutes` 按 conversationId 清)。
     if (event.kind === 'subagent' && event.subagentSessionId) {
@@ -1944,7 +1950,7 @@ export class SessionManager implements InboundRouter {
     if (!sessionId) {
       throw new Error(`SessionManager: no session for ACP sessionId ${params.sessionId}`);
     }
-    return this.ports.terminals.createTerminal(sessionId, connection.cwd, params);
+    return this.ports.terminals.createTerminal(sessionId, connection.cwd, params, connection.key);
   }
 
   onProcessClosed(processKey: string, exit: AdapterExit): void {
@@ -2359,6 +2365,7 @@ export class SessionManager implements InboundRouter {
 
   /** Push new turns and in-place revisions to the single durable history writer. */
   private emitCommittedTurns(record: SessionRecord): void {
+    record.cell.transcript.pushEvent({ kind: 'terminal_snapshots', terminals: this.getTerminals(record.input.sessionId) });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
     // 运行时视图(侧边对话,由运行时分叉实现)不落盘。它的 `conversationId` 是个**视图 id**,
@@ -2588,6 +2595,7 @@ export class SessionManager implements InboundRouter {
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
     this.terminals.disposeSession(sessionId);
+    this.terminalLiveRegistry.disposeSession(sessionId);
     // #6497 dispose 之前把状态最后发一次 `closed`(与 getSessionState 对不存在的会话给的同一个形状):dispose 本身
     // 只让订阅方重取快照、拿到 NOT_FOUND,不带「停下来时是什么样」—— 停在回合中间时,界面上的 Working / 待批才落得下。
     publishLiveModelState(record.live.states.state, closedSessionState(), record.lastSynced.sessionState);

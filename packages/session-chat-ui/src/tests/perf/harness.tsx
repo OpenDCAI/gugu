@@ -168,8 +168,7 @@ export function mountRows(items: ChatItem[]): Mounted {
     plan: () => null,
     translate: defaultChatTranslator,
     pendingToolCallIds: () => new Set<string>(),
-    terminalOutputText: () => null,
-    terminalExitStatus: () => null,
+    terminalSnapshot: () => null,
   };
   const measureCtx: MeasureCtx = {
     theme: DEFAULT_THEME,

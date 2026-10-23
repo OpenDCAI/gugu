@@ -251,39 +251,19 @@ describe('connectStdioAcpV2', () => {
     await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).resolves.toEqual({ stopReason: 'cancelled' });
   });
 
-  it('reports a display terminal as the text output of the tool call that shows it, with its exit', async () => {
+  it('preserves terminal bytes and references without projecting tool text', async () => {
     const pair = agentPair();
     await initialize(pair.api);
-    await pair.send({ sessionUpdate: 'terminal_update', terminalId: 't1', command: 'ls' });
-    await pair.send({
-      sessionUpdate: 'tool_call_update',
-      toolCallId: 'tool-1',
-      title: 'ls',
-      status: 'in_progress',
-      content: [{ type: 'terminal', terminalId: 't1' }],
-    });
-    await pair.send({ sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: Buffer.from('a\n').toString('base64') });
-    await pair.send({
-      sessionUpdate: 'terminal_update',
-      terminalId: 't1',
-      output: { data: Buffer.from('a\nb\n').toString('base64') },
-      exitStatus: { exitCode: 0 },
-    });
+    const updates: v2.SessionUpdate[] = [
+      { sessionUpdate: 'terminal_update', terminalId: 't1', command: 'ls' },
+      { sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: '8J8=' },
+      { sessionUpdate: 'terminal_output_chunk', terminalId: 't1', data: 'mYI=' },
+      { sessionUpdate: 'terminal_update', terminalId: 't1', exitStatus: { exitCode: 0 } },
+      { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', content: [{ type: 'terminal', terminalId: 't1' }] },
+    ];
+    for (const update of updates) await pair.send(update);
     await settle();
-    expect(pair.updates.map(({ update }) => update)).toEqual([
-      { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', title: 'ls', status: 'in_progress' },
-      {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tool-1',
-        content: [{ type: 'content', content: { type: 'text', text: 'a\n' } }],
-      },
-      {
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tool-1',
-        content: [{ type: 'content', content: { type: 'text', text: 'a\nb\n' } }],
-        _meta: { terminal_exit: { exit_code: 0, signal: null } },
-      },
-    ]);
+    expect(pair.updates.map(({ update }) => update)).toEqual(updates);
   });
 
   it('preserves a v2 diff block and every raw patch byte', async () => {

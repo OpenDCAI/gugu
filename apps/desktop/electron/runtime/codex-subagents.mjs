@@ -1,3 +1,4 @@
+import { codexTerminalUpdate } from './codex-terminals.mjs'
 const terminalState = (status) => ({ completed: 'completed', failed: 'failed', errored: 'failed', interrupted: 'cancelled', shutdown: 'cancelled', notFound: 'disconnected' })[status]
 
 // A child's prompt is its task, not its name: keep the list label short (a real nickname from thread/started overrides it).
@@ -66,6 +67,8 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
         if (text) stream(id, { sessionUpdate: 'agent_thought_chunk', messageId: item.id, content: { type: 'text', text } })
       }
     }
+    const terminal = codexTerminalUpdate(item, item.id, completed)
+    if (terminal) stream(id, terminal)
     const tool = itemTool(item)
     if (tool) stream(id, {
       sessionUpdate: completed ? 'tool_call_update' : 'tool_call', toolCallId: item.id,
@@ -108,6 +111,8 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
         messageId: params.itemId,
         content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${params.delta ?? ''}` },
       })
+    } else if (method === 'item/commandExecution/outputDelta') {
+      stream(id, { sessionUpdate: 'terminal_output_chunk', terminalId: String(params.itemId), data: Buffer.from(String(params.delta ?? ''), 'utf8').toString('base64') })
     } else if (method === 'item/started' || method === 'item/completed') {
       wholeItem(id, params.item ?? {}, method === 'item/completed')
     }

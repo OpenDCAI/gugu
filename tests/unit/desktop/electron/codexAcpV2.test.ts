@@ -16,12 +16,16 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const m = JSON.parse(line)
   if (m.method === 'thread/start' && (!m.params.config?.['mcp_servers.fixture.url'] || process.env.GUGU_MCP_BEARER_FIXTURE !== 'fixture-bearer')) return out({ id: m.id, error: { code: -32603, message: 'Session MCP configuration missing after discovery' } })
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: 'thread', historyMode: 'paginated', turns: [] }, model: 'model', reasoningEffort: 'medium', activePermissionProfile: ':workspace' } })
+  if (m.method === 'thread/turns/list') return out({ id: m.id, result: { data: [{ id: 'historic', items: [{ type: 'commandExecution', command: 'echo recorded', status: 'completed', aggregatedOutput: 'RECORDED_TERMINAL', exitCode: 0 }] }], nextCursor: null } })
   if (m.method === 'model/list') return out({ id: m.id, result: { data: [{ id: 'model', model: 'model', displayName: 'Model', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] }] } })
   if (m.method === 'permissionProfile/list') return out({ id: m.id, result: { data: [{ id: ':workspace', name: 'Workspace', allowed: true }] } })
   if (m.method === 'turn/start') {
     out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
     out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id: 'native-user', content: m.params.input } } })
     out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'fileChange', id: 'edit', status: 'inProgress', changes: [{ path: 'C:\\\\work\\\\before.ts', kind: { type: 'update', move_path: 'C:\\\\work\\\\after.ts' }, diff: ${JSON.stringify(patch)} }] } } })
+    out({ method: 'item/started', params: { threadId: 'thread', item: { type: 'commandExecution', id: 'command', command: 'echo done', cwd: '/w' } } })
+    out({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread', itemId: 'command', delta: 'live output' } })
+    out({ method: 'item/completed', params: { threadId: 'thread', item: { type: 'commandExecution', id: 'command', command: 'echo done', status: 'completed', aggregatedOutput: 'final output', exitCode: 0 } } })
     return out({ id: m.id, result: { turn: { id: 'turn' } } })
   }
   if (m.method === 'turn/interrupt') {
@@ -63,12 +67,20 @@ it('speaks SDK-validated v2: setup, native insertion receipt before idle, patch 
     expect(updates.some(update => update.sessionUpdate === 'state_update' && update.state === 'idle')).toBe(false);
     const edit = updates.find(update => update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'edit') as v2.ToolCallUpdate;
     expect(edit.content).toMatchObject([{ type: 'diff', changes: [{ operation: 'move', oldPath: 'C:\\work\\before.ts', path: 'C:\\work\\after.ts' }], patch: { format: 'git_patch', text: expect.stringContaining(patch) } }]);
+    const terminals = updates.filter(update => update.sessionUpdate === 'terminal_update');
+    expect(terminals.at(-1)).toMatchObject({ terminalId: 'command', output: { data: Buffer.from('final output').toString('base64') }, exitStatus: { exitCode: 0 } });
+    expect(updates).toContainEqual({ sessionUpdate: 'terminal_output_chunk', terminalId: 'command', data: Buffer.from('live output').toString('base64') });
+    const command = updates.filter(update => update.sessionUpdate === 'tool_call_update' && update.toolCallId === 'command');
+    expect(command.at(-1)).toMatchObject({ content: [{ type: 'terminal', terminalId: 'command' }] });
+    expect(command.every(update => !('rawOutput' in update) && !('_meta' in update))).toBe(true);
     await connection.agent.notify(v2.methods.agent.session.cancel, { sessionId: 'thread' });
     await awaitFact('native idle after cancel', () => updates.find(update => update.sessionUpdate === 'state_update' && update.state === 'idle'), { producer: child });
     expect(updates.at(-1)).toMatchObject({ state: 'idle', stopReason: 'cancelled' });
     const before = updates.length;
     await connection.agent.request(v2.methods.agent.session.resume, { sessionId: 'thread', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } });
     expect(updates.slice(before)).toContainEqual({ sessionUpdate: 'state_update', state: 'idle' });
+    expect(updates.slice(before)).toContainEqual(expect.objectContaining({ sessionUpdate: 'terminal_update', terminalId: 'historic:0', output: { data: Buffer.from('RECORDED_TERMINAL').toString('base64') } }));
+    expect(updates.slice(before)).toContainEqual(expect.objectContaining({ sessionUpdate: 'tool_call_update', toolCallId: 'historic:0', content: [{ type: 'terminal', terminalId: 'historic:0' }] }));
     expect(stderr).not.toMatch(/non-JSON|failed|unmatched/);
   } finally {
     const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;

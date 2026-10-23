@@ -2,7 +2,6 @@ import {
   defineContract,
   downloadFile,
   fallible,
-  liveLog,
   liveModel,
   liveState,
   uploadFile,
@@ -69,7 +68,6 @@ import { historyPageInputSchema, historyPageSchema, resumeResultSchema } from '.
 
 const startSessionResultSchema = z.object({ providerSessionId: z.string() });
 const sessionKeySchema = z.object({ sessionId: z.string() });
-const terminalOutputKeySchema = z.object({ terminalId: z.string() });
 
 export const acpApiContract = defineContract({
   startSession: fallible({
@@ -202,7 +200,6 @@ export const acpApiContract = defineContract({
       terminals: liveState({ data: z.array(terminalStateSchema) }),
     },
   }),
-  terminalOutput: liveLog({ key: terminalOutputKeySchema }),
 });
 
 export type AcpApiContract = typeof acpApiContract;

@@ -373,12 +373,13 @@ function disposeEntry(entry: TimelineEntry): void {
  * 一起拖死。接不上就 warn 一句，时间线照常可读，只是没有审批卡（与接这条之前的行为一致）。
  */
 function attachPendingRequests(entry: TimelineEntry): void {
-  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply) => {
+  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply, terminals) => {
     if (entry.disposed) return;
     entry.runtimeRequests = requests;
     syncPending(entry);
     entry.timeline.syncQueuedPrompts(queuedPrompts);
     entry.timeline.syncLiveReply(liveReply ?? null);
+    entry.timeline.syncTerminals(terminals);
   })
     .then((watch) => {
       if (!watch) return;

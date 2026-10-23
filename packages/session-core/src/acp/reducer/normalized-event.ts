@@ -19,14 +19,18 @@ import type { SessionUsage } from '../models/config';
 import type { PlanEntryInput } from '../models/plan';
 import type { SessionNoticeCode } from '../models/turns/session-notice';
 import type { ToolImage } from '../models/turns/tool-calls';
-import type { TerminalExit } from '../models/terminals';
+import type { TerminalExit, TerminalState } from '../models/terminals';
 import type { EntityContent, EntityMeta } from '../models/entity-content';
+import type { SessionTerminalUpdate, SessionTerminalChunk } from '../session-protocol';
 
 export type NormalizedToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export type NormalizedToolLocation = Pick<ToolCallLocation, 'path' | 'line'>;
 
 export type NormalizedEvent =
+  | { kind: 'terminal_update'; terminal: SessionTerminalUpdate }
+  | { kind: 'terminal_chunk'; terminal: SessionTerminalChunk }
+  | { kind: 'terminal_snapshots'; terminals: readonly TerminalState[] }
   | {
       kind: 'message';
       content?: EntityContent[] | null;
