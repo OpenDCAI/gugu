@@ -202,7 +202,7 @@ Free (they only concern your own tab):
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - What the whole app shows (panes, which session): \`apps-agents\`.
-- \`setTabTitle(title)\` → names your page (48 at most). A tab opened for a file keeps the file name first; your semantic title is a hint or tooltip. Back out of that file closes its tab; navigation within your page keeps it.
+- \`setTabTitle(title)\` → page title (max 48). File tabs show the file name; this title is a hint/tooltip. Host Back closes the file tab; in-page Back keeps it.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
@@ -261,9 +261,8 @@ Free:
 
 ## Every one of these can reject — let it show
 
-\`.catch(() => {})\` on a \`window.gugu.*\` call is the costliest habit in this API: in ten shipped examples an
-outage (five verbs rejecting EVERY call) looked like empty states.
-On rejection, show the message: an inline line, a disabled control with the reason, or \`reportError\`.
+\`.catch(() => {})\` on a \`window.gugu.*\` call hides failures as empty states.
+Show the rejection inline, disable the control with its reason, or call \`reportError\`.
 Ignoring one on purpose: say why in a comment — ❌ never a bare \`.catch(() => {})\`. "Nothing here" and "the call
 failed" never render the same.
 
