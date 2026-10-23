@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
 import { queryClient } from '@renderer/lib/query-client';
-import { i18n } from '@/i18n';
+import { setLocalePreference } from '@/i18n';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
@@ -142,7 +142,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await i18n.changeLanguage('en-US');
+  setLocalePreference('en-US');
   window.removeEventListener('error', onError);
   root.unmount();
   host.remove();
@@ -309,11 +309,11 @@ it('a long switch refusal is shown under the row heading and does not squeeze th
 // 2026-10-23 owner:「提示更温柔一点,不要飘红,language 也变一下」。因有会话正在工作而没切,不是出错:
 // 主进程把「哪一家、几个」随错误带来,界面按自己的语言用安静的字色说;不认得这个字段的旧主进程走上面那条(红、原文)。
 it.each([
-  ['en-US', 6, /^6 Codex sessions are still working\. Switch once they finish/],
-  ['en-US', 1, /^1 Codex session is still working\. Switch once it finishes/],
-  ['zh-CN', 6, /^还有 6 个 Codex 会话正在工作，等它们完成后再切换吧/],
+  ['en-US' as const, 6, /^6 Codex sessions are still working\. Switch once they finish/],
+  ['en-US' as const, 1, /^1 Codex session is still working\. Switch once it finishes/],
+  ['zh-CN' as const, 6, /^还有 6 个 Codex 会话正在工作，等它们完成后再切换吧/],
 ])('a refusal because sessions are working is a calm note in the UI language (%s, %i)', async (language, count, expected) => {
-  await i18n.changeLanguage(language);
+  setLocalePreference(language);
   control.codex = true;
   control.rejectSelect = true;
   control.selectBusy = { providerId: 'codex', count };
@@ -340,6 +340,19 @@ it.each([
   expect(getComputedStyle(note).color).not.toBe(getComputedStyle(reference).color);
   reference.remove();
   expect(control.connections.find(c => c.current)?.id).toBe('native');
+
+  // 提示的字句是渲染时算的,界面语言一换它跟着换;下一次切成功了,行里不再留着旧的「还在忙」。
+  const other = language === 'zh-CN' ? 'en-US' : 'zh-CN';
+  const before = note.textContent;
+  setLocalePreference(other);
+  await until('the note follows the language', () => row.querySelector('.subscription-note')?.textContent !== before);
+  expect(row.querySelector('.subscription-note')?.textContent).toMatch(other === 'zh-CN' ? /^还有 \d+ 个 Codex 会话/ : /^\d+ Codex sessions? (is|are) still working/);
+  control.rejectSelect = false;
+  if (!layer.querySelector('[data-testid="connection-use-saved-api"]')) (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used again', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the note is gone once a switch goes through', () => row.querySelector('.subscription-note') === null);
+  expect(control.selected).toBe('saved-api');
   expect(thrown).toEqual([]);
 });
 
