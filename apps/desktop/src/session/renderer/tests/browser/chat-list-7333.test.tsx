@@ -54,19 +54,74 @@ beforeAll(async () => {
 });
 afterEach(() => harness?.cleanup());
 
-async function renderList() {
+async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn()) {
   harness = createReactHarness();
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
-    createNode(ChatListPanel, { activeTab: 'chats', onOpenAgentCreateDraft: vi.fn() }),
-    { chat: { chats, activeChatId: 'grp-1', identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) } } },
+    createNode(ChatListPanel, { activeTab: 'chats', onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
+    { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);
   return harness.container;
 }
 
 describe('the IM chat list in the master\'s roles (#7333)', () => {
+  it('#7589 only a source with topics has a chevron; repeated clicks fold all its subrows without navigating', async () => {
+    const onChatSelected = vi.fn();
+    const root = await renderList('grp-1', onChatSelected);
+    const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    const plain = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+    expect(plain.hasAttribute('aria-expanded')).toBe(false);
+    expect(plain.querySelector('svg.size-3\\.5')).toBeNull();
+    expect(source().getAttribute('aria-expanded')).toBe('true');
+    const expandedArrow = source().querySelector('svg.size-3\\.5')!.innerHTML;
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="topic-sunk-section"]')).not.toBeNull();
+
+    await userEvent.click(source());
+    await until('source topics fold', () => source().getAttribute('aria-expanded') === 'false');
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).toBeNull();
+    expect(root.querySelector('[data-testid="topic-sunk-section"]')).toBeNull();
+    expect(source().querySelector('svg.size-3\\.5')!.innerHTML).not.toBe(expandedArrow);
+    expect(source().getAttribute('aria-selected')).toBe('true');
+    expect(onChatSelected).not.toHaveBeenCalled();
+
+    await userEvent.click(source());
+    await until('source topics unfold', () => root.querySelector('[data-topic-subrow="t-live"]') !== null);
+    expect(source().getAttribute('aria-expanded')).toBe('true');
+    expect(source().querySelector('svg.size-3\\.5')!.innerHTML).toBe(expandedArrow);
+    expect(root.querySelector('[data-testid="topic-sunk-section"]')).not.toBeNull();
+    expect(onChatSelected).not.toHaveBeenCalled();
+  });
+
+  it('#7589 selecting a different source navigates without folding its topics', async () => {
+    const onChatSelected = vi.fn();
+    const root = await renderList('dm-1', onChatSelected);
+    const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    await userEvent.click(source());
+    expect(source().getAttribute('aria-expanded')).toBe('true');
+    expect(root.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
+  });
+
+  it('#7589 collapsed topics are skipped by keyboard navigation and Enter restores them', async () => {
+    const root = await renderList();
+    const source = () => root.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    source().focus();
+    await userEvent.keyboard('{ArrowDown}');
+    await until('expanded topic receives focus', () => document.activeElement?.getAttribute('data-chat-row') === 't-live');
+    await userEvent.click(source());
+    await until('topics collapse', () => source().getAttribute('aria-expanded') === 'false');
+    source().focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(document.activeElement?.getAttribute('data-chat-row')).toBe('grp-1');
+    await userEvent.keyboard('{Enter}');
+    await until('keyboard unfolds topics', () => root.querySelector('[data-topic-subrow="t-live"]') !== null);
+    await userEvent.keyboard('{ArrowDown}');
+    await until('restored topic receives focus', () => document.activeElement?.getAttribute('data-chat-row') === 't-live');
+  });
+
   it('a row is avatar + two lines: name and preview 14/20, time 12/18, the unread count an 18px ink chip; corners 8, not a capsule', async () => {
     const root = await renderList();
     const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;

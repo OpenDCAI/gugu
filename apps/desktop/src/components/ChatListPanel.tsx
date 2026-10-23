@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, CheckCircle, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -191,6 +191,7 @@ interface ChatRowProps {
   chat: ChatItem
   agentStatus?: AgentDisplayStatus
   isActive: boolean
+  topicsExpanded?: boolean
   draft?: string
   // @@@1787 移动触控放大(对齐 ContactsPanel.ContactRow 的 mobile 规格)
   mobile?: boolean
@@ -278,7 +279,7 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
   )
 }
 
-function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
+function ChatRow({ chat, agentStatus, isActive, topicsExpanded, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
   const [showMenu, setShowMenu] = useState(false)
@@ -318,6 +319,7 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
         mobile={mobile}
         role="option"
         aria-selected={isActive}
+        aria-expanded={topicsExpanded}
         tabIndex={tabIndex}
         onClick={onClick}
         onFocus={onFocus}
@@ -354,6 +356,9 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
             {/* Bolt/sparkle — the design accent, kept off the icon-size ladder
                 (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
             {hasBolt && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
+            {topicsExpanded !== undefined && (topicsExpanded
+              ? <ChevronDown className="size-3.5 shrink-0" style={TOPIC_SUBROW_ICON_STYLE} aria-hidden="true" />
+              : <ChevronRight className="size-3.5 shrink-0" style={TOPIC_SUBROW_ICON_STYLE} aria-hidden="true" />)}
           </>
         }
         meta={formatCalendarDay(chatActivityAt(chat))}
@@ -541,6 +546,7 @@ export function ChatListPanel({
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)
+  const [collapsedTopicSources, setCollapsedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
   // @@@5856 分栏此刻显示的是哪条话题 —— 子行的高亮要跟着它,而分栏也可以从消息上的锚点打开,
   // 所以这个真值只能由聊天区广播过来(UI_EVENTS.topicSplitChanged),❌ 不许在这边猜。
   const [activeTopicChatId, setActiveTopicChatId] = useState<string | null>(null)
@@ -608,12 +614,13 @@ export function ChatListPanel({
   // 没摊开的那些❌ 不在里面:它们不在这条侧边栏上,键盘也不该能走到看不见的行。
   const visibleChats = useMemo(
     () => [...pinnedChats, ...normalChats].flatMap((chat) => {
+      if (collapsedTopicSources.has(chat.id)) return [chat]
       const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
       return [chat, ...live]
     }),
     // isSunk 每次渲染新建(它读 Date.now),输入已在下面列全。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pinnedChats, normalChats, topicNesting, activeTopicChatId],
+    [pinnedChats, normalChats, topicNesting, activeTopicChatId, collapsedTopicSources],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
@@ -626,15 +633,18 @@ export function ChatListPanel({
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
   const renderChatRow = (chat: ChatItem) => {
     const { live, sunk } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
+    const hasTopics = live.length > 0 || sunk.length > 0
+    const topicsExpanded = !collapsedTopicSources.has(chat.id)
     const row = (
       <ChatRow
         key={chat.id}
         chat={chat}
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
         isActive={chat.id === activeChatId}
+        topicsExpanded={hasTopics ? topicsExpanded : undefined}
         mobile={mobile}
         draft={drafts[chat.id]}
-        onClick={() => selectChat(chat)}
+        onClick={() => activateChatRow(chat)}
         onPin={() => pinChat(chat.id, !chat.is_pinned)}
         onSetNotificationLevel={(level) => setChatNotificationLevel(chat.id, level)}
         onDelete={() => deleteChat(chat.id, true)}
@@ -643,7 +653,7 @@ export function ChatListPanel({
         onKeyDown={(event) => handleChatKeyDown(event, chat)}
       />
     )
-    if (live.length === 0 && sunk.length === 0) return row
+    if (!hasTopics) return row
     const subRow = (topic: ChatItem) => (
       <TopicSubRow
         key={topic.id}
@@ -661,7 +671,7 @@ export function ChatListPanel({
     return (
       <div key={chat.id}>
         {row}
-        <div className="gg-topic-subrows">
+        {topicsExpanded && <div className="gg-topic-subrows">
           {live.map(subRow)}
           {/* @@@5856 「更多 · N」—— 沉下去的 + 摊不下的那些话题。只留一行告诉你它们还在,
               发一句就浮回上面(spec:「没有开关,只有沉降」)。
@@ -680,7 +690,7 @@ export function ChatListPanel({
               {t('chatList.moreTopics', { count: sunk.length })}
             </Button>
           )}
-        </div>
+        </div>}
       </div>
     )
   }
@@ -720,6 +730,20 @@ export function ChatListPanel({
     }
     onChatSelected?.(focusTarget)
   }, [onChatSelected, openUnreadChat, setActiveChatId])
+
+  // 切换会话仍只负责导航;只有重复激活当前来源行才收起/展开话题,不触碰右侧分栏。
+  const activateChatRow = (chat: ChatItem) => {
+    if (chat.id !== activeChatId || !topicNesting.bySource.get(chat.id)?.length) {
+      selectChat(chat)
+      return
+    }
+    setCollapsedTopicSources((previous) => {
+      const next = new Set(previous)
+      if (next.has(chat.id)) next.delete(chat.id)
+      else next.add(chat.id)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (activeTab !== 'chats') return
@@ -796,7 +820,7 @@ export function ChatListPanel({
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      selectChat(chat)
+      activateChatRow(chat)
       return
     }
   }
