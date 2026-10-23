@@ -1917,7 +1917,7 @@ export function registerExtensionBridge(): void {
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
       if (!bindings.has(event.sender.id)) await waitForBinding(event.sender.id);
-      if (documentWatches && pageWatches.get(event.sender.id) !== documentWatches) return { ok: true };
+      if (documentWatches && pageWatches.get(event.sender.id) !== documentWatches) return { ok: true, value: undefined };
       const binding = bindings.get(event.sender.id);
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };
