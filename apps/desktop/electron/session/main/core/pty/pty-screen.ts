@@ -19,10 +19,10 @@ import type { PtyDimensions } from './pty';
  */
 
 /**
- * 与前端 pty.ts 的回滚上限一致:关闭视图后重建不能丢掉原来能看的行。
+ * agent 屏幕快照的缺省回滚;普通终端由 LocalTerminalProvider 传入与前端一致的一万行,供关闭视图后重建。
  * 回滚越长,主进程每条写满的终端多占一份(每行 = 列数 × 12 字节)。全屏 TUI 在备用屏里,这一项与它无关。
  */
-export const SCREEN_SCROLLBACK_LINES = 10_000;
+export const SCREEN_SCROLLBACK_LINES = 1_000;
 
 /**
  * 切快照时,解析多久毫无进展就算停了。正常是毫秒级(要等的只是已经到了、还没解析完的输出);积压大时只要还在往前解析
@@ -84,11 +84,12 @@ export class PtyScreen {
   constructor(
     size: PtyDimensions,
     private readonly stallMs = SNAPSHOT_STALL_MS,
+    private readonly scrollback = SCREEN_SCROLLBACK_LINES,
   ) {
     this.terminal = new Terminal({
       cols: size.cols,
       rows: size.rows,
-      scrollback: SCREEN_SCROLLBACK_LINES,
+      scrollback: this.scrollback,
       allowProposedApi: true,
     });
     this.terminal.loadAddon(this.serializer);
@@ -214,7 +215,7 @@ export class PtyScreen {
    * 紧跟在快照后面的实时输出把它盖掉。上游 0.15 beta 仍是同一写法。
    */
   private serialize(): string {
-    let data = this.serializer.serialize({ scrollback: SCREEN_SCROLLBACK_LINES });
+    let data = this.serializer.serialize({ scrollback: this.scrollback });
     const { coreMouseService, coreService, buffer } = this.core;
     const encoding = MOUSE_ENCODING_SEQUENCE[coreMouseService.activeEncoding];
     if (encoding === undefined) throw new Error(`PtyScreen: unknown xterm mouse encoding ${coreMouseService.activeEncoding}`);

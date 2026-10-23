@@ -20,7 +20,7 @@ import { notifyPtyOutput } from '../session-output-observers';
  * 从前是 100,000 行。macOS A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
  * 工作区面板「最大化 / 还原」三次 —— 每次改宽度 xterm 都把整份回滚重排一遍 —— 主线程长任务 21–24 个、最长 134–140ms
  * → 5–8 个、最长 64–65ms(2026-10-05 实测)。
- * 与 pty-screen.ts 的 SCREEN_SCROLLBACK_LINES 一致,视图重建不能丢掉更早的回滚。
+ * 普通终端在 LocalTerminalProvider 中使用同样的主进程回滚上限,视图重建不能丢掉更早的回滚。
  */
 const SCROLLBACK_LINES = 10_000;
 

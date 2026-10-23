@@ -8,8 +8,8 @@ afterEach(() => {
   for (const item of opened.splice(0)) item.dispose();
 });
 
-function screen(size = SIZE): PtyScreen {
-  const s = new PtyScreen(size);
+function screen(size = SIZE, scrollback = SCREEN_SCROLLBACK_LINES): PtyScreen {
+  const s = new PtyScreen(size, undefined, scrollback);
   opened.push(s);
   return s;
 }
@@ -90,7 +90,7 @@ describe('PtyScreen', () => {
   it('rebuilds a 135-column view with all 10,000 original lines and output produced while closed', async () => {
     const size = { cols: 135, rows: 41 };
     const data = Array.from({ length: 10_000 }, (_, i) => `row-${i.toString().padStart(5, '0')} ${'x'.repeat(65)}\r\n`).join('');
-    const s = screen(size);
+    const s = screen(size, 10_000);
     s.write(data);
     const before = await viewOf((await s.snapshot()).data, size);
     before.dispose();

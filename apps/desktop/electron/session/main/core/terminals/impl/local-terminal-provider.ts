@@ -283,6 +283,7 @@ export class LocalTerminalProvider implements TerminalProvider {
 
     ptySessionRegistry.register(ptySessionId, pty, {
       size: initialSize,
+      scrollback: 10_000,
       preserveBufferOnExit: policy.preserveBufferOnExit,
       metadata,
     });
