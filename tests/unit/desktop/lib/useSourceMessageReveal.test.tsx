@@ -115,6 +115,26 @@ describe('source message reveal', () => {
     expect(sibling).not.toHaveBeenCalled()
   })
 
+  it('queues a filtered quote until the same viewport has exited search with current rows', async () => {
+    const navigate = vi.fn(), scrollToIndex = vi.fn(), reveal = vi.fn(async () => { throw Error('old disabled reveal') })
+    let quote!: (id: string) => void
+    function Pane({ ready }: { ready: boolean }) {
+      quote = useSourceMessageReveal({ activeChatId: 'g1', viewportKey: 'filtered', ready, onNavigate: navigate,
+        rows: ready ? [row('old'), row('reply')] : [row('reply')],
+        listRef: { current: { scrollToIndex } } as never, isAtBottomRef: { current: true }, setFollowingTail: vi.fn(),
+        setFlashMessageId: vi.fn(), flashTimerRef: { current: null }, revealMessage: reveal, onMissing: vi.fn() })
+      return null
+    }
+    await harness.render(createNode(Pane, { ready: false }))
+    await act(async () => { quote('old') })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(reveal).not.toHaveBeenCalled()
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    await harness.render(createNode(Pane, { ready: true }))
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 0, align: 'center' })
+    expect(reveal).not.toHaveBeenCalled()
+  })
+
   it('ignores a request for another group', async () => {
     const c = await setup()
     await c.show('m41', 'g2')

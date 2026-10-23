@@ -91,7 +91,12 @@ export function useSourceMessageReveal(input: {
       window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
     }
   }, [activeChatId, enabled, ready, navigationTarget, viewportKey, reveal])
-  const currentReveal = useRef(reveal)
-  currentReveal.current = reveal
-  return useCallback((messageId: string) => currentReveal.current(messageId), [])
+  const currentTarget = useRef(input)
+  currentTarget.current = input
+  return useCallback((messageId: string) => {
+    const { activeChatId, viewportKey } = currentTarget.current
+    if (!activeChatId) return
+    askReveal(activeChatId, messageId, viewportKey)
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
+  }, [])
 }
