@@ -109,6 +109,10 @@ export const DEFAULT_GROUP_BY: ThreadGroupBy = groupPartByType({
 export type ThreadProps = {
   components?: ThreadComponents | undefined;
   autoFocus?: boolean | undefined;
+  /** Touch keyboards keep Enter for a new line; the visible send control submits. */
+  submitOnEnter?: boolean | undefined;
+  /** Block submission while a host prepares, keeping the draft editable. */
+  sendDisabled?: boolean | undefined;
 };
 
 const EMPTY_COMPONENTS: ThreadComponents = {};
@@ -164,19 +168,23 @@ const ThreadHistorySkeleton: FC = () => (
 export const Thread: FC<ThreadProps> = ({
   components = EMPTY_COMPONENTS,
   autoFocus = true,
+  submitOnEnter = true,
+  sendDisabled = false,
 }) => {
   const isEmpty = useAuiState(isNewChatView);
 
   return (
     <ThreadComponentsContext.Provider value={components}>
-      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} />
+      <ThreadRoot isEmpty={isEmpty} autoFocus={autoFocus} submitOnEnter={submitOnEnter} sendDisabled={sendDisabled} />
     </ThreadComponentsContext.Provider>
   );
 };
 
-const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
+const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; submitOnEnter: boolean; sendDisabled: boolean }> = ({
   isEmpty,
   autoFocus,
+  submitOnEnter,
+  sendDisabled,
 }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
   const mounted = useRef(false);
@@ -243,7 +251,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             {/* 咕咕加的第二个宿主插槽:输入框**正上方**(发送失败)。这一带贴底、没有高度上限,
                 待答的审批/提问卡 ❌ 放这里 —— 一张比视口高的卡会把整个视口盖住,见 ThreadTailExtras。 */}
             <ComposerAboveExtras />
-            <Composer autoFocus={autoFocus} />
+            <Composer autoFocus={autoFocus} submitOnEnter={submitOnEnter} sendDisabled={sendDisabled} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -356,12 +364,12 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+const Composer: FC<{ autoFocus: boolean; submitOnEnter: boolean; sendDisabled: boolean }> = ({ autoFocus, submitOnEnter, sendDisabled }) => {
   const c = useAuiCopy();
   // 咕咕加的:宿主可指定占位文字(新建页不是「回复」)。没给就是官方原样。
   const placeholder = useComposerPlaceholder() ?? c.placeholder;
   return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col" onSubmit={(event) => { if (sendDisabled) event.preventDefault(); }}>
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
@@ -373,21 +381,22 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
             className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
             rows={1}
             autoFocus={autoFocus}
-            enterKeyHint="send"
+            submitOnEnter={submitOnEnter && !sendDisabled}
+            enterKeyHint={submitOnEnter ? "send" : "enter"}
             aria-label={c.composerLabel}
           />
-          <ComposerAction />
+          <ComposerAction sendDisabled={sendDisabled} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
 };
 
-const ComposerAction: FC = () => {
+const ComposerAction: FC<{ sendDisabled: boolean }> = ({ sendDisabled }) => {
   const c = useAuiCopy();
   const hostStop = useComposerStop();
   const sendButton = (
-    <ComposerPrimitive.Send asChild>
+    <ComposerPrimitive.Send asChild disabled={sendDisabled}>
       <TooltipIconButton
         tooltip={c.send}
         side="bottom"

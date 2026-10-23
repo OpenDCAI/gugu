@@ -68,7 +68,7 @@ const SESSION_ROWS: SessionpageListSpec = {
 export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'session_devices',
-    description: 'List your machines — this one and the other computers and 咕咕 servers on your account — with whether each is online and when it was last seen. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
+    description: 'List your task hosts — this one and your other computers, phones with task hosting enabled, and 咕咕 servers — with online status, last seen time and task_runtime (capability and installed runtimes). Task hosting is separate from device_actions native-data grants. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
     schema: z.object({ ...listWindowShape }).strict(),
     action: 'devices',
     list: { namesOf: (row) => [row.label], catalog: true },

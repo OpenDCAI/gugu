@@ -18,6 +18,8 @@ vi.mock('textarea-caret', () => ({ default: caretMock }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
   useToast: () => ({ toast: toastMock }),
 }))
+const mobileShellState = vi.hoisted(() => ({ enabled: false }))
+vi.mock('../../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => mobileShellState.enabled }))
 let container: HTMLDivElement
 let root: Root
 async function flush() {
@@ -27,6 +29,7 @@ async function flush() {
   })
 }
 beforeEach(() => {
+  mobileShellState.enabled = false
   setLocalePreference('zh-CN')
   toastMock.mockClear()
   container = document.createElement('div')
@@ -44,6 +47,26 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('InputArea', () => {
+  it('keeps touch Enter for a new line and sends only through the visible control', async () => {
+    mobileShellState.enabled = true
+    const onSend = vi.fn<(content: string) => Promise<void>>(async () => {})
+    await act(async () => { root.render(createElement(InputArea, { onSend })) })
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, '手机输入')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    await act(async () => { textarea.dispatchEvent(enter) })
+    expect(enter.defaultPrevented).toBe(false)
+    expect(onSend).not.toHaveBeenCalled()
+    expect(textarea.value).toBe('手机输入')
+    expect(textarea.getAttribute('enterkeyhint')).toBe('enter')
+    const send = container.querySelector('button[aria-label="发送"]') as HTMLButtonElement
+    await act(async () => { send.click() })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend.mock.calls[0]?.[0]).toBe('手机输入')
+  })
   it('switches composer chrome without changing the draft or command token', async () => {
     await act(async () => {
       root.render(createElement(InputArea, { onSend: vi.fn(async () => {}) }))

@@ -8,16 +8,25 @@
 
 /* 自定义:头像在左、名字在右(照桌面「自定义」对话框)。 */
 .ta-phone-customize-who { display: flex; align-items: center; gap: 16px; }
+.ta-phone-persona-fields { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
+.ta-phone .ta-hero-avatar { height: auto; min-height: 44px; }
+.ta-phone .ta-hero-edit { right: 0; bottom: 0; background: var(--card); border: 0; box-shadow: none; }
+.ta-phone .ta-hero-name { max-width: 100%; overflow-wrap: anywhere; }
+.ta-phone .ta-phone-hero { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; column-gap: 16px; row-gap: 4px; text-align: start; }
+.ta-phone-hero > .ta-hero-avatar { grid-column: 1; grid-row: 1 / span 3; margin: 0; }
+.ta-phone-hero > .ta-hero-name,
+.ta-phone-hero > .ta-hero-since,
+.ta-phone-hero > .ta-chip { grid-column: 2; justify-self: start; }
+.ta-phone-hero > .ta-chip { min-height: var(--control-h-touch); margin-top: 4px; }
 
-.ta-phone-error { margin: 0; padding-inline: 6px; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--danger); }
+.ta-phone-error { margin: 0; font-size: var(--ta-fs-note); line-height: var(--ta-lh-note); color: var(--danger); overflow-wrap: anywhere; }
 
-/* 连接应用详情里主按钮那一格:手机上连不了,一条点不动的淡色胶囊说去哪连(❌ 摆一个点了不连的钮)。 */
+/* 无法在当前端连接时显示说明，与可点击按钮区分。 */
 .ta-phone-connect-note {
-  margin: 10px 0 0;
-  border-radius: 999px;
-  background: var(--ta-glass);
-  padding: 8px 16px;
+  margin: 8px 0 0;
+  padding: 0;
   font-size: var(--ta-fs-note);
   line-height: var(--ta-lh-note);
   color: var(--ta-muted);
+  overflow-wrap: anywhere;
 }

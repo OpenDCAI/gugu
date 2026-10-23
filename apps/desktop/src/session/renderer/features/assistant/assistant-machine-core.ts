@@ -160,7 +160,9 @@ function entryTime(entry: DirectoryEntry): string | null {
 /** 它的记忆夹:每条一个 .md(新改的在前),外加索引 MEMORY.md;夹子还没有 = 空。 */
 export async function readMemoryNotes(machine: AssistantMachine): Promise<{ notes: MemoryEntry[]; index: string | null }> {
   const entries = await listDirectory(machine, machine.paths.memoryDir);
-  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name) && e.name !== 'MEMORY.md');
+  // The recovery pointer belongs to the coordinator, not the person's memory cards.
+  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name)
+    && e.name !== 'MEMORY.md' && e.name !== 'working-context.md');
   const notes = await Promise.all(
     files.map(async (entry) => {
       const text = (await readText(machine, entry.path)) ?? '';

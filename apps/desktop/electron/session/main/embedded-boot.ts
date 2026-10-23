@@ -115,7 +115,7 @@ import {
 import {
   claimInterruptedDispatches,
 } from '@main/core/sessions/sendMessage'
-import { claimInterruptedDeferredMessages, installDeferredMessageDelivery } from '@main/core/sessions/session-deferred-messages'
+import { claimInterruptedDeferredMessages, installDeferredMessageDelivery, withDeferredMessagesBeforeAdmission } from '@main/core/sessions/session-deferred-messages'
 import { hydrateSession } from '@main/core/sessions/hydrateSession'
 import { recordLiveModelSwitch } from '@main/core/sessions/live-model-switch'
 import { readSessionOptions, SessionOptionsError } from '@main/core/session-timeline/live-options'
@@ -956,14 +956,15 @@ export async function injectEmdashPromptDetached(
   sessionId: string,
   text: string,
   /** `coalesceKey`: a still-queued prompt of the same key is replaced in place (machine.ts PromptQueued). */
-  opts?: { steerIfBusy?: boolean; coalesceKey?: string },
+  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
 ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient()
-  const result = await client.promptDetached({
+  const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
     sessionId,
-    prompt: { text, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    prompt: { text: prepared, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
-  })
+  // A replaceable queued prompt must not take ownership of unrelated App context.
+  }), Boolean(opts?.deferredDispatch || opts?.coalesceKey))
   if (result.declined) {
     return { outcome: 'declined', completion: Promise.resolve() }
   }

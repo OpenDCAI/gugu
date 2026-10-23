@@ -39,7 +39,7 @@ export interface EmdashDeliveryBridge {
   injectEmdashPromptDetached(
     sessionId: string,
     text: string,
-    opts?: { steerIfBusy?: boolean; coalesceKey?: string },
+    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
   ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
@@ -371,7 +371,7 @@ class EmdashAgentRegistry {
 
   async tryInjectSessionMessage(
     sessionId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery },
+    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<false | SessionpageDeliveryReceipt> {
     // @@@4708 session-direct 与读者路同一条 detached 受理路 —— 旗按这家声明的时机档置
     // (next-tool-call ⇒ steer 进当前 turn;未声明 ⇒ 会话机队列,回合末一次抽干),受理即返回、
@@ -381,6 +381,7 @@ class EmdashAgentRegistry {
       // session-direct 的唤醒由发送方 await(#6546 injectWithWake),这里不另踢一脚。
       ...(message.kind === 'session-direct' ? { suppressWake: true } : {}),
       ...(message.delivery ? { delivery: message.delivery } : {}),
+      ...(message.deferredDispatch ? { deferredDispatch: true } : {}),
     })
   }
 
@@ -408,7 +409,7 @@ class EmdashAgentRegistry {
   private async tryInjectInternal(
     sessionId: string,
     text: string,
-    opts?: { suppressWake?: boolean; delivery?: SessionMessageDelivery },
+    opts?: { suppressWake?: boolean; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<false | SessionpageDeliveryReceipt> {
     const bridge = this.bridge
     if (!bridge) {
@@ -461,6 +462,7 @@ class EmdashAgentRegistry {
     const injectOpts = {
       ...(steerIfBusy ? { steerIfBusy: true } : {}),
       ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),
+      ...(opts?.deferredDispatch ? { deferredDispatch: true as const } : {}),
     }
     try {
       const result = await bridge.injectEmdashPromptDetached(

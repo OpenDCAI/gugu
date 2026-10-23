@@ -3,6 +3,8 @@ import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import '@/styles/desktop-shell.css'
+import '@/mobile/phone-shell.css'
+import { usePhoneViewport } from '@/mobile/usePhoneViewport'
 import { ListChecks, MessageCircle, UserRound } from '@/lib/icons'
 import { Sidebar } from '../components/Sidebar'
 import { UpdateBanner } from '../components/UpdateBanner'
@@ -19,6 +21,7 @@ import { TAB_AVATAR_STYLE, tabItemStyle } from '@/mobile/settledTab'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
 import { useChatSelection } from '@/store/chatLine'
 import { useConversationLinkNavigation } from '../hooks/useConversationLinkNavigation'
+import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { ChatListPanel } from '../components/ChatListPanel'
 import { ChatAreaPanel } from '../components/ChatAreaPanel'
 import type { MemberProfileChatTarget } from '../components/MemberProfileCard'
@@ -379,6 +382,7 @@ function InnerLayout({
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
   useEffect(() => { hydrateSidebarTint() }, [])
   const mobile = useMobileShell()
+  const phoneViewport = usePhoneViewport(mobile)
   const chatOpenNonce = useMobileChatOpenNonce(mobile, mobilePane)
   // #2549 对话页原地创建 Agent — draft-composer state, layered on the chats tab (not a new top-level
   // tab: #2509 already made 'tasks' the cold-boot landing tab, this must not fight that). Only
@@ -410,6 +414,16 @@ function InnerLayout({
   const showCreateSurface = showAgentCreateDraft || showSessionCreate
   // #7199 手机上打开的是和个人助理那条私聊:整块换成助理 App(聊天 + 动态 / 任务 / 记忆 / 它的名字),「在看」由 App 按它摆着的那一格报。
   const phoneAssistant = usePhoneAssistant(mobile)
+  const [assistantChatRequest, setAssistantChatRequest] = useState(0)
+  const openAssistantChat = useCallback((chatId: string): boolean => {
+    const assistantChatId = mobile ? phoneAssistant.chatId : readAssistantShellBridge()?.getSnapshot()?.chatId
+    if (chatId !== assistantChatId) return false
+    setAgentCreateDraftOpen(false)
+    setActiveTab(mobile ? 'assistant' : 'tasks')
+    if (mobile) setAssistantChatRequest((n) => n + 1)
+    else appState.navigation.navigate('assistant')
+    return true
+  }, [mobile, phoneAssistant.chatId])
   const assistantOnPhone = mobile && !!phoneAssistant.chatId && activeChatId === phoneAssistant.chatId
   // 首次引导里点了「开通我的咕咕」(product spec,#7348):主界面挂上就打开咕咕那一格(开通流程自己从「住在哪」开始)。
   // 桌面 = 会话页的「助理」视图(同最左栏顶格那一下);手机 = 底栏咕咕那一格。这一格开不了时不跳,由人自己去看。
@@ -441,6 +455,7 @@ function InnerLayout({
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   /** focus:人从这个入口进来就该接着打字(与聊天页那一支同一个 reason);不给 = 不抢焦点。 */
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): boolean => {
+    if (openAssistantChat(chatId)) return true
     if (!chatsAreBlocks) return false
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
@@ -449,7 +464,7 @@ function InnerLayout({
     sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
     return true
-  }, [chatsAreBlocks, focusComposerForUserEntry, t])
+  }, [chatsAreBlocks, focusComposerForUserEntry, openAssistantChat, t])
   useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
     openChat: (chatId) => { if (openChatBlock(chatId)) return; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
     openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}) },
@@ -713,7 +728,6 @@ function InnerLayout({
 
   // #7199 手机上和个人助理的那条私聊就是底栏「助理」那一格(owner 10-16「点进去成两个 app 了」):对话列表、通知、联系人「发消息」
   // 打开它都切到那一格的聊天,❌ 在对话页里另开一屏。在画出来之前换过去,对话页 ❌ 先闪一帧那条私聊。
-  const [assistantChatRequest, setAssistantChatRequest] = useState(0)
   useEffect(() => {
     if (!mobile || !phoneAssistant.available) return
     const open = () => setActiveTab('assistant')
@@ -738,7 +752,7 @@ function InnerLayout({
   // 机器列表 / 会话列表仍留着,它们是这个 tab 的浏览层。
   // 横滑切 tab 用同一份判据(#6730):tab 栏在,点和滑都能换 tab;钻进全屏子页两样都不行 —— 横滑归子页所有,
   // 全屏创建页的出口只有左上返回箭头(#2525),横滑会把草稿连页一起掀掉。
-  const tabBarVisible = mobile && !chatListHidden && !(activeTab === 'settings' && settingsPane === 'detail') && !(activeTab === 'tasks' && (watchRoute === 'timeline' || watchRoute === 'create'))
+  const tabBarVisible = mobile && !(phoneViewport.keyboardVisible ?? phoneViewport.inputFocused) && !chatListHidden && !(activeTab === 'settings' && settingsPane === 'detail') && !(activeTab === 'tasks' && (watchRoute === 'timeline' || watchRoute === 'create'))
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
   // 「我的」连 section 一起复位:SettingsPanel 按 settingsSection 换 key,离开时就回到 account,
@@ -758,6 +772,7 @@ function InnerLayout({
       const { chatId } = (event as CustomEvent<{ chatId?: unknown }>).detail ?? {}
       if (typeof chatId !== 'string' || chatId.length === 0) return
       if (openChatBlock(chatId, 'notification-open')) return
+
       setActiveChatId(chatId)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -767,6 +782,7 @@ function InnerLayout({
     window.addEventListener(UI_EVENTS.notificationClicked, handler)
     return () => window.removeEventListener(UI_EVENTS.notificationClicked, handler)
   }, [focusComposerForUserEntry, openChatBlock, setActiveChatId])
+
 
   // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
   // line with the topic as the split), and what was asked of it is left with
@@ -881,6 +897,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
     }
   }, [focusComposerForUserEntry, openChatBlock, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
+
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
   // 从前靠 agent 运行态广播代劳;各入口内联的同名调用保留,免掉一帧闪烁。
@@ -1005,6 +1022,7 @@ function InnerLayout({
         void refreshChats()
         return
       }
+
       setActiveChatId(existing.id)
       setAgentCreateDraftOpen(false)
       setActiveTab('chats')
@@ -1264,12 +1282,16 @@ function InnerLayout({
   return (
     <div
       ref={shellRootRef}
+      data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
       style={{
         display: 'flex',
         width: '100vw',
-        height: mobile ? '100dvh' : '100vh',
+        height: mobile ? phoneViewport.viewportHeight ?? '100dvh' : '100vh',
+        position: mobile ? 'fixed' : undefined,
+        top: mobile ? phoneViewport.viewportOffsetTop : undefined,
+        left: mobile ? 0 : undefined,
         overflow: 'hidden',
         background: mobile ? 'var(--bg-primary)' : 'var(--shell-bg)',
         // @@@mobile-safe-area-top (#1227) — Android 15+ (targetSdk 36) 强制 edge-to-edge：WebView

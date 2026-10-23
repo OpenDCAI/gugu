@@ -97,7 +97,7 @@ export interface SessionpageDeliveryTarget {
    */
   tryInjectSessionMessage(
     sessionId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery },
+    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<boolean | SessionpageTurnReceipt>
 }
 
@@ -308,7 +308,7 @@ export class SessionpageLocalDeliveryRouter {
   /** Session-keyed injection (`session:` direct messages and the session-message drain). */
   async tryInjectSessionMessage(
     sessionId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery },
+    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<boolean | SessionpageTurnReceipt> {
     return this.injectIntoSession(sessionId, message, { route: 'router.tryInjectSessionMessage' })
   }
@@ -337,7 +337,7 @@ export class SessionpageLocalDeliveryRouter {
    */
   private async injectIntoSession(
     sessionId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery },
+    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
     log: { route: string; agentUserId?: string },
   ): Promise<boolean | SessionpageTurnReceipt> {
     const owner = await this.deliveryTargetForSession(sessionId)

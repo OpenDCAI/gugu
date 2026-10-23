@@ -67,6 +67,7 @@ export function AssistantIntro({
           className="rounded-full ta-onb-primary"
           onClick={onPrimary}
           disabled={busy}
+          aria-busy={busy}
           data-testid="assistant-intro-primary"
         >
           {primaryLabel}

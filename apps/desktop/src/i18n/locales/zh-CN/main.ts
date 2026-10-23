@@ -96,7 +96,7 @@ export default {
       "title": "项目",
       "loading": "正在读取项目…",
       "empty": "还没有项目",
-      "emptyHint": "在你的电脑上开始的会话会出现在这里。",
+      "emptyHint": "在各台机器上创建的 Agent 会出现在这里。",
       "noMachines": "这个账号名下还没有机器。在电脑上装咕咕并登录同一账号，它上面的项目就会出现在这里。"
     },
     "machines": {
@@ -113,6 +113,7 @@ export default {
       "ungrouped": "未归入项目",
       "menu": "更多",
       "cancel": "取消",
+      "stop": "停止当前任务",
       "pin": "置顶",
       "unpin": "取消置顶",
       "pinned": "置顶",
@@ -132,6 +133,8 @@ export default {
       "archive": "归档"
     },
     "offline": {
+      "phoneTitle": "手机未连接 Agent 宿主",
+      "phoneBody": "会话记录保存在这台手机上。重新连接并启用 Agent 后，可以查看记录、继续任务。",
       "title": "机器离线，打不开时间线",
       "body": "时间线要从这台机器上实时读取，它不在线时读不到。把它开机并登录同一账号后再回来。",
       "lastSeen": "最后在线：{{time}}"
@@ -209,7 +212,7 @@ export default {
       "title": "新建任务",
       "pickMachine": "在哪台机器上",
       "welcome": "在 {{machine}} 上开始新任务",
-      "welcomeHint": "选好项目和引擎，第一句话发出去就开始。",
+      "welcomeHint": "选好运行方式，发第一句话开始。",
       "placeholder": "第一句话…",
       "project": "项目",
       "harness": "Harness",

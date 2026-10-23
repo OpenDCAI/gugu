@@ -54,7 +54,6 @@ export function ListRow({
   ref,
   ...rest
 }: ListRowProps) {
-  const secondLine = subtitle !== undefined || trailing !== undefined
   return (
     <div
       {...rest}
@@ -67,6 +66,16 @@ export function ListRow({
       data-mobile={mobile || undefined}
       className={cn('gg-list-row gg-row', className)}
     >
+      <ListRowContent leading={leading} title={title} accessory={accessory} meta={meta} subtitle={subtitle} trailing={trailing} />
+    </div>
+  )
+}
+
+/** The same entity-row geometry inside a native Button, without nesting interactive roots. */
+export function ListRowContent({ leading, title, accessory, meta, subtitle, trailing }: Pick<ListRowProps, 'leading' | 'title' | 'accessory' | 'meta' | 'subtitle' | 'trailing'>) {
+  const secondLine = subtitle !== undefined || trailing !== undefined
+  return (
+    <>
       {leading ? <div className="gg-list-row-leading">{leading}</div> : null}
       <div className="gg-list-row-body">
         <div className="gg-list-row-line">
@@ -81,6 +90,6 @@ export function ListRow({
           </div>
         ) : null}
       </div>
-    </div>
+    </>
   )
 }

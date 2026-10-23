@@ -13,6 +13,7 @@ import { finishFirstRun, readFirstRunProgress, requestAssistantSetupHandoff, wri
 import { useAuth, type AuthUser } from '../../store/auth'
 import { rendererLogger } from '../../lib/log'
 import '../../i18n/registerMainCatalog'
+import { PhoneAgentSetupGate } from '../../mobile/local-agent/PhoneAgentSetupGate'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
@@ -37,6 +38,7 @@ type GateState =
  * 走完(或老账号)= 直接画 children;读不到进度 = 如实说 + 重试,❌ 当新账号重走,❌ 当走完放行。
  */
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
+  if (platform.kind !== 'electron') return <FirstRunFlow {...props} />
   return <QueryClientProvider client={queryClient}><FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider></QueryClientProvider>
 }
 
@@ -62,7 +64,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
 
   useEffect(load, [load])
 
-  if (state.kind === 'done') return <>{children}</>
+  if (state.kind === 'done') return <PhoneAgentSetupGate key={user.id} ownerId={user.id}>{children}</PhoneAgentSetupGate>
   if (state.kind === 'loading') return <FullScreenLoader />
   return (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>

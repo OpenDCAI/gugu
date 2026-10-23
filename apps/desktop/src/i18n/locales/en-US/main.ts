@@ -98,7 +98,7 @@ export default {
       "title": "Projects",
       "loading": "Loading projects…",
       "empty": "No projects yet",
-      "emptyHint": "Sessions you start on your computers show up here.",
+      "emptyHint": "Agents created on your machines show up here.",
       "noMachines": "No machines under this account yet. Install Gugu on a computer and sign in with the same account — its projects will show up here."
     },
     "machines": {
@@ -116,6 +116,7 @@ export default {
       "ungrouped": "No project",
       "menu": "More",
       "cancel": "Cancel",
+      "stop": "Stop current task",
       "pin": "Pin",
       "unpin": "Unpin",
       "pinned": "Pinned",
@@ -138,6 +139,8 @@ export default {
       "archive": "Archive"
     },
     "offline": {
+      "phoneTitle": "Phone Agent host disconnected",
+      "phoneBody": "Task records stay on this phone. Reconnect and enable its Agent host to read the records and continue.",
       "title": "Machine offline — the timeline cannot be opened",
       "body": "The timeline is read live from this machine, so it is unreachable while the machine is offline. Turn it on, sign in with the same account, then come back.",
       "lastSeen": "Last seen: {{time}}"
@@ -215,7 +218,7 @@ export default {
       "title": "New task",
       "pickMachine": "On which machine",
       "welcome": "Start a new task on {{machine}}",
-      "welcomeHint": "Pick a project and a harness, then send the first message to begin.",
+      "welcomeHint": "Choose how to run, then send the first message to begin.",
       "placeholder": "First message…",
       "project": "Project",
       "harness": "Harness",

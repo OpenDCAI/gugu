@@ -17,6 +17,9 @@ import { joinRequestIdentityIds } from '../lib/groupAgentJoin'
 import { friendRequestEntries } from '../lib/requestHistory'
 import { planBirthLooks, type AgentLook } from '../components/agentAvatar/look'
 import { recordContactsRender } from '../lib/perfCounters'
+import { isMyAssistant } from '../lib/myAssistant'
+import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
+import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
 type RevisionRefreshOptions = { throwOnError?: boolean }
@@ -365,18 +368,24 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   // #1228: update an owned agent's name + bio together (真接 bio — was dropped before).
   const updateAgentProfile = useCallback(async (agentId: string, fields: { name?: string; bio?: string; avatar?: string | null }) => {
+    const ownerId = user?.id ?? null
+    const personal = isMyAssistant(ownerId, agentId)
     const updated = await contactsService.updateOwnedAgentProfile(agentId, {
       ...(fields.name !== undefined ? { display_name: fields.name } : {}),
       ...(fields.bio !== undefined ? { bio: fields.bio } : {}),
       ...(fields.avatar !== undefined ? { avatar: fields.avatar } : {}),
     })
+    if (personal) await reportAssistantAppChange(updated.device_id ? { rpc: machineRpc(updated.device_id) } : null, agentId, {
+      resource: 'assistant', operation: 'edited', id: agentId, section: fields.avatar !== undefined ? 'appearance' : 'profile',
+      ...(fields.name !== undefined ? { after: { name: updated.display_name } } : {}),
+    }, ownerId)
     await applyAgentProfileUpdate(updated)
     // @@@share-card-rename 云端 identity.users.display_name 是所有显示面的真源。本机花名册仍同步运行时
     // 所需的 agent 元数据，但会话页分享/身份卡按 agentUserId 回读云端名字，不从这格渲染。
     // 只在名字真的改了时才动本机(改 bio / 头像不该碰花名册)。
     if (fields.name !== undefined) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
     await refreshChats()
-  }, [applyAgentProfileUpdate, refreshChats])
+  }, [applyAgentProfileUpdate, refreshChats, user?.id])
 
   // Every name entry uses the profile path, including its canonical identity and local roster publication.
   const renameAgent = useCallback(async (agentId: string, name: string) => {

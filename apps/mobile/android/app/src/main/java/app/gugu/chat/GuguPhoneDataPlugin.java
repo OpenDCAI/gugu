@@ -41,6 +41,8 @@ import java.util.concurrent.Executors;
 public class GuguPhoneDataPlugin extends Plugin {
     private static final int CHUNK_BYTES = 96 * 1024;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    void closeReadExecutor() { io.shutdownNow(); }
+    @Override protected void handleOnDestroy() { closeReadExecutor(); }
 
     private boolean has(String permission) {
         return ContextCompat.checkSelfPermission(getContext(), permission) == PackageManager.PERMISSION_GRANTED;

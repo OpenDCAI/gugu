@@ -54,7 +54,8 @@ export type AssistantShellSnapshot = {
 }
 
 /** 壳往会话页里画的那几格(在 lib/shellSlots.ts 里登记为 `assistant:<格>`)。新增一格 = 这里加一个名字 + AssistantShellHost 里配一个组件。 */
-export type AssistantShellSlot = 'onboarding' | 'chat' | 'task-chat' | 'devices' | 'connectors' | 'connectors-device' | 'connectors-other' | 'settings'
+export type AssistantShellSlot = 'onboarding' | 'chat' | 'file-preview' | 'task-chat' | 'devices' | 'connectors' | 'connectors-device' | 'connectors-other' | 'settings'
+
 // 连接应用复用全局设置的同一个组件,在助理资料页直接展开;聊天工具与状态仍走设置。
 // ⚠ 'connectors-device' / 'connectors-other' 只为「助理安家」的 assistant-capabilities.tsx(安好家之后的「连应用」一步,设置重做把它删了)暂时编得过,
 // 总分支把两边对齐时一起去掉(那一步该用设置里的连接应用)。
@@ -85,6 +86,9 @@ export type AssistantVoiceNoteHandler = {
 export interface AssistantShellBridge {
   getSnapshot(): AssistantShellSnapshot | null
   subscribe(listener: () => void): () => void
+  filePreviewOpen(): boolean
+  setFilePreviewOpen(open: boolean): void
+
   /** 会话页:把这句话(和要带上的文件,如「分析健康报告」选的那份)填进和个人助理那条私聊的输入框(只填不发,人看过再发)。 */
   fillChatDraft(text: string, files?: File[]): void
   /** 壳:取走还没填进去的那句(那条私聊就绪时取);没有 = null。 */
@@ -107,6 +111,7 @@ export const ASSISTANT_SHELL_BRIDGE_KEY = '__GUGU_ASSISTANT_SHELL__' as const
 type BridgeWindow = Window & { [ASSISTANT_SHELL_BRIDGE_KEY]?: AssistantShellBridge }
 
 let current: AssistantShellSnapshot | null = null
+let filePreviewOpen = false
 const listeners = new Set<() => void>()
 let pendingDraft: AssistantChatDraft | null = null
 let actions: AssistantShellActions | null = null
@@ -115,6 +120,12 @@ let voiceNoteHandler: AssistantVoiceNoteHandler | null = null
 const voiceNoteListeners = new Set<() => void>()
 
 const bridge: AssistantShellBridge = {
+  filePreviewOpen: () => filePreviewOpen,
+  setFilePreviewOpen: (open) => {
+    if (filePreviewOpen === open) return
+    filePreviewOpen = open
+    for (const listener of listeners) listener()
+  },
   getSnapshot: () => current,
   subscribe: (listener) => {
     listeners.add(listener)

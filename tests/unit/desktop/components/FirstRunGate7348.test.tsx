@@ -13,6 +13,13 @@ const io = vi.hoisted(() => ({
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => io)
 const auth = vi.hoisted(() => ({ updateNickname: vi.fn(async () => ({ success: true })), updateAvatar: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/auth', () => ({ authService: auth }))
+const installer = vi.hoisted(() => ({ mounted: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/components/firstRun/FirstRunInstallProvider', () => ({
+  FirstRunInstallProvider: ({ children }: { children: import('react').ReactNode }) => {
+    installer.mounted()
+    return children
+  },
+}))
 
 const { FirstRunGate } = await import('../../../../apps/desktop/src/components/firstRun/FirstRunGate')
 
@@ -32,6 +39,17 @@ afterEach(() => {
 })
 
 describe('first run gate (#7348)', () => {
+  it('does not mount the desktop harness installer on web or phone', async () => {
+    io.readFirstRunProgress.mockResolvedValue({ stage: 'done', occupation: null })
+    const harness = await renderGate()
+    try {
+      await waitForCondition(() => !!byTestId(harness.container, 'main-product'), 'phone-capable product rendered')
+      expect(installer.mounted).not.toHaveBeenCalled()
+    } finally {
+      harness.cleanup()
+    }
+  })
+
   it('finished / existing accounts go straight to the product', async () => {
     io.readFirstRunProgress.mockResolvedValue({ stage: 'done', occupation: null })
     const harness = await renderGate()

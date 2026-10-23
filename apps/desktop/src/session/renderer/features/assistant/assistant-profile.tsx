@@ -26,7 +26,7 @@ function openSettings(section: ActiveSection) {
 
 export const AssistantProfilePage = observer(function AssistantProfilePage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
-  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} machine={context.machine} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={context.askInChat} />;
+  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={context.askInChat} />;
   if (sub === 'settings') return <ShellPage slot="settings" title="nav.settings" />;
   if (sub === 'devices') return <ShellPage slot="devices" title="devices.title" />;
   if (sub === 'connectors') return <ShellPage slot="connectors" title="connectors.title" />;
@@ -109,8 +109,8 @@ const ProfileHome = observer(function ProfileHome({ context, openCustomize = fal
         <ShellSlot name="connectors" className="ta-skin ta-profile-connectors" />
       </AssistantSection>
       <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
-        <AssistantLibraryCard machine={context.machine} kind="capabilities" onOpen={() => context.go({ tab: 'profile', sub: 'library:capabilities' })} />
-        <AssistantLibraryCard machine={context.machine} kind="devices" onOpen={() => context.go({ tab: 'profile', sub: 'library:devices' })} />
+        <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="capabilities" onOpen={() => context.go({ tab: 'profile', sub: 'library:capabilities' })} />
+        <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="devices" onOpen={() => context.go({ tab: 'profile', sub: 'library:devices' })} />
         <AssistantRow
           title={t('channels.title')}
           detail={t('channels.note', { name: assistant.display_name })}

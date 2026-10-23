@@ -214,6 +214,7 @@ export default {
       "healthOldApp": "这个版本的咕咕还读不了健康数据，更新后再试",
       "healthPartial": "已给 {{granted}}/{{total}} 类",
       "healthManage": "在 Health Connect 里改",
+      "healthForegroundOnly": "这个系统版本只支持在咕咕打开时读取健康数据。",
       "healthBackgroundHint": "咕咕在后台时也要读：在 Health Connect 里打开「在后台读取」",
       "restrictedHint": "装的是安装包、系统里的开关点不动时：到系统「应用信息」右上角菜单，选「允许受限制的设置」。",
       "settingsUnreachable": "跳不到系统设置。请自己打开系统设置，找到咕咕，把「{{name}}」打开。",

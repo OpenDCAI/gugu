@@ -104,8 +104,10 @@ const NAV_HEADER_STYLE: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad
 // #6753 桌面上还要让开浮在左上角的列表栏开关(--list-toggle-lane;Windows 的开关在标题栏行,那里是 0)。
 const NAV_HEADER_STYLE_DESKTOP: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad-x), var(--titlebar-list-header-inset), var(--list-toggle-lane))' }
 const LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: '4px 8px 16px' }
+const MOBILE_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--spacing-xs) var(--pane-pad-x) max(var(--spacing-xl), env(safe-area-inset-bottom))' }
 // 侧栏那一份不自己滚:滚的是会话页侧栏那一个滚动容器(置顶 / 项目 / 对话共用)。左右与侧栏的行同一道留白。
 const SIDEBAR_LIST_STYLE: React.CSSProperties = { padding: '0 12px 8px' }
+
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
 const EMPTY_STATE_WRAP_STYLE: React.CSSProperties = { padding: '40px 16px', display: 'flex', justifyContent: 'center' }
 const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)' }
@@ -905,7 +907,7 @@ export function ChatListPanel({
     sessionPage.openChat(chatId, false)
   }
   const list = (
-    <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={inSidebar ? SIDEBAR_LIST_STYLE : LIST_SCROLL_STYLE}>
+    <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={inSidebar ? SIDEBAR_LIST_STYLE : mobile ? MOBILE_LIST_SCROLL_STYLE : LIST_SCROLL_STYLE}>
       {/* #6158 列表行不再按 tab 卸载:聊天面在别的 tab 上由 MainLayout 隐藏而非卸载,行留着滚动位置才在。 */}
       {loadingChats && (
         <div style={LOADING_STATE_STYLE}>
@@ -967,6 +969,7 @@ export function ChatListPanel({
       <PaneHeader
         title={tMain('shell.chats')}
         mobile={mobile}
+        titleLevel={mobile ? 'page' : undefined}
         style={mobile ? NAV_HEADER_STYLE : NAV_HEADER_STYLE_DESKTOP}
         actions={
           <>
@@ -1051,6 +1054,7 @@ export function ChatListPanel({
 
       {list}
       {dialogs}
+
     </Pane>
   )
 }

@@ -1,0 +1,226 @@
+/* Phone task conversations share the product's type and color tokens. The
+   reading column stays open; containment is reserved for an input or a decision. */
+.gg-aw > .gg-pane-header[data-slot='pane-header'] {
+  border-bottom: 0;
+}
+
+.gg-aw .gg-aw-body[data-fill='true'] {
+  padding-inline: 0;
+  padding-bottom: 0;
+}
+
+.gg-aw .gg-aw-thread-host .aui-thread-root {
+  min-height: 0;
+  min-width: 0;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_thread-viewport'] {
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: auto;
+  scroll-padding-block: var(--spacing-lg);
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_thread-viewport'] > div {
+  padding: var(--spacing-lg) var(--spacing-sm) 0;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_message-group'] {
+  gap: var(--spacing-xl);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_assistant-message-content'] {
+  padding-inline: var(--spacing-sm);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_user-message-root'] {
+  grid-template-columns: minmax(var(--spacing-xl), 1fr) auto;
+  padding-inline: var(--spacing-sm);
+}
+
+.gg-aw .gg-aw-thread-host .aui-user-message-content {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-bubble);
+  background: var(--muted);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  text-align: start;
+  user-select: text;
+}
+
+.gg-aw .gg-aw-thread-host .aui-thread-viewport-footer {
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) 0 max(var(--spacing-sm), env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_composer-shell'] {
+  gap: 0;
+  padding: var(--spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-thread);
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='aui_composer-shell'][data-dragging='true'] {
+  border-color: var(--live);
+  border-style: dashed;
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-input {
+  min-height: var(--control-h-touch);
+  max-height: min(30dvh, 192px);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  scroll-padding-block: var(--spacing-sm);
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper {
+  min-width: 0;
+  gap: var(--spacing-xs);
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper > div {
+  gap: 0;
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper button {
+  min-width: var(--control-h-touch);
+  min-height: var(--control-h-touch);
+  flex-shrink: 0;
+  touch-action: manipulation;
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-send,
+.gg-aw .gg-aw-thread-host .aui-composer-cancel {
+  width: var(--control-h-touch);
+  height: var(--control-h-touch);
+  border-radius: var(--radius-capsule);
+}
+
+.gg-aw .gg-aw-thread-host .aui-composer-send-icon,
+.gg-aw .gg-aw-thread-host .aui-composer-cancel-icon {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
+
+.gg-aw .gg-aw-thread-host .gg-aw-pill {
+  max-width: min(44vw, 200px);
+  min-height: var(--control-h-touch);
+  padding-inline: var(--spacing-xs);
+  border: 0;
+  background: transparent;
+  font-size: var(--font-caption);
+  font-weight: var(--font-weight-regular);
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='tool-group-trigger'],
+.gg-aw .gg-aw-thread-host [data-slot='tool-fallback-trigger'] {
+  min-height: var(--control-h-touch);
+  padding-block: var(--spacing-sm);
+  touch-action: manipulation;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='tool-group-root'] {
+  padding-block: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.gg-aw .gg-aw-thread-host [data-slot='tool-group-trigger-label'],
+.gg-aw .gg-aw-thread-host [data-slot='tool-fallback-trigger-label'] {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+
+.gg-aw .gg-aw-thread-host .aui-thread-scroll-to-bottom {
+  min-width: var(--control-h-touch);
+  min-height: var(--control-h-touch);
+  touch-action: manipulation;
+}
+
+.gg-aw .gg-aw-thread-host .gg-aw-card {
+  border: 0;
+  background: var(--warn-tint);
+}
+
+.gg-aw .gg-aw-thread-host .gg-aw-card[data-state='resolved'],
+.gg-aw .gg-aw-thread-host .gg-aw-card[data-state='cancelled'] {
+  background: var(--muted);
+}
+
+.gg-aw .gg-aw-thread-host .gg-aw-action-error {
+  border-radius: var(--radius-surface);
+}
+
+.gg-aw .gg-aw-create-intro {
+  margin-block: auto;
+  padding: var(--spacing-2xl) var(--spacing-sm);
+}
+
+/* A directory is a set of conversations, not a table of devices. */
+.gg-aw .gg-aw-list {
+  gap: var(--spacing-xs);
+  padding-block: var(--spacing-sm) var(--spacing-md);
+}
+
+.gg-aw .gg-aw-list > [data-slot='section-label'] {
+  padding-inline: var(--spacing-sm);
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.gg-aw .gg-aw-item-wrap {
+  border-radius: var(--radius-surface);
+}
+
+.gg-aw .gg-aw-item {
+  min-height: 64px;
+  padding-block: var(--spacing-sm);
+  border-radius: var(--radius-surface);
+  -webkit-touch-callout: none;
+}
+
+.gg-aw .gg-aw-item .gg-list-row-title {
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  font-weight: var(--font-weight-medium);
+}
+
+.gg-aw .gg-aw-item-wrap[data-depth]:not([data-depth='0']) .gg-aw-item {
+  min-height: 56px;
+}
+
+.gg-aw .gg-aw-note {
+  border: 0;
+  background: var(--muted);
+}
+
+.gg-aw .gg-aw-note-title {
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-medium);
+}
+
+.gg-aw .gg-aw-offline {
+  border: 0;
+  border-radius: var(--radius-surface);
+  background: var(--muted);
+}
+
+.gg-aw .gg-aw-placeholder {
+  gap: var(--spacing-sm);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-aw .gg-aw-thread-host [data-slot='aui_thread-viewport'] { scroll-behavior: auto; }
+}

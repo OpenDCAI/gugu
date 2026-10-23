@@ -6,10 +6,11 @@ import { getSessionMessageRouter } from './session-message-router';
 
 /**
  * 附带(defer:推迟到对方下次进入运行中时再送;App 的 `messageAgent(…, { defer: true })`,owner 10-09「直接用"进入运行中"这个事件不就得了」):一次普通的 session-direct 发送,
- * 推迟到目标会话**进入运行中**那一刻才发。
+ * ACP 通信输入在准入前把待附带消息拼入同一次请求；已在工作的会话与终端仍由 working 边沿投递。
  *
  * - 唯一的原文是 `messages` 表里的一行:content = 发送时拼好的整个信封,metadata `state: 'deferred'`(待附带)、
  *   `defer: true`、按发信方加过前缀的 `key`。会话删了它随外键级联走;归档的会话不跑,所以不发,取消归档、再跑起来照发。
+ * - ACP 首次请求前先认领，收到该请求的准入收据才确认；不确定失败不自动重放。
  * - 进入运行中 = 状态写入者的一次 `非 working → working`(ACP 的回合、终端的 CLI 钩子、宿主适配器都写进这一个写入者)。
  *   那一刻按普通发送投出(默认:忙时插进当前这一轮;插不进的家排到这一轮之后)。
  * - 一行一行:`deferred → dispatching`(同一笔条件更新,同一行认领不了两次)→ 投 → `accepted`;没投进去退回
@@ -20,6 +21,7 @@ import { getSessionMessageRouter } from './session-message-router';
 type DeferredMetadata = { kind: 'session-direct'; state: string; defer: true; key?: string; nativeReceiptId?: string };
 
 const flushes = new Map<string, Promise<void>>();
+const admissions = new Map<string, Promise<void>>();
 
 function metadataOf(raw: string | null): DeferredMetadata | null {
   if (!raw) return null;
@@ -29,6 +31,10 @@ function metadataOf(raw: string | null): DeferredMetadata | null {
   } catch {
     return null;
   }
+}
+
+function rejectedBeforeAdmission(error: unknown): boolean {
+  return (error as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
 }
 
 /** 存一条待附带。同一会话里同一个(已加前缀的)key 还在等的那条被它替换:总是留最新的一条。 */
@@ -74,6 +80,7 @@ function setState(id: string, from: string, to: string, extra: Partial<DeferredM
 async function flushNow(sessionId: string): Promise<boolean> {
   const router = getSessionMessageRouter();
   if (!router) return false;
+  const [session] = db.select({ runtime: sessions.runtime }).from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
   const pending = db.select({ id: messages.id, content: messages.content })
     .from(messages)
     .where(and(
@@ -86,7 +93,8 @@ async function flushNow(sessionId: string): Promise<boolean> {
   for (const row of pending) {
     if (!setState(row.id, 'deferred', 'dispatching')) continue;
     try {
-      const receipt = await router(sessionId, { id: row.id, text: row.content, kind: 'session-direct' });
+      const receipt = await router(sessionId, { id: row.id, text: row.content, kind: 'session-direct',
+        ...(session?.runtime === 'acp' ? { deferredDispatch: true as const } : {}) });
       if (receipt.status === 'accepted') {
         setState(row.id, 'dispatching', 'accepted', receipt.nativeReceiptId ? { nativeReceiptId: receipt.nativeReceiptId } : {});
         continue;
@@ -95,8 +103,9 @@ async function flushNow(sessionId: string): Promise<boolean> {
       log.info('deferred message not delivered on entering working; kept for the next time', { sessionId, messageId: row.id, reason: receipt.reason ?? null });
       return true;
     } catch (error) {
-      setState(row.id, 'dispatching', 'deferred');
-      log.warn('deferred message delivery failed; kept for the next time', { sessionId, messageId: row.id, error: String(error) });
+      const state = rejectedBeforeAdmission(error) ? 'deferred' : 'outcome-unknown';
+      setState(row.id, 'dispatching', state);
+      log.warn('deferred message delivery failed', { sessionId, messageId: row.id, state, error: String(error) });
       return true;
     }
   }
@@ -124,6 +133,46 @@ export function flushDeferredMessages(sessionId: string, settled?: (keptBack: bo
 /** 这条会话此刻在冲的那一次(连同排在它后面的)冲完;没有在冲的就立刻好。只读,不触发任何投递。 */
 export function deferredMessagesSettled(sessionId: string): Promise<void> {
   return flushes.get(sessionId) ?? Promise.resolve();
+}
+
+/**
+ * ACP communication admission: attach waiting App messages before this request reaches the model.
+ * The working edge is too late for a first answer (it can only steer at the next tool call).
+ * The queue remains the existing messages rows: claim before admission, acknowledge only its receipt.
+ * A working-edge dispatch bypasses this wrapper, otherwise waiting for that flush would wait on itself.
+ */
+export async function withDeferredMessagesBeforeAdmission<T extends { declined: boolean; requestId: string }>(
+  sessionId: string, text: string, admit: (text: string) => Promise<T>, skipClaim = false,
+): Promise<T> {
+  if (skipClaim) return admit(text);
+  const previous = admissions.get(sessionId) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(async () => {
+    await deferredMessagesSettled(sessionId);
+    const claimed = db.transaction(() => {
+      const waiting = db.select({ id: messages.id, content: messages.content }).from(messages).where(and(
+        eq(messages.sessionId, sessionId), sql`json_extract(${messages.metadata}, '$.defer') = 1`,
+        sql`json_extract(${messages.metadata}, '$.state') = 'deferred'`,
+      )).orderBy(asc(messages.timestamp), asc(sql`rowid`)).all();
+      return waiting.filter(row => setState(row.id, 'deferred', 'dispatching'));
+    });
+    const prompt = [...claimed.map(row => row.content), text].join('\n\n');
+    try {
+      const receipt = await admit(prompt);
+      if (!receipt.declined && !receipt.requestId) throw new Error('ACP admission returned no receipt for deferred context');
+      for (const row of claimed) setState(row.id, 'dispatching', receipt.declined ? 'deferred' : 'accepted',
+        receipt.declined ? {} : { nativeReceiptId: receipt.requestId });
+      return receipt;
+    } catch (error) {
+      const rejected = rejectedBeforeAdmission(error);
+      for (const row of claimed) setState(row.id, 'dispatching', rejected ? 'deferred' : 'outcome-unknown');
+      if (claimed.length) log.warn('deferred context admission failed', { sessionId, count: claimed.length, state: rejected ? 'deferred' : 'outcome-unknown' });
+      throw error;
+    }
+  });
+  const tracked = current.then(() => undefined, () => undefined);
+  admissions.set(sessionId, tracked);
+  void tracked.finally(() => { if (admissions.get(sessionId) === tracked) admissions.delete(sessionId); });
+  return current;
 }
 
 /** 这条会话此刻在不在运行中(写入者落库的那一格)。 */

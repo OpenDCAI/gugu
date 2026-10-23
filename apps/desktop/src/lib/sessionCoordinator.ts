@@ -4,7 +4,8 @@ import { hydrateIdentityAuthUser } from './auth'
 import { setRejectedAccessTokenRecovery } from './authBoundedFetch'
 import { abortAuthSessionBoundary, keepAuthSessionBoundary, resetAuthSessionBoundary } from './authSessionLoss'
 import { publishRendererSession } from './sessionPublication'
-import { mainAuthSessionStorage, supabase } from './supabase'
+import { MAIN_AUTH_STORAGE_KEY, mainAuthSessionStorage, supabase } from './supabase'
+import { phoneHostAuthAvailable, phoneHostGetSession, phoneHostRefreshSession, phoneHostRestoreSession, phoneHostSignOut, setPhoneHostAuthHandoffBarrier } from './phoneHostAuth'
 import { platform } from '../platform'
 import type { AuthUser } from '../store/auth'
 
@@ -16,7 +17,7 @@ export interface SessionCoordinatorDeps {
   refreshSession: (session: { refresh_token: string }) => Promise<{ data: { session: Session | null }; error: unknown }>
   restoreSession: (session: { access_token: string; refresh_token: string }) => Promise<{ data: { session: Session | null }; error: unknown }>
   onAuthStateChange: (listener: (event: string, session: Session | null) => void) => { data: { subscription: { unsubscribe: () => void } } }
-  signOut: () => Promise<{ error: unknown }>
+  signOut: () => Promise<{ error: unknown; signedOutSession?: Session }>
   hydrateUser: (user: User, signal: AbortSignal) => Promise<AuthUser | null>
   publishSession: (event: string, session: Session | null) => void
   writeMirror: (session: Session) => Promise<void>
@@ -121,10 +122,18 @@ export class SessionCoordinator {
   private mirrorVersion = 0
   private mirrorTail: Promise<void> = Promise.resolve()
   private active = false
+  private readonly authHandoffs = new Set<Promise<void>>()
 
   constructor(private readonly deps: SessionCoordinatorDeps) {}
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener) }
   getSnapshot = (): SessionCoordinatorSnapshot => this.snapshot
+  captureAuthHandoff = (): Promise<unknown> => Promise.all([...this.authHandoffs])
+  private beginAuthHandoff(): () => void {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    this.authHandoffs.add(pending)
+    return () => { this.authHandoffs.delete(pending); finish() }
+  }
   start(): () => void {
     if (this.active) return () => this.stop()
     this.active = true
@@ -189,7 +198,11 @@ export class SessionCoordinator {
     return this.acceptSession('SIGNED_IN', session, true)
   }
 
-  async logout(): Promise<{ success: boolean }> {
+  logout(): Promise<{ success: boolean }> {
+    const release = this.beginAuthHandoff()
+    return this.performLogout().finally(release)
+  }
+  private async performLogout(): Promise<{ success: boolean }> {
     const session = this.snapshot.session
     if (!session) return { success: true }
     const work = sessionWork(this.nextGeneration(), session)
@@ -207,7 +220,8 @@ export class SessionCoordinator {
     const signOutCall = this.deps.signOut()
     this.signOutRequested = work
     void signOutCall.then(() => {}, () => { if (this.signOutRequested === work) this.signOutRequested = null })
-    const { error } = await withAuthBudget('signOut', signOutCall).catch((error) => ({ error }))
+    const result = await withAuthBudget('signOut', signOutCall).catch((error) => ({ error, signedOutSession: undefined }))
+    const { error, signedOutSession } = result
     if (error && !(error instanceof AuthCallTimeoutError) && this.signOutRequested === work) this.signOutRequested = null
     if (this.logoutWork === work) this.logoutWork = null
     if (!this.workIsCurrent(work)) return { success: false }
@@ -218,7 +232,8 @@ export class SessionCoordinator {
       this.degrade(errorOf(error, 'Logout failed'))
       throw errorOf(error, 'Logout failed')
     }
-    if (!await this.transitionWithoutSession('anonymous', 'SIGNED_OUT', session))
+    if (signedOutSession && signedOutSession.user.id !== session.user.id) throw new Error('Signed out session owner changed')
+    if (!await this.transitionWithoutSession('anonymous', 'SIGNED_OUT', signedOutSession ?? session))
       throw this.snapshot.error ?? new Error('Logout cleanup failed')
     return { success: true }
   }
@@ -252,6 +267,7 @@ export class SessionCoordinator {
     if (this.refreshFlight) return this.refreshFlight
     const session = this.snapshot.session
     if (!session) return Promise.resolve()
+    const release = this.beginAuthHandoff()
     const work = sessionWork(this.generation, session)
     const flight = withAuthBudget('refreshSession', this.deps.refreshSession({ refresh_token: session.refresh_token })).then(async ({ data, error }) => {
       if (!this.workIsCurrent(work)) return
@@ -264,25 +280,26 @@ export class SessionCoordinator {
       this.scheduleRetry('refresh', work, () => this.refresh())
     })
     this.refreshFlight = flight
-    const clear = () => { if (this.refreshFlight === flight) this.refreshFlight = null }
+    const clear = () => { release(); if (this.refreshFlight === flight) this.refreshFlight = null }
     void flight.then(clear, clear)
     return flight
   }
 
   private async restore(generation = this.nextGeneration()): Promise<void> {
+    const release = this.beginAuthHandoff()
     this.restoring = true
     try {
       const { data, error } = await withAuthBudget('getSession', this.deps.getSession(), BOOT_RESTORE_TIMEOUT_MS)
         .finally(() => { this.restoring = false })
       if (!this.generationIsCurrent(generation)) return
       if (error) { await this.restoreFailed(error, generation); return }
-      if (data.session) await this.acceptSession('INITIAL_SESSION', data.session, true, { generation })
+      if (data.session) await this.acceptSession('INITIAL_SESSION', data.session, true, { generation }, release)
       else if (this.deps.getPersistedSessionState().bootCandidate) await this.restoreFailed(new Error('Persisted session was not restored by auth SDK'), generation)
       else await this.transitionWithoutSession('anonymous', 'INITIAL_SESSION', null)
     } catch (error) {
       if (!this.generationIsCurrent(generation)) return
       await this.restoreFailed(error, generation)
-    }
+    } finally { release() }
   }
   private restoreFailed(error: unknown, generation: number): Promise<void> {
     const session = this.deps.getPersistedSessionState().bootCandidate
@@ -329,23 +346,24 @@ export class SessionCoordinator {
     await this.recoverUnexpectedSignOut()
   }
 
-  private async acceptSession(event: string, session: Session, validate: boolean, expected?: Work): Promise<void> {
-    if (!this.active || (expected && !this.workIsCurrent(expected, false))) return
+  private async acceptSession(event: string, session: Session, validate: boolean, expected?: Work, onPublished?: () => void): Promise<void> {
+    if (!this.active || (expected && !this.workIsCurrent(expected, false))) { onPublished?.(); return }
+    const release = this.beginAuthHandoff()
     const generation = this.nextGeneration()
     const work = sessionWork(generation, session)
-    try { await this.deps.commitPersistedSession(session, this.generationAbort.signal) }
-    catch (error) { if (this.generationIsCurrent(generation)) this.degrade(errorOf(error, 'Session persistence failed')); throw error }
-    if (!this.generationIsCurrent(generation)) return
-    const previous = this.snapshot.user?.id === session.user.id ? this.snapshot.user : null
-    // #7408 边界只在换了人(或它已作废:登出后重登)时重建。同一个人续期 / 恢复 ❌ 重建 —— 重建会把在途请求就地中止,
-    // 中止又被各处当成生命周期取消安静丢掉、没人重读(开机一秒后的一次续期打断了通讯录那一读,咕咕整页一直
-    // 「正在读你的咕咕是谁」)。在途请求带的是旧证:被拒时 authBoundedFetch 自己换证重发。
-    if (previous) keepAuthSessionBoundary()
-    else resetAuthSessionBoundary()
-    this.deps.publishSession(event, session)
-    const warning = this.deps.getPersistedSessionState().warning
-    this.setSnapshot({ status: warning ? 'degraded' : 'authenticated', session, user: previous ?? userFromSession(session), error: warning })
-    this.scheduleRefresh(session)
+    try {
+      try { await this.deps.commitPersistedSession(session, this.generationAbort.signal) }
+      catch (error) { if (this.generationIsCurrent(generation)) this.degrade(errorOf(error, 'Session persistence failed')); throw error }
+      if (!this.generationIsCurrent(generation)) return
+      const previous = this.snapshot.user?.id === session.user.id ? this.snapshot.user : null
+      // #7408 Same-owner refresh keeps the generation boundary of existing data requests.
+      if (previous) keepAuthSessionBoundary()
+      else resetAuthSessionBoundary()
+      this.deps.publishSession(event, session)
+      const warning = this.deps.getPersistedSessionState().warning
+      this.setSnapshot({ status: warning ? 'degraded' : 'authenticated', session, user: previous ?? userFromSession(session), error: warning })
+      this.scheduleRefresh(session)
+    } finally { release(); onPublished?.() }
     await this.setMirrorDesired(session, work)
     if (validate) await this.validateSession(session, generation)
   }
@@ -412,6 +430,7 @@ export class SessionCoordinator {
     if (this.recoveryFlight) return this.recoveryFlight
     const snapshotSession = this.snapshot.session
     if (!snapshotSession) return Promise.resolve()
+    const release = this.beginAuthHandoff()
     const work = sessionWork(this.generation, snapshotSession)
     // @@@4395 恢复要优先用**持久化里的那份**,而不是内存快照里那份。走到这条路径的 SIGNED_OUT 多半由
     // 一次失败的 refresh 触发,而内存里那个 refresh token 正是刚失败的那一个;服务端开着轮换、且只有
@@ -433,7 +452,7 @@ export class SessionCoordinator {
       this.scheduleRetry('recovery', work, () => this.recoverUnexpectedSignOut())
     })
     this.recoveryFlight = flight
-    const clear = () => { if (this.recoveryFlight === flight) this.recoveryFlight = null }
+    const clear = () => { release(); if (this.recoveryFlight === flight) this.recoveryFlight = null }
     void flight.then(clear, clear)
     return flight
   }
@@ -550,13 +569,26 @@ async function writeHostMirror(session: Session): Promise<void> {
   await platform.writeHumanAuthSession(mirror)
 }
 export const sessionCoordinator = new SessionCoordinator({
-  getSession: () => supabase.auth.getSession(),
+  getSession: async () => {
+    // A live background host may need network renewal. Load its persisted boot candidate first,
+    // so a slow renewal keeps the known owner's degraded shell instead of losing their identity.
+    if (phoneHostAuthAvailable()) await mainAuthSessionStorage.storage.getItem(MAIN_AUTH_STORAGE_KEY)
+    return phoneHostGetSession(() => supabase.auth.getSession())
+  },
   getUser: (accessToken) => supabase.auth.getUser(accessToken),
-  refreshSession: (session) => supabase.auth.refreshSession(session),
-  restoreSession: (session) => supabase.auth.setSession(session),
+  refreshSession: (session) => phoneHostRefreshSession(session.refresh_token, async () => {
+    if (!phoneHostAuthAvailable()) return supabase.auth.refreshSession(session)
+    // A stopped native host may have rotated the token since this renderer snapshot was published.
+    const raw = await mainAuthSessionStorage.storage.getItem(MAIN_AUTH_STORAGE_KEY)
+    const saved = raw ? JSON.parse(raw) as Session : null
+    const current = sessionCoordinator.getSnapshot().session
+    const refreshToken = saved?.user.id === current?.user.id ? saved?.refresh_token : session.refresh_token
+    return supabase.auth.refreshSession({ refresh_token: refreshToken ?? session.refresh_token })
+  }),
+  restoreSession: (session) => phoneHostRestoreSession(() => supabase.auth.setSession(session)),
   onAuthStateChange: (listener) => supabase.auth.onAuthStateChange((event, session) => listener(event, session)),
   // @@@6659 退出只吊销这一个会话 —— 不传 scope 时 supabase-js 默认 global,同账号所有设备一起被踢下线。
-  signOut: () => supabase.auth.signOut({ scope: 'local' }),
+  signOut: () => phoneHostSignOut(() => supabase.auth.signOut({ scope: 'local' })),
   hydrateUser: hydrateIdentityAuthUser,
   publishSession: publishRendererSession,
   writeMirror: writeHostMirror,
@@ -567,3 +599,4 @@ export const sessionCoordinator = new SessionCoordinator({
   subscribeAppForeground: (listener, onError) => platform.subscribeAppForeground(listener, onError),
 })
 setRejectedAccessTokenRecovery((rejected) => sessionCoordinator.recoverRejectedAccessToken(rejected))
+setPhoneHostAuthHandoffBarrier(sessionCoordinator.captureAuthHandoff)

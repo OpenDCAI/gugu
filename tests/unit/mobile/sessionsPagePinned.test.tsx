@@ -18,11 +18,12 @@ import { createReactHarness } from '../../support/testHarness'
 const rpc = vi.hoisted(() => ({
   list: { projects: [], sessions: [] } as SessionpageSessionsListResult,
   updateSession: vi.fn(),
+  cancelPhoneSessionTurn: vi.fn(),
 }))
 /** 设备 store 的读数(「项目」页自己读它,不再由路由交一台机器进来)。 */
-const store = vi.hoisted(() => ({ devices: [] as Device[] }))
+const store = vi.hoisted(() => ({ devices: [] as Device[], phones: [] as Device[] }))
 vi.mock('../../../apps/desktop/src/store/devicesContext', () => ({
-  useDevicesStore: () => ({ devices: store.devices, loading: false, error: null }),
+  useDevicesStore: () => ({ devices: store.devices, phones: store.phones, loading: false, error: null }),
 }))
 
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
@@ -33,6 +34,7 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   onLinkChange: vi.fn(() => () => undefined),
   deleteSession: vi.fn(),
   updateSession: rpc.updateSession,
+  cancelPhoneSessionTurn: rpc.cancelPhoneSessionTurn,
 }))
 /** 通讯录里自己的 agent(显示名只有 identity.users 那一份,手机上就在这里)。 */
 const contacts = vi.hoisted(() => ({ list: [{ id: 'agent-1', display_name: 'Codex 3' }, { id: 'agent-7', display_name: 'Claude 7' }] }))
@@ -77,7 +79,9 @@ beforeEach(() => {
   harness = createReactHarness()
   localStorage.clear()
   rpc.updateSession.mockReset()
+  rpc.cancelPhoneSessionTurn.mockReset().mockResolvedValue({ cancelled: true })
   store.devices = []
+  store.phones = []
 })
 afterEach(() => {
   harness.cleanup()
@@ -269,6 +273,92 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
   const heading = (el: Element) => el.querySelector('[data-testid="agent-watch-session-group-toggle"]')?.textContent
   const metaOf = (id: string) => harness.container.querySelector(`[data-session-id="${id}"]`)?.querySelector('.gg-aw-item-meta')?.textContent ?? ''
 
+  it('手机与电脑会话都打开任务时间线，手机不需要私聊绑定', async () => {
+    const phone = device({ device_id: 'phone', label: 'Android', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: [{ id: 'pi', available: true }] } as unknown as Device['capabilities'] })
+    write('mac', [summary('desktop-task', 1)])
+    write('phone', [summary('phone-task', 2, { harness: 'pi', agentStatus: 'working', supported: true, agent: { userId: 'phone-agent' } })])
+    const onOpenSession = vi.fn()
+    await renderPage([phone, mac], { onOpenSession })
+    expect(harness.container.querySelector('[data-testid="agent-watch-sessions-error"]')).toBeNull()
+    const phoneRow = harness.container.querySelector<HTMLButtonElement>('[data-session-id="phone-task"]')!
+    expect(phoneRow.disabled).toBe(false)
+    expect(phoneRow.dataset.supported).toBe('true')
+    expect(metaOf('phone-task')).toMatch(/手机 Agent|Phone Agent/)
+    expect(metaOf('phone-task').toLowerCase()).not.toContain('pi')
+    expect(metaOf('desktop-task')).toContain('codex')
+    expect(phoneRow.querySelector('canvas')?.getAttribute('aria-label')).toMatch(/运行中|Working/)
+    await act(async () => phoneRow.click())
+    expect(onOpenSession).toHaveBeenCalledWith('phone', expect.objectContaining({ conversationId: 'phone-task' }))
+    expect(harness.container.querySelector('[data-session-id="desktop-task"]')).not.toBeNull()
+  })
+
+  it.each(['not-started', 'harness-unsupported'] as const)('手机 %s 状态仍隐藏引擎名,电脑上的 Pi 类型保留', async (recordState) => {
+    const phone = device({ device_id: 'phone', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: ['pi'] } as Device['capabilities'] })
+    write('phone', [summary('phone-task', 2, { harness: 'pi', supported: false, recordState })])
+    write('mac', [summary('desktop-pi', 1, { harness: 'pi', supported: true })])
+    await renderPage([phone, mac])
+    expect(metaOf('phone-task')).toMatch(/手机 Agent|Phone Agent/)
+    expect(metaOf('phone-task').toLowerCase()).not.toContain('pi')
+    expect([...harness.container.querySelectorAll('[data-session-id="desktop-pi"] .gg-aw-item-part')].map((part) => part.textContent)).toContain('pi')
+  })
+
+  it('账号只有手机宿主时，空态不谎报账号没有机器', async () => {
+    const phone = device({ device_id: 'phone', label: 'Android', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: [{ id: 'pi', available: true }] } as unknown as Device['capabilities'] })
+    write('phone', [])
+    await renderPage([phone])
+    const hint = harness.container.querySelector('[data-testid="agent-watch-projects-empty"]')?.lastElementChild?.textContent
+    expect(hint).toBeTruthy()
+    expect(hint).not.toMatch(/还没有机器|no machines/i)
+    expect(harness.container.querySelector('[data-testid="agent-watch-sessions-error"]')).toBeNull()
+  })
+
+  it('停止后的手机会话仍能打开历史任务页，旧摘要不能显示还在运行', async () => {
+    const stoppedPhone = device({ device_id: 'phone', label: 'Android', is_online: false, status: 'offline', capabilities: { host_kind: 'phone', host_runtime_capability: 0, terminals: [], runtimes: [] } as Device['capabilities'] })
+    write('phone', [summary('phone-task', 2, { harness: 'pi', agentStatus: 'working', supported: true, agent: { userId: 'phone-agent' } })])
+    store.phones = [stoppedPhone]
+    const onOpenSession = vi.fn()
+    await renderPage([], { onOpenSession })
+    const phoneRow = harness.container.querySelector<HTMLButtonElement>('[data-session-id="phone-task"]')!
+    expect(phoneRow.disabled).toBe(false)
+    expect(phoneRow.querySelector('canvas')?.getAttribute('aria-label')).not.toMatch(/运行中|Working/)
+    expect(phoneRow.closest('.gg-aw-item-wrap')?.querySelector('[data-testid="agent-watch-session-menu"]')).toBeNull()
+    await act(async () => phoneRow.click())
+    expect(onOpenSession).toHaveBeenCalledWith('phone', expect.objectContaining({ conversationId: 'phone-task' }))
+  })
+
+  it('旧手机摘要既不支持也不带记录状态时不能假开时间线', async () => {
+    const phone = device({ device_id: 'phone', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: ['pi'] } as Device['capabilities'] })
+    write('phone', [summary('phone-task', 2, { supported: false, agent: { userId: 'phone-agent' } })])
+    const onOpenSession = vi.fn()
+    await renderPage([phone], { onOpenSession })
+    const phoneRow = harness.container.querySelector<HTMLButtonElement>('[data-session-id="phone-task"]')!
+    expect(phoneRow.disabled).toBe(true)
+    await act(async () => phoneRow.click())
+    expect(onOpenSession).not.toHaveBeenCalled()
+  })
+
+  it('手机行菜单只提供真实可用的停止任务,不暴露未实现的置顶/改名/归档', async () => {
+    const phone = device({ device_id: 'phone', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: ['pi'] } as Device['capabilities'] })
+    write('phone', [summary('phone-task', 2, { agentStatus: 'working', supported: false, chatId: 'phone-dm', agent: { userId: 'phone-agent' } })])
+    await renderPage([phone])
+    const menu = harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-menu"]')!
+    await act(async () => menu.click())
+    expect(document.querySelector('[data-testid="agent-watch-session-pin"]')).toBeNull()
+    expect(document.querySelector('[data-testid="agent-watch-session-rename"]')).toBeNull()
+    expect(document.querySelector('[data-testid="agent-watch-session-archive"]')).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="agent-watch-session-stop"]')!.click())
+    expect(rpc.cancelPhoneSessionTurn).toHaveBeenCalledWith('phone', 'phone-task')
+    expect(rpc.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('只有本机项目时页头不追加设备型号', async () => {
+    const phone = device({ device_id: 'phone', label: 'sdk_gphone64_arm64', capabilities: { host_kind: 'phone', host_runtime_capability: 1, terminals: [], runtimes: ['pi'] } as Device['capabilities'] })
+    write('phone', [summary('phone-task', 2)], [{ id: 'p1', name: '手机任务', path: '/phone' }])
+    await renderPage([phone])
+    expect(heading(groups()[0]!)).toBe('手机任务')
+    expect(heading(groups()[0]!)).not.toContain('sdk_gphone64_arm64')
+  })
+
   it('每台机器的每个项目一格,页头是「项目 · 机器」;两台机器上同名的项目各是一格', async () => {
     write('mac', [summary('m1', 1)])
     write('thinkpad', [summary('t1', 2)])
@@ -307,7 +397,7 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     // 分区按最近动静排,助理那一组与项目分区一起比:这里各找各的。
     const first = groups().find((g) => g.getAttribute('data-assistant') !== 'true')!
     const second = groups().find((g) => g.getAttribute('data-assistant') === 'true')!
-    expect(heading(first)).toBe('Repo · Mac')
+    expect(heading(first)).toBe('Repo')
     expect(heading(second)).toBe('小咕')
     expect(row(first, 'mine')).not.toBeNull()
     expect(row(first, 'dispatched')).toBeNull()
@@ -321,7 +411,7 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
 
     // 阴控:认不出它是谁(身份没读到)时,「派的」就认不出来 —— 那条回到自己的项目里。
     await act(async () => publishPhoneAssistant(null))
-    expect(row(groups().find((g) => heading(g) === 'Repo · Mac') ?? null, 'dispatched')).not.toBeNull()
+    expect(row(groups().find((g) => heading(g) === 'Repo') ?? null, 'dispatched')).not.toBeNull()
   })
 
   it('离线的机器:说明跟在它名下分区的页头后面(一行),别的分区没有;收起的分区不画', async () => {
