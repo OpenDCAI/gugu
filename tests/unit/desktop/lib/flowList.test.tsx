@@ -139,6 +139,21 @@ describe('useFlowList 贴底', () => {
 })
 
 describe('useFlowList 头部插行', () => {
+  it.each([0, 24])('正文晚排版后仍保留同一个锚点,原生锚定已补偿 %dpx 时不重复补偿', async (nativeCompensation) => {
+    const rows = rowsOf(20)
+    await harness.render(createElement(List, { rows, landing: { index: 5, align: 'start', offset: 16 } }))
+    await nextFrames()
+    await scrollTo(516)
+    const before = topOf('r5')
+    await harness.render(createElement(List, { rows: [{ ...rows[0], h: 124 }, ...rows.slice(1)], landing: null }))
+    // 同一组 id、没有头部插行;模拟浏览器对延后排版只做了部分或全部补偿。
+    scroller().scrollTop += nativeCompensation
+    expect(topOf('r5')).toBe(before + 24 - nativeCompensation)
+    await resize()
+    expect(topOf('r5')).toBe(before)
+    expect(scroller().scrollTop).toBe(540)
+  })
+
   // 滚动条正好顶在 0 时浏览器的原生锚定不管;这一格就是那种情形,也覆盖不支持锚定的 WebKit。
   it('往前接一页:读者正看着的那一行留在原处(在这次提交里,不等下一帧)', async () => {
     const rows = rowsOf(10)
