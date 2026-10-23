@@ -11,12 +11,8 @@ export const browserOpenInNewTabChannel = defineEvent<{
  */
 export const browserFocusedChannel = defineEvent<{ browserId: string }>('browser:focused');
 
-/**
- * #7191 会话里的 agent 在不在操作这个页签。`driving` = 正在执行一个浏览器动作;`paused` = 人接管了
- * (点进了页面或按了「停止」),agent 的动作被拒到人说继续为止;`idle` = 没在操作。
- * 页签据此画「agent 正在操作」条,并在它被切到后台时仍保持绘制(否则截图、点击会卡住)。
- */
-export type BrowserAgentState = 'driving' | 'paused' | 'idle';
+/** Current browser activity only. Stop/continue belongs to the Agent conversation. */
+export type BrowserAgentState = 'driving' | 'idle';
 export const browserAgentStateChannel = defineEvent<{ browserId: string; state: BrowserAgentState }>(
   'browser:agent-state'
 );
