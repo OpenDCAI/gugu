@@ -116,6 +116,15 @@ interface SurfaceBinding {
 }
 
 const bindings = new Map<number, SurfaceBinding>();
+const observedContents = new WeakSet<WebContents>();
+
+/** Pages and backgrounds share the same document boundary, even before a watch finishes registering. */
+function observeDocument(contents: WebContents): void {
+  if (observedContents.has(contents)) return;
+  observedContents.add(contents);
+  contents.on('did-navigate', () => newDocument(contents.id));
+  contents.once('destroyed', () => unbindExtensionSurface(contents.id));
+}
 
 /**
  * Who calls (真源原则 13: where a page is only fills its context): one of the App's pages, its background page, or its
@@ -280,9 +289,9 @@ function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Pro
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
   if (!binding) return;
-  stopPageWatches(webContentsId);
   void sayAboutPage(binding, { kind: 'newDocument' }).catch((error: unknown) => {
     log.warn('A page\'s new document was not told to its window', { webContentsId, error: String(error) });
   });
@@ -368,7 +377,6 @@ export function stopPageWatches(pageId: number): void {
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
 async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
-  const resource = on && 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
   let watching = pageWatches.get(caller.pageId);
   const existing = watching?.get(watchId);
   if (!on) {
@@ -377,19 +385,26 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (existing) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   if (!watching) {
     watching = new Map();
     pageWatches.set(caller.pageId, watching);
-    // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
-    if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
   }
+  if (caller.kind === 'background') {
+    const contents = webContents.fromId(caller.pageId);
+    if (contents) observeDocument(contents);
+  }
+  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  if (pageWatches.get(caller.pageId) !== watching) return;
+  asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
+  if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
+    const { workspaceRoot } = await localRootOf(place);
+    if (pageWatches.get(caller.pageId) !== watching) return;
     disk = watchWorkspaceForSurface({
       extensionId: caller.extensionId,
-      workspaceRoot: (await localRootOf(place)).workspaceRoot,
+      workspaceRoot,
       deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
     });
   }
@@ -542,9 +557,7 @@ export async function bindExtensionSurface(input: {
       log.warn('[extensions] a page\'s session was found on no machine; it hears no machine\'s program', { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
-  contents.once('destroyed', () => unbindExtensionSurface(input.webContentsId));
-  // Bound again (a task's tab binds at every dom-ready): it already listens.
-  if (!previous) contents.on('did-navigate', () => newDocument(input.webContentsId));
+  observeDocument(contents);
   // 在这条线上等着的那些调用,现在可以往下走了。
   resolveBindingWaiters(input.webContentsId);
   flushQueuedSurfaceEvents(input.webContentsId, bindings.get(input.webContentsId)!);
@@ -1744,7 +1757,6 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'filesWatch':
       if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
-      if (args.on !== false) asCallingAgent(caller, await resourcePage(caller, args), args);
       await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false);
       return undefined;
 

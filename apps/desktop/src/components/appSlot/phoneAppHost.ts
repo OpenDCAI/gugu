@@ -381,7 +381,7 @@ export function hostAppFrame(
     chat = await files.chat(chatId)
   }
   /** The chats this page asked to hear about (`files.onChanged({ chat }, fn)`): a phone has no working copies. */
-  const watched = new Map<string, { named: string; source: string }>()
+  let watched = new Map<string, { named: string; source: string }>()
   /** A chat's files read for the page (#7257), one read at a time per chat; a failed one's ids go with the next. */
   const readFiles = coalescedReads((chatId, error) =>
     log.error({ error: error instanceof Error ? error.message : String(error), chatId }, 'reading the files a revision named failed twice; they go with its next read'),
@@ -596,8 +596,11 @@ export function hostAppFrame(
           watched.delete(args.watchId)
           if (existing && ![...watched.values()].some(({ source }) => source === existing.source)) readFiles.forget(existing.source)
         } else {
-          if (watched.has(args.watchId)) refused('invalid', 'This file watch is already registered')
-          watched.set(args.watchId, { named, source: await files.resourceChat(named) })
+          const documentWatches = watched
+          const source = await files.resourceChat(named)
+          if (watched !== documentWatches) return
+          if (documentWatches.has(args.watchId)) refused('invalid', 'This file watch is already registered')
+          documentWatches.set(args.watchId, { named, source })
         }
         return Promise.resolve(undefined)
       }
@@ -648,7 +651,7 @@ export function hostAppFrame(
     // title, as main's `newDocument` on the desktop (extension-bridge.ts `sayAboutPage`).
     if (message.t === 'hello') {
       for (const { source } of watched.values()) readFiles.forget(source)
-      watched.clear()
+      watched = new Map()
       relay.pageGone(pageId)
       heldPort = null
       portWanted = false
@@ -711,6 +714,8 @@ export function hostAppFrame(
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      for (const { source } of watched.values()) readFiles.forget(source)
+      watched = new Map()
       for (const stop of forumWatches.values()) stop()
       forumWatches.clear()
       window.removeEventListener('message', onMessage)
