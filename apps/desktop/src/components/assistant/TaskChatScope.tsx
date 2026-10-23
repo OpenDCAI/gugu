@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../../store/auth'
 import { ChatStoreProvider, useChatStore, type ChatContextValue } from '../../store/chatContext'
 import { advanceReadWatermark } from '../../store/chatRealtimeMutations'
@@ -11,20 +11,12 @@ import { readSessionpageViewRequestBridge } from '../../lib/sessionpageViewReque
 export function TaskChatScope({ chatId, children }: { chatId: string; children: ReactNode }) {
   const store = useChatStore()
   const { user } = useAuth()
-  const { subscribeAccountRevision, subscribeChatWindow, sendMessageToChat, patchChat } = store
+  const { subscribeAccountRevision, sendMessageToChat, patchChat } = store
   const line = useTopicLine(chatId, user?.id ?? null, subscribeAccountRevision)
   const { applyLocalWrite, appendOwn, reload, revalidate, revealOlder } = line
   const [loadingOlder, setLoadingOlder] = useState(false)
   const rowsRef = useRef(line.messages)
   rowsRef.current = line.messages
-  useEffect(() => {
-    let pending = new Set<string>()
-    return subscribeChatWindow(chatId, (rows) => {
-      const ids = new Set(rows.map((row) => row.id))
-      applyLocalWrite(rows, new Set([...pending].filter((id) => !ids.has(id))))
-      pending = new Set(rows.filter((row) => row.seq < 1).map((row) => row.id))
-    })
-  }, [chatId, subscribeChatWindow, applyLocalWrite])
   const sendMessage = useCallback<ChatContextValue['sendMessage']>((content, opts) => sendMessageToChat(chatId, content, opts), [chatId, sendMessageToChat])
   const removeMessage = useCallback((id: string) => applyLocalWrite([], new Set([id])), [applyLocalWrite])
   const toggleReaction = useCallback(async (id: string, emoji: string) => {

@@ -102,7 +102,7 @@ async function mount() {
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
 async function openSplit() {
-  await harness.render(createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })))
+  await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })))
   await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
 }
 
