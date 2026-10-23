@@ -4,6 +4,8 @@ const config: CapacitorConfig = {
   appId: 'app.gugu.chat',
   appName: '咕咕',
   webDir: 'dist-phone',
+  // Native bridge calls include opaque login bytes; debug logging must not print their arguments.
+  loggingBehavior: 'none',
   android: {
     path: 'apps/mobile/android',
     allowMixedContent: false,

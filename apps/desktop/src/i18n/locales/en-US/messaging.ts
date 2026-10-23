@@ -1,6 +1,7 @@
 export default {
   "agent": {
     "identity": {
+      "phone": "Phone Agent",
       "pending": "Agent · identifying harness",
       "unavailable": "Agent harness unavailable",
       "removed": "Removed agent",

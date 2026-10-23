@@ -418,6 +418,7 @@ export default {
     },
     "unseen": "有没看过的结果",
     "emptyTitle": "还没有任务",
+    "loadFailed": "任务列表没读到",
     "empty": "{{name}}替你干活时开的任务会出现在这里。",
     "notRead": "{{name}}醒着时才读得到它开的任务。"
   },
@@ -428,6 +429,7 @@ export default {
     "active": "进行中",
     "inactive": "已停用",
     "next": "下次 {{time}}",
+    "nextUnavailable": "暂时读不到下次执行时间",
     "ended": "已结束",
     "enabled": "开启",
     "everyDay": "每天 {{time}}",

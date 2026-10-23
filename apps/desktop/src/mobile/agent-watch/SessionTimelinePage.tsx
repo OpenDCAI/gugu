@@ -1,7 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { reaction } from 'mobx'
 import { useTranslation } from 'react-i18next'
+import { PhoneTaskSkills } from '../local-agent/PhoneTaskSkillsButton'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { Button } from '@/components/ui/Button'
@@ -62,7 +64,8 @@ export function SessionTimelinePage({
 }) {
   const { t } = useTranslation('main')
   const { label: machineLabel } = useMachineLabel()
-  const online = device.is_online
+  const phoneHost = isPhoneDevice(device)
+  const online = device.is_online && (!phoneHost || isAgentHostDevice(device))
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
@@ -76,11 +79,36 @@ export function SessionTimelinePage({
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
     reload, loadOlder, loadToolImage, send, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
   } =
-    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt)
+    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
   // 会话列表、乃至刚切走时都叫得住人。这里再发一份的话,正开着这条会话时同一件事会响两次。
   const attention = deriveAttention(timeline)
+  // Header state uses the host summary; an unreachable host never advertises a running snapshot.
+  const presentation = sessionPresentation(session, online)
+  const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
+  const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
+  const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
+  const taskHeader = {
+    title: agent && !distinctAgentName ? <span data-testid="agent-watch-agent-name">{session.title}</span> : session.title,
+    titleLeading: (
+      <span className="gg-aw-title-avatar">
+        <SessionAvatar agentId={agent?.agentUserId ?? session.agent?.userId} sessionId={session.conversationId} presentation={presentation} />
+      </span>
+    ),
+    subtitle: distinctAgentName || presentation ? (
+      <span className="gg-aw-head-status">
+        {distinctAgentName ? <span className="gg-aw-head-agent" data-testid="agent-watch-agent-name">{distinctAgentName}</span> : null}
+        {distinctAgentName && presentation ? <span aria-hidden="true">·</span> : null}
+        {presentation ? (
+          <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
+            {agentStatusText(presentation.label)}
+          </span>
+        ) : null}
+      </span>
+    ) : undefined,
+    headerTestId: 'agent-watch-hero',
+  }
 
   /**
    * 机器离线 —— ⚠️ 这里此前是一句早返回,把本地缓存的那份时间线一起挡掉了
@@ -93,8 +121,8 @@ export function SessionTimelinePage({
    */
   if (!online && timeline.turns.length === 0) {
     return (
-      <AgentWatchScreen title={session.title} onBack={onBack} testId="agent-watch-timeline-page">
-        {cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} />}
+      <AgentWatchScreen {...taskHeader} onBack={onBack} testId="agent-watch-timeline-page">
+        {cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />}
       </AgentWatchScreen>
     )
   }
@@ -126,16 +154,6 @@ export function SessionTimelinePage({
     </div>
   ) : null
 
-  /**
-   * 会话状态就画在页头:宿主写下的读数(与列表、提醒同一份)。从前这里读时间线自己的推导,于是
-   * 后台在跑、出错画不出来,而且列表说一句、页头说另一句。机器离线时不替它说「在跑」(sessionPresentation)。
-   */
-  const presentation = sessionPresentation(session, online)
-  // 这条会话是谁(agent 名)· 此刻在干什么:住在页顶悬浮的头像块里(下面的 gg-agent-hero),不再占页头第二行。
-  // 读的是摘要,❌ 等时间线读完再画:两者无关,等的那一段这块就空一下(建成跳进来时正是这样)。
-  const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
-  const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
-
   // 模式按钮(#7197)在「…」左边:去对话不要那台机器,离线也去得了,所以它一直在。
   // 有没有咕咕身份看会话自己带不带 agent id,❌ 看通讯录里有没有它的名字(通讯录还没到时会把有身份的说成没有);
   // 通讯录里真找不到,由去对话那头(MainLayout handleOpenAgentChat)响亮地说。
@@ -143,15 +161,16 @@ export function SessionTimelinePage({
   const agentUserId = agent?.agentUserId ?? session.agent?.userId ?? null
   const headerActions = (
     <>
-      <MobileModeMenu
+      {phoneHost ? <PhoneTaskSkills deviceId={device.device_id} sessionId={session.conversationId} online={online} busy={attention === 'running' || attention === 'waiting' || sending || pendingSends.length > 0 || cancelling} /> : null}
+      {!phoneHost ? <MobileModeMenu
         at={appKind ? `app:${appKind}` : 'task'}
         onOpenChat={agentUserId && onOpenChat ? () => onOpenChat(agentUserId) : null}
         onOpenTask={() => setAppKind(null)}
         apps={apps}
         onOpenApp={setAppKind}
-      />
+      /> : null}
       {online ? (
-        <IconButton size="lg" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={() => setMenuOpen(true)}>
+        <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={() => setMenuOpen(true)}>
           <MoreHorizontal />
         </IconButton>
       ) : null}
@@ -160,7 +179,7 @@ export function SessionTimelinePage({
 
   if (appKind) {
     return (
-      <AgentWatchScreen title={session.title} onBack={() => setAppKind(null)} testId="agent-watch-session-app" actions={headerActions} bodyFill>
+      <AgentWatchScreen {...taskHeader} onBack={() => setAppKind(null)} testId="agent-watch-session-app" actions={headerActions} bodyFill>
         <SessionAppFrame kind={appKind} device={device} session={{ id: session.conversationId, ...(session.projectId ? { projectId: session.projectId } : {}) }} />
       </AgentWatchScreen>
     )
@@ -168,36 +187,12 @@ export function SessionTimelinePage({
 
   return (
     <AgentWatchScreen
-      title={session.title}
+      {...taskHeader}
       onBack={onBack}
       testId="agent-watch-timeline-page"
       actions={headerActions}
       bodyFill={phase !== 'error'}
     >
-      {/* 小鸟、名称与宿主状态同行,不等时间线载入。 */}
-      <div className="gg-aw-hero" data-testid="agent-watch-hero">
-        <SessionAvatar
-          agentId={agent?.agentUserId ?? session.agent?.userId}
-          sessionId={session.conversationId}
-          presentation={presentation}
-          size={24}
-        />
-        <span className="gg-aw-hero-line">
-          {agent ? <span className="gg-aw-hero-name" data-testid="agent-watch-agent-name">{agent.displayName}</span> : null}
-          {agent && presentation ? <span className="gg-aw-item-sep">·</span> : null}
-          {presentation ? (
-            <span
-              data-testid="agent-watch-session-status"
-              data-tone={presentation.tone}
-              data-emphasis={presentation.emphasis ? 'true' : undefined}
-              style={statusStyle}
-            >
-              {agentStatusText(presentation.label)}
-            </span>
-          ) : null}
-        </span>
-      </div>
-
       {timeline.lastReset ? (
         <AgentWatchNote
           // 一档一条整句,❌ 不用「模板 + 片段」拼:各语言语序不同,拼出来的句子没法翻。
@@ -208,7 +203,7 @@ export function SessionTimelinePage({
 
       {!online ? (
         /* 离线但本地还有缓存:内容照常看,只说清「现在发不出去」。云电脑没醒着:说正在叫醒它。 */
-        cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} />
+        cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
       ) : null}
 
       {error ? (
@@ -231,6 +226,7 @@ export function SessionTimelinePage({
           timeline={timeline}
           deviceId={device.device_id}
           sessionId={session.conversationId}
+          phoneHost={phoneHost}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
@@ -262,6 +258,7 @@ export function SessionTimelinePage({
           open={menuOpen}
           session={session}
           deviceId={device.device_id}
+          phoneHost={phoneHost}
           onClose={() => setMenuOpen(false)}
           onArchived={onBack}
         />

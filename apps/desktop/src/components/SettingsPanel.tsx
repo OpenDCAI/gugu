@@ -173,6 +173,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
               // 手机上同样写这一页自己的名字:「我的」是上一层,它已经由返回箭头(aria:返回我的)代表了;
               // 标题再写一遍「我的」,每一个设置子页都长一个样,人分不清自己在哪一页。
               title={sectionTitle}
+              titleLevel={mobile ? 'panel' : undefined}
               leading={mobile ? (
                 <IconButton size="lg" aria-label={t('settings.backToMy')} onClick={() => setMobilePane('nav')}>
                   <ChevronLeft />

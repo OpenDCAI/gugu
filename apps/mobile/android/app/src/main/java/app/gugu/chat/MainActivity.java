@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(GuguSharePlugin.class);
         registerPlugin(GuguAppStorePlugin.class);
         registerPlugin(GuguPhoneActionsPlugin.class);
+        registerPlugin(GuguAgentPlugin.class);
         registerPlugin(GuguPhoneDataPlugin.class);
         registerPlugin(MobileShellChrome.class);
         super.onCreate(savedInstanceState);

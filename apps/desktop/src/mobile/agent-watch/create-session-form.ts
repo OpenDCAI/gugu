@@ -44,8 +44,8 @@ export type CreateSelection = {
  * `missing` 要去装、`error` 要去修;`watchable:false` 是第三种:建得出来,但建出来手机上打不开
  * (时间线读侧只认 claude / codex / opencode 的记录格式)—— 从手机建一条自己看不了的会话没有意义。
  */
-export function harnessUsable(option: Pick<SessionpageHarnessOption, 'status' | 'watchable'>): boolean {
-  return option.status === 'available' && option.watchable
+export function harnessUsable(option: Pick<SessionpageHarnessOption, 'status' | 'watchable' | 'chatAvailable'>): boolean {
+  return option.status === 'available' && (option.watchable || option.chatAvailable === true)
 }
 
 /**
@@ -58,10 +58,10 @@ export function harnessUsable(option: Pick<SessionpageHarnessOption, 'status' | 
  * 手机端读不了它的记录格式。
  */
 export function harnessBlockReason(
-  option: Pick<SessionpageHarnessOption, 'status' | 'watchable'>,
+  option: Pick<SessionpageHarnessOption, 'status' | 'watchable' | 'chatAvailable'>,
 ): InstallationReading | 'unwatchable' | null {
   if (option.status !== 'available') return readingFromStatus(option.status)
-  if (!option.watchable) return 'unwatchable'
+  if (!option.watchable && !option.chatAvailable) return 'unwatchable'
   return null
 }
 
@@ -202,13 +202,14 @@ export function createPillLabel(
   options: SessionpageSessionCreateOptions,
   selection: CreateSelection,
   models: SessionpageSessionCreateModels | null = null,
+  phoneAgentLabel?: string,
 ): string | null {
   const project = options.projects.find((p) => p.id === selection.projectId)
   const harness = options.harnesses.find((h) => h.id === selection.harness)
   // 模型只在**选了**时上胶囊:默认档不写「默认」二字 —— 胶囊只写值,没值就不占位。
   const model = selectedModelName(models, selection)
   const effort = selectedEffortName(models, selection)
-  const parts = [project?.name, harness?.name, model, effort].filter((x): x is string => !!x)
+  const parts = (phoneAgentLabel ? [phoneAgentLabel, model, effort] : [project?.name, harness?.name, model, effort]).filter((x): x is string => !!x)
   return parts.length > 0 ? parts.join(' · ') : null
 }
 

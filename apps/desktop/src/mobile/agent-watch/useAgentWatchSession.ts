@@ -1,5 +1,6 @@
 import * as sessionpageRpc from './sessionpage-rpc'
 import { useTimelineSession, type AgentWatchSession } from './use-timeline-session'
+import { phoneTimelineClient } from '../local-agent/phoneTimelineClient'
 
 export type { AgentWatchPhase, AgentWatchSession } from './use-timeline-session'
 
@@ -15,6 +16,7 @@ export function useAgentWatchSession(
   sessionId: string | null,
   enabled: boolean,
   firstPrompt?: string,
+  phoneHost = false,
 ): AgentWatchSession {
-  return useTimelineSession(sessionpageRpc, MOBILE_RESPONDER_ID, deviceId, sessionId, enabled, firstPrompt)
+  return useTimelineSession(phoneHost ? phoneTimelineClient : sessionpageRpc, MOBILE_RESPONDER_ID, deviceId, sessionId, enabled, firstPrompt)
 }

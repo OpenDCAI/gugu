@@ -5,7 +5,6 @@ import { Avatar } from '@/components/Avatar'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
 import { Palette } from '@/lib/icons'
-import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { rendererLogger } from '@/lib/log'
 import { composeInstructions, joinPersona, PERSONA_PRESETS, type PersonaPreset } from '@/session/renderer/features/assistant/assistant-files'
 import { readText, writeText } from '@/session/renderer/features/assistant/assistant-machine-core'
@@ -13,6 +12,7 @@ import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/
 import { useContactsStore } from '@/store/contactsContext'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
+import { ReadFailed, ReadingNow } from './PhoneMachineView'
 import { customizePlan } from './phoneProfileModel'
 import type { PhonePersona } from './usePhoneProfileData'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
@@ -92,8 +92,8 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
         <Palette />
         {t('customize.look')}
       </Button>
-      <div className="flex flex-col gap-2">
-        <span className="ta-field-label">{t('customize.character')}</span>
+      <div className="ta-phone-persona-fields">
+        <label className="ta-field-label" htmlFor={`assistant-persona-${assistant.id}`}>{t('customize.character')}</label>
         <PersonaGate readiness={readiness} machine={machine} persona={persona} name={assistant.display_name}>
           <div className="ta-chips" role="group" aria-label={t('customize.character')}>
             {PERSONA_PRESETS.map((key) => (
@@ -102,7 +102,7 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
               </Button>
             ))}
           </div>
-          <textarea className="ta-input" value={rest} placeholder={t('customize.describe')} onChange={(event) => edit(setRest)(event.target.value)} data-testid="assistant-persona-text" />
+          <textarea id={`assistant-persona-${assistant.id}`} className="ta-input" value={rest} placeholder={t('customize.describe')} onChange={(event) => edit(setRest)(event.target.value)} data-testid="assistant-persona-text" />
         </PersonaGate>
       </div>
       {error ? (
@@ -110,7 +110,7 @@ export function PhoneCustomize({ assistant, readiness, machine, persona, go }: P
           {error}
         </p>
       ) : null}
-      <Button variant="ghost" className="ta-wide-btn" data-tone="primary" onClick={() => void save()} disabled={saving || !plan.canSave} data-testid="assistant-customize-save">
+      <Button variant="ghost" className="ta-wide-btn" data-tone="primary" onClick={() => void save()} disabled={saving || !plan.canSave} aria-busy={saving} data-testid="assistant-customize-save">
         {saving ? t('common.saving') : t('common.save')}
       </Button>
       {/* 形象工坊:与桌面「换形象」同一个(手机上它自己铺满全屏、左上返回)。 */}
@@ -135,19 +135,14 @@ function PersonaGate({
   )
   const body = (() => {
     if (machine.state === 'no-workdir') return <AssistantEmpty>{t('machine.noWorkdir', { name })}</AssistantEmpty>
-    if (machine.state === 'error') return <AssistantEmpty title={t('customize.loadFailed')} action={retry(machine.retry)} />
+    if (machine.state === 'error') return <ReadFailed title={t('customize.loadFailed')} error={machine.error} onRetry={machine.retry} />
     if (persona.error)
       return (
         <AssistantEmpty title={t('customize.loadFailed')} action={retry(persona.reload)}>
-          {persona.error instanceof Error ? persona.error.message : String(persona.error)}
+          <span role="alert">{persona.error instanceof Error ? persona.error.message : String(persona.error)}</span>
         </AssistantEmpty>
       )
-    if (!persona.persona)
-      return (
-        <AssistantEmpty>
-          <LoadingIndicator size="inline" />
-        </AssistantEmpty>
-      )
+    if (!persona.persona) return <ReadingNow />
     return children
   })()
   return (

@@ -489,7 +489,7 @@ export function InputArea({
         return
       }
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !mobileShell) {
       e.preventDefault()
       handleSend()
     }
@@ -843,7 +843,7 @@ export function InputArea({
       {/* @@@1697 三分离(owner override 单-pill，对齐已合设计 SSOT #1714 `.comp-row/.comp-dock/.box` L145-154)：
           外层 row align-items:flex-end + 左右 dock(h=42 固定)夹中间只裹 textarea 的 box(--r-lg 12px)；多行时
           box 往上长、坞按 flex-end 贴底 → 附件/发送按钮 y 不浮动。逆转 #933 单-pill 回退、复原 #1459 结构。 */}
-      <div data-chat-composer-row="" style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
+      <div data-chat-composer-row="" className={mobileShell ? 'gg-mobile-composer-row' : undefined} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
         {/* 左坞：上传按钮切出框外、贴底固定(SSOT `.comp-dock` L147 + `.gh` L152：30×30 透明、回形针、hover bg --hover)。
             @@@4292 mobile:回形针命中框为 44×44，dock 高与之匹配；桌面维持原尺寸。 */}
         <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>
@@ -865,16 +865,16 @@ export function InputArea({
             // #7333 视觉规范:主输入入口是一块表面色的卡,靠 composer 组合投影(1px 轮廓 + 近影 + 宽环境影)浮起来,
             // 圆角 --radius-thread(24);聚焦时在投影外再加一圈加深的轮廓。边框留成透明 1px,几何与原来逐像素相同。
             // 桌面曾落 8px 控件档、移动壳曾是胶囊,两处并入同一 token。
-            border: '1px solid transparent', boxShadow: composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
+            border: '1px solid transparent', boxShadow: mobileShell ? 'none' : composerFocused ? 'var(--shadow-composer), 0 0 0 1px var(--border-strong)' : 'var(--shadow-composer)',
             borderRadius: 'var(--radius-thread)',
-            background: 'var(--card)',
-            padding: mobileShell ? '7px 15px' : '5px 10px',
+            background: mobileShell ? 'transparent' : 'var(--card)',
+            padding: mobileShell ? '7px 0' : '5px 10px',
           }}
         >
           {/* SSOT `.box textarea` L150：flex:1 / border:none / 13.5px / lineHeight 1.5 / padding 5px 0 / max-height 110。 */}
           <textarea
             ref={textareaRef}
-            rows={1}
+            rows={1} enterKeyHint={mobileShell ? 'enter' : undefined}
             data-testid={surface === 'aside' ? AUTOMATION_TEST_IDS.chatComposerAside : AUTOMATION_TEST_IDS.chatComposer}
             data-sending={sending ? 'true' : 'false'}
             value={text}

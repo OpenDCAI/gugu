@@ -153,10 +153,12 @@ function ChoiceRow({
 export function SessionOptionsPill({
   deviceId,
   sessionId,
+  phoneHost = false,
   busy
 }: {
   deviceId: string
   sessionId: string
+  phoneHost?: boolean
   /** agent 在跑 / 正在发送。跑到一半改选项会与它自己的输出交错,所以锁住。 */
   busy: boolean
 }) {
@@ -171,11 +173,11 @@ export function SessionOptionsPill({
 
   useEffect(() => {
     let cancelled = false
-    fetchSessionOptions(deviceId, sessionId)
+    fetchSessionOptions(deviceId, sessionId, phoneHost)
       .then((next) => { if (!cancelled) setOptions(next) })
       .catch((err) => { if (!cancelled) setError(describe(err)) })
     return () => { cancelled = true }
-  }, [deviceId, sessionId])
+  }, [deviceId, sessionId, phoneHost])
 
   const groups = presentGroups(options)
   const root = groups[0]
@@ -205,7 +207,7 @@ export function SessionOptionsPill({
     setError(null)
     // 下发失败就停在这一页,错误写在头部下面,可以换一个再点。回来之前人可能已经点 ✕ / 遮罩关了抽屉:
     // 关着就让它关着(`v &&`),❌ 回来时把抽屉重新弹开。
-    void setSessionOption(deviceId, { conversationId: sessionId, dimension, value })
+    void setSessionOption(deviceId, { conversationId: sessionId, dimension, value }, phoneHost)
       .then((next) => { setOptions(next); setView((v) => v && root[0]) })
       .catch((err) => setError(describe(err)))
       .finally(() => setPending(null))
@@ -228,7 +230,7 @@ export function SessionOptionsPill({
     if (!reload) return
     setPending('model')
     setError(null)
-    void reloadSessionModel(deviceId, { conversationId: sessionId, model: reload.modelId, modelSource: reload.source })
+    void reloadSessionModel(deviceId, { conversationId: sessionId, model: reload.modelId, modelSource: reload.source }, phoneHost)
       .then((next) => { setOptions(next); setReload(null); setView((v) => v && root[0]) })
       .catch((err) => setError(describe(err)))
       .finally(() => setPending(null))

@@ -1,0 +1,4 @@
+button.gg-contacts-letter-trigger { position: absolute; inset-block-end: var(--spacing-md); inset-inline-end: var(--spacing-md); min-height: var(--control-h-touch); min-width: var(--control-h-touch); }
+div.gg-contacts-letter-picker { padding-bottom: max(var(--spacing-md), env(safe-area-inset-bottom)); }
+div.gg-contacts-letter-grid { display: grid; grid-template-columns: repeat(5, minmax(var(--control-h-touch), 1fr)); gap: var(--spacing-xs); padding: var(--spacing-md); }
+.gg-contacts-letter-grid > [data-slot='button'] { min-height: var(--control-h-touch); font-size: var(--font-title); }

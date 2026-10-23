@@ -94,6 +94,8 @@ capacitor-cordova-android-plugins
 
 # Copied web assets
 app/src/main/assets/public
+app/src/main/assets/agent-runtime
+app/src/main/jniLibs
 
 # Generated Config files
 app/src/main/assets/capacitor.config.json

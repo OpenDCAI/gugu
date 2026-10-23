@@ -17,8 +17,10 @@ export interface PhoneDeviceInfo {
   device_name: string | null
   app_version: string | null
   package: string
-  /** 这台手机这个咕咕的系统标识(ANDROID_ID)的摘要:只在本机比对安装标识是不是从别的手机的备份里恢复来的,❌ 上传。 */
+  /** 不参与备份的随机原生安装标识，仅在本机比对；同一次安装升级保持不变。 */
   install_key: string | null
+  /** 原生持有旧安装连续性证据时提供的一次格式迁移别名，不能由网页存储推断。 */
+  previous_install_key?: string | null
 }
 
 /** 那几样要去系统设置里开的(运行时权限之外)。 */

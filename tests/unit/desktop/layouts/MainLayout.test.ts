@@ -743,6 +743,21 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
+  // 手机键盘弹起时把整屏让给输入:有真实可编辑控件获得焦点就收起底栏,失焦后回来;❌ 冷启动自己抢焦点。
+  it('hides the tab bar while an editable control has focus and brings it back on blur', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    expect(harness.container.querySelector('nav')).toBeTruthy()
+    expect(document.activeElement?.tagName).not.toBe('TEXTAREA')
+    const input = document.createElement('textarea')
+    harness.container.querySelector('[data-mobile-tab-page="chats"]')!.appendChild(input)
+    await act(async () => { input.focus() })
+    expect(harness.container.querySelector('nav')).toBeNull()
+    await act(async () => { input.blur(); await Promise.resolve() })
+    expect(harness.container.querySelector('nav')).toBeTruthy()
+    input.remove()
+  })
   // 对话列表里点和它的私聊 = 切到助理那一格,❌ 在对话页里另开一屏(owner:「点进去成两个 app 了」)。
   it('opens the assistant cell, not the chat page, when its private chat is picked from the list', async () => {
     platformMock.kind = 'capacitor'

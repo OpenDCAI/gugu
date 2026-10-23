@@ -3,6 +3,8 @@ import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import '@/styles/desktop-shell.css'
+import '@/mobile/phone-shell.css'
+import { usePhoneViewport } from '@/mobile/usePhoneViewport'
 import { ListChecks, MessageCircle, UserRound } from '@/lib/icons'
 import { Sidebar } from '../components/Sidebar'
 import { UpdateBanner } from '../components/UpdateBanner'
@@ -374,6 +376,7 @@ function InnerLayout({
   // index.html 的引导脚本已经落过一次;这里补一次,兜住属性被别处清掉的情况(与主题同办法)。
   useEffect(() => { hydrateSidebarTint() }, [])
   const mobile = useMobileShell()
+  const phoneViewport = usePhoneViewport(mobile)
   const chatOpenNonce = useMobileChatOpenNonce(mobile, mobilePane)
   // #2549 对话页原地创建 Agent — draft-composer state, layered on the chats tab (not a new top-level
   // tab: #2509 already made 'tasks' the cold-boot landing tab, this must not fight that). Only
@@ -719,7 +722,7 @@ function InnerLayout({
   // 机器列表 / 会话列表仍留着,它们是这个 tab 的浏览层。
   // 横滑切 tab 用同一份判据(#6730):tab 栏在,点和滑都能换 tab;钻进全屏子页两样都不行 —— 横滑归子页所有,
   // 全屏创建页的出口只有左上返回箭头(#2525),横滑会把草稿连页一起掀掉。
-  const tabBarVisible = mobile && !chatListHidden && !(activeTab === 'settings' && settingsPane === 'detail') && !(activeTab === 'tasks' && (watchRoute === 'timeline' || watchRoute === 'create'))
+  const tabBarVisible = mobile && !(phoneViewport.keyboardVisible ?? phoneViewport.inputFocused) && !chatListHidden && !(activeTab === 'settings' && settingsPane === 'detail') && !(activeTab === 'tasks' && (watchRoute === 'timeline' || watchRoute === 'create'))
   // 手机上四个 tab 页常驻在分页器里,横滑时相邻页整页可见 ⇒ 离开的 tab 回到它的根上(与从前「切走即卸载、
   // 回来是根」同一个结果),拖过去看到的总是那个 tab 的浏览层。会话页、联系人页各自按 activeTab 复位。
   // 「我的」连 section 一起复位:SettingsPanel 按 settingsSection 换 key,离开时就回到 account,
@@ -1218,12 +1221,16 @@ function InnerLayout({
   return (
     <div
       ref={shellRootRef}
+      data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
       style={{
         display: 'flex',
         width: '100vw',
-        height: mobile ? '100dvh' : '100vh',
+        height: mobile ? phoneViewport.viewportHeight ?? '100dvh' : '100vh',
+        position: mobile ? 'fixed' : undefined,
+        top: mobile ? phoneViewport.viewportOffsetTop : undefined,
+        left: mobile ? 0 : undefined,
         overflow: 'hidden',
         background: mobile ? 'var(--bg-primary)' : 'var(--shell-bg)',
         // @@@mobile-safe-area-top (#1227) — Android 15+ (targetSdk 36) 强制 edge-to-edge：WebView

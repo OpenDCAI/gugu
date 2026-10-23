@@ -13,7 +13,7 @@ import { AssistantEmpty, AssistantRow, AssistantSection, PageHead } from '@/sess
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneMachineView, ReadView, type OpenedPageProps } from './PhoneMachineView'
-import { filesSub, formatSize, readResourceView, uploadResources, visibleEntries, type FileContentView } from './phoneMemoryData'
+import { filesSub, formatSize, readResourceView, resourceDisplayPath, uploadResources, visibleEntries, type FileContentView } from './phoneMemoryData'
 import { errorText, machineKey, usePhoneRead } from './usePhoneRead'
 
 /**
@@ -23,7 +23,7 @@ import { errorText, machineKey, usePhoneRead } from './usePhoneRead'
  */
 export function PhoneFiles(props: PhonePageProps & { trail: string[] }) {
   const ready = props.readiness === 'ready' && props.machine.state === 'ready' ? props.machine.machine : null
-  if (ready) return <ResourcePage {...props} machine={ready} />
+  if (ready) return <ResourcePage key={`${machineKey(ready)}|${props.trail.join('/')}`} {...props} machine={ready} />
   return (
     <div className="ta-page" data-testid="assistant-files">
       <PageHead title={props.trail.at(-1) ?? RESOURCES_DIR_NAME} />
@@ -37,8 +37,10 @@ export function PhoneFiles(props: PhonePageProps & { trail: string[] }) {
 function ResourcePage(props: OpenedPageProps & { trail: string[] }) {
   const { t } = useTranslation('assistant')
   const { machine, trail } = props
+  // Directory reloads unmount the list; keep completed uploads with this directory.
+  const [uploaded, setUploaded] = useState<string[]>([])
   const read = usePhoneRead(`files|${machineKey(machine)}|${trail.join('/')}`, () => readResourceView(machine, trail), 'read resource files')
-  if (read.state === 'ok' && read.data.kind === 'folder') return <FolderView {...props} entries={read.data.entries} reload={read.reload} />
+  if (read.state === 'ok' && read.data.kind === 'folder') return <FolderView {...props} entries={read.data.entries} reload={read.reload} uploaded={uploaded} onUploaded={setUploaded} />
   if (read.state === 'ok' && read.data.kind === 'file') return <FileView {...props} entry={read.data.entry} content={read.data.content} />
   return (
     <div className="ta-page" data-testid="assistant-files">
@@ -58,14 +60,15 @@ function FolderView({
   go,
   entries,
   reload,
-}: OpenedPageProps & { trail: string[]; entries: DirectoryEntry[]; reload: () => void }) {
+  uploaded,
+  onUploaded,
+}: OpenedPageProps & { trail: string[]; entries: DirectoryEntry[]; reload: () => void; uploaded: string[]; onUploaded: (files: string[]) => void }) {
   const { t } = useTranslation('assistant')
   const { toast } = useToast()
   const name = assistant.display_name
   const input = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState<string | null>(null)
-  const [uploaded, setUploaded] = useState<string[]>([])
-  const where = [RESOURCES_DIR_NAME, ...trail].join('/')
+  const where = resourceDisplayPath(machine, trail)
   const shown = visibleEntries(entries)
   const upload = async (files: File[]) => {
     if (!files.length) return
@@ -78,7 +81,7 @@ function FolderView({
         for (const name of outcome.done) await reportAssistantAppChange(machine, assistant.id, { resource: 'files', operation: 'saved',
           id: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')), deviceId: machine.deviceId,
           after: { name, path: joinPath(machine.paths.resourcesDir, [...trail, name].join('/')) } })
-        setUploaded(outcome.done)
+        onUploaded([...new Set([...uploaded, ...outcome.done])])
         toast(t('files.uploaded', { n: outcome.done.length }), 'success')
         reload()
       }
@@ -122,8 +125,8 @@ function FolderView({
             className="ta-pill-btn shrink-0"
             data-testid="assistant-files-analyze"
             onClick={() => {
-              askInChat(t('files.analyzePrompt', { path: `~/${where}`, files: uploaded.join('、') }))
-              setUploaded([])
+              askInChat(t('files.analyzePrompt', { path: where, files: uploaded.join('、') }))
+              onUploaded([])
             }}
           >
             {t('files.analyze', { name })}
@@ -220,7 +223,7 @@ function FileView({
         <Button
           variant="ghost"
           className="ta-pill-btn"
-          onClick={() => askInChat(t('files.analyzePrompt', { path: `~/${[RESOURCES_DIR_NAME, ...parent].join('/')}`, files: entry.name }))}
+          onClick={() => askInChat(t('files.analyzePrompt', { path: resourceDisplayPath(machine, parent), files: entry.name }))}
           data-testid="assistant-file-analyze"
         >
           <Sparkles />

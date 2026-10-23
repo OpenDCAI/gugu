@@ -1,19 +1,22 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/Button'
-import { AlignJustify, Clock } from '@/lib/icons'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { Clock } from '@/lib/icons'
 import { assistantDescendants, groupByDay } from '@/session/renderer/features/assistant/assistant-lineage'
 import { scheduleText } from '@/session/renderer/features/assistant/assistant-schedule'
-import { AssistantEmpty, AssistantRow, AssistantSection, WideSegments } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, AssistantRow, AssistantSection } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import { formatSessionTitleForDisplay } from '@/session/shared/core/sessions/session-title-utils'
 import { openAssistantTaskChat } from '@/lib/assistantTaskChat'
 import { deviceSessionsOf, directoryRows, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { useDevicesStore } from '@/store/devicesContext'
 import { StatusGlyph } from '../agent-watch/StatusGlyph'
 import { sessionPresentation } from '../agent-watch/watch-status'
+import { DeviceDirectoryRetry } from '../agent-watch/DeviceDirectoryRetry'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneMachineGate } from './PhoneMachineGate'
-import { ReadView } from './PhoneMachineView'
+import { ReadingNow } from './PhoneMachineView'
+import { PhoneRoutineRead } from './PhoneRoutineRead'
 import { PhoneRoutineDetail } from './PhoneRoutineDetail'
 import { usePhoneRoutines } from './usePhoneRoutines'
 
@@ -30,14 +33,17 @@ export function PhoneTasks(props: PhonePageProps) {
   return (
     <div className="ta-page" data-testid="assistant-tasks">
       <div className="ta-phone-actions">
-        <WideSegments
-          items={[
-            { id: 'tasks', label: t('tasks.segment'), icon: <AlignJustify /> },
-            { id: 'scheduled', label: t('routines.title'), icon: <Clock /> },
-          ]}
-          value={segment}
-          onChange={setSegment}
-        />
+        <div className="ta-phone-page-segments">
+          <SegmentedTabs
+            items={[
+              { value: 'tasks', label: t('tasks.segment'), testId: 'assistant-seg-tasks' },
+              { value: 'scheduled', label: t('routines.title'), testId: 'assistant-seg-scheduled' },
+            ]}
+            value={segment}
+            onChange={setSegment}
+            ariaLabel={t('tasks.title')}
+          />
+        </div>
         <Button variant="ghost" className="ta-pill-btn"
           onClick={() => props.askInChat(segment === 'tasks' ? t('tasks.createPrompt') : t('routines.createPrompt'))}
           data-testid="assistant-tasks-create"
@@ -50,16 +56,23 @@ export function PhoneTasks(props: PhonePageProps) {
   )
 }
 
-function SubAgents({ assistant, cloudDeviceId, readiness, askInChat }: PhonePageProps) {
+function SubAgents({ assistant, homeDeviceId, cloudDeviceId, readiness, askInChat }: PhonePageProps) {
   const { t } = useTranslation('assistant')
-  const { devices } = useDevicesStore()
+  const { devices, loading, error } = useDevicesStore()
   const live = useLiveDeviceSessions()
   const online = useMemo(() => new Map(devices.map((device) => [device.device_id, device.is_online])), [devices])
   const listed = directoryRows(devices, live).map(({ deviceId, session }) => ({ deviceId, summary: session }))
   const children = assistantDescendants(listed, assistant.id)
-  const cloud = devices.find((device) => device.device_id === cloudDeviceId) ?? null
-  const cloudRead = cloud ? deviceSessionsOf(cloud, live) : null
+  const home = devices.find((device) => device.device_id === homeDeviceId) ?? null
+  const homeRead = home ? deviceSessionsOf(home, live) : null
   if (children.length === 0) {
+    if (error) return <AssistantEmpty title={t('tasks.loadFailed')} action={<DeviceDirectoryRetry />}><span role="alert">{error}</span></AssistantEmpty>
+    if (loading) return <ReadingNow />
+    if (readiness !== 'ready' || !home) return <PhoneMachineGate readiness={readiness === 'ready' ? 'unreachable' : readiness} name={assistant.display_name}>{null}</PhoneMachineGate>
+    const unread = devices.filter((device) => device.is_online).map((device) => deviceSessionsOf(device, live))
+    const errors = unread.flatMap((read) => read.error ? [read.error] : [])
+    if (errors.length) return <AssistantEmpty title={t('tasks.loadFailed')}><span role="alert">{errors.join(' · ')}</span></AssistantEmpty>
+    if (!homeRead || unread.some((read) => read.loading || read.cached)) return <ReadingNow />
     return (
       <AssistantSection bare>
         <AssistantEmpty
@@ -70,9 +83,7 @@ function SubAgents({ assistant, cloudDeviceId, readiness, askInChat }: PhonePage
             </Button>
           }
         >
-          {!cloudRead || (cloudRead.sessions.length === 0 && readiness !== 'ready')
-            ? t('tasks.notRead', { name: assistant.display_name })
-            : t('tasks.empty', { name: assistant.display_name })}
+          {t('tasks.empty', { name: assistant.display_name })}
         </AssistantEmpty>
       </AssistantSection>
     )
@@ -107,12 +118,12 @@ function SubAgents({ assistant, cloudDeviceId, readiness, askInChat }: PhonePage
 function Routines(props: PhonePageProps) {
   const { assistant, readiness, askInChat, go } = props
   const { t, i18n } = useTranslation('assistant')
-  const { read, routines } = usePhoneRoutines(props)
+  const { read, routines, directory } = usePhoneRoutines(props)
   const formatAt = (at: number) =>
     new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(at)
   return (
     <PhoneMachineGate readiness={readiness} name={assistant.display_name}>
-      <ReadView read={read} failedTitle={t('routines.loadFailed')}>
+      <PhoneRoutineRead read={read} directory={directory}>
         {() =>
           routines.length === 0 ? (
             <AssistantEmpty
@@ -145,7 +156,7 @@ function Routines(props: PhonePageProps) {
             })
           )
         }
-      </ReadView>
+      </PhoneRoutineRead>
     </PhoneMachineGate>
   )
 }

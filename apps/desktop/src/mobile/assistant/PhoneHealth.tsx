@@ -12,9 +12,9 @@ import { AssistantRow, AssistantSection, PageHead, Tile } from '@/session/render
 import { nativePhoneActions } from '../phone-device/nativePhoneActions'
 import { readHealthSummary } from '../phone-device/phoneHealth'
 import type { PhonePageProps } from './MobileAssistantApp'
-import { ReadFailed, ReadingNow } from './PhoneMachineView'
+import { PhoneMachineView, ReadFailed, ReadingNow, ReadView } from './PhoneMachineView'
 import { healthClock, PHONE_HEALTH_REFRESH_MS, readPhoneHealthView, type PhoneHealthView } from './phoneHealthView'
-import { errorText, usePhoneRead } from './usePhoneRead'
+import { errorText, usePhoneRead, type PhoneRead } from './usePhoneRead'
 import './phone-memory.css'
 
 const log = rendererLogger('mobile/assistant')
@@ -27,7 +27,9 @@ const HEALTH_DAYS = 7
  * ❌ 经云端问自己,也 ❌ 被「它在休息」挡住。读不到分几种如实说并给下一步(去授权 / 重试);
  * 下面「你的健康分析」(让它解读,只填不发;它记进记忆的 health_* 几条,醒着读到了才列)、「分析健康报告」(选文件排进聊天)。
  */
-export function PhoneHealth({ assistant, askInChat, go, healthNotes }: PhonePageProps & { healthNotes: readonly MemoryEntry[] | null }) {
+export function PhoneHealth({ assistant, askInChat, go, healthNotes, readiness, machine }: PhonePageProps & {
+  healthNotes: PhoneRead<{ notes: MemoryEntry[] }> & { reload: () => void }
+}) {
   const { t } = useTranslation('assistant')
   const name = assistant.display_name
   const health = usePhoneRead(
@@ -57,7 +59,6 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes }: PhonePage
       health.reload()
     }
   }
-  const notes = (healthNotes ?? []).filter((note) => isHealthNote(note.file))
   return (
     <div className="ta-page ta-phone-health" data-testid="assistant-health" data-state={health.state === 'ok' ? health.data.state : health.state}>
       <PageHead
@@ -96,24 +97,27 @@ export function PhoneHealth({ assistant, askInChat, go, healthNotes }: PhonePage
         }
         testId="assistant-health-analysis"
       >
-        {notes.length === 0 ? (
-          <p className="ta-card-text ta-page-sub">{t('health.analysisEmpty', { name })}</p>
-        ) : (
-          notes.map((note) => (
-            <AssistantRow
-              key={note.file}
-              leading={
-                <span className="ta-tile-icon">
-                  <FileText />
-                </span>
-              }
-              title={note.title}
-              detail={note.description || note.body.slice(0, 80)}
-              onClick={() => go(`note:${note.file}`)}
-              testId={`assistant-health-note-${note.file}`}
-            />
-          ))
-        )}
+        <PhoneMachineView readiness={readiness} machine={machine} name={name}>
+          {() => (
+            <ReadView read={healthNotes} failedTitle={t('memory.loadFailed')}>
+              {({ notes }) => {
+                const analysis = notes.filter((note) => isHealthNote(note.file))
+                return analysis.length === 0 ? (
+                  <p className="ta-card-text ta-page-sub">{t('health.analysisEmpty', { name })}</p>
+                ) : analysis.map((note) => (
+                  <AssistantRow
+                    key={note.file}
+                    leading={<FileText />}
+                    title={note.title}
+                    detail={note.description || note.body.slice(0, 80)}
+                    onClick={() => go(`note:${note.file}`)}
+                    testId={`assistant-health-note-${note.file}`}
+                  />
+                ))
+              }}
+            </ReadView>
+          )}
+        </PhoneMachineView>
       </AssistantSection>
       <ReportUpload askInChat={askInChat} />
     </div>
