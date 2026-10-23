@@ -381,7 +381,7 @@ export function hostAppFrame(
     chat = await files.chat(chatId)
   }
   /** The chats this page asked to hear about (`files.onChanged({ chat }, fn)`): a phone has no working copies. */
-  const watched = new Map<string, string>()
+  const watched = new Map<string, { named: string; source: string }>()
   /** A chat's files read for the page (#7257), one read at a time per chat; a failed one's ids go with the next. */
   const readFiles = coalescedReads((chatId, error) =>
     log.error({ error: error instanceof Error ? error.message : String(error), chatId }, 'reading the files a revision named failed twice; they go with its next read'),
@@ -390,7 +390,7 @@ export function hostAppFrame(
     readFiles.want(chatId, ids, async (wanted) => {
       const change = await files.groupChange(chatId, wanted)
       if (hosted.binding.capabilities.includes('files:read') && (change.entries.length > 0 || change.gone.length > 0)) {
-        for (const [named, source] of watched) if (source === chatId) event({ type: 'filesChanged', place: { chat: named }, change: { kind: 'entries', ...change } })
+        for (const [watchId, { named, source }] of watched) if (source === chatId) event({ type: 'filesChanged', watchId, place: { chat: named }, change: { kind: 'entries', ...change } })
       }
     })
   const peek = (target: PeekTarget) => {
@@ -589,12 +589,16 @@ export function hostAppFrame(
       case 'filesReadVersion':
         return files.readVersion(surface(), { ref: chatRef(args.ref), n: Number(args.n) })
       case 'filesWatch': {
+        if (typeof args.watchId !== 'string' || !args.watchId) refused('invalid', 'A file watch needs its subscription id')
         const named = chatPlace(args.place)
-        const chatId = await files.resourceChat(named)
         if (args.on === false) {
-          watched.delete(named)
-          if (![...watched.values()].includes(chatId)) readFiles.forget(chatId)
-        } else watched.set(named, chatId)
+          const existing = watched.get(args.watchId)
+          watched.delete(args.watchId)
+          if (existing && ![...watched.values()].some(({ source }) => source === existing.source)) readFiles.forget(existing.source)
+        } else {
+          if (watched.has(args.watchId)) refused('invalid', 'This file watch is already registered')
+          watched.set(args.watchId, { named, source: await files.resourceChat(named) })
+        }
         return Promise.resolve(undefined)
       }
       case 'filesUpload': {
@@ -689,7 +693,7 @@ export function hostAppFrame(
     /** These chats' files changed (the account revision bus names them): the ones the page asked about are told how those files are now. */
     filesChanged(changes) {
       if (!hosted.binding.capabilities.includes('files:read')) return Promise.resolve()
-      return Promise.all(changes.filter(({ chatId }) => [...watched.values()].includes(chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
+      return Promise.all(changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
     },
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {

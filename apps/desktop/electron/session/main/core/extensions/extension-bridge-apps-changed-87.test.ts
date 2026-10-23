@@ -45,7 +45,7 @@ const { bindExtensionSurface, notifyInstalledAppsChanged, onInstalledAppsChanged
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const watch = (id: number, place: unknown) =>
-  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { place, on: true } });
+  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { watchId: JSON.stringify(place), place, on: true } });
 
 beforeEach(async () => {
   sent.length = 0;

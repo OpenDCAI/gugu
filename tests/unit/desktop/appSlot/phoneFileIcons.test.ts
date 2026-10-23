@@ -84,7 +84,7 @@ async function call(method: string, args: Record<string, unknown>): Promise<Reco
 
 describe('a chat file\'s icon on the phone: the one its App declared for its kind (owner 10-17)', () => {
   it('a declared kind carries that icon; a claimed kind without one carries none — not the tab\'s icon', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [MD, JSON_FILE] }])
     const change = posted.mock.calls.map(([m]) => m as { t?: string; event?: { type: string; change: { entries: { id: string; claimedBy: unknown }[] } } })
       .find((m) => m.t === 'event' && m.event?.type === 'filesChanged')!.event!.change

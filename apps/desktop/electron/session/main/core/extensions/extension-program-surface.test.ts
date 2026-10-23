@@ -110,33 +110,50 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
-  it('each later watch keeps its own caller after an owner watch, including repeated calls at the same topic', async () => {
+  it('simultaneous watches at the same place retain each caller through later calls and independent cancellation', async () => {
     granted.add('files:read');
     const child = fakeChild();
     const surface = attachProgramSurface('board', child as unknown as ChildProcess);
-    expect(await call(child, 850, 'filesWatch', { place: { chat: BOARD_CHAT } })).toMatchObject({ ok: true });
+    const place = { chat: TOPIC };
+    expect(await call(child, 850, 'filesWatch', { watchId: 'owner', place })).toMatchObject({ ok: true });
+    changedGroupFiles.mockImplementation(async (chat, reader, wanted) => ({
+      entries: wanted.ids.filter((id) => reader === null || id !== 'owner-only').map((id) => ({ id, chat, name: 'board.json', version: 3 })),
+      gone: reader === null ? [] : wanted.ids.filter((id) => id === 'owner-only'),
+    }));
     for (const [index, agent] of ['agent-1', 'agent-2', 'agent-3'].entries()) {
       const callId = `watch-call-${index}`;
+      const watchId = `agent-${index}`;
       const release = surface.hand(callId, agent, [], [{ chatId: TOPIC, resourceChatId: FOLDER_CHAT, agentUserId: agent }]);
-      expect(await call(child, 851 + index * 2, 'filesWatch', { place: { chat: TOPIC } }, callId)).toMatchObject({ ok: true });
-      expect(await call(child, 852 + index * 2, 'filesWatch', { place: { chat: OTHER_CHAT } }, callId)).toMatchObject({ ok: false, code: 'denied' });
+      expect(await call(child, 851 + index * 3, 'filesWatch', { watchId, place }, callId)).toMatchObject({ ok: true });
+      expect(await call(child, 852 + index * 3, 'filesWatch', { watchId: `denied-${index}`, place: { chat: OTHER_CHAT } }, callId)).toMatchObject({ ok: false, code: 'denied' });
+      expect(await call(child, 853 + index * 3, 'filesWatch', { watchId: `later-${index}`, place }, callId)).toMatchObject({ ok: true });
       changedGroupFiles.mockClear();
-      const item = `agent-file-${index}`;
+      const start = child.sent.length;
       await notifyGroupWorkspaceChanged([
-        { chatId: BOARD_CHAT, itemIds: ['owner-file'] },
-        { chatId: FOLDER_CHAT, itemIds: [item] },
+        { chatId: FOLDER_CHAT, itemIds: ['shared', 'owner-only'] },
         { chatId: OTHER_CHAT, itemIds: ['not-handed'] },
       ]);
-      expect(changedGroupFiles.mock.calls.map(([chat, reader]) => [chat, reader])).toEqual([[BOARD_CHAT, null], [FOLDER_CHAT, agent]]);
-      expect(child.sent).toContainEqual(expect.objectContaining({
-        t: 'event', event: expect.objectContaining({ place: { chat: TOPIC }, change: expect.objectContaining({ entries: [expect.objectContaining({ id: item, chat: FOLDER_CHAT })] }) }),
-      }));
+      expect(changedGroupFiles.mock.calls.map(([chat, reader]) => [chat, reader])).toEqual([[FOLDER_CHAT, null], [FOLDER_CHAT, agent]]);
+      const changes = child.sent.slice(start).filter((frame) => (frame as { t?: string }).t === 'event');
+      expect(changes).toEqual([
+        expect.objectContaining({ event: { type: 'filesChanged', watchId: 'owner', place, change: { kind: 'entries', entries: [expect.objectContaining({ id: 'shared' }), expect.objectContaining({ id: 'owner-only' })], gone: [] } } }),
+        ...[watchId, `later-${index}`].map((id) => expect.objectContaining({ event: { type: 'filesChanged', watchId: id, place, change: { kind: 'entries', entries: [expect.objectContaining({ id: 'shared' })], gone: ['owner-only'] } } })),
+      ]);
+      expect(await call(child, 880 + index, 'filesWatch', { watchId, place, on: false }, callId)).toMatchObject({ ok: true });
+      const afterCancel = child.sent.length;
+      await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['later-update'] }]);
+      expect(child.sent.slice(afterCancel).filter((frame) => (frame as { t?: string }).t === 'event')).toEqual([
+        expect.objectContaining({ event: expect.objectContaining({ watchId: 'owner' }) }),
+        expect.objectContaining({ event: expect.objectContaining({ watchId: `later-${index}` }) }),
+      ]);
       await release();
       changedGroupFiles.mockClear();
       await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['after-release'] }]);
-      expect(changedGroupFiles).not.toHaveBeenCalled();
+      expect(changedGroupFiles.mock.calls.map(([, reader]) => reader)).toEqual([null]);
     }
     surface.close();
+    changedGroupFiles.mockReset();
+    changedGroupFiles.mockImplementation(async (chat, _reader, wanted) => ({ entries: wanted.ids.map((id) => ({ id, chat, name: 'board.json', version: 3 })), gone: [] }));
   });
 
   it('a handed topic grants its source files while message history keeps the topic address', async () => {
@@ -154,7 +171,7 @@ describe('an App program as a caller of its App (F16)', () => {
     expect(messagesHistory).toHaveBeenLastCalledWith({ chat: TOPIC }, { asAgent: 'agent-1' });
     expect(await call(child, 804, 'messagesHistory', { chat: FOLDER_CHAT }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
     expect(await call(child, 805, 'filesList', { place: { chat: OTHER_CHAT } }, 'topic-call')).toMatchObject({ ok: false, code: 'denied' });
-    expect(await call(child, 806, 'filesWatch', { place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
+    expect(await call(child, 806, 'filesWatch', { watchId: 'topic-watch', place: { chat: TOPIC } }, 'topic-call')).toMatchObject({ ok: true });
     await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['source-file'] }]);
     expect(changedGroupFiles).toHaveBeenLastCalledWith(FOLDER_CHAT, 'agent-1', { ids: ['source-file'], all: false });
     await release();
@@ -481,12 +498,12 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:read');
     const child = fakeChild();
     attachProgramSurface('board', child as unknown as ChildProcess);
-    expect(await call(child, 12, 'filesWatch', { place: { chat: BOARD_CHAT }, on: true })).toMatchObject({ ok: true });
+    expect(await call(child, 12, 'filesWatch', { watchId: 'board-watch', place: { chat: BOARD_CHAT }, on: true })).toMatchObject({ ok: true });
     await notifyGroupWorkspaceChanged([{ chatId: BOARD_CHAT, itemIds: ['board-1'] }]);
     expect(child.sent).toContainEqual({
       m: APP_FRAME_MARKER,
       t: 'event',
-      event: { type: 'filesChanged', place: { chat: BOARD_CHAT }, change: { kind: 'entries', entries: [{ id: 'board-1', chat: BOARD_CHAT, name: 'board.json', version: 3 }], gone: [] } },
+      event: { type: 'filesChanged', watchId: 'board-watch', place: { chat: BOARD_CHAT }, change: { kind: 'entries', entries: [{ id: 'board-1', chat: BOARD_CHAT, name: 'board.json', version: 3 }], gone: [] } },
     });
   });
 

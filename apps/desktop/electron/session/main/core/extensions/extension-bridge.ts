@@ -330,7 +330,7 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
 
 /**
  * Where each caller asked to hear that files changed (`files.onChanged(place, fn)`, `filesWatch`) — a page, the
- * background page, a program — by `placeKey`: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
+ * background page, a program — by subscription: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
 const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
@@ -366,34 +366,33 @@ export function stopPageWatches(pageId: number): void {
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): Promise<void> {
-  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
-  const key = placeKey(place);
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
   const watching = pageWatches.get(caller.pageId);
-  const existing = watching?.get(key);
+  const existing = watching?.get(watchId);
   if (!on) {
     existing?.disk?.stop();
-    watching?.delete(key);
+    watching?.delete(watchId);
     if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (existing) { existing.caller = caller; return; }
+  if (existing) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
+  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
     disk = watchWorkspaceForSurface({
       extensionId: caller.extensionId,
       workspaceRoot: (await localRootOf(place)).workspaceRoot,
-      deliver: (change) => caller.hear({ type: 'filesChanged', place, change }),
+      deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
     });
   }
   if (!watching) {
-    pageWatches.set(caller.pageId, new Map([[key, { caller, place, resource, disk }]]));
+    pageWatches.set(caller.pageId, new Map([[watchId, { caller, place, resource, disk }]]));
     // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
     if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
     return;
   }
-  watching.set(key, { caller, place, resource, disk });
+  watching.set(watchId, { caller, place, resource, disk });
 }
 
 /**
@@ -833,9 +832,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
-  for (const places of pageWatches.values()) for (const watched of places.values()) {
+  for (const places of pageWatches.values()) for (const [watchId, watched] of places) {
     if (placeKey(watched.resource) !== key || !hearsFiles(watched.caller, chatId) || readerOf(watched.caller, chatId) !== reader) continue;
-    watched.caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
+    watched.caller.hear({ type: 'filesChanged', watchId, place: watched.place, change: { kind: 'entries', ...change } });
   }
 }
 
@@ -1743,8 +1742,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'filesWatch':
+      if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
       if (args.on !== false) asCallingAgent(caller, await resourcePage(caller, args), args);
-      await watchFiles(caller, placeOf(args.place), args.on !== false);
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false);
       return undefined;
 
     case 'filesUpload': {

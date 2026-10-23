@@ -192,7 +192,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
 
   it('files:read:all-machines is kept when installed here and has what files:read gives: its verbs, and a watched chat changing', async () => {
     start(['chat:relay'])
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
     const manifest = parseExtensionManifest({
       id: 'board',
       name: 'Board',
@@ -205,7 +205,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
     const kept = grantableBy(manifest, PHONE_CAPABILITIES).permissions?.capabilities ?? []
     expect(kept).toEqual(['files:read:all-machines', 'chat:relay'])
     start(kept)
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     const filesChanged = () => posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'filesChanged')
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(1)

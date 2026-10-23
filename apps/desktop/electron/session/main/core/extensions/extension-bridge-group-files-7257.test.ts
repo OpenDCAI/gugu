@@ -66,7 +66,7 @@ const { MAX_HELD_IDS } = await import('@shared/extensions/coalesced-reads');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const watch = (id: number, place: unknown, on = true) =>
-  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { place, on } });
+  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { watchId: JSON.stringify(place), place, on } });
 const changesTo = (id: number) => sent.filter((s) => s.id === id && s.event.type === 'filesChanged').map((s) => s.event.change);
 
 beforeEach(async () => {
