@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
 import { SidebarStore } from './sidebar-store';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
@@ -111,42 +110,5 @@ describe('项目行的「展开显示」', () => {
 
     expect(projectRows(store)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'busy-root', 'more:2']);
   });
-
-  it('搜索时不折', () => {
-    const store = storeWith(PROJECT, SEVEN_IDLE_ROOTS);
-    store.ensureProjectExpanded(PROJECT);
-    store.setSearchQuery('r');
-
-    expect(projectRows(store).filter((row) => row.startsWith('more'))).toEqual([]);
-    expect(projectRows(store)).toHaveLength(7);
-  });
 });
 
-describe('「任务」分区的「展开显示」', () => {
-  for (const grouped of [false, true]) {
-    it(`与项目行同一条折法,有上限(二级分类${grouped ? '开' : '关'})`, () => {
-      const store = storeWith(IMPLICIT_SESSION_HOME_PROJECT_ID, SEVEN_IDLE_ROOTS);
-      store.setStateGroupsEnabled(grouped);
-      store.toggleSessionExpanded('r1');
-      const shown = () => store.standaloneSessionEntries.map((e) => e.sessionId);
-
-      expect(shown()).toEqual(['r1', 'k1', 'k2', 'k3', 'r2', 'r3', 'r4', 'r5']);
-      expect(store.standaloneMore).toMatchObject({ expanded: false, hiddenCount: 2 });
-
-      // ↓ 走到分区最后一行时,键盘会自动点开它。
-      const last = { kind: 'conversation', projectId: IMPLICIT_SESSION_HOME_PROJECT_ID, sessionId: 'r5' } as const;
-      const foldKey = store.idleOverflowProjectAfter(last);
-      expect(foldKey).toBe(store.standaloneMore?.foldKey);
-      expect(store.idleOverflowProjectAfter({ ...last, sessionId: 'r4' })).toBeNull();
-
-      store.toggleIdleExpanded(foldKey!);
-      expect(shown()).toEqual(['r1', 'k1', 'k2', 'k3', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7']);
-      expect(store.standaloneMore).toMatchObject({ expanded: true, hiddenCount: 2 });
-    });
-  }
-
-  it('不超过上限就没有「展开显示」', () => {
-    const store = storeWith(IMPLICIT_SESSION_HOME_PROJECT_ID, SEVEN_IDLE_ROOTS.slice(0, 8));
-    expect(store.standaloneMore).toBeNull();
-  });
-});

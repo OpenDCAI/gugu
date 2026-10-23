@@ -1,4 +1,4 @@
-import { revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
+import { forgetProjectOnScreen, revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
@@ -503,6 +503,7 @@ export class ProjectManagerStore {
     runInAction(() => {
       this.projects.delete(projectId);
     });
+    forgetProjectOnScreen(projectId);
     appState.navigation.revalidate();
     try {
       await rpc.projects.deleteProject(projectId);

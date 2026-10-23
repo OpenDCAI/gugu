@@ -9,6 +9,7 @@ import { useCreateSessionState } from '@renderer/features/sessions/create-sessio
 import { useProjectGitContext } from '@renderer/features/sessions/create-session-modal/use-project-git-context';
 import { useSessionSettings } from '@renderer/features/sessions/hooks/useSessionSettings';
 import { SessionField } from '@renderer/features/sessions/session-config/session-field';
+import type { ComposerVerbLook } from '@renderer/features/sessions/session-config/initial-session-section';
 import { useInitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
 import { SessionStateProvider } from '@renderer/features/sessions/session-config/session-state-context';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
@@ -32,7 +33,8 @@ import {
 } from './session-composer-styles';
 import { useSessionShellContext } from './session-shell-context';
 import { CreateDeliveryError } from './create-session-modal/create-delivery-error';
-import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
+import { NEW_SESSION_DRAFT_KEY, composerDrafts } from './composer-drafts';
+import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
 // 新建页与项目首页、会话页共用底部 composer。Project context is optional in the UI.
@@ -52,10 +54,13 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   isContextPending,
   creationSurface,
   birthChatId,
+  taskChatId,
+  openAfterCreate,
   onSessionCreated,
   machine = null,
   draftKey,
   placeholder,
+  verb,
   workspaceId,
 }: {
   projectId: string | undefined;
@@ -73,6 +78,10 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   creationSurface?: SessionCreationSurface;
   /** 建出来的 agent 一出生就进这个群(对话页从群成员里点的「新建 Agent」)。 */
   birthChatId?: string;
+  /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(见 useCreateSessionCallback)。 */
+  taskChatId?: string;
+  /** false = 建完人留在原处、当场起它(见 useCreateSessionCallback);缺省 = 导航过去。 */
+  openAfterCreate?: boolean;
   onSessionCreated?: (result: { projectId: string; sessionId: string }) => void;
   /**
    * #6264 所选机器是另一台(一套工作台:项目就是那台机器上的项目,建会话走同一条路);
@@ -84,8 +93,10 @@ export const NewSessionComposer = observer(function NewSessionComposer({
    * 缺省 = 不暂存,草稿只活在这棵组件里。
    */
   draftKey?: string;
-  /** 缺省 = 通用的「发消息」提示;项目页换成它自己那句。 */
-  placeholder?: string;
+  /** 缺省 = 通用的「发消息」提示;项目页换成它自己那句;给成函数 = 随所选 agent 变。 */
+  placeholder?: string | ((agentName: string) => string);
+  /** 这一框是「新任务 / 定时任务」:框换色、标签进框(gugu-dev#181)。 */
+  verb?: ComposerVerbLook;
   /**
    * #7341 这个项目里从哪个文件夹开工(项目首页的文件夹卡 / 托盘上选的那一个)。
    * 缺省 = 项目根目录。只能是这个项目的文件夹 —— 不是的,主进程建会话时拒掉(fail loud)。
@@ -151,6 +162,8 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     },
     creationSurface,
     birthChatId,
+    taskChatId,
+    openAfterCreate,
     beforeCreate: remoteInstall.beforeCreate,
   });
   const effectiveBlockReason = blockReason || messageTransportError;
@@ -180,6 +193,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
       >
           <SessionField
             placeholder={placeholder ?? translate('composer.messagePlaceholder')}
+            verb={verb}
             // Permission profiles are capability-backed and apply to both task and message-page
             // creation. The surface only changes where the created session lands; it must not
             // hide the user's pre-dispatch permission choice.
@@ -252,7 +266,8 @@ export const NewSessionPage = observer(function NewSessionPage({
   const openProject = (projectId: string | undefined) => {
     setSelectedId(projectId);
     if (!projectId) return;
-    composerDrafts.moveToEmpty(NEW_SESSION_DRAFT_KEY, projectDraftKey(projectId));
+    // gugu-dev#181 ⑩:选项目 = 去那个项目里开新任务,写好的话跟着进项目块新任务框的草稿。
+    prepareProjectTask(projectId, NEW_SESSION_DRAFT_KEY);
     navigate('project', { projectId });
   };
 

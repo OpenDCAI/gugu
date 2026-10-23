@@ -17,6 +17,7 @@ export const UI_EVENTS = {
   // #6091 会话页「重命名」弹窗改了自有 agent 的名字后广播 { agentUserId, displayName }:通讯录据此重新拉一遍,
   // 聊天页 / 资料卡 / 分享浮层读的都是通讯录那一份,❌ 让它们挂着旧名等 realtime。
   ownedAgentRenamed: '__owned_agent_renamed',
+  // 打开某个对话的设置抽屉 / 群公告(detail = ChatDetailsRequest):块页签的右键菜单(gugu-dev#181)。只有那个对话的那块面答。
   openChatDetailsDrawer: '__chat_open_details_drawer',
   quoteMessage: '__chat_quote_message',
   // @@@5856 这是个 **window 级**事件,而同一扇窗里现在有两个输入框(主线 + 话题分栏)。
@@ -35,9 +36,9 @@ export const UI_EVENTS = {
   // @@@sessionpage fail-loud VISIBLE (#6) — 会话页 agent 投递终态失败:聊天流失败条在「任务」
   // tab 不可见,故 main 额外广播此事件 → renderer 弹可见 toast(fail-loud 让用户看见,不静默、不回退)。
   sessionpageDeliverFailed: '__sessionpage_deliver_failed',
-  // @@@sessionpage otty-state — 会话页 agent 注意力汇总:被人类 block 的 agent 数(needs_user | error)。
-  // main 派生后广播 → 任务 sidebar tab 上一个红点,不进会话页也能看见哪个 agent 卡住等你。
-  sessionpageAttentionCount: '__sessionpage_attention_count',
+  // @@@sessionpage otty-state — 会话页 agent 注意力汇总:被人类 block 的 agent 里最急的那一种(needs_user 先于 error)。
+  // main 派生后广播 → 最左栏「消息」那颗点:有人等你是琥珀色,只有出错是红色(gugu-dev#181)。
+  sessionpageAttention: '__sessionpage_attention',
   // @@@sessionpage 分享 — 会话页头部点了分享:main 转达「分享这个 agent」,由 gugu 渲染层用自己的
   // 通讯录数据打开既有的 SharePosterDialog(contact QR 名片)。
   sessionpageShareAgent: '__sessionpage_share_agent',
@@ -65,6 +66,9 @@ export const UI_EVENTS = {
   // Something was asked of a chat (摩擦单 F10, 真源原则 13): a file (groupSlotMemory.askFile), an App in its panel
   // (askApp), a message in its list (askReveal) — the view showing that chat takes it, now or when it shows it.
   chatAsked: '__chat_asked',
+  // gugu-dev#181 会话页侧栏「对话」页的两行入口:新建群聊、添加联系人。弹窗是聊天列表那一套,会话页只转达。
   // #6646 扩展详情里点了「转发」:聊天壳用同一个转发页把这个扩展发出去(detail = ExtensionForwardRequest)。
   forwardExtension: '__forward_extension',
 } as const
+
+export type ChatDetailsRequest = { chatId: string; page: 'settings' | 'announcement' }

@@ -3,6 +3,7 @@ import { homeView } from '@renderer/app/home-view';
 import { appsView, appView } from '@renderer/features/apps/apps-views';
 import { assistantView } from '@renderer/features/assistant/assistant-view';
 import { automationsView } from '@renderer/features/automations/automations-view';
+import { chatView } from '@renderer/features/chats/view';
 import { libraryView } from '@renderer/features/library/library-view';
 import { projectView } from '@renderer/features/projects/view';
 import { sessionHistoryView } from '@renderer/features/session-history/session-history-view';
@@ -21,6 +22,8 @@ export const views = {
   // #7199 个人助理的一页(最左栏「助理」)。
   assistant: assistantView,
   project: projectView,
+  // gugu-dev#181 对话也是一块。
+  chat: chatView,
   'session-history': sessionHistoryView,
   session: sessionView,
   'new-session': { TitlebarSlot: SessionTitlebar, MainPanel: NewSessionPage },

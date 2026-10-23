@@ -15,6 +15,7 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
+import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
@@ -339,7 +340,7 @@ import { appScope } from '@main/app/app-scope'
 // events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
 import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, needsAttention, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { busyForVersionSwitch, mostUrgentAttention, parseAgentStatusView, type AgentAttention, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
   sessionInScope,
   type AgentStatusChange,
@@ -1060,6 +1061,11 @@ export function acpStartInputFor(
     workspaceId,
     cwd,
     providerSessionId: session.providerSessionId ?? null,
+    // 首轮的来路与会话页那份启动入参(acp-chat-store)同一组:不经会话页起的(launchCreatedSession)也要带上,
+    // 否则注入器认不出这一轮该落成一条咕咕消息 / 任务卡(gugu-dev#181 建完不打开的派任务正是走这里)。
+    ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
+    ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+    ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
     model: session.model ?? null,
     effort: session.effort ?? null,
     permissionMode: resolveSessionPermissionMode(session),
@@ -2041,7 +2047,7 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   return project?.name ?? null
 }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
-export async function emdashTakeBirthGroup(sessionId: string): Promise<string | null> {
+export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
 }
 
@@ -2242,15 +2248,16 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent-attention count for the gugu host shell.
+// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent attention for the gugu host shell.
 // The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance "N agents need you" signal on gugu's 任务 sidebar tab, so a blocked/errored agent is visible
+// at-a-glance signal on gugu's 消息 rail cell (gugu-dev#181: amber while someone waits on you, red only when
+// the only trouble is an error), so a blocked/errored agent is visible
 // WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
 // BLOCKED on the human: needs_user or error. working/idle are NOT attention.
 //
 // Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
 // agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the count to
+// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the most urgent one to
 // subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
 // (owner #43: the host reaches the session backend only through exported entries; this is the session
 // backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
@@ -2258,26 +2265,22 @@ const attentionStatusBySession = new Map<
   string,
   { status: AgentStatus; projectId: string }
 >()
-const attentionSubscribers = new Set<(count: number) => void>()
+const attentionSubscribers = new Set<(attention: AgentAttention) => void>()
 
 // Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
 // hook). Silent in production so the main-process log isn't spammed on every agent status change.
 const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
 
-function computeAttentionCount(): number {
-  let count = 0
-  for (const { status } of attentionStatusBySession.values()) {
-    if (needsAttention(status)) count += 1
-  }
-  return count
+function computeAttention(): AgentAttention {
+  return mostUrgentAttention([...attentionStatusBySession.values()].map(({ status }) => status))
 }
 
 function notifyAttentionSubscribers(): void {
-  const count = computeAttentionCount()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention count=${count} (subscribers=${attentionSubscribers.size})`)
+  const attention = computeAttention()
+  if (OTTY_DEBUG) console.log(`[otty-tracker] attention=${attention} (subscribers=${attentionSubscribers.size})`)
   for (const cb of attentionSubscribers) {
     try {
-      cb(count)
+      cb(attention)
     } catch (err) {
       log.warn('session-page attention subscriber threw', { error: String(err) })
     }
@@ -2418,9 +2421,9 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (count: number) => void): () => void {
+export function onEmdashAttentionChanged(cb: (attention: AgentAttention) => void): () => void {
   attentionSubscribers.add(cb)
-  cb(computeAttentionCount())
+  cb(computeAttention())
   return () => {
     attentionSubscribers.delete(cb)
   }

@@ -335,8 +335,8 @@ const PairDivider = observer(function PairDivider({
       data-pair-divider=""
       className={
         vertical
-          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-border after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
-          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-border after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
+          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
+          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
       }
       style={vertical ? { top: at } : { left: at }}
       onPointerDown={onPointerDown}

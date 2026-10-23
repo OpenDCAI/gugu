@@ -7,6 +7,7 @@
 //
 // ⚠️ 这不是把桌面版 main.ts 那 10 处触发点全搬来 —— 那些还带着 MCP 注入、投递登记、平台令牌,属于
 // 「会话能收 IM 消息」那一层。本模块只管「会话有身份」:开账号、绑会话、进项目群、开私聊。
+import type { BirthGroup } from '../../src/session/shared/core/sessions/create-session'
 import type {
   SessionShellAgentAddress,
   SessionShellAgentAddressInput,
@@ -49,7 +50,7 @@ export interface SessionpageIdentityHostDeps {
   resolveDeviceId: () => Promise<string | null>
   resolveProjectName: (projectId: string) => Promise<string | null>
   /** The chat a conversation's agent was born in (SessionpageProvisionDeps `takeBirthGroup`). */
-  takeBirthGroup?: (sessionId: string) => Promise<string | null>
+  takeBirthGroup?: (sessionId: string) => Promise<BirthGroup | null>
   sessionFacts: (target: SessionShellAgentAddressInput) => Promise<SessionpageSessionFacts | null>
   /** 这台机器侧栏上的会话(名册 session_peers 拿它对标题;名字表是那份名册的投影)。 */
   listSessionFacts: () => Promise<readonly LocalSessionFacts[]>

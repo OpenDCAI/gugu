@@ -5,7 +5,8 @@ import {
   type SessionFailure,
 } from '@renderer/features/sessions/stores/session-failure';
 import type { InitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { shellPort } from '@renderer/lib/shell-port';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { log } from '@renderer/utils/logger';
@@ -50,6 +51,16 @@ interface UseCreateSessionCallbackParams {
   creationSurface?: SessionCreationSurface;
   /** 建出来的 agent 一出生就进这个群(CreateSessionParams.birthChatId)。 */
   birthChatId?: string;
+  /**
+   * gugu-dev#181 派任务:这一轮由哪个对话的输入框派出。首句由宿主落成那里的一张任务卡(task-card-first-turn.ts),
+   * 结果回那里。只对会话页那一面成立:首句是 spawn 的启动载荷,附件是会话内的路径 mention。
+   */
+  taskChatId?: string;
+  /**
+   * 建完去不去看它。缺省 = 去(导航到会话,会话页挂上来就起它);false = 发起方留在原处(项目里、聊天里派任务),
+   * 这里当场起它(startCreatedSession),会话放哪由 onCreated 决定。
+   */
+  openAfterCreate?: boolean;
   /** #6264 建任务之前先做的一步(别的机器上还没装所选的家:先在那台机器上装好)。失败 = 不建,原因说出来。 */
   beforeCreate?: () => Promise<void>;
 }
@@ -76,6 +87,8 @@ export function useCreateSessionCallback({
   onCreated,
   creationSurface = 'session-page',
   birthChatId,
+  taskChatId,
+  openAfterCreate = true,
   beforeCreate,
 }: UseCreateSessionCallbackParams): {
   handleCreateSession: () => void;
@@ -248,7 +261,11 @@ export function useCreateSessionCallback({
       firstTurnTransport === 'startup' && creationSurface === 'chat-page' && !text
         ? 'router'
         : firstTurnTransport;
-    const initialMessageId = transport === 'startup' && creationSurface === 'chat-page'
+    if (taskChatId && creationSurface !== 'session-page') {
+      throw new Error('a dispatched task is created on the session-page surface (its first turn is the startup payload)');
+    }
+    // 派出去的任务首句同样是一条真的咕咕消息(那张卡),要稳定 id;没有首句可交(纯附件)就没有卡。
+    const initialMessageId = transport === 'startup' && (creationSurface === 'chat-page' || (taskChatId && text))
       ? crypto.randomUUID()
       : undefined;
     // tripwire 必须在 createSession **之前**响,理由见 strayChatAttachmentError 的注释。
@@ -263,6 +280,7 @@ export function useCreateSessionCallback({
                 ...baseSession,
                 startupOrigin,
                 initialMessageId,
+                ...(taskChatId && initialMessageId ? { taskChatId } : {}),
                 initialQueue: text
                   ? [{
                       text,
@@ -273,7 +291,13 @@ export function useCreateSessionCallback({
                     }]
                   : undefined,
               }
-            : { ...baseSession, startupOrigin, initialMessageId, initialPrompt: text || undefined };
+            : {
+                ...baseSession,
+                startupOrigin,
+                initialMessageId,
+                ...(taskChatId && initialMessageId ? { taskChatId } : {}),
+                initialPrompt: text || undefined,
+              };
         })()
       : baseSession;
     const session = startupSession;
@@ -299,7 +323,8 @@ export function useCreateSessionCallback({
         initialSession: session,
       },
       workspaceConfig: resolvedWorkspaceConfig,
-      ...(birthChatId ? { birthChatId } : {}),
+      // 对话里派的新任务(taskChatId)进群坐任务座位:不发入群提示;群成员里「新建 Agent」照常提示。
+      ...(birthChatId ? { birthGroup: { chatId: birthChatId, asTask: Boolean(taskChatId) } } : {}),
     };
 
     creatingRef.current = true;
@@ -351,7 +376,12 @@ export function useCreateSessionCallback({
         pendingMessageRef.current = null;
       }
       onCreated?.({ projectId: selectedProjectId, sessionId });
-      navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
+      if (openAfterCreate) navigate('session', { projectId: selectedProjectId, sessionId: sessionId });
+      else {
+        void rpcOn(machineRegistry.machineOf(selectedProjectId) ?? null).sessionTimeline.sessionStart({ conversationId: sessionId }).then((started) => {
+          if (!started.ok) log.warn('start a session nobody opens failed', { sessionId, error: started.error });
+        });
+      }
       onClose();
     }).catch((error) => {
       // @@@5173 已知的建任务失败带着领域语义过来 ⇒ 成句在这里发生,给用户看的是产品文案。
@@ -374,6 +404,8 @@ export function useCreateSessionCallback({
     messageTransportError,
     beforeCreate,
     birthChatId,
+    taskChatId,
+    openAfterCreate,
     state,
     initialSession,
     firstTurnTransport,

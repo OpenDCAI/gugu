@@ -162,8 +162,43 @@ export const composerShell = recipe({
       },
       false: {},
     },
+    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙 —— 描边换色,外面一圈同色的浅环。
+    // 悬停 / 聚焦也留在这个色上(base 里那两条会把描边换回灰)。
+    tone: {
+      task: {
+        borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 35%, ${vars.border})`,
+        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
+        selectors: {
+          '&:hover, &:focus-within': { borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})` },
+        },
+      },
+    },
   },
   defaultVariants: { hasBand: false, dragActive: false },
+});
+
+/** 输入行最前面那枚标签(`leading`):和第一行字同高、居中,后面是编辑器本体(照旧长满,点空白就进输入)。 */
+export const editorLeadRow = style({
+  display: 'flex',
+  gap: '0.5rem',
+  flexGrow: 1,
+  flexShrink: 0,
+  minWidth: 0,
+});
+
+export const editorLead = style({
+  display: 'flex',
+  alignItems: 'center',
+  flex: 'none',
+  alignSelf: 'flex-start',
+  height: tokenVars.textTitleLineHeight,
+});
+
+export const editorLeadBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  minWidth: 0,
 });
 
 // ── Attachments ───────────────────────────────────────────────────────────────

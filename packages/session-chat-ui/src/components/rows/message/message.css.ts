@@ -47,3 +47,6 @@ export const footerRow = style({
   left: 0,
   right: 0,
 });
+
+/** 「你回答了：X」那一行:一行、不换行,高度是常量(measure 只返回它),❌ 让它随宽度变高。 */
+export const questionAnswerRow = style({ display: 'flex', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', color: vars.fgMuted });
