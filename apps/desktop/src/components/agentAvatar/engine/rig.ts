@@ -91,7 +91,7 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
     const lift = (pc.side < 0 ? b.wl : b.wr) * WING_DEG * (b.yaw !== 0 ? 0.35 + 0.65 * Math.abs(Math.sin(phi)) : 1)
     rot = -pc.side * lift
     // 素材已有内侧明暗,接触影只轻压一层,避免在身体上叠出深色描线。
-    shade = 0.3 * clamp(1 - Math.abs(lift) / 18) * (depth > 0 ? 1 : 0)
+    shade = 0.45 * clamp(1 - Math.abs(lift) / 18) * (depth > 0 ? 1 : 0)
   } else if (pc.kind === 'beak') {
     // 喙是头上的一个小包:跟着视线在球面上滑,转开时前缩、转到背面前淡出
     dx += b.fx
