@@ -22,7 +22,7 @@ import './WindowTitleBar.css'
  * starting position on every tab.
  *
  * 颜色与最左侧栏相同(--nav-rail),同在窗口底层;其下的区域关系与 mac 同一套(tokens.css 的
- * @@@win-titlebar-row)。拖窗口只归这一行。
+ * @@@win-titlebar-row)。这一行整条拖窗口;其下内容区的拖拽带(页签行、列表头)与 mac 同一套,照样能拖。
  *
  * 菜单里只放**已经存在**的动作(新建 Agent、设置、反馈、更新说明、关于、切 tab、窗口缩放),
  * 这一行不发明新功能;快捷键提示只写真的按得出来的组合(Chromium 自带的编辑键、应用菜单的缩放键)。
