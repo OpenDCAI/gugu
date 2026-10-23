@@ -300,11 +300,11 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[]):
 
 export async function replaceChatRows(repository: AccountImRepository, chats: ChatItem[]): Promise<void> {
   await repository.transaction((transaction) => {
-    writeChatRows(repository, transaction, chats.slice(0, 300))
+    writeChatRows(repository, transaction, chats)
   })
 }
 
-function writeChatRows(repository: AccountImRepository, transaction: ImRepositoryTransaction, chats: ChatItem[]): void {
+export function writeChatRows(repository: AccountImRepository, transaction: ImRepositoryTransaction, chats: ChatItem[]): void {
   const ids = new Set(chats.map((chat) => chat.id))
   for (const row of repository.snapshot().chat) {
     if (!ids.has(row.id)) transaction.delete('chat', [repository.accountId, row.id])
@@ -321,7 +321,7 @@ export async function replaceChatRowsAndIdentities(
   chats: ChatItem[],
   identities: readonly unknown[],
 ): Promise<void> {
-  const published = chats.slice(0, 300)
+  const published = chats
   // 行引用的每个 id(对端 / 群成员)都必须在这一次提交的身份里 —— 忘了在这里报,不在冷启动时整份缓存作废。
   assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
   await repository.transaction((transaction) => {

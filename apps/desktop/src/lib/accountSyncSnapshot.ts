@@ -4,7 +4,7 @@ import { assemble, entityKey, membershipId, missingDependencies, type Cell, type
 import { membershipValue, mergeUnreadRows } from './chatProjection'
 import { displayIdentityFromRow } from './displayIdentity'
 import { ACCOUNT_REVISION_CURSOR_KEY } from './accountRevisionRuntime'
-import { imSelectors, type AccountImRepository } from './imRepository'
+import { imSelectors, writeChatRows, type AccountImRepository } from './imRepository'
 import { chatDb } from './supabase'
 import { currentAuthSessionSignal } from './authSessionLoss'
 import { composerCardLine } from './composerCardCopy'
@@ -61,7 +61,7 @@ export async function initializeAccountSync(repository: AccountImRepository): Pr
   await repository.transaction((transaction) => {
     transaction.clear()
     for (const pending of outbox) transaction.putOutbox(pending.value)
-    for (const [order, chat] of chats.entries()) transaction.putChat(chat.id, chat, order)
+    writeChatRows(repository, transaction, chats)
     for (const [key, cell] of snapshot.cells) {
       if (key.startsWith('identity:') && cell.value) transaction.putIdentity(cell.value)
       if (key.startsWith('membership:') && cell.value) {
