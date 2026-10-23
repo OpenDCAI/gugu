@@ -44,6 +44,24 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('remote task host pipe over device RPC', () => {
+  it('waits for the tunnel event before subscribing or starting the taskhost.open RPC budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const device = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+      let ready!: () => void
+      const tunnel = new Promise<void>((resolve) => { ready = resolve })
+      const opening = openRemoteSessionHostPipe('dev', { ...device.deps, waitForTunnel: () => tunnel })({ onFrame: () => undefined, onClose: () => undefined })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(device.calls).toEqual([])
+      ready()
+      const pipe = await opening
+      expect(device.calls.map((call) => call.type)).toEqual(['taskhost.open'])
+      pipe.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens, batches frames into one request, and delivers pushes in seq order', async () => {
     const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }))
     const frames: unknown[] = []

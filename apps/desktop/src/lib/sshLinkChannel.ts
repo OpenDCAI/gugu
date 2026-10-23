@@ -95,6 +95,7 @@ export function _setSshMachineIdsForTesting(ids: readonly string[]): void {
 
 let tunnelState: TunnelState = { ready: [], problems: {} }
 let tunnelReady: ReadonlySet<string> = new Set()
+let tunnelWanted: ReadonlySet<string> = new Set()
 const tunnelListeners = new Set<(state: TunnelState) => void>()
 let tunnelWired = false
 
@@ -134,6 +135,22 @@ export function usesDeviceLink(deviceId: string): boolean {
   return isSshMachine(deviceId) || isTunnelLinked(deviceId)
 }
 
+/** Wait only for a requested tunnel's ready/failure event, before starting the task-host RPC budget. */
+export async function waitForTunnel(deviceId: string): Promise<void> {
+  await sshMachinesReady()
+  const pending = () => tunnelWanted.has(deviceId) && !usesDeviceLink(deviceId) && !(deviceId in tunnelState.problems)
+  if (!pending()) return
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      if (pending()) return
+      tunnelListeners.delete(check)
+      resolve()
+    }
+    tunnelListeners.add(check)
+    check()
+  })
+}
+
 export function currentTunnelState(): TunnelState {
   return tunnelState
 }
@@ -153,6 +170,8 @@ export function wantTunnels(wants: readonly TunnelWant[]): void {
   const electron = bridge()
   if (!electron) return
   wireTunnel(electron)
+  tunnelWanted = new Set(wants.map((want) => want.deviceId))
+  for (const listener of [...tunnelListeners]) listener(tunnelState)
   const key = JSON.stringify([...wants].sort((a, b) => a.deviceId.localeCompare(b.deviceId)))
   if (key === lastWant) return
   lastWant = key

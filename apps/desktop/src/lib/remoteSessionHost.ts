@@ -10,7 +10,7 @@ import { unwrapPayload } from '@gugu/core/cloud/payload'
 import { desktopReportId, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
-import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade } from './sshLinkChannel'
+import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, waitForTunnel } from './sshLinkChannel'
 import type { SessionHostPipe, SessionHostPipeOpener } from '../session/shared/lib/ipc/session-host-client'
 import {
   createPieceJoiner,
@@ -59,6 +59,7 @@ export type DeviceRpcDeps = {
   requestUpgrade: (deviceId: string) => Promise<boolean>
   /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
   desktop?: () => Promise<DesktopHello | null>
+  waitForTunnel?: (deviceId: string) => Promise<void>
 }
 
 declare const __APP_VERSION__: string | undefined
@@ -106,6 +107,7 @@ const defaultDeps: DeviceRpcDeps = {
   isSshMachine,
   requestUpgrade: (deviceId) => requestSshServerUpgrade(deviceId),
   desktop: thisDesktop,
+  waitForTunnel,
 }
 
 /** 推送到手里时还套着广播外壳(`{ type: 'broadcast', payload: 信封 }`,SSH 设备连接与咕咕云同一个形状):先剥。 */
@@ -143,6 +145,7 @@ export function openRemoteSessionHostPipe(
   options: RemoteSessionHostPipeOptions = {},
 ): SessionHostPipeOpener {
   const opener: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
+    await deps.waitForTunnel?.(deviceId)
     const client = deps.newClientId()
     let closed = false
     let live = false
