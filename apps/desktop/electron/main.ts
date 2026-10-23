@@ -2813,7 +2813,9 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => autoUpdater.quitAndInstall(),
+  // @@@win-silent-update - NSIS: /S skips the assisted wizard, --force-run relaunches after it.
+  // macOS ignores both arguments; AppImage reads only isForceRunAfter (already true via autoRunAppAfterInstall).
+  handOff: () => autoUpdater.quitAndInstall(true, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
