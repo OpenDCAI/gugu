@@ -1,7 +1,7 @@
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SubscriptionUsageReading, SubscriptionUsageWindow } from '@gugu/session-core/agents/plugins';
 import { SettingsGroup, SettingsNote, SettingsPage } from '@/components/settings/SettingsPrimitives';
 import { LibraryHostProvider, machineLibraryHost } from '@renderer/features/library/library-host';
@@ -113,6 +113,7 @@ function SubscriptionList({ machine }: { machine: string | null }) {
 
 function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: string | null }) {
   const { translate, locale } = useSessionMessages();
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const connections = useSubscriptionConnections(machine, agent.id);
   const manageable = agent.id === 'claude' || agent.id === 'codex';
   const currentConnection = connections.data?.find((connection) => connection.current);
@@ -156,7 +157,8 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
           ? translate('subscriptions.connections.count', { count: String(connections.data.length) })
           : translate('subscriptions.connections.device')
       }
-      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} /> : undefined}
+      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchError} /> : undefined}
+      notice={switchError ? <p className="subscription-error" role="alert">{switchError}</p> : undefined}
     >
       <UsageBlock
         agentId={agent.id}

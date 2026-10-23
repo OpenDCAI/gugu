@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, MoreHorizontal, Plus } from '@/lib/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
@@ -38,7 +38,12 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
   });
 }
 
-export function SubscriptionConnections({ agent, machine }: { agent: AgentPayload; machine: string | null }) {
+/** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
+export function SubscriptionConnections({ agent, machine, onError }: {
+  agent: AgentPayload;
+  machine: string | null;
+  onError?: (message: string | null) => void;
+}) {
   const { translate } = useSessionMessages();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -72,6 +77,9 @@ export function SubscriptionConnections({ agent, machine }: { agent: AgentPayloa
       }
     },
   });
+  // 跟最近一次动作走:新动作一开始 `action.error` 就清空,重叠的两次里先失败的那次不会把原因留下。
+  const failure = action.error ? errorText(action.error) : null;
+  useEffect(() => { onError?.(failure); }, [failure, onError]);
   const signIn = (connectionId: string) => {
     if (!method || !canSignIn) return;
     setOpen(false);
@@ -106,7 +114,6 @@ export function SubscriptionConnections({ agent, machine }: { agent: AgentPayloa
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {action.error && <p className="subscription-error" role="alert">{errorText(action.error)}</p>}
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>{translate('subscriptions.connections.addTitle', { provider: agent.name })}</DialogTitle></DialogHeader>
