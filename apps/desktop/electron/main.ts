@@ -459,7 +459,6 @@ import {
   findSshMachine,
 } from './server/ssh-machines'
 import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
-import { setPhoneHealthCaller } from '@main/core/extensions/phone-health'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
@@ -2173,12 +2172,6 @@ setAccountAccessTokenReader(async () => {
   return auth?.accessToken ?? null
 })
 
-// #7199 健康:「助理」App 的健康页经设备动作问主人的手机,与 agent 的 device_call 同一个调用方(第一次用到时才装)。
-setPhoneHealthCaller({
-  describe: () => deviceActionCaller().describe(),
-  call: (input) => deviceActionCaller().call(input),
-})
-
 // #7337 设置页「用模型给会话起名」的候选:这个账号能在 Chat Completions 上用的在售平台模型(起名走的就是这条协议)。
 ipcMain.handle(SESSION_TITLE_MODELS_CHANNEL, async () => {
   const models = await listPlatformModels(desktopAuthProvider())
@@ -3291,8 +3284,8 @@ function hoistDevicePictures(result: DeviceActionResult): unknown {
 }
 
 /**
- * #7199 第二步:agent 的 device_actions / device_call。调别的机器走设备 RPC(与跨机器起会话同一个请求方);
- * 调这台电脑自己不经频道(频道 self:false,自己发的自己收不到),直接交给本机那一份 host。
+ * Agent native actions stay on this computer; other devices are discovery-only.
+ * Local calls go directly to this host. Receiver-side rejection also protects against remote RPC bypasses.
  */
 function deviceActionCaller(): DeviceActionCaller {
   if (deviceActionCallerInstance) return deviceActionCallerInstance

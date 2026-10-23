@@ -51,7 +51,7 @@ portal 到 body 的菜单加 `data-ta-menu=""` 即得玻璃。
 - 快速聊天(全局快捷键叫出的小窗)整个在壳那一侧:`components/assistant/QuickChatHost.tsx` 预开一扇同源子窗、把 `QuickChat` 画进去;快捷键 / 显隐 / 位置归主进程 `electron/quick-chat-window.ts`,契约 `lib/quickChatIpc.ts`。
 - 引导入口:没有它时会话页画 `onboarding` 格子(壳的 `AssistantOnboarding`:认识咕咕(`AssistantIntro`,与新账号首次引导同一屏)→ 住哪 → 连应用 → 进 App 它先开口;前半在壳,连应用在这里 `assistant-setup-finish.tsx`)。名字与形象不在开口前问:开通成功后聊天里递一张「自定义」卡(`AssistantCustomizeCard`),点它进资料页 `sub: 'customize'` 打开自定义弹窗。称呼与身份读账号上的(`lib/firstRun.ts`)。壳 snapshot 的 `member` / `preparing` / `assistantState` 给最左栏那一格写提示与转圈。
 - 要壳替这里做的事走 `getActions()`:`renameAssistant` / `openLook`(形象工坊)/ `refreshCloud`;填输入框走 `fillChatDraft`。
-- 「健康」页(记忆首页那张「健康」卡):`usePhoneHealth` 经 `rpc.extensions.readPhoneHealth` → 主进程 `phone-health.ts` 用设备动作问主人的手机 `health.summary`(与云电脑上助理的 device_call 同一条路;手机那一侧在 `mobile/phone-device/phoneHealth.ts`,线上格式 `@gugu/core/shared/healthSummary`)。读不到分「没有手机 / 咕咕太旧 / 离线 / 没连 / 系统没给 / 不支持 / 读失败」如实说;「分析健康报告」把选的文件经 `askInChat(text, files)` 排进聊天输入框,只填不发。
+- 「健康」页只显示本机或云端的数据。目前桌面没有健康 provider，云端也没有健康数据源，因此明确显示「暂无健康数据」，不发设备动作请求、不绘制零值指标。手机页仍从本机 Health Connect 读取，复用 `HealthBody`。已有健康分析记录和「分析健康报告」入口保留，后者只把文件放进聊天输入框，不自动发送。
 - 「今天」页:`useTodayFile` 每分钟经 `rpc.extensions.readChatFolderText` 读私聊文件夹里的 today.json —— 主进程读(`electron/.../extensions/chat-folder-text.ts`:列表问库,此刻的文本问文件服务;文件服务不答窗口的跨域预检,❌ 窗口里直接 fetch);格式在 `assistant-today-file.ts`(纯函数 + 单测)。读它 ❌ 叫醒云电脑。
   同一份里还有它写的三块:`dayInProgress`(日程进展,`assistant-day.ts` 按此刻钟点排 + `assistant-day-card.tsx`)、`widgets[].state / schedule`(小组件正在写 / 没写成 / 节奏)、`ideas`(灵感,`assistant-ideas.tsx`)。前两块之外的各读各的:写坏了只记在那一块上。
   「添加组件」=「发现组件」(`assistant-widget-discover.tsx`,桌面对话框 / 手机推一页),只往聊天里填一句,由它问清再加、排定时任务。灵感胶囊的隐藏记在这台设备上(`lib/assistantIdeas.ts`),「+」里的「获取灵感」一直在。
