@@ -23,6 +23,8 @@ export interface RigPiece {
   kind: PieceKind
   /** -1 = 观者左边那只,1 = 右边,0 = 中间 */
   side: -1 | 0 | 1
+  /** Body-facing alpha transition, in source pixels; baked once when the texture loads. */
+  rootFeather?: number
   /** 素材在本体坐标里的位置与大小 */
   box: { x: number; y: number; w: number; h: number }
   /** 挂点(本体坐标):翅膀的肩铰点在身体轮廓以内,所以怎么转翅根都压在身上 */
@@ -30,7 +32,7 @@ export interface RigPiece {
   /** 翅膀:手里拿的装扮(伞、魔杖)握在哪(本体坐标) */
   grip?: { x: number; y: number }
   /** 压在身上的接触阴影(本体坐标) */
-  shade?: { id: string; sprite: string; box: { x: number; y: number; w: number; h: number } }
+  shade?: { id: string; sprite: string; box: { x: number; y: number; w: number; h: number }; blur?: number }
 }
 
 export interface Rig {

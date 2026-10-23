@@ -11,6 +11,7 @@
 import { rendererLogger } from '@/lib/log'
 import type { Character, Pack } from './characters'
 import type { Rgb } from './identity'
+import { featherWingRoot } from './spritePixels'
 
 export const GRID_X = 14
 export const GRID_Y = 28
@@ -89,6 +90,13 @@ interface Sub {
   v: number
   du: number
   dv: number
+}
+interface TextureSource {
+  id: string
+  url: string
+  size: { w: number; h: number }
+  feather?: { side: -1 | 1; width: number }
+  blur?: number
 }
 /** 每个顶点:画布上的 x, y,纹理上的 u, v,这一片的不透明度,换不换身体颜色 */
 const FLOATS = 6
@@ -193,7 +201,7 @@ export class GuguGL {
    * 几张素材拼成一张图集(本体 + 它的刚体部件、接触阴影),同一格里贴它们的几片就攒成一次绘制。
    * 第一张放左上,其余一行行排在它下面;以第一张的 id 记账,失败不记账:下次再要就再试
    */
-  loadAtlas(parts: { id: string; url: string; size: { w: number; h: number } }[]): Promise<boolean> {
+  loadAtlas(parts: TextureSource[]): Promise<boolean> {
     const key = parts[0].id
     if (this.tex.has(key)) return Promise.resolve(true)
     let p = this.loading.get(key)
@@ -207,9 +215,9 @@ export class GuguGL {
     return p
   }
 
-  private async fetchAtlas(parts: { id: string; url: string; size: { w: number; h: number } }[]): Promise<boolean> {
+  private async fetchAtlas(parts: TextureSource[]): Promise<boolean> {
     try {
-      const bmps = await Promise.all(parts.map((p) => this.decode(p.id, p.url, p.size)))
+      const bmps = await Promise.all(parts.map((p) => this.decode(p)))
       const W = Math.max(...bmps.map((b) => b.width))
       const at: [number, number][] = [[0, 0]]
       let x = 0
@@ -248,13 +256,30 @@ export class GuguGL {
     }
   }
 
-  private async decode(id: string, url: string, size: { w: number; h: number }): Promise<ImageBitmap> {
+  private async decode({ id, url, size, feather, blur }: TextureSource): Promise<ImageBitmap> {
     // 走 <img> 解码而不是 fetch：素材与页面同源，img 不受 connect-src 约束，file:// / 自定义协议下都能读
     const img = new Image()
     img.src = url
     await img.decode()
+    let source: HTMLImageElement | HTMLCanvasElement = img
+    if (feather || blur) {
+      const pad = blur ? Math.ceil(blur * 3) : 0
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth + pad * 2
+      canvas.height = img.naturalHeight + pad * 2
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error(`canvas 2d unavailable for sprite ${id}`)
+      if (blur) ctx.filter = `blur(${blur}px)`
+      ctx.drawImage(img, pad, pad)
+      if (feather) {
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        featherWingRoot(pixels.data, canvas.width, canvas.height, feather.side, feather.width)
+        ctx.putImageData(pixels, 0, 0)
+      }
+      source = canvas
+    }
     // ImageBitmap 会无视 UNPACK_PREMULTIPLY_ALPHA，必须在创建位图时就预乘，否则边缘按直通色当预乘色混合会出白边
-    const bmp = await createImageBitmap(img, {
+    const bmp = await createImageBitmap(source, {
       premultiplyAlpha: 'premultiply',
       colorSpaceConversion: 'none'
     })
@@ -419,7 +444,11 @@ export function characterPacks(ch: Character): Pack[] {
  */
 export async function loadCharacter(gl: GuguGL, ch: Character): Promise<boolean> {
   const rig = ch.rig ? ch.rig.pieces.flatMap((pc) => [pc, ...(pc.shade ? [pc.shade] : [])]) : []
-  const body = [{ id: ch.id, url: spriteUrl(ch), size: ch.spr }, ...rig.map((r) => ({ id: r.id, url: r.sprite, size: { w: r.box.w, h: r.box.h } }))]
+  const body: TextureSource[] = [{ id: ch.id, url: spriteUrl(ch), size: ch.spr }, ...rig.map((r) => ({
+    id: r.id, url: r.sprite, size: { w: r.box.w, h: r.box.h },
+    feather: 'rootFeather' in r && r.rootFeather && r.side !== 0 ? { side: r.side, width: r.rootFeather } : undefined,
+    blur: 'blur' in r ? r.blur : undefined
+  }))]
   const rs = await Promise.all(characterPacks(ch).map((p, i) => (i === 0 ? gl.loadAtlas(body) : gl.loadTexture(p.id, spriteUrl(p), p.spr))))
   return rs[0]
 }
