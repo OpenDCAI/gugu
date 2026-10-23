@@ -177,7 +177,7 @@ export class ChatHistoryWindow {
     if (this.followingTail && !this.state.hasNewer && !this.state.loading) {
       const arrivedAfterSnapshot = this.state.messages.filter((row) => row.seq < 1 || row.seq > maxMainlineSeq(messages))
       const retained = oldestSeq(messages) <= maxMainlineSeq(this.state.messages) + 1 ? this.state.messages : []
-      const next = mergeMessagesById(retained, [...messages, ...arrivedAfterSnapshot], this.state.chatId!)
+      const next = mergeMessagesById(retained, mergeMessagesById(arrivedAfterSnapshot, messages, this.state.chatId!), this.state.chatId!)
       const hasNewer = this.state.latestSeen > maxMainlineSeq(next)
       this.followingTail = !hasNewer
       this.commit(boundRows(next, tailBound(this.state.messages)), { hasNewer, latestSeen: Math.max(this.state.latestSeen, maxMainlineSeq(next)), change: 'update' })

@@ -46,6 +46,17 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     expect(w.getSnapshot().newMessageCount).toBe(1)
   })
 
+  it('snapshot and pending with the same UUID produce one confirmed row', () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(1, 40))
+    w.update((previous) => [...previous, row(-1, { id: 'same-id', is_mine: true, local_send_state: 'sending' })])
+    w.establishTail([...range(12, 40), row(41, { id: 'same-id', is_mine: true })])
+    const matches = w.getSnapshot().messages.filter((message) => message.id === 'same-id')
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toMatchObject({ seq: 41, local_send_state: null })
+    expect(new Set(w.getSnapshot().messages.map((message) => message.id)).size).toBe(w.getSnapshot().messages.length)
+  })
+
   it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
