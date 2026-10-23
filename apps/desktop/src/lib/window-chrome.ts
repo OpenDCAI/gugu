@@ -90,6 +90,15 @@ export function windowTitlebarHeight(platform: string | undefined): number {
   return hasWindowTitlebarRow(platform) ? WINDOW_TITLEBAR_HEIGHT_PX : 0
 }
 
+/**
+ * 画哪种窗口外壳。桌面 app 由它自己的 preload 桥(window.desktopWindow,每个桌面平台都有)认出来,❌ 看 UA 里的
+ * "Electron/x.y.z":app 为内嵌网页把它从 UA 里去掉了(#146),自己的渲染层也跟着没了它 —— 那时 Windows 上标题栏行
+ * 和窗口按钮都没画,只剩给别的平台的拖拽带能拖窗口。web 版没有这座桥 ⇒ 'other'。
+ */
+export function rendererPlatformFor(hostOs: RendererPlatform, desktopBridge: unknown): RendererPlatform {
+  return desktopBridge !== undefined ? hostOs : 'other'
+}
+
 export function readRendererPlatform(
   doc: Document | undefined = globalThis.document
 ): RendererPlatform {
