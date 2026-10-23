@@ -1,8 +1,8 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 // @vitest-environment jsdom
-import { act, createElement, useLayoutEffect, useState } from 'react'
+import { act, createElement, Fragment, useLayoutEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReactHarness } from '../../../support/testHarness'
+import { chat, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
 
 const boundary = vi.hoisted(() => ({
@@ -17,6 +17,8 @@ const boundary = vi.hoisted(() => ({
   preview: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
+// No topic is open in these file-preview cases; keep the topic's full message runtime outside this boundary.
+vi.mock('@/components/chat/TopicSplitPane', () => ({ TopicTab: () => null }))
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } } }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile }))
@@ -35,6 +37,7 @@ vi.mock('@/components/appSlot/appsHere', () => ({
 vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf: async () => new Map(), subscribeSharedPackages: () => () => {} }))
 
 const { GroupAppSlot, WORKSPACE_APP_KIND } = await import('@/components/appSlot/GroupAppSlot')
+const { GroupPanelTabs } = await import('@/components/appSlot/GroupPanelTabs')
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { groupSlotMemory } = await import('@/components/appSlot/groupSlotMemory')
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
@@ -154,6 +157,16 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
     expect(harness.container.querySelector('[data-testid="group-app-slot"]')).not.toBeNull()
     expect(boundary.close).not.toHaveBeenCalled()
+  })
+
+  it('a binary tab has only its file name, without treating the source folder as its App title', async () => {
+    await renderWithAppProviders(harness, createElement(Fragment, null,
+      createElement(GroupPanelTabs, { chatId: 'preview-group', onShowPanel: vi.fn(), onClosePanel: boundary.close, onShowTopic: vi.fn(), onShowChatAlone: vi.fn() }),
+      slot(detail('bin'), true, { tabbed: true }),
+    ), { chat: { chats: [chat({ id: 'preview-group', kind: 'group' })] } })
+    const chip = harness.container.querySelector('[data-panel-tab="preview"] [data-tab-label]')!
+    expect(chip.getAttribute('data-tab-label')).toBe('report.bin')
+    expect(chip.getAttribute('title')).toBe('report.bin')
   })
 
   it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {

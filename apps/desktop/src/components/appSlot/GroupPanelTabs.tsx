@@ -114,7 +114,7 @@ const PanelTab = observer(function PanelTab({ chatId, item, active, full, onPick
   const app = extensionId ? installedExtensionsStore.openableApps.find((candidate) => candidate.extensionId === extensionId) : undefined
   const presentation = extensionTabTitle(
     extensionSurfaceStore.said(null, groupPageSlot(chatId, item)),
-    item?.kind ? installedExtensionsStore.tabTitle(item.kind) ?? item.title : folderName,
+    item?.kind ? installedExtensionsStore.tabTitle(item.kind) ?? item.title : item?.title ?? folderName,
     item?.itemId ? { name: item.title, path: item.fileName ?? item.title } : undefined,
   )
   const { label, hint, tooltip } = presentation
