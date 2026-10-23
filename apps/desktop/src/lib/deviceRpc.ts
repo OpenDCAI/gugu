@@ -14,6 +14,7 @@ import {
 import { openAttachedDeviceRpcPipe, type DeviceTopic, type JoinDeviceTopic } from '@gugu/core/cloud/deviceRpcAttach'
 import {
   createDeviceRpcRequester,
+  DeviceRpcChannelError,
   DeviceRpcTimeoutError,
   type DeviceRpcPipe,
   type DeviceRpcPipeHandlers,
@@ -108,8 +109,8 @@ const requester = createDeviceRpcRequester({
   userId: getCurrentAuthUserId,
   openPipe,
   onEvent: dispatchDeviceEvent,
-  // 设备连接(远程 SSH)不因为一次超时就拆:它的死活由 ssh 自己的心跳判(断了会报 closed);首次连一台机器可能要几秒
-  // 握手,拆了重来只会一直在握手。事件订阅者还在时也不拆:拆了它就再也收不到推送,而它没有「请求超时」这种自愈路径。
+  // 尚在握手的设备连接留给原来的开线期限;已就绪的 SSH 应用管道超时由 callDeviceRpc 关闭并重开。
+  // 云端事件订阅者还在时不拆:它没有请求超时来重新开推送,由现成的 recover 重新报到。
   keepAliveOnTimeout: (deviceId) => transports.get(deviceId) !== 'cloud' || hasEventListeners(deviceId),
 })
 
@@ -335,6 +336,11 @@ export async function callDeviceRpc<T>(
     try {
       return (await requester.call(deviceId, type, payload, { timeoutMs, signal: options?.signal })) as DeviceRpcResponse<T>
     } catch (err) {
+      if (err instanceof DeviceRpcTimeoutError && transports.get(deviceId) === 'ssh') {
+        // SSH 保活不代表 link 进程还在回包。其余在途请求明确失败,下一次调用开新 link,不重放副作用。
+        requester.close(deviceId, new DeviceRpcChannelError('SSH application link timed out', 'closed'))
+        scheduleSshReopen(deviceId)
+      }
       if (!(err instanceof DeviceRpcTimeoutError) || attempt >= maxAttempts) throw err
     }
   }
