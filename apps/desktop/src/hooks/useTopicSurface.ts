@@ -3,18 +3,17 @@
 // 为什么单独一个 hook:ChatAreaPanel 是冻结的 god 文件(CI 有行数闸),而话题要在它身上加四样东西
 // (锚点卡数据、分栏、开话题动作、成员列表开关)。把状态收在这里,面板那边只剩渲染。
 //
-// 分栏里的那条话题**是一条真的 chat**,所以它有自己的一条「线」(useTopicLine:消息窗口 + 已读水位),
+// 分栏里的那条话题**是一条真的 chat**,所以它有自己的一条「线」(useChatConversation:消息窗口 + 已读水位),
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
-import { chatService } from '@/lib/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
 import { useChatStore } from '@/store/chatContext'
 import { sendAttachmentBatch } from '@/components/chat/sendAttachmentBatch'
 import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
-import { useTopicLine, type TopicLine } from './useTopicLine'
+import { useChatConversation, type ChatConversation } from '@/store/useChatConversation'
 import { rendererLogger } from '@/lib/log'
 
 const topicSurfaceLog = rendererLogger('chat/topic-surface')
@@ -54,7 +53,7 @@ export type TopicSurface = {
   reloadTopics: () => void
   /** 右侧分栏里那条话题(null = 没开分栏)。 */
   splitTopic: OpenTopic | null
-  splitLine: TopicLine
+  splitLine: ChatConversation
   openSplit: (topic: OpenTopic, toggle?: boolean) => void
   closeSplit: () => void
   /** @param toUserIds 正文里 @ 到的人 —— 被 @ 就是被拉进来(服务端触发器只认来源线成员)。 */
@@ -77,7 +76,7 @@ export function useTopicSurface({
   subscribeAccountRevision,
   onCreateFailed,
 }: UseTopicSurfaceArgs): TopicSurface {
-  const { sendMessageToChat } = useChatStore('sendMessageToChat')
+  const { conversations } = useChatStore('conversations')
   const chatId = chat?.id ?? null
   // 调用方传的是内联箭头;直接进依赖会让 openTopicFromMessage 每次渲染换身份 ——
   // 它原样下传给每条消息气泡,于是任何一次面板重渲都打穿全部气泡的 memo。只在事件时刻取最新的那个。
@@ -105,28 +104,8 @@ export function useTopicSurface({
   const splitChatId = splitTopic?.chatId ?? null
   const splitChatIdRef = useRef<string | null>(null)
   splitChatIdRef.current = splitChatId
-  const line = useTopicLine(splitChatId, userId, subscribeAccountRevision)
-  const { messages: splitMessages, appendOwn } = line
-
-  // 已读水位:分栏里读到的东西不推水位,那条话题在会话列表里就永远挂着未读 ——
-  // 「通知只到参与者」的另一半是「读过了就不再叫你」。ref 记住推到哪儿了,❌ 每次渲染都往服务端发一次。
-  const markedSeqRef = useRef<{ chatId: string | null; seq: number }>({ chatId: null, seq: 0 })
-  useEffect(() => {
-    if (!splitChatId || splitMessages.length === 0) return
-    // 「看得见」不等于「参与」:非参与者在这条话题上根本没有 chat_members 行,推水位必然失败,
-    // 每开一次分栏就刷一条错误日志 —— 而那既不是故障也无事可做(他本来就没有未读要清)。
-    if (!topics.find((topic) => topic.chat_id === splitChatId)?.is_participant) return
-    const top = splitMessages.reduce((max, message) => (message.seq > max ? message.seq : max), 0)
-    if (top <= 0) return
-    const marked = markedSeqRef.current
-    if (marked.chatId === splitChatId && marked.seq >= top) return
-    markedSeqRef.current = { chatId: splitChatId, seq: top }
-    void chatService.markRead(splitChatId, top).catch((error) => {
-      // 推失败就把水位退回去,下一批消息到达时再试 —— ❌ 不静默吞掉,否则未读永远清不掉且没人知道。
-      markedSeqRef.current = { chatId: splitChatId, seq: marked.chatId === splitChatId ? marked.seq : 0 }
-      topicSurfaceLog.error({ error, chatId: splitChatId, seq: top }, 'topic split markRead failed')
-    })
-  }, [splitChatId, splitMessages, topics])
+  const line = useChatConversation(splitChatId, conversations)
+  const { appendMessage } = line
 
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
@@ -160,22 +139,22 @@ export function useTopicSurface({
         caption: opts?.caption,
         onSent: opts?.onSent,
         // 分栏的消息在这条话题自己的线里(不进 store 的 activeChat 窗),所以追加到这一份里去。
-        appendMessage: appendOwn,
+        appendMessage,
       })
     },
-    [splitChatId, userId, appendOwn],
+    [splitChatId, userId, appendMessage],
   )
 
   const sendInSplit = useCallback(
     async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null) => {
       const body = text.trim()
       if (!body || !splitChatId || !userId) return
-      await sendMessageToChat(splitChatId, body, {
+      await line.sendMessage(body, {
         toUserIds: toUserIds?.length ? [...toUserIds] : null,
         replyToMessageId: replyToMessageId ?? null,
       })
     },
-    [splitChatId, userId, sendMessageToChat],
+    [splitChatId, userId, line.sendMessage],
   )
 
   const openTopicFromMessage = useCallback(

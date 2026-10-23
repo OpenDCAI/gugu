@@ -73,7 +73,7 @@ vi.mock('../../../../apps/desktop/src/lib/supabaseAccountRevisionSource', () => 
 }))
 const { ChatProvider } = await import('../../../../apps/desktop/src/store/chat')
 const { useChatStore } = await import('../../../../apps/desktop/src/store/chatContext')
-const { useTopicLine } = await import('../../../../apps/desktop/src/hooks/useTopicLine')
+const { useChatConversation } = await import('../../../../apps/desktop/src/store/useChatConversation')
 const { chatService } = await import('../../../../apps/desktop/src/lib/chat')
 const { createMemoryLocalSyncDb } = await import('../../../../apps/desktop/src/lib/localSyncDb')
 const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/imRepository')
@@ -97,8 +97,8 @@ let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountI
 
 const scopedFrames: { chatId: string; ids: string[] }[] = []
 function ScopedProbe({ chatId }: { chatId: string }) {
-  const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
-  const line = useTopicLine(chatId, 'user1', subscribeAccountRevision)
+  const { conversations } = useChatStore('conversations')
+  const line = useChatConversation(chatId, conversations)
   useLayoutEffect(() => { scopedFrames.push({ chatId, ids: line.messages.map((row) => row.id) }) })
   return null
 }

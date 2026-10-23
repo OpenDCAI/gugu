@@ -47,7 +47,7 @@ import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
 import { ReadReceiptPopover } from '../ReadReceiptPopover'
 import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 import { ChatBottomDock } from './ChatBottomDock'
-import type { TopicLine } from '@/hooks/useTopicLine'
+import type { ChatConversation } from '@/store/useChatConversation'
 import { useFollowingTail, useTailPinning } from './useFollowingTail'
 import { useChatHistoryPagination } from './useChatHistoryPagination'
 import { useConversationScrollMemory } from './useConversationScrollMemory'
@@ -65,7 +65,7 @@ import { useConversationScrollMemory } from './useConversationScrollMemory'
 export type TopicSplitPaneProps = {
   visible?: boolean
   topic: { chatId: string; name: string }
-  history: Pick<TopicLine, 'messageWindow' | 'setFollowingTail' | 'revealOlder' | 'loadNewer' | 'loadMessageAnchor' | 'returnToLatest'>
+  history: ChatConversation
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
@@ -315,7 +315,7 @@ export function TopicSplitPane({
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
   // 列表行与主线共用历史窗口和分页;分栏没有多选。
-  // 已读环有 —— 水位由 useTopicLine 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
+  // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
   const rows = useMemo<ChatListRowItem[]>(
     () => messages.map((message) => ({ type: 'message' as const, message })),
     [messages],
@@ -351,13 +351,13 @@ export function TopicSplitPane({
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: false,
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: history.unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
   useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen,
-    scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.revealOlder, loadNewer: history.loadNewer, window: messageWindow, onError: onHistoryError })
+    scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
     enabled: visible !== false && !workspaceOpen, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
-    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatest, onError: onHistoryError })
+    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   useSourceMessageReveal({
     activeChatId: workspaceOpen ? null : topic.chatId,
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
@@ -385,7 +385,7 @@ export function TopicSplitPane({
     }),
     onForward: onForward ?? noop,
     onDelete: onDelete ?? noop,
-    onVisible: noop,
+    onVisible: (message) => { if (visible !== false && !workspaceOpen) history.markMessageVisible(message) },
     // 右键发送者头像 → @ 他:插进**这一栏**的输入框,与上面运行中头像条同一个 setMentionToInsert。
     onMentionMember: setMentionToInsert,
     // 单层不嵌套:onOpenTopic 给 undefined —— 话题里的消息不给「开话题」入口,也就没有锚点卡
@@ -399,7 +399,7 @@ export function TopicSplitPane({
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId])
+  }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history.markMessageVisible, visible, workspaceOpen])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
   const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : workspace.open ? workspace.close : onClose

@@ -21,6 +21,7 @@ type Deps = {
   user: User | null
   chatsRef: MutableRefObject<ChatItem[]>
   activeChatIdRef: MutableRefObject<string | null>
+  isChatOpen: (chatId: string) => boolean
   activeThreadRootIdRef: MutableRefObject<string | null>
   invalidateMessageSnapshots: (chatId: string) => void
   getMessageSnapshotEpoch: (chatId: string) => number
@@ -28,7 +29,7 @@ type Deps = {
   setActiveThreadRootId: (rootId: string | null) => void
   setLoadingThread: (loading: boolean) => void
   setThreadMessages: (value: SetStateAction<MessageItem[]>) => void
-  setFollowingTail: (following: boolean) => void
+  setFollowingTail: (following: boolean, chatId?: string) => void
   setMessagesAndCache: (value: SetStateAction<MessageItem[]>, chatId: string, commit: UnreadLocatorCommit) => void
   loadChats: (options?: { acceptEmpty?: boolean }) => Promise<void>
   cancelChatOpenRef: CancelChatOpenRef
@@ -81,7 +82,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     let threadActivated = false
     const isCurrent = () => locatorNavigationRef.current === target
       && deps.getMessageSnapshotEpoch(chatId) === target.epoch
-      && deps.activeChatIdRef.current === chatId
+      && deps.isChatOpen(chatId)
       && (!threadActivated || deps.activeThreadRootIdRef.current === target.locator.thread_root_id)
     const assertCurrent = () => {
       if (!isCurrent()) throw new DOMException('Unread navigation was superseded', 'AbortError')
@@ -89,7 +90,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     try {
       await runOpenStreamAtLocator(target, {
         activateChat: async (targetChatId) => {
-          const alreadyActive = deps.activeChatIdRef.current === targetChatId
+          const alreadyActive = deps.isChatOpen(targetChatId)
           if (alreadyActive && !chatOpenInFlightRef.current.has(targetChatId)) return
           const ready = waitForChatOpen(targetChatId)
           if (!alreadyActive) deps.setActiveChatId(targetChatId)
@@ -128,7 +129,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           }
           const commit = await loadWindow()
           assertCurrent()
-          deps.setFollowingTail(false)
+          deps.setFollowingTail(false, currentTarget.chatId)
           deps.setMessagesAndCache((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId), currentTarget.chatId, commit)
           return commit
         },
@@ -154,10 +155,15 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     deps.setActiveChatId(chatId)
   }, [deps, openStreamAtLocator])
   // 离开这个会话、或它的窗口被换掉(点了标签跳过去、回到最新页)都作废:epoch 与 ownsChat 同一把尺子。
-  const entry = unreadEntry && unreadEntry.chatId === deps.activeChatIdRef.current && unreadEntry.epoch === getMessageSnapshotEpoch(unreadEntry.chatId) ? unreadEntry : null
-  const jumpRef = useRef(() => Promise.resolve()) // 身份稳定:deps 每次渲染都是新对象,订阅它的 ChatAreaPanel 不能跟着重渲
-  jumpRef.current = () => (entry ? openStreamAtLocator(entry.chatId, entry.locator) : Promise.resolve())
-  const jumpToUnreadEntry = useCallback(() => jumpRef.current(), [])
+  const entryFor = useCallback((chatId: string | null) => unreadEntry && unreadEntry.chatId === chatId
+    && unreadEntry.epoch === getMessageSnapshotEpoch(unreadEntry.chatId) ? unreadEntry : null, [unreadEntry, getMessageSnapshotEpoch])
+  const entry = entryFor(deps.activeChatIdRef.current)
+  const jumpRef = useRef<(chatId?: string | null) => Promise<void>>(() => Promise.resolve())
+  jumpRef.current = (chatId = deps.activeChatIdRef.current) => {
+    const target = entryFor(chatId)
+    return target ? openStreamAtLocator(target.chatId, target.locator) : Promise.resolve()
+  }
+  const jumpToUnreadEntry = useCallback((chatId?: string | null) => jumpRef.current(chatId), [])
 
   const beginChatOpen = useCallback((chatId: string) => chatOpenInFlightRef.current.add(chatId), [])
   const finishChatOpen = useCallback((chatId: string, error?: Error) => {
@@ -176,7 +182,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     ownsChat,
     ownsThread,
     openStreamAtLocator,
-    openUnreadChat, unreadEntry: entry, jumpToUnreadEntry,
+    openUnreadChat, unreadEntry: entry, entryFor, jumpToUnreadEntry,
     beginChatOpen,
     finishChatOpen,
     cancelChatOpen,

@@ -289,7 +289,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isAtBottomRef = useRef(true)
 
-  const readReceiptInFlightRef = useRef<Set<string>>(new Set())
   // @@@local-sync (#948) — 群名册内存镜像 cache(首帧 roster + #1877 删 Agent 收敛),与 loader / removed-agent-gate 共享 → 在此声明后传入两个 hook。
   const groupRosterMemoryCacheRef = useRef<Map<string, GroupCollabSnapshot>>(new Map())
 
@@ -326,7 +325,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     resetGroupCollabForChat()
     setActiveMessageProfile(null)
     setWhisperTarget(null)
-    readReceiptInFlightRef.current.clear()
     // @@@chat-open-nonce (#461) - also reset on mobile reopen of the SAME chat (openNonce bump), where
     // activeChatId is unchanged — so isAtBottomRef doesn't stay stale-false from a prior scroll-up.
   }, [activeChatId, isRoomChatSurface, openNonce, closeRightSurfaces, resetGroupCollabForChat])
@@ -568,33 +566,9 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // @@@1503 — 原「切换聊天关历史/群 thread 面板」那个 reset effect 已并入上方主 reset 的
   // closeRightSurfaces()(history/分栏/成员列表都在 helper 内),reset 路径归一到单一 SSOT。
 
-  const handleMessageVisible = useCallback((msg: MessageItem) => {
-    if (!activeChatId || !user || !surfaceVisible) return // #6158 隐藏态不算「看见」;activeTab 进 deps ⇒ 切回时 MessageList 重建 IntersectionObserver,此刻在视口里的行才被数成已读
-    // @@@1659 — 只标记「属于当前活动 chat」的消息已读。切 chat 时上一会话的行可能仍短暂挂载,其
-    // IntersectionObserver 回调在 activeChatId 已切换后才 fire → 拿旧 chat 的消息去 markMessageRead(新chat, 旧msgId)
-    // → DB `mark_message_read` 查无(WHERE id=msg AND chat_id=chat,msg.chat_id≠activeChatId)抛
-    // 「message not found in chat」刷屏(#1659;失败时 in-flight 守卫被删 → 重试 → 反复 39×)。补 chat 归属前置
-    // 不变量从源头消除——不对错 chat 发标记(非吞 warning,是 markMessageRead 本就要求消息属于该 chat)。
-    if (msg.chat_id !== activeChatId) return
-    markMessageVisible(msg)
-    if (!msg.to_user_ids?.includes(user.id)) return
-    if (msg.sender_user_id === user.id) return
-    if (msg.delivery_status === 'read') return
-    if (readReceiptInFlightRef.current.has(msg.id)) return
-    readReceiptInFlightRef.current.add(msg.id)
-    chatService.markMessageRead(activeChatId, msg.id, user.id).catch((err) => {
-      readReceiptInFlightRef.current.delete(msg.id)
-      // @@@1659 — even past the chat-ownership guard above, the RPC can still raise「message not found in
-      // chat」: a read-after-write race where the message reached the client via realtime broadcast (so it
-      // carries the active chat_id and the IntersectionObserver fires) BEFORE its row is visible to the
-      // RPC's read. This self-heals — last_read_seq is a MONOTONIC watermark, so the next visible message
-      // advances the read mark past this one regardless. Logging it as a warning is noise (it also trips
-      // strict runtime-error guards under load); swallow only this transient, surface every real failure.
-      const message = (err as Error)?.message ?? String(err)
-      if (/not found in chat/i.test(message)) return
-      console.warn('[ChatAreaPanel] markMessageRead failed', err)
-    })
-  }, [activeChatId, surfaceVisible, user, markMessageVisible])
+  const handleMessageVisible = useCallback((message: MessageItem) => {
+    if (surfaceVisible && message.chat_id === activeChatId) markMessageVisible(message)
+  }, [activeChatId, surfaceVisible, markMessageVisible])
 
   // @@@5856 话题分栏的已读由分栏自己那条线承担(它是一条真的 chat,走 store 常规已读路径),
   // 原「群 thread panel 无 IntersectionObserver ⇒ 手工补标已读」那段随面板一并退役。
@@ -1516,7 +1490,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           <TopicSplitPane
             topic={topicSurface.splitTopic}
             messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
-            loading={topicSurface.splitLine.loading}
+            loading={topicSurface.splitLine.loadingMessages}
             memberProfiles={messageMemberProfiles}
             visibleChats={chats}
             sourceMessagePreview={topicSourceMessagePreview}
@@ -1543,15 +1517,10 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             tabHost={blockHost ? topicTabHost : undefined}
             currentUserId={user?.id ?? null}
             mobile={mobile}
-            // 分栏的表情/删除**等写入落库**再重验证这一栏(主线那两个 handler 是 fire-and-forget,同一 tick 重读
-            // 必拿旧快照;修订回来时线级实时还会再落一次,这一下只是不等它,#6470)。❌ 不用 store 的 toggleReaction:
-            // 它按 activeChatId 整体重拉并 trim 主线窗口。❌ 也不许 `user?.id ?? ''`。
-            onReaction={(id, emoji) => { if (!user) return
-              void chatService.toggleReaction(id, user.id, emoji).then(() => topicSurface.splitLine.revalidate())
-                .catch(() => toast(t('chatArea.operationFailed'), 'error')) }}
+            onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
+              .catch(() => toast(t('chatArea.operationFailed'), 'error'))}
             onForward={handleForward} visible={surfaceVisible}
-            onDelete={(id) => void deleteMessage(id)
-              .then(() => topicSurface.splitLine.revalidate())
+            onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
               .catch(() => toast(t('chatArea.operationFailed'), 'error'))}
           />
         )}

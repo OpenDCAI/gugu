@@ -1,12 +1,21 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { ChatHistoryWindow } from './chatHistoryWindow'
+import { ChatHistoryWindow, type HistoryWindow } from './chatHistoryWindow'
 import { trimToMessageWindow } from './chatMessageWindow'
+
+export type ConversationSnapshot = {
+  messageWindow: HistoryWindow
+  loading: boolean
+  memberReadSeqs: Record<string, number>
+  activeThreadRootId: string | null
+  threadMessages: MessageItem[]
+  loadingThread: boolean
+}
 
 type Listener = (rows: MessageItem[]) => void
 
 /** The existing message cache owns publication; every mutation reaches its visible surfaces. */
 export class ChatWindowCache extends Map<string, MessageItem[]> {
-  private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void }>()
+  private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; view: ConversationSnapshot }>()
   private readonly listeners = new Map<string, Set<Listener>>()
   override set(chatId: string, rows: MessageItem[]): this {
     const history = this.histories.get(chatId)?.window
@@ -29,14 +38,32 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     for (const id of ids) this.publish(id, [])
   }
   getHistory(chatId: string): ChatHistoryWindow | undefined { return this.histories.get(chatId)?.window }
+  view(chatId: string): ConversationSnapshot {
+    this.history(chatId)
+    return this.histories.get(chatId)!.view
+  }
+  patchView(chatId: string, patch: Partial<ConversationSnapshot>): void {
+    const entry = this.histories.get(chatId)
+    if (!entry) return
+    entry.view = { ...entry.view, ...patch }
+    this.publish(chatId, entry.window.getSnapshot().messages)
+  }
   history(chatId: string): ChatHistoryWindow {
     const existing = this.histories.get(chatId)
     if (existing) return existing.window
     const window = new ChatHistoryWindow()
     window.reset(chatId, this.get(chatId))
-    const publish = () => { super.set(chatId, window.getSnapshot().messages); this.publish(chatId, window.getSnapshot().messages) }
+    const publish = () => {
+      const entry = this.histories.get(chatId)!
+      entry.view = { ...entry.view, messageWindow: window.getSnapshot() }
+      super.set(chatId, window.getSnapshot().messages)
+      this.publish(chatId, window.getSnapshot().messages)
+    }
     const stop = window.subscribe(publish)
-    this.histories.set(chatId, { window, stop })
+    this.histories.set(chatId, { window, stop, view: {
+      messageWindow: window.getSnapshot(), loading: false, memberReadSeqs: {},
+      activeThreadRootId: null, threadMessages: [], loadingThread: false,
+    } })
     super.set(chatId, window.getSnapshot().messages)
     return window
   }

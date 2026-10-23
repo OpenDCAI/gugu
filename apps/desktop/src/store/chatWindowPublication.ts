@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { AccountImRepository } from '../lib/imRepository'
@@ -11,8 +11,8 @@ import { rendererLogger } from '../lib/log'
 import { ChatWindowCache } from './chatWindowCache'
 import type { ChatHistoryWindow, FetchHistoryPage } from './chatHistoryWindow'
 
-export function useChatWindowCache() {
-  const [cache] = useState(() => new ChatWindowCache())
+export function useChatWindowCache(accountId?: string | null) {
+  const cache = useMemo(() => new ChatWindowCache(), [accountId])
   return { cache, subscribeChatWindow: cache.subscribe }
 }
 

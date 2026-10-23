@@ -1,6 +1,7 @@
 import { ChatWindowCache } from '../../apps/desktop/src/store/chatWindowCache'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
+import type { ChatConversationAccess } from '../../apps/desktop/src/store/useChatConversation'
 import type { ChatWindowAccess } from '../../apps/desktop/src/store/chatWindowPublication'
 import type { openImRepository } from '../../apps/desktop/src/lib/imRepository'
 
@@ -52,14 +53,30 @@ export function chatWindowStub(userId = 'user-1') {
       readSeqs: (seqs) => readSeqs?.(seqs),
     }),
   }
-  return { messageWindows: access, subscribeChatWindow }
+  const conversations: ChatConversationAccess = {
+    read: (chatId) => cache.view(chatId), subscribe: subscribeChatWindow, errorOf: () => null,
+    actions: () => conversationActions,
+  }
+  return { messageWindows: access, subscribeChatWindow, conversations }
 }
 
-/** History ports for pane tests that render supplied rows without opening an account. */
+const conversationActions = {
+  sendMessage: async () => undefined, toggleReaction: async () => {}, refreshMessages: async () => {},
+  loadOlderMessages: async () => {}, loadNewerMessages: async () => {}, loadMessageAnchor: async () => {},
+  returnToLatestMessages: async () => {}, setFollowingTail: () => {}, markMessageVisible: () => {},
+  clearMessages: async () => {}, removeMessage: () => {}, deleteMessage: async () => {}, appendMessage: () => {},
+  openThread: () => {}, openUnreadChat: async () => {}, jumpToUnreadEntry: async () => {},
+  unreadEntry: null, unreadNavigationPending: false,
+}
+
+/** Presentation fixtures supply a conversation without owning a read pipeline. */
 export function topicHistoryStub(chatId = 'topic-1') {
   const window = new ChatWindowCache().history(chatId)
   return {
+    ...conversationActions,
     messageWindow: window.getSnapshot(), setFollowingTail: window.setFollowingTail,
-    revealOlder: async () => {}, loadNewer: async () => {}, returnToLatest: async () => {}, loadMessageAnchor: async () => {},
+    messages: [], memberReadSeqs: {}, hasMoreOlder: false, loadingOlder: false, loadingMessages: false,
+    messagesError: null, activeThreadRootId: null, threadMessages: [], loadingThread: false,
+    threadScope: { rootId: null, isOpen: false, messages: [], loading: false },
   }
 }
