@@ -14,6 +14,7 @@ const source = `#!/usr/bin/env node
 const out = m => process.stdout.write(JSON.stringify(m) + '\\n')
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const m = JSON.parse(line)
+  if (m.method === 'thread/start' && (!m.params.config?.['mcp_servers.fixture.url'] || process.env.GUGU_MCP_BEARER_FIXTURE !== 'fixture-bearer')) return out({ id: m.id, error: { code: -32603, message: 'Session MCP configuration missing after discovery' } })
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: 'thread', historyMode: 'paginated', turns: [] }, model: 'model', reasoningEffort: 'medium', activePermissionProfile: ':workspace' } })
   if (m.method === 'model/list') return out({ id: m.id, result: { data: [{ id: 'model', model: 'model', displayName: 'Model', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] }] } })
   if (m.method === 'permissionProfile/list') return out({ id: m.id, result: { data: [{ id: ':workspace', name: 'Workspace', allowed: true }] } })
@@ -48,8 +49,13 @@ it('speaks SDK-validated v2: setup, native insertion receipt before idle, patch 
     const init = await connection.agent.request(v2.methods.agent.initialize, { protocolVersion: 2, info: { name: 'test', version: '1' } });
     expect(init.protocolVersion).toBe(2);
     expect(init.capabilities?.session?.prompt?.image).toEqual({});
-    const created = await connection.agent.request(v2.methods.agent.session.new, { cwd: dir, mcpServers: [] });
+    const discovery = connection.agent.request(v2.methods.agent.session.list, {});
+    const secondDiscovery = connection.agent.request(v2.methods.agent.session.list, {});
+    const setup = connection.agent.request(v2.methods.agent.session.new, { cwd: dir, mcpServers: [{ type: 'http', name: 'fixture', url: 'http://127.0.0.1:1/mcp', headers: [{ name: 'Authorization', value: 'Bearer fixture-bearer' }] }] });
+    const [firstPage, secondPage, created] = await Promise.all([discovery, secondDiscovery, setup]);
+    expect([firstPage, secondPage]).toEqual([{ sessions: [] }, { sessions: [] }]);
     expect(created.sessionId).toBe('thread');
+    expect(init.capabilities?.session?.mcp?.http).toEqual({});
     expect(created.configOptions?.every(option => typeof option.configId === 'string')).toBe(true);
     const receipt = await connection.agent.request(v2.methods.agent.session.prompt, { sessionId: 'thread', prompt: [{ type: 'text', text: 'Edit' }] });
     expect(receipt).toEqual({ messageId: 'native-user' });

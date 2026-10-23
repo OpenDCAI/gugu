@@ -788,7 +788,36 @@ if (process.env.GUGU_PLATFORM_MODELS?.trim()) {
   })
 }
 
+let sessionListRead = null
+
+// Discovery has no session MCP credentials. Release that unbound native process before
+// session setup, so listing first cannot freeze the later session's tool configuration.
+async function readSessionList(params) {
+  while (sessionListRead) await sessionListRead.catch(() => undefined)
+  if (appStarting) await appStarting
+  if (appReady) return appRequest('thread/list', params)
+  const read = (async () => {
+    try {
+      await startAppOnce([])
+      return await appRequest('thread/list', params)
+    } finally {
+      await appServer?.stop()
+      appReader?.close()
+      appServer = null
+      app = null
+      appReader = null
+      appReady = false
+      appModelCatalog?.dispose()
+      appModelCatalog = null
+    }
+  })()
+  sessionListRead = read
+  try { return await read } finally { if (sessionListRead === read) sessionListRead = null }
+}
+
 async function startApp(servers) {
+  // A discovery failure belongs to its caller; setup waits only for process release.
+  while (sessionListRead) await sessionListRead.catch(() => undefined)
   if (appReady) return
   if (appStarting) return appStarting
   appStarting = startAppOnce(servers).finally(() => {
@@ -2167,7 +2196,7 @@ async function handleAcpRequest(message) {
   if (method === 'initialize') {
     respond(id, {
       protocolVersion: 2,
-      capabilities: { session: { prompt: { image: {} }, fork: {} } },
+      capabilities: { session: { prompt: { image: {} }, mcp: { http: {} }, fork: {} } },
       info: { name: 'codex-app-server', version: 'local' },
     })
     return
@@ -2259,8 +2288,7 @@ async function handleAcpRequest(message) {
     return
   }
   if (method === 'session/list') {
-    await startApp([])
-    const page = await appRequest('thread/list', { cursor: params.cursor ?? null })
+    const page = await readSessionList({ cursor: params.cursor ?? null })
     respond(id, { sessions: (page.data ?? []).map(thread => ({ sessionId: thread.id, cwd: thread.cwd,
       ...(thread.name || thread.preview ? { title: thread.name || thread.preview } : {}),
       ...(thread.updatedAt ? { updatedAt: new Date(thread.updatedAt * 1000).toISOString() } : {}) })),
