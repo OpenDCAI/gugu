@@ -280,8 +280,8 @@ export function setConnectionConfigRootResolver(next: ConnectionConfigRootResolv
 }
 
 /**
- * 非原生连接跑在自己的配置根上(`CLAUDE_CONFIG_DIR`),会话记录写在那里;
- * ❌ 只在默认根里找 —— 那样这条会话明明在跑,时间线却是空的(`record_not_found`)。
+ * 单一目录之前(#26),非原生连接上的会话跑在连接自己的配置根上,记录写在那里;开机时已搬进用户根,
+ * 之后的新内容只长在用户根里。所以连接根只排在默认根后面兜底(搬失败的那几条),❌ 排前面 —— 那样读到的是搬家时的旧副本。
  */
 function connectionRootFor(row: SessionRow): string | null {
   const connectionId = pinnedConnectionId(row);
@@ -316,11 +316,12 @@ function pinnedConnectionId(row: SessionRow): string | undefined {
 function locateRow(row: SessionRow): SessionRecordLocation {
   const managed = managedConfigRootFor(row.provider);
   if (managed.problem) return { supported: false, reason: managed.problem };
+  const legacy = connectionRootFor(row);
   return locateSessionRecord({
     provider: row.provider,
     providerSessionId: row.providerSessionId,
-    // 连接的根比整家的托管根更具体(这一条会话实际跑在哪),排前面。
-    managedConfigRoot: connectionRootFor(row) ?? managed.root,
+    managedConfigRoot: managed.root,
+    fallbackConfigRoots: legacy ? [legacy] : [],
   });
 }
 

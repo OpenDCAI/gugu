@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openFixture } from '@tooling/utils/db';
@@ -14,16 +14,10 @@ import {
 } from './provider-continuation-intent';
 import { recordRuntimeForkOwnership } from './runtime-fork-ownership';
 import { observeCodexFork, settleCodexForkObservation } from './codex-fork-observer';
-import { resolveHarnessConnection } from '@main/core/agents/harness-connections';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
-  configRootEnv: {} as Record<string, string>,
 }));
-vi.mock('@main/core/agents/harness-connections', () => ({
-  resolveHarnessConnection: vi.fn(async () => ({ configRootEnv: mocks.configRootEnv })),
-}));
-
 // 统计同时打开的文件句柄峰值:几万个 codex rollout 一口气全开就是 #4994 的第二根因。
 const openGauge = vi.hoisted(() => ({ inFlight: 0, peak: 0, opened: 0 }));
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -84,7 +78,6 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
   const projectId = 'project-1';
 
   beforeEach(async () => {
-    mocks.configRootEnv = {};
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
     workspace = await mkdtemp(path.join(tmpdir(), 'fork-capture-ws-'));
@@ -171,35 +164,6 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     const rows = await fixture.db.select().from(sessions);
     const child = rows.find((row) => row.id === CHILD);
     expect(child?.config).toMatchObject({ permissionMode: 'read-only' });
-  });
-
-  it('discovers Claude forks in the bound account directory after the default account changes', async () => {
-    const bound = path.join(configDir, 'bound-account');
-    await mkdir(bound);
-    await rename(path.join(configDir, 'projects'), path.join(bound, 'projects'));
-    mocks.configRootEnv = { CLAUDE_CONFIG_DIR: bound };
-    await fixture.db.update(sessions).set({ config: { version: '1', type: 'pty', subscriptionConnectionId: 'original-account' } }).where(eq(sessions.id, PARENT));
-    await captureExternalForks(projectId, PARENT);
-    const rows = await fixture.db.select().from(sessions);
-    expect(forkedFromId(rows.find(row => row.id === CHILD))).toBe(PARENT);
-    expect(forkedFromId(rows.find(row => row.id === GRANDCHILD))).toBe(CHILD);
-    expect(resolveHarnessConnection).toHaveBeenLastCalledWith('claude', { sessionId: PARENT });
-  });
-
-  it('discovers Codex forks in the bound account directory after the default account changes', async () => {
-    const providerParent = '44444444-4444-4444-8444-444444444444';
-    const providerChild = '55555555-5555-4555-8555-555555555555';
-    await fixture.db.update(sessions).set({ provider: 'codex', providerSessionId: providerParent, config: { version: '1', type: 'pty', subscriptionConnectionId: 'original-account' } }).where(eq(sessions.id, PARENT));
-    const bound = path.join(configDir, 'bound-account', '.codex');
-    mocks.configRootEnv = { CODEX_HOME: bound };
-    await mkdir(path.join(bound, 'sessions'), { recursive: true });
-    await writeFile(path.join(bound, 'sessions', 'rollout-child.jsonl'), JSON.stringify({ type: 'session_meta', payload: {
-      id: providerChild, session_id: providerChild, forked_from_id: providerParent, cwd: await realpath(workspace),
-    } }));
-    await captureExternalForks(projectId, PARENT);
-    const rows = await fixture.db.select().from(sessions);
-    expect(forkedFromId(rows.find(row => row.providerSessionId === providerChild))).toBe(PARENT);
-    expect(resolveHarnessConnection).toHaveBeenLastCalledWith('codex', { sessionId: PARENT });
   });
 
   it('binds a marked provider continuation to its existing row instead of inserting a fork', async () => {
