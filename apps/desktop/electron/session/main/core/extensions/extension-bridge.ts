@@ -345,6 +345,13 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
  */
 const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
 
+/** The map itself is the document's identity; navigation removes it before a later document can subscribe. */
+function fileWatchesFor(pageId: number) {
+  let watching = pageWatches.get(pageId);
+  if (!watching) pageWatches.set(pageId, watching = new Map());
+  return watching;
+}
+
 /** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
 const forumWatches = new Map<number, Map<string, () => void>>();
 
@@ -385,14 +392,7 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (!watching) {
-    watching = new Map();
-    pageWatches.set(caller.pageId, watching);
-  }
-  if (caller.kind === 'background') {
-    const contents = webContents.fromId(caller.pageId);
-    if (contents) observeDocument(contents);
-  }
+  watching = fileWatchesFor(caller.pageId);
   const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
   if (pageWatches.get(caller.pageId) !== watching) return;
   asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
@@ -1902,6 +1902,12 @@ export function registerExtensionBridge(): void {
       if (!extensionId) {
         return denied('This surface is not an App surface');
       }
+      // A runtime may subscribe before its host binds it. Capture its document before that first wait too.
+      const documentWatches = method === 'filesWatch' ? fileWatchesFor(event.sender.id) : null;
+      if (documentWatches) {
+        const contents = webContents.fromId(event.sender.id);
+        if (contents) observeDocument(contents);
+      }
 
       // 后台实例没有绑定,也不该有 —— 它不是一格面,没有会话、没有 tab、没有布局。身份仍旧由 session 认
       // (与视图同一条),再比对它确实是我们自己拉起的那个 webContents:于是一个视图伪称自己是后台也做不成后台。
@@ -1911,6 +1917,7 @@ export function registerExtensionBridge(): void {
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
       if (!bindings.has(event.sender.id)) await waitForBinding(event.sender.id);
+      if (documentWatches && pageWatches.get(event.sender.id) !== documentWatches) return { ok: true };
       const binding = bindings.get(event.sender.id);
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };

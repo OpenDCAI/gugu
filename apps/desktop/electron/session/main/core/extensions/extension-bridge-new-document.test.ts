@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const READER = 7;
 const OTHER_READER = 8;
 const BACKGROUND = 9;
+const UNBOUND = 10;
 const review = vi.hoisted(() => ({
   resource: async (id: string) => id,
   background: null as number | null,
@@ -31,7 +32,7 @@ const contentsOf = (id: number) => ({
 const navigate = (id: number) => {
   for (const listener of navigated.get(id) ?? []) listener();
 };
-const contents = new Map([READER, OTHER_READER, BACKGROUND].map(id => [id, contentsOf(id)]));
+const contents = new Map([READER, OTHER_READER, BACKGROUND, UNBOUND].map(id => [id, contentsOf(id)]));
 const embedder = { id: 42, isDestroyed: () => false, send: vi.fn() };
 
 const handlers = new Map<string, (event: unknown, raw: unknown) => Promise<unknown>>();
@@ -75,7 +76,7 @@ const slot = { extensionId: 'paper-club', sessionId: null, tabId: 'slot-1', embe
 beforeEach(async () => {
   review.resource = async id => id;
   review.background = null;
-  for (const id of [READER, OTHER_READER, BACKGROUND]) {
+  for (const id of [READER, OTHER_READER, BACKGROUND, UNBOUND]) {
     stopPageWatches(id);
     contents.get(id)!.send.mockClear();
   }
@@ -88,6 +89,15 @@ beforeEach(async () => {
 });
 
 describe('what a page says about itself goes with its document', () => {
+  it('a watch waiting for its first binding cannot register in a later document', async () => {
+    const args = { watchId: '1', place: { chat: CHAT }, on: true };
+    const old = call(UNBOUND, 'filesWatch', args);
+    navigate(UNBOUND);
+    await bindExtensionSurface({ webContentsId: UNBOUND, extensionId: 'paper-club', tabId: 'slot-3', tabKind: 'paper-club.shelf', chatId: CHAT });
+    expect(await old).toMatchObject({ ok: true });
+    expect(await call(UNBOUND, 'filesWatch', args)).toMatchObject({ ok: true });
+  });
+
   it.each([READER, BACKGROUND])('a pending watch from old document %s cannot occupy a new subscription id', async (page) => {
     if (page === BACKGROUND) review.background = BACKGROUND;
     let release!: () => void;
