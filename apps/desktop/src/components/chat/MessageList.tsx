@@ -372,6 +372,8 @@ export function MessageList({
         <div ref={contentRef}>
           {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} />)}
           {end >= rows.length ? footer : null}
+          {/* 会话底部那一摞浮在消息流上时(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
+          <div aria-hidden className="h-[var(--chat-dock-h,0px)]" />
         </div>
       </div>
       {unreadAbove && showUnreadAbove && <Button variant="primary" size="sm" data-unread-above="" style={UNREAD_ABOVE_STYLE} onClick={unreadAbove.onJump}>{unreadAbove.label}</Button>}

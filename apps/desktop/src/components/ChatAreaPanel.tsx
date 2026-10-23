@@ -70,7 +70,7 @@ import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
 import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
-import { MessageListSkeleton } from './chat/MessageListSkeleton'
+import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'
 import { sendAttachmentBatch } from './chat/sendAttachmentBatch'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { classifyFeedChange } from './chat/scrollControl'
@@ -1359,11 +1359,9 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         </div>
       )}
 
-      {/* @@@1506 - Agent 运行状态：统一为输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。
-          它是消息列表与输入区之间的 flexShrink:0 兄弟（不浮在消息列表上 → 不重蹈 #649/#1343 的 overlay
-          「差一截」错觉），出现/消失改 scroller clientHeight → #780 ResizeObserver 自动重 pin 到真底。
-          · 群聊：GroupAgentStatusBar 列出在执行的 agent（可点 → @mention），去底色后即浮动文字。
-          · 单聊：运行中/思考中从消息列表行（#1102 in-list）移到这里；流式正文仍留消息流。 */}
+      {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
+          单聊是运行中/思考中（流式正文仍留消息流）。桌面上它和输入框同在 ChatBottomDock 那层半透明底上，消息流在底部让出同高的一格。 */}
+      <ChatBottomDock floating={!mobile} reserve={chatListRows.length === 0}>
       {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
@@ -1409,7 +1407,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
         // @@@1323-m4 item4 多选态批量条与 composer「同槽位+同外壳」→ padding 同步对标 SSOT `.comp`(12/22/18),否则切多选态槽位抖。
-        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
+        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1441,7 +1439,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         // @@@1323-m4 item4 composer 外层 padding 对标 SSOT `.comp{padding:12px 22px 18px}`（#1330 deferred 此项,#1327 合后补）。
         // 桌面左右 22 给输入区呼吸感;mobile 保窄边+安全区,顶部 hairline 与消息区分界(@@@1787 视觉验收:原先浮空无边界)。
         // 画在会话页一块里时用会话输入框那条带(左右 16、离底 8):群框和会话框、新建会话页的框落在同一个位置(gugu-dev#181 核对 21)。
-        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: mobile ? 'var(--bg-primary)' : undefined, padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
@@ -1468,7 +1466,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         />
       </div>
       )}
-
+      </ChatBottomDock>
 
           {/* @@@1145 点 Agent 名 → Agent 设置面板(替旧右侧会话资料抽屉)。 */}
           {showAgentSettings && agentChatContact ? (
