@@ -8,10 +8,11 @@
 //      迁移 20260918223500)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
 //      反例同样钉住:别的线上开话题 ❌ 不许触发重拉(那是白跑一次往返)。
 //   ③ 分栏里 @ 到的人要真的写进 to_user_ids —— 那是「被 @ 进来」的唯一通路。
+import { renderWithConversations } from '../../support/conversationAccountStub'
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, chat, message, renderWithAppProviders } from '../../support/testHarness'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
@@ -28,6 +29,7 @@ vi.mock('../../../apps/desktop/src/lib/topics', () => ({
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
     getMessages: (...args: unknown[]) => getMessages(...(args as [])),
+    _callCountsBySource: {},
     markRead: (chatId: string, seq: number) => markRead(chatId, seq),
     getOtherMembersReadSeqs: () => Promise.resolve({}),
     revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
@@ -99,32 +101,36 @@ async function mount() {
   await renderWithAppProviders(harness, createNode(Probe, {}), { chat: { sendMessageToChat } })
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
-async function openSplit() {
-  await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: { sendMessageToChat } })
+async function openSplit(real = false) {
+  if (real) await renderWithConversations(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), subscribeAccountRevision, { chat: { chats: [chat({ id: 'topic-1', unread_count: 9 })] } })
+  else await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: { sendMessageToChat } })
   await act(async () => { await vi.dynamicImportSettled() })
 }
 
-describe('分栏里读过的东西要推已读水位', () => {
-  it('分栏加载出消息之后按最大 seq 推一次', async () => {
+describe('topic reading uses the shared visible-message watermark', () => {
+  it('loading a window does not mark hidden rows read; the actually visible row advances the watermark', async () => {
     getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 7 })])
-    await openSplit()
-    expect(markRead).toHaveBeenCalledWith('topic-1', 7)
+    await openSplit(true)
+    expect(markRead).not.toHaveBeenCalled()
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
+    expect(markRead).toHaveBeenLastCalledWith('topic-1', 3)
   })
-
-  it('同一批消息 ❌ 不重复推;水位涨了才再推一次', async () => {
+  it('does not mark a newer row until it becomes visible, and does not repeat a settled watermark', async () => {
     getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 })])
-    await openSplit()
+    await openSplit(true)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
     expect(markRead).toHaveBeenCalledTimes(1)
-    getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 9 })])
-    // 迁移前的旧行不带消息本体 ⇒ 线走补洞(问已验证尾之后还有什么)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
+    expect(markRead).toHaveBeenCalledTimes(1)
+    getMessages.mockResolvedValue([message({ id: 'm2', chat_id: 'topic-1', seq: 9 })])
     await emit('message_created', 'topic-1', { entity_id: 'm2' })
+    expect(markRead).toHaveBeenCalledTimes(1)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages.find((row) => row.id === 'm2')!) })
     expect(markRead).toHaveBeenCalledTimes(2)
     expect(markRead).toHaveBeenLastCalledWith('topic-1', 9)
   })
-
-  it('空话题不推 —— 没读到任何东西就没有水位可言', async () => {
-    getMessages.mockResolvedValue([])
-    await openSplit()
+  it('does not advance an empty conversation', async () => {
+    await openSplit(true)
     expect(markRead).not.toHaveBeenCalled()
   })
 })

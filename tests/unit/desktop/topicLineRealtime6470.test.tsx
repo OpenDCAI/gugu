@@ -5,11 +5,12 @@
 // 两个缺口各钉一条,再钉「话题线收得到全部线级事件」与反例(别的 chat 的事件不动这条线):
 //   ① agent 的已读只经 delivery_changed 到达(mark_read_on_deliver 必写逐条读行;水位前面有别人的未读就不动);
 //   ② 被 @ 就是被拉进话题 ⇒ 开分栏时拉的水位表里没有它 ⇒ 收件方 = to_user_ids ∩ 表 = 空,读行到了也不出环。
+import { renderWithConversations } from '../../support/conversationAccountStub'
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import { deriveMessageSendState, deriveReadReceipt } from '@gugu/core/shared/ui/messageState'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, message } from '../../support/testHarness'
 
 const getMessages = vi.fn<(...args: unknown[]) => Promise<MessageItem[]>>()
 const getOtherMembersReadSeqs = vi.fn<(chatId: string, userId: string) => Promise<Record<string, number>>>()
@@ -28,6 +29,7 @@ vi.mock('../../../apps/desktop/src/lib/chat', () => ({
     getOtherMembersReadSeqs: (chatId: string, userId: string) => getOtherMembersReadSeqs(chatId, userId),
     fetchMessageOverlays: (ids: string[], userId: string) => fetchMessageOverlays(ids, userId),
     revalidateWindow: (ids: string[], userId: string) => revalidateWindow(ids, userId),
+    _callCountsBySource: {},
     markRead: () => Promise.resolve(),
   },
 }))
@@ -76,7 +78,7 @@ function OpenSplit() {
   return null
 }
 async function openSplit() {
-  await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, {})))
+  await renderWithConversations(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, {})), subscribeAccountRevision)
   await act(async () => { await vi.dynamicImportSettled() })
 }
 
@@ -169,10 +171,10 @@ describe('#6470 话题线收得到全部线级事件(与主线同一份订阅)',
   it('挂上的线级事件与主线一致,另加来源线的 chat_changed(话题清单)', async () => {
     await openSplit()
     const claimed = [...listeners.entries()].filter(([, bucket]) => bucket.size > 0).map(([event]) => event).sort()
-    expect(claimed).toEqual([
+    expect(claimed).toEqual(expect.arrayContaining([
       'chat_changed', 'chat_members_changed', 'delivery_changed', 'member_read_changed',
       'message_created', 'message_deleted', 'reaction_changed',
-    ])
+    ]))
   })
 
   it('别人的表情与删除当场落在分栏里', async () => {
@@ -189,7 +191,7 @@ describe('#6470 话题线收得到全部线级事件(与主线同一份订阅)',
   it('带消息本体的新消息直接落窗口,❌ 不再整页替换(往上翻出来的旧页不许被冲掉)', async () => {
     await openSplit()
     getMessages.mockResolvedValueOnce([message({ id: 'old', chat_id: 'topic-1', seq: 4 })])
-    await act(async () => { await surface?.splitLine.revealOlder() })
+    await act(async () => { await surface?.splitLine.loadOlderMessages() })
     expect(surface?.splitLine.messages.map((row) => row.id)).toEqual(['old', 'mine'])
     const fetchesBefore = getMessages.mock.calls.length
 

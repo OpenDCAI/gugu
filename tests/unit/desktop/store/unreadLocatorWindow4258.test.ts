@@ -25,6 +25,7 @@ const {
     getOtherMembersReadSeqs: vi.fn(),
     fetchMessageOverlays: vi.fn(),
     revalidateWindow: vi.fn(),
+    markMessageRead: vi.fn(async () => {}),
     markRead: vi.fn(),
     markThreadRoot: vi.fn(),
   },

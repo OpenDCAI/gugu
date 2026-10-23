@@ -27,7 +27,7 @@ import { UI_EVENTS } from '@/lib/uiEvents'
 import { showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat'
 import { ShellSlot } from '@/session/renderer/features/assistant/assistant-shell'
 import { useChatStore } from '@/store/chatContext'
-import { useChatLineClaim } from '@/store/chatLine'
+import { ChatLineScope } from '@/store/chatLineScope'
 import { PhoneHomeContext } from './phoneHome'
 import { PhoneIdeas } from './PhoneIdeas'
 import { PhoneMemory } from './PhoneMemory'
@@ -138,14 +138,12 @@ function MobileAssistantAppContent({
   useEffect(() => {
     if (chatRequest > 0) setRoute({ tab: 'chat' })
   }, [chatRequest])
-  const { activeChatId, setDraft, draftAttachments, setDraftAttachments } = useChatStore('activeChatId', 'setDraft', 'draftAttachments', 'setDraftAttachments')
+  const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
   const [ideasOpen, setIdeasOpen] = useState(false)
   const [chatColumn, setChatColumn] = useState<HTMLDivElement | null>(null)
-  // 聊天那一段摆在眼前时把那条活的线借过来(与桌面 AssistantChatSlot 同法),离开就还给对话页原来选中的那条。
-  useChatLineClaim(chatId, visible && tab === 'chat')
-  const chatShown = useReportChatOnScreen(visible && tab === 'chat' && activeChatId === chatId ? chatId : null) === chatId
+  const chatShown = useReportChatOnScreen(visible && tab === 'chat' ? chatId : null) === chatId
   const readiness = readinessOf(useCloudDevice(homeDeviceId))
   const machine = usePhoneMachine(homeDeviceId, assistant.id, readiness, home?.kind ?? 'cloud')
   // 「+」里的「录制语音笔记」:手机只录和传到它家里(phoneVoiceRuntime),转写在电脑上点「开始转写」;它在休息时录音先留在手机上,❌ 替人叫醒。
@@ -291,7 +289,7 @@ function MobileAssistantAppContent({
 }
 
 export function MobileAssistantApp(props: Parameters<typeof MobileAssistantAppContent>[0]) {
-  return <AssistantConversationProgress assistantId={props.assistant.id} chatId={props.chatId} visible={props.visible}>
+  return <ChatLineScope chatId={props.chatId}><AssistantConversationProgress assistantId={props.assistant.id} chatId={props.chatId} visible={props.visible}>
     <MobileAssistantAppContent {...props} />
-  </AssistantConversationProgress>
+  </AssistantConversationProgress></ChatLineScope>
 }

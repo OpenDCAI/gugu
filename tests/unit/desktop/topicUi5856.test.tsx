@@ -450,7 +450,6 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 名单之外出现新的差异 = 红。
   const JUSTIFIED_OMISSIONS: Record<string, Record<string, string>> = {
     MessageList: {
-      unreadAbove: '#6530 从会话列表点开主线时记下的第一条未读(「↑ N 条新消息」);话题从列表打开是分栏,不走这条路,分栏没有这枚标签',
       topInset: '给 agent 单聊头栏里探出头栏的那只小鸟让位(滚到最上时第一条不被它的脚压住);分栏没有 agent 头栏,也就没有探出的部分',
       footer: '#7199 只有「助理」App 那个聊天面在消息流末尾接一个「它在处理」的打字气泡(取代运行条);分栏不传 = 运行条照旧,与对话页同形',
     },
@@ -544,7 +543,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps,
       messages: [message({ id: 'm1', seq: 2, content: '第一句' })],
-      history: { ...baseProps.history, revealOlder: onRevealOlder },
+      history: { ...baseProps.history, loadOlderMessages: onRevealOlder },
     }))
     const scroller = harness.container.querySelector('[data-unread-stream-surface="aside"]') as HTMLElement
     Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, value: 0, writable: true } })
@@ -701,7 +700,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['附件', '文件夹', '海龟汤'] : ['海龟汤'])
+        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '文件夹', '海龟汤'] : ['搜索消息', '海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
         expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'topic-1' })
       } finally {
@@ -711,9 +710,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
   }
 
-  it('桌面分栏:本机没有能开的 App 就没有 ⋯', async () => {
+  it('desktop topic keeps search available when no App is installed', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null }))
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).not.toBeNull()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {

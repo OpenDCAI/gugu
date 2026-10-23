@@ -19,7 +19,6 @@ import { MobileTabPager } from '@/mobile/MobileTabPager'
 import { navigateMobile } from '@/mobile/navigateMobile'
 import { TAB_AVATAR_STYLE, tabItemStyle } from '@/mobile/settledTab'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
-import { useChatSelection } from '@/store/chatLine'
 import { useConversationLinkNavigation } from '../hooks/useConversationLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { ChatListPanel } from '../components/ChatListPanel'
@@ -357,7 +356,7 @@ function InnerLayout({
   const resolveShareAnchor = useCallback(() => document.querySelector(SESSIONPAGE_SHARE_ANCHOR_SELECTOR), [])
   const {
     chats,
-    activeChatId: lineChatId,
+    activeChatId,
     setActiveChatId,
     refreshChats,
     upsertChat,
@@ -369,8 +368,6 @@ function InnerLayout({
     draftRefs,
     setDraftRefs,
   } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments', 'draftRefs', 'setDraftRefs')
-  // #7199 对话页选中的那条:「助理」App 里那条私聊摆在眼前时借着线,这里仍是借之前那条(store/chatLine.ts)。
-  const activeChatId = useChatSelection(lineChatId)
   // The attachments and pills each chat's draft holds now: a compose's images (G3) and pills go after them.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments

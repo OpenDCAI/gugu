@@ -607,6 +607,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     })
     return () => {
       cancelled = true
+      bumpMessageSnapshotEpoch(chatId)
       stop()
       unreadNavigationRef.current?.cancelChatOpen(chatId, new Error(`Chat ${chatId} is no longer observed`))
     }
@@ -622,12 +623,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (id) readChatWindow(id)
   }, [readChatWindow, setActiveChatIdState])
 
-  const unreadNavigation = useChatUnreadStreamNavigation({ user, chatsRef, activeChatIdRef, activeThreadRootIdRef,
+  const unreadNavigation = useChatUnreadStreamNavigation({ user, chatsRef, activeChatIdRef, threadRootOf: (id) => cache.view(id).activeThreadRootId,
     invalidateMessageSnapshots, getMessageSnapshotEpoch, setActiveChatId,
     isChatOpen: (id) => ownersRef.current.has(id),
-    setActiveThreadRootId: (rootId) => { const id = activeChatIdRef.current; if (id) cache.patchView(id, { activeThreadRootId: rootId }) },
-    setLoadingThread: (loading) => { const id = activeChatIdRef.current; if (id) cache.patchView(id, { loadingThread: loading }) },
-    setThreadMessages: (update) => { const id = activeChatIdRef.current; if (id) setThreadMessagesFor(id, update) },
+    setActiveThreadRootId: (rootId, id) => cache.patchView(id, { activeThreadRootId: rootId }),
+    setLoadingThread: (loading, id) => cache.patchView(id, { loadingThread: loading }),
+    setThreadMessages: (update, id) => setThreadMessagesFor(id, update),
     setFollowingTail,
     setMessagesAndCache: (update, chatId, commit) => { cache.history(chatId).replace(update, commit.reachedTail); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) },
     loadChats, cancelChatOpenRef })

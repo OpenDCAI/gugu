@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 import { TaskChatScope } from '../../../../apps/desktop/src/components/assistant/TaskChatScope'
 import { useChatStore, type ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
-import { chatWindowStub } from '../../../support/chatWindowStub'
+import { chatWindowStub, topicHistoryStub } from '../../../support/chatWindowStub'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
@@ -12,7 +12,7 @@ import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 let harness: ReturnType<typeof createReactHarness>
 let task: ChatContextValue
 let parent: ChatContextValue
-const send = vi.fn(async () => 'sent-id')
+const send = vi.fn(async (_id: string | null, _content: string, _options: unknown) => 'sent-id')
 const select = vi.fn()
 let windows: ReturnType<typeof chatWindowStub>
 function Parent() {
@@ -29,6 +29,9 @@ beforeEach(() => {
   vi.spyOn(chatService, 'getOtherMembersReadSeqs').mockResolvedValue({})
   vi.spyOn(chatService, 'revalidateWindow').mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
   send.mockClear(); select.mockClear(); windows = chatWindowStub()
+  windows.messageWindows.write('task', () => [message({ id: 'task-1', chat_id: 'task', content: '任务消息' })])
+  windows.conversations.actions = (id) => ({ ...topicHistoryStub(id ?? 'empty'),
+    sendMessage: (content, options) => send(id, content, options) })
 })
 afterEach(() => harness.cleanup())
 const render = async () => { await renderWithAppProviders(harness, <Parent />, { chat: {
@@ -62,31 +65,17 @@ describe('two visible assistant conversations', () => {
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).toContain('等待发送:2')
     expect(harness.container.querySelector('[data-testid="parent"]')?.textContent).toBe('助理消息')
   })
-  it('hands a task read failure to the message list and retries without erasing the assistant conversation', async () => {
-    vi.mocked(chatService.getMessages).mockRejectedValueOnce(new Error('read unavailable'))
+  it('uses the account read failure and retry action without owning another reader', async () => {
+    const failure = new Error('read unavailable')
+    const retry = vi.fn(async () => {})
+    windows.conversations.errorOf = () => failure
+    const actions = windows.conversations.actions
+    windows.conversations.actions = (id) => ({ ...actions(id), refreshMessages: retry })
     await render()
-    // #7199 读失败交给消息列表去说(读不到 + 重试),❌ 这里另起一行、底下仍是首次对话欢迎页。
-    expect(task.messagesError?.message).toBe('read unavailable')
-    expect(task.messages).toEqual([])
-    expect(parent.messagesError).toBeNull()
+    expect(task.messagesError).toBe(failure)
     await act(async () => { await task.refreshMessages() })
-    expect(task.messagesError).toBeNull()
-    expect(task.messages[0]?.content).toBe('任务消息')
+    expect(retry).toHaveBeenCalledOnce()
+    expect(chatService.getMessages).not.toHaveBeenCalled()
     expect(parent.activeChatId).toBe('assistant')
-  })
-  it('an older retry that fails after a newer retry succeeded does not bring the read failure back', async () => {
-    vi.mocked(chatService.getMessages).mockRejectedValueOnce(new Error('read unavailable'))
-    await render()
-    expect(task.messagesError?.message).toBe('read unavailable')
-    let failOlder!: (error: Error) => void
-    vi.mocked(chatService.getMessages).mockImplementationOnce(() => new Promise((_ok, fail) => { failOlder = fail }))
-    let older!: Promise<void>
-    await act(async () => { older = task.refreshMessages() })
-    await act(async () => { await task.refreshMessages() })
-    expect(task.messagesError).toBeNull()
-    expect(task.messages[0]?.content).toBe('任务消息')
-    await act(async () => { failOlder(new Error('older retry failed late')); await older })
-    expect(task.messagesError).toBeNull()
-    expect(task.messages[0]?.content).toBe('任务消息')
   })
 })

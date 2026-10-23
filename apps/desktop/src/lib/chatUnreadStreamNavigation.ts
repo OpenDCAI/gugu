@@ -22,13 +22,13 @@ type Deps = {
   chatsRef: MutableRefObject<ChatItem[]>
   activeChatIdRef: MutableRefObject<string | null>
   isChatOpen: (chatId: string) => boolean
-  activeThreadRootIdRef: MutableRefObject<string | null>
+  threadRootOf: (chatId: string) => string | null
   invalidateMessageSnapshots: (chatId: string) => void
   getMessageSnapshotEpoch: (chatId: string) => number
   setActiveChatId: (chatId: string) => void
-  setActiveThreadRootId: (rootId: string | null) => void
-  setLoadingThread: (loading: boolean) => void
-  setThreadMessages: (value: SetStateAction<MessageItem[]>) => void
+  setActiveThreadRootId: (rootId: string | null, chatId: string) => void
+  setLoadingThread: (loading: boolean, chatId: string) => void
+  setThreadMessages: (value: SetStateAction<MessageItem[]>, chatId: string) => void
   setFollowingTail: (following: boolean, chatId?: string) => void
   setMessagesAndCache: (value: SetStateAction<MessageItem[]>, chatId: string, commit: UnreadLocatorCommit) => void
   loadChats: (options?: { acceptEmpty?: boolean }) => Promise<void>
@@ -41,7 +41,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   const chatOpenWaitersRef = useRef(new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>())
   const locatorNavigationRef = useRef<(OpenableUnreadTarget & { epoch: number }) | null>(null)
   const [navigationPending, setNavigationPending] = useState(false)
-  const [unreadEntry, setUnreadEntry] = useState<(OpenableUnreadTarget & { epoch: number }) | null>(null)
+  const [unreadEntries, setUnreadEntries] = useState<Record<string, OpenableUnreadTarget & { epoch: number }>>({})
   useEffect(() => () => { locatorNavigationRef.current = null }, [deps.user?.id])
 
   const settleChatOpen = useCallback((chatId: string, error?: Error) => {
@@ -83,7 +83,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     const isCurrent = () => locatorNavigationRef.current === target
       && deps.getMessageSnapshotEpoch(chatId) === target.epoch
       && deps.isChatOpen(chatId)
-      && (!threadActivated || deps.activeThreadRootIdRef.current === target.locator.thread_root_id)
+      && (!threadActivated || deps.threadRootOf(chatId) === target.locator.thread_root_id)
     const assertCurrent = () => {
       if (!isCurrent()) throw new DOMException('Unread navigation was superseded', 'AbortError')
     }
@@ -114,17 +114,16 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           if (currentTarget.locator.stream_kind === 'thread') {
             const rootId = currentTarget.locator.thread_root_id
             if (!rootId) throw new Error(`Thread locator ${currentTarget.locator.stream_id} has no root`)
-            deps.activeThreadRootIdRef.current = rootId
             threadActivated = true
-            deps.setActiveThreadRootId(rootId)
-            deps.setLoadingThread(true)
+            deps.setActiveThreadRootId(rootId, currentTarget.chatId)
+            deps.setLoadingThread(true, currentTarget.chatId)
             try {
               const commit = await loadWindow()
               assertCurrent()
-              deps.setThreadMessages((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId))
+              deps.setThreadMessages((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId), currentTarget.chatId)
               return commit
             } finally {
-              if (isCurrent()) deps.setLoadingThread(false)
+              if (isCurrent()) deps.setLoadingThread(false, currentTarget.chatId)
             }
           }
           const commit = await loadWindow()
@@ -148,15 +147,24 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
 
   // @@@6530 微信式打开:有未读的会话也停在最新处,与已读会话同一条路(尾部对账落定时水位提交到尾、角标清零)。
   // 第一条未读只记下来给「↑ N 条新消息」,点了才走上面的定位;话题流未读、当前会话再点仍直接定位。
+  const captureUnreadEntry = useCallback((chatId: string) => {
+    const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
+    if (locator?.message_id && locator.message_seq != null) {
+      const entry = { chatId, epoch: getMessageSnapshotEpoch(chatId), locator: { ...locator, message_id: locator.message_id, message_seq: locator.message_seq } }
+      setUnreadEntries((previous) => ({ ...previous, [chatId]: entry }))
+    }
+  }, [deps.chatsRef, getMessageSnapshotEpoch])
   const openUnreadChat = useCallback(async (chatId: string): Promise<void> => {
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
-    if (locator && (locator.stream_kind === 'thread' || deps.activeChatIdRef.current === chatId)) return openStreamAtLocator(chatId)
-    setUnreadEntry(locator?.message_id && locator.message_seq != null ? { chatId, epoch: deps.getMessageSnapshotEpoch(chatId), locator: { ...locator, message_id: locator.message_id, message_seq: locator.message_seq } } : null)
+    if (locator && (locator.stream_kind === 'thread' || deps.isChatOpen(chatId))) return openStreamAtLocator(chatId)
+    captureUnreadEntry(chatId)
     deps.setActiveChatId(chatId)
-  }, [deps, openStreamAtLocator])
+  }, [deps, captureUnreadEntry, openStreamAtLocator])
   // 离开这个会话、或它的窗口被换掉(点了标签跳过去、回到最新页)都作废:epoch 与 ownsChat 同一把尺子。
-  const entryFor = useCallback((chatId: string | null) => unreadEntry && unreadEntry.chatId === chatId
-    && unreadEntry.epoch === getMessageSnapshotEpoch(unreadEntry.chatId) ? unreadEntry : null, [unreadEntry, getMessageSnapshotEpoch])
+  const entryFor = useCallback((chatId: string | null) => {
+    const entry = chatId ? unreadEntries[chatId] : null
+    return entry && entry.epoch === getMessageSnapshotEpoch(entry.chatId) ? entry : null
+  }, [unreadEntries, getMessageSnapshotEpoch])
   const entry = entryFor(deps.activeChatIdRef.current)
   const jumpRef = useRef<(chatId?: string | null) => Promise<void>>(() => Promise.resolve())
   jumpRef.current = (chatId = deps.activeChatIdRef.current) => {
@@ -165,7 +173,10 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   }
   const jumpToUnreadEntry = useCallback((chatId?: string | null) => jumpRef.current(chatId), [])
 
-  const beginChatOpen = useCallback((chatId: string) => chatOpenInFlightRef.current.add(chatId), [])
+  const beginChatOpen = useCallback((chatId: string) => {
+    chatOpenInFlightRef.current.add(chatId)
+    captureUnreadEntry(chatId)
+  }, [captureUnreadEntry])
   const finishChatOpen = useCallback((chatId: string, error?: Error) => {
     chatOpenInFlightRef.current.delete(chatId)
     settleChatOpen(chatId, error)

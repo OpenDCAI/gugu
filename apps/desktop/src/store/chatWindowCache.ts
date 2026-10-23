@@ -44,7 +44,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   }
   patchView(chatId: string, patch: Partial<ConversationSnapshot>): void {
     const entry = this.histories.get(chatId)
-    if (!entry) return
+    if (!entry || Object.entries(patch).every(([key, value]) => Object.is(entry.view[key as keyof ConversationSnapshot], value))) return
     entry.view = { ...entry.view, ...patch }
     this.publish(chatId, entry.window.getSnapshot().messages)
   }
@@ -61,7 +61,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     }
     const stop = window.subscribe(publish)
     this.histories.set(chatId, { window, stop, view: {
-      messageWindow: window.getSnapshot(), loading: false, memberReadSeqs: {},
+      messageWindow: window.getSnapshot(), loading: window.getSnapshot().messages.length === 0, memberReadSeqs: {},
       activeThreadRootId: null, threadMessages: [], loadingThread: false,
     } })
     super.set(chatId, window.getSnapshot().messages)

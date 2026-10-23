@@ -24,7 +24,7 @@ import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupColla
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'; import { isChatSearchTarget } from '../lib/chatSearchTarget'
+import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTopicsPanelRequest } from '../hooks/useTopicsPanelRequest'
 import type { HistoryTab } from './historyPanelModels'
@@ -76,8 +76,6 @@ import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import {
-  COLOR_ACCENT,
-  COLOR_ON_ACCENT,
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
@@ -100,7 +98,8 @@ import { ChatBlockHead } from './chat/ChatBlockHead'
 import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { Button } from './ui/Button'
-import { SearchField } from './ui/SearchField'
+import { ChatTailNotice } from './chat/ChatTailNotice'
+import { ChatSearchControls, useChatSearch } from './chat/ChatSearch'
 import { loadImportedSessionHistories, type ImportedSessionHistory } from '../lib/importedHistoryReader'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
@@ -185,8 +184,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // 分栏状态。它喂 rightPanelOpen → useMessageColumnMinWidth(#2234 那条「右栏永不被裁切」),
   // 差一帧就是开分栏那一帧 min-width 算错。分栏开没开是本地状态,直接存一份。
   const [topicSplitOpen, setTopicSplitOpen] = useState(false)
-  const [searchMode, setSearchMode] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
+  const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement)
+  const { searchMode, setSearchMode, searchQuery, setSearchQuery, isFiltering, displayedMessages } = search
   const filePreviewCloseRef = useRef<() => void>(() => {})
   const [quoteText, setQuoteText] = useState<{ messageId?: string; senderName: string; content: string } | null>(null)
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
@@ -278,7 +277,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const sessionpageAgent = useAgentSessionpagePresentation(isAgentChat ? activeChat : null, peerIdentity ?? null, running, mobile, onOpenSessionpageAgent, onOpenSessionpageAgentFile)
   const agentRecentActions = isAgentChat ? sessionpageAgent.recentActions?.actions ?? running.recentActions : []
   const agentLastActiveAt = isAgentChat ? sessionpageAgent.recentActions?.lastActionAt ?? running.lastActionAt : null
-  const searchInputRef = useRef<HTMLInputElement>(null)
   // #1319 — anchor for the header ⋯ menu. The menu is portalled to document.body and positioned with
   // position:fixed off this button's rect, so an ancestor's overflow:hidden (the header) can't clip it.
   const moreButtonRef = useRef<HTMLButtonElement>(null)
@@ -649,42 +647,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     })
   }, [deleteMessage])
 
-  // Focus search input when entering search mode
-  useEffect(() => {
-    if (searchMode) setTimeout(() => searchInputRef.current?.focus(), 50)
-  }, [searchMode])
-
-  // @@@alt-f-search - Alt+F opens message search for the active chat. Use event.code (layout-
-  // independent) since macOS Alt+F emits 'ƒ' as event.key.
-  useEffect(() => {
-    if (!activeChatId || !surfaceVisible) return // #6158 面板在别的 tab 上是隐藏不是卸载,全局快捷键不能替隐藏的它接
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey && event.code === 'KeyF' && !event.metaKey && !event.ctrlKey && isChatSearchTarget(surfaceElement.current, activeChatId)) {
-        event.preventDefault()
-        setSearchQuery('')
-        setSearchMode(true)
-      }
-    }
-    const openSearch = (event: Event) => { const target = (event as CustomEvent<{ chatId?: string }>).detail?.chatId; if (target && target !== activeChatId) return; setSearchQuery(''); setSearchMode(true) }
-    window.addEventListener('keydown', handleKeyDown); window.addEventListener(UI_EVENTS.openChatSearch, openSearch)
-    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener(UI_EVENTS.openChatSearch, openSearch) }
-  }, [activeChatId, surfaceVisible])
-
-  // @@@search-filtering - "search is open" (searchMode) is not the same as "the list is filtered".
-  const isFiltering = searchMode && !!searchQuery.trim()
-
-  // @@@chat-view-window (#461) - the normal (non-search) list renders the full in-memory window (the store
-  // already bounds `messages` to MAX_WINDOW; MessageList lays the whole window out as document flow). An
-  // earlier manual tail-slice (messages.slice(-visibleCount)) fought the then-virtualized list's anchoring:
-  // every end-append slid the slice and bumped firstItemIndex, re-anchoring the viewport (see #780).
-  const displayedMessages =
-    isFiltering
-      ? messages.filter((m) =>
-          !m.retracted_at &&
-          m.content_type !== 'attachment' &&
-          (m.content ?? '').toLowerCase().includes(searchQuery.toLowerCase()),
-        )
-      : messages
   const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : '')
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
@@ -1094,24 +1056,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
               transition={tween(DUR_FAST_MS)}
               style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 'var(--spacing-sm)' }}
             >
-              <SearchField
-                ref={searchInputRef}
-                className="flex-1"
-                data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchInput}
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                onKeyDown={(event) => event.key === 'Escape' && (setSearchMode(false), setSearchQuery(''))}
-                placeholder={t('chatArea.searchMessages')}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0"
-                data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchCancelButton}
-                onClick={() => { setSearchMode(false); setSearchQuery('') }}
-              >
-                {t('common.cancel')}
-              </Button>
+              <ChatSearchControls search={search} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -1201,37 +1146,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
         />
       )}
 
-      {/* New message count bubble */}
-      {((messageWindow?.newMessageCount ?? 0) > 0 || messageWindow?.hasNewer) && !searchMode && (
-        <div
-          onClick={() => {
-            // #1315 — use pinToBottom (NOT scrollToBottom): it sets isAtBottomRef.current=true BEFORE
-            // autoscroll+clamp. clampToTrueBottom is gated on isAtBottomRef; the bubble is clicked from the
-            // scrolled-up state (isAtBottomRef=false), so calling scrollToBottom first + setting the flag
-            // after left the clamp gated-out → stuck ~80px short ("差一截" on the bubble-click path,
-            // caught by the chat-scroll-im-1315 e2e). pinToBottom orders it correctly → true bottom.
-            pinToBottom()
-          }}
-          style={{
-            position: 'absolute',
-            bottom: '180px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: COLOR_ACCENT,
-            color: COLOR_ON_ACCENT,
-            padding: '4px 14px',
-            borderRadius: 'var(--radius-xl)',
-            fontSize: 'var(--font-caption)',
-            cursor: 'pointer',
-            zIndex: 'var(--z-float)',
-            boxShadow: 'var(--shadow-lift)', // @@@shadow-lift (Refs #6105) 真浮层,走唯一那一档(--shadow-card 已随阴影清零删掉)
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-          }}
-        >
-          {(messageWindow?.newMessageCount ?? 0) > 0 ? t('chatArea.newMessages', { count: messageWindow!.newMessageCount }) : t('chatArea.returnToLatest')}
-        </div>
-      )}
+      <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
       {/* @@@1506 - Agent 运行状态：输入框上方的轻量浮动文字（owner #1506：无重白板，打字时也能瞥见）。群聊列出在跑的 agent（可点 → @mention）；
           单聊是运行中/思考中（流式正文仍留消息流）。桌面上它和输入框同在 ChatBottomDock 那层半透明底上，消息流在底部让出同高的一格。 */}

@@ -150,6 +150,20 @@ describe('打开会话的第一帧', () => {
     network.resolve()
     harness.cleanup()
   })
+  it('two panes and the primary selection share one reader and one revision owner for the same chat', async () => {
+    const harness = await mount(createElement('div', null,
+      createElement(ScopedProbe, { chatId: 'chatA' }), createElement(ScopedProbe, { chatId: 'chatA' })))
+    await act(async () => { select('chatA') })
+    await vi.waitFor(() => expect(chatService.getMessages).toHaveBeenCalledWith('chatA', 'user1', 'initialLoad', expect.any(Number)), WAIT)
+    expect(vi.mocked(chatService.getMessages).mock.calls.filter(([id]) => id === 'chatA')).toHaveLength(1)
+    // One account-list projection and one conversation consumer, independent of pane count.
+    expect(revisionListeners.get('message_created')?.size).toBe(2)
+    await act(async () => { network.resolve() })
+    await vi.waitFor(() => expect(frames.at(-1)?.messages.map((row) => row.id)).toContain('msgA1'), WAIT)
+    expect(frames.at(-1)?.messageWindow).toBe(sharedAccess.window('chatA').getSnapshot())
+    harness.cleanup()
+  })
+
   it('a topic paints the durable window on its first committed frame without selecting the primary chat', async () => {
     await replaceMessageWindow(repository, 'chatA', [msgA1], false)
     const harness = await mount()
