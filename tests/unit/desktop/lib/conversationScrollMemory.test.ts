@@ -2,7 +2,7 @@
 
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   isConversationViewportAtBottom,
   resolveConversationRestoreLocation,
@@ -10,6 +10,9 @@ import {
   useConversationScrollMemory,
 } from '../../../../apps/desktop/src/components/chat/useConversationScrollMemory'
 import { publishActiveChatWillChange } from '../../../../apps/desktop/src/store/activeChatTransition'
+import { resetAuthSessionBoundary } from '../../../../apps/desktop/src/lib/authSessionLoss'
+
+beforeEach(() => resetAuthSessionBoundary())
 
 describe('conversation scroll memory', () => {
   it('reads bottom state from the current viewport geometry', () => {
@@ -200,6 +203,39 @@ describe('conversation scroll memory', () => {
         await frames(6)
         expect(rig.view.scrollTop).toBe(700)
       } finally { await rig.cleanup() }
+    })
+
+    it('keeps the same anchor and offset when a block unmounts without a main-chat transition', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      await original.cleanup()
+
+      const reopened = mount()
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        reopened.geometry()
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+        reopened.view.scrollTop = 690
+        await frames(6)
+        expect(reopened.view.scrollTop).toBe(700)
+        expect(reopened.view.memory!.isPreservingPosition()).toBe(false)
+      } finally { await reopened.cleanup() }
+    })
+
+    it('does not replay another auth lifetime\'s saved position', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      await original.cleanup()
+      resetAuthSessionBoundary()
+      const next = mount()
+      try {
+        await next.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(next.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
+      } finally { await next.cleanup() }
     })
 
     // 锚点不在窗口里时列表按 openLocation() === null 藏着等(不露出最新处);等不到而放弃时要自己促一次重渲,否则列表一直藏着。

@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
 import { subscribeActiveChatWillChange } from '../../store/activeChatTransition'
 import { rendererLogger } from '../../lib/log'
 import { restoreLanding } from '../../lib/listLanding'
 import type { ListLanding } from '../../lib/flowList'
+import { currentAuthSessionSignal } from '../../lib/authSessionLoss'
 
 const log = rendererLogger('conversation-scroll')
 
 export type ConversationViewportPosition =
   | { atBottom: true }
   | { atBottom: false; messageId: string; offset: number }
+
+// The same account's blocks remount; keep their existing anchors for that auth lifetime.
+const positionsBySession = new WeakMap<AbortSignal, Map<string, ConversationViewportPosition>>()
 
 export interface ViewportRowGeometry {
   id: string
@@ -80,7 +84,9 @@ export function useConversationScrollMemory({
   openLocation: () => ListLanding | null
   revealMessage: (messageId: string) => Promise<void>
 } {
-  const positionsRef = useRef(new Map<string, ConversationViewportPosition>())
+  const session = currentAuthSessionSignal()
+  const positions = useMemo(() => positionsBySession.get(session) ?? new Map<string, ConversationViewportPosition>(), [session])
+  positionsBySession.set(session, positions)
   const scrollerOwnerRef = useRef<{
     chatId: string
     element: HTMLElement
@@ -89,7 +95,7 @@ export function useConversationScrollMemory({
   const completedActivationRef = useRef<string | null>(null)
   const restoringActivationRef = useRef<string | null>(null)
   const restoreDeadlineRef = useRef<{ activationKey: string; expiresAt: number } | null>(null)
-  const lastActivationRef = useRef(activationKey)
+  const lastActivationRef = useRef<string | null>(null)
   const requestedAnchorRef = useRef<string | null>(null)
   // @@@scroller-out-of-closures — 滚动容器元素**只**以 state 的身份出现在依赖数组与返回值里;闭包一律读
   // scrollerRef.current。React 每一轮渲染的闭包共用一个作用域,而被 useCallback 记住的旧闭包会把整条旧作用域
@@ -112,7 +118,7 @@ export function useConversationScrollMemory({
 
   if (lastActivationRef.current !== activationKey) {
     lastActivationRef.current = activationKey
-    if (discardSaved && chatId) positionsRef.current.delete(chatId)
+    if (discardSaved && chatId) positions.delete(chatId)
     completedActivationRef.current = null
     restoreDeadlineRef.current = null
     requestedAnchorRef.current = null
@@ -122,18 +128,14 @@ export function useConversationScrollMemory({
     }
   }
 
-  const capturePosition = useCallback((owner: {
-    chatId: string
-    element: HTMLElement
-    captureEnabled: boolean
-  }) => {
+  const capturePosition = useCallback((owner: NonNullable<typeof scrollerOwnerRef.current>) => {
     if (!owner.captureEnabled) {
-      positionsRef.current.delete(owner.chatId)
+      positions.delete(owner.chatId)
       return
     }
     if (owner.element.scrollHeight <= 0) return
     if (isConversationViewportAtBottom(owner.element, AT_BOTTOM_THRESHOLD)) {
-      positionsRef.current.set(owner.chatId, { atBottom: true })
+      positions.set(owner.chatId, { atBottom: true })
       return
     }
 
@@ -146,42 +148,38 @@ export function useConversationScrollMemory({
         : [])
     const anchor = selectConversationViewportAnchor(viewportRect, rows)
     if (!anchor) return
-    positionsRef.current.set(owner.chatId, { atBottom: false, ...anchor })
-  }, [])
+    positions.set(owner.chatId, { atBottom: false, ...anchor })
+  }, [positions])
 
   useEffect(() => subscribeActiveChatWillChange((previousChatId) => {
     const owner = scrollerOwnerRef.current
-    if (owner?.chatId === previousChatId) capturePosition(owner)
+    if (owner?.chatId === previousChatId) { capturePosition(owner); scrollerOwnerRef.current = null }
   }), [capturePosition])
 
   const setScrollerRef = useCallback((value: HTMLElement | Window | null) => {
     const element = value instanceof HTMLElement ? value : null
+    if (!element && scrollerOwnerRef.current) capturePosition(scrollerOwnerRef.current)
     scrollerOwnerRef.current = element && chatId
       ? { chatId, element, captureEnabled: enabled }
       : null
     scrollerRef.current = element
     setScrollerEl(element)
-  }, [chatId, enabled])
-
-  useEffect(() => {
-    const owner = scrollerOwnerRef.current
-    if (owner?.chatId === chatId && owner.element === scrollerRef.current) owner.captureEnabled = enabled
-  }, [chatId, enabled, scrollerEl])
+  }, [chatId, enabled, capturePosition])
 
   const hasSavedOffBottomPosition = useCallback(() => {
     if (!chatId) return false
-    const position = positionsRef.current.get(chatId)
+    const position = positions.get(chatId)
     return !!position && !position.atBottom
-  }, [chatId])
+  }, [chatId, positions])
 
   const isPreservingPosition = useCallback(() => (
     completedActivationRef.current !== activationKey && hasSavedOffBottomPosition()
   ), [activationKey, hasSavedOffBottomPosition])
 
   const openLocation = useCallback(() => {
-    const position = chatId && enabled && completedActivationRef.current !== activationKey ? positionsRef.current.get(chatId) : undefined
+    const position = chatId && enabled && completedActivationRef.current !== activationKey ? positions.get(chatId) : undefined
     return restoreLanding(position && !position.atBottom ? position : null, messageIds)
-  }, [activationKey, chatId, enabled, messageIds])
+  }, [activationKey, chatId, enabled, messageIds, positions])
 
   const prepareForSavedPosition = useCallback(() => {
     if (!hasSavedOffBottomPosition()) return false
@@ -191,11 +189,11 @@ export function useConversationScrollMemory({
   }, [hasSavedOffBottomPosition, isAtBottomRef, setFollowingTail])
 
   const forgetSavedPosition = useCallback(() => {
-    if (chatId) positionsRef.current.delete(chatId)
+    if (chatId) positions.delete(chatId)
     completedActivationRef.current = activationKey
     restoringActivationRef.current = null
     restoreDeadlineRef.current = null
-  }, [activationKey, chatId])
+  }, [activationKey, chatId, positions])
 
   // Show one message of this conversation, loaded or not: it becomes the position to restore, so a window
   // loaded around it (loadMessageAnchor) remounts the list landing on it, and the settle loop holds it there
@@ -208,19 +206,19 @@ export function useConversationScrollMemory({
     revealRef.current?.reject(new Error('Superseded by another message to show'))
     revealRef.current = { chatId, messageId, resolve, reject }
     const height = scrollerRef.current?.clientHeight ?? 0
-    positionsRef.current.set(chatId, { atBottom: false, messageId, offset: Math.round(height * REVEAL_VIEWPORT_FRACTION) })
+    positions.set(chatId, { atBottom: false, messageId, offset: Math.round(height * REVEAL_VIEWPORT_FRACTION) })
     completedActivationRef.current = null
     restoreDeadlineRef.current = null
     requestedAnchorRef.current = null
     isAtBottomRef.current = false
     setFollowingTail(false)
     setRevealRequest((n) => n + 1)
-  }), [chatId, enabled, isAtBottomRef, setFollowingTail])
+  }), [chatId, enabled, isAtBottomRef, setFollowingTail, positions])
 
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!chatId || !enabled || !scroller || completedActivationRef.current === activationKey) return
-    const position = positionsRef.current.get(chatId)
+    const position = positions.get(chatId)
     if (!position || position.atBottom) return
     const deadline = restoreDeadlineRef.current?.activationKey === activationKey
       ? restoreDeadlineRef.current
@@ -229,7 +227,7 @@ export function useConversationScrollMemory({
     const abandon = (reason: string) => {
       console.error(`[conversation-scroll] saved message anchor ${reason}`, { chatId, messageId: position.messageId })
       settleReveal(position.messageId, new Error(`The message ${reason}`))
-      positionsRef.current.delete(chatId)
+      positions.delete(chatId)
       if (restoreDeadlineRef.current?.activationKey === activationKey) restoreDeadlineRef.current = null
       rerender() // 列表可能正按 openLocation() === null 藏着等锚点;放弃了就重算一次,露出最新处
     }
@@ -304,6 +302,7 @@ export function useConversationScrollMemory({
     forgetSavedPosition,
     settleReveal,
     revealRequest,
+    positions,
   ])
 
   return { scrollerEl, scrollerRef, setScrollerRef, hasSavedOffBottomPosition, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage }
