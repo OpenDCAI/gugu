@@ -1,3 +1,4 @@
+import type { ChatWindowAccess } from './chatWindowPublication'
 import type { HistoryWindow } from './chatHistoryWindow'
 import { createContext, createElement, useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { ChatItem, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
@@ -44,6 +45,7 @@ export type SendMessageOptions = {
 }
 
 export interface ChatContextValue {
+  messageWindows: ChatWindowAccess
   getImRepository: () => Promise<AccountImRepository>
   subscribeAccountRevision: (events: AccountRevisionEvent | readonly AccountRevisionEvent[], listener: AccountRevisionListener) => () => void
   subscribeChatWindow: (chatId: string, listener: (rows: MessageItem[]) => void) => () => void
@@ -132,6 +134,7 @@ export interface ChatContextValue {
 }
 
 const EMPTY_CHAT_STORE: ChatContextValue = {
+  messageWindows: { read: () => undefined, write: () => undefined, persist: () => undefined, open: async () => { throw new Error('ChatProvider window is unavailable') }, heal: async () => undefined, revalidate: async () => undefined },
   getImRepository: async () => { throw new Error('ChatProvider repository is unavailable') },
   subscribeAccountRevision: () => () => undefined,
   subscribeChatWindow: () => () => undefined,

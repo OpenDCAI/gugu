@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 import { TaskChatScope } from '../../../../apps/desktop/src/components/assistant/TaskChatScope'
 import { useChatStore, type ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
+import { chatWindowStub } from '../../../support/chatWindowStub'
+import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
@@ -12,11 +14,7 @@ let task: ChatContextValue
 let parent: ChatContextValue
 const send = vi.fn(async () => 'sent-id')
 const select = vi.fn()
-let localWrite: ((rows: ReturnType<typeof message>[]) => void) | undefined
-const subscribeChatWindow = vi.fn((_id: string, listener: NonNullable<typeof localWrite>) => {
-  localWrite = listener
-  return () => { localWrite = undefined }
-})
+let windows: ReturnType<typeof chatWindowStub>
 function Parent() {
   parent = useChatStore()
   return <><p data-testid="parent">{parent.messages.map((row) => row.content).join(',')}</p><TaskChatScope chatId="task"><Task /></TaskChatScope></>
@@ -30,13 +28,13 @@ beforeEach(() => {
   vi.spyOn(chatService, 'getMessages').mockResolvedValue([message({ id: 'task-1', chat_id: 'task', content: '任务消息' })])
   vi.spyOn(chatService, 'getOtherMembersReadSeqs').mockResolvedValue({})
   vi.spyOn(chatService, 'revalidateWindow').mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
-  send.mockClear(); select.mockClear(); subscribeChatWindow.mockClear()
+  send.mockClear(); select.mockClear(); windows = chatWindowStub()
 })
 afterEach(() => harness.cleanup())
 const render = () => renderWithAppProviders(harness, <Parent />, { chat: {
   activeChatId: 'assistant', chats: [chat({ id: 'assistant' }), chat({ id: 'task' })],
   messages: [message({ chat_id: 'assistant', content: '助理消息' })],
-  sendMessageToChat: send, setActiveChatId: select, subscribeChatWindow,
+  sendMessageToChat: send, setActiveChatId: select, ...windows,
 } })
 describe('two visible assistant conversations', () => {
   it('loads and sends on the task line without taking or replacing the assistant line', async () => {
@@ -51,16 +49,16 @@ describe('two visible assistant conversations', () => {
   it('keeps task outbox failures, confirmations and discard isolated from the assistant', async () => {
     await render()
     const pending = message({ id: 'pending', chat_id: 'task', content: '等待发送', seq: -1, local_send_state: 'sending' })
-    act(() => localWrite!([pending]))
+    act(() => windows.messageWindows.write('task', (rows) => upsertMessageById(rows, pending)))
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).toContain('等待发送:sending')
-    act(() => localWrite!([{ ...pending, local_send_state: 'failed' }]))
+    act(() => windows.messageWindows.write('task', (rows) => upsertMessageById(rows, { ...pending, local_send_state: 'failed' })))
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).toContain('等待发送:failed')
-    act(() => localWrite!([]))
+    act(() => windows.messageWindows.write('task', (rows) => rows.filter((row) => row.seq > 0)))
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).not.toContain('等待发送')
-    act(() => localWrite!([pending]))
-    act(() => localWrite!([{ ...pending, seq: 2, local_send_state: undefined }]))
+    act(() => windows.messageWindows.write('task', (rows) => upsertMessageById(rows, pending)))
+    act(() => windows.messageWindows.write('task', (rows) => upsertMessageById(rows, { ...pending, seq: 2, local_send_state: undefined })))
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).toContain('等待发送:2')
-    act(() => localWrite!([]))
+    act(() => windows.messageWindows.write('task', (rows) => rows.filter((row) => row.seq > 0)))
     expect(harness.container.querySelector('[data-testid="task"]')?.textContent).toContain('等待发送:2')
     expect(harness.container.querySelector('[data-testid="parent"]')?.textContent).toBe('助理消息')
   })

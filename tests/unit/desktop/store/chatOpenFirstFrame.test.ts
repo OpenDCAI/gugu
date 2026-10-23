@@ -69,6 +69,8 @@ vi.mock('../../../../apps/desktop/src/lib/supabaseAccountRevisionSource', () => 
 }))
 const { ChatProvider } = await import('../../../../apps/desktop/src/store/chat')
 const { useChatStore } = await import('../../../../apps/desktop/src/store/chatContext')
+const { useTopicLine } = await import('../../../../apps/desktop/src/hooks/useTopicLine')
+const { chatService } = await import('../../../../apps/desktop/src/lib/chat')
 const { createMemoryLocalSyncDb } = await import('../../../../apps/desktop/src/lib/localSyncDb')
 const { replaceMessageWindow } = await import('../../../../apps/desktop/src/lib/imRepository')
 
@@ -87,9 +89,16 @@ function Selector() {
 }
 let repository: import('../../../../apps/desktop/src/lib/imRepository').AccountImRepository
 
-async function mount() {
+const scopedFrames: { chatId: string; ids: string[] }[] = []
+function ScopedProbe({ chatId }: { chatId: string }) {
+  const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
+  const line = useTopicLine(chatId, 'user1', subscribeAccountRevision)
+  useLayoutEffect(() => { scopedFrames.push({ chatId, ids: line.messages.map((row) => row.id) }) })
+  return null
+}
+async function mount(extra?: import('react').ReactNode) {
   const harness = createReactHarness()
-  await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(Selector)), { auth: { id: 'user1' } })
+  await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(Selector), extra), { auth: { id: 'user1' } })
   // 仓库打开 = 冷启那一发已落地(会话列表出来了)。
   await vi.waitFor(() => { expect(openImRepositoryMock).toHaveBeenCalled() }, WAIT)
   await act(async () => { await Promise.resolve() })
@@ -101,6 +110,8 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
     network = deferred<void>()
+    scopedFrames.length = 0
+    vi.mocked(chatService.revalidateWindow).mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
     messagesByChat = { chatA: [msgA1], chatB: [msgB1] }
     revisionListeners.clear()
     projectionStub.reset()
@@ -133,4 +144,32 @@ describe('打开会话的第一帧', () => {
     network.resolve()
     harness.cleanup()
   })
+  it('a topic paints the durable window on its first committed frame without selecting the primary chat', async () => {
+    await replaceMessageWindow(repository, 'chatA', [msgA1], false)
+    const harness = await mount()
+    await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(ScopedProbe, { chatId: 'chatA' })), { auth: { id: 'user1' } })
+    expect(scopedFrames[0]?.ids).toEqual(['msgA1'])
+    expect(frames.every((frame) => frame.activeChatId === null)).toBe(true)
+    network.resolve()
+    harness.cleanup()
+  })
+
+  it('two scopes share publication, persist their fetches and reopen from memory with the network pending', async () => {
+    network.resolve()
+    const harness = await mount(createElement('div', null, createElement(ScopedProbe, { chatId: 'chatA' }), createElement(ScopedProbe, { chatId: 'chatB' })))
+    await vi.waitFor(() => {
+      expect(scopedFrames.some((frame) => frame.chatId === 'chatA' && frame.ids.includes('msgA1'))).toBe(true)
+      expect(scopedFrames.some((frame) => frame.chatId === 'chatB' && frame.ids.includes('msgB1'))).toBe(true)
+    }, WAIT)
+    await vi.waitFor(() => expect(repository.snapshot().message.map((row) => row.id).sort()).toEqual(['msgA1', 'msgB1']), WAIT)
+    await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe)), { auth: { id: 'user1' } })
+    network = deferred<void>()
+    scopedFrames.length = 0
+    await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(ScopedProbe, { chatId: 'chatA' })), { auth: { id: 'user1' } })
+    expect(scopedFrames[0]?.ids).toEqual(['msgA1'])
+    expect(scopedFrames.every((frame) => frame.chatId === 'chatA' && !frame.ids.includes('msgB1'))).toBe(true)
+    network.resolve()
+    harness.cleanup()
+  })
+
 })
