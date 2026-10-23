@@ -51,12 +51,13 @@ export class PtySession {
 
   async connect(): Promise<void> {
     if (this.pty) return;
+    const version = this.version;
     if (this.connectPromise) {
       await this.connectPromise;
+      if (version !== this.version) return;
       return this.connect();
     }
 
-    const version = this.version;
     this.connectPromise = (async () => {
       const prepared = await this.prepare?.();
       if (prepared === false) return;

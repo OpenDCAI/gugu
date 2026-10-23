@@ -65,6 +65,19 @@ describe('PtySession view lifecycle', () => {
     expect(value.status).toBe('ready');
   });
 
+  it('does not let a pending duplicate connection revive a view after it is closed', async () => {
+    const pending = deferred();
+    const value = session(() => pending.promise);
+    const first = value.connect();
+    const duplicate = value.connect();
+    value.dispose();
+    pending.resolve();
+    await Promise.all([first, duplicate]);
+    expect(mocks.views).toHaveLength(0);
+    expect(value.pty).toBeNull();
+    expect(value.status).toBe('disconnected');
+  });
+
   it('waits for the cancelled subscription before connecting the replacement view', async () => {
     const pending = deferred();
     mocks.connect.mockReturnValueOnce(pending.promise);
