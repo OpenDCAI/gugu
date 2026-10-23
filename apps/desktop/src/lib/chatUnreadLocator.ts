@@ -65,6 +65,7 @@ export type OpenableUnreadTarget = {
 
 export type UnreadMessageRevealRequest = {
   token: string
+  commit?: UnreadLocatorCommit
   viewport?: HTMLElement | 'primary' | null
   chatId: string
   streamId: string
@@ -77,7 +78,7 @@ export type UnreadMessageRevealRequest = {
   reject: (reason: unknown) => void
 }
 
-export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean, viewport?: HTMLElement | 'primary' | null): Promise<void> {
+export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean, viewport?: HTMLElement | 'primary' | null, commit?: UnreadLocatorCommit): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false
     const token = crypto.randomUUID()
@@ -90,7 +91,7 @@ export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurre
     }
     const timer = window.setTimeout(() => finish(new Error(`Unread locator ${target.locator.message_id} was not rendered`)), 5000)
     const detail: UnreadMessageRevealRequest = {
-      token, viewport: viewport ?? 'primary',
+      token, commit, viewport: viewport ?? 'primary',
       chatId: target.chatId,
       streamId: target.locator.stream_id,
       streamKind: target.locator.stream_kind,
@@ -124,14 +125,14 @@ export async function openStreamAtLocator(
   deps: {
     activateChat: (chatId: string) => Promise<void>
     ensureMessageLoaded: (target: OpenableUnreadTarget) => Promise<UnreadLocatorCommit>
-    revealMessage: (target: OpenableUnreadTarget) => Promise<void>
+    revealMessage: (target: OpenableUnreadTarget, commit: UnreadLocatorCommit) => Promise<void>
     markRead: (target: OpenableUnreadTarget, commit: UnreadLocatorCommit) => Promise<void>
     refreshChats: () => Promise<void>
   },
 ): Promise<void> {
   await deps.activateChat(target.chatId)
   const commit = await deps.ensureMessageLoaded(target)
-  await deps.revealMessage(target)
+  await deps.revealMessage(target, commit)
   await deps.markRead(target, commit)
   await deps.refreshChats()
 }

@@ -58,15 +58,13 @@ function tailBound(rows: readonly MessageItem[]): number {
 
 /** One committed row set owns its bounds and virtual indices; requests own an activation token. */
 export class ChatHistoryWindow {
-  constructor(readonly accountId: string | null = null, private readonly allowFollowing = () => true) {}
+  constructor(readonly accountId: string | null = null) {}
   private state: HistoryWindow = {
     chatId: null, messages: [], firstItemIndex: HISTORY_START_INDEX, hasOlder: false,
     hasNewer: false, loading: null, change: 'reset', navigation: 'reset', navigationVersion: 0, viewVersion: 0, newMessageCount: 0, latestSeen: 0,
   }
   private generation = 0
-  private following = true
-  private get followingTail(): boolean { return this.following && this.allowFollowing() }
-  private set followingTail(value: boolean) { this.following = value }
+  private followingTail = true
   // Retaining only a historical slice must not turn a previously seen tail into new arrivals.
   private latestSeenByChat = new Map<string, number>()
   private listeners = new Set<() => void>()
@@ -153,7 +151,8 @@ export class ChatHistoryWindow {
     }
     const upper = maxMainlineSeq(previous.messages)
     const lower = oldestSeq(previous.messages)
-    const pending = incoming.filter((row) => row.seq < 1)
+    const pending = incoming.filter((row) => row.seq < 1
+      && (previous.loading === 'latest' || previous.messages.some((existing) => existing.id === row.id)))
     // C3 — 窗口含尾(无 hasNewer)时,seq 越过上界的行就是尾巴在继续长:接上(按头部封顶,读者看的那段
     // 不动;超出容量才截尾并亮 hasNewer)。从前一律丢弃,自己刚发的消息确认后从屏上消失、新消息「不来」。
     // 窗口是离尾的历史段时不接(会在窗口里留洞,增量游标会跳过洞里的行);唯一例外是正在拉最新页时

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject, type RefObject } fr
 import type { FlowListHandle } from '../lib/flowList'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { resolveSourceMessageScroll, type ScrollableRow } from '../lib/sourceMessageScroll'
+import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import type { UnreadMessageRevealRequest } from '../lib/chatUnreadLocator'
 
 function isVisibleWithinSurface(row: HTMLElement, surface: HTMLElement): boolean {
@@ -46,6 +47,7 @@ export function useUnreadLocatorNavigation(input: {
   hasMoreNewer?: boolean
   loadingNewer?: boolean
   loadNewerMessages?: () => Promise<void>
+  loadMessageAnchor?: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
 }): void {
   const {
     activeChatId, navigationTarget = false, enabled = true, onNavigate,
@@ -60,7 +62,7 @@ export function useUnreadLocatorNavigation(input: {
     loadOlderMessages,
     hasMoreNewer = false,
     loadingNewer = false,
-    loadNewerMessages,
+    loadNewerMessages, loadMessageAnchor,
   } = input
   const [pending, setPending] = useState<UnreadMessageRevealRequest | null>(null)
   const openedThreadTokenRef = useRef<string | null>(null)
@@ -76,14 +78,16 @@ export function useUnreadLocatorNavigation(input: {
         || typeof detail.messageId !== 'string' || typeof detail.messageSeq !== 'number'
         || typeof detail.token !== 'string' || typeof detail.confirm !== 'function' || typeof detail.reject !== 'function') return
       onNavigate?.()
-      setPending((previous) => {
+      const activate = () => setPending((previous) => {
         if (previous && previous.token !== detail.token) previous.reject(new Error('Unread navigation was superseded'))
         return detail as UnreadMessageRevealRequest
       })
+      if (detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).then(activate, detail.reject)
+      else activate()
     }
     window.addEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
     return () => window.removeEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
-  }, [activeChatId, scrollerRef, navigationTarget, onNavigate])
+  }, [activeChatId, scrollerRef, navigationTarget, onNavigate, loadMessageAnchor])
 
   useEffect(() => {
     if (!pending || !enabled) return

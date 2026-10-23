@@ -625,7 +625,7 @@ function ChatAreaSurface({ activeTab, navigationTarget = false, hidden = false, 
 
   // #1708 来源消息(群右栏工作区 App 的 gugu.showMessage):不在加载段里的先按锚点载进来,再定位 + 闪烁;载不到 → fail-loud toast。
   useSourceMessageReveal({ activeChatId, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
-  useUnreadLocatorNavigation({activeChatId, navigationTarget, enabled: surfaceVisible && !isFiltering, onNavigate: () => search.setSearchMode(false), rows: chatListRows, firstItemIndex, listRef, scrollerRef, setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) }, setFlashMessageId, flashTimerRef, hasMoreOlder, loadingOlder, loadOlderMessages, hasMoreNewer: messageWindow?.hasNewer, loadingNewer: messageWindow?.loading === 'newer', loadNewerMessages})
+  useUnreadLocatorNavigation({activeChatId, navigationTarget, loadMessageAnchor, enabled: surfaceVisible && !isFiltering, onNavigate: () => search.setSearchMode(false), rows: chatListRows, firstItemIndex, listRef, scrollerRef, setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) }, setFlashMessageId, flashTimerRef, hasMoreOlder, loadingOlder, loadOlderMessages, hasMoreNewer: messageWindow?.hasNewer, loadingNewer: messageWindow?.loading === 'newer', loadNewerMessages})
   // @@@5856 历史面板的「话题」tab —— 这条线上长出来的全部话题。
   // spec 的两个打开口之一就是「某条线顶栏的话题面板」;它读的与锚点卡是同一个数据源
   // (chat.list_topics_of_chat),两处不会各说各话。

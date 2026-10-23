@@ -1,3 +1,5 @@
+import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
+import type { ConversationViewport } from './chatWindowCache'
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, type SetStateAction } from 'react'
 import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
@@ -119,8 +121,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
 
   const setMessagesAndCache = useCallback((updater: SetStateAction<MessageItem[]>, chatId: string | null) => {
     if (!chatId) return
-    const previous = cache.get(chatId) ?? []
-    cache.set(chatId, typeof updater === 'function' ? updater(previous) : updater)
+    cache.update(chatId, updater)
   }, [cache])
   const memberReadPorts = useCallback((chatId: string) => ({
     memberReadSeqsChatRef: { current: chatId as string | null },
@@ -339,12 +340,12 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     // #1529 单调 reconcile(唯一实现在卫星,与 heal 无增量分支共用)。
     if (stillActive && readSeqs) reconcileMemberReadSeqs(chatId, readSeqs, memberReadPorts(chatId)) // null = 载荷无水位,别动表(#5649)
     const lastPersistedSeq = Math.max(0, ...nextMessages.map((msg) => msg.seq).filter((seq) => seq >= 0))
-    if (stillActive && chatOnScreen() === chatId && cache.getHistory(chatId)?.isFollowingTail() && lastPersistedSeq > 0 && !unreadNavigationRef.current?.ownsChat(chatId)) advanceReadWatermark(chatsRef.current, chatId, lastPersistedSeq, patchChat)
+    if (stillActive && chatOnScreen() === chatId && cache.isFollowingTail(chatId) && lastPersistedSeq > 0 && !unreadNavigationRef.current?.ownsChat(chatId)) advanceReadWatermark(chatsRef.current, chatId, lastPersistedSeq, patchChat)
     return true
   }, [applyFreshMessageSnapshot, cache, memberReadPorts, patchChat, user])
 
   // ── #621 incremental spine ────────────────────────────────────────────────
-  const windowRowsOf = useCallback((chatId: string) => cache.get(chatId), [cache])
+  const windowRowsOf = useCallback((chatId: string) => cache.rows(chatId), [cache])
   // maxSeqOf: the spine cursor ("new messages?" = expectedTail > maxSeq), cache-derived so it can't drift.
   const maxSeqOf = useCallback((chatId: string): number => maxMainlineSeq(windowRowsOf(chatId)), [windowRowsOf])
   // expectedTailSeq: the latest seq that should exist = chat.next_message_seq - 1 (seq is 1-BASED per
@@ -441,10 +442,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     },
     [applyMessagesSnapshot, cache, getMessageSnapshotEpoch, maxSeqOf, memberReadPorts, noteFreshMessageRead, patchChat, refreshMessages, revalidateWindowOverlays, setThreadMessagesFor, user],
   )
-  const loadHistoryPage = useCallback(async (direction: 'older' | 'newer' | 'latest', chatId = activeChatIdRef.current) => {
+  const loadHistoryPage = useCallback(async (direction: 'older' | 'newer' | 'latest', chatId = activeChatIdRef.current, viewport?: ConversationViewport) => {
     if (!user || !chatId) return
-    if (direction === 'latest') invalidateMessageSnapshots(chatId)
-    const targetWindow = cache.history(chatId)
+    const targetWindow = cache.history(chatId, viewport)
     try {
       const changed = await targetWindow.load(direction, fetchChatHistoryPage(user.id))
       const window = targetWindow.getSnapshot()
@@ -455,21 +455,18 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       throw err
     }
   }, [user, cache, invalidateMessageSnapshots, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
-  const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
+  const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
     if (!user || !targetChatId) return
-    const targetWindow = cache.history(targetChatId)
-    const changed = await restoreChatHistoryAnchor(targetWindow, user.id, messageId)
+    const targetWindow = cache.history(targetChatId, viewport)
+    const changed = commit ? await targetWindow.restoreAnchor(async () => ({ messages: commit.rows, hasNewer: !commit.reachedTail })) : await restoreChatHistoryAnchor(targetWindow, user.id, messageId)
     if (changed) { const window = targetWindow.getSnapshot(); cache.set(targetChatId, window.messages); persistWindowToLocalSync(targetChatId, window.messages); await revalidateWindowOverlays(targetChatId) }
   }, [user, cache, persistWindowToLocalSync, revalidateWindowOverlays])
-  const setFollowingTail = useCallback((following: boolean, chatId = activeChatIdRef.current) => {
-    if (chatId) cache.history(chatId).setFollowingTail(following)
-  }, [cache])
   const markMessageVisible = useCallback((message: MessageItem) => {
     const chatId = message.chat_id
     if (!user || !cache.isObserved(chatId)) return
     const receipts = cache.readReceipts(chatId)
     if (message.seq > 0 && !message.is_mine && !message.thread_root_id && !unreadNavigationRef.current?.ownsChat(chatId)
-      && cache.get(chatId)?.some((row) => row.id === message.id)) {
+      && cache.rows(chatId).some((row) => row.id === message.id)) {
       const chat = chatsRef.current.find((row) => row.id === chatId)
       if (chat && message.seq > chat.last_read_seq)
         advanceReadWatermark(chatsRef.current, chatId, message.seq, patchChat, { unread_count: chat.unread_count, unread_locator: chat.unread_locator })
@@ -606,8 +603,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     setActiveThreadRootId: (rootId, id) => cache.patchView(id, { activeThreadRootId: rootId }),
     setLoadingThread: (loading, id) => cache.patchView(id, { loadingThread: loading }),
     setThreadMessages: (update, id) => setThreadMessagesFor(id, update),
-    setFollowingTail,
-    setMessagesAndCache: (update, chatId, commit) => { cache.history(chatId).replace(update, commit.reachedTail); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) },
+    setMessagesAndCache: (update, chatId) => { cache.update(chatId, update); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) },
     loadChats, cancelChatOpenRef })
   unreadNavigationRef.current = unreadNavigation
   // @@@threads — 打开/关闭话题视图。传 rootId 打开并拉取该话题的 root+回复；传 null 回主时间线。
@@ -647,7 +643,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     async (
       targetChatId: string,
       content: string,
-      opts: SendMessageOptions = {}
+      opts: SendMessageOptions = {},
+      viewport?: ConversationViewport
     ) => {
       if (!targetChatId || !user || !content.trim()) return
       const targetChat = chatsRef.current.find((chat) => chat.id === targetChatId) ?? null
@@ -695,9 +692,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       } else {
         // C3 发送把窗口钉回底部:含尾的窗口立即恢复跟尾(确认行按尾巴接上,不被当成窗口外丢掉);
         // 离尾的历史段先拉最新页(页里保留这条乐观行及其确认行)。已在拉就不重开。
-        const targetWindow = cache.getHistory(targetChatId)
+        const targetWindow = cache.history(targetChatId, viewport)
         if (targetWindow && !targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
-          void loadHistoryPage('latest', targetChatId).catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
+          void loadHistoryPage('latest', targetChatId, viewport).catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
         }
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)
       }
@@ -756,8 +753,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     invalidateMessageSnapshots(chatId)
     await chatService.clearMessagesForMe(chatId)
     invalidateMessageSnapshots(chatId)
-    cache.set(chatId, [])
-    cache.getHistory(chatId)?.reset(chatId)
+    cache.delete(chatId)
     // @@@msg-cache (#947) - clear the durable L2 window too, else a cold-start reopen would resurrect the
     // cleared messages from IndexedDB (write-through here keeps L2 in lockstep with the now-empty L1).
     persistWindowToLocalSync(chatId, [])
@@ -766,7 +762,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const removeMessage = useCallback((messageId: string, chatId = activeChatIdRef.current) => {
     if (chatId) { setMessagesAndCache((rows) => rows.filter((row) => row.id !== messageId), chatId); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) }
   }, [cache, persistWindowToLocalSync, setMessagesAndCache])
-  const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
+  const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
     if (targetChatId) invalidateMessageSnapshots(targetChatId)
     const { chatId } = await chatService.deleteMessage(messageId)
     invalidateMessageSnapshots(chatId)
@@ -792,14 +788,14 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (msg.seq >= 0) void repairSeqJumpAfterIngest({ userId: () => userRef.current?.id ?? null, windowRows: windowRowsOf, snapshotEpoch: getMessageSnapshotEpoch, revalidateInFlight: revalidateInFlightRef.current, applyMessagesSnapshot, refreshMessages, revalidateWindowOverlays }, msg)
   }, [applyMessagesSnapshot, cache, getMessageSnapshotEpoch, refreshMessages, revalidateWindowOverlays, setMessagesAndCache, setThreadMessagesFor, windowRowsOf])
 
-  const sendAttachmentsToChat = useCallback(async (chatId: string | null, files: File[], opts: SendAttachmentOptions = {}) => {
+  const sendAttachmentsToChat = useCallback(async (chatId: string | null, files: File[], opts: SendAttachmentOptions = {}, viewport?: ConversationViewport) => {
     if (!files.length) return undefined
     if (!chatId || !user) throw new Error(i18n.t('composer.attachmentContextMissing', { ns: 'messaging' }))
     const chat = chatsRef.current.find((row) => row.id === chatId)
     const toUserIds = opts.toUserIds?.length ? opts.toUserIds
       : (chat?.kind === 'dm' || chat?.kind === 'ai') && chat.peer_user_id ? [chat.peer_user_id] : null
     if (!opts.threadRootId) {
-      if (!cache.history(chatId).followForSend()) await loadHistoryPage('latest', chatId)
+      if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
     return sendAttachmentBatch({ ...opts, files, chatId, senderId: user.id, toUserIds, appendMessage,
       removePlaceholder: (id) => removeMessage(id, chatId) })
@@ -869,17 +865,17 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId, viewport = {}) => ({
     sendAttachments: (files, options) => {
       if (chatId) cache.setFollowingTail(chatId, viewport, true)
-      return sendAttachmentsToChat(chatId, files, options)
+      return sendAttachmentsToChat(chatId, files, options, viewport)
     },
     sendMessage: (content, options) => {
       if (!chatId) return Promise.resolve(undefined)
       cache.setFollowingTail(chatId, viewport, true)
-      return sendMessageToChat(chatId, content, options)
+      return sendMessageToChat(chatId, content, options, viewport)
     },
     toggleReaction: (id, emoji) => toggleReaction(id, emoji, chatId),
     refreshMessages: (target = chatId ?? undefined) => refreshMessages(target),
-    loadOlderMessages: () => loadHistoryPage('older', chatId), loadNewerMessages: () => loadHistoryPage('newer', chatId),
-    loadMessageAnchor: (id) => loadMessageAnchor(id, chatId), returnToLatestMessages: () => loadHistoryPage('latest', chatId),
+    loadOlderMessages: () => loadHistoryPage('older', chatId, viewport), loadNewerMessages: () => loadHistoryPage('newer', chatId, viewport),
+    loadMessageAnchor: (id, commit) => loadMessageAnchor(id, chatId, viewport, commit), returnToLatestMessages: () => loadHistoryPage('latest', chatId, viewport),
     markMessageVisible,
     clearMessages: () => clearMessages(chatId), removeMessage: (id) => removeMessage(id, chatId),
     deleteMessage: (id) => deleteMessage(id, chatId), appendMessage, openThread: (rootId) => openThread(rootId, chatId),
@@ -889,7 +885,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }), [cache, sendAttachmentsToChat, sendMessageToChat, toggleReaction, refreshMessages, loadHistoryPage, loadMessageAnchor,
     markMessageVisible, clearMessages, removeMessage, deleteMessage, appendMessage, openThread, unreadNavigation])
   const conversations = useMemo<ChatConversationAccess>(() => ({
-    read: (id) => { readChatWindow(id); return cache.view(id) }, subscribe: subscribeChatWindow,
+    read: (id, viewport) => { readChatWindow(id); return cache.view(id, viewport) }, subscribe: subscribeChatWindow,
     actions: conversationActions, setFollowingTail: cache.setFollowingTail, errorOf: messageReadFailureOf,
   }), [cache, readChatWindow, subscribeChatWindow, conversationActions, messageReadFailureOf])
   const line = useChatConversation(activeChatId, conversations)

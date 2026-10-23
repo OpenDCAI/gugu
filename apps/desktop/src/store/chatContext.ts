@@ -1,3 +1,4 @@
+import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import type { ChatConversationAccess } from './useChatConversation'
 import type { HistoryWindow } from './chatHistoryWindow'
 import { createContext, createElement, useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from 'react'
@@ -76,7 +77,7 @@ export interface ChatContextValue {
   messageWindow?: HistoryWindow
   unreadNavigationPending?: boolean
   loadNewerMessages: () => Promise<void>
-  loadMessageAnchor: (messageId: string) => Promise<void>
+  loadMessageAnchor: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
   markMessageVisible: (message: MessageItem) => void
   returnToLatestMessages: () => Promise<void>
   // @@@recipient-read (#521) - each other member's last_read_seq, keyed by user_id; read-receipt
@@ -101,7 +102,7 @@ export interface ChatContextValue {
   // 打开/关闭话题视图：传 rootId 打开并拉取该话题消息；传 null 回到主时间线。
   openThread: (rootId: string | null) => void
   // @@@6530 列表点开有未读的会话停在最新处;unreadEntry = 这次打开时的第一条未读(「↑ N 条新消息」),jumpToUnreadEntry 跳过去。
-  openUnreadChat: (chatId: string) => Promise<void>
+  openUnreadChat: (chatId: string, alreadyOpen?: boolean) => Promise<void>
   unreadEntry?: OpenableUnreadTarget | null
   jumpToUnreadEntry: (viewport?: HTMLElement | null) => Promise<void>
   setActiveChatId: (id: string | null) => void

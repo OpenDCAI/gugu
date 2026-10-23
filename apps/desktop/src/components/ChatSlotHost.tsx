@@ -1,3 +1,4 @@
+import { useSidebarChatView } from '../lib/sidebarChatsBridge'
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { CHAT_SLOT_PREFIX, InChatSlot, chatPartSlotKey, installShellSlots, readShellSlots } from '../lib/shellSlots'
@@ -28,6 +29,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
     if (chatsRead) publishChatSummaries(chats.map((chat) => ({ ...chat, name: chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name) })))
   }, [chats, chatsRead, identitiesById])
   const projectGroupChats = useProjectGroupChats()
+  const sidebarView = useSidebarChatView()
   const slots = readShellSlots()
   const entries = useSyncExternalStore(
     (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
@@ -43,6 +45,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
             <TaskChatScope chatId={chatId}>
               <ChatAreaPanel
                 chatId={chatId}
+                navigationTarget={sidebarView.focusedChatId === chatId}
                 activeTab="chats"
                 blockHost={{
                   actions: entries.get(chatPartSlotKey('actions', chatId)) ?? null,

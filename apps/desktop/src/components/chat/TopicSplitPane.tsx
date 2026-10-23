@@ -370,7 +370,7 @@ export function TopicSplitPane({
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
-  useUnreadLocatorNavigation({ activeChatId: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering,
+  useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering,
     onNavigate: () => search.setSearchMode(false), rows, firstItemIndex, listRef, scrollerRef,
     setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) },
     setFlashMessageId, flashTimerRef, hasMoreOlder: messageWindow.hasOlder, loadingOlder: history.loadingOlder,

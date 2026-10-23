@@ -29,7 +29,6 @@ type Deps = {
   setActiveThreadRootId: (rootId: string | null, chatId: string) => void
   setLoadingThread: (loading: boolean, chatId: string) => void
   setThreadMessages: (value: SetStateAction<MessageItem[]>, chatId: string) => void
-  setFollowingTail: (following: boolean, chatId?: string) => void
   setMessagesAndCache: (value: SetStateAction<MessageItem[]>, chatId: string, commit: UnreadLocatorCommit) => void
   loadChats: (options?: { acceptEmpty?: boolean }) => Promise<void>
   cancelChatOpenRef: CancelChatOpenRef
@@ -127,11 +126,10 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           }
           const commit = await loadWindow()
           assertCurrent()
-          deps.setFollowingTail(false, currentTarget.chatId)
           deps.setMessagesAndCache((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId), currentTarget.chatId, commit)
           return commit
         },
-        revealMessage: async (currentTarget) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent, viewport) },
+        revealMessage: async (currentTarget, commit) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent, viewport, commit) },
         markRead: async (currentTarget, commit) => { assertCurrent(); await markStreamRead(currentTarget.chatId, currentTarget.locator.stream_id, commit.readSeq, currentTarget.locator.thread_root_id) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
       })
@@ -153,9 +151,9 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
       setUnreadEntries((previous) => ({ ...previous, [chatId]: entry }))
     }
   }, [deps.chatsRef, getMessageSnapshotEpoch])
-  const openUnreadChat = useCallback(async (chatId: string): Promise<void> => {
+  const openUnreadChat = useCallback(async (chatId: string, alreadyOpen = deps.activeChatIdRef.current === chatId): Promise<void> => {
     const locator = deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
-    if (locator && (locator.stream_kind === 'thread' || deps.activeChatIdRef.current === chatId)) return openStreamAtLocator(chatId)
+    if (locator && (locator.stream_kind === 'thread' || alreadyOpen)) return openStreamAtLocator(chatId)
     captureUnreadEntry(chatId)
     deps.setActiveChatId(chatId)
   }, [deps, captureUnreadEntry, openStreamAtLocator])

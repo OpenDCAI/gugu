@@ -6,7 +6,7 @@ import type { ChatConversationAccess } from '../../apps/desktop/src/store/useCha
 export function chatWindowStub(_userId = 'user-1') {
   const cache = new ChatWindowCache()
   const conversations: ChatConversationAccess = {
-    read: (chatId) => cache.view(chatId), subscribe: (id, listener, viewport) => cache.subscribe(id, listener, undefined, viewport), setFollowingTail: cache.setFollowingTail, errorOf: () => null,
+    read: (chatId, viewport) => cache.view(chatId, viewport), subscribe: (id, listener, viewport) => cache.subscribe(id, listener, undefined, viewport), setFollowingTail: cache.setFollowingTail, errorOf: () => null,
     actions: () => conversationActions,
   }
   return { conversations, write: (chatId: string, update: (rows: MessageItem[]) => MessageItem[]) => cache.set(chatId, update(cache.get(chatId) ?? [])) }
