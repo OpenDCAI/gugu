@@ -1,3 +1,4 @@
+import { subscribePhoneAssistantIdentity } from '@/mobile/assistant/phoneAssistantIdentity';
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import { observe } from 'mobx';
 import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
@@ -64,7 +65,9 @@ export function subscribeSenderAvatars(listener: () => void): () => void {
   const offOwners = observe(sessionAgentNames.identities, () => listener());
   const offPosters = subscribeAgentLookPosters(listener);
   const offAssistant = readAssistantShellBridge()?.subscribe(listener) ?? (() => {});
+  const offPhoneAssistant = subscribePhoneAssistantIdentity(listener);
   return () => {
+    offPhoneAssistant();
     offIdentities();
     offOwners();
     offPosters();

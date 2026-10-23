@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { readIdentityDirectoryBridge } from './identityDirectoryBridge'
 import { readAssistantShellBridge } from './assistantShellBridge'
+import { readPhoneAssistantIdentity, usePhoneAssistantIdentity } from '../mobile/assistant/phoneAssistantIdentity'
 
 const noopSubscribe = () => () => {}
 
@@ -20,10 +21,12 @@ export function useAvatarIdentity(id: string) {
 
 export function isAssistantAvatar(id: string): boolean {
   return !!id && typeof window !== 'undefined'
-    && readAssistantShellBridge()?.getSnapshot()?.assistant?.id === id
+    && (readAssistantShellBridge()?.getSnapshot()?.assistant?.id === id || readPhoneAssistantIdentity()?.id === id)
 }
 
 export function useIsAssistantAvatar(id: string): boolean {
   const bridge = typeof window === 'undefined' ? null : readAssistantShellBridge()
-  return useSyncExternalStore(bridge?.subscribe ?? noopSubscribe, () => isAssistantAvatar(id), () => false)
+  const desktop = useSyncExternalStore(bridge?.subscribe ?? noopSubscribe, () => !!id && bridge?.getSnapshot()?.assistant?.id === id, () => false)
+  const phone = usePhoneAssistantIdentity()
+  return desktop || (!!id && phone?.id === id)
 }
