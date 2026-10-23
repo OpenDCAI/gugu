@@ -34,8 +34,8 @@ export interface Notice {
   /** 带一次性动作(撤销)的提示要留够点它的时间;不给就是档位的停留。 */
   duration?: number
   /**
-   * 这条被收掉时(用户点了关闭钮 / 滑走,以及 `dismissNotice`)。要区分「用户关的」就在调 `dismissNotice` 之前先记下自己要收,
-   * ❌ 指望这里分得出来。
+   * 用户亲手关掉了这一条(关闭钮 / 滑走)。`dismissNotice` 收的、同 key 换内容的都**不**算 ——
+   * sonner 对程序收的那条也会回调,而且晚一帧:那时同 key 可能已经是新的一条,调用方按 key 记的状态分不出是哪一条。
    */
   onDismiss?: () => void
 }
@@ -48,6 +48,8 @@ export interface Notice {
  * 还活着的同 key 提示照旧原地更新(同一个 id)。
  */
 const liveIds = new Map<string, string>()
+/** `dismissNotice` 收掉的 id:sonner 收完照样回调 onDismiss,那不是用户关的。 */
+const dismissedByApp = new Set<string>()
 let idSeq = 0
 
 const SONNER_BY_TIER = {
@@ -76,6 +78,7 @@ export function notify({ key, title, description, tier, variant, ongoing, waitin
     icon: waiting ? <LoadingIndicator size="inline" /> : icon,
     action: action ? { label: action.label, onClick: action.onClick } : undefined,
     onDismiss: () => {
+      if (id !== undefined && dismissedByApp.delete(id)) return
       retire()
       onDismiss?.()
     },
@@ -104,5 +107,6 @@ export function dismissNotice(key: string): void {
   const id = liveIds.get(key)
   if (id === undefined) return
   liveIds.delete(key)
+  dismissedByApp.add(id)
   sonner.dismiss(id)
 }

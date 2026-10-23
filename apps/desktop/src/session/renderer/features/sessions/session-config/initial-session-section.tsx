@@ -1536,10 +1536,11 @@ export function InitialSessionField({
   const localMentionItemsRef = useRef<MentionItem[]>([]);
   const { value: promptLibrary } = usePromptLibrary();
   const harnessModelOptions = useHarnessModelOptions(state.provider, sessionpageLegOfView(state.sessionView));
-  const { data: agents, isPending: agentsPending } = useAgents();
+  const { data: agents, isLoading: agentsLoading } = useAgents();
   // #6264 名单要跨云问另一台机器时,那一格画「正在读取」,❌ 空着让人以为那台机器上什么都开不了。
+  // 只在真在读时画(isLoading):那台机器没连上就不问,❌ 一直转到它回来(原因由机器的提示说)。
   const remoteCreateForActions = useLibraryHost().remote !== null;
-  const agentOptionsLoading = remoteCreateForActions && agentsPending;
+  const agentOptionsLoading = remoteCreateForActions && agentsLoading;
   const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
   const agentCreationToolsByEngine = useMemo(
     () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),

@@ -135,6 +135,19 @@ describe('同 key 是同一条:原地更新,不叠', () => {
     expect(lastOptions(sonner.success).icon).toBeUndefined()
   })
 
+  it('onDismiss 只在用户亲手关时回调:dismissNotice 收掉的那条,sonner 晚一帧的回调 ❌ 算用户关的', () => {
+    const closedByUser = vi.fn()
+    notify({ key: 'machine:d4', title: '离线', ongoing: true, tier: 'info', onDismiss: closedByUser })
+    const appDismissed = lastOptions(sonner.info) as { onDismiss: () => void }
+    dismissNotice('machine:d4')
+    // 同 key 紧接着又是新的一条,旧那条的回调这时才到
+    notify({ key: 'machine:d4', title: '离线', ongoing: true, tier: 'info', onDismiss: closedByUser })
+    appDismissed.onDismiss()
+    expect(closedByUser).not.toHaveBeenCalled()
+    ;(lastOptions(sonner.info) as { onDismiss: () => void }).onDismiss()
+    expect(closedByUser).toHaveBeenCalledTimes(1)
+  })
+
   it('dismissNotice 按 key 收掉活着的那一条;没有这条就什么都不做', () => {
     notify({ key: 'machine:d3', title: '离线', ongoing: true, tier: 'info' })
     const id = lastOptions(sonner.info).id

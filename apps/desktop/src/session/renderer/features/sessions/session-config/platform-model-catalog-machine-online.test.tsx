@@ -16,17 +16,19 @@ import { usePlatformModelCatalog } from './platform-model-catalog';
 const MODELS = { models: [{ id: 'glm-5.3-flash', protocol: 'anthropic-messages' }] };
 
 let state: ReturnType<typeof usePlatformModelCatalog> | null = null;
-function Probe({ online }: { online: boolean }) {
-  host.remote = { deviceId: 'mac-1', online };
-  state = usePlatformModelCatalog('claude', 'acp');
+type Where = { online: boolean; device?: string; provider?: string };
+function Probe({ online, device = 'mac-1', provider = 'claude' }: Where) {
+  host.remote = { deviceId: device, online };
+  state = usePlatformModelCatalog(provider, 'acp');
   return null;
 }
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-async function render(online: boolean) {
+async function render(where: boolean | Where) {
+  const props = typeof where === 'boolean' ? { online: where } : where;
   await act(async () => {
-    root!.render(<Probe online={online} />);
+    root!.render(<Probe {...props} />);
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -78,5 +80,26 @@ describe('usePlatformModelCatalog —— 跟着那台机器连没连上走', () 
     expect(invoke).toHaveBeenCalled();
     expect(state?.catalogError).toBeNull();
     expect(state?.models.map((m) => m.id)).toEqual(['glm-5.3-flash']);
+  });
+
+  it('换到一台没连上的机器 / 离线时换了 agent:清掉上一份,❌ 把别处的模型留在下拉里', async () => {
+    invoke.mockReset().mockImplementation(async (machine: string) => ({ models: [{ id: `${machine}-model`, protocol: 'anthropic-messages' }] }));
+    await render({ online: true, device: 'mac-1' });
+    expect(state?.models.map((m) => m.id)).toEqual(['mac-1-model']);
+    await render({ online: false, device: 'mac-2' });
+    expect(state?.models).toEqual([]);
+    await render({ online: true, device: 'mac-1' });
+    expect(state?.models.map((m) => m.id)).toEqual(['mac-1-model']);
+    await render({ online: false, device: 'mac-1', provider: 'codex' });
+    expect(state?.models).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('掉线这一下不动预选:这一份的默认模型照旧在', async () => {
+    invoke.mockReset().mockResolvedValue({ ...MODELS, agentDefault: { modelId: 'glm-5.3-flash' } });
+    await render(true);
+    expect(state?.agentDefault).toEqual({ modelId: 'glm-5.3-flash' });
+    await render(false);
+    expect(state?.agentDefault).toEqual({ modelId: 'glm-5.3-flash' });
   });
 });
