@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
-import { subscribeActiveChatWillChange } from '../../store/activeChatTransition'
 import { rendererLogger } from '../../lib/log'
 import { restoreLanding } from '../../lib/listLanding'
 import type { ListLanding } from '../../lib/flowList'
@@ -150,11 +149,6 @@ export function useConversationScrollMemory({
     if (!anchor) return
     positions.set(owner.chatId, { atBottom: false, ...anchor })
   }, [positions])
-
-  useEffect(() => subscribeActiveChatWillChange((previousChatId) => {
-    const owner = scrollerOwnerRef.current
-    if (owner?.chatId === previousChatId) { capturePosition(owner); scrollerOwnerRef.current = null }
-  }), [capturePosition])
 
   const setScrollerRef = useCallback((value: HTMLElement | Window | null) => {
     const element = value instanceof HTMLElement ? value : null

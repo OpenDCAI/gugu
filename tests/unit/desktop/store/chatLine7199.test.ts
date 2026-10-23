@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react'
+import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chat, chatStore, createReactHarness, message } from '../../../support/testHarness'
 import { chatWindowStub, topicHistoryStub } from '../../../support/chatWindowStub'
@@ -12,10 +12,10 @@ let selected: string | null
 let scoped: ReturnType<typeof useChatStore>
 function Selection() { selected = useChatStore('activeChatId').activeChatId; return null }
 function Surface() { scoped = useChatStore(); return null }
-function tree() {
-  return createElement(ChatStoreProvider, { value: chatStore({ ...windows, activeChatId: 'a',
+function tree(activeChatId = 'a', child = createElement(Surface)) {
+  return createElement(ChatStoreProvider, { value: chatStore({ ...windows, activeChatId,
     chats: [chat({ id: 'a' }), chat({ id: 'dm' })], messages: [message({ id: 'a1', chat_id: 'a' })] }) },
-  createElement(Selection), createElement(ChatLineScope, { chatId: 'dm' }, createElement(Surface)))
+  createElement(Selection), createElement(ChatLineScope, { chatId: 'dm' }, child))
 }
 beforeEach(() => {
   harness = createReactHarness(); windows = chatWindowStub()
@@ -33,6 +33,17 @@ describe('explicit conversation scopes', () => {
     expect(scoped.messages.map((row) => row.id)).toEqual(['dm1', 'dm2'])
     expect(selected).toBe('a')
   })
+  it('keeps the explicit subtree mounted when the main selection enters and leaves it', async () => {
+    const mount = vi.fn(), unmount = vi.fn()
+    function LiveSurface() { useEffect(() => { mount(); return unmount }, []); return createElement(Surface) }
+    await harness.render(tree('a', createElement(LiveSurface)))
+    await harness.render(tree('dm', createElement(LiveSurface)))
+    await harness.render(tree('a', createElement(LiveSurface)))
+    expect(mount).toHaveBeenCalledOnce()
+    expect(unmount).not.toHaveBeenCalled()
+    expect(scoped.activeChatId).toBe('dm')
+  })
+
   it('uses the account actions instead of disabling the actions of an unselected chat', async () => {
     const reaction = vi.fn(async () => {})
     const anchor = vi.fn(async () => {})

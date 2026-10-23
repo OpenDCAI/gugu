@@ -11,7 +11,6 @@ import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
 import { useChatStore } from '@/store/chatContext'
-import { sendAttachmentBatch } from '@/components/chat/sendAttachmentBatch'
 import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
 import { useChatConversation, type ChatConversation } from '@/store/useChatConversation'
 import { rendererLogger } from '@/lib/log'
@@ -105,7 +104,6 @@ export function useTopicSurface({
   const splitChatIdRef = useRef<string | null>(null)
   splitChatIdRef.current = splitChatId
   const line = useChatConversation(splitChatId, conversations)
-  const { appendMessage } = line
 
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
@@ -125,25 +123,6 @@ export function useTopicSurface({
   const closeSplit = useCallback(() => {
     setSplitState({ forChatId: null, topic: null })
   }, [])
-
-  const sendAttachmentsInSplit = useCallback(
-    async (files: File[], opts?: { toUserIds?: string[] | null; caption?: string; onSent?: (file: File, index: number) => void }) => {
-      if (!files.length) return
-      // fail-loud:缺会话/登录态时静默 return 会让 composer 走成功路清空从未发出的附件(同 #2188)。
-      if (!splitChatId || !userId) throw new Error('topic split attachment: no open topic or no signed-in user')
-      await sendAttachmentBatch({
-        files,
-        chatId: splitChatId,
-        senderId: userId,
-        toUserIds: opts?.toUserIds?.length ? opts.toUserIds : null,
-        caption: opts?.caption,
-        onSent: opts?.onSent,
-        // 分栏的消息在这条话题自己的线里(不进 store 的 activeChat 窗),所以追加到这一份里去。
-        appendMessage,
-      })
-    },
-    [splitChatId, userId, appendMessage],
-  )
 
   const sendInSplit = useCallback(
     async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null) => {
@@ -187,7 +166,7 @@ export function useTopicSurface({
     openSplit,
     closeSplit,
     sendInSplit,
-    sendAttachmentsInSplit,
+    sendAttachmentsInSplit: async (files, opts) => { await line.sendAttachments(files, opts) },
     openTopicFromMessage,
   }
 }

@@ -1,3 +1,4 @@
+import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
@@ -359,7 +360,7 @@ export function TopicSplitPane({
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!history.unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !history.unreadNavigationPending,
+  const firstItemIndex = useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !history.unreadNavigationPending,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
     enabled: visible !== false && !workspaceOpen && !isFiltering && !history.unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
@@ -369,6 +370,11 @@ export function TopicSplitPane({
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
+  useUnreadLocatorNavigation({ activeChatId: topic.chatId, rows, firstItemIndex, listRef, scrollerRef,
+    setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) },
+    setFlashMessageId, flashTimerRef, hasMoreOlder: messageWindow.hasOlder, loadingOlder: history.loadingOlder,
+    loadOlderMessages: history.loadOlderMessages, hasMoreNewer: messageWindow.hasNewer,
+    loadingNewer: messageWindow.loading === 'newer', loadNewerMessages: history.loadNewerMessages })
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows,
     messages,
@@ -564,7 +570,7 @@ export function TopicSplitPane({
               initialTopMostItemIndex={revealLanding ?? openLocation()}
               followTail={!history.unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
-                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry().catch(onHistoryError) } : null}
+                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}
               onTotalListHeightChanged={onTotalListHeightChanged}
               style={MESSAGE_LIST_STYLE}

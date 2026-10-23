@@ -224,6 +224,21 @@ describe('conversation scroll memory', () => {
       } finally { await reopened.cleanup() }
     })
 
+    it('captures the real exit after the main selection leaves a still-mounted viewport', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      act(() => publishActiveChatWillChange('chat-a', 'chat-b'))
+      original.view.scrollTop = 720
+      await original.cleanup()
+      const reopened = mount()
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 36 })
+      } finally { await reopened.cleanup() }
+    })
+
     it('does not replay another auth lifetime\'s saved position', async () => {
       const ids = ['first', 'anchor', 'last']
       const original = mount()

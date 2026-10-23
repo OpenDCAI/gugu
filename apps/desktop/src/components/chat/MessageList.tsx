@@ -344,7 +344,7 @@ export function MessageList({
   style?: CSSProperties
   /** 顶部让出多少 px:头栏上的悬浮小鸟探出头栏时,滚到最上面的第一条 / 日期分隔落在它脚下面,不被盖住(agent 单聊的桌面形态传)。 */
   topInset?: number
-  /** 这条消息流在哪一栏。副栏不当未读定位器的 main 表面(见 SCROLLER_TEST_ID)。 */
+  /** 这条消息流在哪一栏。只决定布局与自动化选择器;未读定位确认使用本视口 ref。 */
   surface?: 'main' | 'aside'
   /** @@@6530 这次打开时的第一条未读:在视口上方时右上角出「↑ N 条新消息」,点了跳过去。 */
   unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void } | null

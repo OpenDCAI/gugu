@@ -2,14 +2,8 @@ import { createElement, type ReactNode } from 'react'
 import { ChatStoreProvider, useChatStore, type ChatContextValue } from './chatContext'
 import { useChatConversation } from './useChatConversation'
 
-/** Explicit chat addresses share their account pipeline; a nested matching scope needs no new owner. */
+/** An explicit viewport keeps its own scope across changes to the main selection. */
 export function ChatLineScope({ chatId, children, onNavigate }: {
-  chatId: string | null; children?: ReactNode; onNavigate?: ChatContextValue['setActiveChatId']
-}) {
-  const store = useChatStore()
-  return store.activeChatId === chatId && !onNavigate ? children : createElement(ConversationScope, { chatId, onNavigate }, children)
-}
-function ConversationScope({ chatId, children, onNavigate }: {
   chatId: string | null; children?: ReactNode; onNavigate?: ChatContextValue['setActiveChatId']
 }) {
   const store = useChatStore()

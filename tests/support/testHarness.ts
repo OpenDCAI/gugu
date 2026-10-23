@@ -238,6 +238,7 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     openUnreadChat: vi.fn(async () => {}),
     jumpToUnreadEntry: vi.fn(async () => {}),
     setActiveChatId: vi.fn(),
+    sendAttachments: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => undefined),
     sendMessageToChat: vi.fn(async () => undefined),
     retrySend: vi.fn(),

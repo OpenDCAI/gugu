@@ -66,7 +66,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     return ownsChat(chatId) && locator?.locator.stream_kind === 'thread' && locator.locator.thread_root_id === rootId
   }, [ownsChat])
 
-  const openStreamAtLocator = useCallback(async (chatId: string, saved?: ChatUnreadLocator): Promise<void> => {
+  const openStreamAtLocator = useCallback(async (chatId: string, saved?: ChatUnreadLocator, viewport?: HTMLElement | null): Promise<void> => {
     const locator = saved ?? deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
     if (!locator) {
       deps.setActiveChatId(chatId)
@@ -132,7 +132,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           deps.setMessagesAndCache((previous) => mergeMessagesById(retain(previous, commit), commit.rows, currentTarget.chatId), currentTarget.chatId, commit)
           return commit
         },
-        revealMessage: async (currentTarget) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent) },
+        revealMessage: async (currentTarget) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent, viewport) },
         markRead: async (currentTarget, commit) => { assertCurrent(); await markStreamRead(currentTarget.chatId, currentTarget.locator.stream_id, commit.readSeq, currentTarget.locator.thread_root_id) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
       })
@@ -166,12 +166,12 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     return entry && entry.epoch === getMessageSnapshotEpoch(entry.chatId) ? entry : null
   }, [unreadEntries, getMessageSnapshotEpoch])
   const entry = entryFor(deps.activeChatIdRef.current)
-  const jumpRef = useRef<(chatId?: string | null) => Promise<void>>(() => Promise.resolve())
-  jumpRef.current = (chatId = deps.activeChatIdRef.current) => {
+  const jumpRef = useRef<(chatId?: string | null, viewport?: HTMLElement | null) => Promise<void>>(() => Promise.resolve())
+  jumpRef.current = (chatId = deps.activeChatIdRef.current, viewport) => {
     const target = entryFor(chatId)
-    return target ? openStreamAtLocator(target.chatId, target.locator) : Promise.resolve()
+    return target ? openStreamAtLocator(target.chatId, target.locator, viewport) : Promise.resolve()
   }
-  const jumpToUnreadEntry = useCallback((chatId?: string | null) => jumpRef.current(chatId), [])
+  const jumpToUnreadEntry = useCallback((chatId?: string | null, viewport?: HTMLElement | null) => jumpRef.current(chatId, viewport), [])
 
   const beginChatOpen = useCallback((chatId: string) => {
     chatOpenInFlightRef.current.add(chatId)

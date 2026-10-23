@@ -11,13 +11,15 @@ export type ConversationSnapshot = {
   loadingThread: boolean
 }
 
+export type ConversationViewport = { following?: boolean }
+
 type Listener = (rows: MessageItem[]) => void
 
 /** The existing message cache owns publication; every mutation reaches its visible surfaces. */
 export class ChatWindowCache extends Map<string, MessageItem[]> {
   constructor(private readonly accountId: string | null = null) { super() }
   private readonly histories = new Map<string, { window: ChatHistoryWindow; stop: () => void; stopReading?: () => void; receipts: Set<string>; view: ConversationSnapshot }>()
-  private readonly listeners = new Map<string, Set<Listener>>()
+  private readonly listeners = new Map<string, Map<Listener, ConversationViewport>>()
   override set(chatId: string, rows: MessageItem[]): this {
     const history = this.histories.get(chatId)?.window
     if (history) { history.update(rows); return this }
@@ -55,7 +57,7 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
   history(chatId: string): ChatHistoryWindow {
     const existing = this.histories.get(chatId)
     if (existing) return existing.window
-    const window = new ChatHistoryWindow(this.accountId)
+    const window = new ChatHistoryWindow(this.accountId, () => [...this.listeners.get(chatId)?.values() ?? []].every((view) => view.following !== false))
     window.reset(chatId, this.get(chatId))
     const publish = () => {
       const entry = this.histories.get(chatId)!
@@ -72,17 +74,23 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     return window
   }
   private publish(chatId: string, rows: MessageItem[]): void {
-    for (const listener of this.listeners.get(chatId) ?? []) listener(rows)
+    for (const listener of this.listeners.get(chatId)?.keys() ?? []) listener(rows)
   }
-  readonly subscribe = (chatId: string, listener: Listener, start?: () => () => void): (() => void) => {
+  readonly setFollowingTail = (chatId: string, viewport: ConversationViewport, following: boolean | undefined): void => {
+    viewport.following = following
+    const observers = this.listeners.get(chatId)
+    if (observers?.size) this.getHistory(chatId)?.setFollowingTail([...observers.values()].every((view) => view.following !== false))
+  }
+  readonly subscribe = (chatId: string, listener: Listener, start?: () => () => void, viewport: ConversationViewport = {}): (() => void) => {
     let listeners = this.listeners.get(chatId)
-    if (!listeners) this.listeners.set(chatId, listeners = new Set())
+    if (!listeners) this.listeners.set(chatId, listeners = new Map())
     const first = listeners.size === 0
-    listeners.add(listener)
+    listeners.set(listener, viewport)
     if (first && start) { this.history(chatId); this.histories.get(chatId)!.stopReading = start() }
     listener(this.get(chatId) ?? [])
     return () => {
       listeners.delete(listener)
+      if (listeners.size && viewport.following !== undefined) this.setFollowingTail(chatId, viewport, undefined)
       if (listeners.size === 0) {
         this.listeners.delete(chatId)
         const history = this.histories.get(chatId)

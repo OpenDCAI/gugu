@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import type { FlowListHandle } from '../lib/flowList'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { resolveSourceMessageScroll, type ScrollableRow } from '../lib/sourceMessageScroll'
@@ -19,10 +19,9 @@ function isVisibleWithinSurface(row: HTMLElement, surface: HTMLElement): boolean
 }
 
 export function findVisibleUnreadMessageRow(
-  streamKind: 'main' | 'thread',
+  surface: HTMLElement | null,
   messageId: string,
 ): HTMLElement | null {
-  const surface = document.querySelector<HTMLElement>(`[data-unread-stream-surface="${streamKind}"]`)
   if (!surface) return null
   const row = Array.from(surface.querySelectorAll<HTMLElement>('[data-msg-id]'))
     .find((element) => element.dataset.msgId === messageId)
@@ -33,6 +32,7 @@ export function useUnreadLocatorNavigation(input: {
   activeChatId: string | null
   rows: ReadonlyArray<ScrollableRow & { message?: { id: string; seq: number } }>
   firstItemIndex: number
+  scrollerRef: RefObject<HTMLElement | null>
   listRef: MutableRefObject<FlowListHandle | null>
   setFollowingTail: (following: boolean) => void
   setFlashMessageId: (id: string | null) => void
@@ -48,7 +48,7 @@ export function useUnreadLocatorNavigation(input: {
     activeChatId,
     rows,
     firstItemIndex,
-    listRef,
+    listRef, scrollerRef,
     setFollowingTail,
     setFlashMessageId,
     flashTimerRef,
@@ -65,6 +65,7 @@ export function useUnreadLocatorNavigation(input: {
   useEffect(() => {
     const onUnreadMessage = (event: Event) => {
       const detail = (event as CustomEvent<Partial<UnreadMessageRevealRequest>>).detail
+      if (detail?.chatId !== activeChatId || (detail.viewport && detail.viewport !== scrollerRef.current)) return
       if (!detail || typeof detail.chatId !== 'string' || typeof detail.streamId !== 'string'
         || (detail.streamKind !== 'main' && detail.streamKind !== 'thread')
         || typeof detail.messageId !== 'string' || typeof detail.messageSeq !== 'number'
@@ -76,7 +77,7 @@ export function useUnreadLocatorNavigation(input: {
     }
     window.addEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
     return () => window.removeEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
-  }, [])
+  }, [activeChatId, scrollerRef])
 
   useEffect(() => {
     if (!pending) return
@@ -131,7 +132,7 @@ export function useUnreadLocatorNavigation(input: {
         reject(new DOMException('Unread navigation was superseded', 'AbortError'))
         return true
       }
-      const row = findVisibleUnreadMessageRow(pending.streamKind, pending.messageId)
+      const row = findVisibleUnreadMessageRow(scrollerRef.current, pending.messageId)
       if (!row) return false
       if (pending.streamKind === 'thread') row.scrollIntoView({ block: 'center' })
       pending.confirm(pending.messageId)
@@ -152,5 +153,5 @@ export function useUnreadLocatorNavigation(input: {
       window.cancelAnimationFrame(frame)
     }
   }, [activeChatId, firstItemIndex, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
-    pending, rows, setFlashMessageId, setFollowingTail, listRef])
+    pending, rows, setFlashMessageId, setFollowingTail, listRef, scrollerRef])
 }

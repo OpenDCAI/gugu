@@ -44,6 +44,15 @@ export type SendMessageOptions = {
   beforeDeliver?: () => Promise<void>
 }
 
+export type SendAttachmentOptions = {
+  toUserIds?: string[] | null
+  isWhisper?: boolean
+  caption?: string
+  threadRootId?: string | null
+  isThreadRoot?: boolean
+  onSent?: (file: File, index: number) => void
+}
+
 export interface ChatContextValue {
   conversations: ChatConversationAccess
   getImRepository: () => Promise<AccountImRepository>
@@ -94,12 +103,13 @@ export interface ChatContextValue {
   // @@@6530 列表点开有未读的会话停在最新处;unreadEntry = 这次打开时的第一条未读(「↑ N 条新消息」),jumpToUnreadEntry 跳过去。
   openUnreadChat: (chatId: string) => Promise<void>
   unreadEntry?: OpenableUnreadTarget | null
-  jumpToUnreadEntry: () => Promise<void>
+  jumpToUnreadEntry: (viewport?: HTMLElement | null) => Promise<void>
   setActiveChatId: (id: string | null) => void
   // @@@threads — threadRootId 非空时这条消息发进该话题（thread_root_id），不刷主时间线。
   // 返回成功落库的消息 id（「新建话题」首条发完后用它 openThread 进入话题）；未发送返回 undefined。
   // @@@threads (#1531) — isThreadRoot：新建话题首条 INSERT 即标 root，触发器据此把 agent 回复路由进本条 thread。
   sendMessage: (content: string, opts?: SendMessageOptions) => Promise<string | undefined>
+  sendAttachments: (files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendMessageToChat: (chatId: string, content: string, opts?: SendMessageOptions) => Promise<string | undefined>
   // @@@send-outbox (#1762 洞③/#1941) — failed 消息的重试/丢弃(MessageSendStatus 直连,无 props 钻孔)
   retrySend: (messageId: string) => void
@@ -110,7 +120,7 @@ export interface ChatContextValue {
   // @@@chat-window (#504) - load the previous page of history (scroll-up); signal whether the view is
   // pinned to the tail so the realtime path knows when it may trim the window back down (忘记位置).
   loadOlderMessages: () => Promise<void>
-  setFollowingTail: (following: boolean) => void
+  setFollowingTail: (following: boolean | undefined) => void
   createGroupChat: (name: string, memberIds: string[], groupPrompt?: string | null) => Promise<string>
   clearMessages: () => Promise<void>
   removeMessage: (messageId: string) => void
@@ -134,7 +144,7 @@ export interface ChatContextValue {
 
 const EMPTY_CHAT_STORE: ChatContextValue = {
   conversations: { read: () => { throw new Error('ChatProvider conversation is unavailable') },
-    subscribe: () => () => undefined, actions: () => EMPTY_CHAT_STORE, errorOf: () => null },
+    subscribe: () => () => undefined, setFollowingTail: () => undefined, actions: () => EMPTY_CHAT_STORE, errorOf: () => null },
   getImRepository: async () => { throw new Error('ChatProvider repository is unavailable') },
   subscribeAccountRevision: () => () => undefined,
   identitiesById: {},
@@ -167,6 +177,7 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   jumpToUnreadEntry: async () => {},
   setActiveChatId: () => {},
   sendMessage: async () => undefined,
+  sendAttachments: async () => undefined,
   sendMessageToChat: async () => undefined,
   retrySend: () => {},
   discardSend: () => {},

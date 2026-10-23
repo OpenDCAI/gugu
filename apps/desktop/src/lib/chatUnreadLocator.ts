@@ -65,6 +65,7 @@ export type OpenableUnreadTarget = {
 
 export type UnreadMessageRevealRequest = {
   token: string
+  viewport?: HTMLElement | null
   chatId: string
   streamId: string
   streamKind: 'main' | 'thread'
@@ -76,7 +77,7 @@ export type UnreadMessageRevealRequest = {
   reject: (reason: unknown) => void
 }
 
-export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean): Promise<void> {
+export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean, viewport?: HTMLElement | null): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false
     const token = crypto.randomUUID()
@@ -89,7 +90,7 @@ export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurre
     }
     const timer = window.setTimeout(() => finish(new Error(`Unread locator ${target.locator.message_id} was not rendered`)), 5000)
     const detail: UnreadMessageRevealRequest = {
-      token,
+      token, viewport,
       chatId: target.chatId,
       streamId: target.locator.stream_id,
       streamKind: target.locator.stream_kind,

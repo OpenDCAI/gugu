@@ -32,7 +32,7 @@ export function useFollowingTail({
   loading: boolean
   isPreservingPosition: () => boolean
   isAtBottomRef: RefObject<boolean>
-  setFollowingTail: (following: boolean) => void
+  setFollowingTail: (following: boolean | undefined) => void
 }): { viewportAtBottom: boolean; onAtBottomChange: (atBottom: boolean) => void } {
   const [level, setLevel] = useState({ resetKey, atBottom: true })
   const viewportAtBottom = level.resetKey === resetKey ? level.atBottom : true
@@ -48,6 +48,8 @@ export function useFollowingTail({
     // @@@chat-window (#504) - tell the store whether we're pinned to the tail so it can trim the window.
     setFollowingTail(following)
   }, [following, isPreservingPosition, isAtBottomRef, setFollowingTail])
+  // Only this viewport's reading is withdrawn; another reader may still protect the head.
+  useEffect(() => () => setFollowingTail(undefined), [setFollowingTail])
   return { viewportAtBottom, onAtBottomChange }
 }
 

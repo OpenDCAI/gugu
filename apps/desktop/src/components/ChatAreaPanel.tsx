@@ -71,7 +71,6 @@ import { useTaskChatRows } from './assistant/useTaskChatRows'
 import { MessageLoadFailure } from './chat/MessageLoadFailure'
 import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
 import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'
-import { sendAttachmentBatch } from './chat/sendAttachmentBatch'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
@@ -104,7 +103,7 @@ import { loadImportedSessionHistories, type ImportedSessionHistory } from '../li
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 interface ChatAreaPanelProps {
-  /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLine.ts)。 */
+  /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
   activeTab: SidebarTab
   /** 常驻但不可见(新建 agent/任务的创建面盖在它上面):与切到别的 tab 同一套门控 —— 不算「看见」、不接全局快捷键。 */
@@ -157,7 +156,7 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
 function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
-  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, appendMessage, removeMessage, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, hasMoreOlder, loadingOlder, messageWindow, unreadNavigationPending, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, setDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'appendMessage', 'removeMessage', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'hasMoreOlder', 'loadingOlder', 'messageWindow', 'unreadNavigationPending', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'setDraft')
+  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, hasMoreOlder, loadingOlder, messageWindow, unreadNavigationPending, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, setDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'hasMoreOlder', 'loadingOlder', 'messageWindow', 'unreadNavigationPending', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'setDraft')
   const { user } = useAuth()
   const surfaceVisible = activeTab === 'chats' && !hidden
   const { contacts } = useContactsStore()
@@ -592,39 +591,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     if (selectMode) exitSelectMode()
   }, [forwardMessages, user, selectMode, exitSelectMode])
 
-  // Upload + insert each pending attachment as its own attachment-typed message,
-  // in order. The realtime subscription picks up the inserts and merges them
-  // into the active chat's message list, so they render right above the text
-  // message that follows.
-  // Defensive fix: verify message insert success, clean up orphaned storage on failure.
-  // 群 thread attachment 仍通过 opts.threadRootId 落入对应话题，与 sendMessage 文本路径一致。
-  const handleSendAttachments = useCallback(async (files: File[], opts: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; threadRootId?: string | null; isThreadRoot?: boolean; onSent?: (file: File, index: number) => void } = {}): Promise<string | undefined> => {
-    if (files.length === 0) return undefined
-    // @@@2188 fail-loud:会话/登录态缺失时静默 return 会让 composer 走成功路清空从未发出的附件。
-    if (!activeChatId || !user) throw new Error(t('composer.attachmentContextMissing'))
-    // @@@attachment-dm-recipient (#cleanse) - resolve DM peer recipient (parity with sendMessage):
-    // a DM attachment must route to the peer, not leave to_user_ids NULL → 0 deliver commands.
-    const explicitToUserIds = opts.toUserIds?.length ? opts.toUserIds : null
-    // @@@attachment-ai-recipient - match sendMessage: resolve peer for 'dm' AND 'ai' (agent chats).
-    // Agent chats (kind 'ai') are the PRIMARY attachment-delivery case (sending files TO an agent).
-    const toUserIds =
-      explicitToUserIds ??
-      ((activeChat?.kind === 'dm' || activeChat?.kind === 'ai')
-        ? (activeChat?.peer_user_id ? [activeChat.peer_user_id] : null)
-        : null)
-    // 与文字发送同一条规矩(C3):发送把窗口钉回底部,占位气泡和确认行才落在看得见的尾巴上。
-    if (!opts.threadRootId) {
-      if (messageWindow?.hasNewer) await returnToLatestMessages()
-      else setFollowingTail(true)
-    }
-    // @@@2188 并发上传、按序 insert→验证→onSent 回报提交、任一件失败即 fail-loud 的批执行器(抽出模块)。
-    return sendAttachmentBatch({
-      files, chatId: activeChatId, senderId: user.id, toUserIds,
-      isWhisper: opts.isWhisper, threadRootId: opts.threadRootId, isThreadRoot: opts.isThreadRoot,
-      caption: opts.caption, onSent: opts.onSent, appendMessage, removePlaceholder: removeMessage,
-    })
-  }, [activeChatId, user, appendMessage, removeMessage, messageWindow?.hasNewer, returnToLatestMessages, setFollowingTail, activeChat?.kind, activeChat?.peer_user_id, t])
-
   // Listen for RPC-triggered quote
   useEffect(() => {
     const handler = (e: Event) => {
@@ -657,7 +623,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
 
   // #1708 来源消息(群右栏工作区 App 的 gugu.showMessage):不在加载段里的先按锚点载进来,再定位 + 闪烁;载不到 → fail-loud toast。
   useSourceMessageReveal({ activeChatId, rows: chatListRows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing: () => toast(t('chatArea.source.notVisible'), 'error') })
-  useUnreadLocatorNavigation({activeChatId, rows: chatListRows, firstItemIndex, listRef, setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) }, setFlashMessageId, flashTimerRef, hasMoreOlder, loadingOlder, loadOlderMessages, hasMoreNewer: messageWindow?.hasNewer, loadingNewer: messageWindow?.loading === 'newer', loadNewerMessages})
+  useUnreadLocatorNavigation({activeChatId, rows: chatListRows, firstItemIndex, listRef, scrollerRef, setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) }, setFlashMessageId, flashTimerRef, hasMoreOlder, loadingOlder, loadOlderMessages, hasMoreNewer: messageWindow?.hasNewer, loadingNewer: messageWindow?.loading === 'newer', loadNewerMessages})
   // @@@5856 历史面板的「话题」tab —— 这条线上长出来的全部话题。
   // spec 的两个打开口之一就是「某条线顶栏的话题面板」;它读的与锚点卡是同一个数据源
   // (chat.list_topics_of_chat),两处不会各说各话。
@@ -1138,7 +1104,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           rows={chatListRows}
           rowProps={rowProps} footer={chrome?.typing}
           initialTopMostItemIndex={openLocation()} topInset={agentHero && !mobile && isAgentHeroBird(activeChatAvatar) ? AGENT_HERO_OVERHANG_PX : 0}
-          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onJump: () => void jumpToUnreadEntry().catch(onHistoryError) } : null}
+          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
           onTotalListHeightChanged={onTotalListHeightChanged}
         />
@@ -1237,7 +1203,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           }}
           placeholder={agentComposerPlaceholder ?? chrome?.placeholder} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
           onSendAttachments={async (files, opts) => {
-            await handleSendAttachments(files, opts)
+            await sendAttachments(files, opts)
           }}
           quoteContent={quoteText}
           onQuoteConsumed={() => setQuoteText(null)}

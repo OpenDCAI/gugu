@@ -15,7 +15,7 @@ async function setup(loading = false) {
   const newer = vi.fn().mockResolvedValue(undefined)
   const input = {
     activeChatId: 'a', rows: [{ type: 'message', message: { id: 'm10', seq: 10 } }, { type: 'message', message: { id: 'm20', seq: 20 } }],
-    firstItemIndex: 100000, listRef: { current: null }, setFollowingTail: vi.fn(), setFlashMessageId: vi.fn(),
+    firstItemIndex: 100000, scrollerRef: { current: null as HTMLElement | null }, listRef: { current: null }, setFollowingTail: vi.fn(), setFlashMessageId: vi.fn(),
     flashTimerRef: { current: null }, hasMoreOlder: true, loadingOlder: loading, loadOlderMessages: older,
     hasMoreNewer: true, loadingNewer: false, loadNewerMessages: newer,
   }
@@ -40,6 +40,17 @@ describe('unread reveal outside a bounded history window', () => {
     expect(context[direction === 'older' ? 'newer' : 'older']).not.toHaveBeenCalled()
     expect(request.confirm).not.toHaveBeenCalled()
     expect(request.reject).not.toHaveBeenCalled()
+  })
+
+  it('ignores another chat and another viewport instead of rejecting their request', async () => {
+    const context = await setup()
+    const other = document.createElement('div')
+    const request = { token: 'other', chatId: 'b', streamId: 'main:b', streamKind: 'main', threadRootId: null,
+      messageId: 'm10', messageSeq: 10, confirm: vi.fn(), reject: vi.fn() }
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: request })) })
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: { ...request, chatId: 'a', viewport: other } })) })
+    expect(request.reject).not.toHaveBeenCalled()
+    expect(context.input.setFollowingTail).not.toHaveBeenCalled()
   })
 
   it('waits for an in-flight page instead of rejecting the locator', async () => {

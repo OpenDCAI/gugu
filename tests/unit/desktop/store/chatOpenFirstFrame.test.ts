@@ -71,6 +71,15 @@ vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({ readDis
 vi.mock('../../../../apps/desktop/src/lib/supabaseAccountRevisionSource', () => ({
   createSupabaseAccountRevisionSource: () => ({}),
 }))
+vi.mock('../../../../apps/desktop/src/lib/chatUnreadLocatorMessages', () => ({
+  getUnreadLocatorWindow: async () => ({ anchorRows: [msgA1], forwardRows: [], reachedTail: true, tailSeq: 1 }),
+}))
+vi.mock('../../../../apps/desktop/src/lib/chatMemberReadState', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/chatMemberReadState')>(), markStreamRead: vi.fn(async () => {}),
+}))
+const uploads = vi.hoisted(() => ({ bytes: vi.fn(), commit: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({}) }))
+vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: uploads.bytes, commitAttachment: uploads.commit }))
 const { ChatProvider } = await import('../../../../apps/desktop/src/store/chat')
 const { useChatStore } = await import('../../../../apps/desktop/src/store/chatContext')
 const { useChatConversation } = await import('../../../../apps/desktop/src/store/useChatConversation')
@@ -116,6 +125,7 @@ const framesOf = (chatId: string) => frames.filter((frame) => frame.activeChatId
 describe('打开会话的第一帧', () => {
   beforeEach(async () => {
     network = deferred<void>()
+    vi.mocked(chatService.getMessages).mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
     scopedFrames.length = 0
     vi.mocked(chatService.revalidateWindow).mockImplementation(async (ids) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }))
     messagesByChat = { chatA: [msgA1], chatB: [msgB1] }
@@ -137,6 +147,69 @@ describe('打开会话的第一帧', () => {
     expect(first?.loadingMessages).toBe(false)
     network.resolve()
     harness.cleanup()
+  })
+
+  it('uses the current account cache after the committed shell activates effects', async () => {
+    await replaceMessageWindow(repository, 'chatA', [msgA1], false)
+    const harness = createReactHarness()
+    const render = (active: boolean) => renderWithAppProviders(harness,
+      createElement(ChatProvider, { active }, createElement(Probe), createElement(Selector)), { auth: { id: 'user1' } })
+    await render(false)
+    await render(true)
+    await vi.waitFor(() => expect(openImRepositoryMock).toHaveBeenCalled(), WAIT)
+    await act(async () => { select('chatA') })
+    expect(framesOf('chatA').at(-1)?.messages.map((row) => row.id)).toEqual(['msgA1'])
+    expect(sharedAccess.read('chatA').messageWindow.messages.map((row) => row.id)).toEqual(['msgA1'])
+    network.resolve()
+    harness.cleanup()
+  })
+
+  it('finishes an invalidated first read so unread navigation reaches presentation confirmation', async () => {
+    projectionStub.rows = [{ ...chatA, unread_count: 1, unread_locator: { stream_id: 'main:chatA', stream_kind: 'main',
+      thread_root_id: null, message_id: 'msgA1', message_seq: 1, unread_count: 1, cursor_seq: 0, version: 0, is_marked_unread: false } }, chatB]
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    const { UI_EVENTS } = await import('../../../../apps/desktop/src/lib/uiEvents')
+    const confirm = vi.fn((event: Event) => {
+      const detail = (event as CustomEvent).detail
+      detail.confirm(detail.messageId)
+    })
+    window.addEventListener(UI_EVENTS.openUnreadMessage, confirm)
+    let navigation: Promise<void> = Promise.resolve()
+    try {
+      await vi.waitFor(() => expect(chatService.getMessages).toHaveBeenCalled(), WAIT)
+      await act(async () => { navigation = sharedAccess.actions('chatA').openUnreadChat('chatA') })
+      expect(confirm).not.toHaveBeenCalled()
+      await act(async () => { network.resolve() })
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce(), WAIT)
+      await navigation
+      expect(sharedAccess.read('chatA').loading).toBe(false)
+    } finally { network.resolve(); window.removeEventListener(UI_EVENTS.openUnreadMessage, confirm); harness.cleanup() }
+  })
+
+  it('shows a topic attachment placeholder at the latest page and removes it when upload fails', async () => {
+    network.resolve()
+    const all = Array.from({ length: 200 }, (_, index) => message({ id: `att-${index + 1}`, chat_id: 'chatA', seq: index + 1 }))
+    vi.mocked(chatService.getMessages).mockImplementation(async (_chat, _user, way, limit = 40, before, after) =>
+      way === 'loadOlder' ? all.filter((row) => row.seq < before!).slice(-limit)
+        : way === 'loadNewer' ? all.filter((row) => row.seq > after!).slice(0, limit) : all.slice(-40))
+    vi.mocked(chatService.getMessageById).mockImplementation(async (id) => all.find((row) => row.id === id) ?? null)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pending-topic')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const upload = deferred<string>()
+    uploads.bytes.mockImplementation(() => upload.promise)
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    let send: Promise<unknown> = Promise.resolve()
+    try {
+      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.at(-1)?.seq).toBe(200), WAIT)
+      await act(async () => { await sharedAccess.actions('chatA').loadMessageAnchor('att-20') })
+      expect(sharedAccess.read('chatA').messageWindow.hasNewer).toBe(true)
+      await act(async () => { send = sharedAccess.actions('chatA').sendAttachments([new File(['body'], 'topic.txt')]).catch((error) => error) })
+      await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.some((row) => row.seq < 0 && row.content_type === 'attachment')).toBe(true), WAIT)
+      expect(sharedAccess.read('chatA').messageWindow.hasNewer).toBe(false)
+      await act(async () => { upload.reject(new Error('upload failed')); await send })
+      expect(sharedAccess.read('chatA').messageWindow.messages.some((row) => row.seq < 0)).toBe(false)
+      expect(uploads.commit).not.toHaveBeenCalled()
+    } finally { upload.resolve('unused'); harness.cleanup() }
   })
 
   it('重选当前会话:视图版本不变(不整列表重挂)', async () => {
@@ -184,6 +257,7 @@ describe('打开会话的第一帧', () => {
     await vi.waitFor(() => expect(repository.snapshot().message.map((row) => row.id).sort()).toEqual(['msgA1', 'msgB1']), WAIT)
     await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe)), { auth: { id: 'user1' } })
     network = deferred<void>()
+    vi.mocked(chatService.getMessages).mockImplementation(async (id) => { await network.promise; return messagesByChat[id] ?? [] })
     scopedFrames.length = 0
     await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe), createElement(ScopedProbe, { chatId: 'chatA' })), { auth: { id: 'user1' } })
     expect(scopedFrames[0]?.ids).toEqual(['msgA1'])

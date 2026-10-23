@@ -27,6 +27,24 @@ describe('cached scoped history ownership', () => {
     expect(observe).toHaveBeenCalled()
     stop()
   })
+  it('protects each history reader and withdraws its reading when that viewport leaves', () => {
+    const cache = new ChatWindowCache(), history = cache.history('chat')
+    const tail = {}, older = {}
+    const stopTail = cache.subscribe('chat', () => undefined, undefined, tail)
+    const stopOlder = cache.subscribe('chat', () => undefined, undefined, older)
+    cache.set('chat', Array.from({ length: 120 }, (_, index) => row(index + 1)))
+    cache.setFollowingTail('chat', older, false)
+    cache.setFollowingTail('chat', tail, true)
+    expect(history.isFollowingTail()).toBe(false)
+    history.followForSend()
+    expect(history.isFollowingTail()).toBe(false)
+    stopOlder()
+    expect(history.isFollowingTail()).toBe(true)
+    cache.set('chat', [...cache.get('chat')!, row(121)])
+    expect(cache.get('chat')?.map((message) => message.seq)).toEqual(Array.from({ length: 120 }, (_, index) => index + 2))
+    stopTail()
+  })
+
   it('keeps pending sends and rejects a page completed after its last observer leaves', async () => {
     const cache = new ChatWindowCache(), history = cache.history('chat')
     const stop = cache.subscribe('chat', () => undefined)

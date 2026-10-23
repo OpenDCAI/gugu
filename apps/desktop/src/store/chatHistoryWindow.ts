@@ -58,13 +58,15 @@ function tailBound(rows: readonly MessageItem[]): number {
 
 /** One committed row set owns its bounds and virtual indices; requests own an activation token. */
 export class ChatHistoryWindow {
-  constructor(readonly accountId: string | null = null) {}
+  constructor(readonly accountId: string | null = null, private readonly allowFollowing = () => true) {}
   private state: HistoryWindow = {
     chatId: null, messages: [], firstItemIndex: HISTORY_START_INDEX, hasOlder: false,
     hasNewer: false, loading: null, change: 'reset', navigation: 'reset', navigationVersion: 0, viewVersion: 0, newMessageCount: 0, latestSeen: 0,
   }
   private generation = 0
-  private followingTail = true
+  private following = true
+  private get followingTail(): boolean { return this.following && this.allowFollowing() }
+  private set followingTail(value: boolean) { this.following = value }
   // Retaining only a historical slice must not turn a previously seen tail into new arrivals.
   private latestSeenByChat = new Map<string, number>()
   private listeners = new Set<() => void>()
