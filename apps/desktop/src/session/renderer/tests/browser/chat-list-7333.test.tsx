@@ -12,6 +12,7 @@ import '@/i18n/registerMessagingCatalog';
 import '@/i18n/registerMainCatalog';
 import '@/styles/tokens.css';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
+import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
 vi.mock('@/store/devicesContext', async (original) => ({ ...(await original<object>()), useDevicesStore: () => ({ devices: [] }) }));
@@ -67,6 +68,14 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn()) {
 }
 
 describe('the IM chat list in the master\'s roles (#7333)', () => {
+  it('a sidebar topic activation requests a split toggle on its source', async () => {
+    const root = await renderList();
+    await userEvent.click(root.querySelector<HTMLElement>('[data-topic-subrow="t-live"]')!);
+    expect(drainTopicSplitRequest('grp-1')).toEqual({
+      chatId: 't-live', name: '去哪儿', sourceChatId: 'grp-1', focusComposer: true, toggle: true,
+    });
+  });
+
   it('#7589 only a source with topics has a chevron; repeated clicks fold all its subrows without navigating', async () => {
     const onChatSelected = vi.fn();
     const root = await renderList('grp-1', onChatSelected);

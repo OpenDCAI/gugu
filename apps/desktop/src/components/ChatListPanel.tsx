@@ -717,6 +717,7 @@ export function ChatListPanel({
         name: chat.name ?? '',
         sourceChatId: chat.source_chat_id,
         focusComposer: focusTarget === 'composer',
+        toggle: true,
       })
       onChatSelected?.('sidebar')
       return
