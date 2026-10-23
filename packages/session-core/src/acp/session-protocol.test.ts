@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest';
+import type { ReducerInput } from './reducer/reducer';
 import type {
   SessionEntityUpsert,
   SessionForegroundState,
@@ -10,6 +11,9 @@ import type {
 } from './session-protocol';
 
 describe('session domain contracts', () => {
+  it('does not admit raw protocol updates to the domain reducer', () => {
+    expectTypeOf<Extract<ReducerInput, { kind: 'update' }>>().toBeNever();
+  });
   it('keeps dispatch and agent acceptance distinct from foreground completion', () => {
     type Dispatched = Extract<SessionPromptReceipt, { status: 'dispatched' }>;
     type Accepted = Extract<SessionPromptReceipt, { status: 'accepted' }>;

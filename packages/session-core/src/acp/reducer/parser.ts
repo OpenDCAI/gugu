@@ -28,7 +28,7 @@
  *     result.title;                 // string | null
  *
  * Provider enrichment:
- *   Pass an optional EnrichHook; baseline decoding is owned by the reducer.
+ *   Pass an optional EnrichHook; raw updates are normalized at this facade before reduction.
  */
 
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
@@ -37,7 +37,8 @@ import type { SessionConfigState, SessionUsage } from '../models/config';
 import type { PlanState } from '../models/plan';
 import type { TranscriptTurn, TranscriptTurnOutcome } from '../models/turns';
 import type { EnrichHook, NormalizedEvent } from './normalized-event';
-import { initialState, reduce, type ParserState, type ReducerDeps } from './reducer';
+import { initialState, reduce, type ParserState } from './reducer';
+import { decodeSessionUpdate } from '../transport/decode';
 
 export interface AcpTranscriptParserDeps {
   sessionId: string;
@@ -58,7 +59,7 @@ export type ReplayEntry = SessionUpdate | { update: SessionUpdate; ts?: number; 
 
 export class AcpTranscriptParser {
   private state: ParserState;
-  private readonly deps: ReducerDeps;
+  private readonly deps: AcpTranscriptParserDeps;
 
   constructor(deps: AcpTranscriptParserDeps) {
     this.state = initialState();
@@ -71,7 +72,13 @@ export class AcpTranscriptParser {
    * For transcript-affecting variants, may open or close a turn.
    */
   push(update: SessionUpdate, at = Date.now()): void {
-    this.state = reduce(this.state, { kind: 'update', update, at }, this.deps);
+    this.state = reduce(this.state, {
+      kind: 'event',
+      event: this.deps.enrich
+        ? this.deps.enrich(decodeSessionUpdate(update), update)
+        : decodeSessionUpdate(update),
+      at,
+    }, this.deps);
   }
 
   pushEvent(event: NormalizedEvent, at = Date.now()): void {

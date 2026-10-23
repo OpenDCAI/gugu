@@ -308,7 +308,7 @@ export const claudeSessionBundleDescriptor = {
      * `TaskUpdate`」。桥的 :4466-4470 注释对上了这一点:「Headless/SDK sessions use these instead
      * of TodoWrite」。新老引擎各走一条,落到咕咕这边都是同一个 `plan`。
      *
-     * 咕咕这一侧接得住,且不分家:`session-core/src/acp/reducer/decode.ts` 解出
+     * 咕咕这一侧接得住,且不分家:`session-core/src/acp/transport/decode.ts` 解出
      * `{ kind: 'plan', entries }`,`normalized-event.ts` 归一成结构化 entries(❌ 不是纯 markdown)。
      */
     todo: { kind: 'native', channel: 'acp-plan' },

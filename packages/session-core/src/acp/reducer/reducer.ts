@@ -22,7 +22,6 @@
  *   CLOSE (implicit): next new user message while a turn is active → closeActive + open.
  */
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentState, AgentStatus } from '../models/agents';
 import type { SessionCommand, SessionConfigState, SessionUsage } from '../models/config';
 import { initialSessionConfigState } from '../models/config';
@@ -36,11 +35,10 @@ import type {
   TranscriptTurn,
 } from '../models/turns';
 import { deriveConfigGroups } from './config-derive';
-import { decodeSessionUpdate } from '../transport/decode';
 import { makeMessageId, makeThinkingId, makeTurnId } from './ids';
 import { foldItem, finalizeItems, type FoldEvent } from './item-fold';
 import { projectSubagentProgress } from './subagent-progress';
-import type { EnrichHook, NormalizedEvent } from './normalized-event';
+import type { NormalizedEvent } from './normalized-event';
 
 type SynthesizedSegmentKind = 'message:user' | 'message:assistant' | 'thinking';
 
@@ -78,7 +76,6 @@ export interface ParserState {
 }
 
 export type ReducerInput =
-  | { kind: 'update'; update: SessionUpdate; at: number }
   | { kind: 'event'; event: NormalizedEvent; at: number }
   | { kind: 'replay_start'; at: number }
   | { kind: 'replay_end'; at: number; outcome?: TranscriptTurnOutcome }
@@ -109,7 +106,6 @@ export type ReducerInput =
 
 export interface ReducerDeps {
   sessionId: string;
-  enrich?: EnrichHook;
 }
 
 export function initialState(): ParserState {
@@ -955,13 +951,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     return { ...folded, transcript };
   }
 
-  const decoded =
-    input.kind === 'event'
-      ? input.event
-      : deps.enrich
-        ? deps.enrich(decodeSessionUpdate(input.update), input.update)
-        : decodeSessionUpdate(input.update);
-  const event = canonicalizeSubagentIdentity(decoded, s.agents);
+  const event = canonicalizeSubagentIdentity(input.event, s.agents);
 
   if (event.kind === 'subagent_done' && event.subagentSessionId) {
     const previous = s.agents.find((agent) => agent.subagentSessionId === event.subagentSessionId);
