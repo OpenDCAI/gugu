@@ -343,6 +343,7 @@ const GUGU_SKIN_BRIDGE_CSS = `
 .gugu-skin [data-slot='dialog-content'] {
   box-shadow: var(--shadow-lift);
 }
+.gugu-skin [data-slot='combobox-content'] { --em-surface-input: var(--input-bg); }
 
 /* 兜底 + 实测必要(非仅"以防万一"):会话页用 Tailwind v4 preflight 的
    'html, :host { font-family: var(--default-font-family, ui-sans-serif…) }' 做基础字体

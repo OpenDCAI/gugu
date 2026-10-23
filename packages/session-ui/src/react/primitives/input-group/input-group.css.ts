@@ -58,7 +58,7 @@ export const inputGroup = recipe({
         borderRight: 'none',
         borderBottom: `1px solid ${vars.border}`,
         borderRadius: 0,
-        backgroundColor: 'transparent',
+        backgroundColor: vars.surfaceInput,
         boxShadow: 'none',
         width: 'auto',
         selectors: {

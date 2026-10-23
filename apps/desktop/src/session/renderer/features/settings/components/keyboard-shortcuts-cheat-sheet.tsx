@@ -478,7 +478,7 @@ export const KeyboardShortcutsCheatSheet: React.FC<BaseModalProps> = ({ onClose 
             placeholder={translate('keyboard.cheatSheetSearch')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-md border border-foreground/10 bg-background-secondary px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-muted/60 focus:outline-none focus:border-border-1"
+            className="w-full rounded-md border border-foreground/10 bg-[var(--em-surface-input)] px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-muted/60 focus:outline-none focus:border-border-1"
           />
         </div>
         <button

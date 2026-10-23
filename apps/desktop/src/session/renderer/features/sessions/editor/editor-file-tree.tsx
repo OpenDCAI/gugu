@@ -877,7 +877,7 @@ export const EditorFileTree = observer(function EditorFileTree({
     body = (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="px-2 pt-2">
-          <div className="bg-background-1 flex items-center gap-1.5 rounded-md px-2">
+          <div className="flex items-center gap-1.5 rounded-md bg-[var(--em-surface-input)] px-2">
             <Search className="text-foreground-muted size-3.5 shrink-0" />
             <input
               value={filterQuery}
