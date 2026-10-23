@@ -51,9 +51,9 @@ export function createGugu(
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
     hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
     watchers.set(watchId, handler);
-    void watch(watchId, where, true);
+    const registered = watch(watchId, where, true);
     return () => {
-      if (watchers.delete(watchId)) void watch(watchId, where, false);
+      if (watchers.delete(watchId)) void registered.then(() => watch(watchId, where, false));
     };
   }
 

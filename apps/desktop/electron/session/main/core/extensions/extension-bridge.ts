@@ -367,7 +367,8 @@ export function stopPageWatches(pageId: number): void {
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
 async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
-  const watching = pageWatches.get(caller.pageId);
+  const resource = on && 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  let watching = pageWatches.get(caller.pageId);
   const existing = watching?.get(watchId);
   if (!on) {
     existing?.disk?.stop();
@@ -376,7 +377,12 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     return;
   }
   if (existing) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
-  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  if (!watching) {
+    watching = new Map();
+    pageWatches.set(caller.pageId, watching);
+    // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
+    if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
+  }
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
@@ -385,12 +391,6 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
       workspaceRoot: (await localRootOf(place)).workspaceRoot,
       deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
     });
-  }
-  if (!watching) {
-    pageWatches.set(caller.pageId, new Map([[watchId, { caller, place, resource, disk }]]));
-    // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
-    if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
-    return;
   }
   watching.set(watchId, { caller, place, resource, disk });
 }

@@ -4,7 +4,7 @@ import type { GuguHost } from './host';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 
 describe('file subscriptions at the same place', () => {
-  it('registers and delivers each subscription separately, then cancels only its handler', () => {
+  it('registers and delivers each subscription separately, then cancels only its handler', async () => {
     let changed!: Parameters<GuguHost['onFilesChanged']>[0];
     const watch = vi.fn(async (_args: Parameters<GuguHost['appFiles']['watch']>[0]) => undefined);
     const gugu = createGugu({
@@ -23,11 +23,13 @@ describe('file subscriptions at the same place', () => {
     expect(owner).toHaveBeenCalledWith(batch);
     expect(agent).not.toHaveBeenCalled();
     stopOwner(); stopOwner();
+    await vi.waitFor(() => expect(watch).toHaveBeenCalledTimes(3));
     changed('1', batch); changed('2', batch);
     expect(owner).toHaveBeenCalledTimes(1);
     expect(agent).toHaveBeenCalledTimes(1);
     expect(watch.mock.calls.at(-1)).toEqual([{ watchId: '1', place, on: false }]);
     stopAgent();
+    await vi.waitFor(() => expect(watch).toHaveBeenCalledTimes(4));
     expect(watch.mock.calls.at(-1)).toEqual([{ watchId: '2', place, on: false }]);
   });
 });
