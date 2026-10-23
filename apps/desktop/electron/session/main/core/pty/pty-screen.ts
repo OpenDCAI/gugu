@@ -19,10 +19,10 @@ import type { PtyDimensions } from './pty';
  */
 
 /**
- * 快照里带多少行普通缓冲区的回滚。从前回放的 64KB 原始字节,对普通 shell 输出也就一千行上下;
+ * 与前端 pty.ts 的回滚上限一致:关闭视图后重建不能丢掉原来能看的行。
  * 回滚越长,主进程每条写满的终端多占一份(每行 = 列数 × 12 字节)。全屏 TUI 在备用屏里,这一项与它无关。
  */
-export const SCREEN_SCROLLBACK_LINES = 1_000;
+export const SCREEN_SCROLLBACK_LINES = 10_000;
 
 /**
  * 切快照时,解析多久毫无进展就算停了。正常是毫秒级(要等的只是已经到了、还没解析完的输出);积压大时只要还在往前解析

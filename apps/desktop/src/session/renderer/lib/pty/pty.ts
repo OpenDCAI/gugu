@@ -16,12 +16,11 @@ import { ensureXtermHost } from './xterm-host';
 import { notifyPtyOutput } from '../session-output-observers';
 
 /**
- * 每个终端视图在渲染进程里留多少行回滚。视图活到会话删除 / 归档为止(切走不释放),所以这是**每个开过的终端**都要付的价。
+ * 每个终端视图在渲染进程里留多少行回滚。普通终端页签关闭时释放视图,重开从主进程屏幕恢复。
  * 从前是 100,000 行。macOS A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
  * 工作区面板「最大化 / 还原」三次 —— 每次改宽度 xterm 都把整份回滚重排一遍 —— 主线程长任务 21–24 个、最长 134–140ms
  * → 5–8 个、最长 64–65ms(2026-10-05 实测)。
- * 10,000 行是 Alacritty 的默认、Windows Terminal 是 9,001;视图重建时主进程交的屏幕快照只带 1,000 行回滚
- * (pty-screen.ts 的 SCREEN_SCROLLBACK_LINES),本来就补不回更早的行。
+ * 与 pty-screen.ts 的 SCREEN_SCROLLBACK_LINES 一致,视图重建不能丢掉更早的回滚。
  */
 const SCROLLBACK_LINES = 10_000;
 
@@ -146,8 +145,7 @@ const webglHolders: FrontendPty[] = [];
  *
  * Lifecycle: created and owned by PtySession (stores/pty-session.ts), one per
  * live session. Survives React component unmounts (e.g. navigating away from a
- * task), and is disposed only when the entity (terminal or conversation) is
- * explicitly deleted.
+ * task). Closing a normal terminal tab or deleting its entity disposes the view.
  */
 export class FrontendPty {
   /** All live FrontendPty instances — used for app-wide operations (e.g. theme updates). */
@@ -207,7 +205,7 @@ export class FrontendPty {
 
   /** 每次写入**解析完成后**调一次；只在真的有可见内容时才放行。 */
   private noteOutput(): void {
-    if (this.sawOutput) return;
+    if (this.disposed || this.sawOutput) return;
     if (!this.hasVisibleContent()) return;
     this.sawOutput = true;
     this.onFirstOutput?.();
@@ -381,6 +379,7 @@ export class FrontendPty {
    */
   async connect(): Promise<void> {
     const result = await rpc.pty.subscribe(this.ptySessionId);
+    if (this.disposed) return;
     const historical = result.success ? result.data.buffer : '';
     // 要快照之后、切出来之前才到的新输出:排在回放后面照实时写,其中 TUI 刚发的查询(DA1、光标位置…)要应答。
     // 会话在别的机器上、那边还是旧版宿主时没有这一项。
@@ -448,8 +447,8 @@ export class FrontendPty {
       this.replayingHistory = false;
       const pendingLiveData = live ? [live, ...this.pendingLiveData] : this.pendingLiveData;
       this.pendingLiveData = [];
-      for (const data of pendingLiveData) {
-        this.terminal.write(data, () => this.noteOutput());
+      if (!this.disposed) {
+        for (const data of pendingLiveData) this.terminal.write(data, () => this.noteOutput());
       }
     }
   }

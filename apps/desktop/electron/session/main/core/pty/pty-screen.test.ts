@@ -75,7 +75,7 @@ describe('PtyScreen', () => {
 
   it(`普通缓冲区带最后 ${SCREEN_SCROLLBACK_LINES} 行回滚`, async () => {
     const s = screen();
-    const total = 1500;
+    const total = SCREEN_SCROLLBACK_LINES + 500;
     for (let i = 1; i <= total; i++) s.write(`line ${i}\r\n`);
     const view = await viewOf((await s.snapshot()).data);
     const buffer = view.buffer.active;
@@ -85,6 +85,20 @@ describe('PtyScreen', () => {
     const numbered = all.filter((l) => l.startsWith('line '));
     expect(numbered.at(-1)).toBe(`line ${total}`);
     expect(numbered).toHaveLength(SCREEN_SCROLLBACK_LINES + SIZE.rows - 1);
+  });
+
+  it('rebuilds a 135-column view with all 10,000 original lines and output produced while closed', async () => {
+    const size = { cols: 135, rows: 41 };
+    const data = Array.from({ length: 10_000 }, (_, i) => `row-${i.toString().padStart(5, '0')} ${'x'.repeat(65)}\r\n`).join('');
+    const s = screen(size);
+    s.write(data);
+    const before = await viewOf((await s.snapshot()).data, size);
+    before.dispose();
+    s.write('written while closed\r\n');
+    const restored = await viewOf((await s.snapshot()).data, size);
+    const lines = Array.from({ length: restored.buffer.active.length }, (_, i) => restored.buffer.active.getLine(i)?.translateToString(true) ?? '');
+    expect(lines.filter((line) => line.startsWith('row-'))).toEqual(data.trimEnd().split('\r\n'));
+    expect(lines).toContain('written while closed');
   });
 
   it('交接:要快照之后、切出来之前写进来的批次单独放在 live;切出来之后写的不在', async () => {

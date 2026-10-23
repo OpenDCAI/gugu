@@ -49,9 +49,12 @@ export class PtySession {
     });
   }
 
-  async connect() {
+  async connect(): Promise<void> {
     if (this.pty) return;
-    if (this.connectPromise) return this.connectPromise;
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return this.connect();
+    }
 
     const version = this.version;
     this.connectPromise = (async () => {
