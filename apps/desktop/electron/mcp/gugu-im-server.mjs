@@ -12,6 +12,7 @@ import { tokenizeMarkdownMath } from '../../../../packages/core/src/shared/markd
 import { findRosterNameHits } from '../../../../packages/core/src/shared/rosterNameMatching.mjs'
 import { findMentionSpans } from '../../../../packages/core/src/shared/mentionToken.mjs'
 import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
+import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
@@ -2126,11 +2127,10 @@ async function downloadAttachment(messageId, deps) {
   const bytes = await deps.fetchBytes(link.url)
   const home = typeof deps.context.guguHome === 'string' ? deps.context.guguHome.trim() : ''
   if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
-  const safeName = attachment.fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
-  const dir = joinPath(home, 'chat-media')
   const sha256 = createHash('sha256').update(bytes).digest('hex')
-  const path = joinPath(dir, `${sha256.slice(0, 24)}-${safeName}`)
-  await mkdir(dir, { recursive: true })
+  const dir = joinPath(home, 'chat-media', sha256)
+  const path = joinPath(dir, attachmentDownloadName(attachment.fileName))
+  await mkdir(dir, { recursive: true, mode: 0o700 })
   await writeFile(path, bytes, { mode: 0o600 })
   return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256 })
 }

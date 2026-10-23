@@ -3,10 +3,11 @@
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
 
 const AGENT = '11111111-1111-4111-8111-111111111111'
 const CHAT = '33333333-3333-4333-8333-333333333333'
@@ -51,9 +52,20 @@ describe('message_download_file by source_message_id (#7290)', () => {
     expect(fetched).toEqual([LEGACY_URL])
     expect(asked).toEqual([])
     const [name] = await readdir(join(home, 'chat-media'))
-    expect(name).toBe(`${createHash('sha256').update('bytes').digest('hex').slice(0, 24)}-notes.pdf`)
-    expect(await readFile(join(home, 'chat-media', name!), 'utf8')).toBe('bytes')
+    expect(name).toBe(createHash('sha256').update('bytes').digest('hex'))
+    expect(await readFile(join(home, 'chat-media', name!, 'notes.pdf'), 'utf8')).toBe('bytes')
     expect(text).toContain(join(home, 'chat-media', name!))
+  })
+
+  test('preserves a Chinese filename inside its hash directory, so default sending keeps the original name', async () => {
+    const fileName = '费用核对报告（最终版）😀.html'
+    const { call } = await setup({ id: 'm1', chat_id: CHAT, content: legacy.replace('notes.pdf', fileName), content_type: 'attachment', file_item_id: null, file_version: null })
+    const receipt = JSON.parse(await call())
+    expect(basename(receipt.file_path)).toBe(fileName)
+    expect(basename(dirname(receipt.file_path))).toBe(receipt.sha256)
+    expect(await readFile(receipt.file_path, 'utf8')).toBe('bytes')
+    expect(attachmentDownloadName('../目录\\报告\u0000\u0085.html')).toBe('..目录报告.html')
+    expect(attachmentDownloadName('..')).toBe('attachment')
   })
 
   test('returns full SHA-256 and actual byte count for the original bytes, including binary and Unicode data', async () => {
@@ -69,7 +81,7 @@ describe('message_download_file by source_message_id (#7290)', () => {
   test('session-attachment tool receipt contains the verified original SHA and byte count', async () => {
     const home = await mkdtemp(join(tmpdir(), 'gugu-session-tool-receipt-')); homes.push(home)
     const bytes = new Uint8Array([0, 255, 65, 13, 10, 128, 9])
-    const ref = { attachment_id: '44444444-4444-4444-8444-444444444444', file_name: 'original.bin', size_bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), content_type: 'application/octet-stream' }
+    const ref = { attachment_id: '44444444-4444-4444-8444-444444444444', file_name: '原始文件😀.bin', size_bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), content_type: 'application/octet-stream' }
     const context = { agentId: AGENT, supabaseUrl: 'https://db.test', anonKey: 'anon', getAccessToken: async () => 'owner-token', guguHome: home, threadRootId: null }
     const fetch = async (url: string, init?: RequestInit) => {
       if (url.endsWith('/session-urls')) {
@@ -80,6 +92,8 @@ describe('message_download_file by source_message_id (#7290)', () => {
     }
     const receipt = JSON.parse(await callTool(context, 'message_download_file', { source_attachment_id: ref.attachment_id }, { fetch }))
     expect(receipt).toMatchObject(ref)
+    expect(basename(receipt.file_path)).toBe(ref.file_name)
+    expect(basename(dirname(receipt.file_path))).toBe(ref.sha256)
     expect(new Uint8Array(await readFile(receipt.file_path))).toEqual(bytes)
     expect(receipt).not.toHaveProperty('url')
   })

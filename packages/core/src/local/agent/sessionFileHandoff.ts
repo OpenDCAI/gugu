@@ -4,6 +4,7 @@ import { basename, join } from 'node:path'
 import { uploadAttachmentBytes, type AttachmentsEndpoint } from '../../cloud/attachmentsApi'
 import { commitSessionAttachment, resolveSessionAttachment, revokeSessionAttachment, type SessionFileInput } from '../../cloud/sessionAttachments'
 import { resolveAttachmentMimeType } from '../../shared/imageMime.mjs'
+import { attachmentDownloadName } from '../../shared/attachmentDownloadName.mjs'
 
 const MAX_BYTES = 25 * 1024 * 1024
 export async function uploadSessionFile(endpoint: AttachmentsEndpoint, file: SessionFileInput, sender: {
@@ -57,8 +58,9 @@ export async function downloadSessionFile(endpoint: AttachmentsEndpoint, id: str
     await file.close()
     if (size !== reference.size_bytes || hash.digest('hex') !== reference.sha256) throw new Error('Session attachment bytes or SHA-256 do not match')
     await resolveSessionAttachment(endpoint, id, actor) // Recheck access after the actual download.
-    const name = basename(reference.file_name.replaceAll('\\', '/')).replace(/[^A-Za-z0-9._-]/g, '_') || 'attachment'
-    const path = join(directory, `${reference.sha256}-${name}`)
+    const contentDirectory = join(directory, reference.sha256)
+    await mkdir(contentDirectory, { recursive: true, mode: 0o700 })
+    const path = join(contentDirectory, attachmentDownloadName(reference.file_name))
     await rename(temporary, path)
     return { ...reference, url: undefined, expires_at: undefined, file_path: path }
   } catch (error) { await file.close().catch(() => undefined); await rm(temporary, { force: true }); throw error }
