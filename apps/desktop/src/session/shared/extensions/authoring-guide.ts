@@ -202,7 +202,7 @@ Free (they only concern your own tab):
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
 - What the whole app shows (panes, which session): \`apps-agents\`.
-- \`setTabTitle(title)\` → renames your tab (48 at most).
+- \`setTabTitle(title)\` → names your page (48 at most). A tab opened for a file keeps the file name first; your semantic title is a hint or tooltip. Back out of that file closes its tab; navigation within your page keeps it.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.

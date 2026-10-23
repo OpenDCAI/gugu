@@ -19,7 +19,7 @@ import { ExtensionMark } from './extension-mark';
 import { ExtensionTabPane } from './extension-tab-pane';
 import { ExtensionSharedSlot } from './extension-shared-slot';
 import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
-import { extensionSurfaceStore } from './extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { placeOnScreen, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
@@ -175,7 +175,7 @@ export function createExtensionTabProvider(
    * name until the app restarted.
    */
   const titleOf = (): string =>
-    installedExtensionsStore.allTabContributions.find((entry) => entry.kind === kind)?.title ?? tabName;
+    installedExtensionsStore.tabTitle(kind) ?? tabName;
 
   return createTabProvider({
     kind,
@@ -209,7 +209,7 @@ export function createExtensionTabProvider(
       if (entry.state?.filePath) return fileBaseName(entry.state.filePath);
       const sessionId = (ctx as SessionTabContext).sessionId;
       const surface = extensionSurfaceStore.sharedState(residentPageKey(kind, residentPlace({ sessionId, perSession: isPerSession(kind) })));
-      return surface.title ?? titleOf();
+      return extensionTabTitle(surface, titleOf()).label;
     }),
     /**
      * 人关掉常驻的那一枚 = **它从这里拿走**(behavior tab-extensions):App 照常启用、照常在跑,
@@ -299,12 +299,12 @@ export function createExtensionTabProvider(
         ],
         [blockId, claimedFile, ctx, perSession, sessionId, tab.tabId]
       );
-      const title = surface.title ?? titleOf();
       // 同一个 App 开着两个不同目录下的同名文件:与文件页签同一条规矩,补上区分它们的那截路径(file-tab-label.ts)。
       const claimedTabs = host.resolvedTabs.filter((t): t is ResolvedTab<ExtensionTabResource> => t.kind === kind && !!(t.resource as ExtensionTabResource).filePath);
       const pathHint = claimedFile
         ? fileTabLabels(claimedTabs.map((t) => ({ path: t.resource.filePath ?? '', title: null })))[claimedTabs.findIndex((t) => t.tabId === tab.tabId)]?.hint
         : undefined;
+      const presentation = extensionTabTitle(surface, titleOf(), claimedFile ? { name: fileBaseName(claimedFile), path: claimedFile, hint: pathHint } : undefined);
       return (
         <GenericTabItem
           tab={tab}
@@ -313,9 +313,9 @@ export function createExtensionTabProvider(
           // 摩擦单 F95: a tab opened for a file says which file first — two of them, or the App's and the built-in
           // editor's on the same file, would otherwise read the same; the App and, for same-named files, the folder follow
           // in muted text (as a diff tab's group does). The whole path is in the tooltip.
-          label={claimedFile ? fileBaseName(claimedFile) : title}
-          hint={claimedFile ? (pathHint ? `${pathHint} · ${title}` : title) : undefined}
-          tooltip={surface.error ?? (claimedFile ? `${claimedFile} · ${title}` : undefined)}
+          label={presentation.label}
+          hint={presentation.hint}
+          tooltip={presentation.tooltip}
           hasError={surface.error !== null}
           preSlot={<ExtensionTabIcon kind={kind} />}
           statusSlot={<ExtensionTabBadge badge={surface.badge} />}

@@ -32,9 +32,11 @@ export interface MessageFilePreviewPanelProps {
   mobile?: boolean
   /** Fills the box it is put in (beside an App, AppPeek) instead of taking a side panel's width. */
   fill?: boolean
+  /** The host tab already carries this file name and its close button. */
+  tabbed?: boolean
 }
 
-export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false, tabbed = false }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
@@ -42,7 +44,12 @@ export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading
   return (
     <aside data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
       {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回,右上关闭整栏。 */}
-      {mobile ? (
+      {tabbed && !mobile ? (
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="message-file-preview-tab-bar">
+          {onBack ? <IconButton size="sm" aria-label={t('common.back')} onClick={onBack}><ChevronLeft /></IconButton> : null}
+          <IconButton size="sm" className="ml-auto" aria-label={t('common.close')} onClick={onClose}><X /></IconButton>
+        </div>
+      ) : mobile ? (
         <PaneHeader
           mobile
           divider

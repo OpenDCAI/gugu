@@ -8,7 +8,7 @@ import { readRendererPlatform } from '@/lib/window-chrome';
 import { AUX_WINDOW_NAME_PREFIX } from '@shared/aux-window';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
-import { extensionSurfaceStore } from '@renderer/features/extensions/extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { ExtensionTabToolbar } from '@renderer/features/extensions/extension-tab-toolbar';
 import { extensionViewStore } from '@renderer/features/extensions/extension-view-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -223,7 +223,7 @@ export const auxLeadingReserve = (): number => (readRendererPlatform() === 'mac'
 /** 窗里的 App:顶上一条页签条(只有它一枚,右端「放回咕咕」),下面是它的页。 */
 const AuxAppPage = observer(function AuxAppPage({ windowId, tabKind }: { windowId: string; tabKind: string }) {
   const contribution = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === tabKind);
-  const label = contribution?.title ?? tabKind;
+  const { label, tooltip } = extensionTabTitle(extensionSurfaceStore.said(null, `window:${windowId}`), installedExtensionsStore.tabTitle(tabKind) ?? tabKind);
   const focused = auxWindows.focusedWindowId === windowId;
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background text-foreground" data-aux-window={windowId}>
@@ -241,6 +241,7 @@ const AuxAppPage = observer(function AuxAppPage({ windowId, tabKind }: { windowI
             isActive
             isFocusedPane={focused}
             label={label}
+            title={tooltip}
             preSlot={<ExtensionMark iconDataUrl={contribution?.iconDataUrl} />}
             closeLabel={label}
             onClose={() => windowClosed(windowId)}

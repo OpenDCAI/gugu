@@ -1,12 +1,12 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { reaction } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, Maximize2, Minimize2, MoreHorizontal, X } from '@/lib/icons'
 import { useAuth } from '../../store/auth'
 import { declaredMenuCommands, declaredToolbarCommands } from '../../session/renderer/features/extensions/extension-commands'
-import { extensionSurfaceStore } from '../../session/renderer/features/extensions/extension-surface-store'
+import { extensionSurfaceStore, extensionTabTitle } from '../../session/renderer/features/extensions/extension-surface-store'
 import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
 import {
   APP_OPEN_WITH_EVENT,
@@ -33,7 +33,7 @@ import { platform } from '../../platform'
 import { AppErrorDetails, AppErrorMark } from './AppErrorMark'
 import { appsHere } from './appsHere'
 import { MessageFilePreview } from '../chat/MessageFilePreview'
-import { groupSlotMemory, type FileToOpen, type OpenedWith } from './groupSlotMemory'
+import { groupPageSlot, groupSlotMemory, type FileToOpen, type OpenedWith } from './groupSlotMemory'
 import { AppPeekSlot } from './AppPeekSlot'
 import { ClaimedPage } from './ClaimedPage'
 import { peekStore } from '../../session/renderer/features/extensions/peek-store'
@@ -133,13 +133,6 @@ const enabledApps = () => installedExtensionsStore.manifests.filter((manifest) =
 const INLINE_COMMANDS = 2
 
 /**
- * The slot a page of this panel is drawn in, as a task's tab is (`conversationId` null): the App's own page in the panel's, a page
- * opened for a file (each open its own page, 摩擦单 F28) in one of its own. What a page says about itself is kept and read
- * by it (`extensionSurfaceStore.say` / `said`), the one way for a task's tab, this panel and the phone.
- */
-const pageSlot = (slotId: string, opened: OpenedWith | null) => (opened ? `${slotId}#${opened.opening}` : slotId)
-
-/**
  * The App kept to open this kind of file (「Always」, 摩擦单 F73), as this window knows it — kept by main on the desktop, by
  * the phone's App store on the phone (`appsHere.setOpenWithDefault`); the store holds this window's copy of either.
  */
@@ -169,39 +162,18 @@ function rememberedOpener(key: string): string | null {
  */
 export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotProps) {
   const { t } = useTranslation('messaging')
-  const [opened, setOpenedState] = useState<OpenedWith | null>(() => groupSlotMemory.opened(props.chatId))
-  /**
-   * G2 What was open here before what is open now, newest last: 「返回」 goes back to it — the App a file was opened from,
-   * not past it to the folder. Kept for this chat while the panel is up; the chat's memory keeps only what is open.
-   */
-  const trail = useRef<OpenedWith[]>([])
+  const opened = useSyncExternalStore(groupSlotMemory.subscribe, () => groupSlotMemory.opened(props.chatId))
+  const trail = (opened?.trail ?? []).filter((page) => groupSlotMemory.tabs(props.chatId).some((item) => item?.kind === page.kind && item?.itemId === page.itemId))
   const asking = useRef(0)
-  const shownNow = useRef(opened)
-  shownNow.current = opened
-  const showOpened = useCallback(
-    (next: OpenedWith | null) => {
-      shownNow.current = next
-      groupSlotMemory.setOpened(props.chatId, next)
-      setOpenedState(next)
-      if (next?.itemId) noteOpened(next.itemId)
-    },
-    [props.chatId],
-  )
-  const setOpened = useCallback(
-    (next: OpenedWith | null) => {
-      // Opened over what is open (a file from an App) goes on the trail; the folder itself starts it over.
-      const now = shownNow.current
-      if (!next || next.restore) trail.current = []
-      else if (now && next.opening !== now.opening) trail.current.push(now)
-      showOpened(next)
-    },
-    [showOpened],
-  )
+  const setOpened = useCallback((next: OpenedWith | null) => {
+    groupSlotMemory.setOpened(props.chatId, next)
+    if (next?.itemId) noteOpened(next.itemId)
+  }, [props.chatId])
   const [prompt, setPrompt] = useState<(AppOpenWithDetail & { restore?: () => void }) | null>(null)
   const [always, setAlways] = useState(false)
   /** The App's error spelled out under the header, when the person asked (摩擦单 F63). */
   const [errorShown, setErrorShown] = useState(false)
-  const slotId = `group-app-slot:${useId()}`
+  const slotId = groupPageSlot(props.chatId, null)
   // Only where the page is drawn differs (the resident layer and main's window events, or this page's iframe); what is
   // installed and what opens what is `appsHere` on both.
   const desktop = platform.kind === 'electron'
@@ -287,44 +259,15 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       if (asked !== asking.current) return
       const choice = openerChoice(typedName, manifests, 'chat', rememberedOpener)
       if (choice.kind === 'one' && choice.candidate.tabKind !== opened.kind) {
-        setOpened({ kind: choice.candidate.tabKind, itemId: opened.itemId, typedName: opened.typedName, title: choice.candidate.tabTitle, opening: ++openings, restore: opened.restore })
+        setOpened({ kind: choice.candidate.tabKind, itemId: opened.itemId, typedName: opened.typedName, title: displayNameOf(opened.fileName ?? opened.title, choice.candidate.suffix), fileName: opened.fileName, opening: ++openings, restore: opened.restore, trail: opened.trail })
       }
     })
   }, [opened, setOpened])
 
-  // Another group: its own panel, as it was left there (摩擦单 F29).
-  useEffect(() => {
-    trail.current = []
-    setOpenedState(groupSlotMemory.opened(props.chatId))
-    setPrompt(null)
-  }, [props.chatId])
-  // Another tab picked on the block's tab strip, or the shown one closed there (gugu-dev#181 第 ⑥ 步): show that one.
-  // What this panel opened itself comes back here too and is already shown.
-  useEffect(() => groupSlotMemory.subscribe(() => {
-    const next = groupSlotMemory.opened(props.chatId)
-    if (next === shownNow.current) return
-    trail.current = []
-    shownNow.current = next
-    setOpenedState(next)
-  }), [props.chatId])
-
-  const fromMessage = !!opened?.restore && trail.current.length === 0
-  const restore = opened?.restore ?? trail.current.find((page) => page.restore)?.restore
-  const close = () => {
-    if (restore) {
-      if (opened) extensionSurfaceStore.forget(null, pageSlot(slotId, opened))
-      for (const page of [...trail.current, ...(opened ? [opened] : [])]) groupSlotMemory.close(props.chatId, page)
-      trail.current = []
-    }
-    props.onClose()
-    restore?.()
-  }
-  // Back within an App keeps its trail; a message entry closes back to its message surface.
-  const back = () => {
-    if (fromMessage) { close(); return }
-    if (opened) extensionSurfaceStore.forget(null, pageSlot(slotId, opened))
-    showOpened(trail.current.pop() ?? null)
-  }
+  useEffect(() => setPrompt(null), [props.chatId])
+  const fromMessage = !!opened?.restore
+  const close = () => groupSlotMemory.close(props.chatId, opened, props.onClose)
+  const back = close
   // On the phone the panel is a whole page (#6815): its way out is the top-left back — to the list from a file, else out
   // of the panel — and the back key does the same.
   const mobile = useMobileShell()
@@ -343,7 +286,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       }
       if (detail.choice.kind === 'one') {
         const { candidate } = detail.choice
-        setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings, restore })
+        setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: displayNameOf(detail.name, candidate.suffix), fileName: detail.name, typedName: detail.typedName, opening: ++openings, restore })
         return
       }
       // 摩擦单 F73: a default already kept for this kind of file shows as a ticked 「Always」 (and a mark on its App).
@@ -441,9 +384,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     if (page?.enabled) {
       setAppFiles(null)
       // The App asked for here is where its trail starts: 「返回」 from it is the folder.
-      trail.current = []
-      shownNow.current = null
-      setOpened({ kind: page.kind, title: page.title, opening: ++openings })
+      setOpened({ kind: page.kind, title: page.title, opening: ++openings, trail: [] })
       return undefined
     }
     let live = true
@@ -477,7 +418,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       void appsHere.setOpenWithDefault({ key, tabKind: next })
     }
     setPrompt(null)
-    setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: candidate.tabTitle, typedName: detail.typedName, opening: ++openings, restore: detail.restore })
+    setOpened({ kind: candidate.tabKind, itemId: detail.itemId, title: displayNameOf(detail.name, candidate.suffix), fileName: detail.name, typedName: detail.typedName, opening: ++openings, restore: detail.restore })
   }
 
   const kind = opened ? opened.kind : props.kind
@@ -539,7 +480,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const frameCommand = useRef<((commandId: string) => void) | null>(null)
   const runCommand = (commandId: string) => {
     if (desktop) {
-      const detail: AppSlotEventDetail = { type: 'command', slotId: pageSlot(slotId, opened), commandId }
+      const detail: AppSlotEventDetail = { type: 'command', slotId: groupPageSlot(props.chatId, opened), commandId }
       window.dispatchEvent(new CustomEvent(APP_SLOT_EVENT, { detail }))
     } else {
       frameCommand.current?.(commandId)
@@ -548,9 +489,9 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const toolbar = kind ? declaredToolbarCommands(kind) : []
   const inline = toolbar.slice(0, INLINE_COMMANDS)
   const folded = [...toolbar.slice(INLINE_COMMANDS), ...(kind ? declaredMenuCommands(kind) : [])]
-  const shown = extensionSurfaceStore.said(null, pageSlot(slotId, opened))
+  const shown = extensionSurfaceStore.said(null, groupPageSlot(props.chatId, opened))
   // A session opened beside the page needs the room: the panel goes full while it is up, and back after (170 10-19 ③).
-  const peekingSession = peekStore.of(null, pageSlot(slotId, opened))?.kind === 'session'
+  const peekingSession = peekStore.of(null, groupPageSlot(props.chatId, opened))?.kind === 'session'
   const widenedFor = useRef(false)
   const toggleFull = useRef(props.onToggleFull)
   toggleFull.current = props.onToggleFull
@@ -563,6 +504,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       if (props.full) toggleFull.current?.()
     }
   }, [peekingSession, props.full])
+  const heading = extensionTabTitle(shown, kind ? installedExtensionsStore.tabTitle(kind) ?? props.title : props.title, opened?.itemId ? { name: opened.title, path: opened.fileName ?? opened.title } : undefined)
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
@@ -611,7 +553,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
           <span className="ml-auto flex items-center gap-1">{commands}{fromMessage ? closeButton : null}</span>
         </div>
       ) : null) : <PaneHeader
-        title={shown.title ?? opened?.title ?? props.title}
+        title={<span title={heading.tooltip}>{heading.label}</span>}
         divider
         // 手机上是一整页:页头和别的手机页同一档(peek 盖上来时也是这一档,一个页头)。
         {...(mobile ? { mobile: true } : {})}
@@ -687,13 +629,13 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
         </div>
       ) : null}
       {/* What the page on screen opens beside it (G1): over it here, the page kept for the way back. */}
-      <AppPeekSlot sessionId={null} tabId={pageSlot(slotId, opened)} narrow={mobile}>
-        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={fromMessage ? undefined : back} full={props.full} onToggleFull={props.onToggleFull} onClose={close} /> : null}
+      <AppPeekSlot sessionId={null} tabId={groupPageSlot(props.chatId, opened)} narrow={mobile}>
+        {opened?.file && (!mobile || props.visible !== false) ? <MessageFilePreview key={opened.opening} fill tabbed={props.tabbed} mobile={mobile} message={opened.message} onForward={props.onForward} file={{ kind: 'file', document: opened.file.document, fileName: opened.fileName ?? opened.title, mimeType: opened.file.contentType, sizeBytes: opened.file.size, source: { kind: 'item', itemId: opened.itemId!, version: opened.file.version } }} onBack={fromMessage ? undefined : back} full={props.full} onToggleFull={props.onToggleFull} onClose={close} /> : null}
         {desktop ? opened?.file ? null : (
           offerUnknown || offerFolds ? (
             <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" />
           ) : (
-            <ClaimedPage slotId={pageSlot(slotId, opened)} chatId={props.chatId} kind={kind!} itemId={opened?.itemId} opening={opened?.opening} />
+            <ClaimedPage slotId={groupPageSlot(props.chatId, opened)} chatId={props.chatId} kind={kind!} itemId={opened?.itemId} opening={opened?.opening} />
           )
         ) : (
           <>
@@ -711,7 +653,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
             {/* Under an offer the file's raw page waits, as on the desktop: the App to install first (摩擦单 F15). */}
             {opened && (offerUnknown || offerFolds) ? <div className="min-h-0 flex-1" data-testid="group-app-slot-raw-folded" /> : null}
             {/* What it was opened from stays as it was, hidden, for 「返回」 (G2) — a frame, unlike a desktop page, is not kept elsewhere. */}
-            {(opened ? [...trail.current, ...(offerUnknown || offerFolds ? [] : [opened])] : []).filter((entry) => entry.kind !== null).map((entry) => (
+            {(opened ? [...trail, ...(offerUnknown || offerFolds ? [] : [opened])] : []).filter((entry) => entry.kind !== null).map((entry) => (
               <PhoneAppFrame
                 key={`${entry.kind}:${entry.itemId}:${entry.opening}`}
                 chatId={props.chatId}
@@ -719,7 +661,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
                 itemId={entry.itemId}
                 hidden={entry !== opened}
                 onOpenWith={openAsked}
-                tabId={pageSlot(slotId, entry)}
+                tabId={groupPageSlot(props.chatId, entry)}
                 commandRef={entry === opened ? frameCommand : undefined}
                 testId="group-app-frame"
                 missingTestId="group-app-slot-missing"
