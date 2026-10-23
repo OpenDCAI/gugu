@@ -421,7 +421,7 @@ export class LocalSessionProvider implements SessionProvider {
       //    —— 正是本 PR 与 [[session-injection]]「禁止写 pty」要判死的那件事。
       //    ACP 腿早有对称的闸(main.ts:`initialMessageId && !startupOrigin` 即抛),PTY 腿补上。
       const chatPageFirstTurn = !agentSession.isResuming
-        && session.startupOrigin === 'chat-page'
+        && (session.startupOrigin === 'chat-page' || Boolean(session.taskChatId))
         && Boolean(session.initialMessageId)
         && Boolean(initialPrompt?.trim());
       // 首句由宿主在就绪之后经 local-session 注入的家(`providerStartupTurnViaLocalSession`):那条注入就是
@@ -458,6 +458,7 @@ export class LocalSessionProvider implements SessionProvider {
           agentDisplayName: session.agentDisplayName,
           messageId: session.initialMessageId!,
           text: initialPrompt!,
+          taskChatId: session.taskChatId,
         });
       }
 

@@ -187,6 +187,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   onAttach,
   onDropFolder,
   onAddMachine,
+  floating = false,
 }: {
   /** 代表这个项目的那一行(侧栏那一行)的本地项目 id。 */
   projectId: string;
@@ -202,6 +203,8 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   onAddMachine?: () => void;
   /** 从 Finder 拖进来的文件夹(一个 File;取路径由调用方决定 —— 别的机器上的项目不能拿这台电脑的路径)。 */
   onDropFolder: (file: File) => void;
+  /** 浮在群聊上面(项目块里开新任务,gugu-dev#181):一浮出来就摊开,提示换成「直接打字或按 Esc 就收起」。 */
+  floating?: boolean;
 }) {
   const { translate } = useSessionMessages();
   useAvatarTick();
@@ -214,6 +217,11 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   useEffect(() => () => {
     if (tiltFrame.current !== null) cancelAnimationFrame(tiltFrame.current);
   }, []);
+  // 浮出来就摊开:文件夹读到了才摊得开(与点卡片同一个条件)。
+  const foldersRead = state.folders !== null;
+  useEffect(() => {
+    if (floating && foldersRead) setOpen(true);
+  }, [floating, foldersRead]);
   const droppedRef = useRef<string | undefined>(undefined);
   const uid = useMemo(() => projectId.replace(/[^a-z0-9]/gi, '').slice(0, 12), [projectId]);
 
@@ -532,7 +540,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
           {state.folders === null
             ? translate('projects.folders.loading')
             : open
-              ? translate('projects.folders.hintOpen')
+              ? translate(floating ? 'projects.folders.hintFloating' : 'projects.folders.hintOpen')
               : translate('projects.folders.hintClosed', { count: folders.length })}
         </p>
       ) : null}

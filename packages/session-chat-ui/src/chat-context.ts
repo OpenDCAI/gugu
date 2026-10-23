@@ -89,6 +89,14 @@ export type ChatContextOptions = {
   appName?: (appId: string) => string | null;
   /** Optional change source so mounted cards re-read `appName` when the host's Apps or language change. */
   subscribeAppNames?: (listener: () => void) => () => void;
+  /**
+   * A group's name by its chat id, as the person reads it, for a delivery that came from a group (the envelope carries
+   * the group's number, which agents address; people read names). Synchronous; `null` = not known here (the card says
+   * "via a group" without a name). Omitted = never known.
+   */
+  chatName?: (chatId: string) => string | null;
+  /** Optional change source so mounted cards re-read `chatName` when the host's chats change. */
+  subscribeChatNames?: (listener: () => void) => () => void;
 };
 
 export type ChatContext = {
@@ -108,6 +116,8 @@ export type ChatContext = {
   readonly senderAvatar: (fromId: string | null) => string | null;
   /** Reactive accessor for an App's name by id; `null` = not known here. */
   readonly appName: (appId: string) => string | null;
+  /** Reactive accessor for a group's name by chat id; `null` = not known here. */
+  readonly chatName: (chatId: string) => string | null;
   /** Shared content-addressed caches (highlight / diff / mermaid / richInline). */
   readonly sharedCaches: SharedCaches;
   /**
@@ -146,11 +156,13 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
   let selfIdentity!: () => SelfIdentity | null;
   let senderAvatar!: (fromId: string | null) => string | null;
   let appName!: (appId: string) => string | null;
+  let chatName!: (chatId: string) => string | null;
   let disposeRoot!: () => void;
   let bumpTranslation!: () => void;
   let bumpSelfIdentity!: () => void;
   let bumpSenderAvatars!: () => void;
   let bumpAppNames!: () => void;
+  let bumpChatNames!: () => void;
 
   createRoot((dispose) => {
     disposeRoot = dispose;
@@ -186,6 +198,13 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
       appNameEpoch();
       return readAppName(appId);
     };
+    const [chatNameEpoch, setChatNameEpoch] = createSignal(0);
+    bumpChatNames = () => setChatNameEpoch((value) => value + 1);
+    const readChatName = opts.chatName ?? (() => null);
+    chatName = (chatId) => {
+      chatNameEpoch();
+      return readChatName(chatId);
+    };
   });
 
   let disposed = false;
@@ -200,6 +219,9 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
   });
   const unsubscribeAppNames = opts.subscribeAppNames?.(() => {
     if (!disposed) bumpAppNames();
+  });
+  const unsubscribeChatNames = opts.subscribeChatNames?.(() => {
+    if (!disposed) bumpChatNames();
   });
 
   registerFontsReadyClear(initialTheme.fonts, () => {
@@ -219,6 +241,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
     selfIdentity,
     senderAvatar,
     appName,
+    chatName,
     sharedCaches,
     measureEpoch,
     bumpEpoch,
@@ -231,6 +254,7 @@ export function createChatContext(opts: ChatContextOptions = {}): ChatContext {
       unsubscribeSelfIdentity?.();
       unsubscribeSenderAvatars?.();
       unsubscribeAppNames?.();
+      unsubscribeChatNames?.();
       disposeRoot();
     },
   };

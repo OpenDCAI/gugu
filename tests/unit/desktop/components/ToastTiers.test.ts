@@ -1,88 +1,139 @@
 // @vitest-environment jsdom
-import { act, createElement, useContext, useEffect } from 'react'
-import { MotionGlobalConfig } from 'framer-motion'
+import { createElement, isValidElement, useContext, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const sonner = vi.hoisted(() => {
+  const base = vi.fn((_title: unknown, _options?: unknown) => 'id')
+  return Object.assign(base, {
+    success: vi.fn((_title: unknown, _options?: unknown) => 'id'),
+    error: vi.fn((_title: unknown, _options?: unknown) => 'id'),
+    warning: vi.fn((_title: unknown, _options?: unknown) => 'id'),
+    info: vi.fn((_title: unknown, _options?: unknown) => 'id'),
+    dismiss: vi.fn(),
+  })
+})
+vi.mock('sonner', () => ({ toast: sonner, Toaster: () => null }))
+
 import { ToastProvider } from '../../../../apps/desktop/src/components/Toast'
 import { ToastContext, type ToastType } from '../../../../apps/desktop/src/components/toastContext'
-import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-import { clickElement, createReactHarness } from '../../../support/testHarness'
-let harness: ReturnType<typeof createReactHarness>
-/** 挂进 provider 里发一条 toast,读到的是真 ToastProvider 渲染出来的 DOM。 */
-function Emit({ message, type }: { message: string, type: ToastType }) {
-  const { toast } = useContext(ToastContext)
-  useEffect(() => { toast(message, type) }, [toast, message, type])
-  return null
-}
-async function emit(type: ToastType, message = 'boom') {
-  await harness.render(createElement(ToastProvider, null, createElement(Emit, { message, type })))
-}
-function card(): HTMLElement | null {
-  return harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.toastItem}"]`)
-}
-function dismissButton(): HTMLElement | null {
-  return harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.toastDismiss}"]`)
-}
+import { dismissNotice, notify } from '../../../../apps/desktop/src/lib/notices'
+import { TOAST_DWELL_MS } from '../../../../apps/desktop/src/lib/toastTiers'
+import { createReactHarness } from '../../../support/testHarness'
+
+type Options = { id?: string; duration?: number; closeButton?: boolean; className?: string; icon?: unknown; description?: unknown }
+const lastOptions = (fn: ReturnType<typeof vi.fn>): Options => fn.mock.calls.at(-1)?.[1] as Options
+
 beforeEach(() => {
-  // AnimatePresence 的退场动画走真实时间,fake timer 推不动它 —— 不关掉的话「已消失」永远读到
-  // 那个正在退场的节点。framer 官方开关,比断言组件内部状态干净。
-  // This test owns a real ToastProvider; jsdom has no system media queries.
+  // The provider mounts the real NoticeHost, which reads the system theme; jsdom has no media queries.
   vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
     matches: false, media: query, onchange: null,
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: () => true,
   })))
-  MotionGlobalConfig.skipAnimations = true
-  vi.useFakeTimers()
-  harness = createReactHarness()
+  for (const fn of [sonner, sonner.success, sonner.error, sonner.warning, sonner.info, sonner.dismiss]) fn.mockClear()
 })
-afterEach(() => {
-  harness.cleanup()
-  vi.useRealTimers()
-  MotionGlobalConfig.skipAnimations = false
-  vi.unstubAllGlobals()
-})
-describe('toast 档位与停留', () => {
-  it('warning 是独立一档,不再借用 error 的红', async () => {
-    await emit('warning')
-    // 「做成了但有残留」用 error 红渲染是把结果说重了 —— #4891 审计里 create.toast.cancelWarning 就这么弹的
-    expect(card()?.getAttribute('data-toast-type')).toBe('warning')
-  })
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe('提示的档位与停留(全 app 一份,#4891 / #137)', () => {
   it.each<[ToastType, number]>([
-    ['success', 3000],
-    ['info', 3000],
-    ['warning', 5000],
-    ['error', 6000],
-  ])('%s 停留 %ims:差一毫秒还在,到点才消失', async (type, dwell) => {
-    await emit(type)
-    expect(card()).not.toBeNull()
-    // 两头都断言:只查「到点消失」的话,把时长改成 0 也照样绿
-    await act(async () => { vi.advanceTimersByTime(dwell - 1) })
-    expect(card(), `${type} 应在 ${dwell - 1}ms 时仍在`).not.toBeNull()
-    await act(async () => { vi.advanceTimersByTime(1) })
-    expect(card(), `${type} 应在 ${dwell}ms 时已消失`).toBeNull()
+    ['success', TOAST_DWELL_MS.success],
+    ['info', TOAST_DWELL_MS.info],
+    ['warning', TOAST_DWELL_MS.warning],
+    ['error', TOAST_DWELL_MS.error],
+  ])('%s 按自己的档位停留 %ims', (tier, dwell) => {
+    notify({ title: 'boom', tier })
+    expect(sonner[tier]).toHaveBeenCalledTimes(1)
+    expect(lastOptions(sonner[tier]).duration).toBe(dwell)
   })
-  it('失败/告警接指针且文字可选中', async () => {
-    for (const type of ['error', 'warning'] as const) {
-      await emit(type)
-      expect(card()?.style.pointerEvents, type).toBe('auto')
-      expect(card()?.style.userSelect, type).toBe('text')
+
+  it('warning 是独立一档,不借用 error 的红(#4891)', () => {
+    notify({ title: 'residue', tier: 'warning' })
+    expect(sonner.warning).toHaveBeenCalledTimes(1)
+    expect(sonner.error).not.toHaveBeenCalled()
+  })
+
+  it('失败 / 告警带关闭钮 —— 要读要复制的,挡路时能当场关;成功 / 提示没有', () => {
+    for (const tier of ['error', 'warning'] as const) {
+      notify({ title: tier, tier })
+      expect(lastOptions(sonner[tier]).closeButton, tier).toBe(true)
+    }
+    for (const tier of ['success', 'info'] as const) {
+      notify({ title: tier, tier })
+      expect(lastOptions(sonner[tier]).closeButton, tier).toBe(false)
     }
   })
-  it('成功/提示仍然点击穿透 —— 别把下面的按钮挡住一个停留周期', async () => {
-    for (const type of ['success', 'info'] as const) {
-      await emit(type)
-      expect(card()?.style.pointerEvents, type).toBe('none')
+
+  it('转瞬的成功 / 提示点击穿透,别挡住下面的按钮一个停留周期;带动作的、要读的不穿透', () => {
+    notify({ title: 'ok', tier: 'success' })
+    notify({ title: 'fyi', tier: 'info' })
+    expect(lastOptions(sonner.success).className).toBe('gugu-notice-passthrough')
+    expect(lastOptions(sonner.info).className).toBe('gugu-notice-passthrough')
+    notify({ title: 'undo?', tier: 'success', action: { label: '撤销', onClick: () => {} } })
+    notify({ title: 'bad', tier: 'error' })
+    expect(lastOptions(sonner.success).className).toBeUndefined()
+    expect(lastOptions(sonner.error).className).toBeUndefined()
+  })
+
+  it('没给档位的旧调用一字不变:default 走裸 toast,destructive 走 error', () => {
+    notify({ title: 'plain' })
+    expect(sonner).toHaveBeenCalledWith('plain', expect.not.objectContaining({ duration: expect.anything() }))
+    notify({ title: 'failed', variant: 'destructive' })
+    expect(sonner.error).toHaveBeenCalledWith('failed', expect.anything())
+  })
+})
+
+describe('同 key 是同一条:原地更新,不叠', () => {
+  it('key 作为 id 交给 sonner;不给 key 就是一次性的新提示', () => {
+    notify({ key: 'machine:d1', title: '正在重新连接 Mac 1', ongoing: true, waiting: true, tier: 'info' })
+    notify({ key: 'machine:d1', title: '连不上 Mac 1', ongoing: true, tier: 'info' })
+    expect(sonner.info.mock.calls.map((call) => (call[1] as Options).id)).toEqual(['machine:d1', 'machine:d1'])
+    notify({ title: 'one-off', tier: 'info' })
+    expect(lastOptions(sonner.info).id).toBeUndefined()
+  })
+
+  it('ongoing 不按停留消失,且一定带关闭钮 —— 常驻的用户想关得关掉', () => {
+    for (const tier of ['success', 'info', 'warning', 'error'] as const) {
+      notify({ key: tier, title: tier, tier, ongoing: true })
+      expect(lastOptions(sonner[tier]), tier).toMatchObject({ duration: Infinity, closeButton: true })
     }
+    notify({ key: 'legacy', title: 'x', ongoing: true })
+    expect(lastOptions(sonner)).toMatchObject({ duration: Infinity, closeButton: true })
   })
-  it('失败的 toast 挡路时能当场关掉,不用干等 6 秒', async () => {
-    await emit('error')
-    const dismiss = dismissButton()
-    expect(dismiss).not.toBeNull()
-    await clickElement(dismiss as HTMLElement)
-    expect(card()).toBeNull()
+
+  it('ongoing 的提示不点击穿透:它带着关闭钮,得点得到', () => {
+    notify({ key: 'k', title: 'wait', tier: 'info', ongoing: true })
+    expect(lastOptions(sonner.info).className).toBeUndefined()
   })
-  it('成功的 toast 没有关闭钮 —— 它不占指针,给了也点不到', async () => {
-    await emit('success')
-    expect(dismissButton()).toBeNull()
+
+  it('waiting 的图标是产品唯一的加载态组件,❌ 另画 spinner', () => {
+    notify({ key: 'k', title: 'wait', tier: 'info', ongoing: true, waiting: true })
+    const icon = lastOptions(sonner.info).icon
+    expect(isValidElement(icon)).toBe(true)
+    notify({ key: 'k', title: 'done', tier: 'success' })
+    expect(lastOptions(sonner.success).icon).toBeUndefined()
+  })
+
+  it('dismissNotice 按 key 收掉', () => {
+    dismissNotice('machine:d1')
+    expect(sonner.dismiss).toHaveBeenCalledWith('machine:d1')
+  })
+})
+
+describe('主 app 的 toast(message, type) 入口', () => {
+  let harness: ReturnType<typeof createReactHarness>
+  afterEach(() => harness.cleanup())
+
+  it('不改调用点,落到同一个出口、同一套档位', async () => {
+    harness = createReactHarness()
+    function Emit({ type }: { type: ToastType }) {
+      const { toast } = useContext(ToastContext)
+      useEffect(() => { toast('主 app 的提示', type) }, [toast, type])
+      return null
+    }
+    for (const type of ['success', 'info', 'warning', 'error'] as const) {
+      await harness.render(createElement(ToastProvider, null, createElement(Emit, { type })))
+      expect(sonner[type], type).toHaveBeenCalledWith('主 app 的提示', expect.objectContaining({ duration: TOAST_DWELL_MS[type] }))
+    }
   })
 })

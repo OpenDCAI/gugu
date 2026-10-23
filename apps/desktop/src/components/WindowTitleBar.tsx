@@ -142,8 +142,8 @@ export function WindowTitleBar({ desktopWindow: dw, controls, navigation, active
         </TitlebarMenu>
 
         <TitlebarMenu label={t('shell.titlebar.menus.view')} restoreFocusRef={restoreFocusRef} onClosed={flushWindowCommand}>
-          <TabItem tab="tasks" activeTab={activeTab} onSelectTab={onSelectTab}>{t('shell.titlebar.items.tasks')}</TabItem>
-          <TabItem tab="chats" activeTab={activeTab} onSelectTab={onSelectTab}>{t('shell.titlebar.items.chats')}</TabItem>
+          {/* gugu-dev#181「项目」「对话」合成「消息」:都在会话页侧栏里,同最左栏那一格。 */}
+          <TabItem tab="tasks" activeTab={activeTab} onSelectTab={onSelectTab}>{t('shell.titlebar.items.messages')}</TabItem>
           <TabItem tab="contacts" activeTab={activeTab} onSelectTab={onSelectTab}>{t('shell.titlebar.items.contacts')}</TabItem>
           <MenuSeparator />
           <MenuItem shortcut={listPanel?.shortcut} disabled={!listPanel} onClick={() => listPanel?.toggle()}>{t('shell.titlebar.items.toggleSidebar')}</MenuItem>

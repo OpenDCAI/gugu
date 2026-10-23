@@ -1,5 +1,5 @@
 import { action, makeObservable, observable } from 'mobx';
-import type { ScreenBlockContent } from './screen-layout';
+import { contentKey, type ScreenBlockContent, type WindowableContent } from './screen-layout';
 
 /** 一条会话的页签存储里管单独成窗那几格的部分(PaneLayoutStore)。 */
 export interface TabWindowHome {
@@ -11,7 +11,7 @@ export interface TabWindowHome {
 export type AuxTabContent = { kind: 'tab'; projectId: string; sessionId: string; paneId: string; home: TabWindowHome };
 
 /** 一扇窗装的:一整块(一个会话 / 一个 App),或一枚页签。 */
-export type AuxWindowContent = ScreenBlockContent | AuxTabContent;
+export type AuxWindowContent = WindowableContent | AuxTabContent;
 
 export type AuxWindow = {
   id: string;
@@ -97,7 +97,11 @@ export class AuxWindowStore {
   }
 
   windowOf(content: ScreenBlockContent): AuxWindow | undefined {
-    return content.kind === 'session' ? this.windowOfSession(content.sessionId) : this.windowOfApp(content.tabKind);
+    const key = contentKey(content);
+    for (const window of this.windows.values()) {
+      if (window.content.kind !== 'tab' && contentKey(window.content) === key) return window;
+    }
+    return undefined;
   }
 }
 

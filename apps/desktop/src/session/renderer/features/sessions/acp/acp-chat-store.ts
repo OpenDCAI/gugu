@@ -1774,6 +1774,7 @@ export class AcpChatStore {
       providerSessionId: session.providerSessionId ?? null,
       ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
       ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+      ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
       model: session.model ?? null,
       effort: session.effort ?? null,
       // Runtime translates this intent after session/new exposes provider mode ids and before

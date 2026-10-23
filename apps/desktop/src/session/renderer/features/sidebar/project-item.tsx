@@ -16,7 +16,11 @@ import {
   useParams,
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
-import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions';
+import { readComposerVerb, setComposerVerb } from '@/lib/composerVerbBridge';
+import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
+import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -31,6 +35,9 @@ import { HOME_PROJECT_LABEL } from '@renderer/features/remote-hosts/machine-home
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { ProjectNeedsYouDot, ProjectRowTitle } from './project-row-parts';
 import { RemoteHostChip } from './remote-host-chip';
+import { SidebarUnreadCount } from './sidebar-list-switch';
+import { useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import {
   SidebarItemMiniButton,
   SidebarMenuAction,
@@ -98,6 +105,9 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   // amber dot on its row — raw status, so viewing a conversation never clears it; it fades only
   // when the "needs you" count returns to zero. When expanded, the per-section header carries it.
   const needsYouCount = sidebarStore.needsYouCountForProject(projectId);
+  // gugu-dev#181 项目就是群:行尾挂项目群的未读(含它的话题),壳发过来的那一份;真读了才减。
+  const groupChatId = projectGroupsStore.chatIdOf(projectId);
+  const groupUnread = useSidebarChatSignals()?.groupUnread.get(groupChatId ?? '') ?? 0;
   // 挂在别的会话下面的一条拖回它自己的项目行 = 回到根(spec session-page「把会话拖成 child」)。
   // 只有它不挂着时本来就显示在这一行的才收:换项目不是这个动作。
   const unnestDrop = useSessionDropTarget();
@@ -118,7 +128,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const isHomeRow = sidebarStore.homeLayout.homeRows.has(projectId);
   const deviceIds = [...new Set(sidebarStore.projectMembersOf(projectId).map((id) => machineRegistry.machineOf(id) ?? null))];
   const machineDown = isHomeRow ? singleMachineDown : deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
-  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('projects.folders.thisComputer'));
+  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('task.deviceLocal'));
   const standInDevice = sidebarStore.homeLayout.standIns.get(projectId) ?? null;
   // #7199 个人助理住的那台(用户看不到它住在哪,owner 10-15):它的主目录那一组就是「它派出的任务」—— 组名是它的名字
   // (宿主那一侧把那台的 label 换成了它的名字)、不挂机器名;那台不接人开的任务:❌ 新建、❌ 点进项目页(那里有新建框)、❌ 移除。
@@ -136,11 +146,24 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   // spec session-page 微决策: first click selects the project (home view + expand); clicking the
   // already-selected project row toggles its collapse — the row is the second collapse affordance
   // beside the folder/chevron button (why B saw "active project won't collapse": B clicked the row).
-  const openProject = () => {
+  const openProject = (beside = false) => {
     // behavior session-page「键盘导航」: the project row is a station too, so a click moves the cursor
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
+    // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
+    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantHome) {
+      showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
+      sidebarStore.ensureProjectExpanded(projectId);
+      return;
+    }
     if (isProjectActive) {
+      // gugu-dev#181 正在开新任务时点这一行 = 回到群聊:还没打字,「新任务」一起撤掉;打了字就留着。
+      const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
+      if (chatId && readComposerVerb(chatId) === 'task') {
+        if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
+        sidebarStore.ensureProjectExpanded(projectId);
+        return;
+      }
       sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
@@ -157,6 +180,8 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const openNewSession = () => {
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     if (standInDevice) return openHomeComposer(standInDevice);
+    // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
+    prepareProjectTask(projectId);
     if (!isProjectActive) navigate('project', { projectId });
     sidebarStore.ensureProjectExpanded(projectId);
   };
@@ -209,7 +234,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
           tabIndex={0}
           role="treeitem"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={openProject}
+          onClick={(event) => openProject(event.metaKey || event.ctrlKey)}
           onKeyDown={(e) => {
             // Arrows belong to the session navigation listener (see sidebar-session-item for
             // why the old sibling walk could not work here either).
@@ -222,7 +247,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               换过来之后文件夹图标常驻不再消失,箭头有自己的位置。 */}
           <SidebarTwistyLane
             expanded={isExpanded}
-            label={`${isExpanded ? 'Collapse' : 'Expand'} ${projectLabel}`}
+            label={translate(isExpanded ? 'sidebar.collapseProject' : 'sidebar.expandProject', { project: projectLabel })}
             onToggle={
               project.state === 'unregistered'
                 ? undefined
@@ -236,7 +261,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               <ProjectIcon className={cn('size-4 shrink-0', machineDown && 'opacity-60')} />
             )}
             <SidebarMenuAction
-              aria-label={`Open project ${projectLabel}`}
+              aria-label={translate('sidebar.openProject', { project: projectLabel })}
               className={cn(
                 'truncate font-medium transition-colors select-none',
                 (projectViewKind(getProjectStore(projectId)) === 'bootstrapping' || machineDown) &&
@@ -276,6 +301,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             ) : null}
             {!isExpanded && <ProjectNeedsYouDot count={needsYouCount} />}
           </div>
+          <SidebarUnreadCount count={groupUnread} />
           {assistantHome ? null : (
             <Tooltip>
               <TooltipTrigger

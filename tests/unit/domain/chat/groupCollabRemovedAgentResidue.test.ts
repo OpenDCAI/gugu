@@ -379,7 +379,7 @@ describe('group collaboration removed agent residue', () => {
 
     await expect(chatService.joinGroupAgent('group-1', 'agent-1', 'member')).resolves.toBe('joined')
 
-    expect(chatDbMock.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'group-1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1' })
+    expect(chatDbMock.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'group-1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1', p_as_task: false })
     expect(chatMemberInsertPayload).toBeNull()
     expect(chatMemberUpsertPayload).toBeNull()
   })

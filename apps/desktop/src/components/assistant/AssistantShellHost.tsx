@@ -28,6 +28,7 @@ import { keepFinishingLocalAssistant } from '../../lib/assistantSetupFinish'
 import { requestAssistantClose } from '../../lib/assistantClose'
 import { getMembership } from '../../lib/billing/membership'
 import { rendererLogger } from '../../lib/log'
+import { installShellSlots, readShellSlots } from '../../lib/shellSlots'
 import { platform } from '../../platform'
 import { AssistantOnboarding } from './AssistantOnboarding'
 import { QuickChatSettingsGroup } from './ComputerHomeSettings'
@@ -46,6 +47,7 @@ import '../../i18n/registerAssistantCatalog'
 const log = rendererLogger('assistant/shell')
 
 installAssistantShellBridge()
+installShellSlots()
 
 function openSettings(section: ActiveSection) {
   window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section } }))
@@ -125,7 +127,8 @@ export function AssistantStatusGroups({
   )
 }
 
-const EMPTY_SLOTS: ReadonlyMap<AssistantShellSlot, HTMLElement> = new Map()
+const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
+const ASSISTANT_SLOT_PREFIX = 'assistant:'
 
 /**
  * #7199 「助理」App 在壳这一侧的那一半(见 lib/assistantShellBridge.ts):把云电脑、个人助理是谁发布给会话页,
@@ -236,10 +239,10 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     })
   }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, dm.chatId, home, setup, member, preparing])
 
-  const bridge = readAssistantShellBridge()
+  const shellSlots = readShellSlots()
   const slots = useSyncExternalStore(
-    (listener) => bridge?.subscribeSlots(listener) ?? (() => undefined),
-    () => bridge?.getSlots() ?? EMPTY_SLOTS,
+    (listener) => shellSlots?.subscribeSlots(listener) ?? (() => undefined),
+    () => shellSlots?.getSlots() ?? EMPTY_SLOTS,
   )
 
   const content = (slot: AssistantShellSlot): ReactNode => {
@@ -254,7 +257,9 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
   }
   return (
     <>
-      {[...slots].map(([slot, element]) => createPortal(content(slot), element, slot))}
+      {[...slots].flatMap(([key, element]) => key.startsWith(ASSISTANT_SLOT_PREFIX)
+        ? [createPortal(content(key.slice(ASSISTANT_SLOT_PREFIX.length) as AssistantShellSlot), element, key)]
+        : [])}
       {lookOpen && contact ? <AgentSettingsModal agent={contact} initialTab="look" onClose={() => setLookOpen(false)} /> : null}
       {/* 搬家的弹窗:搬着时设置页上的搬家那一组会换位置、重挂,弹窗不跟着丢(状态在 assistant-move-controller)。 */}
       <AssistantMoveDialog />

@@ -63,8 +63,6 @@ export interface CreateContextBridge {
   selectProject(projectId: string | null): void
   /** 会话页侧把它当前可用的项目 id 上报上来，供 gugu 解析记忆。 */
   reportAvailableProjects(projectIds: string[]): void
-  /** 托盘上去掉那个群:这次建的 agent 不进群。 */
-  clearBirthGroup(): void
 }
 
 export const CREATE_CONTEXT_BRIDGE_KEY = '__GUGU_CREATE_CONTEXT__' as const

@@ -57,6 +57,7 @@ export type BuildSessionRowInput = {
   initialQueue?: InitialQueuePrompt[];
   startupOrigin?: 'chat-page' | 'session-page';
   initialMessageId?: string;
+  taskChatId?: string;
   /**
    * 起这条会话的一方**显式**给的名字。它同时是这个 agent 在咕咕通讯录里的显示名
    * (spec agent-provisioning「命名即寻址名」)——所以只在真有人说出口时才带,
@@ -148,6 +149,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(firstUtterance && { firstUtterance }),
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
+          ...(input.taskChatId && { taskChatId: input.taskChatId }),
           ...(agentDisplayName && { agentDisplayName }),
           ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
@@ -172,6 +174,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(firstUtterance && { firstUtterance }),
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
+          ...(input.taskChatId && { taskChatId: input.taskChatId }),
           ...(agentDisplayName && { agentDisplayName }),
           ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),

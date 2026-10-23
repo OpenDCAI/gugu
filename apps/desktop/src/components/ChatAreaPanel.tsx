@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
@@ -23,7 +24,7 @@ import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupColla
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { UI_EVENTS } from '../lib/uiEvents'; import { isChatSearchTarget } from '../lib/chatSearchTarget'
+import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'; import { isChatSearchTarget } from '../lib/chatSearchTarget'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTopicsPanelRequest } from '../hooks/useTopicsPanelRequest'
 import type { HistoryTab } from './historyPanelModels'
@@ -43,6 +44,7 @@ import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { latestRecentAction } from './agentRecentActionModel'
 import { useAgentDisplayStatuses, useAgentRecentActivity } from '../hooks/useAgentDisplayStatus'
 import { groupAgentStatusIndicatorProps } from '../lib/groupAgentStatus'; import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'
+import { composerCardLine } from '../lib/composerCardCopy'
 import { useMessageFilePreview } from './chat/useMessageFilePreview'
 import { AgentComposerNotices } from './chat/AgentComposerNotices'
 import { useAgentSessionpagePresentation } from './chat/AgentSessionpagePresentation'
@@ -55,7 +57,7 @@ import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
 import { useMessageColumnMinWidth } from './chat/useMessageColumnMinWidth'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'; import { SettingsPageHead } from './chat/groupSettingsUi'; import { useBackLayer } from './ui/sheetStack'
+import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'; import { SettingsPageHead } from './chat/groupSettingsUi'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
@@ -79,10 +81,12 @@ import {
   COLOR_ON_ACCENT,
   AGENT_HERO_OVERHANG_PX, isAgentHeroBird, type AgentHeaderStatus,
 } from './chat/chatPresentation'
+import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
+import { GroupPanelTabs } from './appSlot/GroupPanelTabs'
 import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
-import { isRoomChat } from '@gugu/core/shared/ui/chatModels'
+import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 import { topicService } from '@/lib/topics'
 import { MemberListPanel } from './chat/MemberListPanel'
 import { useAgentFloodNotice } from '@/hooks/useAgentFloodNotice'
@@ -93,6 +97,8 @@ import { useToast } from './toastContext'
 import { rendererLogger } from '../lib/log'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { PaneHeader } from './ui/Pane'
+import { ChatBlockHead } from './chat/ChatBlockHead'
+import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { Button } from './ui/Button'
 import { SearchField } from './ui/SearchField'
@@ -112,6 +118,12 @@ interface ChatAreaPanelProps {
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
+  /**
+   * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
+   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签),
+   * `tabs` 里是开着的话题(TopicSplitPane)和右栏开着的那几枚(GroupPanelTabs)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
+   */
+  blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
@@ -144,7 +156,7 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
   return chatId === undefined ? <ChatAreaSurface {...surface} /> : <ChatLineScope chatId={chatId}><ChatAreaSurface {...surface} /></ChatLineScope>
 }
 
-function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce, onBack, chrome, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
+function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat, onOpenSessionpageAgent, onOpenSessionpageAgentFile }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, appendMessage, removeMessage, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, hasMoreOlder, loadingOlder, messageWindow, unreadNavigationPending, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId, setDraft } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'appendMessage', 'removeMessage', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'hasMoreOlder', 'loadingOlder', 'messageWindow', 'unreadNavigationPending', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId', 'setDraft')
@@ -156,6 +168,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // #986 群公告：群聊 ⋮ 下拉菜单 + 右侧抽屉。
   const [showAnnounce, setShowAnnounce] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
+  const [topicTabHost, setTopicTabHost] = useState<HTMLElement | null>(null)
   // @@@history (#957) — 历史侧面板（线程/导入历史/消息附件），与工作区面板互斥（设计稿同槽位）。
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
   const [historyOpenRequest, setHistoryOpenRequest] = useState<{ tab?: HistoryTab; nonce: number }>({ nonce: 0 })
@@ -180,9 +193,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
-  // @@@multi-select (#988) - 多选模式 + 选中消息 id 集。进多选预选触发消息，退出时清空。
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; InputArea
   // consumes it (insert "@name " + register the mention target) then clears via onMentionInserted.
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
@@ -197,8 +207,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // @@@5856 场所型会话 = 群 + 话题:都有自己的名字、成员、文件与响应档位。头栏的搜索/工作区/成员
   // 三颗按钮问的是这个,不是「是不是群」。判据的唯一真源在 @gugu/core/shared/ui/chatModels。
   const isRoomChatSurface = activeChat ? isRoomChat(activeChat.kind) : false
-  // 场所型(群/话题)读自己的 name/avatar;私聊读对端。话题没有 peer_user_id,走错分支就是一条无名会话。
-  const activeChatName = isRoomChatSurface ? (activeChat?.name ?? '') : (activeChat?.peer_alias?.trim() || peerIdentity?.display_name || '')
+  // 场所型(群/话题)读自己的 name/avatar;私聊读对端。名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName)。
+  const activeChatName = activeChat ? chatDisplayName(activeChat, peerIdentity?.display_name) : ''
   const activeChatAvatar = isRoomChatSurface ? (activeChat?.avatar ?? null) : (peerIdentity?.avatar ?? null)
   // @@@1145 单聊 Agent 的联系人档(供 AgentSettingsModal 取完整资料)。点名时优先弹设置面板;
   // 找不到联系人(极少)则回落旧抽屉,不丢可达性。
@@ -336,13 +346,16 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   }, [loadGroupCollab, openNonce])
 
   useEffect(() => {
-    // @@@drawer-test-control - Private JSON-RPC smoke opens the same drawer surface without reintroducing broad DOM click RPC.
-    const handleOpenDetailsDrawer = () => {
-      if (activeChatId) handleOpenSettingsDrawer()
+    // 块页签的右键菜单(gugu-dev#181):点名是哪个对话、开哪一页;屏上几块里只有那个对话的这块面答。
+    const handleOpenDetailsDrawer = (event: Event) => {
+      const detail = (event as CustomEvent<ChatDetailsRequest>).detail
+      if (!activeChatId || detail?.chatId !== activeChatId) return
+      if (detail.page === 'announcement') handleOpenAnnounce()
+      else handleOpenSettingsDrawer()
     }
     window.addEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
     return () => window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-  }, [activeChatId, handleOpenSettingsDrawer])
+  }, [activeChatId, handleOpenAnnounce, handleOpenSettingsDrawer])
 
   useEffect(() => {
     if (!activeChatId || !isRoomChatSurface || !user?.id) return
@@ -394,11 +407,10 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // opens and follows changes itself (gugu.files.*), so nothing about the files is held here.
   const handleOpenWorkspacePanel = useCallback(() => {
     if (!activeChatId) return
-    closeRightSurfaces() // 同槽位互斥（#1312），含 群公告（#1485 review）
+    closeRightSurfaces(); groupSlotMemory.noteShown(activeChatId) // 同槽位互斥（#1312），含 群公告（#1485 review）;它让开时这一枚还在页签上
     setWorkspaceForm(workspaceForm === 'closed' ? 'side' : workspaceForm) // full stays full (a link opening a file in it)
   }, [activeChatId, closeRightSurfaces, workspaceForm])
   const handleCloseWorkspacePanel = useCallback(() => setWorkspaceForm('closed'), [])
-  useEffect(() => groupSlotMemory.setForm(activeChatId, workspaceForm), [activeChatId, workspaceForm]) // 摩擦单 F29
   // 摩擦单 F10: a file of this chat asked for by a link (MainLayout brought the chat up): its panel opens on that file —
   // now, or as soon as this chat is the one shown.
   const [fileToOpen, setFileToOpen] = useState<FileToOpen | null>(null)
@@ -416,7 +428,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
 
   // 「在本群打开」(app-redesign §5): an App opened from this chat opens in its panel here — a private chat's too (主人 10-05).
   const appToOpen = useOpenApp(activeChat?.id ?? null, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
 
   // @@@history (#957) — 历史面板：开启时加载消息附件；「线程」复用 store 的 threadSummaries。
   const loadHistoryFiles = useCallback(async (chatId: string) => {
@@ -474,6 +486,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     onCreateFailed: () => toast(t('topic.openFailed'), 'error'),
   })
   topicSurfaceRef.current = topicSurface
+  useEffect(() => { groupSlotMemory.setForm(activeChatId, workspaceForm); groupSlotMemory.showTopic(activeChatId, topicSurface.splitTopic) }, [activeChatId, workspaceForm, topicSurface.splitTopic]) // 摩擦单 F29;⑥ 右边正显示哪样
   // 渲染期收口:分栏开没开以 surface 为准(它自己是 subject-scoped 的),❌ 不靠副作用补一刀。
   if (topicSplitOpen !== Boolean(topicSurface.splitTopic)) setTopicSplitOpen(Boolean(topicSurface.splitTopic))
   // @@@5856 分栏标题块要说清「引自哪一句」。三态必须分开(pending 还没读到 / null 读到了「没这条」/
@@ -599,13 +612,12 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     setQuoteText({
       messageId: msg.id,
       senderName: msg.sender_user_id ? (identitiesById[msg.sender_user_id]?.display_name ?? '') : '',
-      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : (msg.content ?? ''),
+      content: msg.content_type === 'attachment' ? t('chatArea.attachment') : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : (msg.content ?? ''),
     })
   }, [identitiesById, t])
 
-  // @@@multi-select (#988) - 退出多选模式（清空选中）。批量动作完成后或点「取消」时调用。
-  const exitSelectMode = useCallback(() => { setSelectMode(false); setSelectedIds(new Set()) }, [])
-  useBackLayer(exitSelectMode, mobile && selectMode) // 手机多选态:安卓返回键先退出多选,❌ 直接退回会话列表
+  // @@@multi-select (#988) - 多选模式、选中集和批量动作。
+  const { selectMode, selectedIds, exitSelectMode, enterSelectMode, toggleSelect, handleBatchForward, handleBatchDelete } = useMessageSelectMode({ activeChatId, mobile, messages, deleteMessage, setForwardMessages })
 
   // @@@message-forward (#899) / @@@multi-select (#988) - fan out every pending message into every
   // selected target chat. On success (and if we were in batch select), leave select mode.
@@ -618,47 +630,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     }
     if (selectMode) exitSelectMode()
   }, [forwardMessages, user, selectMode, exitSelectMode])
-
-  // @@@multi-select (#988) - 进入多选模式：从 More 菜单「多选」触发，预选触发的那条消息。
-  const enterSelectMode = useCallback((msg: MessageItem) => {
-    setSelectMode(true)
-    setSelectedIds(new Set([msg.id]))
-  }, [])
-
-  const toggleSelect = useCallback((messageId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(messageId)) next.delete(messageId)
-      else next.add(messageId)
-      return next
-    })
-  }, [])
-
-  // @@@multi-select (#988) - 批量转发：把选中的消息送进 ForwardMessageDialog（onForward 走 handleForwardTo 扇出）。
-  const handleBatchForward = useCallback(() => {
-    const selected = messages.filter((m) => selectedIds.has(m.id))
-    if (selected.length === 0) return
-    setForwardMessages(selected)
-  }, [messages, selectedIds])
-
-  // @@@multi-select (#988) - 批量删除：循环复用单条 deleteMessage（无批量 RPC），与单条删除同语义（不加额外确认）。
-  const handleBatchDelete = useCallback(() => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    for (const id of ids) {
-      deleteMessage(id).catch((err) => {
-        console.error('[ChatAreaPanel] batch deleteMessage failed', id, err)
-      })
-    }
-    exitSelectMode()
-  }, [selectedIds, deleteMessage, exitSelectMode])
-
-  // @@@multi-select (#988) - 切换会话即退出多选 + 清空选中：否则上一个会话的选中集泄露到新会话，
-  // 批量删除会对旧会话的消息 id 调用 deleteMessage（误删非当前会话的消息）、批量转发也会扇出错对象。
-  useEffect(() => {
-    setSelectMode(false)
-    setSelectedIds(new Set())
-  }, [activeChatId])
 
   // Upload + insert each pending attachment as its own attachment-typed message,
   // in order. The realtime subscription picks up the inserts and merges them
@@ -1062,6 +1033,45 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     ? { peerId: activeChat.peer_user_id ?? '', presentation: agentHeaderPresentation ?? null, location: agentHeaderLocation, engine: agentHeaderEngine, engineMissing: agentHeaderEngineMissing }
     : null
   const agentHero = isAgentChat && !searchMode && !!activeChat.peer_user_id
+  // 块里第一枚页签后面那一格:先是开着的话题(和群对话连成一对),再是右栏开着的那几枚和「+」(gugu-dev#181 第 ⑤⑥ 步)。
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(
+    <>
+      <span ref={setTopicTabHost} className="contents" data-topic-tab-host="" />
+      <GroupPanelTabs chatId={activeChatId} onShowPanel={(form) => { closeRightSurfaces(); setWorkspaceForm(form) }} onClosePanel={handleCloseWorkspacePanel} onShowTopic={topicSurface.openSplit} onShowChatAlone={closeRightSurfaces} />
+    </>,
+    blockHost.tabs,
+  ) : null
+  const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
+  const headerActions = (
+    <>
+      <ChatHeaderActions
+        isGroupChat={isGroupChat}
+        isRoomChat={isRoomChatSurface}
+        searchMode={searchMode}
+        workspacePanelOpen={workspaceForm !== 'closed'}
+        memberListOpen={memberListOpen}
+        historyPanelOpen={historyPanelOpen}
+        showHeaderMenu={showHeaderMenu}
+        mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
+        // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
+        memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
+        moreInTabMenu={Boolean(blockHost)}
+        moreButtonRef={moreButtonRef}
+        onEnterSearchMode={() => setSearchMode(true)}
+        onOpenWorkspacePanel={handleOpenWorkspacePanel}
+        onCloseWorkspacePanel={handleCloseWorkspacePanel}
+        onOpenSettingsDrawer={handleOpenSettingsDrawer}
+        onOpenMemberList={handleOpenMemberList}
+        onCloseRightSurfaces={closeRightSurfaces}
+        onOpenHistoryPanel={handleOpenHistoryPanel}
+        onCloseHistoryPanel={handleCloseHistoryPanel}
+        onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
+        onCloseHeaderMenu={() => setShowHeaderMenu(false)}
+        onOpenAnnouncement={handleOpenAnnounce}
+      />
+      {sessionpageAgent.openAction}
+    </>
+  )
 
   return (
     <div ref={surfaceElement} data-chat-surface={activeChatId}
@@ -1082,7 +1092,9 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           与会话列表/通讯录/发现/设置四个列头的 47/52/77 各不相同;现在四处同吃 --pane-header-h,标题坐在同一条基线上。
           @@@822 右侧窗控留白(Windows/Linux 138px、Mac/web 0)不再撑出一套自己的 padding,只加在 PaneHeader 的
           paddingRight 上。@@@1375 owner: header 与正文同色,只用 divider 一条线区分。 */}
-      {(!chrome || searchMode) && <PaneHeader
+      {blockHost && <ChatBlockHead host={blockHost} actions={headerActions} chat={activeChat} name={activeChatName} avatar={activeChatAvatar} isAgent={isAgentChat} identitiesById={identitiesById} />}
+      {blockTabs}
+      {((!chrome && !blockHost) || searchMode) && <PaneHeader
         divider={!agentHero} className={agentHero ? 'gg-agent-header' : undefined} data-chat-area-header=""
         mobile={mobile}
         style={{
@@ -1180,33 +1192,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
             {agentStatus ? <AgentHeaderStatusLine {...agentStatus} /> : null}
           </div>
         )}
-        actions={searchMode ? null : (
-          <>
-            <ChatHeaderActions
-              isGroupChat={isGroupChat}
-              isRoomChat={isRoomChatSurface}
-              searchMode={searchMode}
-              workspacePanelOpen={workspaceForm !== 'closed'}
-              memberListOpen={memberListOpen}
-              historyPanelOpen={historyPanelOpen}
-              showHeaderMenu={showHeaderMenu}
-              mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
-              moreButtonRef={moreButtonRef}
-              onEnterSearchMode={() => setSearchMode(true)}
-              onOpenWorkspacePanel={handleOpenWorkspacePanel}
-              onCloseWorkspacePanel={handleCloseWorkspacePanel}
-              onOpenSettingsDrawer={handleOpenSettingsDrawer}
-              onOpenMemberList={handleOpenMemberList}
-              onCloseRightSurfaces={closeRightSurfaces}
-              onOpenHistoryPanel={handleOpenHistoryPanel}
-              onCloseHistoryPanel={handleCloseHistoryPanel}
-              onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
-              onCloseHeaderMenu={() => setShowHeaderMenu(false)}
-              onOpenAnnouncement={handleOpenAnnounce}
-            />
-            {sessionpageAgent.openAction}
-          </>
-        )}
+        actions={searchMode ? null : headerActions}
       >
         <AnimatePresence initial={false}>
           {searchMode && (
@@ -1378,7 +1364,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           「差一截」错觉），出现/消失改 scroller clientHeight → #780 ResizeObserver 自动重 pin 到真底。
           · 群聊：GroupAgentStatusBar 列出在执行的 agent（可点 → @mention），去底色后即浮动文字。
           · 单聊：运行中/思考中从消息列表行（#1102 in-list）移到这里；流式正文仍留消息流。 */}
-      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
+      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (blockHost ? null :
+        // gugu-dev#181 块里的群:谁在跑挂在它那张任务卡的行尾(第 55 条),❌ 再另起一条运行条。
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
@@ -1423,7 +1410,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           @@@multi-select (#988) — 多选态用底部批量操作条替换输入框（同槽位 + 同 --bg-primary 外壳）。 */}
       {selectMode ? (
         // @@@1323-m4 item4 多选态批量条与 composer「同槽位+同外壳」→ padding 同步对标 SSOT `.comp`(12/22/18),否则切多选态槽位抖。
-        <div style={{ background: 'var(--bg-primary)', padding: mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
+        <div className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '10px 8px max(8px, env(safe-area-inset-bottom))' : '12px 22px 18px', flexShrink: 0 }}>
           <div
             data-testid="message-select-bar"
             style={{ display: 'flex', flexWrap: mobile ? 'wrap' : undefined, alignItems: 'center', gap: 10, padding: '8px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-surface)', background: 'var(--bg-secondary)' }}
@@ -1454,7 +1441,8 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
       ) : (
         // @@@1323-m4 item4 composer 外层 padding 对标 SSOT `.comp{padding:12px 22px 18px}`（#1330 deferred 此项,#1327 合后补）。
         // 桌面左右 22 给输入区呼吸感;mobile 保窄边+安全区,顶部 hairline 与消息区分界(@@@1787 视觉验收:原先浮空无边界)。
-        <div data-chat-composer="" style={{ background: 'var(--bg-primary)', padding: mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
+        // 画在会话页一块里时用会话输入框那条带(左右 16、离底 8):群框和会话框、新建会话页的框落在同一个位置(gugu-dev#181 核对 21)。
+        <div data-chat-composer="" className={blockHost ? `${sessionComposerDockBandClassName} pt-3` : undefined} style={{ background: 'var(--bg-primary)', padding: blockHost ? undefined : mobile ? '8px 10px max(10px, env(safe-area-inset-bottom))' : '12px 22px 18px', borderTop: mobile ? '1px solid var(--border-subtle)' : undefined, flexShrink: 0 }}>
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
@@ -1655,6 +1643,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
               : undefined}
             onOpenAttachment={(file, message) => { const split = topicSurface.splitTopic; openFilePreview(file, message, split ? () => topicSurface.openSplit(split) : undefined) }} onRevealOlder={() => { void topicSurface.revealOlderInSplit() }}
             onClose={topicSurface.closeSplit}
+            tabHost={blockHost ? topicTabHost : undefined}
             currentUserId={user?.id ?? null}
             mobile={mobile}
             // 分栏的表情/删除**等写入落库**再重验证这一栏(主线那两个 handler 是 fire-and-forget,同一 tick 重读

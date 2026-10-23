@@ -110,7 +110,7 @@ describe('group_add_agent through the shared actor door', () => {
     const h = harness()
     expect(JSON.parse(await h.call('group_add_agent', { chat_id: GROUP })))
       .toEqual({ status: 'joined', chat_id: GROUP, agent_user_id: `user:${SELF}` })
-    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SELF, p_message: null, p_as_user_id: SELF } }])
+    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SELF, p_message: null, p_as_user_id: SELF, p_as_task: false } }])
   })
   test('already_member is authoritative from the database', async () => {
     const h = harness({ addResult: { status: 'already_member', chat_id: GROUP } })
@@ -125,7 +125,7 @@ describe('group_add_agent through the shared actor door', () => {
   test('resolves a sibling session as the target while the actor stays the caller', async () => {
     const h = harness({ peers: [{ sessionId: 'conv-sibling', identity: { users: { id: SIBLING } } }] })
     await h.call('group_add_agent', { chat_id: GROUP, agent: 'session:conv-sibling' })
-    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SIBLING, p_message: null, p_as_user_id: SELF } }])
+    expect(h.rpcs).toEqual([{ name: 'add_group_agent', body: { p_chat_id: GROUP, p_agent_user_id: SIBLING, p_message: null, p_as_user_id: SELF, p_as_task: false } }])
   })
   test('resolves gugu and aid addresses through the existing identity boundary', async () => {
     for (const address of ['gugu:4242', `aid:${SIBLING}`]) {

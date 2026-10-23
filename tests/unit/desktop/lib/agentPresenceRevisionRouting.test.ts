@@ -9,6 +9,7 @@ vi.mock('@/lib/supabase', () => ({
 }))
 import {
   getAgentPresenceSnapshot,
+  recheckUnseenAgentPresence,
   refreshObservedAgentPresenceFromRevision,
   setLocalAgentStatus,
   setPresenceBusContext,
@@ -309,5 +310,38 @@ describe('agent presence revision routing', () => {
     expect(state?.payload).not.toHaveProperty('derivedStatus')
     expect(state?.status).toBe('idle')
     unsubscribe()
+  })
+})
+
+// gugu-dev#181 80e:看不到一个 agent 只是那一刻的事 —— 它审批过后进了我在的群,成员变化一到就重问,状态(含类型)拿得到。
+describe('an agent this viewer could not see', () => {
+  it('is asked again when a chat of mine changes members, and is seen once it is visible', async () => {
+    rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error).toBeTruthy()
+      expect(getAgentPresenceSnapshot('agent-1')?.payload ?? null).toBeNull()
+      rpcMock.mockImplementation(answerAll)
+      await recheckUnseenAgentPresence(['agent-1'])
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error ?? null).toBeNull()
+      expect(getAgentPresenceSnapshot('agent-1')?.payload?.agentUserId).toBe('agent-1')
+    } finally {
+      off()
+    }
+  })
+
+  it('an agent already seen is not asked again on every member change (read watermarks move all the time)', async () => {
+    rpcMock.mockImplementation(answerAll)
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      rpcMock.mockClear()
+      await recheckUnseenAgentPresence(['agent-1', 'someone-else'])
+      expect(rpcMock).not.toHaveBeenCalled()
+    } finally {
+      off()
+    }
   })
 })

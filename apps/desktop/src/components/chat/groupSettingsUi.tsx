@@ -14,7 +14,9 @@ import {
   settingsCenteredRowStyle,
   settingsRowTitleStyle,
   settingsRowSubtitleStyle,
+  settingsSectionLabelStyle,
 } from './groupSettingsStyles'
+import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 
 // @@@6418 群设置抽屉各页共用的小件(页头 / 导航行 / 开关行 / 邀请链接)。几何在 groupSettingsStyles.ts。
 
@@ -145,6 +147,19 @@ const linkTextStyle: CSSProperties = {
 }
 const linkHintStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }
 const posterButtonStyle: CSSProperties = { marginTop: 10, width: '100%' }
+
+/** 群设置一级页上给普通成员的那一块邀请链接(没有链接 = 不画)。项目群不拉人(gugu-dev#181):只说原因。 */
+export function MemberInviteLink({ chatId, inviteLink, onOpenPoster }: { chatId: string; inviteLink: string | null | undefined; onOpenPoster: () => void }) {
+  const { t } = useTranslation('messaging')
+  if (isProjectGroupChat(chatId)) return <div data-testid="project-group-no-invite" style={settingsRowSubtitleStyle}>{t('group.projectGroupNoInvite')}</div>
+  if (!inviteLink) return null
+  return (
+    <>
+      <div style={settingsSectionLabelStyle}>{t('group.settings.inviteLink')}</div>
+      <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={onOpenPoster} />
+    </>
+  )
+}
 
 /**
  * 邀请链接 + 复制 + 生成海报(#1164-G2 / #445)。开关是群主/管理员的事(在「群管理」里),

@@ -505,6 +505,25 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
     return names
   }
+  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签,这一栏不再画自己那条头;不给 tabHost(对话页)头照旧。
+  it('在块里:话题画成页签条上的一枚页签(× = 收起分栏),这一栏没有自己的头', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    const onClose = vi.fn()
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, tabHost: tabs }))
+    expect(harness.container.querySelector('[data-testid="topic-split-close"]'), 'the block tab strip is the header').toBeNull()
+    const tab = tabs.querySelector('[data-topic-tab="topic-1"]')
+    expect(tab?.textContent).toContain('分片下载失败')
+    await act(async () => { tab!.querySelector<HTMLElement>('button[aria-label]')!.click() })
+    expect(onClose).toHaveBeenCalledOnce()
+    tabs.remove()
+  })
+
+  it('不在块里(对话页):这一栏照旧有自己的头,也不画页签', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, baseProps))
+    expect(harness.container.querySelector('[data-testid="topic-split-close"]')).not.toBeNull()
+    expect(document.querySelector('[data-topic-tab]')).toBeNull()
+  })
+
   it('分栏与主线的入参差异只能是名单上那几条 —— 复用组件不等于接全它的契约', async () => {
     const panel = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
     const pane = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')

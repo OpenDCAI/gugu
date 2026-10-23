@@ -8,6 +8,26 @@ export const sessionComposerWidthClassName = 'w-full max-w-2xl';
 // 两边一致由 session-composer-styles.test.ts 钉住。
 export const sessionComposerDockBandClassName = 'w-full shrink-0 px-4 pb-2';
 export const sessionComposerDockedWidthClassName = 'mx-auto w-full max-w-2xl xl:max-w-3xl';
+// 框里的几何:会话页、新建会话页、新任务框用的是同一个输入框(packages/session-ui 的 chat-composer),格子里的群框照它画
+// (gugu-dev#181:原型里三处是同一个框)—— 文字离框内缘左右 22、上 14、下 8,编辑区空着 66 高(含内距)、最多 200;
+// 底排的按钮 32 见方,离框内缘 10,彼此隔 6。这几个数由 tests/browser/composer-empty-height.test.tsx 量真组件钉住。
+export const sessionComposerBox = {
+  textInsetPx: 22,
+  textTopPx: 14,
+  textBottomPx: 8,
+  editorMinHeightPx: 66,
+  editorMaxHeightPx: 200,
+  toolbarInsetPx: 10,
+  toolbarGapPx: 6,
+  toolbarControlPx: 32,
+} as const;
+// 卡面:白底一圈细描边、没有投影,悬停 / 聚焦时描边加深 —— 会话输入框那张卡(session-ui chat-composer.css.ts 的
+// composerShell)原样,格子里的群框照它(原型三处是同一个 `.cbox`:白底、圆角 24、1px 描边、无投影)。
+export const sessionComposerCardClassName =
+  'border border-solid border-[var(--em-border)] bg-[var(--em-surface-base-emphasis)] transition-colors hover:border-[var(--em-border-1)] focus-within:border-[var(--em-border-1)]';
+// 空着时的高 = 编辑区 + 底排(按钮 + 离底)+ 上下边框各 1px = 110。
+export const sessionComposerEmptyHeightPx =
+  sessionComposerBox.editorMinHeightPx + sessionComposerBox.toolbarControlPx + sessionComposerBox.toolbarInsetPx + 2;
 
 // ── Context tray ──────────────────────────────────────────────────────────────
 // A full-width band behind the composer carrying 仓库 · 环境 · 分支, replacing the

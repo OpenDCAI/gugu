@@ -40,10 +40,11 @@ export async function rememberAgentCreateProject(
   client: SettingsTableClient,
   userId: string,
   deviceId: string,
-  projectId: string | null
+  projectId: string | null,
+  chatId?: string | null
 ): Promise<AgentCreateDefaults> {
   const config = await readUserSettingsConfig(client, userId, USER_SCOPE)
-  const next = mergeAgentCreateProjectChoice(config, deviceId, projectId)
+  const next = mergeAgentCreateProjectChoice(config, deviceId, projectId, chatId)
   await writeUserSettingsConfig(client, userId, USER_SCOPE, next)
   return parseAgentCreateDefaults(next)
 }
