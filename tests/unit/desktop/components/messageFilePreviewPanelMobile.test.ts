@@ -24,6 +24,7 @@ describe('手机文件预览的出口', () => {
     expect(header).not.toBeNull()
     const leading = Array.from(header!.querySelectorAll('button')).filter((button) => !button.closest('.gg-pane-actions'))
     expect(leading).toHaveLength(1)
+    expect(leading[0].getAttribute('aria-label')).toBe(i18n.t('common.close', { ns: 'messaging' }))
     expect(header!.firstElementChild?.contains(leading[0])).toBe(true)
     await act(async () => { leading[0].click() })
     expect(onClose).toHaveBeenCalledTimes(1)

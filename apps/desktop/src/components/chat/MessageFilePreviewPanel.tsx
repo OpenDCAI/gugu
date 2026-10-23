@@ -52,7 +52,7 @@ export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading
               {meta ? <span data-testid="message-file-preview-meta" className="gg-pane-meta">{meta}</span> : null}
             </span>
           }
-          leading={<IconButton size="lg" aria-label={t('common.back')} onClick={onBack ?? onClose}><ChevronLeft /></IconButton>}
+          leading={<IconButton size="lg" aria-label={t(onBack ? 'common.back' : 'common.close')} onClick={onBack ?? onClose}>{onBack ? <ChevronLeft /> : <X />}</IconButton>}
           actions={actions.map((item) => <IconButton key={item.key} size="lg" aria-label={item.label} title={item.label} disabled={item.disabled} onClick={item.onSelect}><item.icon /></IconButton>)}
         />
       ) : (

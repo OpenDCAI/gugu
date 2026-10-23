@@ -503,6 +503,8 @@ export type PeekTarget =
 export const GROUP_FILE_OPEN_EVENT = 'gugu:open-group-file';
 export interface GroupFileOpenDetail {
   message?: MessageItem;
+  /** A message attachment's caller restores its message surface when the file layer closes (renderer only). */
+  restore?: () => void;
   /** The chat the file is in, as the file says (F112); null when the person is not in it — they see no such file. */
   chatId: string | null;
   itemId: string;

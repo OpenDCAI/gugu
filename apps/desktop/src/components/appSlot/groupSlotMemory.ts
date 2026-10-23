@@ -11,6 +11,8 @@ export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPane
  */
 export interface OpenedWith {
   message?: MessageItem
+  /** Present only for a file opened from a message, whose caller owns the way back. */
+  restore?: () => void
   /** No App claims it: the host's file preview. */
   kind: string | null
   file?: ChatPeekFile
@@ -29,6 +31,7 @@ export interface OpenedWith {
  */
 export interface AskedFile {
   message?: MessageItem
+  restore?: () => void
   itemId: string
   at?: Record<string, string>
   opener?: AppOpenWithDetail
@@ -71,8 +74,8 @@ export const groupSlotMemory = {
     changed()
   },
   /** A file of this group asked to be opened (a link, 摩擦单 F10): its panel opens it when it next shows the group. */
-  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem) {
-    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}) })
+  askFile(chatId: string, itemId: string, at?: Record<string, string>, opener?: AppOpenWithDetail, message?: MessageItem, restore?: () => void) {
+    asked.set(chatId, { itemId, ...(at ? { at } : {}), ...(opener ? { opener } : {}), ...(message ? { message } : {}), ...(restore ? { restore } : {}) })
     const entry = entryOf(chatId)
     remembered.set(chatId, { ...entry, form: entry.form === 'closed' ? 'side' : entry.form })
     changed()
