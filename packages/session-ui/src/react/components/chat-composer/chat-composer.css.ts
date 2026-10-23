@@ -429,8 +429,9 @@ export const editorArea = style({
   // ⚠️ 这个数是**含内距**的(border-box),所以不是 44 而是 44 + 12 + 20 = 76px。
   //    写 44 的话它比现状(52)还小 —— 一条不起作用的声明,静默无效。
   //
-  // ⚠️ 这个数是**含内距**的(border-box):44 + 上下内距(14+8) = 66px。
-  minHeight: '4.125rem',
+  // ⚠️ 这个数是**含内距**的(border-box):一行文字(行高 24)+ 上下内距(14+8) = 46px —— 再低就是文字自己撑着,写了不起作用。
+  // owner 2026-10-23「平时这个输入框是不是太高了一点」:空着时的编辑区从 66 降到一行,框空着 90 高。
+  minHeight: '2.875rem',
   maxHeight: '200px',
   overflowY: 'auto',
   // 内距照 assistant-ui composer:那张卡是「外沿 10px + 输入自己再缩 12px」= 文字左缘 22px,
