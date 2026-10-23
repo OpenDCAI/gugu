@@ -28,7 +28,7 @@ export function ProductTour({ userId, initial, onDone }: { userId: string; initi
       // 先切换界面，再串行持久化进度。保存是跨设备恢复用的后台工作，不能锁住下一步按钮。
       const previous = position
       setPosition(next)
-      if (next.phase === 'features') document.querySelector<HTMLElement>('.gg-sidebar-rail [data-rail="tasks"]')?.click()
+      if (next.phase === 'features') document.querySelector<HTMLElement>('.gg-sidebar-rail [data-rail="chats"]')?.click()
       saveTail.current = saveTail.current
         .catch(() => undefined)
         .then(() => saveProductTourPosition(userId, next))

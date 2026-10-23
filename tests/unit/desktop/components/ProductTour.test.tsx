@@ -23,12 +23,20 @@ async function mount(initial: { phase: 'modules' | 'features'; index: number } =
   const rail = document.createElement('nav')
   rail.className = 'gg-sidebar-rail'
   const clicks: string[] = []
-  for (const name of ['assistant', 'tasks', 'chats', 'contacts', 'library', 'apps', 'settings']) {
+  for (const name of ['assistant', 'chats', 'contacts', 'library', 'apps', 'settings']) {
     const button = document.createElement('button')
     button.dataset.rail = name
     button.getBoundingClientRect = () => ({ width: 40, height: 40, x: 0, y: 20, top: 20, left: 0, right: 40, bottom: 60, toJSON() {} })
     button.scrollIntoView = vi.fn()
     button.onclick = () => { clicks.push(name) }
+    rail.append(button)
+  }
+  for (const page of ['projects', 'chats']) {
+    const button = document.createElement('button')
+    button.dataset.testid = `sidebar-list-page-${page}`
+    button.getBoundingClientRect = () => ({ width: 80, height: 32, x: 60, y: 20, top: 20, left: 60, right: 140, bottom: 52, toJSON() {} })
+    button.scrollIntoView = vi.fn()
+    button.onclick = () => { clicks.push(`page:${page}`) }
     rail.append(button)
   }
   document.body.append(rail)
@@ -51,7 +59,7 @@ describe('native first-login module tour', () => {
       expect(h.button('下一步').disabled).toBe(false)
       await clickElement(h.button('下一步'))
       expect(h.container.textContent).toContain('3 / 7')
-      expect(h.clicks).toEqual(['assistant', 'tasks', 'chats'])
+      expect(h.clicks).toEqual(['assistant', 'chats', 'page:projects', 'chats', 'page:chats'])
       expect(io.saveProductTourPosition).toHaveBeenCalledTimes(1)
       release()
       await waitForCondition(() => io.saveProductTourPosition.mock.calls.length === 2, 'queued save starts')
@@ -63,7 +71,7 @@ describe('native first-login module tour', () => {
     try {
       expect(h.clicks).toEqual(['assistant'])
       await clickElement(h.button('下一步'))
-      await waitForCondition(() => h.clicks.includes('tasks'), 'project navigation')
+      await waitForCondition(() => h.clicks.includes('page:projects'), 'project navigation')
       expect(io.saveProductTourPosition).toHaveBeenCalledWith('owner-1', { phase: 'modules', index: 1 })
       expect(h.container.textContent).toContain('项目 · 集中推进一件事')
       expect(io.finishFirstRun).not.toHaveBeenCalled()
@@ -80,10 +88,10 @@ describe('native first-login module tour', () => {
       await clickElement(h.button('下一步'))
       await waitForCondition(() => !!h.container.querySelector('[role=alert]'), 'visible save error')
       // The optimistic navigation is briefly followed by a rollback when the save fails.
-      expect(h.clicks).toEqual(['assistant', 'tasks', 'assistant'])
+      expect(h.clicks).toEqual(['assistant', 'chats', 'page:projects', 'assistant'])
       expect(h.container.textContent).not.toContain('offline')
       await clickElement(h.button('下一步'))
-      await waitForCondition(() => h.clicks.includes('tasks'), 'retry advances')
+      await waitForCondition(() => h.clicks.includes('page:projects'), 'retry advances')
     } finally { h.cleanup() }
   })
   it('waits for a pending position save before completing the tour', async () => {
