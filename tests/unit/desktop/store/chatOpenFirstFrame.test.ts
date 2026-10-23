@@ -225,7 +225,8 @@ describe('打开会话的第一帧', () => {
       await act(async () => { await scopedLines.get('chatA')!.sendMessage('full-window-send') })
       const pending = sharedAccess.read('chatA').messageWindow.messages.find((row) => row.content === 'full-window-send')!
       expect(pending).toMatchObject({ seq: -1, local_send_state: 'sending' })
-      expect(sharedAccess.read('chatA').messageWindow).toMatchObject({ hasNewer: false, viewVersion: before.viewVersion })
+      expect(sharedAccess.read('chatA').messageWindow).toMatchObject({ hasNewer: false, viewVersion: before.viewVersion,
+        navigation: 'latest', navigationVersion: before.navigationVersion + 1 })
       await act(async () => { ack.resolve({ ...pending, seq: 122, local_send_state: undefined }) })
       await vi.waitFor(() => expect(sharedAccess.read('chatA').messageWindow.messages.at(-1)).toMatchObject({ id: pending.id, seq: 122 }), WAIT)
       expect(sharedAccess.read('chatA').messageWindow.viewVersion).toBe(before.viewVersion)

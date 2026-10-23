@@ -189,7 +189,7 @@ describe('shared conversation tail pinning', () => {
     })
     const isAtBottomRef = { current: true }
     const autoscrollToBottom = vi.fn()
-    const input = { resetKey: 'chat#1', messages: Array.from({ length: 120 }, (_, i) => ({ id: `m${i}` })),
+    const input = { resetKey: 'chat#1', messages: Array.from({ length: 120 }, (_, i) => ({ id: `m${i}`, is_mine: false })),
       enabled: true, messageWindow: { hasNewer: false, loading: null, navigation: 'reset', navigationVersion: 0 } as Pick<HistoryWindow, 'hasNewer' | 'loading' | 'navigation' | 'navigationVersion'> }
     const callbacks = { isPreservingPosition: () => false, prepareForSavedPosition: vi.fn(() => false),
       forgetSavedPosition: vi.fn(), returnToLatest: vi.fn(async () => {}), onError: vi.fn() }
@@ -208,7 +208,7 @@ describe('shared conversation tail pinning', () => {
     const view = await setup()
     for (let seq = 120; seq < 180; seq++) {
       view.scroller.scrollTop = 11_200
-      view.input.messages = [...view.input.messages.slice(1), { id: `m${seq}` }]
+      view.input.messages = [...view.input.messages.slice(1), { id: `m${seq}`, is_mine: false }]
       await view.render()
       expect(view.scroller.scrollTop).toBe(12_000)
     }
@@ -219,16 +219,41 @@ describe('shared conversation tail pinning', () => {
     const view = await setup()
     view.isAtBottomRef.current = false
     view.scroller.scrollTop = 500
-    view.input.messages = [...view.input.messages.slice(1), { id: 'received' }]
+    view.input.messages = [...view.input.messages.slice(1), { id: 'received', is_mine: false }]
     await view.render()
     expect(view.scroller.scrollTop).toBe(500)
     expect(view.autoscrollToBottom).not.toHaveBeenCalled()
   })
 
+  it.each(['cached-own-row', 'own-row-from-another-device'])('keeps the historical anchor when %s arrives without a local send intent', async (id) => {
+    const view = await setup()
+    view.isAtBottomRef.current = false
+    view.scroller.scrollTop = 500
+    view.callbacks.forgetSavedPosition.mockClear()
+    view.input.messageWindow = { ...view.input.messageWindow, hasNewer: true }
+    view.input.messages = [...view.input.messages, { id, is_mine: true }]
+    await view.render()
+    expect(view.scroller.scrollTop).toBe(500)
+    expect(view.autoscrollToBottom).not.toHaveBeenCalled()
+    expect(view.callbacks.forgetSavedPosition).not.toHaveBeenCalled()
+    expect(view.callbacks.returnToLatest).not.toHaveBeenCalled()
+  })
+
+  it('pins a local optimistic send through explicit latest navigation while reading history', async () => {
+    const view = await setup()
+    view.isAtBottomRef.current = false
+    view.scroller.scrollTop = 500
+    view.input.messageWindow = { ...view.input.messageWindow, navigation: 'latest', navigationVersion: 1 }
+    view.input.messages = [...view.input.messages, { id: 'local-optimistic', is_mine: true }]
+    await view.render()
+    expect(view.scroller.scrollTop).toBe(12_000)
+    expect(view.autoscrollToBottom).toHaveBeenCalledOnce()
+  })
+
   it.each(['older', 'newer', 'anchor'] as const)('leaves %s navigation in control of its landing', async (navigation) => {
     const view = await setup()
     view.input.messageWindow = { ...view.input.messageWindow, navigation, navigationVersion: 1 }
-    view.input.messages = [{ id: 'anchor' }]
+    view.input.messages = [{ id: 'anchor', is_mine: false }]
     await view.render()
     expect(view.autoscrollToBottom).not.toHaveBeenCalled()
   })

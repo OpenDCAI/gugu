@@ -60,15 +60,20 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
     w.setFollowingTail(false)
+    const before = w.getSnapshot()
     expect(w.followForSend()).toBe(true)
     expect(w.isFollowingTail()).toBe(true)
+    expect(w.getSnapshot()).toMatchObject({ navigation: 'latest', navigationVersion: before.navigationVersion + 1,
+      viewVersion: before.viewVersion, messages: before.messages })
   })
 
   it('发送钉底:离尾 ⇒ 交给回最新页;拉取期间自己的确认行不消失,并进最新页', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
     w.replace(range(1, 10), false)
+    const before = w.getSnapshot()
     expect(w.followForSend()).toBe(false)
+    expect(w.getSnapshot()).toBe(before)
 
     const pages = [deferred<MessageItem[]>(), deferred<MessageItem[]>()]
     let calls = 0

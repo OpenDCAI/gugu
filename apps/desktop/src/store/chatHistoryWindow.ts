@@ -121,7 +121,9 @@ export class ChatHistoryWindow {
    */
   followForSend = (): boolean => {
     if (this.state.hasNewer) return false
-    return this.setFollowingTail(true)
+    const following = this.setFollowingTail(true)
+    if (following) this.publish({ ...this.state, navigation: 'latest', navigationVersion: this.state.navigationVersion + 1 })
+    return following
   }
 
   isFollowingTail = (): boolean => this.followingTail && !this.state.hasNewer && this.state.loading === null
