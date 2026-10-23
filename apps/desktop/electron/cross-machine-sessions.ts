@@ -203,6 +203,16 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
     request(await reachable(deviceId), `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
 
+  const assertFileHandoffSupported = async (deviceIds: string[]) => {
+    for (const id of new Set(deviceIds)) {
+      const device = await reachable(id)
+      const protocol = device.capabilities.remote_protocol
+      if (typeof protocol !== 'number' || protocol < 11) throw new CrossMachineError(
+        'SESSION_DEVICE_OUTDATED', `Update 咕咕 on ${describe(device)} before sending session files; nothing was uploaded or sent there`,
+      )
+    }
+  }
+
   /** 本机库里没有的 `session:` id 各在哪台机器:先查记下的,再并发问在线的机器。 */
   const locateSessions = async (ids: string[], caller: RemoteSessionCaller, signal?: AbortSignal) => {
     const found = new Map(ids.flatMap((id) => (known.has(id) ? [[id, known.get(id)!] as const] : [])))
@@ -461,6 +471,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appReadFile,
     appCall,
     messageDeps,
+    assertFileHandoffSupported,
     answer,
   }
 }

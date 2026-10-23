@@ -36,6 +36,7 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, re
     const sent = await handleUnifiedSessionMessage(action, {
       caller: { sessionId: agent.sessionId, runtimeFork: false },
       prepareFiles: async (files, targets) => {
+        await cross.assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
         const recipientIds = []
         const peers = new Map()
         for (const target of targets) {

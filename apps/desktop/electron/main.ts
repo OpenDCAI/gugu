@@ -4419,6 +4419,7 @@ app.whenReady().then(async () => {
       signal.throwIfAborted()
       return handleUnifiedSessionMessage(record, {
         prepareFiles: async (files, targets) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
           const sender = await senderBinding(context, auth.userId)
           if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
           const caller = await remoteCaller(auth, context)

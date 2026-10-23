@@ -83,6 +83,18 @@ const actions = (call: ReturnType<typeof vi.fn>) =>
   call.mock.calls.map(([deviceId, , payload]) => [deviceId, (payload as { action: { action: string } }).action.action])
 
 describe('reaching another machine', () => {
+  it('refuses file handoff to an older or unknown receiver before any message RPC, without blocking text', async () => {
+    for (const protocol of [undefined, 10, 11]) {
+      const target = device('dev-b', 'receiver', true)
+      target.capabilities.remote_protocol = protocol
+      const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [device('dev-a', 'sender', true), target] })
+      if (protocol === 11) await xm.assertFileHandoffSupported(['dev-b'])
+      else await expect(xm.assertFileHandoffSupported(['dev-b'])).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+      expect(call).not.toHaveBeenCalled()
+      await xm.runOnDevice('dev-b', CALLER, { action: 'message', session_ids: ['receiver'], text: 'plain text' })
+      expect(call).toHaveBeenCalledOnce()
+    }
+  })
   it('lists this machine first, then online machines', async () => {
     const { xm } = makeCrossMachine()
     expect((await xm.listDeviceRows()).map((row) => [row.device_id, row.this_machine, row.online])).toEqual([
