@@ -46,6 +46,22 @@ async function setup(message: Record<string, unknown> | null, opts: { agentSees?
 }
 
 describe('message_download_file by source_message_id (#7290)', () => {
+  test('makes Windows punctuation and trailing dots or spaces portable without losing Chinese', () => {
+    expect(attachmentDownloadName('报告 10:30<>"|?*.html. ')).toBe('报告 10_30______.html')
+  })
+
+  test.each(['CON', 'nul.html', 'COM1.txt', 'LPT9', 'COM¹.log'])('escapes reserved Windows device name %s', name => {
+    expect(attachmentDownloadName(name)).toBe('_' + name)
+  })
+
+  test('limits UTF-8 bytes without splitting Unicode and retains the extension', () => {
+    const name = attachmentDownloadName('核对🍵'.repeat(100) + '.html')
+    expect(Buffer.byteLength(name, 'utf8')).toBeLessThanOrEqual(200)
+    expect(name.endsWith('.html')).toBe(true)
+    expect(name).not.toContain('�')
+    expect(name).toMatch(/^(?:核对🍵)*(?:核对|核)?\.html$/u)
+  })
+
   test('old message: downloads its public URL; saved under a name taken from the content', async () => {
     const { call, fetched, asked, home } = await setup({ id: 'm1', chat_id: CHAT, content: legacy, content_type: 'attachment', file_item_id: null, file_version: null })
     const text = JSON.stringify(await call())
