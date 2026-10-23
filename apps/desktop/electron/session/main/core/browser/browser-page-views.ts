@@ -5,6 +5,7 @@ import { log } from '@main/lib/logger';
 import { AGENT_OVERLAY_WINDOW_NAME_PREFIX, AUX_WINDOW_NAME_PREFIX, agentOverlayOfFrame, type AgentOverlayPart } from '@shared/aux-window';
 import { BROWSER_TAB_URL_OPTIONS, normalizeBrowserUrl, normalizeBrowserZoomFactor } from '@shared/browser';
 import { BROWSER_PAGE_MEASURE_SCRIPT, parseBrowserPageLayout, type BrowserPageLayout } from '@shared/browser-page-layout';
+import { browserCursorInput, type BrowserCursorInput } from '@shared/browser-cursor-input';
 import {
   browserPageEventChannel,
   type BrowserPageEventType,
@@ -42,8 +43,8 @@ import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
  * - **网页画在界面之上**:页签那一块在界面里只是一个空的占位(browser-page-surface.tsx),它量好自己在窗口里的
  *   位置报过来,这里把 view 摆上去。咕咕自己的浮层(菜单、弹窗、起始页…)压到网页上时,页签报 `occluded`:
  *   view 收起、占位换成一张网页截图,浮层照常盖在上面。
- * - **agent 的鼠标和「agent 正在操作」小条**是窗口里叠在网页上面的两层(window-layers.ts,❌ 另开子窗):小条那层只有
- *   小条那么大;鼠标那层铺满网页那一块,只在 agent 操作时露出 —— 这期间人点网页落在它上面,算人接管(见下)。
+ * - **agent 的鼠标与快捷消息按钮**是窗口里的两层(window-layers.ts);鼠标只在动作期间露出,消息按钮跟随页签。
+ *   运行控制属于 Agent 会话。落在鼠标层上的真实鼠标输入原样交给网页,不暂停 agent。
  * - **不在屏上的网页停在「停放窗」里**:每扇咕咕窗口配一扇从不显示的窗,不在屏上(页签切走、会话藏起来、被浮层盖住)
  *   的网页挂到那里、大小照旧跟着页签。❌ 摘下来 / ❌ 挂着 setVisible(false):从没露过面的网页视口是 0×0,
  *   挂着隐藏的截图会卡死 —— agent 在后台操作它时截图、点击全不灵(exp11 / exp12 实测)。停在停放窗里平时不出帧;
@@ -59,7 +60,7 @@ type Rect = { x: number; y: number; width: number; height: number };
 
 type PagePlace = 'host' | 'parked' | null;
 
-/** 一层 agent 浮层:开在哪扇窗上(网页不在那扇窗上时它收着)、小条那层内容的大小(preferred size)。 */
+/** Agent 鼠标与快捷消息层及其宿主:网页不在那扇窗上时收起。 */
 type AgentLayer = { part: AgentOverlayPart; view: WebContentsView; contents: WebContents; host: BrowserWindow; size: Size | null };
 
 type BrowserPage = {
@@ -78,7 +79,7 @@ type BrowserPage = {
   place: PagePlace;
   ready: boolean;
   releaseTimer: ReturnType<typeof setTimeout> | null;
-  /** 盖在网页上的 agent 鼠标、小条那几层(页签那边开出来、开在哪扇窗上记着;每扇窗每种最多一层)。 */
+  /** 盖在网页上的鼠标与快捷消息层(记录宿主,每种每窗最多一层)。 */
   layers: AgentLayer[];
   /** 鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
   cursorShown: boolean;
@@ -187,7 +188,7 @@ function placeOn(page: BrowserPage, where: 'host' | 'parked'): void {
   unplace(page);
   if (where === 'host') {
     host.contentView.addChildView(page.view);
-    // 后挂上去的网页会压住窗口里的层(agent 的鼠标、小条、构建角标):叠回去。
+    // 后挂上去的网页会压住窗口里的层(agent 的鼠标、构建角标):叠回去。
     raiseWindowLayers(host);
   } else parkingFor(host).contentView.addChildView(page.view);
   page.place = where;
@@ -586,7 +587,7 @@ function openAgentLayer(host: BrowserWindow, frameName: string, content: WindowL
   const overlay = agentOverlayOfFrame(frameName);
   const page = overlay ? livePage(overlay.browserId) : null;
   const view = openWindowLayer(host, content, overlay?.part === 'badge' ? WINDOW_LAYER_RANK.agentBadge : WINDOW_LAYER_RANK.agentCursor, {
-    // 点到鼠标那层 = 人接管、要用网页:键盘焦点给网页。小条那层交回界面(默认)。
+    // 点到鼠标层是人在操作网页:键盘焦点给网页。小条那层交回界面(默认)。
     focusTarget: () => (overlay?.part === 'cursor' && page && page.host === host && !page.webContents.isDestroyed() ? page.webContents : null),
   });
   agentLayersByName.set(frameName, view);
@@ -668,11 +669,22 @@ export function closeAgentOverlayLayers(frameNames: readonly string[]): void {
 
 /**
  * 页签那边要不要画 agent 的鼠标(agent 在操作这个页签、页签在屏上):要画时鼠标那层铺满网页露出来,
- * 不画时收起 —— 它盖着网页,这时人的点击、滚动都落在它上面(点它 = 人接管,页签那边处理)。
+ * 不画时收起 —— 它盖着网页,人的点击、滚动由页签转交给网页。
  */
 export function setAgentCursorShown(browserId: string, shown: boolean): void {
   const page = livePage(browserId);
   if (!page || page.cursorShown === shown) return;
   page.cursorShown = shown;
   placeAgentLayers(page);
+}
+
+/** A decorative native view cannot let input through; deliver the person's input to its page. */
+export function forwardAgentCursorInput(browserId: string, input: BrowserCursorInput): boolean {
+  const page = livePage(browserId);
+  if (!page || page.place !== 'host' || page.mode !== 'shown' || !page.cursorShown || page.fullscreen) return false;
+  const pointer = browserCursorInput(input);
+  if (!pointer) return false;
+  if (pointer.type === 'mouseDown') page.webContents.focus();
+  page.webContents.sendInputEvent(pointer);
+  return true;
 }

@@ -750,6 +750,14 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
 
   return {
     ...client,
+    cancelTurn: async (input, meta) => {
+      // Harnesses do not all cancel their outstanding MCP requests when interrupted.
+      // Stop this turn's browser work at the owning host as well; the person's page stays open.
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.cancelTurn(input, meta), closingBrowser]);
+      return result;
+    },
     revertSession: createHistoryReverter({
       boundary: storedRevertBoundary,
       revert: client.revertSession,
@@ -809,7 +817,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       const inFlight = startsInFlight.get(input.sessionId);
       if (inFlight) inFlight.stopped = true;
       startsInFlight.delete(input.sessionId);
-      const result = await client.stopSession(input, meta);
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.stopSession(input, meta), closingBrowser]);
       await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
       // @@@stop-settles-the-credential — 「停了」和「它的凭据没了」必须是**同一个结果**。
       //

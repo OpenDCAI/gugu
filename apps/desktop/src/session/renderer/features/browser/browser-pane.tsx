@@ -14,6 +14,8 @@ import { tabNavigationShortcutChannel } from '@shared/events/appEvents';
 import { browserFocusedChannel } from '@shared/events/browserEvents';
 import { AgentBrowserOverlay } from './agent-browser-overlay';
 import { useAgentBrowserStateSync } from './agent-browser-state';
+import { AgentBrowserAssistant } from './agent-browser-assistant';
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { browserControlsRegistry } from './browser-controls-registry';
 import {
   browserLoadErrorCode,
@@ -151,7 +153,7 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
     });
   }, [resolveUrl, session, sessionBrowserId, sessionPartition]);
 
-  // OpenDCAI/gugu#56 页签在屏上(且已向主进程登记)时补问 agent 现在的状态:人接管后停在 paused 的页签,界面晚挂上来也得露出「让 agent 继续」。
+  // Sync current activity when a pane becomes visible, even if its driving event was missed.
   useAgentBrowserStateSync(
     sessionBrowserId ?? '',
     visible && isRegistered && Boolean(sessionBrowserId),
@@ -400,7 +402,6 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
         onFocusUrl={(focus) => {
           focusUrlRef.current = focus;
         }}
-        agentBrowserId={sessionBrowserId}
       />
       <div className="emlight relative min-h-0 flex-1 bg-background">
         {pageMount && isRegistered ? (
@@ -439,7 +440,9 @@ const BrowserPaneContent = observer(function BrowserPaneContent({
           </div>
         ) : null}
         {sessionBrowserId ? (
-          <AgentBrowserOverlay browserId={sessionBrowserId} hostElement={page?.element ?? null} visible={visible} />
+          <AgentBrowserOverlay browserId={sessionBrowserId} hostElement={page?.element ?? null} visible={visible}
+            assistant={session.sessionId ? <AgentBrowserAssistant owner={session}
+              agentName={sessionAgentNames.nameFor(session.sessionId) ?? translate('browser.assistantNameFallback')} /> : null} />
         ) : null}
       </div>
     </div>

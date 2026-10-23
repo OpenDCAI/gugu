@@ -59,6 +59,8 @@ vi.mock('electron', async () => {
       this.destroyed = true;
       this.emit('destroyed');
     }
+    inputs: unknown[] = [];
+    sendInputEvent(input: unknown) { this.inputs.push(input); }
     focused = 0;
     focus() {
       this.focused += 1;
@@ -176,6 +178,7 @@ vi.mock('./browser-webcontents-registry', () => ({
 
 import {
   destroyBrowserPage,
+  forwardAgentCursorInput,
   layoutBrowserPage,
   mountBrowserPage,
   releaseBrowserPage,
@@ -599,7 +602,7 @@ describe('#77 盖在网页上的 agent 鼠标与小条:窗口里的两层', () =
     expect([old.webContents.destroyed, fresh.webContents.destroyed, there.webContents.destroyed]).toEqual([true, false, false]);
   });
 
-  it('层不留键盘焦点:点到小条交回界面;点到鼠标那层(人接管)交给网页', async () => {
+  it('层不留键盘焦点:点到小条交回界面;点到鼠标层交给网页', async () => {
     const { view } = mount('b4');
     layoutBrowserPage({ browserId: 'b4', windowName: '', rect: RECT, mode: 'shown' });
     const badge = await openLayer('gugu-agent-overlay:badge:40:b4');
@@ -660,5 +663,58 @@ describe('#77 盖在网页上的 agent 鼠标与小条:窗口里的两层', () =
     expect(windowLayerResponse(mainWindow as any, 'about:blank', 'gugu-aux:s1')).toBeNull();
     expect(windowLayerResponse(mainWindow as any, 'about:blank', 'gugu-agent-overlay:b1')).toBeNull();
     expect(windowLayerResponse(mainWindow as any, 'about:blank', 'gugu-agent-overlay:pill:1:b1')).toBeNull();
+  });
+});
+
+describe('real cursor-layer input still reaches its page', () => {
+  it('forwards clicks, drag modifiers and wheel deltas without moving the host focus', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    setAgentCursorShown('b1', true);
+    const down = { type: 'mouseDown' as const, x: 12.4, y: 30.6, button: 'left' as const, clickCount: 2, modifiers: ['shift', 'leftbuttondown'] as const };
+    expect(forwardAgentCursorInput('b1', { ...down, modifiers: [...down.modifiers] })).toBe(true);
+    expect(forwardAgentCursorInput('b1', { type: 'mouseMove', x: 50, y: 60, modifiers: ['leftbuttondown'] })).toBe(true);
+    expect(forwardAgentCursorInput('b1', { type: 'mouseUp', x: 50, y: 60, button: 'left' })).toBe(true);
+    expect(forwardAgentCursorInput('b1', { type: 'mouseWheel', x: 50, y: 60, deltaX: -3, deltaY: -120, canScroll: true })).toBe(true);
+    expect(view.webContents.inputs).toEqual([
+      { ...down, x: 12, y: 31, modifiers: [...down.modifiers] },
+      { type: 'mouseMove', x: 50, y: 60, modifiers: ['leftbuttondown'] },
+      { type: 'mouseUp', x: 50, y: 60, button: 'left' },
+      { type: 'mouseWheel', x: 50, y: 60, deltaX: -3, deltaY: -120, canScroll: true },
+    ]);
+    expect(view.webContents.focused).toBe(1);
+    expect(mainWindow.webContents.focus).not.toHaveBeenCalled();
+  });
+
+  it('refuses missing, hidden, covered, full-screen and destroyed pages', () => {
+    const input = { type: 'mouseDown' as const, x: 1, y: 2 };
+    expect(forwardAgentCursorInput('missing', input)).toBe(false);
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    expect(forwardAgentCursorInput('b1', input)).toBe(false);
+    setAgentCursorShown('b1', true);
+    for (const mode of ['background', 'occluded'] as const) {
+      layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode });
+      expect(forwardAgentCursorInput('b1', input)).toBe(false);
+    }
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    view.webContents.emit('enter-html-full-screen');
+    expect(forwardAgentCursorInput('b1', input)).toBe(false);
+    view.webContents.emit('leave-html-full-screen');
+    destroyBrowserPage('b1');
+    expect(forwardAgentCursorInput('b1', input)).toBe(false);
+    expect(view.webContents.inputs).toEqual([]);
+  });
+
+  it('rejects malformed input before passing it to Electron', () => {
+    const { view } = mount('b1');
+    layoutBrowserPage({ browserId: 'b1', windowName: '', rect: RECT, mode: 'shown' });
+    setAgentCursorShown('b1', true);
+    for (const input of [null, {}, { type: 'keyDown', x: 1, y: 2 }, { type: 'mouseDown', x: NaN, y: 2 },
+      { type: 'mouseWheel', x: 1, y: 2, deltaX: 0, deltaY: Infinity }]) {
+      expect(forwardAgentCursorInput('b1', input as never)).toBe(false);
+    }
+    expect(view.webContents.inputs).toEqual([]);
+    expect(view.webContents.focused).toBe(0);
   });
 });

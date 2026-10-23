@@ -125,7 +125,7 @@ export class BrowserWebContentsRegistry {
     const webContentsId = webContents.id;
     this.hardenBrowserWebContents(webContents, placement);
 
-    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;agent 在用时 = 人接管)。
+    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;不据此暂停 agent)。
     webContents.on('before-mouse-event', (_event, mouse) => {
       if (mouse.type !== 'mouseDown') return;
       const boundBrowserId = this.browserIdByWebContentsId.get(webContentsId);

@@ -55,6 +55,8 @@ vi.mock('@main/core/acp/emdash-platform-injector', () => ({
 const statusWriter = vi.hoisted(() => ({ interrupt: vi.fn(async () => {}) }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({ agentStatusWriter: statusWriter }));
 vi.mock('./session-persistence-policy', () => ({ persistAcpStartResult: vi.fn(async () => {}) }));
+const browserClose = vi.hoisted(() => vi.fn(async (_sessionId: string) => {}));
+vi.mock('../../../../../browser-agent-mcp', () => ({ closeSessionBrowserTools: browserClose }));
 
 const { createStartOwningClient } = await import('./host');
 
@@ -88,6 +90,7 @@ function fakeWorker() {
   };
   const client = {
     startSession,
+    cancelTurn: vi.fn(async (_input: { sessionId: string }) => ok(undefined)),
     stopSession: vi.fn(async ({ sessionId }: { sessionId: string }) => {
       records.delete(sessionId);
       return ok(undefined);
@@ -127,6 +130,16 @@ const startInput = {
 
 describe('#5233 host start owner after an abnormal adapter exit', () => {
   beforeEach(() => { platform.issued = 0; platform.released = []; });
+
+  it('the existing Stop action closes only that session\'s browser tools even when the harness does not cancel MCP calls', async () => {
+    const worker = fakeWorker();
+    const host = createStartOwningClient(worker.client as never);
+    browserClose.mockClear();
+    const result = await host.cancelTurn({ sessionId: 'stopped-agent' }, undefined as never);
+    expect(result.success).toBe(true);
+    expect(browserClose).toHaveBeenCalledExactlyOnceWith('stopped-agent');
+    expect(worker.client.cancelTurn).toHaveBeenCalledExactlyOnceWith({ sessionId: 'stopped-agent' }, undefined);
+  });
 
   it('a queued sentence with startInput after the adapter was lost restarts the session with one new platform ticket', async () => {
     const worker = fakeWorker();
