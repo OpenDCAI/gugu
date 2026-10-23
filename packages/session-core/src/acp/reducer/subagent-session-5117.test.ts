@@ -9,7 +9,7 @@
  * 那条凭空多出来的行就是 owner 说的「子智能体的事泄露到主 agent 这儿」。
  */
 import { describe, expect, it } from 'vitest';
-import { decodeSessionUpdate } from './decode';
+import { decodeSessionUpdate } from '../transport/decode';
 import { AcpTranscriptParser } from './parser';
 import type { TranscriptItem, TranscriptTurn } from '../models/turns';
 

@@ -36,7 +36,7 @@ import type {
   TranscriptTurn,
 } from '../models/turns';
 import { deriveConfigGroups } from './config-derive';
-import { decodeSessionUpdate } from './decode';
+import { decodeSessionUpdate } from '../transport/decode';
 import { makeMessageId, makeThinkingId, makeTurnId } from './ids';
 import { foldItem, finalizeItems, type FoldEvent } from './item-fold';
 import { projectSubagentProgress } from './subagent-progress';

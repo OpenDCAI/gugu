@@ -22,7 +22,7 @@ import type {
   NormalizedEvent,
   NormalizedToolLocation,
   NormalizedToolStatus,
-} from './normalized-event';
+} from '../reducer/normalized-event';
 
 function extractDiffs(
   content: ReadonlyArray<ToolCallContent> | null | undefined
