@@ -1364,8 +1364,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           「差一截」错觉），出现/消失改 scroller clientHeight → #780 ResizeObserver 自动重 pin 到真底。
           · 群聊：GroupAgentStatusBar 列出在执行的 agent（可点 → @mention），去底色后即浮动文字。
           · 单聊：运行中/思考中从消息列表行（#1102 in-list）移到这里；流式正文仍留消息流。 */}
-      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (blockHost ? null :
-        // gugu-dev#181 块里的群:谁在跑挂在它那张任务卡的行尾(第 55 条),❌ 再另起一条运行条。
+      {!searchMode && !chrome?.hideRunningStatus && (isRoomChatSurface ? (
         // @@@1696 群聊运行态：横排单行「运行 token」(流光动词) + cap +N。数据 = 在跑(transient)的 agent，
         // stateKey 由 presence recentActions 的最新 kind 派生，展示文案由 RunningTokenBar 翻译；
         // toolCount 近似用近 5 分钟 actions.length。onTokenClick 仍 @mention。
