@@ -10,6 +10,7 @@ import zhSettings from '@/i18n/locales/zh-CN/settings'
 import {
   DEVICE_ACTION_RESULT_ACK_RPC_TYPE,
   DEVICE_ACTION_RPC_TYPE,
+  deviceScopeError,
   type DeviceActionsCapability,
 } from '@gugu/core/shared/deviceActions'
 import { createDeviceActionHost, type DeviceActionHost } from '@gugu/core/cloud/deviceActionHost'
@@ -84,6 +85,7 @@ export function nativeComponentsDir(input: { platform?: NodeJS.Platform; isPacka
 
 export function createDeviceActionsRuntime(input: {
   userData: string
+  deviceId(): Promise<string>
   deps: ElectronDeviceDeps
   /** 原生组件目录(见 nativeComponentsDir);没有时为 null。 */
   nativeDir: string | null
@@ -155,15 +157,10 @@ export function createDeviceActionsRuntime(input: {
   /** The App switch flipped: whoever re-registers this computer's actions, and the settings pages, hear it. */
   const switchListeners = new Set<() => void>()
 
-  let channelPublish: ((payload: unknown) => unknown) | null = null
   let localSink: ((payload: unknown) => void) | null = null
   const host: DeviceActionHost = createDeviceActionHost({
     provider: actions.provider,
-    // 结果 / 进度推给频道上的调用方(别的机器),本机自调的再交给本机的调用方一份。
-    publishEvent: (payload) => {
-      localSink?.(payload)
-      return channelPublish?.(payload)
-    },
+    publishEvent: (payload) => localSink?.(payload),
     log: input.log,
   })
 
@@ -241,12 +238,9 @@ export function createDeviceActionsRuntime(input: {
     computerControl,
     capability: () => actions.capability(),
     rpcHandlers: () => ({
-      [DEVICE_ACTION_RPC_TYPE]: (payload, ctx) => {
-        // 回推事件走发来请求的那条频道(频道断了重订后,下一次请求带来新的那一条)。
-        channelPublish = (event) => ctx.publishEvent(event)
-        return host.handleCall(payload)
-      },
-      [DEVICE_ACTION_RESULT_ACK_RPC_TYPE]: (payload) => host.handleResultAck(payload),
+      // Remote requests never reach the provider, confirmation or action-result cache.
+      [DEVICE_ACTION_RPC_TYPE]: async () => ({ error: deviceScopeError(await input.deviceId()) }),
+      [DEVICE_ACTION_RESULT_ACK_RPC_TYPE]: async () => ({ error: deviceScopeError(await input.deviceId()) }),
     }),
     async callLocal(type, payload) {
       if (type === DEVICE_ACTION_RPC_TYPE) return host.handleCall(payload)

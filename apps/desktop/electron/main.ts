@@ -1,4 +1,6 @@
 import './browser-user-agent-bootstrap'
+import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -457,7 +459,6 @@ import {
   findSshMachine,
 } from './server/ssh-machines'
 import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
-import { setPhoneHealthCaller } from '@main/core/extensions/phone-health'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
@@ -1705,6 +1706,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
   if (deviceActionsRuntimeInstance) return deviceActionsRuntimeInstance
   const log = createLogger('device-actions')
   const runtime = createDeviceActionsRuntime({
+    deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error("Local device identity is unavailable"); return id },
     userData: app.getPath('userData'),
     deps: {
       clipboardRead: async () => await clipboard.readText(),
@@ -2168,12 +2170,6 @@ setAccountAccessTokenReader(async () => {
   const provider = desktopAuthProvider()
   const auth = await provider.getAuth()
   return auth?.accessToken ?? null
-})
-
-// #7199 健康:「助理」App 的健康页经设备动作问主人的手机,与 agent 的 device_call 同一个调用方(第一次用到时才装)。
-setPhoneHealthCaller({
-  describe: () => deviceActionCaller().describe(),
-  call: (input) => deviceActionCaller().call(input),
 })
 
 // #7337 设置页「用模型给会话起名」的候选:这个账号能在 Chat Completions 上用的在售平台模型(起名走的就是这条协议)。
@@ -3288,8 +3284,8 @@ function hoistDevicePictures(result: DeviceActionResult): unknown {
 }
 
 /**
- * #7199 第二步:agent 的 device_actions / device_call。调别的机器走设备 RPC(与跨机器起会话同一个请求方);
- * 调这台电脑自己不经频道(频道 self:false,自己发的自己收不到),直接交给本机那一份 host。
+ * Agent native actions stay on this computer; other devices are discovery-only.
+ * Local calls go directly to this host. Receiver-side rejection also protects against remote RPC bypasses.
  */
 function deviceActionCaller(): DeviceActionCaller {
   if (deviceActionCallerInstance) return deviceActionCallerInstance
@@ -3357,7 +3353,7 @@ function crossMachine(): CrossMachineSessions {
     },
     listDevices: async () => {
       const auth = await requireAuth()
-      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId)
+      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { includePhones: true })
     },
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
@@ -4415,6 +4411,29 @@ app.whenReady().then(async () => {
     ): Promise<unknown> => {
       signal.throwIfAborted()
       return handleUnifiedSessionMessage(record, {
+        prepareFiles: async (files, targets) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
+          const sender = await senderBinding(context, auth.userId)
+          if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
+          const caller = await remoteCaller(auth, context)
+          const remotePeers = new Map<string, Array<Record<string, unknown>>>()
+          const recipients: string[] = []
+          for (const target of targets) {
+            let agentId: string | null = null
+            if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
+            else {
+              if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
+              const peer = remotePeers.get(target.deviceId)!.find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
+              const identity = peer?.identity as { users?: { id?: string } } | undefined
+              agentId = typeof peer?.agentUserId === 'string' ? peer.agentUserId : typeof peer?.agent_user_id === 'string' ? peer.agent_user_id.replace(/^user:/, '') : identity?.users?.id ?? null
+            }
+            if (!agentId) throw new Error(`Session attachment recipient has no Agent identity: session:${target.sessionId}`)
+            recipients.push(agentId)
+          }
+          const endpoint = configuredEndpoint(auth.accessToken)
+          signal.throwIfAborted()
+          return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+        },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
           { action: 'message', session_ids: sessionIds, text, ...said } as SessionAction,

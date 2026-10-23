@@ -491,6 +491,7 @@ export default {
     "gone": "It may have been deleted or renamed."
   },
   "health": {
+    "desktopEmpty": "No health data yet",
     "title": "Health",
     "tileSub": "{{n}} metrics",
     "tileSubEmpty": "Sleep, activity, heart rate",
@@ -584,7 +585,7 @@ export default {
     "analysisTitle": "Your health analysis",
     "analysisEmpty": "Let {{name}} look at your recent data. Its take will be kept here.",
     "analyze": "Ask {{name}} to interpret",
-    "analyzePrompt": "[Health] Look at the last 7 days of health data on my phone (device_call the phone's health.summary) and tell me what stands out about my sleep, activity and heart rate. Save your conclusions to your memory in a file whose name starts with health_.",
+    "analyzePrompt": "[Health] Have an executor on the device holding my recent health data read the authorized records and explain any notable changes in sleep, activity and heart rate. Save the conclusions to your memory in a file whose name starts with health_.",
     "notes": "Health notes",
     "addData": "Add health data",
     "analyzeReport": "Analyze a health report",

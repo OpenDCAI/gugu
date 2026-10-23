@@ -80,7 +80,10 @@ it('forwards real pointer input on the cursor canvas, including wheel and drag m
     canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, clientX: 40, clientY: 50, deltaX: 3, deltaY: 80, deltaMode: 0 }));
   });
   expect(mocks.pauseAgent).not.toHaveBeenCalled();
-  expect(mocks.forwardAgentCursorInput.mock.calls.map(([args]) => args)).toEqual([
+  // A real browser may also enter/leave the newly mounted canvas under its physical
+  // cursor. Assert the explicit input sequence without rejecting those valid events.
+  expect(mocks.forwardAgentCursorInput.mock.calls.map(([args]) => args)
+    .filter(({ input }) => ['mouseDown', 'mouseMove', 'mouseUp', 'mouseWheel'].includes(input.type))).toEqual([
     { browserId: 'cursor-input', input: { type: 'mouseDown', x: 12, y: 24, button: 'left', clickCount: 2, modifiers: ['shift', 'leftbuttondown'] } },
     { browserId: 'cursor-input', input: { type: 'mouseMove', x: 40, y: 50, button: 'left', clickCount: 0, modifiers: ['leftbuttondown'] } },
     { browserId: 'cursor-input', input: { type: 'mouseUp', x: 40, y: 50, button: 'left', clickCount: 0, modifiers: [] } },

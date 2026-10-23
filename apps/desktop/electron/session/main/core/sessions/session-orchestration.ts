@@ -1,3 +1,4 @@
+import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cloud/sessionAttachments';
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
@@ -162,6 +163,7 @@ export type SessionAction =
   | { action: 'children'; session_id?: string }
   | {
       action: 'message';
+      attachments?: SessionAttachmentRef[];
       /** Bare conversation ids, already decoded from `session:` typed entries at the host boundary. */
       session_ids: string[];
       text: string;
@@ -1735,7 +1737,7 @@ async function sendSessionMessage(
 ): Promise<{ recipients: SessionDirectRecipientResult[] }> {
   signal?.throwIfAborted();
   if (!action.text.trim()) throw new Error('message text is required');
-  const text = withActivitySource(action.text.trim(), action.source_link);
+  const text = withSessionAttachments(withActivitySource(action.text.trim(), action.source_link), action.attachments);
   if (!text) throw new Error('message text is required');
   if (!Array.isArray(action.session_ids) || action.session_ids.length === 0) {
     throw new Error('message requires at least one session target');

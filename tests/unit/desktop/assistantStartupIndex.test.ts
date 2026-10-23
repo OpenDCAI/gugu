@@ -64,6 +64,28 @@ it('distinguishes unavailable/invalid sources from a successfully read empty col
   expect(rows.filter(row => row.status === 'unavailable').every(row => !('items' in row))).toBe(true)
 })
 
+it('keeps older computers in task discovery without a runtime capability advertisement', async () => {
+  const deps = fixture()
+  const rows = records(await assistantStartupIndex(deps))
+  expect(rows.find(row => row.device_id === 'device:mac')).toMatchObject({
+    delegate: { tool: 'session_spawn', args: { device: 'device:mac' } },
+  })
+  expect(deps.run.mock.calls.some(([action]) => action.action === 'project_list' && action.device === 'mac')).toBe(true)
+})
+
+it('retains an online phone with no task runtime without delegating or reading its task resources', async () => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => action.action === 'devices'
+    ? Promise.resolve([host, { ...phone, kind: 'phone', task_runtime: { capability: 0, runtimes: [] } }])
+    : original(action, signal))
+  const rows = records(await assistantStartupIndex(deps))
+  expect(rows.find(row => row.device_id === 'device:phone')).toMatchObject({ online: true,
+    task_runtime: { capability: 0, runtimes: [] } })
+  expect(rows.find(row => row.device_id === 'device:phone')).not.toHaveProperty('delegate')
+  expect(deps.run.mock.calls.some(([action]) => action.device === 'phone')).toBe(false)
+})
+
 it.each(['awake', 'waking', 'asleep'] as const)('preserves verified cloud hosting (%s) without treating every server as a cloud device', async cloudState => {
   const deps = fixture()
   const original = deps.run.getMockImplementation()!
