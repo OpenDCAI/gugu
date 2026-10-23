@@ -104,6 +104,7 @@ export function useTopicSurface({
   const splitChatIdRef = useRef<string | null>(null)
   splitChatIdRef.current = splitChatId
   const line = useChatConversation(splitChatId, conversations)
+  const sendSplitMessage = line.sendMessage
 
   const openSplit = useCallback(
     (topic: OpenTopic, toggle = false) => {
@@ -128,12 +129,12 @@ export function useTopicSurface({
     async (text: string, toUserIds?: readonly string[] | null, replyToMessageId?: string | null) => {
       const body = text.trim()
       if (!body || !splitChatId || !userId) return
-      await line.sendMessage(body, {
+      await sendSplitMessage(body, {
         toUserIds: toUserIds?.length ? [...toUserIds] : null,
         replyToMessageId: replyToMessageId ?? null,
       })
     },
-    [splitChatId, userId, line.sendMessage],
+    [splitChatId, userId, sendSplitMessage],
   )
 
   const openTopicFromMessage = useCallback(
