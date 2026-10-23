@@ -41,8 +41,17 @@ describe('current desktop RPC reaches the phone through an attached private topi
   it('ignores another account before creating an asker topic', async () => {
     const join = vi.fn()
     const host = createPhoneDeviceRpcHost({ userId: 'owner', deviceId: 'phone', join, provider: { manifest: () => [], permit: () => ({ ok: true }), run: vi.fn() }, replyShared: vi.fn(async () => undefined), warn: vi.fn() })
-    await host.onShared({ type: 'taskhost.attach', request_id: 'r', user_id: 'someone-else', payload: { asker: 'foreign123', protocol: 9 } })
+    await host.onShared({ type: 'taskhost.attach', request_id: 'r', user_id: 'someone-else', payload: { asker: 'foreign123', protocol: REMOTE_PROTOCOL_VERSION } })
     expect(join).not.toHaveBeenCalled()
+    host.dispose()
+  })
+  it('refuses a protocol-10 desktop before creating a phone action topic', async () => {
+    const join = vi.fn()
+    const replyShared = vi.fn(async (_payload: unknown) => undefined)
+    const host = createPhoneDeviceRpcHost({ userId: 'owner', deviceId: 'phone', join, provider: { manifest: () => [], permit: () => ({ ok: true }), run: vi.fn() }, replyShared, warn: vi.fn() })
+    await host.onShared({ type: 'taskhost.attach', request_id: 'old', user_id: 'owner', payload: { asker: 'desktopAsk123', protocol: 10 } })
+    expect(join).not.toHaveBeenCalled()
+    expect(replyShared).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'client_outdated', message: expect.stringContaining('请更新') }) }))
     host.dispose()
   })
   it('lets the same asker reattach while its previous subscription is still leaving', async () => {
@@ -54,7 +63,7 @@ describe('current desktop RPC reaches the phone through an attached private topi
       return { send: async (message: unknown) => { messages.push(message) }, close: async () => { await closing; handlers.onClosed() } }
     })
     const host = createPhoneDeviceRpcHost({ userId: 'owner', deviceId: 'phone', join, provider: { manifest: () => [], permit: () => ({ ok: true }), run: vi.fn() }, replyShared: vi.fn(async () => undefined), warn: vi.fn() })
-    const request = { type: 'taskhost.attach', request_id: 'r', user_id: 'owner', payload: { asker: 'desktopAsk123', protocol: 9 } }
+    const request = { type: 'taskhost.attach', request_id: 'r', user_id: 'owner', payload: { asker: 'desktopAsk123', protocol: REMOTE_PROTOCOL_VERSION } }
     const now = Date.now()
     const clock = vi.spyOn(Date, 'now')
     try {

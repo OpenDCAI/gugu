@@ -31,7 +31,7 @@ function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never' } = {
         const reply = (error?: { code: string; message: string }) => ({
           type: 'taskhost.attach:reply',
           request_id: sent.payload.request_id,
-          ...(error ? { error } : { result: { attached: true, protocol: 9 } }),
+          ...(error ? { error } : { result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } }),
         })
         // 新机器在发问端那条上回;旧机器不认这个动词,在共用 topic 上回 unknown_method。
         if (answer === 'here') queueMicrotask(() => push(MINE, reply()))
@@ -191,7 +191,7 @@ function leavingCloud(dev: string) {
         const sent = message as (typeof topic.sent)[number]
         topic.sent.push(sent)
         if (sent.payload.type === 'taskhost.attach') {
-          queueMicrotask(() => push(mine, { type: 'taskhost.attach:reply', request_id: sent.payload.request_id, result: { attached: true, protocol: 9 } }))
+          queueMicrotask(() => push(mine, { type: 'taskhost.attach:reply', request_id: sent.payload.request_id, result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } }))
         }
       },
       close: () => {

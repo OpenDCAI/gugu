@@ -5,6 +5,7 @@
  * 替身只换掉两头「字节真的出去」的那一步(主进程 IPC、Supabase 频道),配对 / 推送分发全是产品代码。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { awaitPending } from '../../../support/awaitFact'
 
 type CloudSubscription = { label: string; shouldSubscribe: () => boolean; onSubscribed: () => void; onStatus: (status: string, error?: Error) => void }
@@ -58,14 +59,14 @@ vi.mock('@/lib/supabase', () => ({
           cloud.sent.push(message)
           cloud.sentOn.push({ topic: name, message: message as (typeof cloud.sentOn)[number]['message'] })
           records.note()
-          // #7233 这台机器(协议 9)收到报到:在那个发问端自己的 topic 上回。
+          // #7233 当前宿主收到报到:在那个发问端自己的 topic 上回。
           const envelope = (message as { payload?: { type?: string; request_id?: string; payload?: { asker?: string } } }).payload
           if (envelope?.type === 'taskhost.attach') {
             const mine = `${name}:${envelope.payload?.asker}`
             setTimeout(() => cloud.listeners.get(mine)?.({
               type: 'broadcast',
               event: 'broadcast',
-              payload: { type: 'taskhost.attach:reply', request_id: envelope.request_id, result: { attached: true, protocol: 9 } },
+              payload: { type: 'taskhost.attach:reply', request_id: envelope.request_id, result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } },
             }), 0)
           }
           if (envelope?.type && envelope.type === cloud.answerSecondOf && envelope.request_id) {

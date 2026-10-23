@@ -9,7 +9,7 @@ import type { DeviceCapabilities } from '../shared/types/chat'
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 10
+export const REMOTE_PROTOCOL_VERSION = 11
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -51,10 +51,13 @@ export const REMOTE_PROTOCOL_VERSION = 10
  * 程序)一律走 `agentSession.app_call { method, args }`,那台机器查同一张表、用同一份实现做;`call_program` / `app_data` 删掉,
  * 跨机器的数据文件随之是一次调用的上限 1 MB(owner 10-17「更优雅的话就去做吧」)。窗口一字未变,两个下沿留在 9(同 7):
  * 只有这一问对协议 9 的机器说「太旧」(那台的路由表答 No handler)。
+ *
+ * 11(Canonical file patches):sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
+ * Older peers only understand create/modify/delete entities; both compatibility floors advance instead of translating them.
  */
-export const MIN_CLIENT_PROTOCOL = 9
+export const MIN_CLIENT_PROTOCOL = 11
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 9
+export const MIN_SERVER_PROTOCOL = 11
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时
