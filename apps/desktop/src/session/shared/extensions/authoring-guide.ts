@@ -482,14 +482,12 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — an App's chat files, edited live by people and agents together
 
-An App's data is a file where it lives (a chat's workspace, a folder here). Data already there is
-that file: claim its name or suffix and open it — never a copy in your bundle (\`app_install\` data \`{ item_id }\`).
-Open it: a live copy — yours show at once, others' arrive on their own.
-Top-level \`await\` needs \`<script type="module">\`.
+Claim an existing data file's name or suffix and open it live; never copy it into your bundle
+(\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
 
 ## Which files you may open
 
-Topics use their source group or private chat's files. A topic address names that same resource container; returned entries carry the source chat. Message calls keep the topic address.
+Topic file addresses resolve to the source group or DM; entries name that source. Messages keep their topic address.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or

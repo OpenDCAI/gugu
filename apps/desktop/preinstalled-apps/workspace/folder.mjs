@@ -184,7 +184,7 @@ async function saveLocally(entry, data, agent) {
 
 export const list = {
   description:
-    'The files in a chat\'s folder (群文件夹 of a group, topic or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
+    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],
@@ -258,7 +258,7 @@ export const read = {
 
 export const create = {
   description:
-    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its link, in a message, opens it. A file made in a topic is in the topic\'s folder, not the group\'s.',
+    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its link, in a message, opens it. A file made from a topic is in its source group or private chat\'s shared folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],

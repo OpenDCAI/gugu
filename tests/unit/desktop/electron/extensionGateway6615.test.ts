@@ -65,7 +65,7 @@ const programs: ExtensionPrograms = {
   handedChats: async (agentUserId, chatIds) => chatIds.map((named) => {
     const chatId = publicIds.get(named) ?? named
     if (!memberOf.get(agentUserId)?.has(chatId)) throw new Error(`${named}: not a chat you are in, so it was not handed over`)
-    return { chatId, agentUserId }
+    return { chatId, resourceChatId: chatId, agentUserId }
   }),
   killAllSync: () => {},
   setSource: () => {},

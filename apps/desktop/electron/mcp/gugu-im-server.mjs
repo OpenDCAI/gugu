@@ -2370,7 +2370,7 @@ export const TOOL_DEFS = [
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from one existing message, to take a question out of a busy chat: only its members are notified. It is an ordinary chat: message_send / message_history on the returned chat_id. Only a person can delete it.',
+    description: 'Open a topic from one existing message, to take a question out of a busy chat: only its members are notified. Use message_send / message_history on the returned topic chat_id; files and Apps use the source chat. Only a person can delete it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),

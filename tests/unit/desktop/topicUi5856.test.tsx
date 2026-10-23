@@ -449,6 +449,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 名单之外出现新的差异 = 红。
   const JUSTIFIED_OMISSIONS: Record<string, Record<string, string>> = {
     MessageList: {
+      initialTopMostItemIndex: 'The topic list has no independent App panel to remount over it; its reveal hook scrolls the mounted list (tested above).',
       scrollerRef: '主线用它读实测滚动几何(翻页门与钳底门);分栏用组件自带的那份缺省实现',
       onTotalListHeightChanged: '不传 = 组件缺省的贴底钳位,与主线同形',
       unreadAbove: '#6530 从会话列表点开主线时记下的第一条未读(「↑ N 条新消息」);话题从列表打开是分栏,不走这条路,分栏没有这枚标签',
