@@ -11,7 +11,7 @@ import {
   useWorkspaceWrapParams,
 } from '@renderer/lib/layout/navigation-provider';
 import { WorkspaceContentLayout, WorkspaceLayout } from '@renderer/lib/layout/workspace-layout';
-import { Toaster } from '@renderer/lib/ui/toaster';
+import { NoticeHost } from '@/components/NoticeHost';
 import { SshKeyInstallToasts } from '@renderer/features/remote-hosts/ssh-key-install-toasts';
 import { observer } from 'mobx-react-lite';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
@@ -70,9 +70,10 @@ export function Workspace() {
           </ScreenArea>
         }
       />
-      <Toaster />
       {/* #6264「下次免密」做完的回执(装好了 / 没做成)。 */}
       <SshKeyInstallToasts />
+      {/* 提示条:嵌在主 app 里时主 app 已经认领,这里什么也不画;会话页单独成文档时由它画(#137)。 */}
+      <NoticeHost />
     </>
   );
 }

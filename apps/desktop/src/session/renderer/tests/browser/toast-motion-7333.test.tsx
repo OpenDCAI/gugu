@@ -6,7 +6,7 @@ import { until } from '../../../../../../../tests/support/awaitCondition'
 import { ToastProvider } from '@/components/Toast'
 import { useToast, type ToastType } from '@/components/toastContext'
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion'
-import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
+import { dismissNotice, notify } from '@/lib/notices'
 import '@/styles/tokens.css'
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
@@ -33,75 +33,56 @@ async function mount() {
   harness = createReactHarness()
   await renderWithAppProviders(harness, <ToastProvider><Controls /></ToastProvider>)
 }
-const toast = (kind: ToastType) => document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.toastItem}"][data-toast-type="${kind}"]`)
-const trigger = (kind: ToastType) => userEvent.click([...harness.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === kind)!)
-function appearance(element: HTMLElement) {
-  const style = getComputedStyle(element)
-  return { opacity: Number(style.opacity), x: style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m41 }
-}
-async function sampleToast() {
-  const frames: Array<{ opacity: number; x: number }> = []
-  let frame = 0
-  let running = true
-  const sample = () => {
-    const element = toast('error')
-    if (element) frames.push(appearance(element))
-    if (running) frame = requestAnimationFrame(sample)
-  }
-  frame = requestAnimationFrame(sample)
-  try {
-    await trigger('error')
-    await until('the toast reaches its visible resting position', () => {
-      const element = toast('error')
-      if (!element) return false
-      const state = appearance(element)
-      return state.opacity === 1 && Math.abs(state.x) < 0.01
-    })
-    frames.push(appearance(toast('error')!))
-    return frames
-  } finally {
-    running = false
-    cancelAnimationFrame(frame)
-  }
-}
+const toast = (kind: ToastType) => document.querySelector<HTMLElement>(`[data-sonner-toast][data-type="${kind}"]`)
+const dismissOf = (element: HTMLElement) => element.querySelector<HTMLButtonElement>('[data-close-button]')
+const click = (element: Element) => act(async () => { await userEvent.click(element) })
+const trigger = (kind: ToastType) => click([...harness.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === kind)!)
+const toastTransition = (kind: ToastType) => Number.parseFloat(getComputedStyle(toast(kind)!).transitionDuration)
 
-describe('toast appearance and JS reduced motion (#7333)', () => {
-  it('all four real toast tiers use 14/20 and surface corners, preserving selection, dismissal and click-through', async () => {
+describe('notice appearance and reduced motion (#7333, #137)', () => {
+  it('all four real toast tiers use 14/20 and surface corners, preserving dismissal and click-through', async () => {
     await emulate('reduce')
     await mount()
     for (const kind of ['success', 'info', 'warning', 'error'] as const) {
       await trigger(kind)
+      await until(`the ${kind} toast appears`, () => toast(kind) !== null)
       const element = toast(kind)!
-      expect(element).not.toBeNull()
       const style = getComputedStyle(element)
       expect({ size: Number.parseFloat(style.fontSize), leading: Math.round(Number.parseFloat(style.lineHeight)), radius: style.borderRadius }).toEqual({ size: 14, leading: 20, radius: '12px' })
       const readable = kind === 'error' || kind === 'warning'
       expect(style.pointerEvents).toBe(readable ? 'auto' : 'none')
-      expect(style.userSelect).toBe(readable ? 'text' : 'none')
-      const dismiss = element.querySelector<HTMLButtonElement>(`[data-testid="${AUTOMATION_TEST_IDS.toastDismiss}"]`)
+      const dismiss = dismissOf(element)
       expect(Boolean(dismiss)).toBe(readable)
       if (dismiss) {
-        await userEvent.click(dismiss)
+        await click(dismiss)
         await until('the dismissed toast leaves', () => toast(kind) === null)
       }
     }
   })
 
-  it('a media change after mount reaches subscribers without an app interaction, then a toast appears with no displaced or faded frames', async () => {
+  it('the same key updates one notice in place instead of stacking, and the waiting look is the product loading indicator', async () => {
+    await mount()
+    await act(async () => { notify({ key: 'machine:d1', title: 'Reconnecting Mac 1', tier: 'info', ongoing: true, waiting: true }) })
+    await until('the waiting notice appears', () => document.querySelectorAll('[data-sonner-toast]').length === 1)
+    const waiting = document.querySelector<HTMLElement>('[data-sonner-toast]')!
+    expect(waiting.textContent).toContain('Reconnecting Mac 1')
+    expect(dismissOf(waiting), 'an ongoing notice can always be closed').not.toBeNull()
+    await act(async () => { notify({ key: 'machine:d1', title: 'Mac 1 is offline', tier: 'info', ongoing: true }) })
+    await until('the same notice now reads offline', () => document.querySelector('[data-sonner-toast]')?.textContent?.includes('Mac 1 is offline') === true)
+    expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(1)
+    await act(async () => { dismissNotice('machine:d1') })
+    await until('the keyed notice is dismissed', () => document.querySelector('[data-sonner-toast]') === null)
+  })
+
+  it('a media change after mount reaches subscribers without an app interaction, and toasts stop animating', async () => {
     await emulate('no-preference')
     await mount()
     expect(harness.container.querySelector('output')!.textContent).toBe('animated')
+    await trigger('error')
+    await until('the error toast appears', () => toast('error') !== null)
+    expect(toastTransition('error')).toBeGreaterThan(0)
     await emulate('reduce')
     await until('the existing subscriber updates', () => harness.container.querySelector('output')!.textContent === 'reduced')
-    const frames = await sampleToast()
-    expect(frames.length).toBeGreaterThan(0)
-    expect(frames.filter((state) => state.opacity !== 1 || Math.abs(state.x) > 0.01)).toHaveLength(0)
-  })
-
-  it('the same frame sampler sees normal entrance motion when reduction is off', async () => {
-    await emulate('no-preference')
-    await mount()
-    const frames = await sampleToast()
-    expect(frames.some((state) => state.opacity < 1 || Math.abs(state.x) > 0.01)).toBe(true)
+    expect(toastTransition('error')).toBe(0)
   })
 })

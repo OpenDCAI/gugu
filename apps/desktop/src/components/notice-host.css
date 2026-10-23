@@ -1,0 +1,19 @@
+/* 提示条的外观:sonner 的变量接产品自己的 token,明暗跟主题走;❌ 在这里另定色值。 */
+.gugu-notices {
+  --normal-bg: var(--surface-white);
+  --normal-text: var(--text-on-white);
+  --normal-border: transparent;
+  --border-radius: var(--radius-surface);
+  font-family: inherit;
+}
+
+.gugu-notices [data-sonner-toast] {
+  box-shadow: var(--shadow-toast-card);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+}
+
+/* 成功 / 提示是转瞬的确认:点击穿透,❌ 把下面的按钮挡住一个停留周期。要读的两档、常驻的、带动作的不在此列。 */
+.gugu-notices [data-sonner-toast].gugu-notice-passthrough {
+  pointer-events: none;
+}

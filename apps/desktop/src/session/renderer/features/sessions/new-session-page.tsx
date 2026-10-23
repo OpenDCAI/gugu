@@ -1,5 +1,4 @@
 import { observer } from 'mobx-react-lite';
-import { ComposerNotice } from '@/components/chat/ComposerNotice';
 import { useEffect, useState } from 'react';
 import { getGitRepositoryStore } from '@renderer/features/projects/stores/project-selectors';
 import {
@@ -49,7 +48,7 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 export const NewSessionComposer = observer(function NewSessionComposer({
   projectId,
   blockReason,
-  blockIsStatus = false,
+  blocked = false,
   isContextPending,
   creationSurface,
   birthChatId,
@@ -64,10 +63,10 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   // 挡住发送 + 原样显示原因，❌ 不静默换一台设备把任务建到别处去。
   blockReason?: string | null;
   /**
-   * #7199 blockReason 只是在说所选云电脑此刻的状态(休眠中 / 正在唤醒):照样挡住发送,但画成说明 ——
-   * 与私聊里「所在的云电脑休眠中」同一个组件(ComposerNotice),❌ 报错的红字。
+   * 所选机器此刻用不了(离线 / 休眠 / 正在连…):挡住发送、草稿留着。原因由统一提示条里那台机器的一条说
+   * (remote-hosts/machine-notice.ts),❌ 在这里再画一行 —— 它一变输入框就跟着动。
    */
-  blockIsStatus?: boolean;
+  blocked?: boolean;
   // 默认值读取期间只挡住提交，不渲染独立状态行；真实阻塞仍由 blockReason fail loud。
   isContextPending?: boolean;
   /** 缺省 = 会话页。只有对话页/联系人页的创建草稿传 'chat-page'(见 SessionCreationSurface)。 */
@@ -160,6 +159,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     initialSession.prompt.trim().length > 0 || initialSession.attachments.length > 0;
   const canSend =
     canCreate &&
+    !blocked &&
     !effectiveBlockReason &&
     !isContextPending &&
     !initialSession.providerError &&
@@ -192,11 +192,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
           session-composer-styles.ts 里实测记过:嵌进 gugu 的会话页子树里 --color-* 家族解析为空,
           Tailwind v4 对未定义 color key 直接不出规则 → 报错文案会**无声**变成普通正文色。
           这是一条 fail-loud 提示,它的可见性本身就是功能的一部分,不能赌。 */}
-      {blockReason && blockIsStatus ? (
-        <ComposerNotice data-testid="composer-machine-status" style={{ margin: '6px 0 0' }}>
-          <span>{blockReason}</span>
-        </ComposerNotice>
-      ) : effectiveBlockReason ? (
+      {effectiveBlockReason ? (
         <p
           role="alert"
           className="border-t border-border px-4 py-2 text-xs text-[var(--em-foreground-destructive)]"
