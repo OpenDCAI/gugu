@@ -1,0 +1,71 @@
+import type { PromptInput } from './models/prompt';
+
+/** A local dispatch receipt is not evidence that the agent inserted a message. */
+export type SessionPromptReceipt =
+  | { status: 'dispatched'; requestId: string }
+  | { status: 'accepted'; requestId: string; messageId: string };
+
+/** Foreground work is independent of the prompt RPC and of background activity. */
+export type SessionForegroundState = {
+  /** Request activity is the strongest observation available on some transports. */
+  source: 'agent' | 'request';
+} & (
+  | { state: 'running' | 'requires_action' | 'unknown' }
+  | {
+      state: 'idle';
+      /** Missing or null means no reason was reported, not end_turn. */
+      stopReason?: string | null;
+      usage?: Readonly<Record<string, unknown>> | null;
+      error?: { code: number; message: string; data?: unknown } | null;
+    }
+);
+
+export type SessionFileChange =
+  | { operation: 'add' | 'delete' | 'modify'; path: string }
+  | { operation: 'move' | 'copy'; oldPath: string; newPath: string };
+
+/** A patch stays a patch; an unlocated replacement region is not a whole file. */
+export interface SessionPatch {
+  changes: readonly SessionFileChange[];
+  patch?: { format: string; text: string } | null;
+  scope: 'file' | 'fragment' | 'unknown';
+}
+
+/**
+ * Absent fields leave the entity unchanged; null clears them. Collections replace
+ * rather than append. Metadata objects patch top-level keys; null clears metadata.
+ */
+export type SessionEntityUpsert<T extends object> = {
+  [K in keyof T]?: T[K] | null;
+} & { _meta?: Readonly<Record<string, unknown>> | null };
+
+export type SessionMessageUpsert<TContent> = {
+  messageId: string;
+} & SessionEntityUpsert<{ content: readonly TContent[] }>;
+
+/** Snapshot and chunk bytes are independently base64 encoded, not UTF-8 strings. */
+export type SessionTerminalUpdate = {
+  terminalId: string;
+} & SessionEntityUpsert<{
+  command: string;
+  cwd: string;
+  output: { data: string };
+  /** An object marks exit even when neither exit code nor signal is known. */
+  exitStatus: { exitCode?: number | null; signal?: string | null };
+}>;
+
+export interface SessionTerminalChunk {
+  terminalId: string;
+  data: string;
+}
+
+/**
+ * A session-scoped transport boundary. TEvent is the host's domain vocabulary;
+ * implementations keep wire versions, RPC correlation and SDK objects private.
+ * Defining this port does not change the existing AcpAgentApi call path.
+ */
+export interface SessionProtocolPort<TEvent> {
+  prompt(request: { requestId: string; input: PromptInput }): Promise<SessionPromptReceipt>;
+  cancel(): Promise<void>;
+  subscribe(listener: (event: TEvent) => void): () => void;
+}

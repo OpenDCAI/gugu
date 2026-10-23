@@ -6,6 +6,7 @@ export * from './api/runtime-contract';
 export * from './errors';
 export * from './models';
 export * from './provider-session';
+export type * from './session-protocol';
 export { decodeSessionUpdate, DRAFT_UPDATE_META_KEY, serializePayload } from './transport/decode';
 export { createToolCallItem } from './reducer/item-fold';
 export * from './reducer/index';
