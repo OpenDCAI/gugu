@@ -1,3 +1,6 @@
+import { uploadSessionFile } from '../../../packages/core/src/local/agent/sessionFileHandoff.ts'
+import { revokeSessionAttachment } from '../../../packages/core/src/cloud/sessionAttachments.ts'
+import { authorizedPhoneArtifact } from './phone-agent-files.mjs'
 import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js'
 import { SESSION_TOOL_DEFS } from '../../desktop/electron/mcp/gugu-session-tool.ts'
 import { registerSessionpageTools } from '../../desktop/electron/mcp/sessionpage-tool-registrar.ts'
@@ -32,6 +35,51 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, re
     await authorize(job.usedGroups ?? [])
     const sent = await handleUnifiedSessionMessage(action, {
       caller: { sessionId: agent.sessionId, runtimeFork: false },
+      prepareFiles: async (files, targets) => {
+        const recipientIds = []
+        const peers = new Map()
+        for (const target of targets) {
+          let recipient = local().find(row => row.sessionId === target.sessionId)?.agentUserId
+          if (target.deviceId) {
+            if (!peers.has(target.deviceId)) peers.set(target.deviceId, await cross.runOnDevice(target.deviceId, caller(), { action: 'peers' }, signal))
+            const row = peers.get(target.deviceId).find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
+            recipient = row?.agentUserId ?? row?.agent_user_id?.replace(/^user:/, '') ?? row?.identity?.users?.id
+          }
+          if (!recipient) throw new Error('附件收件会话没有 Agent 身份')
+          recipientIds.push(recipient)
+        }
+        const artifacts = await Promise.all(files.map(descriptor => authorizedPhoneArtifact({ agent, job, store, authorize }, descriptor.file_path)))
+        const refs = []; const created = []
+        try {
+        for (const [index, descriptor] of files.entries()) {
+          const { file } = artifacts[index]
+          const id = stableId('session-file', job.id, callId, index)
+          store.state.sessionFileOutbox ??= {}
+          const fingerprint = JSON.stringify({ file: descriptor, recipients: recipientIds, sha256: file.sha256 })
+          const entry = store.state.sessionFileOutbox[id] ??= { fingerprint }
+          if (entry.fingerprint !== fingerprint) throw new Error('附件请求号已绑定另一份文件或收件人')
+          if (entry.reference) { refs.push(entry.reference); continue }
+          const reference = await uploadSessionFile(await cloud.attachmentEndpoint(), descriptor, {
+            agentId: agent.agentUserId, sessionId: agent.sessionId, recipients: recipientIds, expectedSha256: file.sha256,
+            attachmentId: id, stagingKey: entry.stagingKey,
+            onStaged: async key => { entry.stagingKey = key; await store.save() },
+            beforeCommit: async () => { await authorizedPhoneArtifact({ agent, job, store, authorize }, descriptor.file_path) },
+          })
+          entry.reference = reference; created.push({ id, reference }); await store.save(); refs.push(reference)
+        }
+        return refs
+        } catch (error) {
+          // Preparation has not delivered anything. Never revoke cached references from an earlier delivery attempt.
+          const endpoint = await cloud.attachmentEndpoint()
+          const failures = []
+          for (const { id, reference } of created) {
+            try { await revokeSessionAttachment(endpoint, reference.attachment_id, agent.agentUserId); delete store.state.sessionFileOutbox[id] } catch (failure) { failures.push(failure) }
+          }
+          await store.save()
+          if (failures.length) throw new AggregateError([error, ...failures], 'File preparation failed and revocation could not be confirmed')
+          throw error
+        }
+      },
       graphMessage: (ids, text, said) => here({ action: 'message', session_ids: ids, text, ...said }, callId),
       localSessionsOfAgents: async (ids) => ({ sessions: new Map(local().filter((row) => ids.includes(row.agentUserId)).map((row) => [row.agentUserId, row.sessionId])), deletedRecipients: [] }),
       resolveLocalGuguNumbers: async (numbers) => new Map(local().filter((row) => numbers.includes(row.guguNumber)).map((row) => [row.guguNumber, row.agentUserId])),

@@ -11,6 +11,7 @@ import { REMOTE_PROTOCOL_VERSION, MIN_CLIENT_PROTOCOL } from '../../../packages/
 import { createPhoneAgentCloud } from './phone-agent-cloud.mjs'
 import { createPhoneModelAccess } from './phone-agent-model.mjs'
 import { openPhoneAgentStore, admitPhoneJob, stableId, uuid } from './phone-agent-store.mjs'
+import { withSessionAttachments } from '../../../packages/core/src/cloud/sessionAttachments.ts'
 import { startPhoneAgentRpc } from './phone-agent-rpc.mjs'
 import { phoneCommunicationTools, deliverPhoneOutbox } from './phone-agent-tools.mjs'
 import { phoneCalendarEventView } from '../../desktop/src/mobile/phone-device/phoneCalendarView.ts'
@@ -460,7 +461,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       if (name === 'get') return snapshot(findSession(action.session_id))
       if (name === 'stop') return cancel(findSession(action.session_id))
       if (name === 'message') {
-        const content = required(action.text, 'text')
+        const content = withSessionAttachments(required(action.text, 'text'), action.attachments)
         if (!Array.isArray(action.session_ids) || !action.session_ids.length) throw new Error('session_ids is required')
         if (action.delivery === 'defer') throw new Error('手机宿主暂不支持 defer 消息')
         const targets = action.session_ids.map(findSession)

@@ -146,3 +146,6 @@ export async function forwardAttachment(endpoint: AttachmentsEndpoint, args: For
 export async function fetchAttachmentUrls(endpoint: AttachmentsEndpoint, refs: AttachmentUrlRef[], as?: string | null): Promise<unknown> {
   return call(endpoint, 'urls', { refs, ...(as ? { as } : {}) })
 }
+
+/** Shared authenticated transport for additional private attachment scopes. */
+export { call as attachmentRequest }

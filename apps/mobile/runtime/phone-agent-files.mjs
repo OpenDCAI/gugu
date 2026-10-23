@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
+import { downloadSessionFile } from '../../../packages/core/src/local/agent/sessionFileHandoff.ts'
 import { basename, join } from 'node:path'
 import { receivePhoneDeviceFile } from '../../desktop/electron/phone-device-file.ts'
 import { uploadAttachmentBytes, commitAttachment, fetchAttachmentUrls } from '../../../packages/core/src/cloud/attachmentsApi.ts'
@@ -53,9 +54,7 @@ export async function receivePhoneArtifact({ first, args, read, agent, job, sign
   return { data, content: [{ type: 'text', text: JSON.stringify(data) }] }
 }
 
-export function phoneFileTools({ agent, job, cloud, store, env, authorize, emit }) {
-  const access = createPhoneChatAccess({ agent, cloud, store, env })
-  const artifact = async (path) => {
+export async function authorizedPhoneArtifact({ agent, job, store, authorize }, path) {
     if (typeof path !== 'string') throw new Error('file_path 必须使用手机工具或 message_download_file 返回的路径')
     const file = Object.values(store.state.artifacts ?? {}).find((entry) => entry.file_path === path && entry.ownerId === store.state.ownerId && entry.agentUserId === agent.agentUserId)
     if (!file) throw new Error('只能发送你这位手机 Agent 已读取并登记的完整文件，请先用手机媒体读取工具或 message_download_file')
@@ -64,8 +63,13 @@ export function phoneFileTools({ agent, job, cloud, store, env, authorize, emit 
     if (!before.isFile() || before.size !== file.size) throw new Error('登记文件已变化，未发送')
     const bytes = await readFile(path)
     if (bytes.length !== before.size || createHash('sha256').update(bytes).digest('hex') !== file.sha256) throw new Error('登记文件内容已变化，未发送')
+    await authorize([...new Set([...(job.usedGroups ?? []), ...file.groups])], file)
     return { file, bytes }
-  }
+}
+
+export function phoneFileTools({ agent, job, cloud, store, env, authorize, emit }) {
+  const access = createPhoneChatAccess({ agent, cloud, store, env })
+  const artifact = (path) => authorizedPhoneArtifact({ agent, job, store, authorize }, path)
   return [
     phoneArtifactListTool({ agent, job, store, authorize }),
     phoneTextFileTool({ agent, job, store, authorize }),
@@ -104,9 +108,14 @@ export function phoneFileTools({ agent, job, cloud, store, env, authorize, emit 
       },
     },
     {
-      name: 'message_download_file', label: '读取聊天附件', description: '按一条你可见的附件消息 source_message_id 下载完整文件到这台手机的 App 私有目录。只返回可供 message_send_file 复用的路径和hash，文件字节不进入文字上下文。',
-      parameters: { type: 'object', required: ['source_message_id'], properties: { source_message_id: { type: 'string' } } },
+      name: 'message_download_file', label: '读取聊天附件', description: '按聊天消息 source_message_id 或会话消息附件引用 source_attachment_id 下载完整文件到这台手机的 App 私有目录。只返回可供 message_send_file 复用的路径和hash，文件字节不进入文字上下文。',
+      parameters: { type: 'object', properties: { source_message_id: { type: 'string' }, source_attachment_id: { type: 'string' } } },
       execute: async (_callId, args, signal) => {
+        if (Boolean(args.source_message_id) === Boolean(args.source_attachment_id)) throw new Error('Provide exactly one attachment source')
+        if (args.source_attachment_id) {
+          const file = await downloadSessionFile(await cloud.attachmentEndpoint(), uuid(args.source_attachment_id), agent.agentUserId, join(store.directory, 'downloads', agent.sessionId), signal)
+          return result(await registerArtifact({ store, agent, groups: [], file: { file_path: file.file_path, name: file.file_name, size: file.size_bytes, sha256: file.sha256, mime_type: file.content_type } }))
+        }
         const id = uuid(String(args.source_message_id).replace(/^msg:/, ''), 'source_message_id')
         if (await cloud.rpc('chat', 'can_read_message', { p_message_id: id, p_user_id: agent.agentUserId }) !== true) throw new Error('这条附件消息对你不可见')
         const { data: message, error } = await cloud.chat.from('messages').select('id,chat_id,content,content_type,file_item_id,file_version,file_blob_id').eq('id', id).single()

@@ -129,6 +129,8 @@ export type DeviceActionErrorCode =
   | 'device_offline'
   /** 不是这个账号名下的设备。 */
   | 'unknown_device'
+  /** Device actions are executed only by an Agent on that device. */
+  | 'device_scope_mismatch'
   /** 发出去了,但设备没回「收到」(重发一次仍没有),或执行中 30 秒收不到进度。 */
   | 'no_answer'
   /** 这台设备没登记这个动作(拼错了,或这台设备做不了)。 */
@@ -200,7 +202,7 @@ export function parseDeviceActionCallPayload(raw: unknown): DeviceActionCallPayl
 
 const ERROR_CODES: ReadonlySet<string> = new Set<DeviceActionErrorCode>([
   'device_offline', 'unknown_device', 'no_answer', 'unknown_action', 'not_granted', 'os_permission', 'invalid_args', 'needs_confirmation',
-  'execution_failed', 'timeout', 'revoked', 'expired', 'unsupported',
+  'execution_failed', 'timeout', 'revoked', 'expired', 'unsupported', 'device_scope_mismatch',
 ])
 
 export function isDeviceActionAccepted(raw: unknown): raw is DeviceActionAccepted {
@@ -288,4 +290,9 @@ function withSwitchedOff(raw: unknown): { switched_off?: DeviceActionsSwitchedOf
 /** 这个动作所在的分组被它的 App 关掉了:回那一条,否则 null。 */
 export function switchedOffGroupOf(capability: DeviceActionsCapability, action: string): DeviceActionsSwitchedOff | null {
   return capability.switched_off?.find((off) => action.startsWith(`${off.group}.`)) ?? null
+}
+
+/** Built by the receiving host, never from caller-supplied device claims. */
+export function deviceScopeError(deviceId: string) {
+  return { code: 'device_scope_mismatch' as const, message: `设备能力只能由这台设备上的任务 Agent 使用。请在这台设备上创建任务 Agent：session_spawn device="device:${deviceId}"。若任务宿主未启用，请主人先到那台设备开启任务宿主；不能由其他设备代调。` }
 }

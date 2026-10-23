@@ -11,6 +11,7 @@
 //
 // 本模块只做寻址解析、预检次序与结果合并;投递归编排层,❌ 不在这里长出第二套投递。
 
+import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '@gugu/core/shared/typedId.mjs'
 
 export type UnifiedRecipientResult = {
@@ -22,9 +23,10 @@ export type UnifiedRecipientResult = {
 }
 
 /** What the sender says about this message besides its text — carried to the recipient's envelope as given (see the orchestration's message action). */
-export type SessionMessageSaid = { then?: string; reply_to_message_id?: string; source_link?: string }
+export type SessionMessageSaid = { attachments?: SessionAttachmentRef[]; then?: string; reply_to_message_id?: string; source_link?: string }
 
 export type UnifiedSessionMessageDeps = {
+  prepareFiles?: (files: SessionFileInput[], targets: Array<{ sessionId: string; deviceId?: string }>) => Promise<SessionAttachmentRef[]>
   /** The graph (`session:`) leg — resolves all its bare targets before injecting any. Absent when the caller has no session-page session (gugu-native bridge). */
   graphMessage: ((sessionIds: string[], text: string, said: SessionMessageSaid) => Promise<{ recipients: UnifiedRecipientResult[] }>) | null
   /**
@@ -220,6 +222,15 @@ export async function handleUnifiedSessionMessage(
   // 别的机器能不能接:离线、不在名下都在任何注入之前响(一条都不投)。
   if (remote.size) await deps.remote!.assertReachable([...remote.keys()])
 
+  if (record.files !== undefined) {
+    if (!Array.isArray(record.files) || record.files.length < 1 || record.files.length > 8
+      || record.files.some(file => !file || typeof file !== 'object' || typeof file.file_path !== 'string' || !file.file_path.trim())) throw new Error('files requires 1 to 8 local file descriptors')
+    if (!deps.prepareFiles) throw new Error('Session file handoff is unavailable for this host')
+    said.attachments = await deps.prepareFiles(record.files as SessionFileInput[], [
+      ...localSessionIds.map(sessionId => ({ sessionId })),
+      ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId }))),
+    ])
+  }
   const recipients: UnifiedRecipientResult[] = []
   const anyDelivered = () => recipients.some((entry) => entry.status === 'delivered')
   if (localSessionIds.length) recipients.push(...(await deps.graphMessage!(localSessionIds, text, said)).recipients)

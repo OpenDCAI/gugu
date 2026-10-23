@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e31f90f5a67852badece7bcafb171247f99e39f8",
-  "status": "Merged: activity metadata companion OpenDCAI/gugu-supabase#15, including the account snapshot bootstrap from #26."
+  "ref": "3da746ad4da94d972724c887f680b044634215db",
+  "status": "Candidate: OpenDCAI/gugu-supabase#29 adds participant-scoped session attachments; validate without deploying the unmerged release."
 }

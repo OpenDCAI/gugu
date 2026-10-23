@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join as joinPath, resolve as resolvePath } from 'node:path'
@@ -2155,7 +2156,14 @@ async function handleFile(args, deps) {
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
     return `file sent (id=${message.id})`
   }
-  if (args.action === 'download-attachment') return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  if (args.action === 'download-attachment') {
+    if (args.source_attachment_id) {
+      const home = deps.context.guguHome
+      if (!home) throw new Error('Gugu home is unavailable')
+      return JSON.stringify(await downloadSessionFile(await deps.attachmentsEndpoint(), String(args.source_attachment_id), deps.context.agentId, joinPath(home, 'session-media')))
+    }
+    return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  }
   throw new Error(`gugu_file: unknown action ${args.action}`)
 }
 
@@ -2362,8 +2370,8 @@ export const TOOL_DEFS = [
   },
   {
     name: 'message_download_file',
-    description: 'Save a chat attachment to this machine by its message (source_message_id); returns the local file path.',
-    schema: z.object({ source_message_id: z.string() }),
+    description: 'Download original bytes from a visible chat message (source_message_id) or a session-message attachment reference (source_attachment_id). Returns a local file path; session files include verified size and SHA-256.',
+    schema: z.object({ source_message_id: z.string().optional(), source_attachment_id: z.string().uuid().optional() }).refine(args => Boolean(args.source_message_id) !== Boolean(args.source_attachment_id), 'Give exactly one attachment source'),
     handler: (args, deps) => handleFile({ ...args, action: 'download-attachment' }, deps),
   },
   // ── topic_ ── 话题:从一条已有消息长出来的独立工作线。它本身就是一条 chat,所以收发/读历史仍走

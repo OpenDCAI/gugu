@@ -1,4 +1,6 @@
 import './browser-user-agent-bootstrap'
+import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -1705,6 +1707,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
   if (deviceActionsRuntimeInstance) return deviceActionsRuntimeInstance
   const log = createLogger('device-actions')
   const runtime = createDeviceActionsRuntime({
+    deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error("Local device identity is unavailable"); return id },
     userData: app.getPath('userData'),
     deps: {
       clipboardRead: async () => await clipboard.readText(),
@@ -4415,6 +4418,28 @@ app.whenReady().then(async () => {
     ): Promise<unknown> => {
       signal.throwIfAborted()
       return handleUnifiedSessionMessage(record, {
+        prepareFiles: async (files, targets) => {
+          const sender = await senderBinding(context, auth.userId)
+          if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
+          const caller = await remoteCaller(auth, context)
+          const remotePeers = new Map<string, Array<Record<string, unknown>>>()
+          const recipients: string[] = []
+          for (const target of targets) {
+            let agentId: string | null = null
+            if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
+            else {
+              if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
+              const peer = remotePeers.get(target.deviceId)!.find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
+              const identity = peer?.identity as { users?: { id?: string } } | undefined
+              agentId = typeof peer?.agentUserId === 'string' ? peer.agentUserId : typeof peer?.agent_user_id === 'string' ? peer.agent_user_id.replace(/^user:/, '') : identity?.users?.id ?? null
+            }
+            if (!agentId) throw new Error(`Session attachment recipient has no Agent identity: session:${target.sessionId}`)
+            recipients.push(agentId)
+          }
+          const endpoint = configuredEndpoint(auth.accessToken)
+          signal.throwIfAborted()
+          return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+        },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
           { action: 'message', session_ids: sessionIds, text, ...said } as SessionAction,

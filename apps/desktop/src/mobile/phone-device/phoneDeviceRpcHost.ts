@@ -2,7 +2,7 @@ import { createDeviceActionHost, type DeviceActionProvider } from '@gugu/core/cl
 import type { JoinDeviceTopic, DeviceTopic } from '@gugu/core/cloud/deviceRpcAttach'
 import { createDeviceRpcReplyEnvelope, deviceRpcAskerChannelName, parseDeviceRpcRequest, DEVICE_RPC_ATTACH, DEVICE_RPC_ASKER_ID, DEVICE_RPC_ALIVE, DEVICE_RPC_DETACHED } from '@gugu/core/cloud/deviceRpcProtocol'
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import { DEVICE_ACTION_RPC_TYPE, DEVICE_ACTION_RESULT_ACK_RPC_TYPE } from '@gugu/core/shared/deviceActions'
+import { deviceScopeError } from '@gugu/core/shared/deviceActions'
 
 /** Phones use the same protocol-9 attach handshake as computers. A result only goes to its asking endpoint. */
 export function createPhoneDeviceRpcHost(input: {
@@ -59,9 +59,9 @@ export function createPhoneDeviceRpcHost(input: {
             const call = parseDeviceRpcRequest(message)
             if (!alive || !current || current.host !== host || !call || call.user_id !== input.userId || call.type.endsWith(':reply')) return
             current.lastAsked = Date.now()
-            const result = call.type === DEVICE_ACTION_RPC_TYPE ? current.host.handleCall(call.payload)
-              : call.type === DEVICE_ACTION_RESULT_ACK_RPC_TYPE ? Promise.resolve(current.host.handleResultAck(call.payload))
-                : Promise.resolve({ error: { code: 'unknown_method', message: '手机只执行已登记的设备动作' } })
+            const result = Promise.resolve({ error: call.type === 'device.action' || call.type === 'device.action.result_ack'
+              ? deviceScopeError(input.deviceId)
+              : { code: 'unknown_method', message: '手机只执行已登记的设备动作' } })
             void result.then(async (reply) => {
               if (alive && peers.get(id) === current) await send(await current.topic, createDeviceRpcReplyEnvelope(call.type, call.request_id, reply))
             }).catch((error: unknown) => input.warn(String(error)))
