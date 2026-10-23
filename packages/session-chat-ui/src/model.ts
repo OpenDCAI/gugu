@@ -493,15 +493,6 @@ export type TurnProcessItem = {
   endedAt?: number;
 };
 
-/** 这一轮的结果回到了它来的那个群(gugu-dev#181「已回到 X」);`messageId` = 发进群的那条,结果里没写就是 null。 */
-export type TurnReturnItem = {
-  kind: 'turn-return';
-  id: string;
-  turnId: string;
-  chatId: string;
-  messageId: string | null;
-};
-
 /** Action strip after a known completed turn that did not produce reply text. */
 export type TurnCompletionItem = {
   kind: 'turn-completion';
@@ -612,7 +603,6 @@ export type SyntheticItem =
   | DaySeparatorItem
   | TurnProcessItem
   | TurnCompletionItem
-  | TurnReturnItem
   | ToolRunItem;
 
 export type ChatItem =

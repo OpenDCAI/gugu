@@ -26,7 +26,6 @@ import { DELIVERY_VARS, DeliveryCard, estimateDelivery, measureDelivery } from '
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import { parseHookNotice } from '@session-chat/lib/hook-notice';
 import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer';
-import { turnReturnRow } from '@session-chat/components/rows/turn-process/turn-return.css';
 import {
   HOOK_NOTICE_VARS,
   HookNoticeCard,
@@ -39,6 +38,7 @@ import {
   assistantVars,
   footerRow,
   messageText,
+  questionAnswerRow,
   srOnly,
 } from './message.css';
 
@@ -240,7 +240,7 @@ function MessageUnitRender(props: { data: ChatMessage; ctx: RenderCtx; vars: Mes
   return (
     <Show when={props.data.questionAnswer} fallback={<MessageBodyRender data={props.data} ctx={props.ctx} vars={props.vars} />}>
       {(reading) => (
-        <div class={turnReturnRow} data-slot="question-answer" style={{ height: `${QUESTION_ANSWER_H}px` }}>
+        <div class={questionAnswerRow} data-slot="question-answer" style={{ height: `${QUESTION_ANSWER_H}px` }}>
           {reading().answer === null
             ? translate('transcript.questionWithdrawn')
             : translate('transcript.questionAnswered', { answer: reading().answer ?? '' })}

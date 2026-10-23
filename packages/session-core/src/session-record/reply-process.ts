@@ -99,22 +99,3 @@ export function replyProcesses(turns: readonly TranscriptTurn[], chatId: string)
   }
   return results;
 }
-
-/**
- * Where this turn's result went (gugu-dev#181「已回到 X」): the last send it made back to the group its input came
- * from — the input's delivery facts name the group, the send's own `chat_id` argument must name the same one, and the
- * send must have gone through. `messageId` is the message that send created (from its result), when the result names
- * it. A turn that never sent there has no return: ❌ infer one from the input alone.
- */
-export function replyReturn(turn: TranscriptTurn): { chatId: string; messageId: string | null } | null {
-  const facts = replySource(turn);
-  const source = facts?.chatKind === 'group' && facts.sourceLink ? parseConversationLink(facts.sourceLink) : null;
-  if (!facts || !source) return null;
-  for (const item of replyItems(turn).reverse()) {
-    if (!('toolCallId' in item) || !isRootSend(item) || item.status !== 'done' || !item.rawInput) continue;
-    let chatId: unknown;
-    try { chatId = (JSON.parse(item.rawInput) as Record<string, unknown>).chat_id; } catch { continue; }
-    if (sourceChatMatches(facts, chatId)) return { chatId: source.chatId, messageId: sentMessageId(item) };
-  }
-  return null;
-}

@@ -57,7 +57,6 @@ import type { FoldGate, ItemSegmenter, Margin, RenderUnit, SegmentCtx } from '@s
 import { stampGroupRoles } from '@session-chat/core/units';
 import { localDayKey } from '@session-chat/lib/day-boundary';
 import type { ChatItem, ChatMessage, SyntheticItem, TranscriptTurn } from '@session-chat/model';
-import { replyReturn } from '@gugu/session-core/session-record/reply-process';
 import { fileChangeSummary, successfulFileDiff } from '@session-chat/state/file-change-summary';
 import { collectOpenedOutputs, openedOutputKey, outputsOfRun } from '@session-chat/state/opened-outputs';
 import { tallyToolRun, toolRunCategory, toolRunLabel } from '@session-chat/state/tool-run';
@@ -390,10 +389,6 @@ export function flattenTier(
         count: outputs.length,
       });
     });
-
-    // 结果回到了它来的那个群:这一轮底下一行「已回到 X」(gugu-dev#181),判据只读结构化的事实(`replyReturn`)。
-    const back = ctx.active ? null : replyReturn(turn);
-    if (back) processItem({ kind: 'turn-return', id: `${turn.id}:return`, turnId: turn.id, ...back });
 
     const completionResult = completedTurnResult(turn, foldRuns.get(turnIndex), ctx.active);
     if (completionResult !== null) {

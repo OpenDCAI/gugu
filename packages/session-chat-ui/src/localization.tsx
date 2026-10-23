@@ -129,8 +129,6 @@ const fallbackMessages = {
   'transcript.deliveryViaGroup': 'via group {chat}',
   'transcript.deliveryViaUnnamedGroup': 'via a group',
   'transcript.deliveryFromMe': 'You',
-  'transcript.turnReturned': 'Back in {chat}',
-  'transcript.turnReturnedUnnamed': 'Back in the group',
   'transcript.questionAnswered': 'You answered: {answer}',
   'transcript.questionWithdrawn': 'You withdrew the question',
   'transcript.deliveryWhisper': 'whisper',

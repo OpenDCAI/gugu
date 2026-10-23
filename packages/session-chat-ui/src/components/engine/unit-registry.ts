@@ -44,7 +44,6 @@ import { toolFromItem, toolUnitDef } from '@session-chat/components/rows/tools/t
 import { turnOutcomeUnitDef } from '@session-chat/components/rows/turn-outcome/turn-outcome.def';
 import { turnProcessUnitDef } from '@session-chat/components/rows/turn-process/turn-process.def';
 import { turnCompletionUnitDef } from '@session-chat/components/rows/turn-process/turn-completion.def';
-import { turnReturnUnitDef } from '@session-chat/components/rows/turn-process/turn-return.def';
 import { toolRunUnitDef } from '@session-chat/components/rows/tool-run/tool-run.def';
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isPlanApprovalToolName } from '@gugu/session-core/session-record/question-tools';
@@ -247,7 +246,6 @@ export const SEGMENTERS: Record<string, ItemSegmenter> = {
   ),
   'turn-process': nativePassthrough<SyntheticItem>('turn-process', (item) => item, MESSAGE_CHROME),
   'turn-completion': nativePassthrough<SyntheticItem>('turn-completion', (item) => item, MESSAGE_CHROME),
-  'turn-return': nativePassthrough<SyntheticItem>('turn-return', (item) => item, MESSAGE_CHROME),
   'tool-run': nativePassthrough<SyntheticItem>('tool-run', (item) => item, COMPOSITE_CHROME),
   'file-change-summary': nativePassthrough<SyntheticItem>('file-change-summary', (item) => item, MESSAGE_CHROME),
   'opened-output': nativePassthrough<SyntheticItem>('opened-output', (item) => item, COMPOSITE_CHROME),
@@ -283,7 +281,6 @@ export const UNIT_REGISTRY: Record<string, RegistryUnitDef> = {
   'day-separator': daySeparatorUnitDef as unknown as RegistryUnitDef,
   'turn-process': turnProcessUnitDef as unknown as RegistryUnitDef,
   'turn-completion': turnCompletionUnitDef as unknown as RegistryUnitDef,
-  'turn-return': turnReturnUnitDef as unknown as RegistryUnitDef,
   'tool-run': toolRunUnitDef as unknown as RegistryUnitDef,
   'plan-review': planReviewUnitDef as unknown as RegistryUnitDef,
   'file-change-summary': fileChangeSummaryUnitDef as unknown as RegistryUnitDef,
