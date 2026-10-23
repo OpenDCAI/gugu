@@ -13,8 +13,13 @@ import type { SessionpageMessageHost } from '../../../../apps/desktop/src/sessio
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
+const resourceChat = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', () => ({ resourceChatIdOf: resourceChat }))
+vi.mock('../../../../apps/desktop/src/lib/sessionPublication', async (original) => ({
+  ...await original<object>(), getRendererAccessToken: () => 'layout-token',
+}))
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
 const activationProbe = vi.hoisted(() => ({
   calls: [] as Array<{ owner: string; accountId: string | null }>,
@@ -925,5 +930,22 @@ describe('MainLayout: opening a topic on the desktop', () => {
     })
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
     if (target === SRC) expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+})
+
+
+describe('MainLayout: an App requested from a topic uses the shared source slot', () => {
+  it.each([UI_EVENTS.openApp, APP_OPEN_IN_CHAT_EVENT])('%s resolves a topic absent from the local list without opening a split', async (eventName) => {
+    chatStoreMock.chats = [{ id: 'source-app', kind: 'group' }] as never
+    resourceChat.mockResolvedValueOnce('source-app')
+    await renderMainLayoutWithToast()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(eventName, { detail: { chatId: 'topic-app', extensionId: 'board' } }))
+    })
+    expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
+    expect(groupSlotMemory.takeApp('source-app')).toBe('board')
+    expect(groupSlotMemory.takeApp('topic-app')).toBeNull()
+    expect(drainTopicSplitRequest('source-app')).toBeNull()
   })
 })
