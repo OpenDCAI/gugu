@@ -17,6 +17,7 @@ export type MachineNoticeSpec = Pick<Notice, 'title' | 'description' | 'tier' | 
 };
 
 export function machineNotice(input: {
+  /** null = 名下已经没有这台机器(设备行不在了):按「用不了」说,❌ 当没事。 */
   connection: HostConnectionState | null;
   label: string | null;
   /** 到那台机器的线自上次连通以来拨过几次(RemoteHostsStore.dialsSinceOpen)。 */
@@ -26,7 +27,7 @@ export function machineNotice(input: {
   translate: Translate;
 }): MachineNoticeSpec | null {
   const { connection, label, dials, translate } = input;
-  if (connection === null || connection === 'connected') return null;
+  if (connection === 'connected') return null;
   const trying = connection === 'connecting' || connection === 'reconnecting';
   // 第一次拨不算「重试」;连上过的机器断了,拨的每一次都是。
   const retries = connection === 'connecting' ? dials - 1 : dials;

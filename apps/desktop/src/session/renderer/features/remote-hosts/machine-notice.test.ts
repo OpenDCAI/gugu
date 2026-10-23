@@ -25,9 +25,9 @@ describe('选着的机器用不了,说什么(#137)', () => {
     expect(Object.keys(zhCNRemoteHostMessages).sort()).toEqual(Object.keys(enUSRemoteHostMessages).sort());
   });
 
-  it('连着(或没有这台机器)= 没有提示', () => {
+  it('连着 = 没有提示;名下已经没有这台机器(设备行不在了)= 用不了,❌ 当没事', () => {
     expect(spec({ connection: 'connected' })).toBeNull();
-    expect(spec({ connection: null })).toBeNull();
+    expect(spec({ connection: null })).toMatchObject({ title: 'Mac 1 离线。草稿已保留，上线后可发送，或换一台机器。', tier: 'error', waiting: false, delayed: false });
   });
 
   it('重连中:在等 + 先等一会儿再出现;第几次写在说明里,第一次拨不算重试', () => {
