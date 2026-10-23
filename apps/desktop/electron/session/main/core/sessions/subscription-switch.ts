@@ -10,11 +10,11 @@ import { log } from '@main/lib/logger';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import { stopExactSessionpageSession } from './session-orchestration';
+import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
 
 type SubscriptionProvider = 'claude' | 'codex';
 type LiveSession = { projectId: string; sessionId: string; busy: boolean };
 
-const LABEL: Record<SubscriptionProvider, string> = { claude: 'Claude', codex: 'Codex' };
 const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 'ready', 'working', 'cancelling']);
 
 function acpBusy(summary: SessionSummary): boolean {
@@ -58,12 +58,7 @@ export async function switchSubscription(
 ): Promise<void> {
   const live = liveSessions(providerId);
   const busy = live.filter((session) => session.busy).length;
-  if (busy > 0) {
-    throw new Error(
-      `${busy} ${LABEL[providerId]} session${busy === 1 ? ' is' : 's are'} still working. ` +
-        `Switch the subscription after they finish; switching restarts every running ${LABEL[providerId]} session.`
-    );
-  }
+  if (busy > 0) throw new SubscriptionSessionsBusyError(providerId, busy);
   // 换不成(连接没了、登录没存、Codex 凭据不在文件里)就在停会话之前报出来。
   await assertHarnessConnectionSelectable(providerId, connectionId, { nativeEnv });
   const stopped: LiveSession[] = [];

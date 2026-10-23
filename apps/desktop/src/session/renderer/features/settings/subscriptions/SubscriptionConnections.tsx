@@ -18,7 +18,7 @@ import { useLibraryHost } from '@renderer/features/library/library-host';
 import { forceRefreshHarnessModelCatalog } from '@renderer/lib/stores/use-harness-model-catalog';
 import { harnessModelCredentialKey } from '@renderer/lib/stores/use-harness-model-credential';
 import { resolveSignInMethod } from '../agents-page/agent-account';
-import { errorText, subscriptionKey } from './subscription-queries';
+import { ConnectionActionError, errorText, sessionsBusyOf, subscriptionKey } from './subscription-queries';
 
 function connectionsKey(machine: string | null, providerId: string) {
   return ['subscriptions', machine ?? 'local', providerId, 'connections'];
@@ -38,11 +38,14 @@ export function useSubscriptionConnections(machine: string | null, providerId: s
   });
 }
 
+/** 切换没成时给行摆的一句话。`gentle`=被拒而不是出错(有会话正在工作),不飘红。 */
+export type SwitchNotice = { tone: 'gentle' | 'error'; text: string };
+
 /** `onError` 把切换失败的原因交给行去摆(整行宽度);这里只管菜单与按钮,❌ 在窄的操作列里画长句。 */
 export function SubscriptionConnections({ agent, machine, onError }: {
   agent: AgentPayload;
   machine: string | null;
-  onError?: (message: string | null) => void;
+  onError?: (notice: SwitchNotice | null) => void;
 }) {
   const { translate } = useSessionMessages();
   const [open, setOpen] = useState(false);
@@ -67,7 +70,7 @@ export function SubscriptionConnections({ agent, machine, onError }: {
       } else {
         const input: { providerId: 'claude' | 'codex'; connectionId: string } = { providerId: agent.id, connectionId: id };
         const result = kind === 'select' ? await client.selectConnection(input) : await client.removeConnection(input);
-        if (!result.success) throw new Error(errorText(result.error));
+        if (!result.success) throw new ConnectionActionError(result.error);
       }
       // Commit the connection first. Model refresh failure must not disguise a successful switch.
       refresh();
@@ -78,8 +81,12 @@ export function SubscriptionConnections({ agent, machine, onError }: {
     },
   });
   // 跟最近一次动作走:新动作一开始 `action.error` 就清空,重叠的两次里先失败的那次不会把原因留下。
-  const failure = action.error ? errorText(action.error) : null;
-  useEffect(() => { onError?.(failure); }, [failure, onError]);
+  const busy = sessionsBusyOf(action.error);
+  const failure = busy
+    ? translate('subscriptions.connections.busy', { count: busy.count, provider: agent.name })
+    : action.error ? errorText(action.error) : null;
+  const tone = busy ? 'gentle' : 'error';
+  useEffect(() => { onError?.(failure === null ? null : { tone, text: failure }); }, [failure, tone, onError]);
   const signIn = (connectionId: string) => {
     if (!method || !canSignIn) return;
     setOpen(false);
