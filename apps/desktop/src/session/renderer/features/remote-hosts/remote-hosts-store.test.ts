@@ -81,6 +81,37 @@ describe('#137 重连提示里「第几次」的数', () => {
     expect(walk(['connecting', 'connecting', 'closed', 'connecting', 'closed', 'connecting', 'closed'])).toEqual([1, 1, 1, 2, 2, 3, 3]);
     expect(walk(['open'])).toEqual([0]);
   });
+
+  it('那台机器读成离线时线还在隔一会儿拨:那些不算;回来之后从第一次数起,❌「第 125 次尝试」', () => {
+    let dials = 3;
+    let previous: 'connecting' | 'closed' | null = 'closed';
+    for (const link of ['connecting', 'closed', 'connecting', 'closed'] as const) {
+      dials = dialsAfter(dials, previous, link, false);
+      previous = link;
+    }
+    expect(dials).toBe(0);
+    expect(dialsAfter(dials, previous, 'connecting', true)).toBe(1);
+  });
+
+  it('设备行读成离线的那一刻就清零(没有线的通知也一样)', () => {
+    const store = new RemoteHostsStore();
+    store.start();
+    let listed = [device({ id: 'dev-count' })];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+    } as never);
+    try {
+      store.dials.set('dev-count', 8);
+      listed = [device({ id: 'dev-count', isOnline: false, directTerminal: false })];
+      listeners.forEach((listener) => listener());
+      expect(store.dialsSinceOpen('dev-count')).toBe(0);
+    } finally {
+      off();
+    }
+  });
 });
 
 describe('心跳说那台机器在时,线要不要现在重开', () => {

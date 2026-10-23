@@ -534,6 +534,8 @@ export class RemoteHostsStore {
       runInAction(() => {
         if (current) current.device = device;
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
+        // 读成离线了:这一轮重连到此为止(提示换成「离线」,不带第几次);回来之后从第一次数起。
+        if (!remoteHostReachable(device)) this.dials.delete(device.id);
         // #7199 叫醒没成之后它在别处被叫醒了(正在醒 / 醒了):那条旧的「没叫醒」不再盖住它此刻的样子。
         if (device.cloudComputer && device.cloudComputer !== 'asleep' && this.wakes.get(device.id)?.status === 'failed') this.wakes.delete(device.id);
       });
@@ -563,7 +565,7 @@ export class RemoteHostsStore {
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
-        const dials = dialsAfter(this.dials.get(deviceId) ?? 0, lastLink, link);
+        const dials = dialsAfter(this.dials.get(deviceId) ?? 0, lastLink, link, state ? remoteHostReachable(state.device) : true);
         if (dials === 0) this.dials.delete(deviceId);
         else this.dials.set(deviceId, dials);
       });
@@ -699,11 +701,12 @@ export function linkNeedsReopen(
 }
 
 /**
- * 到一台机器的线自上次连通以来拨过几次(纯函数,单测钉):每次从「没在拨」进到「在拨」算一次,连通了清零。
- * 同一次拨里线状态的重复通知(connecting → connecting)不算。
+ * 这一轮重连拨了几次(纯函数,单测钉):每次从「没在拨」进到「在拨」算一次,连通了清零。
+ * 同一次拨里线状态的重复通知(connecting → connecting)不算。那台机器读成离线时线照样隔一会儿拨一次,那不算
+ * 这一轮的 —— ❌ 机器回来那一下亮出「第 125 次尝试」(owner 试用实例实测)。
  */
-export function dialsAfter(dials: number, previous: MachineLinkState | null, link: MachineLinkState): number {
-  if (link === 'open') return 0;
+export function dialsAfter(dials: number, previous: MachineLinkState | null, link: MachineLinkState, reachable = true): number {
+  if (link === 'open' || !reachable) return 0;
   return link === 'connecting' && previous !== 'connecting' ? dials + 1 : dials;
 }
 
