@@ -7,11 +7,34 @@ import { PageShownContext } from '@renderer/app/recent-session-pages';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const provisionSession = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const state = vi.hoisted(() => ({
+  kind: 'idle',
+  machine: null as string | null,
+  link: 'closed',
+  listeners: new Set<() => void>(),
+}));
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionPageStore: () => ({}),
-  sessionViewKind: () => 'idle',
+  sessionViewKind: () => state.kind,
   getSessionManagerStore: () => ({ provisionSession }),
 }));
+vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => state.machine } }));
+vi.mock('@renderer/lib/machine-clients', () => ({
+  machineLinkState: () => state.link,
+  onMachineReconnected: (_machine: string, cb: () => void) => {
+    let open = state.link === 'open';
+    const listener = () => {
+      if (state.link === 'open' && !open) cb();
+      open = state.link === 'open';
+    };
+    state.listeners.add(listener);
+    return () => state.listeners.delete(listener);
+  },
+}));
+const setLink = (link: string) => {
+  state.link = link;
+  for (const listener of [...state.listeners]) listener();
+};
 vi.mock('@renderer/features/sessions/leave-session-view', () => ({ leaveSessionView: vi.fn() }));
 vi.mock('@renderer/features/sessions/session-view-guard', () => ({ sessionViewCanActivate: () => true }));
 vi.mock('@renderer/features/sessions/session-view-context', () => ({
@@ -35,6 +58,8 @@ const page = (shown: boolean) => (
 describe('session view: an idle session is provisioned only by the page on screen', () => {
   beforeEach(() => {
     provisionSession.mockClear();
+    Object.assign(state, { kind: 'idle', machine: null, link: 'closed' });
+    state.listeners.clear();
     const dom = new JSDOM('<div id="root"></div>');
     vi.stubGlobal('window', dom.window);
     vi.stubGlobal('document', dom.window.document);
@@ -50,5 +75,36 @@ describe('session view: an idle session is provisioned only by the page on scree
     expect(provisionSession).toHaveBeenCalledTimes(0);
     act(() => root.render(page(true)));
     expect(provisionSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('a local session that failed to provision waits for Retry: no automatic retry', () => {
+    state.kind = 'provision-error';
+    act(() => root.render(page(true)));
+    expect(provisionSession).toHaveBeenCalledTimes(0);
+  });
+
+  it("a session on another machine waits for that machine's link, and a failure is retried once when the link opens", () => {
+    state.machine = 'mac-1';
+    act(() => root.render(page(true)));
+    expect(provisionSession).toHaveBeenCalledTimes(0); // idle, link down: not provisioned (it could only fail)
+    act(() => setLink('open'));
+    expect(provisionSession).toHaveBeenCalledTimes(1);
+    // it failed (the link dropped again right after): retried once when the link comes back, not in a loop
+    state.kind = 'provision-error';
+    act(() => setLink('closed'));
+    act(() => root.render(page(true)));
+    expect(provisionSession).toHaveBeenCalledTimes(1);
+    act(() => setLink('open'));
+    expect(provisionSession).toHaveBeenCalledTimes(2);
+    act(() => root.render(page(true)));
+    expect(provisionSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('a hidden retained page does not retry either when the link opens', () => {
+    state.machine = 'mac-1';
+    state.kind = 'provision-error';
+    act(() => root.render(page(false)));
+    act(() => setLink('open'));
+    expect(provisionSession).toHaveBeenCalledTimes(0);
   });
 });

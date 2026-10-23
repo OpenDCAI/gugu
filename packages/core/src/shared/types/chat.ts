@@ -3,6 +3,7 @@ import type { AgentType } from '@gugu/core/agentTypes'
 import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
 import type { DeviceProject } from './deviceProject'
+import type { AgentFailureReason } from '../agentQuotaReason'
 export type { AgentType } from '@gugu/core/agentTypes'
 
 // @@@1514 channel 概念已抹除(collapse 进 group)：公开 agent 好友会话原是独立 'channel' kind，
@@ -53,6 +54,8 @@ export interface ChatItem {
   created_at: string
   last_message_at: string | null
   last_message_preview: string | null
+  /** The last message is an agent's failure row: the list says this reason in the viewer's language, not the preview. */
+  last_message_failure?: AgentFailureReason | null
   unread_count: number
   /** The server-owned stream/message locator for the first unread projection. */
   unread_locator?: ChatUnreadLocator | null

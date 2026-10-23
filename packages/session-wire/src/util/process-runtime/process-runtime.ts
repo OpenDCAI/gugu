@@ -13,7 +13,7 @@ import { createScope, type Scope } from '../scope';
 
 const RUNTIME_SIGNAL_KIND = 'wire-runtime-signal';
 /** Shared child-runtime readiness budget; ACP initialize uses the same no-ready-signal semantics. */
-export const DEFAULT_READY_TIMEOUT_MS = 10_000;
+export const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_SHUTDOWN_GRACE_MS = 1_000;
 
 type RuntimeSignal = {
@@ -37,7 +37,7 @@ export type SpawnRuntimeOptions<Defs extends ContractDefinitions> = {
   host: ProcessHost;
   contract: Contract<Defs>;
   spec: ProcessSpec;
-  scope?: Scope;
+  scope: Scope;
   readyTimeoutMs?: number;
   shutdownGraceMs?: number;
   instrumentation?: WireInstrumentation;
@@ -99,7 +99,10 @@ export async function spawnRuntime<Defs extends ContractDefinitions>(
   try {
     await waitForReady(managed, options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
   } catch (error) {
-    await managed.dispose();
+    // 没就绪才是原因:收尾再失败(如 graceful shutdown 超时,进程照样被 kill)只记一行,❌ 拿它顶掉原始错误。
+    await managed.dispose().catch((disposeError: unknown) => {
+      options.scope.log.warn('runtime cleanup after a failed start failed', { error: disposeError });
+    });
     throw error;
   }
 
@@ -148,7 +151,7 @@ export async function spawnRuntime<Defs extends ContractDefinitions>(
     },
   };
 
-  options.scope?.use(handle);
+  options.scope.use(handle);
   return handle;
 }
 

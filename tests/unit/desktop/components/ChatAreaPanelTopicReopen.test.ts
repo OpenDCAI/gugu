@@ -66,6 +66,17 @@ async function render(hidden: boolean, openNonce: number) {
 const topicPage = () => harness.container.querySelector('[data-testid="topic-split-back"]')
 
 describe('手机从列表点回同一个群的话题行,话题页要出来', () => {
+  it('a repeated sidebar request closes the split and a third request opens it again', async () => {
+    await render(false, 0)
+    const request = { chatId: 't1', name: 'Topic', sourceChatId: 'g1', focusComposer: true, toggle: true }
+    await act(async () => { requestTopicSplit(request) })
+    expect(topicPage()).not.toBeNull()
+    await act(async () => { requestTopicSplit(request) })
+    expect(topicPage()).toBeNull()
+    await act(async () => { requestTopicSplit(request) })
+    expect(topicPage()).not.toBeNull()
+  })
+
   it('会话页隐藏时放进来的请求,等露出来(openNonce 同时 +1)之后才开,❌ 被重开的重置关掉', async () => {
     await render(true, 0)
     await act(async () => { requestTopicSplit({ chatId: 't1', name: '北京天气', sourceChatId: 'g1', focusComposer: true }) })

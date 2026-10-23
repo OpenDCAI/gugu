@@ -53,7 +53,6 @@ const agentConfigWorker = lazyWorker(
   }),
   {
     onSpawned: (handle) => {
-      installRendererWire(withHostResolvedCli(handle.client));
       wireHostDependencyLedger(handle);
     },
   }
@@ -111,6 +110,7 @@ export type AgentConfigRuntimeClient = ContractClient<AgentConfigContract>;
 let rendererWireDispose: (() => void) | null = null;
 
 export async function initializeAgentConfigRuntimeProcess(): Promise<AgentConfigRuntimeHandle> {
+  rendererWireDispose ??= exposeRendererWire();
   return agentConfigWorker.get();
 }
 
@@ -227,20 +227,17 @@ function subscriptionRunContext(providerId: string, connectionId?: string) {
   return resolveLocalAgentRunContext(providerId, { role: plugin ? authProgramRole(plugin, program) : 'primary', connectionId });
 }
 
-function installRendererWire(client: AgentConfigRuntimeClient): void {
-  rendererWireDispose?.();
-  const controller = withValidation(
-    agentConfigContract,
-    forwardController(agentConfigContract, client),
-    runtimeWireValidationPolicy()
-  );
+/** 与 ACP 那条同形(见 acp/runtime-process/host.ts `exposeRendererWire`):开机就挂上,每次 connect 先 `get()`。 */
+function exposeRendererWire(): () => void {
   const hostIpc = getHostIpc();
-  rendererWireDispose = exposeWireToWindows(
+  return exposeWireToWindows(
     {
       ipcMain: hostIpc.ipcMain,
       createMessageChannel: (event) => hostIpc.createMessageChannel(event),
     },
-    controller,
+    () => agentConfigWorker.get(),
+    (handle) =>
+      withValidation(agentConfigContract, forwardController(agentConfigContract, withHostResolvedCli(handle.client)), runtimeWireValidationPolicy()),
     { channel: AGENT_CONFIG_WIRE_CHANNEL }
   );
 }

@@ -21,7 +21,7 @@ it('returns pending without holding the model turn, then delivers only the expli
   void postAgentQuestion(input).then((result) => { posted = result })
   await new Promise((resolve) => setTimeout(resolve, 0)) // one event-loop turn, without answering the card
   expect(posted).toMatchObject({ state: 'pending', source_link: input.sourceLink })
-  expect(mocks.ask).toHaveBeenCalledWith('assistant', expect.objectContaining({ itemId: posted!.question_id }), expect.objectContaining({ background: true }))
+  expect(mocks.ask).toHaveBeenCalledWith('assistant', expect.objectContaining({ itemId: posted!.question_id }), { signal: expect.any(AbortSignal) })
   expect(mocks.send).not.toHaveBeenCalled()
   answer({ optionId: 'answered', by: 'desktop', answers: [{ selected: ['PATH'] }] })
   await vi.waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))

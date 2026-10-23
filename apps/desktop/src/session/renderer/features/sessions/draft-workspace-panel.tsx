@@ -534,7 +534,7 @@ const DraftFilesPane = observer(function DraftFilesPane({
               className="flex min-w-0 flex-col overflow-hidden bg-background"
             >
               <div className="px-2 pt-2">
-                <div className="flex items-center gap-1.5 rounded-md bg-background-1 px-2">
+                <div className="flex items-center gap-1.5 rounded-md bg-[var(--em-surface-input)] px-2">
                   <Search className="size-3.5 shrink-0 text-foreground-muted" />
                   <input
                     value={filterQuery}

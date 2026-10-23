@@ -10,6 +10,7 @@ import type { AgentStatusEvent } from './status-event-log';
 export interface TranslationContext {
   /** agent 此刻在干活。 */
   running: boolean;
+  /** harness 自己有开着的等待(宿主问人的不算:它的边说不了那些)。 */
   waiting: boolean;
   /** 处在失败里(上次停下是失败、还没再开工)。 */
   failed: boolean;

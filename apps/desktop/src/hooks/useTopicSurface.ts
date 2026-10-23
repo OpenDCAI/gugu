@@ -58,7 +58,7 @@ export type TopicSurface = {
   splitLoading: boolean
   /** 分栏那条话题自己的对端已读水位(来源线那一格是另一条线的读数)。 */
   splitMemberReadSeqs: Record<string, number>
-  openSplit: (topic: OpenTopic) => void
+  openSplit: (topic: OpenTopic, toggle?: boolean) => void
   closeSplit: () => void
   /** @param toUserIds 正文里 @ 到的人 —— 被 @ 就是被拉进来(服务端触发器只认来源线成员)。 */
   /** @param replyToMessageId 引用的那条消息 —— 结构化回复,与主线同口径(group-routing:回复穿透档位)。 */
@@ -140,11 +140,12 @@ export function useTopicSurface({
   }, [splitChatId, splitMessages, topics])
 
   const openSplit = useCallback(
-    (topic: OpenTopic) => {
-      // 再点一次**正开着的同一条**:只更新名字,❌ 不走 closeRightSurfaces(#6404:那一路曾把分栏的消息清空、
+    (topic: OpenTopic, toggle = false) => {
+      // Sidebar reactivation closes the split; other open requests only update its name.
+      // ❌ 不走 closeRightSurfaces(#6404:那一路曾把分栏的消息清空、
       // 而同一批里又设回同一条 ⇒ 拉取不重跑 ⇒ 分栏开着但一条消息都没有)。
       if (splitChatIdRef.current === topic.chatId) {
-        setSplitState({ forChatId: chatIdRef.current, topic })
+        setSplitState({ forChatId: chatIdRef.current, topic: toggle ? null : topic })
         return
       }
       closeRightSurfaces()

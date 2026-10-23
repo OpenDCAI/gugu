@@ -299,6 +299,50 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
+    /**
+     * 子智能体的 RFD 形态(agent-client-protocol#1992;ACP v2 的家都是这一种):子智能体是一个会话,
+     * 父会话上的 `subagent_update` 报它。带名字/能力的那一条宣布它,只带 `state` 的报它的状态。
+     * RFD 的 `idle` 不是终态(同一个子智能体还能再被叫醒),再来 `running` 就再回到在跑。
+     */
+    case 'subagent_update': {
+      const raw = update as unknown as {
+        sessionId?: string;
+        title?: string | null;
+        description?: string | null;
+        capabilities?: { cancel?: unknown } | null;
+        state?: { state?: string; stopReason?: string } | null;
+      };
+      if (!raw.sessionId) return { kind: 'ignored' };
+      const id = raw.sessionId;
+      const state = raw.state?.state;
+      if (raw.title !== undefined || raw.capabilities !== undefined) {
+        return {
+          kind: 'subagent',
+          toolCallId: id,
+          subagentSessionId: id,
+          ...(raw.title ? { title: raw.title } : {}),
+          ...(raw.description ? { inputSummary: raw.description } : {}),
+          status: state === 'idle' ? 'completed' : 'in_progress',
+          parentToolCallId: null,
+          canCancel: raw.capabilities?.cancel != null,
+        };
+      }
+      if (state === 'running' || state === 'requires_action') {
+        return { kind: 'subagent_update', toolCallId: id, agentId: id, subagentSessionId: id, status: 'in_progress' };
+      }
+      if (state !== 'idle') return { kind: 'ignored' };
+      const stopReason = raw.state?.stopReason;
+      return {
+        kind: 'subagent_done',
+        toolCallId: id,
+        agentId: id,
+        subagentSessionId: id,
+        status: stopReason === 'cancelled' ? 'stopped' : stopReason === 'error' ? 'failed' : 'completed',
+      };
+    }
+
+    // v2 的扩展更新名带前导 `_`(`_async_task_*`),v1 的 AIR 不带;同一份内容。
+    case '_async_task_spawned':
     case 'async_task_spawned': {
       const raw = update as unknown as {
         asyncTaskId?: string;
@@ -326,6 +370,7 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
+    case '_async_task_progress':
     case 'async_task_progress': {
       const raw = update as unknown as {
         asyncTaskId?: string;
@@ -358,6 +403,7 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
+    case '_async_task_state_update':
     case 'async_task_state_update': {
       const raw = update as unknown as {
         asyncTaskId?: string;
@@ -523,7 +569,7 @@ function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nu
 }
 
 /**
- * agent 自己报的状态(ACP v2 草案 `state_update`,v1 上由客户端声明 `session-state` 才发)。
+ * agent 自己报的状态(ACP v2 的 `state_update`)。
  * ⚠️ 是 state_update 就**绝不**返回 null:信封的 toolCallId 只是填位,交回主 switch 会长出一条工具行。
  */
 function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {

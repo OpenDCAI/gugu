@@ -181,6 +181,9 @@ export class RemoteHostsStore {
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
     onRemoteHostsBridgeChange(() => this.attach(findRemoteHostsBridge()));
     this.attach(findRemoteHostsBridge());
+    // 接上名册之前恢复的上次视图(「还不知道」放行的那一页):名下没有别的机器时此刻就知道了;有的,各台的清单并进项目表时
+    // 重判(projectManager.syncMachineProjects)。
+    appState.navigation.revalidate();
     // #7199 打开云电脑上的会话 = 叫醒它的三件事之一(规定草稿 cloud-computer「休眠与唤醒」):打开 / 切到一条在睡着的云电脑上的
     // 会话就叫醒它,切回窗口时也算一次「打开」。看着的时候它又睡着了 ❌ 再叫(那样它永远睡不着、一直扣积分)。
     // 侧栏列出、点开项目这些只读的看 ❌ 叫醒(那会让每次打开咕咕都把它叫起来)。
@@ -265,6 +268,15 @@ export class RemoteHostsStore {
 
   device(deviceId: string): RemoteHostDevice | null {
     return this.hosts.get(deviceId)?.device ?? null;
+  }
+
+  /**
+   * 别的机器的项目清单这一端还没齐:还没接上设备名册(开机恢复上次视图的那一刻,会话页还没起来),或名下有一台机器
+   * 既没连上读过、账号上也还没有它的那份(#113)。是 ⇒ 不在项目表里的项目还不知道在不在(见 projects/project-presence.ts)。
+   */
+  awaitsMachineLists(): boolean {
+    if (!this.started) return true;
+    return [...this.hosts.values()].some((state) => !state.synced && !state.device.projects);
   }
 
   /** 这个项目在哪台别的机器上;本机项目 = null。 */

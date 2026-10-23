@@ -35,13 +35,9 @@ export const SidebarSearchInput = observer(function SidebarSearchInput() {
   return (
     // 组离侧栏边多远归 list body(sidebar-primitives 的 sidebarGroupInsetX);内容列与下面那三个
     // 按钮共用 sidebarRowContentInsetX —— 两级都同源,图标才落在同一条竖线上(e2e 3480 ②)。
-    // 悬浮/正在搜都走全局那条阶梯(--hover / --selected),与侧栏的行、菜单项同深度;
-    // ❌ 别在这里挑 background-1 / background-tertiary-1 之类的容器色 —— 各挑各的,
-    // 正是这一组读起来「不是一套」的那一半原因。
-    // 「正在搜」是持续状态,所以取 selected 档(比悬浮深一级);此时再悬浮就叠一层,不替换。
     <div
       className={cn(
-        'group/row flex h-8 w-full items-center gap-2 rounded-full text-sm transition-colors hover:bg-row-hover focus-within:bg-row-selected focus-within:hover:bg-row-selected focus-within:hover:state-hover-layer',
+        'group/row flex h-8 w-full items-center gap-2 rounded-full bg-[var(--em-surface-input)] text-sm',
         sidebarRowContentInsetX
       )}
     >

@@ -47,7 +47,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.4.0",
+    "@agentclientprotocol/sdk": "1.9.0",
     "@gugu/session-shared": "workspace:*",
     "@gugu/session-wire": "workspace:*",
     "@parcel/watcher": "^2.5.6",

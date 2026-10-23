@@ -16,16 +16,21 @@ describe('#4277 恢复上次视图前校验会话还活着', () => {
   })
 
   it('会话已删除 ⇒ 同样退回项目', () => {
-    const out = sanitizeNavigationSnapshotForRestore(snapshot('t-gone'), () => 'missing') as { currentViewId: string }
+    const out = sanitizeNavigationSnapshotForRestore(snapshot('t-gone'), () => 'deleted') as { currentViewId: string }
     expect(out.currentViewId).toBe('project')
   })
 
   it('会话连项目都不知道 ⇒ home', () => {
     const out = sanitizeNavigationSnapshotForRestore(
       { currentViewId: 'session', viewParams: { session: { sessionId: 't-gone' } } },
-      () => 'missing',
+      () => 'deleted',
     ) as { currentViewId: string }
     expect(out.currentViewId).toBe('home')
+  })
+
+  it('会话在别的机器上(咕咕 server)⇒ 照样恢复到它:本机表里没有它不等于删了', () => {
+    const snap = snapshot('t-on-server')
+    expect(sanitizeNavigationSnapshotForRestore(snap, () => 'elsewhere')).toBe(snap)
   })
 
   it('对照:会话活着 ⇒ 原样返回(证明不是「恢复一律退回」)', () => {
@@ -36,13 +41,13 @@ describe('#4277 恢复上次视图前校验会话还活着', () => {
   it('对照:上次不在会话视图 ⇒ 不碰,也不查会话', () => {
     const snap = { currentViewId: 'project', viewParams: { project: { projectId: 'p' } } }
     let asked = 0
-    expect(sanitizeNavigationSnapshotForRestore(snap, () => { asked++; return 'missing' })).toBe(snap)
+    expect(sanitizeNavigationSnapshotForRestore(snap, () => { asked++; return 'deleted' })).toBe(snap)
     expect(asked).toBe(0)
   })
 
   it('坏快照(非对象 / 无 sessionId)原样返回,不抛', () => {
-    expect(sanitizeNavigationSnapshotForRestore(null, () => 'missing')).toBeNull()
+    expect(sanitizeNavigationSnapshotForRestore(null, () => 'deleted')).toBeNull()
     const noSession = { currentViewId: 'session', viewParams: {} }
-    expect(sanitizeNavigationSnapshotForRestore(noSession, () => 'missing')).toBe(noSession)
+    expect(sanitizeNavigationSnapshotForRestore(noSession, () => 'deleted')).toBe(noSession)
   })
 })

@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
+import { agentFailureText } from '../../lib/agentTurnFailure'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../ui/Button'
@@ -172,7 +174,10 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
 
 function QuickMessage({ message }: { message: MessageItem }) {
   const { t } = useTranslation('assistant')
-  if (message.content_type === 'system') return <div className="qc-system">{message.content}</div>
+  if (message.content_type === 'system') {
+    const reason = turnFailureReason(message)
+    return <div className="qc-system">{reason ? agentFailureText(reason) : message.content}</div>
+  }
   const body =
     message.content_type === 'text' ? (
       message.is_mine ? (

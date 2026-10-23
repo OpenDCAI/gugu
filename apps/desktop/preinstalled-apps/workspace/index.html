@@ -10,38 +10,37 @@
   <aside class="files" aria-label="files">
     <div class="files-head">
       <input id="filter" class="filter" type="search" autocomplete="off" />
-      <button id="new-doc" class="btn" type="button" hidden></button>
-      <button id="new-folder" class="btn" type="button" hidden></button>
-      <button id="upload" class="btn" type="button" hidden></button>
+      <div class="files-actions">
+        <button id="upload" type="button" hidden><gugu-icon name="arrow-up-to-line"></gugu-icon><span id="upload-label"></span></button>
+        <button id="new-doc" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="plus"></gugu-icon><span id="new-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
+      </div>
     </div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <nav id="crumbs" class="crumbs" hidden></nav>
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
     <div id="list-banner" class="banner" role="status" hidden></div>
-    <p id="files-empty" class="empty" hidden></p>
-    <ul id="file-list" class="file-list" role="listbox"></ul>
+    <gugu-empty id="files-empty" icon="folder" hidden><strong id="files-empty-message"></strong><button id="empty-upload" type="button" hidden></button></gugu-empty>
+    <ul id="file-list" class="file-list list" role="listbox"></ul>
   </aside>
   <main class="doc">
     <header class="doc-head">
-      <div class="doc-name">
-        <h1 id="doc-title" class="doc-title"></h1>
+      <h1 id="doc-title" class="doc-title"></h1>
+      <div class="doc-actions">
+        <div class="modes" role="tablist" aria-labelledby="doc-title">
+          <button id="mode-edit" role="tab" type="button"></button>
+          <button id="mode-split" role="tab" type="button"></button>
+          <button id="mode-preview" role="tab" type="button"></button>
+        </div>
         <span id="doc-status" class="status"></span>
         <div id="peers" class="peers"></div>
-      </div>
-      <div class="doc-actions">
-        <div class="modes" role="group">
-          <button id="mode-edit" class="mode" type="button"></button>
-          <button id="mode-split" class="mode" type="button"></button>
-          <button id="mode-preview" class="mode" type="button"></button>
-        </div>
         <div class="json-actions">
-          <button id="json-discard" class="btn" type="button"></button>
-          <button id="json-apply" class="btn primary" type="button"></button>
+          <button id="json-discard" type="button"></button>
+          <button id="json-apply" class="primary" type="button"></button>
         </div>
         <!-- Wide: these two sit in the row. Narrow: they fold behind ⋯, which opens them in the page's one menu (#menu). -->
-        <button id="download" class="btn fold" type="button" hidden></button>
-        <button id="open-with" class="btn fold" type="button" hidden></button>
-        <button id="more" class="btn more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden>⋯</button>
+        <button id="download" class="fold" type="button" hidden></button>
+        <button id="open-with" class="fold" type="button" hidden></button>
+        <button id="more" class="more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
       </div>
     </header>
     <div id="banner" class="banner" role="status" hidden></div>
@@ -52,20 +51,20 @@
       <article id="preview" class="preview"></article>
     </div>
   </main>
-  <div id="menu" class="menu" role="menu" hidden></div>
+  <div id="menu" class="menu card list" role="menu" hidden></div>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
-    <div class="dialog-box">
+    <div class="dialog-box card">
       <h2 id="move-title" class="dialog-title"></h2>
       <ul id="move-targets" class="move-targets"></ul>
-      <div class="dialog-actions"><button id="move-cancel" class="btn" type="button"></button></div>
+      <div class="dialog-actions"><button id="move-cancel" type="button"></button></div>
     </div>
   </div>
   <!-- After an upload: a name that was already in the folder — both kept, or the old one replaced. -->
   <div id="conflicts" class="dialog" role="dialog" aria-modal="true" hidden>
-    <div class="dialog-box">
+    <div class="dialog-box card">
       <ul id="conflict-list" class="conflict-list"></ul>
-      <div class="dialog-actions"><button id="conflicts-done" class="btn" type="button"></button></div>
+      <div class="dialog-actions"><button id="conflicts-done" type="button"></button></div>
     </div>
   </div>
   <!-- Beside a selection, in the source or the preview (app.js places it). -->

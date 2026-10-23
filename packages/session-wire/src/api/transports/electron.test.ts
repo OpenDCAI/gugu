@@ -181,7 +181,8 @@ describe('Electron wire helpers', () => {
           return { port1, port2 };
         },
       },
-      controller
+      () => controller,
+      (resolved) => resolved
     );
 
     const firstPort = await requestAndAwaitPort(ipcRenderer, windowLike);
@@ -223,7 +224,8 @@ describe('Electron wire helpers', () => {
           return { port1, port2 };
         },
       },
-      controller
+      () => controller,
+      (resolved) => resolved
     );
 
     const firstPort = await requestAndAwaitPort(ipcRenderer, windowLike);
@@ -233,6 +235,48 @@ describe('Electron wire helpers', () => {
 
     await requestAndAwaitPort(ipcRenderer, windowLike);
     expect(mainPorts[0]?.closeCalls).toBe(1);
+
+    dispose();
+  });
+
+  it('resolves the source on every connect: a failed start rejects with its own error and the next connect retries it', async () => {
+    const ipcMain = new FakeIpcMain();
+    const sender = new FakeWebContents();
+    const ipcRenderer = new FakeIpcRenderer(ipcMain, sender);
+    sender.renderer = ipcRenderer;
+    const windowLike = new FakeWindow();
+    const startFailure = new Error('subscribe timed out');
+    const controllers = ['first', 'second'].map((name) =>
+      createController(api, { ping: ({ value }) => `${name}:${value}`, state: fakeStateProvider() })
+    );
+    const sources = [Promise.reject(startFailure), Promise.resolve(0), Promise.resolve(1)];
+    sources[0]?.catch(() => {});
+    let resolves = 0;
+
+    const dispose = exposeWireToWindows(
+      {
+        ipcMain,
+        createMessageChannel: () => {
+          const port1 = new FakeMessagePort();
+          const port2 = new FakeMessagePort();
+          port1.pair(port2);
+          port2.pair(port1);
+          return { port1, port2 };
+        },
+      },
+      () => sources[resolves++] as Promise<number>,
+      (index) => controllers[index]!
+    );
+
+    expect(ipcMain.handlers.has('wire:connect')).toBe(true);
+    await expect(requestWirePort({ ipcRenderer, window: windowLike })).rejects.toBe(startFailure);
+
+    const firstPort = await requestAndAwaitPort(ipcRenderer, windowLike);
+    await expect(client(api, connect(domPortTransport(firstPort))).ping({ value: 'a' })).resolves.toBe('first:a');
+
+    const secondPort = await requestAndAwaitPort(ipcRenderer, windowLike);
+    expect(firstPort.closed).toBe(true);
+    await expect(client(api, connect(domPortTransport(secondPort))).ping({ value: 'b' })).resolves.toBe('second:b');
 
     dispose();
   });
