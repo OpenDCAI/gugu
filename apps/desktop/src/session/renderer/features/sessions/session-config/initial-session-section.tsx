@@ -995,9 +995,10 @@ export function useInitialSessionState(
   //    `harnessCatalogState` 恒停在 `'unknown'`,这一格就会永远显示「正在读取可用模型…」——
   //    一个不会结束的进度。从前它被 providerError 顺带挡住了(那时「没选」是一条错误);
   //    #5740 把「没选」改成合法空态之后,这一项必须自己写出来。
-  // 选的是别的机器、此刻没连上:为什么连不上由新建框那一行说(版本太旧正在更新 / 离线 / 要先登录),
-  // ❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题。
-  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || (remoteHost && !remoteHost.online)
+  // 选的是别的机器、此刻没连上:为什么连不上由右下角那台机器的提示说(重连中 / 离线 / 要先登录 / 版本太旧,
+  // 见 remote-hosts/machine-notice.ts),❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题,是机器的。
+  const machineUnreachable = Boolean(remoteHost && !remoteHost.online);
+  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || machineUnreachable
     ? null
     : harnessCatalogNotice(harnessCatalogState, agentDisplayName, translate);
 
@@ -1178,7 +1179,8 @@ export function useInitialSessionState(
   // ❌ 别再在这里自己编一句「咕咕模型尚未对 X 开通」:原来「已安排」那一面关掉分组时就这么写,
   //    而那时咕咕的模型明明对 X 开着,是界面自己没去读。
   // 宿主报的是原因码,这里按界面语言说成人话;认不出的原文(老版本宿主)❌ 上屏。
-  const platformCatalogNotice = guguCatalogNotice(platformCatalog.catalogError, translate);
+  // 机器没连上时同理:咕咕模型的目录也是问那台机器要的,问不到是机器离线的结果,❌ 说成「模型列表尚未就绪」再给个「重试」。
+  const platformCatalogNotice = machineUnreachable ? null : guguCatalogNotice(platformCatalog.catalogError, translate);
   const platformNotice = platformCatalogNotice?.text ?? null;
   // 失败细节 ❌ 不拼进上面那句内联文案:那是 composer 工具栏,而 reason 是长度不可控的外部串,拼进去会把
   // 工具栏撑破、溢出到卡片外(真机上就是这么炸的)。工具栏留一句定性(「读取 X 的模型失败」),原因就地

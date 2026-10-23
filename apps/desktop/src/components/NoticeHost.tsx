@@ -17,10 +17,17 @@ let hostSeq = 0
  *    会话页会先接手,主 app 的新宿主一挂上就从它手里接回来,❌ 让提示条留在一个看不见的宿主里。
  *  · 会话页单独成一个文档(没有主 app)时,由它自己画。
  */
+/** 空着就能认领;主 app 的还能从会话页的手里接过来。 */
+function canClaim(holder: string | undefined, embedded: boolean): boolean {
+  return !holder || (!embedded && holder.startsWith('embedded:'))
+}
+
 export function NoticeHost({ closeLabel, embedded = false }: { closeLabel?: string; /** 会话页里的那一份(见上)。 */ embedded?: boolean }) {
   // 主题真值读全局订阅,❌ 读 React 上下文:会话页是另一棵根,拿不到主 app 的 ThemeContext。
   const theme = useSyncExternalStore(subscribeToHostTheme, readEffectiveHostTheme, () => 'light' as const)
-  const [owner, setOwner] = useState(false)
+  // 能认领就在第一次渲染里就画出来:sonner 的提示条只认它挂上之后发的提示(之前发的不补),
+  // 晚一拍才画,同一次挂载里子组件发的提示就丢了。认领本身仍在下面的 layout effect 里做,认不到再收回。
+  const [owner, setOwner] = useState(() => canClaim(document.documentElement.dataset[CLAIM], embedded))
   useLayoutEffect(() => {
     const root = document.documentElement
     const me = `${embedded ? 'embedded' : 'app'}:${++hostSeq}`
@@ -35,7 +42,7 @@ export function NoticeHost({ closeLabel, embedded = false }: { closeLabel?: stri
         }
         return
       }
-      if (holder && (embedded || !holder.startsWith('embedded:'))) return
+      if (!canClaim(holder, embedded)) return setOwner(false)
       root.dataset[CLAIM] = me
       owned = true
       setOwner(true)

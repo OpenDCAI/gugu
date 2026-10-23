@@ -35,10 +35,12 @@ export function useHarnessModelCredential(
 ): { status: HarnessModelCredentialStatus; refresh: () => void } {
   const client = useQueryClient();
   // #6264 会话 / 新建框在别的机器上:凭据在那台机器上,问那台机器的 agent-config 运行时。
-  const machine = useLibraryHost().remote?.deviceId ?? null;
+  const host = useLibraryHost().remote;
+  const machine = host?.deviceId ?? null;
   const query = useQuery<HarnessModelCredentialStatus>({
     queryKey: [...MODEL_CREDENTIAL_QUERY_KEY, providerId ?? '', modelId ?? '', ...(machine ? ['remote', machine] : [])],
-    enabled: !!providerId && !!modelId,
+    // 那台机器没连上就不问(同 use-harness-model-catalog);连上时自己重取。
+    enabled: !!providerId && !!modelId && host?.online !== false,
     retry: false,
     // 凭据在登录动作之后才会变;60s 内的重挂载不必重读盘。登录动作走下面的 refresh。
     staleTime: 60_000,
