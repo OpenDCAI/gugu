@@ -132,7 +132,7 @@ export function useConversationScrollMemory({
       positions.delete(owner.chatId)
       return
     }
-    if (owner.element.scrollHeight <= 0) return
+    if (owner.element.scrollHeight <= 0 || owner.element.clientHeight <= 0) return
     if (isConversationViewportAtBottom(owner.element, AT_BOTTOM_THRESHOLD)) {
       positions.set(owner.chatId, { atBottom: true })
       return
@@ -175,6 +175,17 @@ export function useConversationScrollMemory({
   const isPreservingPosition = useCallback(() => (
     completedActivationRef.current !== activationKey && hasSavedOffBottomPosition()
   ), [activationKey, hasSavedOffBottomPosition])
+
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const remember = () => {
+      const owner = scrollerOwnerRef.current
+      if (owner && !isPreservingPosition()) capturePosition(owner)
+    }
+    scroller.addEventListener('scroll', remember, { passive: true })
+    return () => scroller.removeEventListener('scroll', remember)
+  }, [scrollerEl, capturePosition, isPreservingPosition])
 
   const openLocation = useCallback(() => {
     const position = chatId && enabled && completedActivationRef.current !== activationKey ? positions.get(chatId) : undefined

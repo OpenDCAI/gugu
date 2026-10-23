@@ -2,6 +2,7 @@
 
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
+import { createPortal } from 'react-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   isConversationViewportAtBottom,
@@ -15,6 +16,49 @@ import { resetAuthSessionBoundary } from '../../../../apps/desktop/src/lib/authS
 beforeEach(() => resetAuthSessionBoundary())
 
 describe('conversation scroll memory', () => {
+  it('keeps the live anchor when another React root removes the slot before the portal ref exits', async () => {
+    const carrier = document.createElement('div')
+    const host = document.createElement('div')
+    document.body.append(carrier, host)
+    const slotRoot = createRoot(carrier)
+    const portalRoot = createRoot(host)
+    let slot: HTMLDivElement | null = null
+    let memory: ReturnType<typeof useConversationScrollMemory> | null = null
+    const setFollowingTail = vi.fn()
+    const isAtBottomRef = { current: true }
+    function Harness() {
+      memory = useConversationScrollMemory({ chatId: 'slot-chat', activationKey: 'slot-chat', enabled: true,
+        messageIds: ['older', 'anchor', 'newer'], isAtBottomRef, setFollowingTail })
+      return createPortal(createElement('div', { ref: memory.setScrollerRef },
+        createElement('div', { 'data-msg-id': 'anchor' })), slot!)
+    }
+    try {
+      await act(async () => { slotRoot.render(createElement('div', { ref: (element: HTMLDivElement | null) => { slot = element } })) })
+      await act(async () => { portalRoot.render(createElement(Harness)) })
+      const scroller = slot!.firstElementChild as HTMLElement
+      const row = scroller.firstElementChild as HTMLElement
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, get: () => scroller.isConnected ? 2_000 : 0 },
+        clientHeight: { configurable: true, get: () => scroller.isConnected ? 800 : 0 },
+        scrollTop: { configurable: true, writable: true, value: 700 },
+      })
+      vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 900 } as DOMRect)
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ top: 84, bottom: 160 } as DOMRect)
+      await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+      await act(async () => { slotRoot.render(null) })
+      expect(scroller.isConnected).toBe(false)
+      expect(scroller.scrollHeight, 'the slot root has already removed the live geometry').toBe(0)
+      expect(memory!.scrollerRef.current, 'the portal has not received its ref exit yet').toBe(scroller)
+      await act(async () => { portalRoot.render(null) })
+      await act(async () => { slotRoot.render(createElement('div', { ref: (element: HTMLDivElement | null) => { slot = element } })) })
+      await act(async () => { portalRoot.render(createElement(Harness)) })
+      expect(memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+      expect(memory!.prepareForSavedPosition()).toBe(true)
+    } finally {
+      await act(async () => { portalRoot.unmount(); slotRoot.unmount() })
+      carrier.remove(); host.remove(); vi.restoreAllMocks()
+    }
+  })
   it('reads bottom state from the current viewport geometry', () => {
     expect(isConversationViewportAtBottom(
       { scrollHeight: 2_000, scrollTop: 1_120, clientHeight: 800 },
