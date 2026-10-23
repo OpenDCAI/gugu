@@ -11,7 +11,7 @@ import type { EyeOut, GuguFrame, Layer, Particle } from './engine'
 import type { Character } from './characters'
 import type { Part } from './forms'
 import type { OutfitDraw } from './outfits'
-import { newPose, piecePose, type PiecePose, type RigPiece } from './rig'
+import { newPose, piecePose, shoulderCover, type PiecePose, type RigPiece } from './rig'
 import { EYE_ASPECT_K, EYE_SIZE_K, drawBrow, drawCheek, drawEye } from './face'
 
 export type FrameShape = 'circle' | 'squircle' | 'free'
@@ -291,6 +291,7 @@ export function glPasses(f: GuguFrame, outfit: OutfitDraw | null): number {
 // ───────────── 刚体部件 ─────────────
 const poses: PiecePose[] = []
 const poseOf = (i: number) => (poses[i] ??= newPose())
+let shoulderAlpha: Float32Array | undefined
 
 /** 挂点 A 在身体软网格上落在哪、网格在那里的雅可比:[X, Y, ∂X/∂x, ∂Y/∂x, ∂X/∂y, ∂Y/∂y] */
 const J = new Float64Array(6)
@@ -333,28 +334,37 @@ function paintPart(gl: GuguGL, f: GuguFrame, p: Part, v: View, alpha: number) {
   const rig = p.pack.rig
   const pieces = rig ? rig.pieces : []
   if (rig) for (let i = 0; i < pieces.length; i++) piecePose(rig, pieces[i], p.body, poseOf(i))
-  const piece = (front: boolean) => {
+  const piece = (front: boolean, wings?: boolean) => {
     for (let i = 0; i < pieces.length; i++) {
       const pc = pieces[i],
         ps = poses[i]
-      if (ps.depth >= 0 !== front || ps.alpha < 0.004) continue
+      if (ps.depth >= 0 !== front || ps.alpha < 0.004 || (wings !== undefined && (pc.kind === 'wing') !== wings)) continue
       rigQuad(gl, v, p, pc.box, pc.at, ps)
       gl.drawSprite(pc.id, f.desat, f.dim, alpha * ps.alpha, f.tint, 1, 1)
     }
   }
   piece(false)
-  const spr = p.pack.spr
-  const verts = gl.verts
-  let k = 0
-  for (let j = 0; j <= GRID_Y; j++) {
-    const y = (j / GRID_Y) * spr.h
-    for (let i = 0; i <= GRID_X; i++) {
-      place((i / GRID_X) * spr.w, y, p, p.body, tmp)
-      verts[k++] = v.ox + tmp[0] * v.s
-      verts[k++] = v.oy + tmp[1] * v.s
+  const body = (shoulders = false) => {
+    const spr = p.pack.spr, verts = gl.verts
+    const weights = shoulders ? (shoulderAlpha ??= new Float32Array((GRID_X + 1) * (GRID_Y + 1))) : undefined
+    let k = 0
+    for (let j = 0; j <= GRID_Y; j++) {
+      const y = (j / GRID_Y) * spr.h
+      for (let i = 0; i <= GRID_X; i++) {
+        const x = (i / GRID_X) * spr.w
+        place(x, y, p, p.body, tmp)
+        verts[k++] = v.ox + tmp[0] * v.s
+        verts[k++] = v.oy + tmp[1] * v.s
+        if (weights) {
+          let cover = 0
+          for (let r = 0; r < pieces.length; r++) cover = Math.max(cover, shoulderCover(pieces[r], poses[r], pieces[r].side < 0 ? p.body.wl : p.body.wr, x, y))
+          weights[j * (GRID_X + 1) + i] = cover
+        }
+      }
     }
+    gl.drawSprite(p.pack.id, f.desat, f.dim, alpha, f.tint, GRID_X, GRID_Y, weights)
   }
-  gl.drawSprite(p.pack.id, f.desat, f.dim, alpha, f.tint)
+  body()
   for (let i = 0; i < pieces.length; i++) {
     const pc = pieces[i],
       ps = poses[i]
@@ -362,7 +372,11 @@ function paintPart(gl: GuguGL, f: GuguFrame, p: Part, v: View, alpha: number) {
     rigQuad(gl, v, p, pc.shade.box, pc.at, ps)
     gl.drawSprite(pc.shade.id, f.desat, f.dim, alpha * ps.shade * ps.alpha, null, 1, 1)
   }
-  piece(true)
+  if (pieces.some((pc, i) => pc.kind === 'wing' && poses[i].depth >= 0 && (pc.side < 0 ? p.body.wl : p.body.wr) > 0.001)) {
+    piece(true, true)
+    body(true)
+    piece(true, false)
+  } else piece(true)
 }
 
 /**

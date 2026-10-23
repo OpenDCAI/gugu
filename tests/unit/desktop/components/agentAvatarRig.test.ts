@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CHARACTER_BY_ID } from '../../../../apps/desktop/src/components/agentAvatar/engine/characters'
-import { halfWidth, newPose, piecePose } from '../../../../apps/desktop/src/components/agentAvatar/engine/rig'
+import { halfWidth, newPose, piecePose, shoulderCover } from '../../../../apps/desktop/src/components/agentAvatar/engine/rig'
 
 // 翅膀、喙、脚是刚体部件(rig.ts)。owner 10-22 看过一版「转圈时翅膀和身体分离了」:这里守住两件事 ——
 // 静止时部件就在素材原位(转圈和静止是同一张画),转到任何角度翅根都压在身体轮廓以内。
@@ -46,5 +46,22 @@ describe('刚体部件', () => {
     expect(piecePose(rig, wing, still, newPose()).shade).toBeGreaterThan(0)
     expect(piecePose(rig, wing, still, newPose()).shade).toBeLessThan(0.5)
     expect(piecePose(rig, wing, { ...still, wl: 1, wr: 1 }, newPose()).shade).toBe(0)
+  })
+
+  it('肩部在半抬和抬起时遮住翅根,静止、背面和肩外都不加覆盖', () => {
+    for (const wing of rig.pieces.filter((p) => p.kind === 'wing')) {
+      const ps = piecePose(rig, wing, still, newPose())
+      expect(shoulderCover(wing, ps, 0, wing.at.x, wing.at.y)).toBe(0)
+      expect(shoulderCover(wing, ps, -1, wing.at.x, wing.at.y)).toBe(0)
+      for (const lift of [0.5, 1]) expect(shoulderCover(wing, ps, lift, wing.at.x, wing.at.y)).toBe(1)
+      expect(shoulderCover(wing, { ...ps, depth: -1 }, 1, wing.at.x, wing.at.y)).toBe(0)
+      expect(shoulderCover(wing, ps, 1, rig.cx, wing.at.y)).toBe(0)
+      expect(shoulderCover(wing, ps, 1, wing.at.x, 850)).toBe(0)
+      const early = shoulderCover(wing, ps, 0.025, wing.at.x, wing.at.y)
+      expect(early).toBeGreaterThan(0)
+      expect(early).toBeLessThan(0.05)
+      const border = wing.at.x + wing.box.w * 0.875
+      expect(shoulderCover(wing, ps, 1, border, wing.at.y)).toBeCloseTo(0.5)
+    }
   })
 })

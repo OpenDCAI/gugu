@@ -119,6 +119,15 @@ export function piecePose(rig: Rig, pc: RigPiece, b: { wl: number; wr: number; y
 
 export const newPose = (): PiecePose => ({ m: [1, 0, 0, 1], dx: 0, dy: 0, depth: 1, alpha: 1, shade: 1 })
 
+/** The body covers the lifted root; its original texture and mesh keep the shoulder continuous. */
+export function shoulderCover(pc: RigPiece, ps: PiecePose, lift: number, x: number, y: number): number {
+  if (pc.kind !== 'wing' || ps.depth < 0) return 0
+  const raised = clamp(lift * 4)
+  const horizontal = clamp((pc.box.w - Math.abs(x - pc.at.x - ps.dx)) / (pc.box.w * 0.25))
+  const vertical = clamp((pc.box.h * 0.8 - Math.abs(y - pc.at.y - pc.box.h * 0.25)) / (pc.box.h * 0.2))
+  return raised * raised * (3 - 2 * raised) * ps.alpha * horizontal * vertical
+}
+
 /** 一只翅膀的铰点与握点。没有翅膀的 rig 是角色包写错了:当场报 */
 export function wingOf(rig: Rig, side: -1 | 1): { piece: RigPiece; at: { x: number; y: number }; grip: { x: number; y: number } } {
   for (const piece of rig.pieces) if (piece.kind === 'wing' && piece.side === side && piece.grip) return { piece, at: piece.at, grip: piece.grip }
