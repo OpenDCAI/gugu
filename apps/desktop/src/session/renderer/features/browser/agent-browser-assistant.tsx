@@ -47,7 +47,7 @@ export const AgentBrowserAssistant = observer(function AgentBrowserAssistant({
         <span className="max-w-80 truncate">{driving ? translate('browser.assistantOperatingIdentity', { name: agentName }) : agentName}</span>
       </span>
       <Button type="button" size="sm" disabled={sending}
-        className="h-8 gap-1.5 rounded-full px-3 text-xs font-medium"
+        className="h-8 gap-2 rounded-full px-3 text-xs font-medium"
         aria-label={translate(driving ? 'browser.assistantPauseHint' : 'browser.assistantContinueHint', { name: agentName })}
         title={translate(driving ? 'browser.assistantPauseHint' : 'browser.assistantContinueHint', { name: agentName })}
         onClick={() => void send(driving ? 'pause' : 'continue')}>
