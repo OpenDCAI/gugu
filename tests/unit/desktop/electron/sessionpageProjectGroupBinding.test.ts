@@ -116,7 +116,8 @@ function fakeChat() {
       if (name === 'add_group_agent') {
         const answer = addGroupAgent(args)
         if (!answer.error && (answer.data as { status?: string } | undefined)?.status === 'joined') {
-          groups.get(String(args.p_chat_id))?.members.set(String(args.p_agent_user_id), { listen_mode: 'mention' })
+          // 主动入座(任务座位 p_as_task 只是不发入群提示)—— 与 chat.add_group_agent 同口径。
+          groups.get(String(args.p_chat_id))?.members.set(String(args.p_agent_user_id), { listen_mode: 'active' })
         }
         return { ...answer, data: answer.data ? { ...answer.data as Record<string, unknown>, chat_id: String(args.p_chat_id) } : answer.data }
       }
@@ -319,7 +320,8 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
 
     expect(result).toEqual({ success: true, data: { movedAgents: 2, previousChatId: 'chat-old', changed: true } })
     expect(rpcCalls.filter((c) => c.name === 'add_group_agent').map((c) => c.args.p_agent_user_id)).toEqual(['agent-1', 'agent-2'])
-    // 座位就是 add_group_agent 给的那一档(和手动拉的一样),这里不再改档。
+    // 项目里的 agent 是任务 agent:补进项目群坐任务座位(主动、不发入群提示),❌ 进群之后再补一道改档位。
+    expect(rpcCalls.filter((c) => c.name === 'add_group_agent').every((c) => c.args.p_as_task === true)).toBe(true)
     expect(rpcCalls.some((c) => c.name === 'set_agent_listen_mode_as')).toBe(false)
     expect(await readProjectGroupId('proj-a', OWNER, env)).toBe('chat-target')
     expect(pinOf('agent-1')).toBe('chat-target')
@@ -495,6 +497,16 @@ describe('操作 agent 的项目群公告权限', () => {
     expect(groups.get('chat-new')?.members.has('caller')).toBe(true)
     expect(agent).toEqual(before)
     expect(memberUpdates).toEqual([])
+  })
+  // gugu-dev#181:建项目的 agent 补进已有的项目群,坐任务座位(主动、不发入群提示)。
+  it('the founding agent joins an existing project group in a task seat', async () => {
+    seedGroup('chat-new')
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent').map((call) => call.args)).toEqual([
+      { p_chat_id: 'chat-new', p_agent_user_id: 'caller', p_message: null, p_as_user_id: OWNER, p_as_task: true },
+    ])
+    expect(groups.get('chat-new')?.members.get('caller')?.listen_mode).toBe('active')
   })
   it('an existing member may announce repeatedly without any join mutation', async () => {
     seedGroup('chat-new', { members: [OWNER, 'caller'] })

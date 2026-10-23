@@ -30,6 +30,7 @@ import { sessions } from '@main/db/schema';
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract';
 import { log } from '@main/lib/logger';
 import { rememberBirthGroup } from '@main/core/sessions/birth-groups';
+import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
 import { createStageLedger } from '@main/lib/stage-ledger';
@@ -895,7 +896,8 @@ async function spawnSession(
     title: action.title,
     sourceLink: action.source_link,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
-    ...(action.chat_id ? { birthChatId: action.chat_id } : {}),
+    // 带 chat_id 开的子会话是派出去干活的:任务座位(不发入群提示)。
+    ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
     // With no override, preserve the caller's native model. Selecting a model explicitly is a new model
     // decision; naming only a harness keeps the caller's platform model when that harness offers it
     // (carriedPlatformModel), otherwise it is that harness's own default.
@@ -1004,7 +1006,7 @@ async function createChildSession(input: {
   platformModel: { modelId: string } | null | undefined;
   inheritPlatformModelFrom?: string;
   /** The chat it is born in (`chat_id`, an App's `chat`): joined when its identity is minted. */
-  birthChatId?: string;
+  birthGroup?: BirthGroup;
   /** Answer once it has started (its identity is written then): an App names the agent by it. */
   awaitStart?: boolean;
   relations: InternalSessionRelations;
@@ -1051,7 +1053,7 @@ async function createChildSession(input: {
   //
   // 落行放在所有校验之后:任何一道校验抛了都不该留下一条会话。行落下之后当场挂载(挂不上就撤掉这一行再抛)。
   // Born in a chat: its identity joins it when first minted (birth-groups.ts).
-  if (input.birthChatId) rememberBirthGroup(sessionId, input.birthChatId);
+  if (input.birthGroup) rememberBirthGroup(sessionId, input.birthGroup);
   const session = await attachAgentToSession({
     id: sessionId,
     projectId,
@@ -1247,7 +1249,7 @@ export async function spawnSessionForApp(input: {
     envelope: input.envelope,
     model: selection.kind === 'gugu' ? undefined : selection.model,
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : requestedHarness || requestedModel || last ? null : undefined,
-    ...(input.chat ? { birthChatId: input.chat } : {}),
+    ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
     relations: {
       ...(input.bySession ? spawnedBy({ localSessionId: input.bySession }, { named: Boolean(project) }) : { parentSessionId: null }),
@@ -2153,7 +2155,7 @@ async function spawnForRemoteCaller(
     title: action.title,
     sourceLink: action.source_link,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),
-    ...(action.chat_id ? { birthChatId: action.chat_id } : {}),
+    ...(action.chat_id ? { birthGroup: { chatId: action.chat_id, asTask: true } } : {}),
     model: selection.kind === 'gugu'
       ? undefined
       : selection.model ?? (inheritModel ? caller.model ?? undefined : undefined),

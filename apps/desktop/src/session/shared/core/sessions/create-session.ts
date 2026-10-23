@@ -21,8 +21,15 @@ export type CreateSessionParams = {
   /** Set when an automation run creates the session; kept on the session row. */
   automationRunId?: string;
   /** The group it is born in (「在群里新建 Agent」): its identity joins it when first minted, as `session_spawn`'s `chat_id`. */
-  birthChatId?: string;
+  birthGroup?: BirthGroup;
 };
+
+/**
+ * The group an agent is born in, and how it takes its seat there. A task agent (a new task from a chat, a child an agent
+ * spawns into a chat) joins without a join notice, like a task agent in a project group; an agent pulled in on purpose
+ * (「新建 Agent」 from a group's members, an App's agent) joins with the notice. Both sit active.
+ */
+export type BirthGroup = { chatId: string; asTask: boolean };
 
 export type CreateSessionError =
   | { type: 'project-not-found' }
