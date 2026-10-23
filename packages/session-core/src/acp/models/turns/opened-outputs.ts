@@ -7,7 +7,7 @@
  */
 import type { TranscriptItem } from './turn';
 
-/** 打开过的一份东西。形状与桌面「输出」列表(`SessionOutput`)相同:点卡片就是从那里重开同一份。 */
+/** 打开过的一份东西。宿主给每条会话记的「输出」(desktop `sessions/session-outputs.ts`)就是这个形状:点卡片与从「输出」重开是同一份。 */
 export type OpenedOutput = { kind: 'file'; path: string } | { kind: 'page'; url: string };
 
 /**

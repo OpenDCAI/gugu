@@ -18,6 +18,7 @@ import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
 import { markAllChatsReadAndRefresh } from '../lib/chatUnreadLocator'
+import { chatPreviewText } from '../lib/agentTurnFailure'
 import { useToast } from './toastContext'
 import { formatCalendarDay } from '../lib/calendarTime'
 import { CreateGroupChatForm } from './CreateGroupChatModal'
@@ -301,7 +302,7 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
   const isRoom = isRoomChat(chat.kind)
   const peerName = isRoom ? '' : resolveOrLoud(peerIdentity?.display_name, `chat-list peer ${chat.peer_user_id ?? 'missing'} for chat ${chat.id}`)
   const displayName = chatDisplayName(chat, peerName)
-  const preview = chat.last_message_preview ?? ''
+  const preview = chatPreviewText(chat)
   const { devices } = useDevicesStore() // @@@1759 解析 agent 会话行的真实设备归属标签
   const tag = chatRowTag(chat, peerIdentity, devices)
   const hasBolt = isRoom || isAgentChat
@@ -599,7 +600,7 @@ export function ChatListPanel({
     if (!query) return true
     // @@@5856 话题和群一样有自己的名字(搜索按名字走);私聊才回落到对端名。
     const name = isRoomChat(chat.kind) ? chat.name : (chat.peer_alias?.trim() || identitiesById[chat.peer_user_id ?? '']?.display_name || '')
-    return `${name} ${chat.last_message_preview ?? ''}`.toLocaleLowerCase().includes(query)
+    return `${name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
   }
   const hasSearchQuery = listQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的

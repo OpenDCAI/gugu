@@ -470,6 +470,8 @@ export class ProjectManagerStore {
         this.projects.delete(id);
       }
     });
+    // 那台机器的清单(连上读到的 / 账号上那份)并进来了:停在它的某个项目 / 会话上「还不知道」的那一页按此刻的重判。
+    appState.navigation.revalidate();
   }
 
   /** 那台机器又连上了:已挂着的项目重读任务列表(断开那段时间的推送收不到)。 */

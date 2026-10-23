@@ -232,11 +232,11 @@ Free, from a click or key (they read and write no data):
 - \`showMessage(id)\` → its chat comes up, scrolled to it (a file's \`sourceMessageIds\`). \`not-found\`: not in its chat.
 - \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.session.id\`, a tool's
   \`call.session\`). \`not-found\`: not in that list. \`{ peek: true }\`: beside your page, left as it is.
-- \`compose(text, { chat } | { session } | { refs })\` → puts \`text\` in the composer the call names — a chat's
-  (\`ctx.chat.id\`, or the one its \`refs\` point into), or a session's agent's — after what is there, and brings it
-  up. Nothing is sent: the person @s whom they like and sends it as their own message, or not. For "cite this":
-  a ref per place they picked — never a member picker or a composer of your own; a chat's takes
-  \`images: [blob]\` too. \`not-found\`: a chat you are not in, a session not here.
+- \`compose(text, { chat } | { session } | { refs })\` → adds \`text\` to the composer the call names — a chat's
+  (\`ctx.chat.id\`, or its \`refs\`' chat) or a session's — and brings it up; none named (\`apiVersion\` 10): the
+  person picks in gugu's sheet → \`{ chat }\` / \`{ session }\` / \`{ cancelled: true }\`. They send it, or not.
+  Never a list, picker or composer of your own. "Cite this": a ref per place picked; a chat's takes \`images: [blob]\`
+  too. \`not-found\`: a chat you are not in, a session not here.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
   entry or \`ctx.file\`; \`at\` where (\`{ slide: 3, shape: 12 }\`), back as the \`onLink\` \`query\`
   of the App a click opens it in; \`version\` picked on (else the entry's). Only with refs may \`text\` be empty.

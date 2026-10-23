@@ -276,7 +276,6 @@ const acpWorker = lazyWorker(
           void releaseEmdashPlatformSession(null);
         })
       );
-      installRendererWire(withProviderSessionIdPersistence(handle.client));
       // 起来之后才告诉订阅者:订阅者会再 `get()`,那要等这里返回 ⇒ 只排出去、❌ 在这里 await。
       for (const listener of spawnedListeners) queueMicrotask(() => listener(handle.process));
     },
@@ -300,6 +299,7 @@ export function onAcpRuntimeSpawned(listener: (runtime: object) => void): () => 
 let rendererWireDispose: (() => void) | null = null;
 
 export async function initializeAcpRuntimeProcess(): Promise<AcpRuntimeHandle> {
+  rendererWireDispose ??= exposeRendererWire();
   return decorateAcpRuntimeHandle(await acpWorker.get());
 }
 
@@ -988,20 +988,20 @@ async function persistProviderSessionMissing(
   }
 }
 
-function installRendererWire(client: AcpRuntimeClient): void {
-  rendererWireDispose?.();
-  const controller = withValidation(
-    acpApiContract,
-    forwardController(acpApiContract, client),
-    runtimeWireValidationPolicy()
-  );
+/**
+ * 渲染层的 `acp-wire:connect` 在开机那一刻就挂上,不等运行时起来:每次 connect 都先 `get()`。
+ * 运行时第一次没起来 ⇒ 这次 connect 带着原始错误失败;界面上的 Try again 再 connect 一次,就是重新起它的那一次。
+ */
+function exposeRendererWire(): () => void {
   const hostIpc = getHostIpc();
-  rendererWireDispose = exposeWireToWindows(
+  return exposeWireToWindows(
     {
       ipcMain: hostIpc.ipcMain,
       createMessageChannel: (event) => hostIpc.createMessageChannel(event),
     },
-    controller,
+    () => acpWorker.get(),
+    (handle) =>
+      withValidation(acpApiContract, forwardController(acpApiContract, withProviderSessionIdPersistence(handle.client)), runtimeWireValidationPolicy()),
     { channel: ACP_WIRE_CHANNEL }
   );
 }

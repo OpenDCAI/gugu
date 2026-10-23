@@ -8,6 +8,7 @@ import {
 } from '../src/lib/rendererCommandProtocol'
 import {
   EXTENSION_INSTALL_CONSENT_METHOD,
+  EXTENSION_PICK_COMPOSE_TARGET_METHOD,
   INSTALL_CONSENT_HUMAN_WINDOW_MS,
 } from '../src/session/shared/extensions/host-actions'
 
@@ -38,6 +39,7 @@ const RENDERER_COMMAND_TIMEOUT_MS = 30_000
  */
 const HUMAN_DECISION_TIMEOUT_MS = new Map<string, number>([
   [EXTENSION_INSTALL_CONSENT_METHOD, INSTALL_CONSENT_HUMAN_WINDOW_MS + 30_000],
+  [EXTENSION_PICK_COMPOSE_TARGET_METHOD, INSTALL_CONSENT_HUMAN_WINDOW_MS + 30_000],
 ])
 
 const pendingByDomain = new Map<RendererCommandDomain, Map<string, PendingRendererCommand>>(

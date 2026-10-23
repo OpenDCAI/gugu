@@ -96,6 +96,8 @@ export const sessionOpenBrowserInPaneResultChannel = defineEvent<{
   success: boolean;
   error?: string;
   browserId?: string;
+  /** Browser Use 这一次新开了页签(会话原来一个浏览器页签都没有):宿主据此把它记成这条会话的产出。 */
+  created?: boolean;
   tabs?: SessionPaneTab[];
 }>('session:open-browser-in-pane-result');
 

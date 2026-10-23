@@ -95,6 +95,7 @@ import { archiveSession } from './archiveSession';
 import { setSessionParent } from './session-family';
 import { attachAgentToSession, type InternalSessionRelations } from './attach-agent-to-session';
 import { deleteSession } from './deleteSession';
+import { recordSessionOutput } from './session-outputs';
 import { sessionPlatformModel } from './platform-model-selection';
 import type { AgentScheduleAction } from '../automations/agent-schedules';
 import { sessionModelFromDecision, type SessionModel } from './session-model-fact';
@@ -1332,9 +1333,9 @@ async function requestPaneOpen(
   emit: (requestId: string) => void,
   signal?: AbortSignal,
   timeoutMs: number | null = 10_000,
-): Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string }> {
+): Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string; created?: boolean }> {
   const requestId = randomUUID();
-  return await new Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string }>((resolve, reject) => {
+  return await new Promise<SessionPaneTabsResult & { openedWith?: string | null; browserId?: string; created?: boolean }>((resolve, reject) => {
     let dispose = () => {};
     const finish = (complete: () => void) => {
       if (timer) clearTimeout(timer);
@@ -1395,6 +1396,8 @@ async function openFileInTab(
       action.intent,
       signal
     );
+    // 攒着等人来看的也算打开过:人回来时它就在「输出」里(session-outputs.ts)。
+    await recordSessionOutput(context.sessionId, { kind: 'file', path: absolutePath });
     return 'queued' in outcome
       ? { opened: false, queued: true, path: absolutePath, intent: action.intent, note: remotePaneQueuedNote(outcome) }
       : { opened: true, path: absolutePath, intent: action.intent, ...tabHygiene(outcome.tabs) };
@@ -1415,6 +1418,7 @@ async function openFileInTab(
     });
   }, signal);
 
+  await recordSessionOutput(context.sessionId, { kind: 'file', path: absolutePath });
   // Reported, never predicted: an agent that cannot tell a spreadsheet tab from a plain
   // file tab will describe the screen wrongly to the person looking at it.
   return ack.openedWith
@@ -1439,6 +1443,7 @@ export async function openSessionFileForApp(input: { projectId: string; sessionI
       ...(input.ask ? { ask: true } : {}),
     });
   });
+  await recordSessionOutput(input.sessionId, { kind: 'file', path: input.path });
   return ack.openedWith ?? null;
 }
 
@@ -1487,6 +1492,8 @@ export async function openAgentBrowserPane(
     throw error;
   });
   if (!ack.browserId) throw new Error('the session pane did not identify the browser tab it restored');
+  // 空白页不是产出(会话还没有页签时先开的那一页);只记这一次新开出来的页。
+  if (ack.created && normalized !== 'about:blank') await recordSessionOutput(target.sessionId, { kind: 'page', url: normalized });
   return ack.browserId;
 }
 
@@ -1508,6 +1515,7 @@ async function openBrowserInTab(
     // `file:` 网页由桌面那一格经会话工作区的读文件动词取来渲染 —— 只认工作目录里的文件,先在这里核清楚。
     if (url.startsWith('file:')) await requireRemotePageFile(workspace, url, signal);
     const outcome = await remotePaneOpener.open(context.sessionId, { kind: 'browser', url }, action.intent, signal);
+    if (!groupFile) await recordSessionOutput(context.sessionId, { kind: 'page', url });
     return 'queued' in outcome
       ? { opened: false, queued: true, url, intent: action.intent, note: remotePaneQueuedNote(outcome) }
       : { opened: true, url, intent: action.intent, ...tabHygiene(outcome.tabs) };
@@ -1521,6 +1529,8 @@ async function openBrowserInTab(
       intent: action.intent,
     });
   }, signal);
+  // 群文件夹里的文件开在它的群里,它在那里有自己的位置,❌ 记成这条会话的产出。
+  if (!groupFile) await recordSessionOutput(context.sessionId, { kind: 'page', url });
   return { opened: true, url, intent: action.intent, ...tabHygiene(ack.tabs) };
 }
 

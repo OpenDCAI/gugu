@@ -27,11 +27,12 @@ export type AgentStatusEvent =
       outcome?: 'done' | 'cancelled';
     }
   /**
-   * agent 干活时开的等待随这次活一起了结。`scope: 'session'` = 宿主开的会话级等待(provider 门的对话框、
-   * 宿主替 agent 要的批准),不随停下消失,由它自己的了结边收;agent 没在干活时开的等待也是会话级。
+   * agent 干活时开的等待随这次活一起了结。`scope: 'session'` = 宿主开的会话级等待(provider 门的对话框),不随停下消失,
+   * 下次开工即过去;agent 没在干活时开的等待也是会话级。`scope: 'host'` = 宿主自己问人的(替 agent 要的批准、agent 的提问):
+   * 只由它自己的了结边收 —— agent 接着开工不等于人答了(提问不拦 agent,它会被别的消息叫醒)。
    */
-  | { kind: 'WaitStarted'; sessionId: string; id: string; waitKind: AgentWaitKind; scope?: 'session' }
-  /** `id` = `*`:此刻开着的等待都了结了(harness 只说得出「接着跑了」,说不出是哪一个)。 */
+  | { kind: 'WaitStarted'; sessionId: string; id: string; waitKind: AgentWaitKind; scope?: 'session' | 'host' }
+  /** `id` = `*`:harness 开着的等待都了结了(它只说得出「接着跑了」,说不出是哪一个);宿主问人的不归它说。 */
   | { kind: 'WaitEnded'; sessionId: string; id: string }
   /** 回合边之外报来的自驱工作快照。 */
   | { kind: 'TasksObserved'; sessionId: string; backgroundTasks: number; scheduledTasks?: number }
@@ -52,6 +53,8 @@ interface Wait {
   kind: AgentWaitKind;
   /** 开的时候 agent 在干活:随这次活了结。false = 会话级。 */
   withWork: boolean;
+  /** 宿主问人的:开工也不收,只等它自己的了结边。 */
+  host: boolean;
 }
 
 export interface AgentStatusLogState {
@@ -95,7 +98,7 @@ export function restoreStatusLog(
     case 'needs_user': {
       s.running = true;
       const kind = WAIT_PRIORITY.find((k) => k === detail) ?? 'approval';
-      s.waits.set('restored', { kind, withWork: true });
+      s.waits.set('restored', { kind, withWork: true, host: false });
       break;
     }
     case 'error':
@@ -107,6 +110,11 @@ export function restoreStatusLog(
       break;
   }
   return s;
+}
+
+/** harness 自己开着的等待(宿主问人的不算):翻译 harness 的边时只看这些。 */
+export function waitsOnHarness(s: AgentStatusLogState): boolean {
+  return [...s.waits.values()].some((w) => !w.host);
 }
 
 function hasBackground(s: AgentStatusLogState): boolean {
@@ -150,7 +158,7 @@ export function stepStatusLog(s: AgentStatusLogState, e: AgentStatusEvent, anoma
     case 'Started':
       if (s.running) return;
       s.running = true;
-      s.waits.clear(); // 开工 = 之前停着的门(含会话级对话框)都过去了
+      for (const [id, w] of s.waits) if (!w.host) s.waits.delete(id); // 开工 = 之前停着的门(含会话级对话框)都过去了;宿主问人的还在等人
       s.error = null;
       return;
     case 'Stopped':
@@ -162,10 +170,10 @@ export function stepStatusLog(s: AgentStatusLogState, e: AgentStatusEvent, anoma
       s.finished = s.lastOutcome === 'done' && !hasOpenWork(s) && s.error === null;
       return;
     case 'WaitStarted':
-      s.waits.set(e.id, { kind: e.waitKind, withWork: s.running && e.scope !== 'session' });
+      s.waits.set(e.id, { kind: e.waitKind, withWork: s.running && e.scope === undefined, host: e.scope === 'host' });
       return;
     case 'WaitEnded':
-      if (e.id === '*') s.waits.clear();
+      if (e.id === '*') { for (const [id, w] of s.waits) if (!w.host) s.waits.delete(id); }
       else if (!s.waits.delete(e.id)) anomaly(`wait ${e.id} ended but not open`);
       return;
     // 后台跑完不是停下的边:会自己醒来的 harness 会再开工,「做完」跟那次停下走。

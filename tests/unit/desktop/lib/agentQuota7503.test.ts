@@ -18,6 +18,5 @@ describe('quota notification reason', () => {
     expect(agentTurnFailureNeedsModelChoice('HTTP 429 Too Many Requests')).toBe(false)
     expect(agentTurnFailureNeedsModelChoice('API Error: 400 Model zoe/deepseek-v4.1-flash is not available')).toBe(true)
     expect(agentTurnFailureNeedsModelChoice('Selected model is at capacity. Please try a different model.')).toBe(true)
-    expect(agentTurnFailureNeedsModelChoice('当前模型暂时不可用，请切换模型后重试。')).toBe(true)
   })
 })

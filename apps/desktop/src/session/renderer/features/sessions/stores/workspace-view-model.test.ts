@@ -951,35 +951,6 @@ describe('WorkspaceViewModel tab persistence adapter', () => {
 
 });
 
-describe('WorkspaceViewModel outputs', () => {
-  it('最近开的在前、同一个只留一条,存盘往返后还在', () => {
-    const source = makeViewModel();
-    source.recordOutput({ kind: 'file', path: '/repo/report.md' });
-    source.recordOutput({ kind: 'page', url: 'http://localhost:5173/' });
-    source.recordOutput({ kind: 'file', path: '/repo/report.md' });
-
-    const restored = makeViewModel();
-    restored.restoreSnapshot(source.snapshot);
-
-    expect(restored.outputs).toEqual([
-      { kind: 'file', path: '/repo/report.md' },
-      { kind: 'page', url: 'http://localhost:5173/' },
-    ]);
-    source.dispose();
-    restored.dispose();
-  });
-
-  it('只留最近 50 条', () => {
-    const viewModel = makeViewModel();
-    for (let i = 0; i <= 50; i++) viewModel.recordOutput({ kind: 'file', path: `/repo/${i}.md` });
-
-    expect(viewModel.outputs).toHaveLength(50);
-    expect(viewModel.outputs[0]).toEqual({ kind: 'file', path: '/repo/50.md' });
-    expect(viewModel.outputs[49]).toEqual({ kind: 'file', path: '/repo/1.md' });
-    viewModel.dispose();
-  });
-});
-
 // owner 10-06: agents opening the same page again stacked a row of identical tabs.
 describe('WorkspaceViewModel showPage', () => {
   function browserTab(tabId: string, currentUrl: string) {

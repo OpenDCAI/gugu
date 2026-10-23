@@ -6,7 +6,7 @@ import type { QuestionAnswer } from '@gugu/session-core/session-record/contract'
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
-import type { ToolImage } from '@gugu/session-core/acp/client';
+import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
   type RecordCursor,
@@ -73,7 +73,8 @@ import {
 } from './archive-store';
 import { watchSessionState, type SessionStateWatch } from './live-permissions';
 import { locateSessionRecord, type SessionRecordLocation } from './locate';
-import { OpenedFileError, openedInRecord, readOpenedFileChunk } from './opened-file';
+import { OpenedFileError, readOpenedFileChunk } from './opened-file';
+import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { notStartedSessionOptions } from './not-started-options';
@@ -480,7 +481,8 @@ function withdrawOrphanHostAsks(entry: TimelineEntry): void {
 /**
  * Ask the person, as an approval in this session: held until answered (`HostAnswer`), or `withdrawn` once `signal` aborts
  * (the host's clock, or the call it was asked for went away) — it ends cancelled where it was shown. `unavailable`: no
- * such session here. The session is waiting on the person meanwhile (an approval wait: its yellow dot, the phone's alert).
+ * such session here. The session is waiting on the person meanwhile (an approval wait, or a question wait for an agent's
+ * question: its yellow dot, the phone's alert).
  */
 export function askHost(
   conversationId: string,
@@ -1049,53 +1051,26 @@ export async function recordHistoryPage(input: {
 }
 
 /**
- * 核对过「这条会话打开过这个路径」的,记几分钟:一份 20 MB 的文件要分 40 块来要,每块都把整条会话的记录
- * 翻一遍、会话越长越慢(10-15 实测后改)。记录只会长不会改写,打开过的永远打开过 —— 记住它不会放进一个
- * 本该拒的请求;过期只是为了不让这张表一直长。
- */
-const VERIFIED_OPEN_TTL_MS = 5 * 60_000;
-const verifiedOpens = new Map<string, number>();
-const verifiedOpenKey = (conversationId: string, path: string) => `${conversationId}\u0000${path}`;
-
-function rememberVerifiedOpen(key: string): void {
-  const now = Date.now();
-  for (const [stale, expiresAt] of verifiedOpens) if (expiresAt <= now) verifiedOpens.delete(stale);
-  verifiedOpens.set(key, now + VERIFIED_OPEN_TTL_MS);
-}
-
-/**
- * 手机点开一张附件卡(#7193):读这条会话打开给人看的那份文件的一段。先拿它自己的记录核对真的打开过,
- * 再读(`opened-file.ts`)。记录读到此刻为止(`catchUp`):agent 刚打开、手机马上点,也认得出来。
- * 同一份文件后面那几块不再重新核对(`verifiedOpens`)。
+ * 手机点开一张附件卡(#7193):读这条会话打开给人看的那份文件的一段(`opened-file.ts`)。只读它真的打开过的 ——
+ * 依据是宿主记下的那一份(`session-outputs.ts`),与桌面「输出」同一个源,不分 harness。
  */
 export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
-  const key = verifiedOpenKey(input.conversationId, input.path);
-  if ((verifiedOpens.get(key) ?? 0) > Date.now()) {
-    try {
-      return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
-    } catch (error) {
-      if (error instanceof OpenedFileError) return fail(error.code, error.message);
-      return fail('read_failed', (error as Error)?.message ?? String(error));
-    }
-  }
-  const acquired = await acquire(input.conversationId);
-  if (!acquired.ok) return acquired;
   try {
-    if (acquired.value.standIn) return fail('not_opened', `这条会话没有打开过 ${input.path}`);
-    const timeline = acquired.value.timeline;
-    await timeline.catchUp();
-    const { turns } = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER });
-    if (!openedInRecord(turns, input.path)) return fail('not_opened', `这条会话没有打开过 ${input.path}`);
-    rememberVerifiedOpen(key);
+    if (!(await sessionOpenedFile(input.conversationId, input.path))) {
+      return fail('not_opened', `这条会话没有打开过 ${input.path}`);
+    }
     return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
-  } finally {
-    release(acquired.value);
   }
+}
+
+/** 这条会话给人打开过的文件与网页,最近的在前(桌面「输出」、手机读的都是这一份)。 */
+export async function outputs(input: { conversationId: string }): Promise<SessionTimelineResult<OpenedOutput[]>> {
+  return { ok: true, value: await sessionOutputs(input.conversationId) };
 }
 
 /**
@@ -1519,7 +1494,6 @@ export function resetSessionTimelineService(): void {
   for (const id of entries.keys()) void dropTimelineArchive(id);
   resetGeneration += 1;
   opening.clear();
-  verifiedOpens.clear();
   unsubscribeAll();
   for (const entry of [...entries.values()]) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);

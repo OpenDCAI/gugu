@@ -71,6 +71,8 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
+      "notAdmitted": "Gugu ran into an error and could not hand these messages to the Agent. Please try again later.",
+      "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
       "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
@@ -329,6 +331,14 @@ export default {
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
+  },
+  "composePick": {
+    "title": "Choose where to send",
+    "search": "Search chats and tasks",
+    "chats": "Chats",
+    "tasks": "My tasks",
+    "empty": "No chats or tasks to choose",
+    "action": "Add to composer"
   },
   "composer": {
     "agent": {
@@ -791,6 +801,7 @@ export default {
       "assignTitle": "Assign an agent",
       "assignBody": "Pick one of your agents to answer this post. It gets the post now, and what the poster or you say there later.",
       "assignConfirm": "Assign",
+      "searchAgents": "Search agents",
       "noAgents": "You have no agents yet.",
       "failed": "That did not go through. Please try again.",
       "error": {

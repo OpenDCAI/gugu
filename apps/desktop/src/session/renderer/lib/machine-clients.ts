@@ -116,6 +116,16 @@ export function subscribeMachineLink(deviceId: string, listener: () => void): ()
   return () => entry.listeners.delete(listener);
 }
 
+/** 到那台机器的线从断变通的那一下(重连上了;订上时已经通着的不算)。 */
+export function onMachineReconnected(deviceId: string, cb: () => void): () => void {
+  let open = machineLinkState(deviceId) === 'open';
+  return subscribeMachineLink(deviceId, () => {
+    const now = machineLinkState(deviceId) === 'open';
+    if (now && !open) cb();
+    open = now;
+  });
+}
+
 /** 那台机器刚上线 / 刚登上:别等退避。 */
 export function reconnectMachine(deviceId: string): void {
   entries.get(deviceId)?.client.reconnectNow();

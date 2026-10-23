@@ -1645,16 +1645,26 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'compose': {
       // Whose composer the call names (真源原则 13), never the page's: a chat's (brought up by the window), or a session's
-      // — brought on screen first, as a banner's click brings it.
-      const { composeTarget } = await import('@main/core/extensions/extension-send');
-      const target = await composeTarget({ text: args.text, chat: args.chat, session: args.session, refs: args.refs, about: args.about, images: args.images });
+      // — brought on screen first, as a banner's click brings it. Naming none, the person picks one in the window's sheet
+      // (the page's own session comes ticked) and the App hears where, or that they cancelled.
+      const [{ composeTarget }, { composeNamesPlace, pickComposePlace }] = await Promise.all([
+        import('@main/core/extensions/extension-send'),
+        import('@shared/extensions/app-send-core'),
+      ]);
+      const page = thePage(caller);
+      const picked = composeNamesPlace(args) ? null : await pickComposePlace(args, async ({ tasks }) => {
+        const { pickComposeTarget } = await import('@main/core/extensions/extension-bridge-relay');
+        return pickComposeTarget(page.embedderId, { tasks, current: page.sessionId });
+      });
+      if (picked && 'cancelled' in picked) return picked;
+      const target = await composeTarget({ text: args.text, chat: args.chat, session: args.session, refs: args.refs, about: args.about, images: args.images, ...picked });
       if ('session' in target) {
         await bringSessionUp({ sessionId: target.session.id, projectId: target.session.projectId });
-        await deliver(thePage(caller), { kind: 'compose', sessionId: target.session.id, text: target.text });
-        return undefined;
+        await deliver(page, { kind: 'compose', sessionId: target.session.id, text: target.text });
+      } else {
+        await deliver(page, { kind: 'compose', detail: target });
       }
-      await deliver(thePage(caller), { kind: 'compose', detail: target });
-      return undefined;
+      return picked ?? undefined;
     }
 
     case 'notify': {

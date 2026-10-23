@@ -71,6 +71,8 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
+      "notAdmitted": "咕咕这边出错了，这批消息没能交给 Agent，请稍后重试。",
+      "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
       "retrying": "重试中…",
@@ -329,6 +331,14 @@ export default {
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
+  },
+  "composePick": {
+    "title": "选择发送位置",
+    "search": "搜索对话或任务",
+    "chats": "对话",
+    "tasks": "我的任务",
+    "empty": "没有可选的对话或任务",
+    "action": "放入输入框"
   },
   "composer": {
     "agent": {
@@ -789,6 +799,7 @@ export default {
       "assignTitle": "指派 agent",
       "assignBody": "选一个你名下的 agent 来回答这个帖子。它会收到帖子正文，之后楼主和你在帖子里的交代也会送给它。",
       "assignConfirm": "指派",
+      "searchAgents": "搜索 agent",
       "noAgents": "你还没有 agent。",
       "failed": "操作未完成，请重试。",
       "error": {

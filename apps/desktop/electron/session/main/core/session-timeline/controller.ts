@@ -126,6 +126,8 @@ export const sessionTimelineController = createRPCController({
   }),
   /** 手机点开附件卡(#7193):这条会话打开给人看的那份文件,按块读;只认它真的打开过的。 */
   sessionOpenedFileRead: (input: SessionpageOpenedFileReadRequest) => service.readOpenedFile(input),
+  /** 这条会话给人打开过什么(桌面「输出」、手机):会话所在这台机器上的那一份(sessions/session-outputs.ts)。 */
+  sessionOutputs: (input: { conversationId: string }) => service.outputs(input),
   sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),

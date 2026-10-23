@@ -72,7 +72,7 @@ The adapter calls `port.start?.()` and listens for `message` and `close` events.
 
 ## Electron Windows
 
-`exposeWireToWindows()` serves one controller to many Electron renderer windows
+`exposeWireToWindows()` serves a controller to many Electron renderer windows
 using `MessageChannelMain`-style ports:
 
 ```ts
@@ -81,10 +81,16 @@ const stop = exposeWireToWindows(
     ipcMain,
     createMessageChannel: () => new MessageChannelMain(),
   },
-  controller,
+  () => worker.get(),
+  (handle) => forwardController(api, handle.client),
   { channel: 'wire' }
 );
 ```
+
+The handler is registered at once, but the source is resolved on every connect: the first
+connect starts a lazy worker, and if that start fails the connect rejects with the original
+error, so the renderer's next connect is the retry. A new source gets its own controller and
+closes the windows served by the previous one.
 
 The renderer asks for a port, then waits for the browser-side transfer:
 

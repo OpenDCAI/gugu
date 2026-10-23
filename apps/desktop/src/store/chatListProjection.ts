@@ -7,6 +7,7 @@ import { replaceEqualDeep } from '@tanstack/react-query'
 import { platform } from '../platform'
 import { chatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
+import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
@@ -78,7 +79,7 @@ export function notifyForRefreshedChats(
   const previousById = new Map(previous.map((chat) => [chat.id, chat]))
   for (const chat of fetched) {
     if (!shouldNotifyForChat(previousById.get(chat.id), chat, context)) continue
-    void platform.showNotification({ ...createChatNotificationPayload(chat), silent: !context.soundEnabled })
+    void platform.showNotification({ ...createChatNotificationPayload({ ...chat, last_message_preview: chatPreviewText(chat) }), silent: !context.soundEnabled })
       .catch((err) => chatListLog.error({ reason: String(err) }, 'show notification failed'))
   }
 }

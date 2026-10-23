@@ -22,7 +22,6 @@ it('returns pending without holding the model turn, then delivers only the expli
   void postAgentQuestion(input).then((result) => { posted = result })
   await new Promise((resolve) => setTimeout(resolve, 0)) // one event-loop turn, without answering the card
   expect(posted).toMatchObject({ state: 'pending', source_link: input.sourceLink })
-  // It is a wait the session holds (「需要你」 until answered), not a background ask.
   expect(mocks.ask).toHaveBeenCalledWith('assistant', expect.objectContaining({ itemId: posted!.question_id }), { signal: expect.any(AbortSignal) })
   expect(mocks.send).not.toHaveBeenCalled()
   answer({ optionId: 'answered', by: 'desktop', answers: [{ selected: ['PATH'] }] })

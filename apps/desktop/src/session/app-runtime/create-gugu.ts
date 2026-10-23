@@ -142,7 +142,7 @@ export function createGugu(
   api.files = files;
   // `gugu.compose(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
   if (typeof raw.compose === 'function') {
-    const compose = raw.compose as (text: unknown, where?: Record<string, unknown>) => Promise<void>;
+    const compose = raw.compose as (text: unknown, where?: Record<string, unknown>) => Promise<unknown>;
     api.compose = coded(async (text: unknown, where?: Record<string, unknown>) => {
       const images = where?.images;
       if (images === undefined) return compose(text, where);

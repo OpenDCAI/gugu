@@ -1,6 +1,6 @@
 import type { GuardResult } from '@renderer/app/view-registry';
 import { ProjectViewWrapper } from '@renderer/features/projects/components/project-view-wrapper';
-import { appState } from '@renderer/lib/stores/app-state';
+import { projectPresence } from './project-presence';
 
 /**
  * 看一个项目(gugu-dev#181:项目是一块,第一枚页签是项目群)。项目画在这屏的项目块里(app/project-block.tsx),
@@ -15,9 +15,6 @@ export const projectView = {
         ? (params as { projectId?: unknown }).projectId
         : undefined;
     if (typeof projectId !== 'string') return { ok: false, redirect: 'home' };
-    return appState.projects.projects.has(projectId) ||
-      appState.projects.pendingCreationIds.has(projectId)
-      ? { ok: true }
-      : { ok: false, redirect: 'home' };
+    return projectPresence(projectId) === 'deleted' ? { ok: false, redirect: 'home' } : { ok: true };
   },
 };

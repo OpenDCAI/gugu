@@ -160,11 +160,7 @@ export type SessionViewSnapshot = {
   terminals?: TabViewSnapshot;
   editor?: EditorViewSnapshot;
   diffView?: DiffViewSnapshot;
-  outputs?: SessionOutput[];
 };
-
-/** agent 用 `open_in_tab` 给人开过的文件 / 网页 —— tab 关了还能从 Outputs 面板再开。 */
-export type SessionOutput = { kind: 'file'; path: string } | { kind: 'page'; url: string };
 
 export type ProjectViewSnapshot = {
   activeView: string;
