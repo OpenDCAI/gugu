@@ -26,7 +26,7 @@ const EMPTY: ConversationSnapshot = {
 /** Every surface observes the account's same conversation, with account read state and a presenter-owned history window. */
 export function useChatConversation(chatId: string | null, access: ChatConversationAccess) {
   const { subscribe: observe, read: snapshot, actions: actionsOf, setFollowingTail: reportFollowing } = access
-  const viewport = useMemo<ConversationViewport>(() => ({}), [chatId])
+  const viewport = useMemo<ConversationViewport>(() => ({ chatId }), [chatId])
   const setFollowingTail = useCallback((following: boolean | undefined) => {
     if (chatId) reportFollowing(chatId, viewport, following)
   }, [reportFollowing, chatId, viewport])

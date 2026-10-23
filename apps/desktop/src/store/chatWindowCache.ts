@@ -23,10 +23,13 @@ export class ChatWindowCache extends Map<string, MessageItem[]> {
     return this.update(chatId, (previous) => mergeMessagesById(previous, rows, chatId))
   }
   update(chatId: string, updater: MessageItem[] | ((previous: MessageItem[]) => MessageItem[])): this {
-    const apply = typeof updater === 'function' ? updater : (previous: MessageItem[]) => mergeMessagesById(previous, updater, chatId)
+    const previous = this.rows(chatId)
+    const next = typeof updater === 'function' ? updater(previous) : mergeMessagesById(previous, updater, chatId)
+    const retained = new Set(next.map((row) => row.id))
+    const apply = (rows: MessageItem[]) => mergeMessagesById(rows.filter((row) => retained.has(row.id)), next, chatId)
     const history = this.histories.get(chatId)?.window
     if (history) history.update(apply)
-    else { super.set(chatId, trimToMessageWindow(apply(this.get(chatId) ?? []))); this.publish(chatId) }
+    else { super.set(chatId, trimToMessageWindow(next)); this.publish(chatId) }
     for (const viewport of this.listeners.get(chatId)?.values() ?? []) viewport.window?.update(apply)
     return this
   }

@@ -454,7 +454,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       if (!isLifecycleCancellation(err)) console.error('[ChatStore] history page failed', err)
       throw err
     }
-  }, [user, cache, invalidateMessageSnapshots, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
+  }, [user, cache, noteFreshMessageRead, persistWindowToLocalSync, revalidateWindowOverlays])
   const loadMessageAnchor = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
     if (!user || !targetChatId) return
     const targetWindow = cache.history(targetChatId, viewport)
@@ -762,7 +762,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const removeMessage = useCallback((messageId: string, chatId = activeChatIdRef.current) => {
     if (chatId) { setMessagesAndCache((rows) => rows.filter((row) => row.id !== messageId), chatId); persistWindowToLocalSync(chatId, cache.get(chatId) ?? []) }
   }, [cache, persistWindowToLocalSync, setMessagesAndCache])
-  const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current, viewport?: ConversationViewport, commit?: UnreadLocatorCommit) => {
+  const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
     if (targetChatId) invalidateMessageSnapshots(targetChatId)
     const { chatId } = await chatService.deleteMessage(messageId)
     invalidateMessageSnapshots(chatId)
