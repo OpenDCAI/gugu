@@ -183,7 +183,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (imRepositoryScope.disposed || imRepositoryScope.accountId !== user.id) throw new Error(`IM repository scope ${user.id} disposed`)
     if (imRepositoryRef.current?.accountId === user.id) return imRepositoryRef.current
     if (imRepositoryPromiseRef.current?.accountId === user.id) return imRepositoryPromiseRef.current.promise
-    const promise = openImRepository(user.id, { initialize: initializeAccountSync }).catch((error) => { imRepositoryPromiseRef.current = null; throw error })
+    const promise = openImRepository(user.id, { initialize: initializeAccountSync }).catch((error) => { if (imRepositoryPromiseRef.current?.promise === promise) imRepositoryPromiseRef.current = null; throw error })
     imRepositoryPromiseRef.current = { accountId: user.id, promise }
     const repository = await promise
     if (imRepositoryScope.disposed || imRepositoryPromiseRef.current?.promise !== promise) {
