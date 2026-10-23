@@ -1,7 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
-import { ProjectMiniFolder } from '@renderer/features/projects/components/main-panel/project-folder-card';
 import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
@@ -18,7 +17,6 @@ import { ProjectTaskComposer } from '@renderer/features/projects/components/main
 import { useChatHasMessages } from '@/lib/chatSummariesBridge';
 import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
-import { Button } from '@renderer/lib/ui/button';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
 import { useFloatingCardKeys } from './floating-card-keys';
 import { rpcOn } from '@renderer/lib/ipc';
@@ -77,27 +75,6 @@ export const ProjectBlock = observer(function ProjectBlock({
               label={label}
               // 点群这一枚 = 右边让开、群占满(右边开着的照旧是页签,gugu-dev#181 第 ⑥ 步)。
               onClick={chatId && hasMessages !== false ? () => requestShellChatAction({ kind: 'show-chat-alone', chatId }) : undefined}
-              preSlot={
-                // gugu-dev#181:页签上那枚彩色小文件夹(项目文件夹卡的缩影)= 在这个项目里开新任务(框变「新任务」、文件夹卡浮出来)。
-                // 群里还没有消息时这一块本来就是项目首页,不用它。
-                chatId && hasMessages !== false ? (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="px-1"
-                    aria-label={translate('taskDispatch.task')}
-                    title={translate('taskDispatch.task')}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setComposerVerb(chatId, 'task');
-                    }}
-                  >
-                    <ProjectMiniFolder projectId={projectId} />
-                  </Button>
-                ) : (
-                  <ProjectMiniFolder projectId={projectId} />
-                )
-              }
             />
           </ProjectTabMenu>
         </TabSlot>
@@ -125,7 +102,7 @@ export const ProjectBlock = observer(function ProjectBlock({
 /**
  * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框(与项目首页同一个,ProjectTaskComposer),项目的文件夹卡
  * 浮到群聊上面 —— 整片统一淡下去、虚一点,卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,
- * 卡让开;直接打字、按 Esc、点空白处,卡也让开。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
+ * 卡让开;直接打字、按 Esc,卡也让开。点卡旁边的空白不让开(owner 10-23:点空了不该把这一页退掉)。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
  */
 const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
   const { translate } = useSessionMessages();
@@ -147,9 +124,6 @@ const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }:
         <div
           className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-(--em-surface-base)/65 px-4 pb-32 backdrop-blur-[2px]"
           data-project-task-card=""
-          onPointerDown={(event) => {
-            if (event.target === event.currentTarget) setCardShown(false);
-          }}
         >
           {stage.card}
         </div>
