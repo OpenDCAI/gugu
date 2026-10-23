@@ -4,7 +4,11 @@ import { isolatedGuguEnv, pollOnlyRuntimeIdentityClient } from '../../../support
 
 // #156 机器要走了(退出咕咕 / 停掉服务):设备行当场标离线,名下别的设备马上看见;
 // ❌ 不说一声就走,让它们等两分钟租约过期 —— 那与崩溃看起来一模一样。
-async function hostWith(label: string, auth: { accessToken: string; userId: string } | null = { accessToken: 'token-1', userId: 'user-1' }) {
+async function hostWith(
+  label: string,
+  auth: { accessToken: string; userId: string } | null = { accessToken: 'token-1', userId: 'user-1' },
+  timing: { heartbeatIntervalMs?: number } = {},
+) {
   const env = await isolatedGuguEnv(`gugu-offline-on-stop-${label}-`)
   const client = pollOnlyRuntimeIdentityClient([], `offline on stop ${label}`)
   const warn = vi.fn()
@@ -12,6 +16,8 @@ async function hostWith(label: string, auth: { accessToken: string; userId: stri
   const host = createDeviceRuntimeHostLoop({
     env,
     intervalMs: 60_000,
+    superviseIntervalMs: 60_000,
+    ...timing,
     subscribeCommandWake: () => () => undefined,
     machineIdentifier: () => `machine-${label}`,
     authProvider: { getAuth: async () => currentAuth },
@@ -33,10 +39,14 @@ describe('#156 停机时设备行当场标离线', () => {
     expect(client.offlineUpdates[0]).toMatchObject({ deviceId, value: { status: 'offline' } })
   })
 
-  it('在路上的心跳先落地,再标离线:❌ 心跳(写「在线」)落在后面把它标回在线', async () => {
-    const { host, client } = await hostWith('inflight')
+  it('定时那一拍心跳正在写时停机:先等它落地,再标离线(❌ 心跳写的「在线」落在后面,把它标回在线)', async () => {
+    const { host, client } = await hostWith('inflight', undefined, { heartbeatIntervalMs: 20 })
     const order: string[] = []
     let land: (() => void) | null = null
+    host.start()
+    // 首轮 tick(它自己也写一拍)走完,之后的心跳只来自定时那一拍,与 tick 无关
+    await vi.waitFor(() => expect(client.upserts.length).toBeGreaterThan(0))
+    await vi.waitFor(() => expect(host.getDebugSnapshot().status).toBe('running'))
     const originalFrom = client.from.bind(client) as (table: string) => Record<string, unknown>
     ;(client as unknown as { from: (table: string) => unknown }).from = (table: string) => {
       const real = originalFrom(table)
@@ -47,16 +57,38 @@ describe('#156 停机时设备行当场标离线', () => {
         update: (value: unknown) => ({ eq: async (column: string, id: string) => { order.push('offline'); return (real.update as (v: unknown) => { eq: (c: string, i: string) => unknown })(value).eq(column, id) } }),
       }
     }
-    // 第一拍的心跳正在写:停机要等它
-    const beat = host.tickOnce()
     await vi.waitFor(() => expect(land).not.toBeNull())
     const stopping = host.stop()
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, 30))
     expect(order).toEqual([])
     land!()
     await stopping
-    await beat.catch(() => undefined)
     expect(order).toEqual(['heartbeat', 'offline'])
+  })
+
+  it('同机同账号的另一个实例还活着(两个共用这一行):不标离线;那一个早已没了心跳(过了租约):照常标', async () => {
+    const { host, client } = await hostWith('sibling')
+    await host.tickOnce()
+    const deviceId = client.upserts.at(-1)?.row.device_id as string
+    client.setRuntimeInstance('other-instance', deviceId, new Date().toISOString())
+    await host.stop()
+    expect(client.offlineUpdates).toHaveLength(0)
+
+    const second = await hostWith('sibling-gone')
+    await second.host.tickOnce()
+    const secondDevice = second.client.upserts.at(-1)?.row.device_id as string
+    second.client.setRuntimeInstance('crashed-instance', secondDevice, new Date(Date.now() - 120_000).toISOString())
+    await second.host.stop()
+    expect(second.client.offlineUpdates).toHaveLength(1)
+  })
+
+  it('停下之后再叫它跑一轮(比如中转变了):不跑,❌ 重新订阅、写一拍「在线」把离线翻回去', async () => {
+    const { host, client } = await hostWith('after-stop')
+    await host.tickOnce()
+    await host.stop()
+    const upserts = client.upserts.length
+    expect(await host.tickOnce()).toEqual({ skipped: true })
+    expect(client.upserts).toHaveLength(upserts)
   })
 
   it('停下时已经没有登录态:不写,也不报错', async () => {

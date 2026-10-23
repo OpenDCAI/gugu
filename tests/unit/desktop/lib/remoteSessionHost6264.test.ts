@@ -243,24 +243,37 @@ describe('remote task host pipe over device RPC', () => {
   })
 })
 
-// #156 那台机器收下一批就当场回:只装着心跳的那一批回得慢 = 那台机器没了。
-describe('heartbeat-only batches are a liveness probe (#156)', () => {
-  function timedDevice(answer: (type: string) => Promise<Reply>) {
+// #156 那台机器收下一批就当场回:桌面连它时,只装着心跳的那一批回得慢 = 那台机器没了。
+describe('heartbeat-only batches are a liveness probe on the desktop (#156)', () => {
+  const PROBE = { heartbeatReplyTimeoutMs: HEARTBEAT_REPLY_TIMEOUT_MS }
+  function timedDevice(answer: (type: string, payload: { seq?: number }) => Promise<Reply>) {
     const frameTimeouts: Array<number | undefined> = []
+    let listener: ((payload: unknown) => void) | null = null
     const deps = {
       ...fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } })).deps,
-      call: (async (_device: string, type: string, _payload: unknown, options?: { timeoutMs?: number }) => {
+      call: (async (_device: string, type: string, payload: { seq?: number }, options?: { timeoutMs?: number }) => {
         if (type === 'taskhost.open') return { result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }
         if (type === 'taskhost.frame') frameTimeouts.push(options?.timeoutMs)
-        return answer(type)
+        return answer(type, payload)
+      }) as never,
+      subscribe: ((_device: string, cb: (payload: unknown) => void) => {
+        listener = cb
+        return () => { listener = null }
       }) as never,
     }
-    return { deps, frameTimeouts }
+    return { deps, frameTimeouts, push: (payload: unknown) => listener?.(payload) }
+  }
+  const later = () => {
+    let settle: (outcome: Reply | Error) => void = () => undefined
+    const promise = new Promise<Reply>((resolve, reject) => {
+      settle = (outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome))
+    })
+    return { promise, settle }
   }
 
   it('waits only a few seconds for a heartbeat-only batch; a batch that carries work keeps the long wait', async () => {
     const device = timedDevice(async () => ({ result: { ok: true } }))
-    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined })
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: () => undefined })
     pipe.send('{"t":"hb"}', 'heartbeat')
     await flush()
     pipe.send('{"t":"hb"}', 'heartbeat')
@@ -272,17 +285,54 @@ describe('heartbeat-only batches are a liveness probe (#156)', () => {
     expect(HEARTBEAT_REPLY_TIMEOUT_MS).toBeLessThanOrEqual(5_000)
   })
 
+  it('the phone does not probe: its heartbeats wait as long as work (a cellular handover is not a dead machine)', async () => {
+    const device = timedDevice(async () => ({ result: { ok: true } }))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    expect(device.frameTimeouts).toEqual([20_000])
+  })
+
+  it('a heartbeat queued behind a batch still waiting for its answer is not a probe (a slow upload is not a dead machine)', async () => {
+    const upload = later()
+    const device = timedDevice((type, payload) => (payload.seq === 0 ? upload.promise : Promise.resolve({ result: { ok: true } })))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"invoke","big":true}')
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    upload.settle({ result: { ok: true } })
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    expect(device.frameTimeouts).toEqual([20_000, 20_000, HEARTBEAT_REPLY_TIMEOUT_MS])
+  })
+
   it('a heartbeat that gets no answer closes the link, so the client reconnects and the machine reads as reconnecting', async () => {
     const device = timedDevice(async (type) => {
       if (type === 'taskhost.frame') throw new Error(`no reply to ${type} within ${HEARTBEAT_REPLY_TIMEOUT_MS} ms (asked twice)`)
       return { result: { ok: true } }
     })
     const closed: string[] = []
-    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (reason) => closed.push(reason) })
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: (reason) => closed.push(reason) })
     pipe.send('{"t":"hb"}', 'heartbeat')
     await flush()
     await flush()
     expect(closed).toEqual(['frame not delivered'])
   })
-})
 
+  it('no answer to the probe, but the machine was heard from meanwhile: the link stays (it is busy, not gone)', async () => {
+    const probe = later()
+    const device = timedDevice(() => probe.promise)
+    const closed: string[] = []
+    const frames: unknown[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: (f) => frames.push(f), onClose: (reason) => closed.push(reason) })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    device.push({ type: SESSION_HOST_FRAME_EVENT, client: 'client00000001', seq: 0, frames: [{ f: 'a big read result' }] })
+    probe.settle(new Error('no reply to taskhost.frame within 4000 ms (asked twice)'))
+    await flush()
+    expect(frames).toEqual(['a big read result'])
+    expect(closed).toEqual([])
+  })
+})

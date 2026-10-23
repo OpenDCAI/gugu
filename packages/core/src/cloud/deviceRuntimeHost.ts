@@ -21,6 +21,7 @@ import {
   type DeviceHeartbeatTableClient
 } from './deviceRuntime'
 import {
+  readDeviceRuntimeInstances,
   reportRuntimeInstanceHeartbeat,
   type DeviceCommandTableClient,
   type ProcessDeviceCommandResult,
@@ -1400,7 +1401,17 @@ export function createDeviceRuntimeHostLoop(
     try {
       const auth = await options.authProvider.getAuth()
       if (!auth?.accessToken || auth.userId !== ownerUserId) return
-      await markDeviceOffline(options.makeIdentityClient(auth.accessToken), deviceId, {
+      const client = options.makeIdentityClient(auth.accessToken)
+      // 同账号同机的别的实例共用这一行(#5041):它还活着,这台机器就没走 ——
+      // ❌ 替它说离线(要等它下一拍心跳才写回在线,中间别的设备都读成离线)。
+      const instances = await readDeviceRuntimeInstances(client, deviceId, options.operationTimeouts)
+      const siblingAlive = instances.some((instance) => {
+        if (instance.instanceId === instanceId) return false
+        const at = Date.parse(instance.lastHeartbeatAt)
+        return !Number.isNaN(at) && nowMs() - at < RUNTIME_INSTANCE_STALE_MS
+      })
+      if (siblingAlive) return
+      await markDeviceOffline(client, deviceId, {
         nowIso: options.nowIso,
         operationTimeouts: options.operationTimeouts,
       })
@@ -1433,7 +1444,8 @@ export function createDeviceRuntimeHostLoop(
   }
 
   return {
-    tickOnce: () => tickOnce('event'),
+    // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
+    tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,
     notifyCommandsChanged: () => {
       noteCommandAnnouncement()
