@@ -59,7 +59,7 @@ export function FindBar({
             }
           }}
           placeholder={translate('find.placeholder')}
-          className="h-8 min-w-0 border-0 bg-transparent pr-2 pl-8 text-xs shadow-none focus-visible:ring-0"
+          className="h-8 min-w-0 border-0 bg-[var(--em-surface-input)] pr-2 pl-8 text-xs shadow-none focus-visible:ring-0"
           aria-label={translate('find.placeholder')}
         />
       </div>

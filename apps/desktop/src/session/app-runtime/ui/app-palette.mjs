@@ -23,6 +23,7 @@
 export const APP_PALETTE_COLORS = [
   ['--em-background', 'var(--bg)'],
   ['--em-surface', 'var(--bg)'],
+  ['--em-surface-input', 'var(--input-bg)'],
   ['--em-background-1', 'var(--card)'],
   ['--em-background-3', 'var(--muted)'],
   ['--em-background-muted', 'var(--muted)'],
