@@ -20,10 +20,10 @@ vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
 
 const { useMessageFilePreview } = await import('@/components/chat/useMessageFilePreview')
 
-function Conversation() {
+function Conversation({ restore }: { restore?: () => void } = {}) {
   const preview = useMessageFilePreview({ mobile: false, visible: true, closeRightSurfaces: () => undefined, toast: () => undefined, downloadFailed: 'failed', onForward: () => undefined })
   return createElement('div', null,
-    createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'budget.md', mimeType: 'text/markdown', sizeBytes: 28, source: { kind: 'item', itemId: 'budget', version: 1 } }) }, '打开附件'),
+    createElement('button', { onClick: () => preview.open({ kind: 'file', fileName: 'budget.md', mimeType: 'text/markdown', sizeBytes: 28, source: { kind: 'item', itemId: 'budget', version: 1 } }, undefined, restore) }, '打开附件'),
     preview.panel)
 }
 
@@ -58,10 +58,11 @@ describe('personal assistant file preview', () => {
     expect(openGroupFile).not.toHaveBeenCalled()
   })
 
-  it('keeps the existing App opener for ordinary chat attachments', async () => {
-    await harness.render(createElement(Conversation))
+  it('keeps the existing App opener and message return for ordinary chat attachments', async () => {
+    const restore = vi.fn()
+    await harness.render(createElement(Conversation, { restore }))
     await act(async () => { harness.container.querySelector('button')!.click() })
-    expect(openGroupFile).toHaveBeenCalledWith('budget', undefined, undefined)
+    expect(openGroupFile).toHaveBeenCalledWith('budget', undefined, undefined, restore)
     expect(readBytes).not.toHaveBeenCalled()
   })
 })

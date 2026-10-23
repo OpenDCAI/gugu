@@ -27,7 +27,7 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
       <Dialog.Popup className="product-tour-feature">
         <header className="product-tour-feature-header">
           <span>{t('featureHeader')}</span>
-          <button type="button" onClick={onClose} aria-label={t('skip')}>×</button>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('skip')}>×</Button>
         </header>
         <div className="product-tour-feature-heading">
           <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: 4 })}</div>
@@ -37,7 +37,7 @@ export function FeatureTour({ index, children, onSelect, onClose }: { index: num
         <FeatureFilm key={index} index={index} />
         <div className="product-tour-feature-footer">
           <div className="product-tour-feature-dots" aria-label={t('featureSteps')}>
-            {TOUR_FEATURES.map((feature, step) => <button type="button" key={feature} aria-label={t(`feature.${feature}.title`)} onClick={() => onSelect(step)} aria-current={step === index ? 'step' : undefined} />)}
+            {TOUR_FEATURES.map((feature, step) => <Button variant="ghost" size="icon" key={feature} aria-label={t(`feature.${feature}.title`)} onClick={() => onSelect(step)} aria-current={step === index ? 'step' : undefined}><span className="product-tour-dot" /></Button>)}
           </div>
           {children}
         </div>
