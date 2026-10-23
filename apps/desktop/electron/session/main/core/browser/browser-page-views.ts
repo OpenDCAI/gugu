@@ -1,4 +1,4 @@
-import { BaseWindow, BrowserWindow, WebContentsView, type Size, type WebContents } from 'electron';
+import { BrowserWindow, WebContentsView, type Size, type WebContents } from 'electron';
 import { getMainWindow } from '@main/app/window';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
@@ -23,6 +23,7 @@ import {
   type WindowLayerContent,
 } from '../../../../window-layers';
 import { wirePageDialogs, type PageDialogs } from './browser-page-dialogs';
+import { BrowserPageRuntime } from './browser-page-runtime';
 import { browserWebContentsRegistry } from './browser-webcontents-registry';
 import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
 
@@ -45,20 +46,14 @@ import { isPreviewPageUrl, validateBrowserPageMount } from './webview-security';
  *   view 收起、占位换成一张网页截图,浮层照常盖在上面。
  * - **agent 的鼠标与快捷消息按钮**是窗口里的两层(window-layers.ts);鼠标只在动作期间露出,消息按钮跟随页签。
  *   运行控制属于 Agent 会话。落在鼠标层上的真实鼠标输入原样交给网页,不暂停 agent。
- * - **不在屏上的网页停在「停放窗」里**:每扇咕咕窗口配一扇从不显示的窗,不在屏上(页签切走、会话藏起来、被浮层盖住)
- *   的网页挂到那里、大小照旧跟着页签。❌ 摘下来 / ❌ 挂着 setVisible(false):从没露过面的网页视口是 0×0,
- *   挂着隐藏的截图会卡死 —— agent 在后台操作它时截图、点击全不灵(exp11 / exp12 实测)。停在停放窗里平时不出帧;
- *   agent 连上时 Playwright 自己开的 focus emulation 让 Chromium 把它当作看得见(emulation_handler.cc
- *   IncrementCapturerCount),照常出帧、截得到图、点得着。网页弹的 JS 对话框 ❌ 挂到停放窗上(会把它排上屏幕),
- *   只出现在人正在看的页签上(browser-page-dialogs.ts)。
+ * - **后台页仍归原宿主**:view 隐藏,不迁移到额外窗口。视口初始化与截图所需的出帧由
+ *   browser-page-runtime.ts 管理;显示位置、会话控制权和渲染需求分别维护。
  * - **导航不抢焦点**:`focusOnNavigation: false`,网页换页时不把焦点拉过去(electron#42578 / #49425)。
  *
  * ⚠️ 网页销毁后不再碰它:对已销毁的 webContents 调方法会让整个 app 崩溃(见 agent-browser.ts 文件头)。
  */
 
 type Rect = { x: number; y: number; width: number; height: number };
-
-type PagePlace = 'host' | 'parked' | null;
 
 /** Agent 鼠标与快捷消息层及其宿主:网页不在那扇窗上时收起。 */
 type AgentLayer = { part: AgentOverlayPart; view: WebContentsView; contents: WebContents; host: BrowserWindow; size: Size | null };
@@ -68,17 +63,16 @@ type BrowserPage = {
   partition: string;
   view: WebContentsView;
   webContents: WebContents;
-  host: BrowserWindow | null;
+  runtime: BrowserPageRuntime;
   /** 占位所在那扇窗的名字:主窗是空串,单独成窗的那几扇是 `gugu-aux:<id>`。 */
   windowName: string;
   /** 页签量来的位置(那扇窗内容区的 DIP)。 */
   rect: Rect | null;
   mode: BrowserPageMode;
   fullscreen: boolean;
-  /** 此刻挂在哪:那扇窗上(人看得见)、它的停放窗里,或哪儿都没挂(还没有窗 / 窗关了)。 */
-  place: PagePlace;
   ready: boolean;
   releaseTimer: ReturnType<typeof setTimeout> | null;
+  releaseExpired: boolean;
   /** 盖在网页上的鼠标与快捷消息层(记录宿主,每种每窗最多一层)。 */
   layers: AgentLayer[];
   /** 鼠标那层要不要露(agent 在操作、页签那边画着鼠标)。 */
@@ -91,11 +85,9 @@ const RELEASE_GRACE_MS = 5_000;
 
 const pages = new Map<string, BrowserPage>();
 const hostsWired = new WeakSet<BrowserWindow>();
-/** 每扇咕咕窗口的停放窗(见文件头)。 */
-const parkings = new WeakMap<BrowserWindow, BaseWindow>();
 
 function emitPageEvent(page: BrowserPage, type: BrowserPageEventType, detail: Record<string, unknown> = {}): void {
-  if (page.webContents.isDestroyed()) return;
+  if (page.webContents.isDestroyed() || page.runtime.initializing) return;
   events.emit(browserPageEventChannel, { browserId: page.browserId, type, detail, state: pageState(page.webContents) });
 }
 
@@ -120,9 +112,8 @@ function wireHost(host: BrowserWindow): void {
   if (hostsWired.has(host)) return;
   hostsWired.add(host);
   const reposition = () => {
-    syncParking(host);
     for (const page of pages.values()) {
-      if (page.host !== host) continue;
+      if (page.runtime.host !== host) continue;
       page.dialogs?.pageShown();
     }
   };
@@ -135,76 +126,17 @@ function wireHost(host: BrowserWindow): void {
   // 窗关了(单独成窗的那扇被关掉):上面的网页先放手、留一会儿 —— 页签挪回别的窗会接着用;没人要就关掉。
   host.on('closed', () => {
     for (const page of [...pages.values()]) {
-      if (page.host !== host) continue;
-      unplace(page);
-      page.host = null;
+      if (page.runtime.host !== host) continue;
+      page.runtime.moveTo(null);
       page.dialogs?.hostChanged();
       releaseBrowserPage(page.browserId);
     }
-    const parking = parkings.get(host);
-    parkings.delete(host);
-    if (parking && !parking.isDestroyed()) parking.destroy();
   });
   // 界面整页重载 / 换页:画在上面的那些网页没了主人 —— 一并关掉,❌ 留一块没人管的网页盖在新界面上。
   host.webContents.on('did-start-navigation', (event) => {
     if (!event.isMainFrame || event.isSameDocument) return;
-    for (const page of [...pages.values()]) if (page.host === host) destroyBrowserPage(page.browserId);
+    for (const page of [...pages.values()]) if (page.runtime.host === host) destroyBrowserPage(page.browserId);
   });
-}
-
-/** 这扇窗的停放窗:从不显示、不能聚焦、和窗口内容区一样大(停在里面的网页摆在和页签同样的位置,视口和人看见时一样)。 */
-function parkingFor(host: BrowserWindow): BaseWindow {
-  let parking = parkings.get(host);
-  if (!parking || parking.isDestroyed()) {
-    parking = new BaseWindow({
-      show: false,
-      frame: false,
-      focusable: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-    });
-    parkings.set(host, parking);
-    syncParking(host);
-  }
-  return parking;
-}
-
-function syncParking(host: BrowserWindow): void {
-  const parking = parkings.get(host);
-  if (!parking || parking.isDestroyed() || host.isDestroyed()) return;
-  // 同一块屏上(缩放比一样)、内容区一样大。
-  parking.setContentBounds(host.getContentBounds());
-}
-
-/** 挂到那扇窗上 / 它的停放窗里(先从原来的地方摘下)。 */
-function placeOn(page: BrowserPage, where: 'host' | 'parked'): void {
-  const host = page.host;
-  if (!host || host.isDestroyed() || page.place === where) return;
-  unplace(page);
-  if (where === 'host') {
-    host.contentView.addChildView(page.view);
-    // 后挂上去的网页会压住窗口里的层(agent 的鼠标、构建角标):叠回去。
-    raiseWindowLayers(host);
-  } else parkingFor(host).contentView.addChildView(page.view);
-  page.place = where;
-}
-
-function unplace(page: BrowserPage): void {
-  const host = page.host;
-  const place = page.place;
-  page.place = null;
-  if (!host || place === null) return;
-  if (place === 'host') {
-    if (!host.isDestroyed()) host.contentView.removeChildView(page.view);
-    return;
-  }
-  const parking = parkings.get(host);
-  if (parking && !parking.isDestroyed()) parking.contentView.removeChildView(page.view);
 }
 
 function contentRect(host: BrowserWindow): Rect {
@@ -212,25 +144,28 @@ function contentRect(host: BrowserWindow): Rect {
   return { x: 0, y: 0, width, height };
 }
 
-/** 照页签报的位置、样子摆好这张网页:露着就挂在窗口上页签那一块,否则停进停放窗(大小照旧)。 */
+function pageIsShown(page: BrowserPage): boolean {
+  const rect = page.rect;
+  return page.fullscreen || (page.mode === 'shown' && !!rect && rect.width > 0 && rect.height > 0);
+}
+
+/** 页面始终留在所属宿主;只改变视口与显示状态。 */
 function applyLayout(page: BrowserPage): void {
   if (page.webContents.isDestroyed()) return;
-  const host = page.host;
+  const host = page.runtime.host;
   if (!host || host.isDestroyed()) return;
   const sized = page.rect !== null && page.rect.width > 0 && page.rect.height > 0;
-  const shown = page.fullscreen || (page.mode === 'shown' && sized);
+  const shown = pageIsShown(page);
   // 先定大小再挂上去:挂上的那一帧就在新位置。
-  if (page.fullscreen) page.view.setBounds(contentRect(host));
-  else if (sized) page.view.setBounds(page.rect as Rect);
-  placeOn(page, shown ? 'host' : 'parked');
+  page.runtime.layout(page.fullscreen ? contentRect(host) : sized ? page.rect : null, shown);
   placeAgentLayers(page);
   page.dialogs?.pageShown();
 }
 
 /** 人此刻看得见这张网页:挂在窗口上、那扇窗露着。 */
 function onScreen(page: BrowserPage): boolean {
-  const host = page.host;
-  return page.place === 'host' && !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized();
+  const host = page.runtime.host;
+  return pageIsShown(page) && !!host && !host.isDestroyed() && host.isVisible() && !host.isMinimized();
 }
 
 export type MountBrowserPageResult =
@@ -263,6 +198,7 @@ export function mountBrowserPage(args: {
   if (page) {
     if (page.releaseTimer) clearTimeout(page.releaseTimer);
     page.releaseTimer = null;
+    page.releaseExpired = false;
     moveToHost(page, args.windowName);
     return { success: true, reused: true, ready: page.ready, state: pageState(page.webContents) };
   }
@@ -285,19 +221,23 @@ export function mountBrowserPage(args: {
   });
   view.setBackgroundColor('#ffffff');
   const webContents = view.webContents;
+  const runtime = new BrowserPageRuntime(view, () => {
+    const current = pages.get(args.browserId);
+    if (current?.runtime === runtime && current.releaseExpired) destroyBrowserPage(args.browserId);
+  });
   page = {
     browserId: args.browserId,
     partition: args.partition,
     view,
     webContents,
-    host: null,
+    runtime,
     windowName: args.windowName,
     rect: null,
     mode: 'background',
     fullscreen: false,
-    place: null,
     ready: false,
     releaseTimer: null,
+    releaseExpired: false,
     layers: [],
     cursorShown: false,
     dialogs: null,
@@ -305,24 +245,24 @@ export function mountBrowserPage(args: {
   pages.set(args.browserId, page);
   const adopted = page;
   browserWebContentsRegistry.adoptPageWebContents(args.browserId, webContents, {
-    window: () => (adopted.host && !adopted.host.isDestroyed() ? adopted.host : null),
+    window: () => (adopted.runtime.host && !adopted.runtime.host.isDestroyed() ? adopted.runtime.host : null),
     origin: () => (adopted.fullscreen ? { x: 0, y: 0 } : { x: adopted.rect?.x ?? 0, y: adopted.rect?.y ?? 0 }),
   });
   wirePage(page);
   moveToHost(page, args.windowName);
-  webContents.loadURL(validation.url).catch(() => {
-    // 载入失败由 did-fail-load 报给页签(画「打不开」那一页),这里不重复。
-  });
+  navigatePage(page, validation.url);
   return { success: true, reused: false, ready: false, state: pageState(webContents) };
 }
 
 function moveToHost(page: BrowserPage, windowName: string): void {
   const host = resolveHost(windowName);
-  const moved = page.host !== host;
+  const moved = page.runtime.host !== host;
   if (moved) {
-    unplace(page);
-    page.host = host;
-    if (host) wireHost(host);
+    page.runtime.moveTo(host);
+    if (host) {
+      wireHost(host);
+      raiseWindowLayers(host);
+    }
     // 换了窗:旧窗里的那几层收着(applyLayout),由旧窗那边的页签按名字关;新窗那边页签会在新窗里开 ——
     // ❌ 这里关:挪窗时两边的布局请求会来回交错几下,关了就把新窗刚开的也关了。
   }
@@ -337,14 +277,15 @@ export function ensureAgentBrowserPage(args: { browserId: string; partition: str
   if (page && page.partition === args.partition) {
     if (page.releaseTimer) clearTimeout(page.releaseTimer);
     page.releaseTimer = null;
+    page.releaseExpired = false;
     return { success: true, reused: true, ready: page.ready, state: pageState(page.webContents) };
   }
   const mounted = mountBrowserPage({ ...args, windowName: '' });
   const restored = livePage(args.browserId);
-  // An unmounted session has no surface to report its bounds. Give the parked page a real viewport;
+  // An unmounted session has no surface to report its bounds. Give the hidden page a real viewport;
   // the actual pane reports its own geometry when the person opens the session again.
-  if (mounted.success && restored?.host && !restored.rect) {
-    restored.rect = contentRect(restored.host);
+  if (mounted.success && restored?.runtime.host && !restored.rect) {
+    restored.rect = contentRect(restored.runtime.host);
     applyLayout(restored);
   }
   return mounted;
@@ -354,9 +295,10 @@ function wirePage(page: BrowserPage): void {
   const { webContents } = page;
   page.dialogs = wirePageDialogs(webContents, {
     onScreen: () => onScreen(page),
-    host: () => (page.host && !page.host.isDestroyed() ? page.host : null),
+    host: () => (page.runtime.host && !page.runtime.host.isDestroyed() ? page.runtime.host : null),
   });
   webContents.on('dom-ready', () => {
+    if (page.runtime.initializing) return;
     page.ready = true;
     // 网页照 Chrome 那样能双指捏合放大(#6456)。Electron 默认关着;只开这一张网页的。每次 dom-ready 都设:换页可能换渲染进程。
     webContents.setVisualZoomLevelLimits(1, BROWSER_PINCH_MAX_LEVEL).catch((error: unknown) => {
@@ -392,9 +334,9 @@ function wirePage(page: BrowserPage): void {
     page.fullscreen = true;
     applyLayout(page);
     // 叠到最上面:分栏时别的网页 view 不能压着它(再挂一次就到最上层)。
-    if (page.host && !page.host.isDestroyed() && page.place === 'host') {
-      page.host.contentView.addChildView(page.view);
-      raiseWindowLayers(page.host);
+    if (page.runtime.host && !page.runtime.host.isDestroyed()) {
+      page.runtime.raise();
+      raiseWindowLayers(page.runtime.host);
     }
   });
   webContents.on('leave-html-full-screen', () => {
@@ -425,7 +367,7 @@ export function layoutBrowserPage(args: {
   const page = pages.get(args.browserId);
   if (!page || page.webContents.isDestroyed()) return false;
   if (args.windowName !== page.windowName) moveToHost(page, args.windowName);
-  const host = page.host;
+  const host = page.runtime.host;
   const zoom = host && !host.isDestroyed() ? host.webContents.getZoomFactor() : 1;
   page.rect = args.rect ? toDip(args.rect, zoom) : null;
   page.mode = args.mode;
@@ -444,14 +386,18 @@ export function toDip(rect: Rect, zoom: number): Rect {
   };
 }
 
-/** 占位卸下了:网页先停进停放窗、留一会儿等它挂回来,过了还没人要就关掉。 */
+/** 占位卸下了:网页在所属宿主隐藏,等新占位接回;无人接回则释放。 */
 export function releaseBrowserPage(browserId: string): void {
   const page = pages.get(browserId);
   if (!page) return;
   page.mode = 'background';
   applyLayout(page);
   if (page.releaseTimer) clearTimeout(page.releaseTimer);
-  page.releaseTimer = setTimeout(() => destroyBrowserPage(browserId), RELEASE_GRACE_MS);
+  page.releaseTimer = setTimeout(() => {
+    page.releaseTimer = null;
+    page.releaseExpired = true;
+    if (!page.runtime.inUse) destroyBrowserPage(browserId);
+  }, RELEASE_GRACE_MS);
 }
 
 /** 页签关了(会话关了、页签被关):网页当场关掉。 */
@@ -461,8 +407,7 @@ export function destroyBrowserPage(browserId: string): void {
   pages.delete(browserId);
   if (page.releaseTimer) clearTimeout(page.releaseTimer);
   closeAgentLayers(page);
-  unplace(page);
-  if (!page.webContents.isDestroyed()) page.webContents.close();
+  page.runtime.close();
 }
 
 function livePage(browserId: string): BrowserPage | null {
@@ -474,10 +419,19 @@ export function navigateBrowserPage(browserId: string, url: string): boolean {
   const page = livePage(browserId);
   if (!page) return false;
   if (!isPreviewPageUrl(url) && !normalizeBrowserUrl(url, BROWSER_TAB_URL_OPTIONS).ok) return false;
-  page.webContents.loadURL(url).catch(() => {
-    // 失败照 did-fail-load 报。
-  });
+  navigatePage(page, url);
   return true;
+}
+
+function navigationFailed(page: BrowserPage, url: string, error: unknown): void {
+  // Network navigation failures already emit did-fail-load. Startup failures have no destination renderer yet.
+  if (!page.runtime.failed || page.webContents.isDestroyed()) return;
+  log.warn('could not initialize a browser page', { browserId: page.browserId, error: String(error) });
+  emitPageEvent(page, 'did-fail-load', { errorCode: -2, errorDescription: 'ERR_FAILED', validatedURL: url, isMainFrame: true });
+}
+
+function navigatePage(page: BrowserPage, url: string): void {
+  void page.runtime.navigate(url).catch(error => navigationFailed(page, url, error));
 }
 
 export type BrowserPageCommand = 'goBack' | 'goForward' | 'reload' | 'reloadIgnoringCache' | 'stop' | 'focus';
@@ -494,13 +448,13 @@ export function runBrowserPageCommand(browserId: string, command: BrowserPageCom
       if (webContents.navigationHistory.canGoForward()) webContents.navigationHistory.goForward();
       return true;
     case 'reload':
-      webContents.reload();
+      void page.runtime.reload().catch(error => navigationFailed(page, page.runtime.requestedUrl, error));
       return true;
     case 'reloadIgnoringCache':
-      webContents.reloadIgnoringCache();
+      void page.runtime.reload(true).catch(error => navigationFailed(page, page.runtime.requestedUrl, error));
       return true;
     case 'stop':
-      webContents.stop();
+      page.runtime.stop();
       return true;
     case 'focus':
       webContents.focus();
@@ -530,9 +484,9 @@ export async function measureBrowserPage(browserId: string): Promise<BrowserPage
 export async function snapshotBrowserPage(browserId: string): Promise<string | null> {
   const page = livePage(browserId);
   // 从没摆好过的网页(视口 0×0)截不出图,Chromium 会一直等。
-  if (!page || page.place === null || !page.rect) return null;
+  if (!page || !page.runtime.host || !page.rect) return null;
   try {
-    const image = await page.webContents.capturePage();
+    const image = await page.runtime.snapshot();
     if (page.webContents.isDestroyed() || image.isEmpty()) return null;
     return `data:image/jpeg;base64,${image.toJPEG(85).toString('base64')}`;
   } catch {
@@ -542,14 +496,14 @@ export async function snapshotBrowserPage(browserId: string): Promise<string | n
 
 /**
  * 要当面问人一句(如选哪把通行密钥)时,这一页此刻挂在哪扇人看得见的窗上:挂在窗上、那扇窗露着且没最小化才算。
- * 停放着、窗收进托盘或最小化 ⇒ null —— 调用方据此不问,❌ 为了问一句把窗抢到前面(会打断人在别处打字)。
- * 不是内置浏览器的网页(没登记在这里)⇒ undefined,由调用方自己认;❌ 和 null 混成一个值 —— 停放着的网页
+ * 隐藏着、窗收进托盘或最小化 ⇒ null —— 调用方据此不问,❌ 为了问一句把窗抢到前面(会打断人在别处打字)。
+ * 不是内置浏览器的网页(没登记在这里)⇒ undefined,由调用方自己认;❌ 和 null 混成一个值 —— 隐藏着的网页
  * 再去按「谁拥有它」找窗,就会把对话框挂到一扇看不见这页的窗上。
  */
 export function visibleHostOfPage(contents: WebContents): BrowserWindow | null | undefined {
   for (const page of pages.values()) {
     if (page.webContents !== contents) continue;
-    const host = page.place === 'host' ? page.host : null;
+    const host = onScreen(page) ? page.runtime.host : null;
     return host && !host.isDestroyed() && host.isVisible() && !host.isMinimized() ? host : null;
   }
   return undefined;
@@ -588,7 +542,7 @@ function openAgentLayer(host: BrowserWindow, frameName: string, content: WindowL
   const page = overlay ? livePage(overlay.browserId) : null;
   const view = openWindowLayer(host, content, overlay?.part === 'badge' ? WINDOW_LAYER_RANK.agentBadge : WINDOW_LAYER_RANK.agentCursor, {
     // 点到鼠标层是人在操作网页:键盘焦点给网页。小条那层交回界面(默认)。
-    focusTarget: () => (overlay?.part === 'cursor' && page && page.host === host && !page.webContents.isDestroyed() ? page.webContents : null),
+    focusTarget: () => (overlay?.part === 'cursor' && page && page.runtime.host === host && !page.webContents.isDestroyed() ? page.webContents : null),
   });
   agentLayersByName.set(frameName, view);
   webContents.once('destroyed', () => {
@@ -630,10 +584,10 @@ function removeAgentLayer(page: BrowserPage, layer: AgentLayer): void {
  */
 function placeAgentLayers(page: BrowserPage): void {
   const rect = page.rect;
-  const shown = page.place === 'host' && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
+  const shown = page.runtime.host !== null && page.mode === 'shown' && !page.fullscreen && !!rect && rect.width > 0 && rect.height > 0;
   for (const layer of page.layers) {
     if (layer.contents.isDestroyed()) continue;
-    const here = shown && layer.host === page.host;
+    const here = shown && layer.host === page.runtime.host;
     if (layer.part === 'cursor') {
       if (here && rect) layer.view.setBounds(rect);
       layer.view.setVisible(here && page.cursorShown);
@@ -681,7 +635,7 @@ export function setAgentCursorShown(browserId: string, shown: boolean): void {
 /** A decorative native view cannot let input through; deliver the person's input to its page. */
 export function forwardAgentCursorInput(browserId: string, input: BrowserCursorInput): boolean {
   const page = livePage(browserId);
-  if (!page || page.place !== 'host' || page.mode !== 'shown' || !page.cursorShown || page.fullscreen) return false;
+  if (!page || !onScreen(page) || !page.cursorShown || page.fullscreen) return false;
   const pointer = browserCursorInput(input);
   if (!pointer) return false;
   if (pointer.type === 'mouseDown') page.webContents.focus();

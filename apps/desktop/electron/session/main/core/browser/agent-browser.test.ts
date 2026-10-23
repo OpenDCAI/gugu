@@ -11,6 +11,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: (_channel: unknown, payload
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionContext: vi.fn(async () => null) }));
 vi.mock('@main/core/sessions/session-orchestration', () => ({ openAgentBrowserPane: vi.fn() }));
+vi.mock('./browser-page-runtime', () => ({ acquireBrowserPage: vi.fn() }));
 vi.mock('./browser-webcontents-registry', () => ({
   browserWebContentsRegistry: {
     setMouseDownObserver: (fn: (browserId: string) => boolean) => {
@@ -40,6 +41,7 @@ import {
 import { agentSessionContext } from '@main/core/extensions/extension-agent-context';
 import { createRPCClient, registerRPCRouter, type RpcIpcMainLike } from '@shared/lib/ipc/rpc';
 import { openAgentBrowserPane } from '@main/core/sessions/session-orchestration';
+import { acquireBrowserPage } from './browser-page-runtime';
 
 /** 网页的 webContents:只做 transport 碰得到的那几样。debugger 的每个命令都记下来。 */
 function fakeGuest(id = 7) {
@@ -110,9 +112,56 @@ function connect(sessionId: string, browserId: string, wc: unknown) {
 }
 
 beforeEach(() => {
+  vi.mocked(acquireBrowserPage).mockReset();
   emitted.length = 0;
   registry.browsers = [];
   registry.preferred = undefined;
+});
+
+describe('native rendering lifetime', () => {
+  it('routes page captures through the owning runtime without changing CDP options', async () => {
+    const lease = { ready: Promise.resolve(), setActive: vi.fn(), capture: vi.fn(async () => ({ data: 'native-image' })), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    const { transport, call } = connect('native-capture', 'captured-page', wc);
+    await call('Target.setAutoAttach');
+    const params = { format: 'jpeg', quality: 60, captureBeyondViewport: true, clip: { x: 10, y: 20, width: 100, height: 200, scale: 0.5 } };
+    expect(await call('Page.captureScreenshot', params, 'gugu-agent-page')).toMatchObject({ result: { data: 'native-image' } });
+    expect(lease.capture).toHaveBeenCalledWith(params);
+    expect(dbg.commands.some(command => command.method === 'Page.captureScreenshot')).toBe(false);
+    transport.close();
+  });
+
+  it('does not attach CDP before the page surface is ready, and releases it on disconnect', async () => {
+    let resolve!: () => void;
+    const lease = { ready: new Promise<void>(done => { resolve = done; }), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    agentBrowserToolStarting('render-lifetime');
+    const { transport, call } = connect('render-lifetime', 'render-page', wc);
+    const pending = call('Target.setAutoAttach');
+    await new Promise(done => setImmediate(done));
+    expect(dbg.attached).toBe(false);
+    expect(lease.setActive).toHaveBeenCalledWith(true);
+    resolve();
+    await pending;
+    expect(dbg.attached).toBe(true);
+    agentBrowserToolFinished('render-lifetime');
+    transport.close();
+    transport.close();
+    expect(lease.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('reports a surface failure without dispatching the command to another target', async () => {
+    const lease = { ready: Promise.reject(new Error('surface failed')), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    const { transport, call } = connect('render-failure', 'failed-page', wc);
+    expect(await call('Target.setAutoAttach')).toMatchObject({ error: { message: 'surface failed' } });
+    expect(dbg.commands).toHaveLength(0);
+    transport.close();
+    expect(lease.dispose).toHaveBeenCalledOnce();
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
