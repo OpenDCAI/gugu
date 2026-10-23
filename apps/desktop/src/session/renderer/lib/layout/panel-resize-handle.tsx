@@ -8,6 +8,16 @@ const KEYBOARD_STEP_PX = 16;
 /** 命中带宽度(px)。视觉上的那条发丝线由面板自己的边框画,这一条只负责"抓得住"。 */
 const HIT_STRIP_PX = 4;
 
+/** 骑在边界上:把手中线对准面板边缘,两侧各分一半命中带。把手和它的拖拽守卫共用这一份几何。 */
+function stripStyle(edge: 'start' | 'end', offset: MotionValue<number>) {
+  return {
+    width: HIT_STRIP_PX,
+    ...(edge === 'end'
+      ? { left: offset, marginLeft: -HIT_STRIP_PX / 2 }
+      : { right: offset, marginRight: -HIT_STRIP_PX / 2 }),
+  };
+}
+
 interface PanelResizeHandleProps {
   /** 把手长在面板的哪一边:侧栏(面板在左)= 'end',工作区面板(面板在右)= 'start'。 */
   edge: 'start' | 'end';
@@ -99,13 +109,7 @@ export function PanelResizeHandle({
         'absolute inset-y-0 z-40 cursor-col-resize outline-none transition-colors hover:bg-border/60',
         className
       )}
-      style={{
-        width: HIT_STRIP_PX,
-        // 骑在边界上:把手中线对准面板边缘,两侧各分一半命中带。
-        ...(edge === 'end'
-          ? { left: offset, marginLeft: -HIT_STRIP_PX / 2 }
-          : { right: offset, marginRight: -HIT_STRIP_PX / 2 }),
-      }}
+      style={stripStyle(edge, offset)}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.preventDefault();
@@ -131,6 +135,25 @@ export function PanelResizeHandle({
         const next = applyDelta(delta, getSize());
         if (next != null) onSizeCommit(next);
       }}
+    />
+  );
+}
+
+/**
+ * 把手的拖拽守卫:与把手同一块几何、no-drag,排在把手两侧的面板**后面**。
+ *
+ * 窗口拖拽区按文档顺序叠,后来的盖前面的。把手骑在边界上,排在右边那块面板前面;右边面板里压到把手的拖拽带
+ * (页签条、会话页顶栏带)会把那半截盖成「拖窗口」,按下去拖走的是窗口(mac 原生指针实测)。守卫排在后面,
+ * 它的 no-drag 压得住。它只管拖拽区:不可点(pointer-events:none,指针照旧落在把手上)、不进焦点和读屏顺序,
+ * ❌ 把把手本身挪到面板后面(那样 Tab 和读屏会在整个主区之后才走到分隔条)。
+ */
+export function PanelResizeDragGuard({ edge, offset }: { edge: 'start' | 'end'; offset: MotionValue<number> }) {
+  return (
+    <motion.div
+      aria-hidden
+      data-panel-resize-drag-guard=""
+      className="pointer-events-none absolute inset-y-0 [-webkit-app-region:no-drag]"
+      style={stripStyle(edge, offset)}
     />
   );
 }
