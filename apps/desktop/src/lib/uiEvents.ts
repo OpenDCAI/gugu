@@ -7,6 +7,8 @@ export const UI_EVENTS = {
   // @@@5813 「更新说明」:设置→关于里那一行点了 → App 层常挂的 ReleaseNotesOpener 把人带到网页上。
   // 装完新版第一次打开时它自己会弹一次,这个事件只是让人随时能再翻一遍。
   openReleaseNotes: '__open_release_notes',
+  // 设置 → 关于里重新打开首次登录的功能导览。
+  reopenProductTour: '__reopen_product_tour',
   notificationClicked: '__notification_clicked',
   openUnreadMessage: '__open_unread_message',
   togglePasswordVisibility: '__ui_toggle_password_visibility',

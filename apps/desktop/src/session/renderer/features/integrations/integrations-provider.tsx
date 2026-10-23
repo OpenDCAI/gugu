@@ -2,7 +2,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
 import { registerIssueMentionIcons } from '@renderer/lib/chat/chat-mention-provider';
-import type { rpc } from '@renderer/lib/ipc';
+import { rpcOn, type rpc } from '@renderer/lib/ipc';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { cachedDevicesAccount } from '@/store/devicesCache';
 import type { ConnectionStatus } from '@shared/issue-providers';
 import {
   getSessionLocaleSnapshot,
@@ -152,8 +154,10 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
     async (
       integrationId: string,
       mutation: () => Promise<RawConnectionMutationResult>,
-      fallbackError: string
+      fallbackError: string,
+      change: { operation: 'saved' | 'removed'; id?: string } = { operation: 'saved' },
     ): Promise<ConnectionMutationResult> => {
+      const ownerId = cachedDevicesAccount();
       setIntegrationMutating(integrationId, true);
       try {
         const result = await mutation();
@@ -161,13 +165,17 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
           const name = integrations.find((integration) => integration.id === integrationId)?.name ?? integrationId;
           return { success: false, error: integrationErrorText(translateSessionMessage, name, result) || fallbackError };
         }
+        await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined, {
+          resource: 'integrations', operation: change.operation, id: change.id ?? integrationId, deviceId: host.remote?.deviceId,
+          ...(change.operation === 'removed' ? {} : { after: { name: integrations.find(integration => integration.id === integrationId)?.name ?? integrationId } }),
+        }, ownerId);
         return { success: true };
       } finally {
         setIntegrationMutating(integrationId, false);
         invalidateStatuses();
       }
     },
-    [integrations, invalidateStatuses, setIntegrationMutating]
+    [integrations, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
   );
 
   const connectIntegration = useCallback(
@@ -185,7 +193,8 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
       runConnectionMutation(
         integrationId,
         () => api.disconnect(integrationId, accountId),
-        'Failed to disconnect.'
+        'Failed to disconnect.',
+        { operation: 'removed', id: accountId ? `${integrationId}:${accountId}` : integrationId },
       ),
     [runConnectionMutation, api]
   );
@@ -209,25 +218,33 @@ export function IntegrationsProvider({ children }: { children: React.ReactNode }
 
   const startCliLogin = useCallback(
     async (integrationId: string) => {
+      const ownerId = cachedDevicesAccount();
       setIntegrationMutating(integrationId, true);
       try {
         const result = await api.cliLoginStart(integrationId);
-        if (result.success && 'connected' in result) invalidateStatuses();
+        if (result.success && 'connected' in result) {
+          invalidateStatuses();
+          await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+            { resource: 'integrations', operation: 'saved', id: integrationId, deviceId: host.remote?.deviceId }, ownerId);
+        }
         return result;
       } finally {
         setIntegrationMutating(integrationId, false);
       }
     },
-    [api, invalidateStatuses, setIntegrationMutating]
+    [api, invalidateStatuses, setIntegrationMutating, host.remote?.deviceId]
   );
 
   const waitCliLogin = useCallback(
     async (integrationId: string) => {
+      const ownerId = cachedDevicesAccount();
       const result = await api.cliLoginWait(integrationId);
       if (result.status !== 'pending') invalidateStatuses();
+      if (result.status === 'connected') await reportAssistantAppChange({ rpc: rpcOn(host.remote?.deviceId ?? null) }, undefined,
+        { resource: 'integrations', operation: 'saved', id: integrationId, deviceId: host.remote?.deviceId }, ownerId);
       return result;
     },
-    [api, invalidateStatuses]
+    [api, invalidateStatuses, host.remote?.deviceId]
   );
 
   const readCliProgress = useCallback((integrationId: string) => api.cliLoginProgress(integrationId), [api]);

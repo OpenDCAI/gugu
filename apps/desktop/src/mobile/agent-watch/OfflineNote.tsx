@@ -15,7 +15,7 @@ import { formatRelativeTime } from '@/i18n/format'
  * 形制照 orca 的 `HostRouteNoticeBanner`：单行次级文字、单色，❌ 不借用报错的红
  * —— 机器关机不是故障，是常态。
  */
-export function OfflineNote({ lastSeenAt }: { lastSeenAt: string | null }) {
+export function OfflineNote({ lastSeenAt, phone = false }: { lastSeenAt: string | null; phone?: boolean }) {
   const { t } = useTranslation('main')
   const [open, setOpen] = useState(false)
   const panelId = useId()
@@ -33,7 +33,7 @@ export function OfflineNote({ lastSeenAt }: { lastSeenAt: string | null }) {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="gg-aw-offline-text">
-          {t('agentWatch.offline.title')}
+          {t(phone ? 'agentWatch.offline.phoneTitle' : 'agentWatch.offline.title')}
           {seen ? (
             <>
               <span className="gg-aw-item-sep">·</span>
@@ -46,7 +46,7 @@ export function OfflineNote({ lastSeenAt }: { lastSeenAt: string | null }) {
         </span>
       </Button>
       <Collapse open={open} id={panelId}>
-        <div className="gg-aw-offline-body">{t('agentWatch.offline.body')}</div>
+        <div className="gg-aw-offline-body">{t(phone ? 'agentWatch.offline.phoneBody' : 'agentWatch.offline.body')}</div>
       </Collapse>
     </div>
   )

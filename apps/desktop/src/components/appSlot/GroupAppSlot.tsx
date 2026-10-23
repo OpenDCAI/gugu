@@ -381,6 +381,14 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     const page = installedExtensionsStore.mainTabOf(ask.extensionId)
     // Asked after any file before it: an answer to one of those coming back later does not open over this.
     const asked = ++asking.current
+    // The folder entry names the root, rather than restoring the App or file previously shown here.
+    if (ask.extensionId === WORKSPACE_APP_ID) {
+      setPrompt(null)
+      setUnopened(null)
+      setAppFiles(null)
+      setOpened(null)
+      return undefined
+    }
     if (page?.enabled) {
       setAppFiles(null)
       // The App asked for here is where its trail starts: 「返回」 from it is the folder.

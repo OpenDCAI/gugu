@@ -11,6 +11,8 @@ import { PHONE_ACTION_GROUPS, type PhoneActionGroup, type PhoneGroupGrants } fro
 
 export interface PhoneDeviceSettings {
   enabled: boolean
+  /** Agent hosting is an independent opt-in; it never grants phone data access. */
+  hostEnabled: boolean
   groups: PhoneGroupGrants
 }
 
@@ -22,7 +24,7 @@ const INSTALL_BOUND_KEY = 'gugu.phoneDevice.installBoundTo'
 const allOff = (): PhoneGroupGrants =>
   Object.fromEntries(PHONE_ACTION_GROUPS.map((group) => [group, false])) as PhoneGroupGrants
 
-export const DEFAULT_PHONE_DEVICE_SETTINGS: PhoneDeviceSettings = { enabled: false, groups: allOff() }
+export const DEFAULT_PHONE_DEVICE_SETTINGS: PhoneDeviceSettings = { enabled: false, hostEnabled: false, groups: allOff() }
 
 const listeners = new Set<() => void>()
 const cache = new Map<string, PhoneDeviceSettings>()
@@ -34,10 +36,10 @@ function read(userId: string): PhoneDeviceSettings {
   try {
     const raw = localStorage.getItem(KEY_PREFIX + userId)
     if (raw) {
-      const parsed = JSON.parse(raw) as { enabled?: unknown; groups?: Record<string, unknown> }
+      const parsed = JSON.parse(raw) as { enabled?: unknown; hostEnabled?: unknown; groups?: Record<string, unknown> }
       const groups = allOff()
       for (const group of PHONE_ACTION_GROUPS) groups[group] = parsed.groups?.[group] === true
-      value = { enabled: parsed.enabled === true, groups }
+      value = { enabled: parsed.enabled === true, hostEnabled: parsed.hostEnabled === true, groups }
     }
   } catch {
     value = DEFAULT_PHONE_DEVICE_SETTINGS
@@ -64,9 +66,20 @@ export function setPhoneDeviceEnabled(userId: string, enabled: boolean): void {
   write(userId, { ...read(userId), enabled })
 }
 
+export function setPhoneAgentHostEnabled(userId: string, hostEnabled: boolean): void {
+  write(userId, { ...read(userId), hostEnabled })
+}
+
 export function setPhoneActionGroup(userId: string, group: PhoneActionGroup, on: boolean): void {
   const current = read(userId)
   write(userId, { ...current, groups: { ...current.groups, [group]: on } })
+}
+
+/** Connecting one category in the guide must not silently restore other disabled categories. */
+export function connectPhoneActionGroupChoice(userId: string, group: PhoneActionGroup): void {
+  const current = read(userId)
+  const groups = current.enabled ? current.groups : allOff()
+  write(userId, { ...current, enabled: true, groups: { ...groups, [group]: true } })
 }
 
 export function subscribePhoneDeviceSettings(listener: () => void): () => void {
@@ -93,20 +106,45 @@ export function effectiveGrants(settings: PhoneDeviceSettings): PhoneGroupGrants
   return grants
 }
 
+/** A restored installation carries presentation data, never consent for this native install. */
+function clearInstallationChoices(): void {
+  const owners = new Set(cache.keys())
+  let failure: unknown
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(KEY_PREFIX)) owners.add(key.slice(KEY_PREFIX.length))
+    }
+  } catch (error) { failure = error }
+  for (const owner of owners) {
+    const next = { enabled: false, hostEnabled: false, groups: allOff() }
+    cache.set(owner, next)
+    try { localStorage.setItem(KEY_PREFIX + owner, JSON.stringify(next)) }
+    catch (error) { failure ??= error }
+  }
+  for (const listener of [...listeners]) listener()
+  // Do not mark the new native binding as verified if old consent remains on disk.
+  if (failure) throw failure
+}
+
 /**
  * 这次安装的标识(machine_id):卸载重装才变。device_id 再按账号分开 —— 设备行的主键全库唯一,
  * 同一台手机换个号登录不能撞上上一个号的那一行。
  */
-export function phoneInstallId(installKey: string | null = null): string {
+export function phoneInstallId(installKey: string | null = null, previousInstallKey?: string | null): string {
   try {
     const existing = localStorage.getItem(INSTALL_KEY)
     const boundTo = localStorage.getItem(INSTALL_BOUND_KEY)
-    // 网页存储会随系统备份搬到新手机:标识认的那台手机不是这台 ⇒ 换一个,❌ 两台手机共用一个设备行、同一次调用两边各做一遍。
-    // 老安装没记过(boundTo 为空)⇒ 认下这台,标识不变(设备行不换)。
-    if (existing && (!installKey || !boundTo || boundTo === installKey)) {
-      if (installKey && !boundTo) localStorage.setItem(INSTALL_BOUND_KEY, installKey)
+    // A missing native binding cannot prove that legacy consent belongs to this phone.
+    // Same-install upgrades retain their choices; a new/unverifiable install opts in again.
+    if (existing && (!installKey || boundTo === installKey)) return existing
+    // Only native no-backup continuity evidence may bridge the old device-key format.
+    // Restored WebView data alone must never supply this migration authority.
+    if (existing && installKey && previousInstallKey && boundTo === previousInstallKey) {
+      localStorage.setItem(INSTALL_BOUND_KEY, installKey)
       return existing
     }
+    if (installKey) clearInstallationChoices()
     const created = crypto.randomUUID()
     localStorage.setItem(INSTALL_KEY, created)
     if (installKey) localStorage.setItem(INSTALL_BOUND_KEY, installKey)

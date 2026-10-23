@@ -15,6 +15,8 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneRead', async (origin
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneRoutines', () => ({ usePhoneRoutines: () => ({
   routines: [{ id: 'routine-1', name: 'Routine', enabled: false, triggerConfig: { expr: '0 9 * * *' }, agentConfig: {} }],
   read: { state: 'ok', data: [], reload: m.reload },
+  // Not a shared computer home: no session directory is part of the ownership read.
+  directory: null,
 }) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/phoneMemoryData', async (original) => ({
   ...await original<typeof import('../../../apps/desktop/src/mobile/assistant/phoneMemoryData')>(), deleteMemoryNote: m.remove,

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '../../session/renderer/lib/ui/input'
 import { Textarea } from '../../session/renderer/lib/ui/textarea'
@@ -6,9 +6,13 @@ import { Button } from '../ui/Button'
 import { PageHead } from '../../session/renderer/features/assistant/assistant-ui-parts'
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core'
 import type { UserLibraryEntry, UserLibraryKind } from '../../session/shared/user-library'
-import { libraryHost } from './assistant-library-client'
+import { assistantAppProgram, publishAssistantAppChange } from './assistant-app-client'
+import { toast } from '../../session/renderer/lib/hooks/use-toast'
+import { libraryDeviceId } from './assistant-library-client'
+import { cachedDevicesAccount } from '../../store/devicesCache'
 
-export function AssistantLibraryEditor({ machine, kind, entry, onClose, onSaved }: {
+export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onClose, onSaved }: {
+  assistantId: string;
   machine: AssistantMachine | null | undefined; kind: UserLibraryKind; entry: UserLibraryEntry | null;
   onClose: () => void; onSaved: () => void;
 }) {
@@ -19,12 +23,20 @@ export function AssistantLibraryEditor({ machine, kind, entry, onClose, onSaved 
   const [content, setContent] = useState(entry?.content ?? '')
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState(false)
+  const ownerId = useRef(cachedDevicesAccount()).current
   return <form className="ta-page" data-testid="assistant-library-editor" onSubmit={async event => {
     event.preventDefault(); if (!name.trim() || saving) return
     setSaving(true); setFailed(false)
     try {
-      await libraryHost(machine)!.writeUserLibraryEntry({ kind, name: name.trim(), description, group: group.trim() || null, content,
-        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) })
+      const saved = await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', { kind, name: name.trim(), description, group: group.trim() || null, content,
+        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }, ownerId)
+      const change = saved.activity?.at(-1)
+      try {
+        if (assistantId) await publishAssistantAppChange(machine, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
+          operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),
+          ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
+            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, assistantId, ownerId)
+      } catch { toast({ title: t('library.savedNotificationFailed'), tier: 'warning' }) }
       onSaved()
     } catch { setFailed(true) }
     finally { setSaving(false) }

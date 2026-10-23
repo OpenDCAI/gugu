@@ -1,3 +1,4 @@
+import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
@@ -191,7 +192,8 @@ export type SessionAction =
   /** #7221 schedule_*:给自己排的「已安排」,只作用于发起调用的这条会话(agent-schedules.ts)。 */
   | AgentScheduleAction
   | ProjectAgentAction
-  | LibraryAgentAction;
+  | LibraryAgentAction
+  | ActivityAction;
 
 // `SessionModel` 与它的取值规则搬去了 `./session-model-fact` —— 那一格的合同里有一条
 // 「平台模型必须报出两个**不同**的字符串」,而它在 e2e 那侧的变异下跑不到(主断言先红)。
@@ -1841,6 +1843,7 @@ export async function runSessionAction(
   signal?.throwIfAborted();
   if (isProjectAgentAction(action)) return runProjectAgentAction(context, action);
   if (isLibraryAgentAction(action)) return runLibraryAgentAction(action);
+  if (isActivityAction(action)) return runActivityAction(action);
   const caller = await callerRow(context);
   signal?.throwIfAborted();
 
@@ -2046,6 +2049,7 @@ export async function runRemoteSessionAction(
   signal?.throwIfAborted();
   if (isProjectAgentAction(action)) return runProjectAgentAction({}, action);
   if (isLibraryAgentAction(action)) return runLibraryAgentAction(action);
+  if (isActivityAction(action)) return runActivityAction(action);
 
 
   if (action.action === 'locate') return { session_ids: await localSessionIds(action.session_ids) };

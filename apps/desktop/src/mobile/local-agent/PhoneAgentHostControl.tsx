@@ -1,0 +1,73 @@
+import { useState } from 'react'
+import { Button } from '@/components/ui/Button'
+import { SettingsGroup, SettingsNote, SettingsRow } from '@/components/settings/SettingsPrimitives'
+import { Bot } from '@/lib/icons'
+import { restartPhoneAgentHost, stopPhoneAgentHost, usePhoneDevice } from '../phone-device/phoneDeviceRuntime'
+import { setPhoneAgentHostEnabled, usePhoneDeviceSettings } from '../phone-device/phoneDeviceSettings'
+import { phoneAgentAvailable } from './nativeAgent'
+import '../phone-device/phone-device.css'
+
+/** Hosting is a device setting; Agent creation and conversations stay in their existing flows. */
+export function PhoneAgentHostControl({ ownerId }: { ownerId: string }) {
+  const phone = usePhoneDevice()
+  const settings = usePhoneDeviceSettings(ownerId)
+  const [changing, setChanging] = useState<'stop' | 'restart' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const host = phone.host?.ownerId === ownerId ? phone.host : null
+  const ready = settings.hostEnabled && host?.ready && host.status === 'ready'
+  const failed = settings.hostEnabled && (host?.status === 'failed' || host?.status === 'interrupted' || host?.status === 'stopped' || phone.link.state === 'error')
+  const hostError = !settings.hostEnabled ? null
+    : host?.error ?? (host?.status === 'failed' ? host.message : undefined)
+      ?? (phone.link.state === 'error' ? phone.link.message : undefined)
+      ?? (host?.status === 'interrupted' ? '上次运行已中断，重新连接后可以在原对话里继续。' : null)
+  const statusText = changing === 'stop' ? '正在停止手机 Agent'
+    : changing === 'restart' ? '正在重新连接'
+      : error ? '操作未完成'
+        : !settings.hostEnabled ? (host?.status === 'stopped' ? '手机 Agent 已停止' : '未启用手机 Agent')
+          : ready ? '已连接，可以在这台手机上处理任务'
+            : host?.status === 'interrupted' ? '手机 Agent 已中断'
+              : host?.status === 'stopped' ? '手机 Agent 已停止'
+                : failed ? '手机 Agent 连接失败' : '正在连接这台手机'
+
+  const changeHost = async (kind: 'stop' | 'restart') => {
+    if (changing) return
+    setChanging(kind)
+    setError(null)
+    try {
+      if (kind === 'stop') await stopPhoneAgentHost(ownerId)
+      else await restartPhoneAgentHost(ownerId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setChanging(null)
+    }
+  }
+
+  if (!phoneAgentAvailable()) return null
+
+  return (
+    <SettingsGroup
+      title="手机 Agent"
+      className="gg-phone-host-control"
+      data-testid="phone-agent-host-settings"
+      footer={error || hostError ? <SettingsNote tone="danger" role="alert">{error ?? hostError}</SettingsNote> : undefined}
+    >
+      <SettingsRow
+        leading={<Bot className="size-5 gg-phone-setting-icon" aria-hidden="true" />}
+        title="在这台手机上运行 Agent"
+        description="新建任务时选择这台手机。手机能力按需授权。"
+        stack
+        control={(
+          <div className="flex flex-wrap items-center gap-2">
+            {settings.hostEnabled || changing
+              ? <Button size="sm" disabled={!!changing} onClick={() => void changeHost('stop')}>停止手机 Agent</Button>
+              : <Button size="sm" variant="primary" onClick={() => { setError(null); setPhoneAgentHostEnabled(ownerId, true) }}>启用手机 Agent</Button>}
+            {failed && <Button size="sm" disabled={!!changing} onClick={() => void changeHost('restart')}>重新连接</Button>}
+          </div>
+        )}
+      >
+        <div className="gg-phone-host-status" data-ready={!!ready && !changing && !error} role="status" data-testid="phone-host-status">{statusText}</div>
+      </SettingsRow>
+    </SettingsGroup>
+  )
+}

@@ -16,6 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
+import { installActivityCollector } from '@main/core/activity/collector'
 import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
@@ -115,7 +116,7 @@ import {
 import {
   claimInterruptedDispatches,
 } from '@main/core/sessions/sendMessage'
-import { claimInterruptedDeferredMessages, installDeferredMessageDelivery } from '@main/core/sessions/session-deferred-messages'
+import { claimInterruptedDeferredMessages, installDeferredMessageDelivery, withDeferredMessagesBeforeAdmission } from '@main/core/sessions/session-deferred-messages'
 import { hydrateSession } from '@main/core/sessions/hydrateSession'
 import { recordLiveModelSwitch } from '@main/core/sessions/live-model-switch'
 import { readSessionOptions, SessionOptionsError } from '@main/core/session-timeline/live-options'
@@ -639,6 +640,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // --- Eager service .initialize()/.start() block (index.ts:146-156). ---
   projectSettingsService.initialize()
   prSyncScheduler.initialize()
+  stopActivityCollector = installActivityCollector()
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
@@ -723,6 +725,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
 }
 
+let stopActivityCollector: (() => void) | null = null
+
 /**
  * Tears down the runtime worker processes the module spawned. The host folds this into its own
  * `before-quit` rather than letting the session backend register its own preventDefault quit handler.
@@ -760,6 +764,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('agent-config-runtime', disposeAgentConfigRuntimeProcess)
   await runPhase('module-scope', () => appScope.dispose())
   await runPhase('local-pty', disposeLocalPtySessions)
+  await runPhase('activity', () => { stopActivityCollector?.(); stopActivityCollector = null })
   await runPhase('database', closeDatabase)
   await runPhase('logging', flushLogWrites)
   await flushLogWrites()
@@ -830,6 +835,7 @@ export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
   description?: string
+  agentInstructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -865,6 +871,7 @@ export function emdashExtensionAgentContributions(): {
       extensionId: manifest.id,
       name: manifest.name,
       ...(manifest.description ? { description: manifest.description } : {}),
+      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,
@@ -956,14 +963,15 @@ export async function injectEmdashPromptDetached(
   sessionId: string,
   text: string,
   /** `coalesceKey`: a still-queued prompt of the same key is replaced in place (machine.ts PromptQueued). */
-  opts?: { steerIfBusy?: boolean; coalesceKey?: string },
+  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
 ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient()
-  const result = await client.promptDetached({
+  const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
     sessionId,
-    prompt: { text, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    prompt: { text: prepared, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
-  })
+  // A replaceable queued prompt must not take ownership of unrelated App context.
+  }), Boolean(opts?.deferredDispatch || opts?.coalesceKey))
   if (result.declined) {
     return { outcome: 'declined', completion: Promise.resolve() }
   }

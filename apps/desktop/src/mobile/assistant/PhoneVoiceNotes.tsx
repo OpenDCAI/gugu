@@ -7,10 +7,11 @@ import { askAboutNoteDraft, formatTimestamp, groupVoiceNotesByWeek, speakersOf, 
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { AlertCircle, MessageCircle, Trash2 } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, PageHead, WideSegments } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneMachineView, ReadView, type OpenedPageProps } from './PhoneMachineView'
@@ -159,7 +160,7 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
   const [tab, setTab] = useState<'summary' | 'transcript'>('summary')
   const [confirming, setConfirming] = useState(false)
   const read = usePhoneRead(`voice-note|${machineKey(machine)}|${id}`, () => readVoiceNote(machine, id), 'read voice note', (data) =>
-    data?.item.view.kind === 'processing' ? voicePollMs(true) : null,
+    data && (data.item.view.kind === 'processing' || data.item.view.kind === 'queued') ? voicePollMs(data.item.view.kind === 'processing') : null,
   )
   // 在读 / 读失败(说是语音笔记没读到)/ 读到了却没有这一条(被删了)。
   if (read.state !== 'ok' || !read.data)
@@ -226,14 +227,17 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
       )
     return (
       <>
-        <WideSegments<'summary' | 'transcript'>
-          items={[
-            { id: 'summary', label: t('summary') },
-            { id: 'transcript', label: t('transcript') },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
+        <div className="ta-phone-page-segments">
+          <SegmentedTabs
+            items={[
+              { value: 'summary', label: t('summary'), testId: 'assistant-seg-summary' },
+              { value: 'transcript', label: t('transcript'), testId: 'assistant-seg-transcript' },
+            ]}
+            value={tab}
+            onChange={setTab}
+            ariaLabel={title}
+          />
+        </div>
         {tab === 'summary' ? (
           <div className="ta-card ta-prose" data-testid="assistant-voice-summary">
             <Markdown trust="chat" content={summaryBody(summary ?? '')} />

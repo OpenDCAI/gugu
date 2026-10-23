@@ -5,8 +5,10 @@ import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { Button } from '@/components/ui/Button'
 import { IconButton } from '@/components/ui/IconButton'
 import { PaneHeader } from '@/components/ui/Pane'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Avatar } from '@/components/Avatar'
 import { ChatAreaPanel } from '@/components/ChatAreaPanel'
+import { FilePreviewHost } from '@/components/chat/filePreviewHost'
 import { AssistantCustomizeCard } from '@/components/assistant/AssistantCustomizeCard'
 import { useCustomizeCardOffered } from '@/lib/assistantSetupState'
 import { useAuth } from '@/store/auth'
@@ -206,21 +208,20 @@ function MobileAssistantAppContent({
           左 = 它的头像 + 名字(点了去 <名字> 那一段;往下钻的页最左多一个返回箭头),右 = 搜索(聊天段)+ 齿轮。 */}
       <PaneHeader
         mobile
+        titleLevel={back ? 'panel' : 'page'}
         data-testid="mobile-assistant-header" hidden={taskChat}
         leading={
           back ? (
-            <IconButton size="lg" aria-label={t('panel.back')} onClick={() => open(back)} data-testid="mobile-assistant-back">
+            <IconButton size="lg" aria-label={`${t('panel.back')} · ${labels[back.tab]}`} onClick={() => open(back)} data-testid="mobile-assistant-back">
               <ChevronLeft />
             </IconButton>
           ) : undefined
         }
         title={
-          <h2 className="gg-pane-title ta-phone-identity-title">
-            <Button variant="ghost" className="ta-phone-identity" onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
-              <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
-              <span className="ta-phone-identity-name">{name}</span>
-            </Button>
-          </h2>
+          <Button variant="ghost" className="ta-phone-identity" onClick={() => open({ tab: 'profile' })} aria-label={t('top.profile', { name })} data-testid="mobile-assistant-pill">
+            <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={28} isAgent harnessBadge={false} />
+            <span className="ta-phone-identity-name">{name}</span>
+          </Button>
         }
         actions={
           <>
@@ -241,22 +242,23 @@ function MobileAssistantAppContent({
           </>
         }
       />
-      <div className="ta-seg ta-phone-seg" role="tablist" aria-label={name} hidden={taskChat}>
-        {PHONE_TABS.map((id) => (
-          <Button key={id} variant="ghost" role="tab" aria-selected={tab === id} onClick={() => { showAssistantTaskChat(null); open({ tab: id }) }} data-testid={`mobile-assistant-tab-${id}`}>
-            {labels[id]}
-          </Button>
-        ))}
+      <div className="ta-phone-seg" hidden={taskChat}>
+        <SegmentedTabs
+          ariaLabel={name}
+          value={tab}
+          onChange={(id) => { showAssistantTaskChat(null); open({ tab: id }) }}
+          items={PHONE_TABS.map((id) => ({ value: id, label: labels[id], panelId: `assistant-${assistant.id}-${id}`, testId: `mobile-assistant-tab-${id}` }))}
+        />
       </div>
-      <div className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
-        <ChatAreaPanel
+      <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
+        <FilePreviewHost.Provider value={{}}><ChatAreaPanel
           chatId={chatId}
           activeTab="chats"
           mobile
           hidden={!chatShown}
           chrome={{ placeholder: t('chat.placeholder', { name }), attachGlyph: <Plus />, attachMenu, typing: chatFooter }}
           {...chatHandlers}
-        />
+        /></FilePreviewHost.Provider>
         {tab === 'chat' ? <IdeasEntry assistantId={assistant.id} column={chatColumn} busy={false} onOpen={() => setIdeasOpen(true)} /> : null}
       </div>
       {/* 录音条:在 App 根上而不是聊天那一段里 —— 切到别的格也看得到「还在录」。 */}
@@ -275,7 +277,7 @@ function MobileAssistantAppContent({
       />
       {ideasOpen ? <PhoneIdeas assistant={assistant} chatId={chatId} askInChat={askInChat} onClose={() => setIdeasOpen(false)} /> : null}
       {tab === 'chat' ? null : (
-        <main className="ta-phone-body" data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
+        <main id={`assistant-${assistant.id}-${tab}`} role="tabpanel" aria-label={labels[tab]} className="ta-phone-body" data-testid={`mobile-assistant-${tab}`} hidden={taskChat}>
           {tab === 'today' ? <PhoneToday {...page} /> : null}
           {tab === 'tasks' ? <PhoneTasks {...page} /> : null}
           {tab === 'memory' ? <PhoneMemory {...page} /> : null}

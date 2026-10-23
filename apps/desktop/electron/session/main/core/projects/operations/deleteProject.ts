@@ -24,7 +24,7 @@ export async function deleteProject(id: string): Promise<void> {
   if (provider) await projectManager.closeProject(id);
 
   await prSyncEngine.deleteProjectData(id);
-  await db.delete(projects).where(eq(projects.id, id));
+  const deleted = await db.delete(projects).where(eq(projects.id, id)).returning({ id: projects.id });
   void viewStateService.del(`project:${id}`);
-  projectEvents._emit('project:deleted', id);
+  if (deleted.length > 0) projectEvents._emit('project:deleted', id);
 }

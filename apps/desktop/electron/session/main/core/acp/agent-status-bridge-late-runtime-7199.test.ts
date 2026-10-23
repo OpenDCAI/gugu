@@ -107,6 +107,25 @@ describe('ACP 状态桥:运行时晚起来也接得上', () => {
     runtime.sessions = {};
   });
 
+  it('records a confirmed metadata model change through the real bridge without snapshot duplicates', async () => {
+    runtime.up = true;
+    runtime.sessions = { [SESSION]: { ...working(), modelId: 'model-a' } };
+    const bridge = await freshBridge();
+    // freshBridge resets modules; subscribe to the same signal bus as that bridge.
+    const { onActivitySignal } = await import('../activity/signals');
+    const activity: { kind: string; model_id?: string; previous_model_id?: string }[] = [];
+    const off = onActivitySignal(event => activity.push(event));
+    try {
+      bridge.initialize(); await settle(); await settle();
+      expect(activity).toEqual([]);
+      const live = replicas.filter(r => !r.disposed).at(-1)!;
+      live.value = { [SESSION]: { ...working(), modelId: 'model-b' } };
+      for (let n = 0; n < 200; n++) live.onChange?.(live.value);
+      expect(activity).toMatchObject([{ kind: 'session.model_changed', previous_model_id: 'model-a', model_id: 'model-b' }]);
+      expect(emitted.map(event => event.type)).toEqual(['start']);
+    } finally { off(); bridge.dispose(); }
+  });
+
   it('开机没起来、稍后被会话启动拉起:在跑的那条报出开工,做完报出停下', async () => {
     const bridge = await freshBridge();
     bridge.initialize();

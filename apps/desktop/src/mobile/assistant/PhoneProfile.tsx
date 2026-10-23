@@ -14,12 +14,13 @@ import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConnectorDetail, PhoneConnectorsPage } from './PhoneConnectors'
 import { PhoneConnectorSetupPage } from './PhoneConnectorSetup'
 import { PhoneCustomize } from './PhoneCustomize'
+import { PhoneLibraryVolume } from './PhoneLibraryVolume'
 import { parseConnectorSub } from './phoneConnectorFlow'
 import { personaChipKey } from './phoneProfileModel'
 import { usePhoneIntegrations, usePhonePersona, type PhonePersona } from './usePhoneProfileData'
 import { usePhoneToday } from './usePhoneToday'
 import './phone-profile.css'
-import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume'
+import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 
 /**
  * <它的名字> 那一格(同桌面 assistant-profile,手机上头像通顶、没有页头):大头像(右下一支笔 = 自定义)、名字、
@@ -35,7 +36,7 @@ export function PhoneProfile(props: PhonePageProps) {
   const persona = usePhonePersona(machine)
   const connectors = !sub || sub === 'connectors' || !!sub.startsWith('connector:')
   const integrations = usePhoneIntegrations(homeDeviceId, readiness, connectors)
-  if (sub === 'library:capabilities' || sub === 'library:devices') return <AssistantLibraryVolume key={sub} machine={machine.state === 'ready' ? machine.machine : null} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} askInChat={askInChat} />
+  if (sub === 'library:capabilities' || sub === 'library:devices') return <PhoneLibraryVolume key={sub} {...props} kind={sub === 'library:capabilities' ? 'capabilities' : 'devices'} />
 
   if (sub === 'settings') return <div className="ta-page ta-phone-profile"><PageHead title={t('nav.settings')} /><div className="ta-skin">
     <AssistantSettingsPage onOpenPage={(tab) => props.open({ tab })} onOpenSection={(section) => go(section)} />
@@ -104,7 +105,7 @@ function ProfileHome({
     <div className="ta-page ta-phone-profile" data-testid="assistant-profile">
       <div className="ta-hero ta-phone-hero">
         <Button variant="ghost" className="ta-hero-avatar" onClick={() => go('customize')} aria-label={t('customize.title')} data-testid="assistant-profile-edit">
-          <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={120} isAgent harnessBadge={false} />
+          <Avatar name={name} avatarUrl={assistant.avatar} seed={assistant.id} size={72} isAgent harnessBadge={false} />
           <span className="ta-hero-edit">
             <Pencil />
           </span>
@@ -114,7 +115,7 @@ function ProfileHome({
         </h1>
         {since ? <p className="ta-hero-since">{t('header.since', { date: since, name: ownerName || t('header.you') })}</p> : null}
         {/* 性格在它家里,在休息时读不到:只说「性格」,❌ 说成「设置性格」(它可能早有性格);点进去自定义那页说清怎么读。 */}
-        <Button variant="ghost" className="ta-chip mt-3" onClick={() => go('customize')} data-testid="assistant-character-chip">
+        <Button variant="ghost" className="ta-chip" onClick={() => go('customize')} data-testid="assistant-character-chip">
           {t(personaChipKey(persona.persona))}
           <ChevronRight />
         </Button>
@@ -126,8 +127,8 @@ function ProfileHome({
         <PhoneConnectorsPage {...props} assistant={assistant} ownerName={ownerName} askInChat={askInChat} go={go} integrations={integrations} embedded />
       </AssistantSection>
       <AssistantSection title={t('capabilities.title')} testId="assistant-capabilities">
-        <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
-        <AssistantLibraryCard machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="capabilities" onOpen={() => go('library:capabilities')} />
+        <AssistantLibraryCard assistantId={assistant.id} machine={machine.state === 'ready' ? machine.machine : null} kind="devices" onOpen={() => go('library:devices')} />
         <AssistantRow title={t('channels.title')} detail={t('channels.note', { name })} onClick={() => go('channels')} testId="assistant-open-channels" />
       </AssistantSection>
     </div>

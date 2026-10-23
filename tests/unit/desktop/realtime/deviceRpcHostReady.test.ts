@@ -35,7 +35,7 @@ describe('device RPC subscription: host ready', () => {
       warn: () => undefined,
       createHandlers: () => ({ handlers: {}, dispose: () => undefined }),
     });
-    await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never);
+    await subscribe({ deviceId: 'dev-1' } as never);
     expect(sent).toEqual([]);
     onStatus!('SUBSCRIBED');
     onStatus!('CHANNEL_ERROR');
@@ -47,7 +47,7 @@ describe('device RPC subscription: host ready', () => {
   it('says nothing on a channel that hosts no task host', async () => {
     const { sent, supabase } = fakeSupabase();
     const subscribe = createDesktopDeviceRpcSubscription({ supabase: supabase as never, warn: () => undefined });
-    await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never);
+    await subscribe({ deviceId: 'dev-1' } as never);
     onStatus!('SUBSCRIBED');
     await Promise.resolve();
     expect(sent).toEqual([]);

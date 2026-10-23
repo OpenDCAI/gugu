@@ -5,6 +5,8 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { onMachineEvent, rpc } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { cachedDevicesAccount } from '@/store/devicesCache';
 
 /**
  * 项目首页的文件夹卡与输入框的文件夹选择器共用的数据(product spec「项目首页」,#7341)。
@@ -222,9 +224,12 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
 
   const attach = useCallback(
     async (projectId: string, path: string): Promise<AttachResult> => {
+      const ownerId = cachedDevicesAccount();
       try {
         const result = await rpc.projects.attachProjectFolder(projectId, path);
         if (!result.success) return { ok: false, error: result.error };
+        void reportAssistantAppChange({ rpc }, undefined, { resource: 'projects', operation: 'edited', section: 'folders', id: projectId,
+          deviceId: machineRegistry.machineOf(projectId) ?? undefined, after: { path: result.data.path } }, ownerId);
         freshFolders.set(rowId, result.data.workspaceId);
         setFresh(result.data.workspaceId);
         bump();
@@ -238,8 +243,11 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
 
   const detach = useCallback(
     async (folder: ProjectFolder): Promise<boolean> => {
+      const ownerId = cachedDevicesAccount();
       const result = await rpc.projects.detachProjectFolder(folder.projectId, folder.workspaceId);
       if (!result.success) return false;
+      void reportAssistantAppChange({ rpc }, undefined, { resource: 'projects', operation: 'edited', section: 'folders', id: folder.projectId,
+        deviceId: machineRegistry.machineOf(folder.projectId) ?? undefined, before: { path: folder.path } }, ownerId);
       if (freshFolders.get(rowId) === folder.workspaceId) {
         freshFolders.delete(rowId);
         setFresh(undefined);

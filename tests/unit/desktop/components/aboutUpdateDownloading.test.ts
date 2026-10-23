@@ -54,6 +54,19 @@ describe('关于页说得出「下载新版本中… N%」', () => {
       window.removeEventListener(UI_EVENTS.sessionpageOpenFeedback, open)
     }
   })
+  it('关于页提供重新查看功能引导的入口', async () => {
+    const reopen = vi.fn()
+    window.addEventListener(UI_EVENTS.reopenProductTour, reopen)
+    try {
+      await harness.render(createElement(AboutSection))
+      const row = harness.container.querySelector<HTMLElement>('[data-testid="about-reopen-product-tour"]')
+      expect(row).not.toBeNull()
+      await act(async () => { row!.click() })
+      expect(reopen).toHaveBeenCalledOnce()
+    } finally {
+      window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
+    }
+  })
   it('静默下载进行中点「检查更新」→ 下载新版本中… N%,而不是「发现新版本」', async () => {
     checkForUpdates.mockResolvedValue(downloading(41.6))
     await harness.render(createElement(AboutSection))

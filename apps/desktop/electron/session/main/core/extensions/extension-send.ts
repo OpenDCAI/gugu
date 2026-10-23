@@ -11,6 +11,7 @@ import { supabase } from '../../../../supabase';
 import { subscribeAuthenticatedElectronRealtimeChannel, type ElectronManagedRealtimeChannel } from '../../../../realtime-channel';
 import type { AppMessageAction, AppMessageOptions, AppMessageReceipt, RemoteAppCaller } from '@gugu/session-core/session-record/contract';
 import type { AppComposeDetail } from '@shared/extensions/app-runtime-protocol';
+import type { AgentReach } from '@shared/extensions/manifest';
 
 /** The codes an App reads off a failed send — the same whether the agent is here or on another computer. */
 const APP_SEND_CODES = ['denied', 'invalid', 'not-found', 'rate-limited', 'failed'] as const satisfies readonly AppSendError['code'][];
@@ -46,12 +47,11 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
       on(kind: 'broadcast', filter: { event: string }, fn: (message?: { payload?: Record<string, unknown> }) => void): ElectronManagedRealtimeChannel;
     }).on('broadcast', { event }, (message) => onPayload(message?.payload ?? {}));
   void (async () => {
-    const { token } = await account();
+    await account();
     const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(
       { realtime: supabase.realtime, removeChannel: (channel) => supabase.removeChannel(channel as never) },
       create(),
       {
-        accessToken: token,
         label: `forum:${topic}`,
         createChannel: create,
         onStatus: (status) => {
@@ -142,6 +142,22 @@ export async function messageAgentFromApp(
   args: { agentId: unknown; text: unknown; queue?: unknown; defer?: unknown; key?: unknown },
   options: { from?: string } = {},
 ): Promise<AppMessageReceipt> {
+  const reach = extensionsService().agentReach(extensionId, 'agents:control');
+  const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
+  return messageAgentFromHostApp(app, reach, args, options);
+}
+
+/** Shared Extension API delivery after the host has resolved the App's authority.
+ * Installed Apps enter above; built-in Apps must authorize their fixed recipient before entering here.
+ * This is not a renderer/remote RPC entry point and accepts no permission claims from an App page.
+ */
+export async function messageAgentFromHostApp(
+  app: { extensionId: string; extensionName: string },
+  reach: AgentReach,
+  args: { agentId: unknown; text: unknown; queue?: unknown; defer?: unknown; key?: unknown },
+  options: { from?: string } = {},
+): Promise<AppMessageReceipt> {
+  const { extensionId } = app;
   const to = String(args.agentId ?? '');
   if (args.queue !== undefined && typeof args.queue !== 'boolean') throw new AppSendError('invalid', 'queue is true or false');
   if (args.defer !== undefined && typeof args.defer !== 'boolean') throw new AppSendError('invalid', 'defer is true or false');
@@ -153,8 +169,6 @@ export async function messageAgentFromApp(
     ...(typeof args.key === 'string' ? { key: args.key } : {}),
   };
   const { visibleAgentsForExtension, sessionsElsewhere } = await import('@main/core/extensions/extension-agents');
-  const reach = extensionsService().agentReach(extensionId, 'agents:control');
-  const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
   const sessionId = (await visibleAgentsForExtension({ scope: reach, extensionId })).get(to);
   if (sessionId) return tellSessionFromApp(app, sessionId, args.text, { ...how, ...options, to });
   if (reach !== 'all-machines') throw new AppSendError('not-found', `${to} is not an agent this App reaches on this computer`);

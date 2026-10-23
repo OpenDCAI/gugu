@@ -8,11 +8,19 @@ import { aggregateLibraryIndex, parseLibraryEntry } from './user-library-index';
 
 let owner: (() => Promise<string | null>) | null = null;
 export function setUserLibraryOwner(provider: (() => Promise<string | null>) | null): void { owner = provider; }
-async function libraryHome(explicit?: string): Promise<string> {
-  if (explicit) return explicit;
-  const id = await owner?.();
+type LibraryListener = (ownerId: string, kind: UserLibraryKind) => void;
+const listeners = new Set<LibraryListener>();
+export function onUserLibraryChanged(listener: LibraryListener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+function accountHome(id: string | null | undefined): string {
   if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Gugu library account is not ready');
   return join(resolveGuguHome(), 'users', id);
+}
+async function libraryHome(explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  return accountHome(await owner?.());
 }
 
 const kinds: readonly UserLibraryKind[] = ['capabilities', 'devices'];
@@ -57,9 +65,11 @@ export async function readUserLibraryEntry(kind: UserLibraryKind, id: string, ex
 
 const writes = new Map<string, Promise<unknown>>();
 /** Serialize edits and check the caller's version. Each entry is durable; the aggregate is always derived. */
-export async function writeUserLibraryEntry(input: UserLibraryWrite, explicitHome?: string): Promise<UserLibraryEntry> {
+export async function writeUserLibraryEntry(input: UserLibraryWrite, explicitHome?: string, source: 'ui' | 'agent' | 'unknown' = 'unknown', expectedOwnerId?: string): Promise<UserLibraryEntry> {
   checkedKind(input.kind);
-  const guguHome = await libraryHome(explicitHome);
+  const accountId = explicitHome ? null : await owner?.();
+  if (expectedOwnerId && accountId !== expectedOwnerId) throw new Error('Gugu library account changed');
+  const guguHome = explicitHome ?? accountHome(accountId);
   const id = validId(input.id ?? randomUUID());
   const root = join(guguHome, 'library', input.kind);
   const path = join(root, id, 'index.json');
@@ -74,11 +84,20 @@ export async function writeUserLibraryEntry(input: UserLibraryWrite, explicitHom
     if (!existing && input.expectedModifiedAt) throw new Error('Library entry no longer exists');
     const modifiedAt = new Date(Math.max(Date.now(), existing ? Date.parse(existing.modifiedAt) + 1 : 0)).toISOString();
     const record = parseLibraryEntry({ ...input, id, modifiedAt }, id);
+    const summary = ({ name, description, group }: UserLibraryEntry | typeof record) => ({ name, description, group });
+    // Resource and semantic history are one atomic replacement. A crash cannot
+    // commit an edit while silently dropping its event in a separate sidecar.
+    // Bodies/credentials never enter the operation metadata.
+    record.activity = [...(existing?.activity ?? []), {
+      operationId: randomUUID(), source, operation: existing ? 'edited' : 'created', modifiedAt,
+      ...(existing ? { before: summary(existing) } : {}), after: summary(record),
+    }];
     await mkdir(dirname(path), { recursive: true });
     // Resolve the created parent too: a symlink cannot redirect a write outside this profile.
     const rest = relative(await realpath(root), await realpath(dirname(path)));
     if (isAbsolute(rest) || rest === '..' || rest.startsWith('../') || rest.startsWith('..\\')) throw new Error('Library entry is outside Gugu storage');
     await atomicWriteText(path, `${JSON.stringify(record, null, 2)}\n`);
+    if (accountId && await owner?.() === accountId) for (const listener of listeners) listener(accountId, input.kind);
     return { ...record, path: dirname(path), index: path };
   })();
   writes.set(path, operation);
@@ -93,6 +112,6 @@ export function isLibraryAgentAction(action: { action: string }): action is Libr
 }
 export async function runLibraryAgentAction(action: LibraryAgentAction) {
   if (action.action === 'library_list') return readUserLibrary();
-  if (action.action === 'library_write') return writeUserLibraryEntry(action);
+  if (action.action === 'library_write') return writeUserLibraryEntry(action, undefined, 'agent');
   return action.entry ? readUserLibraryEntry(action.kind, action.entry) : readUserLibraryVolume(action.kind);
 }

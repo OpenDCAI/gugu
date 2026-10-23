@@ -43,11 +43,12 @@ export function PhoneMachineView({
 
 /** 读的时候:只一个「在等」(全产品同一个样子)。 */
 export function ReadingNow({ label }: { label?: string }) {
+  const { t } = useTranslation('assistant')
   return (
     <AssistantEmpty>
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex items-center gap-2" role="status">
         <LoadingIndicator size="inline" />
-        {label}
+        {label ?? t('library.loading')}
       </span>
     </AssistantEmpty>
   )
@@ -65,7 +66,7 @@ export function ReadFailed({ title, error, onRetry }: { title: string; error: un
         </Button>
       }
     >
-      {t('machine.readFailed', { message: errorText(error) })}
+      <span role="alert">{t('machine.readFailed', { message: errorText(error) })}</span>
     </AssistantEmpty>
   )
 }

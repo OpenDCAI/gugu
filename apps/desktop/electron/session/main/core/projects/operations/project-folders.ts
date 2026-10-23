@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { activitySignal } from '../../activity/signals';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { computeWorkspaceKey } from '@main/core/workspaces/workspace-key';
@@ -291,6 +292,8 @@ export async function attachProjectFolder(
 
   if (outcome.kind === 'conflict') return err(outcome.error);
   if (outcome.changed) {
+    activitySignal({ event_id: randomUUID(), kind: 'project.folder_attached', object_id: projectId,
+      related_object_id: outcome.ref.workspaceId, occurred_at: Date.now() });
     events.emit(projectFoldersChangedChannel, { projectId });
     await publishProjectVisibility(projectId);
   }
@@ -307,8 +310,10 @@ export async function detachProjectFolder(
   if (!project) return err(projectNotFound(projectId));
   if (project.repositoryWorkspaceId === workspaceId) {
     if (project.rootFolderDetached) return err({ type: 'not-found', message: `这个项目下没有挂着这个文件夹:${workspaceId}` });
-    await db.update(projects).set({ rootFolderDetached: true, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(projects.id, projectId));
+    const changed = await db.update(projects).set({ rootFolderDetached: true, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(and(eq(projects.id, projectId), eq(projects.rootFolderDetached, false))).returning({ id: projects.id });
+    if (changed.length > 0) activitySignal({ event_id: randomUUID(), kind: 'project.folder_detached', object_id: projectId,
+      related_object_id: workspaceId, occurred_at: Date.now() });
     events.emit(projectFoldersChangedChannel, { projectId });
     await publishProjectVisibility(projectId);
     return ok();
@@ -331,6 +336,9 @@ export async function detachProjectFolder(
   if (!detached) {
     return err({ type: 'not-found', message: `这个项目下没有挂着这个文件夹:${workspaceId}` });
   }
+
+  activitySignal({ event_id: randomUUID(), kind: 'project.folder_detached', object_id: projectId,
+      related_object_id: workspaceId, occurred_at: Date.now() });
 
   events.emit(projectFoldersChangedChannel, { projectId });
   await publishProjectVisibility(projectId);

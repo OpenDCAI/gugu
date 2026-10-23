@@ -20,9 +20,24 @@ const electronRealtime = {
 // requirement (no hardcoded fallback) is enforced on first real use, not at
 // import time.
 type ElectronSupabaseClient = ReturnType<typeof createGuguSupabaseClient>
+let currentAccessToken: (() => Promise<string | null>) | null = null
+
+/** 账号拥有登录态;频道只从这里现取,不能各自保存一枚令牌去改整条共享连接。 */
+export function bindElectronSupabaseAuth(provider: () => Promise<string | null>): void {
+  currentAccessToken = provider
+}
+
+export async function refreshElectronSupabaseAuth(): Promise<void> {
+  await cachedSupabase?.realtime.setAuth()
+}
+
 let cachedSupabase: ElectronSupabaseClient | null = null
 function resolveSupabase(): ElectronSupabaseClient {
   return (cachedSupabase ??= createGuguSupabaseClient({
+    accessToken: async () => {
+      if (!currentAccessToken) throw new Error('Electron Supabase account provider is not bound')
+      return currentAccessToken()
+    },
     fetch: electronFetch,
     realtime: electronRealtime
   }))

@@ -1,4 +1,6 @@
 import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
 import * as path from 'node:path';
 import { extensionManifestSchema, type ExtensionManifest } from '@shared/extensions/manifest';
 
@@ -98,5 +100,7 @@ export function scaffoldExtension(request: ScaffoldRequest): {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, content, 'utf8');
   }
+  activitySignal({ event_id: randomUUID(), kind: request.update ? 'app.source_updated' : 'app.source_created',
+    object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
   return { sourceDir, manifest };
 }
