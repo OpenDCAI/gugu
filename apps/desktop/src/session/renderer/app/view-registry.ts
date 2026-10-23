@@ -8,7 +8,7 @@ import { libraryView } from '@renderer/features/library/library-view';
 import { projectView } from '@renderer/features/projects/view';
 import { sessionHistoryView } from '@renderer/features/session-history/session-history-view';
 import { NewSessionPage } from '@renderer/features/sessions/new-session-page';
-import { SessionTitlebar } from '@renderer/features/sessions/session-titlebar';
+import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { sessionView } from '@renderer/features/sessions/view';
 import type { CommandProvider } from '@renderer/lib/commands/types';
 import { appState } from '@renderer/lib/stores/app-state';
@@ -26,7 +26,7 @@ export const views = {
   chat: chatView,
   'session-history': sessionHistoryView,
   session: sessionView,
-  'new-session': { TitlebarSlot: SessionTitlebar, MainPanel: NewSessionPage },
+  'new-session': { TitlebarSlot: ShellTitlebar, MainPanel: NewSessionPage },
   apps: appsView,
   app: appView,
   // oxlint-disable-next-line typescript/no-explicit-any

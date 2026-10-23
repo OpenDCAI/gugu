@@ -499,7 +499,6 @@ export default {
         "messages": "消息",
         "contacts": "联系人",
         "toggleSidebar": "显示/隐藏侧栏",
-        "toggleFilePanel": "显示/隐藏文件面板",
         "actualSize": "实际大小",
         "zoomIn": "放大",
         "zoomOut": "缩小",

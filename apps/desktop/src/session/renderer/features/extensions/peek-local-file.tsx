@@ -66,7 +66,7 @@ export function PeekLocalFile({ target, tabId }: { target: LocalPeek; tabId: str
 
 /**
  * A project's folder is read through its workspace, held while the file is shown — as the new-task panel holds it with no
- * session there (draft-workspace-panel). A session's is held by its session. 'ready', why not, or null while asking.
+ * session there. A session's is held by its session. 'ready', why not, or null while asking.
  */
 function useHeldWorkspace(target: LocalPeek): 'ready' | string | null {
   const project = 'project' in target.place ? target.place.project : null;

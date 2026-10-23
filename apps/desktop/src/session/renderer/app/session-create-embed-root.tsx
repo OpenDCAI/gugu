@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { NewSessionPage } from '@renderer/features/sessions/new-session-page';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 
 type SessionCreatedResult = { projectId: string; sessionId: string };
 
@@ -14,10 +13,8 @@ export function SessionCreateEmbedRoot() {
   }, []);
 
   return (
-    <SessionShellProvider>
-      <div data-testid="mobile-session-create-embed" className="h-full min-h-0">
-        <NewSessionPage onSessionCreated={notifyHost} />
-      </div>
-    </SessionShellProvider>
+    <div data-testid="mobile-session-create-embed" className="h-full min-h-0">
+      <NewSessionPage onSessionCreated={notifyHost} />
+    </div>
   );
 }
