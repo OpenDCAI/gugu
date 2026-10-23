@@ -323,7 +323,7 @@ export function useCreateSessionCallback({
         initialSession: session,
       },
       workspaceConfig: resolvedWorkspaceConfig,
-      // 对话里派的新任务(taskChatId)进群坐任务座位:被动、不发入群提示;群成员里「新建 Agent」主动入群。
+      // 对话里派的新任务(taskChatId)进群坐任务座位:不发入群提示;群成员里「新建 Agent」照常提示。
       ...(birthChatId ? { birthGroup: { chatId: birthChatId, asTask: Boolean(taskChatId) } } : {}),
     };
 

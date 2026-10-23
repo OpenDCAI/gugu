@@ -255,7 +255,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthGroup: { chatId: 'chat-group-1', asTask: false } }));
   });
 
-  // gugu-dev#181 任务 agent 进群一律被动:对话里派的新任务(带着任务卡的落点)坐任务座位。
+  // gugu-dev#181:对话里派的新任务(带着任务卡的落点)坐任务座位(不发入群提示)。
   it('对话里派的新任务:birthGroup 是任务座位', async () => {
     await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page', birthChatId: 'chat-group-1', taskChatId: 'chat-group-1' })));
     act(() => latest?.handleCreateSession());
