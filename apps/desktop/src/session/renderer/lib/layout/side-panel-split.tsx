@@ -189,27 +189,6 @@ export function SidePanelSplit({
       >
         {chatColumn}
       </div>
-      {showHandle ? (
-        <PanelResizeHandle
-          edge="start"
-          offset={animatedWidth}
-          ariaLabel={resizeLabel}
-          getSize={() => panelWidth.get()}
-          minSize={minWidth}
-          maxSize={() => Math.max(minWidth, containerWidth.get() - CHAT_MIN_WIDTH_PX)}
-          onSize={(size) => {
-            preferredWidth.set(size);
-            panelWidth.set(size);
-          }}
-          onCollapse={() => onCollapseWorkspace?.()}
-          onSizeCommit={(size) => {
-            preferredWidth.set(size);
-            panelWidth.set(size);
-            writeStoredWorkspaceWidth(widths.storageKey, size);
-          }}
-          onDraggingChange={setIsResizing}
-        />
-      ) : null}
       {/* 收起动画放完之前不卸载,否则面板会在收到一半时凭空消失;两栏并排时它是流内元素,
           盖着聊天栏时出流、贴右缘浮在上面(同一个元素只换定位,里面的网页与终端不重挂)。
           盖住聊天栏靠的是 DOM 顺序加聊天栏的 isolate,❌ 别给它 z-index:App 页住在栏外那层
@@ -245,6 +224,28 @@ export function SidePanelSplit({
           aria-hidden="true"
         />
       </motion.aside>
+      {/* 拉伸把手排在两栏**后面**:窗口拖拽区按文档顺序叠,后来的盖前面的;它的 no-drag 要压得住两栏里压到它的拖拽带。 */}
+      {showHandle ? (
+        <PanelResizeHandle
+          edge="start"
+          offset={animatedWidth}
+          ariaLabel={resizeLabel}
+          getSize={() => panelWidth.get()}
+          minSize={minWidth}
+          maxSize={() => Math.max(minWidth, containerWidth.get() - CHAT_MIN_WIDTH_PX)}
+          onSize={(size) => {
+            preferredWidth.set(size);
+            panelWidth.set(size);
+          }}
+          onCollapse={() => onCollapseWorkspace?.()}
+          onSizeCommit={(size) => {
+            preferredWidth.set(size);
+            panelWidth.set(size);
+            writeStoredWorkspaceWidth(widths.storageKey, size);
+          }}
+          onDraggingChange={setIsResizing}
+        />
+      ) : null}
     </motion.div>
   );
 }

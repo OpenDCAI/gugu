@@ -146,6 +146,9 @@ export function WorkspaceLayout({ leftSidebar, mainContent, sidebarHidden = fals
           {leftSidebar}
         </motion.div>
       </motion.aside>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-workspace-content-surface="">{mainContent}</div>
+      {/* 拉伸把手排在主区**后面**:窗口拖拽区按文档顺序叠(后来的盖前面的),主区里的拖拽带(页签条、顶栏带)
+          压到把手伸进主区的那半截时,排在前面的把手会被盖成「拖窗口」;排在后面,它的 no-drag 才压得住。 */}
       {isLeftOpen && !sidebarHidden ? (
         <PanelResizeHandle
           edge="end"
@@ -160,7 +163,6 @@ export function WorkspaceLayout({ leftSidebar, mainContent, sidebarHidden = fals
           onDraggingChange={setIsResizing}
         />
       ) : null}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-workspace-content-surface="">{mainContent}</div>
       {/* 左侧栏开关:整个会话页**唯一**一枚,永远钉在会话页左缘同一个坐标 ——
           侧栏是从它下面滑过去的,不是把它顶走。❌ 别再在侧栏内部另放一枚。 */}
       {sidebarHidden ? null : <ShellSidebarToggle />}
