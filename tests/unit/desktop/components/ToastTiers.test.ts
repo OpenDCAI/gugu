@@ -20,7 +20,7 @@ import { dismissNotice, notify } from '../../../../apps/desktop/src/lib/notices'
 import { TOAST_DWELL_MS } from '../../../../apps/desktop/src/lib/toastTiers'
 import { createReactHarness } from '../../../support/testHarness'
 
-type Options = { id?: string; duration?: number; closeButton?: boolean; className?: string; icon?: unknown; description?: unknown }
+type Options = { id?: string; duration?: number; closeButton?: boolean; className?: string; icon?: unknown; description?: unknown; onDismiss?: () => void; onAutoClose?: () => void }
 const lastOptions = (fn: ReturnType<typeof vi.fn>): Options => fn.mock.calls.at(-1)?.[1] as Options
 
 beforeEach(() => {
@@ -84,12 +84,33 @@ describe('提示的档位与停留(全 app 一份,#4891 / #137)', () => {
 })
 
 describe('同 key 是同一条:原地更新,不叠', () => {
-  it('key 作为 id 交给 sonner;不给 key 就是一次性的新提示', () => {
+  it('同 key 活着时是同一个 sonner id(原地更新);不给 key 就是一次性的新提示', () => {
     notify({ key: 'machine:d1', title: '正在重新连接 Mac 1', ongoing: true, waiting: true, tier: 'info' })
     notify({ key: 'machine:d1', title: '连不上 Mac 1', ongoing: true, tier: 'info' })
-    expect(sonner.info.mock.calls.map((call) => (call[1] as Options).id)).toEqual(['machine:d1', 'machine:d1'])
+    const [first, second] = sonner.info.mock.calls.map((call) => (call[1] as Options).id)
+    expect(first).toMatch(/^machine:d1#/)
+    expect(second).toBe(first)
     notify({ title: 'one-off', tier: 'info' })
     expect(lastOptions(sonner.info).id).toBeUndefined()
+  })
+
+  it('一条结束了(被收 / 被关 / 到点),同 key 再发是新的一条:❌ 被排到下一帧的那次收顺手杀掉、❌ 继承上一条的字段', () => {
+    notify({ key: 'machine:d2', title: '离线', ongoing: true, tier: 'info' })
+    const first = lastOptions(sonner.info).id
+    dismissNotice('machine:d2')
+    expect(sonner.dismiss).toHaveBeenCalledWith(first)
+    notify({ key: 'machine:d2', title: '离线', ongoing: true, tier: 'info' })
+    const second = lastOptions(sonner.info).id
+    expect(second).not.toBe(first)
+    // 用户关掉 / 到点消失同理
+    ;(lastOptions(sonner.info) as { onDismiss: () => void }).onDismiss()
+    notify({ key: 'machine:d2', title: '离线', ongoing: true, tier: 'info' })
+    expect(lastOptions(sonner.info).id).not.toBe(second)
+    const third = lastOptions(sonner.info).id
+    notify({ key: 'machine:d2', title: '已连接', tier: 'success' })
+    ;(lastOptions(sonner.success) as { onAutoClose: () => void }).onAutoClose()
+    notify({ key: 'machine:d2', title: '离线', ongoing: true, tier: 'info' })
+    expect(lastOptions(sonner.info).id).not.toBe(third)
   })
 
   it('ongoing 不按停留消失,且一定带关闭钮 —— 常驻的用户想关得关掉', () => {
@@ -114,9 +135,28 @@ describe('同 key 是同一条:原地更新,不叠', () => {
     expect(lastOptions(sonner.success).icon).toBeUndefined()
   })
 
-  it('dismissNotice 按 key 收掉', () => {
-    dismissNotice('machine:d1')
-    expect(sonner.dismiss).toHaveBeenCalledWith('machine:d1')
+  it('onDismiss 只在用户亲手关时回调:dismissNotice 收掉的那条,sonner 晚一帧的回调 ❌ 算用户关的', () => {
+    const closedByUser = vi.fn()
+    notify({ key: 'machine:d4', title: '离线', ongoing: true, tier: 'info', onDismiss: closedByUser })
+    const appDismissed = lastOptions(sonner.info) as { onDismiss: () => void }
+    dismissNotice('machine:d4')
+    // 同 key 紧接着又是新的一条,旧那条的回调这时才到
+    notify({ key: 'machine:d4', title: '离线', ongoing: true, tier: 'info', onDismiss: closedByUser })
+    appDismissed.onDismiss()
+    expect(closedByUser).not.toHaveBeenCalled()
+    ;(lastOptions(sonner.info) as { onDismiss: () => void }).onDismiss()
+    expect(closedByUser).toHaveBeenCalledTimes(1)
+  })
+
+  it('dismissNotice 按 key 收掉活着的那一条;没有这条就什么都不做', () => {
+    notify({ key: 'machine:d3', title: '离线', ongoing: true, tier: 'info' })
+    const id = lastOptions(sonner.info).id
+    dismissNotice('machine:d3')
+    expect(sonner.dismiss).toHaveBeenCalledWith(id)
+    sonner.dismiss.mockClear()
+    dismissNotice('machine:d3')
+    dismissNotice('machine:never')
+    expect(sonner.dismiss).not.toHaveBeenCalled()
   })
 })
 

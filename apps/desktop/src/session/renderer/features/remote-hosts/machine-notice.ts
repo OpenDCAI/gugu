@@ -67,9 +67,10 @@ function show(deviceId: string, spec: MachineNoticeSpec): void {
     tier: spec.tier,
     waiting: spec.waiting,
     ongoing: true,
+    // 只在用户亲手关时回调(我们自己收的不算,见 Notice.onDismiss)。
     onDismiss: () => {
-      // 我们自己收的(换机器 / 恢复)时 live 已经清了,不是用户关的。
-      if (live.delete(deviceId)) closedByUser.add(deviceId);
+      live.delete(deviceId);
+      closedByUser.add(deviceId);
     },
   });
 }
@@ -86,13 +87,12 @@ export function useMachineNotice(deviceId: string | null, label: string, spec: M
       const left = (users.get(deviceId) ?? 1) - 1;
       if (left > 0) return void users.set(deviceId, left);
       users.delete(deviceId);
-      // 同一次提交里旧新建框卸载、新的接上(比如整页换成对话页的创建草稿):别在这中间把提示收了又立刻重发 ——
-      // sonner 的收是排队执行的,重发不会取消它,新的那条会连同「用户关的」标记一起被误杀。等这一拍过完再看还有没有人在用。
+      // 同一次提交里旧新建框卸载、新的接上(比如整页换成对话页的创建草稿):别在这中间把提示收了又立刻重发(那是一次闪烁)。
+      // 等这一拍过完再看还有没有人在用。
       queueMicrotask(() => {
         if (users.has(deviceId)) return;
         clearPending(deviceId);
         closedByUser.delete(deviceId);
-        // 先记下「是我要收」,onDismiss 才分得出这不是用户关的。
         if (live.delete(deviceId)) dismissNotice(noticeKey(deviceId));
       });
     };
