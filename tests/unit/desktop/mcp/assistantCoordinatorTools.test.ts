@@ -2,10 +2,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { buildSocialBridge, createDesktopGuguMcpHost, type DesktopGuguMcpHost } from '../../../../apps/desktop/electron/acp-engine-utils'
+import { ASSISTANT_TASK_EXECUTION, assistantExecutionAction } from '../../../../packages/core/src/shared/assistantWorkflow'
 
 let host: DesktopGuguMcpHost
 const clients: Client[] = []
-const run = vi.fn(async () => ({ ok: true, data: 'actual dispatcher' }))
+const run = vi.fn(async (..._args: unknown[]) => ({ ok: true, data: 'actual dispatcher' }))
 const runtime = {
   authProvider: { getAuth: async () => ({ accessToken: 'test-token', userId: 'owner' }) },
   // Same home for the assistant and its executor: location cannot confer the role.
@@ -64,4 +65,31 @@ it('all assistants share one fixed tool prefix and a grant cannot flip roles', a
   const executor = await connect('executor', false)
   await expect(bridge('executor', true)).rejects.toThrow('cannot change subject or tool scope')
   expect((await executor.listTools()).tools.map(tool => tool.name)).toContain('device_call')
+})
+
+it('host adds the actual execution contract to spawn and reuse', async () => {
+  const client = await connect('coordinator', true)
+  const source = 'gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/bfb72f98-986e-4314-b242-d9b95a0c8083'
+  for (const [tool, args, field] of [
+    ['session_spawn', { prompt: 'Produce the requested artifact.', device: 'device:remote', source_link: source }, 'prompt'],
+    ['session_message', { to: ['session:existing'], text: 'Continue with the revised constraint.', source_link: source }, 'text'],
+  ] as const) {
+    const result = await client.callTool({ name: tool, arguments: args })
+    expect(result).not.toMatchObject({ isError: true })
+    const actual = run.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(actual[field]).toBe(`${field === 'prompt' ? args.prompt : args.text}\n\n${ASSISTANT_TASK_EXECUTION}`)
+    expect(actual.source_link).toBe(source)
+    if (field === 'prompt') expect(actual.device).toBe('remote')
+    else expect(actual.to).toEqual(['session:existing'])
+    expect(assistantExecutionAction(actual)).toBe(actual)
+  }
+})
+
+it('an ordinary executor message is unchanged, and non-work actions are not rewritten', async () => {
+  const executor = await connect('executor', false)
+  await executor.callTool({ name: 'session_message', arguments: { to: ['session:parent'], text: 'Verified and complete.' } })
+  expect(run.mock.calls.at(-1)![0]).toMatchObject({ action: 'message', text: 'Verified and complete.' })
+  for (const value of [null, [], 'invalid', { action: 'get' }, { action: 'spawn', prompt: 3 }]) {
+    expect(assistantExecutionAction(value)).toBe(value)
+  }
 })

@@ -797,11 +797,11 @@ function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
  * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
  * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
  */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string }): Promise<AcpMcpServer[]> {
+async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
   if (!authProvider || !loadEmdashBridge()) return []
   try {
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId)
+    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
   } catch (error) {
     createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
     return []

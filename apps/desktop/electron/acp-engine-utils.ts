@@ -6,6 +6,7 @@ import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
 
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { requireRuntimeAuth, resolveGuguHome, type RuntimeAuth, type RuntimeAuthProvider } from '@gugu/core'
+import { assistantExecutionAction } from '@gugu/core/shared/assistantWorkflow'
 import { makeIdentityClient } from './supabase'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -215,7 +216,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
           ? (action, requestSignal) => {
               const run = getContext().runSessionAction
               if (!run) throw new Error('session_* tools are unavailable for this grant')
-              return run(action, AbortSignal.any([grantSignal, requestSignal]))
+              return run(initial.personalAssistant ? assistantExecutionAction(action) : action, AbortSignal.any([grantSignal, requestSignal]))
             }
           : undefined
         registerGuguSessionTools(server, sessionDispatcher, trackRequest, initial.personalAssistant === true)
