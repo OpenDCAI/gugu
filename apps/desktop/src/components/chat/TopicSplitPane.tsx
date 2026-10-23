@@ -31,8 +31,7 @@ import { RightPanel, RightPanelBackButton } from './RightPanel'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from './MessageList'
 import { useToast } from '../toastContext'
 import { useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
-import type { FlowListHandle, ListLanding } from '@/lib/flowList'
-import { APP_SHOW_MESSAGE_EVENT, type AppShowMessageDetail } from '@/session/shared/extensions/app-runtime-protocol'
+import type { FlowListHandle } from '@/lib/flowList'
 import {
   TOPIC_SPLIT_MAX_WIDTH,
   TOPIC_SPLIT_MIN_WIDTH,
@@ -329,10 +328,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     () => displayedMessages.map((message) => ({ type: 'message' as const, message })),
     [displayedMessages],
   )
-  // gugu.showMessage of a message in this topic (R A/B 10-06: the topic's App asked, nothing moved): this list goes to
-  // it and flashes it, as a group's does. The topic's App panel covers the list, so a reveal for this topic closes the
-  // panel; the list comes back landed on that line (a list that mounts lands once, after any scroll asked before it) and
-  // the hook takes the reveal.
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)
   const { messageWindow, setFollowingTail, loadMessageAnchor } = history
@@ -340,19 +335,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
   const workspaceOpen = workspace.open
-  const [revealLanding, setRevealLanding] = useState<ListLanding | null>(null)
-  useEffect(() => { if (revealLanding) setRevealLanding(null) }, [revealLanding]) // read once, by the list that mounted
-  useEffect(() => {
-    const onShow = (event: Event) => {
-      const detail = (event as CustomEvent<AppShowMessageDetail>).detail
-      if (!workspaceOpen || detail?.chatId !== topic.chatId) return
-      const index = rows.findIndex((row) => row.message.id === detail.messageId)
-      if (index >= 0) setRevealLanding({ index, align: 'start', offset: -96 })
-      closeWorkspace()
-    }
-    window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
-    return () => window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
-  }, [workspaceOpen, closeWorkspace, topic.chatId, rows])
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
   const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering, discardSaved: !!history.unreadEntry,
@@ -367,14 +349,14 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     loadingNewer: messageWindow.loading === 'newer', loadNewerMessages: history.loadNewerMessages })
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  const firstItemIndex = useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending,
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
     enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   const showMessage = useSourceMessageReveal({
-    viewportKey, navigationTarget, enabled: visible !== false,
-    activeChatId: workspaceOpen ? null : topic.chatId,
+    viewportKey, navigationTarget, enabled: visible !== false, ready: !workspaceOpen && !filesOpen && !membersOpen && !isFiltering,
+    activeChatId: topic.chatId, onNavigate: () => { closeWorkspace(); setFilesForChatId(null); setMembersForChatId(null); search.setSearchMode(false) },
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
@@ -572,7 +554,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               rows={rows}
               rowProps={rowProps}
               listRef={listRef}
-              initialTopMostItemIndex={revealLanding ?? openLocation()}
+              initialTopMostItemIndex={openLocation()}
               followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
                 label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}

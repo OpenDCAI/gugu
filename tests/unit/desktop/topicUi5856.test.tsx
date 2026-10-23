@@ -5,6 +5,7 @@
 //   1. 「可见 / 参与 / 通知是三件事」在锚点卡上真的看得出来(is_participant=false ⇒ 「只看得见」);
 //      判据能判假 —— 同一份数据把 is_participant 翻成 true,那条断言必须反过来。
 //   2. useTopicsOfChat 的竞态守卫:切线之后,上一条线的慢响应 ❌ 不许落进新线的状态。
+import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
@@ -346,7 +347,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       await clickElement(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]') as HTMLElement)
       expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the App panel is open').toBeTruthy()
       await act(async () => {
-        window.dispatchEvent(new CustomEvent('gugu:app-show-message', { detail: { chatId: 'topic-1', messageId: 't-1' } }))
+        askReveal('topic-1', 't-1', 'topic'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
       })
       expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the panel gave the list back').toBeNull()
       expect(harness.container.querySelector('[data-msg-id="t-1"]')?.className).toContain('msg-src-flash')

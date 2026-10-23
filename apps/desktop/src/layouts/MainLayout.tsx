@@ -465,9 +465,25 @@ function InnerLayout({
     if (focus) focusComposerForUserEntry(focus, chatId)
     return chatSlotKey(chatId)
   }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, t])
+  const chatsRef = useRef(chats)
+  chatsRef.current = chats
+  const openChatTarget = useCallback((chatId: string): string => {
+    const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
+    const topic = chat?.kind === 'topic' && chat.source_chat_id ? chat : null
+    const shownChatId = topic?.source_chat_id ?? chatId
+    const viewportKey = openChatBlock(shownChatId)
+    if (!viewportKey) {
+      setAgentCreateDraftOpen(false)
+      setActiveTab('chats')
+      setMobilePane('chat')
+      setActiveChatId(shownChatId)
+    }
+    if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
+    return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
+  }, [openChatBlock, setActiveChatId])
   useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
-    openChat: (chatId) => { const viewportKey = openChatBlock(chatId); if (viewportKey) return viewportKey; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat'); return 'chats' },
-    openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}); return mobile ? 'assistant' : assistantSlotKey(tasks ? 'task-chat' : 'chat') },
+    openChat: openChatTarget,
+    openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}); return tasks ? assistantSlotKey('task-chat') : mobile ? 'assistant' : assistantSlotKey('chat') },
   })
   // 手机底栏的格子:开得了个人助理时它排第一(owner 10-16);桌面壳不变。
   // 引用要稳:分页器按它定位(useLayoutEffect 依赖 tabs),每次渲染换一个新数组就会在滑动 / 吸附途中被未读数一类的更新拽回当前页。
@@ -788,8 +804,6 @@ function InnerLayout({
   // line with the topic as the split), and what was asked of it is left with
   // the view that shows it (`UI_EVENTS.chatAsked`): a file (groupSlotMemory.askFile), a message (askReveal), the text for
   // its composer (its draft). A chat the person is not in is said so, not opened into nothing.
-  const chatsRef = useRef(chats)
-  chatsRef.current = chats
   // 群成员面板的「新建 Agent 并加入本群」:桌面与对话页「新建 Agent」同一个创建页、手机与联系人页「新建 Agent」
   // 同一条(会话页选机器),只是都带上这个群。
   useEffect(() => {
@@ -825,17 +839,7 @@ function InnerLayout({
         toast(t('groupFile.notInGroup'), 'error')
         return false
       }
-      const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
-      const shownChatId = topic?.source_chat_id ?? chat.id
-      const viewportKey = openChatBlock(shownChatId)
-      if (!viewportKey) {
-        setAgentCreateDraftOpen(false)
-        setActiveTab('chats')
-        setMobilePane('chat')
-        setActiveChatId(shownChatId)
-      }
-      if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
-      ask(chat.id, topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats')
+      ask(chat.id, openChatTarget(chat.id))
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
@@ -897,7 +901,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatBlock, setActiveChatId, setDraft, setDraftAttachments, setDraftRefs, t, toast])
+  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, setDraftRefs, t, toast])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),

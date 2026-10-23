@@ -167,5 +167,5 @@ export function useUnreadLocatorNavigation(input: {
     }
   }, [activeChatId, enabled, loadingAnchor, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
     pending, rows, setFlashMessageId, setFollowingTail, listRef, scrollerRef])
-  return pending !== null
+  return pending !== null && pending.chatId === activeChatId
 }

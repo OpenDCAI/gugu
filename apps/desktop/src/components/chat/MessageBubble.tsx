@@ -189,8 +189,7 @@ interface BubbleProps {
   // @@@1313 点开已读名单（谁读谁没读）：稳定回调，父层（持 roster+profiles）弹名单，避免把 reader 列表作对象 prop 传进破 memo。
   onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
   highlight?: string
-  onShowMessage?: (id: string) => void
-  onQuote: (msg: MessageItem) => void
+  onQuote: (msg: MessageItem) => void; onShowMessage?: (id: string) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   isAgent?: boolean; hideAvatar?: boolean; streaming?: boolean // Live IM text shares the settled bubble's layout.

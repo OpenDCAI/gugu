@@ -94,6 +94,27 @@ describe('source message reveal', () => {
     expect(b.scrollToIndex).toHaveBeenCalledWith({ index: 1, align: 'center' })
   })
 
+  it('lets only the target panel make way, then consumes its pending reveal after the list mounts', async () => {
+    const navigate = vi.fn(), scrollToIndex = vi.fn(), sibling = vi.fn()
+    function Pane({ ready }: { ready: boolean }) {
+      useSourceMessageReveal({ activeChatId: 'g1', viewportKey: 'target', ready, onNavigate: navigate, rows: [row('m41')],
+        listRef: { current: ready ? { scrollToIndex } : null } as never, isAtBottomRef: { current: true }, setFollowingTail: vi.fn(),
+        setFlashMessageId: vi.fn(), flashTimerRef: { current: null }, revealMessage: vi.fn(async () => {}), onMissing: vi.fn() })
+      useSourceMessageReveal({ activeChatId: 'g1', viewportKey: 'sibling', onNavigate: sibling, rows: [],
+        listRef: { current: null } as never, isAtBottomRef: { current: true }, setFollowingTail: vi.fn(),
+        setFlashMessageId: vi.fn(), flashTimerRef: { current: null }, revealMessage: vi.fn(async () => {}), onMissing: vi.fn() })
+      return null
+    }
+    await harness.render(createNode(Pane, { ready: false }))
+    await act(async () => { askReveal('g1', 'm41', 'target'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    expect(navigate).toHaveBeenCalledOnce()
+    expect(sibling).not.toHaveBeenCalled()
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    await harness.render(createNode(Pane, { ready: true }))
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 0, align: 'center' })
+    expect(sibling).not.toHaveBeenCalled()
+  })
+
   it('ignores a request for another group', async () => {
     const c = await setup()
     await c.show('m41', 'g2')

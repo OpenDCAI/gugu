@@ -23,6 +23,7 @@ export function useSourceMessageReveal(input: {
   navigationTarget?: boolean
   viewportKey?: string
   enabled?: boolean
+  ready?: boolean
   rows: ReadonlyArray<ScrollableRow>
   listRef: MutableRefObject<FlowListHandle | null>
   isAtBottomRef: MutableRefObject<boolean>
@@ -31,8 +32,11 @@ export function useSourceMessageReveal(input: {
   flashTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>
   revealMessage: (messageId: string) => Promise<void>
   onMissing: () => void
+  onNavigate?: () => void
 }): (messageId: string) => void {
-  const { activeChatId, viewportKey, navigationTarget = false, enabled = true, rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing } = input
+  const { activeChatId, viewportKey, navigationTarget = false, enabled = true, ready = true, rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing } = input
+  const onNavigateRef = useRef(input.onNavigate)
+  onNavigateRef.current = input.onNavigate
   const tokenRef = useRef(0)
   const onMissingRef = useRef(onMissing)
   onMissingRef.current = onMissing
@@ -46,9 +50,10 @@ export function useSourceMessageReveal(input: {
   }, [flashTimerRef, setFlashMessageId])
 
   const reveal = useCallback((messageId: string) => {
+    onNavigateRef.current?.()
     const token = ++tokenRef.current
     const index = resolveSourceMessageScroll(rows, messageId)
-    if (index != null) {
+    if (index != null && listRef.current) {
       // #1980 先解钉:回钉路径(track effect/totalListHeightChanged/RO/clamp)均门控 isAtBottomRef,钉底时不同步置 false
       // 则 scrollToIndex 上滚被当场拽回底(#1708 跳转在这条路从没真可用)。
       isAtBottomRef.current = false
@@ -76,6 +81,7 @@ export function useSourceMessageReveal(input: {
       const key = askedReveals.has(own) ? own : navigationTarget ? primary : null
       const messageId = key ? askedReveals.get(key) : undefined
       if (!key || !messageId) return
+      if (!ready) { onNavigateRef.current?.(); return }
       askedReveals.delete(key)
       reveal(messageId)
     }
@@ -84,6 +90,8 @@ export function useSourceMessageReveal(input: {
     return () => {
       window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
     }
-  }, [activeChatId, enabled, navigationTarget, viewportKey, reveal])
-  return reveal
+  }, [activeChatId, enabled, ready, navigationTarget, viewportKey, reveal])
+  const currentReveal = useRef(reveal)
+  currentReveal.current = reveal
+  return useCallback((messageId: string) => currentReveal.current(messageId), [])
 }
