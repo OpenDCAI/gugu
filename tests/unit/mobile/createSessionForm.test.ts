@@ -161,3 +161,14 @@ describe('新建页沿用这台机器上次那一套(behavior mobile-session-vie
     expect(lastUsedDropped(withLast, reconciled)).toEqual(['model'])
   })
 })
+
+// A chat continuation is usable without pretending Pi has a workspace transcript.
+describe('phone creation in the shared form', () => {
+  it('accepts an available chat host and still blocks an unreadable harness without a chat', () => {
+    const phone = { ...options, harnesses: [{ id: 'pi', name: 'Pi', status: 'available' as const, watchable: false, chatAvailable: true, sessionViews: ['general' as const], permissionModes: [] }] }
+    expect(defaultSelection(phone).harness).toBe('pi')
+    expect(createBlocker(phone, defaultSelection(phone))).toBeNull()
+    const unreadable = { ...phone, harnesses: [{ ...phone.harnesses[0]!, chatAvailable: false }] }
+    expect(createBlocker(unreadable, defaultSelection(unreadable))).toBe('no_usable_harness')
+  })
+})

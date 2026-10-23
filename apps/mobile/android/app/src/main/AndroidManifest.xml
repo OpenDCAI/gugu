@@ -4,6 +4,8 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="${guguUsesCleartextTraffic}"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -76,6 +78,14 @@
              挂一条用户看得见的常驻通知,换一条不会被掐的连接。
              插件自带的用途说明写的是它作者的场景(SIP 服务器),这句话系统与应用商店都会读,
              所以换成咕咕自己的;同时去掉插件声明里的 microphone —— 咕咕在后台不录音。 -->
+        <service android:name=".GuguAgentService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Executes a task explicitly started by the user on this phone, including model requests and authorized native tools." />
+        </service>
+        <service android:name=".GuguAgentHostService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the user's phone task agents, keeping their message inbox and explicitly authorized local tools connected while enabled." />
+        </service>
         <service
             android:name="ar.com.anura.plugins.backgroundmode.BackgroundModeService"
             android:foregroundServiceType="specialUse"

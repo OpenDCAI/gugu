@@ -27,7 +27,12 @@ import {
 } from '@gugu/core/shared/deviceActions'
 import {
   type DeviceActionCallRecord,
+  type DeviceActionProvider,
 } from '@gugu/core/cloud/deviceActionHost'
+import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
+import { getRendererSession, observeRendererSession } from '../../lib/sessionPublication'
+import { phoneHostSessionForHandoff, withPhoneHostAuthHandoff } from '../../lib/phoneHostAuth'
+import { nativeAgent, phoneAgentAvailable, type PhoneAgentHostState } from '../local-agent/nativeAgent'
 import {
   buildPhoneActionsCapability,
   capabilityFingerprint,
@@ -46,7 +51,9 @@ import {
   phoneDeviceId,
   phoneInstallId,
   readPhoneDeviceSettings,
+  setPhoneAgentHostEnabled,
   subscribePhoneDeviceSettings,
+  thisPhoneDeviceId,
 } from './phoneDeviceSettings'
 
 const log = rendererLogger('mobile/phone-device')
@@ -76,10 +83,12 @@ export interface PhoneDeviceSnapshot {
   /** 最近一次心跳成功的时刻。 */
   lastHeartbeatAt: number | null
   recent: readonly PhoneActionCall[]
+  host: PhoneAgentHostState | null
 }
 
-const OFF: PhoneDeviceSnapshot = { link: { state: 'off' }, os: null, info: null, deviceId: null, lastHeartbeatAt: null, recent: [] }
+const OFF: PhoneDeviceSnapshot = { link: { state: 'off' }, os: null, info: null, deviceId: null, lastHeartbeatAt: null, recent: [], host: null }
 let snapshot: PhoneDeviceSnapshot = OFF
+let osReadRevision = 0
 const listeners = new Set<() => void>()
 
 function publish(next: Partial<PhoneDeviceSnapshot>): void {
@@ -104,6 +113,16 @@ export async function readPhoneOsState(): Promise<PhoneOsState> {
   return { runtime, special, health, data }
 }
 
+/** All readers share ordering, including the settings page while both endpoints are off. */
+async function readLatestOs(isCurrent: () => boolean, apply: (os: PhoneOsState) => void = () => {}): Promise<boolean> {
+  const revision = ++osReadRevision
+  const os = await readPhoneOsState()
+  if (revision !== osReadRevision || !isCurrent()) return false
+  apply(os)
+  publish({ os })
+  return true
+}
+
 /** 网页比安装包新时,原生还没有 healthStatus:如实标成「这个版本读不了」(old_app),❌ 让整份系统状态读失败。 */
 async function readHealthStatus(): Promise<NativeHealthStatus> {
   try {
@@ -126,6 +145,13 @@ interface Session {
 }
 
 let session: Session | null = null
+let previousSessionDrain: Promise<void> = Promise.resolve()
+let activeProvider: { ownerId: string; provider: DeviceActionProvider } | null = null
+
+/** Native host forwards existing device actions through this same permission-aware provider. */
+export function getPhoneDeviceActionProvider(ownerId: string): DeviceActionProvider | null {
+  return activeProvider?.ownerId === ownerId ? activeProvider.provider : null
+}
 
 /**
  * 开始当设备(总开关开着、登录着时由 PhoneDeviceRoot 调)。同一时刻只有一份;再调一次先停旧的。
@@ -133,10 +159,13 @@ let session: Session | null = null
  */
 export function startPhoneDevice(options: {
   userId: string
+  hostEnabled?: boolean
   noticeLabel: (running: readonly PhoneActionCall[]) => string
   claimNotice: (label: string) => () => void
 }): () => void {
   session?.stop()
+  osReadRevision++
+  const beforeBoot = previousSessionDrain
   const { userId } = options
   let alive = true
   let deviceId: string | null = null
@@ -151,6 +180,11 @@ export function startPhoneDevice(options: {
   let beating: Promise<void> | null = null
   let joined = false
   let collecting = false
+  const embeddedHost = phoneAgentAvailable() && options.hostEnabled === true
+  let hostTimer: ReturnType<typeof setInterval> | null = null
+  let stoppingHost: Promise<void> | null = null
+  let booting: Promise<void> | null = null
+  const readCurrentOs = () => readLatestOs(() => alive, (next) => { os = next })
 
   let recent: PhoneActionCall[] = []
 
@@ -178,6 +212,15 @@ export function startPhoneDevice(options: {
       updateNotice()
     },
   })
+  activeProvider = { ownerId: userId, provider }
+
+  const readHost = async () => {
+    if (!alive || !embeddedHost) return
+    const host = await nativeAgent.hostState({ ownerId: userId })
+    if (!alive) return
+    publish({ host, ...(host.lastHeartbeatAt !== undefined ? { lastHeartbeatAt: host.lastHeartbeatAt } : {}), ...(host.ready ? { link: { state: 'online' as const, since: snapshot.link.state === 'online' ? snapshot.link.since : Date.now() } }
+      : host.status === 'failed' ? { link: { state: 'error' as const, message: host.error ?? '手机宿主启动失败', at: Date.now() } } : {}) })
+  }
 
   let rpcHost: ReturnType<typeof createPhoneDeviceRpcHost> | null = null
   const join: JoinDeviceTopic = (name, handlers) => new Promise((resolve, reject) => {
@@ -219,8 +262,7 @@ export function startPhoneDevice(options: {
   const heartbeat = async (): Promise<void> => {
     if (!alive || !deviceId || !installId || !info) return
     try {
-      os = await readPhoneOsState()
-      publish({ os })
+      if (!await readCurrentOs()) return
     } catch (error) {
       log.warn({ error: errorText(error) }, 'phone os state unreadable')
     }
@@ -229,6 +271,22 @@ export function startPhoneDevice(options: {
     rebuildCapability()
     if (!capability) return
     const row = phoneDeviceRow({ deviceId, userId, installId, info, actions: capability, nowIso: new Date().toISOString() })
+    if (embeddedHost) {
+      // Node owns registration, heartbeat and RPC while the native host is enabled. Never race its
+      // runtime truth with the old WebView's action-only device row.
+      await withPhoneHostAuthHandoff(async () => {
+        if (!alive || !deviceId || !installId || !info) return
+        const currentAuth = getRendererSession()
+        if (!currentAuth || currentAuth.user.id !== userId) throw new Error('手机宿主的登录状态已改变')
+        const auth = phoneHostSessionForHandoff(currentAuth)
+        await nativeAgent.configure({ ownerId: userId, deviceId, installId, deviceInfo: info,
+          supabaseUrl: getSupabaseUrl(), supabaseAnonKey: getSupabaseAnonKey(), accessToken: auth.access_token,
+          refreshToken: auth.refresh_token, expiresAt: auth.expires_at,
+          grants: effectiveGrants(readPhoneDeviceSettings(userId)), deviceRow: row })
+      })
+      await readHost()
+      return
+    }
     const { error } = await identityDb.from('gugu_devices').upsert(row as never, { onConflict: 'device_id' })
     if (!alive) return
     if (error) {
@@ -257,7 +315,7 @@ export function startPhoneDevice(options: {
   }
 
   const subscribe = () => {
-    if (!deviceId) return
+    if (!deviceId || embeddedHost) return
     const id = deviceId
     const createChannel = () => {
       channel = dataClient
@@ -290,20 +348,39 @@ export function startPhoneDevice(options: {
   const boot = async () => {
     publish({ link: { state: 'connecting' } })
     try {
-      info = await nativePhoneActions.deviceInfo()
-      installId = phoneInstallId(info.install_key ?? null)
+      // Changing between the native host and the legacy action-only endpoint must never
+      // leave two responders on the same phone channel. Native stop resolves after exit.
+      await beforeBoot
+      if (!alive) return
+      if (!embeddedHost && phoneAgentAvailable()) {
+        await ensurePhoneAgentHostStopped(userId)
+        if (!alive) return
+        await nativeAgent.grants({ ownerId: userId, calendar: groupGranted(readPhoneDeviceSettings(userId), 'calendar') })
+        if (!alive) return
+        collecting = false
+        syncCollecting()
+      }
+      const nextInfo = await nativePhoneActions.deviceInfo()
+      if (!alive) return
+      info = nextInfo
+      if (!info.install_key?.trim()) throw new Error('无法读取这台手机的原生安装标识。')
+      installId = phoneInstallId(info.install_key, info.previous_install_key)
       deviceId = phoneDeviceId(installId, userId)
-      rpcHost = createPhoneDeviceRpcHost({ userId, deviceId, provider, join,
+      if (!embeddedHost) rpcHost = createPhoneDeviceRpcHost({ userId, deviceId, provider, join,
         replyShared: async (payload) => { if (!channel) return; await channel.send({ type: 'broadcast', event: 'broadcast', payload }) },
         warn: (message) => log.warn({ message }, 'phone device RPC'),
       })
-      os = await readPhoneOsState()
-      publish({ info, os, deviceId })
+      await readCurrentOs()
+      if (!alive) return
+      publish({ info, deviceId })
       rebuildCapability()
       await beat()
       if (!alive) return
       subscribe()
       heartbeatTimer = setInterval(() => { void beat().catch(() => undefined) }, PHONE_HEARTBEAT_MS)
+      if (embeddedHost) hostTimer = setInterval(() => { void readHost().catch((error: unknown) => {
+        if (alive) publish({ host: { ownerId: userId, deviceId: deviceId ?? undefined, status: 'failed', ready: false, sessions: [], error: errorText(error) } })
+      }) }, 2_000)
     } catch (error) {
       if (!alive) return
       log.warn({ error: errorText(error) }, 'phone device start failed')
@@ -320,16 +397,22 @@ export function startPhoneDevice(options: {
   const unsubscribeSettings = subscribePhoneDeviceSettings(() => {
     syncCollecting()
     // 总开关关了:马上就会停下、删设备行,❌ 再补一拍心跳去和删除赛跑。
-    if (!readPhoneDeviceSettings(userId).enabled) return
+    const settings = readPhoneDeviceSettings(userId)
+    if (!settings.enabled && !settings.hostEnabled) return
     // 关掉一组:登记清单立刻改(❌ 等下一拍心跳 —— 助理会在这 30 秒里照旧调);正在跑的,host 在下一次报进度 / 交结果前拦下。
     if (rebuildCapability()) void beat().catch(() => undefined)
+  })
+  const unsubscribeAuth = observeRendererSession(() => {
+    if (alive && embeddedHost) void beat().catch((error: unknown) => log.warn({ error: errorText(error) }, 'phone host auth handoff failed'))
   })
   // 回到前台(多半刚从系统设置里改完权限):先直接重读系统、当场更新页面,清单变了再补一拍心跳。
   // ❌ 只调 beat():上一拍还在路上时会并进那一拍,读到的是去系统设置之前的旧值(模拟器实测:页面多等了一拍心跳才变)。
   const refreshOs = async (): Promise<void> => {
     if (!alive) return
-    os = await readPhoneOsState()
-    publish({ os })
+    // Boot owns the initial info/OS read and first heartbeat. A foreground refresh must
+    // not supersede that read before the device identity and capability can be built.
+    await booting
+    if (!alive || !await readCurrentOs()) return
     if (!rebuildCapability()) return
     const pending = beating
     if (pending) await pending.catch(() => undefined)
@@ -341,14 +424,17 @@ export function startPhoneDevice(options: {
 
   updateNotice()
   syncCollecting()
-  void boot()
+  booting = boot()
 
   const current: Session = {
     stop: () => {
       if (!alive) return
       alive = false
+      osReadRevision++
       if (heartbeatTimer) clearInterval(heartbeatTimer)
+      if (hostTimer) clearInterval(hostTimer)
       unsubscribeSettings()
+      unsubscribeAuth()
       unsubscribeActive()
       rpcHost?.dispose()
       if (channel) {
@@ -362,17 +448,37 @@ export function startPhoneDevice(options: {
       releaseNotice?.()
       releaseNotice = null
       syncCollecting()
+      if (activeProvider?.provider === provider) activeProvider = null
+      // A WebView/root remount is not a request to cancel native agents. Explicit disconnect,
+      // logout or an account switch revokes the host; a same-owner remount reuses it.
+      const remainsEnabled = readPhoneDeviceSettings(userId).hostEnabled && getRendererSession()?.user.id === userId
+      if (embeddedHost && !remainsEnabled) {
+        stoppingHost = withPhoneHostAuthHandoff(() => nativeAgent.stopHost({ ownerId: userId, clearCredentials: true }))
+        void stoppingHost.catch((error: unknown) => log.warn({ error: errorText(error) }, 'phone host stop failed'))
+      }
       if (session === current) session = null
+      previousSessionDrain = current.drain()
       // 系统权限的读数留着:设置页关掉总开关之后仍要显示各组「系统给没给」。
       publish({ ...OFF, os: snapshot.os, info: snapshot.info })
     },
     refresh: refreshOs,
     drain: async () => {
+      await beforeBoot
+      await booting
       await beating?.catch(() => undefined)
+      await stoppingHost
     },
   }
   session = current
   return current.stop
+}
+
+/** A fresh WebView can find an older native host still alive; the saved opt-out is authoritative. */
+export function ensurePhoneAgentHostStopped(userId: string): Promise<void> {
+  if (!phoneAgentAvailable()) return Promise.resolve()
+  const stopping = withPhoneHostAuthHandoff(() => nativeAgent.stopHost({ ownerId: userId, clearCredentials: true }))
+  previousSessionDrain = Promise.all([previousSessionDrain, stopping]).then(() => undefined)
+  return stopping
 }
 
 /** 设置页「去授权」回来后:立刻重读系统、重新登记。 */
@@ -382,26 +488,70 @@ export async function refreshPhoneDevice(): Promise<void> {
     return
   }
   // 没在当设备(总开关关着)也要让设置页看到系统的真值。
-  publish({ os: await readPhoneOsState() })
+  await readLatestOs(() => session === null)
+}
+
+/** Stop the task host without changing the owner's device-action grants. */
+export async function stopPhoneAgentHost(userId: string): Promise<void> {
+  const current = session
+  const deviceId = thisPhoneDeviceId(userId)
+  setPhoneAgentHostEnabled(userId, false)
+  current?.stop()
+  if (current) await current.drain()
+  else if (phoneAgentAvailable()) {
+    const stopping = withPhoneHostAuthHandoff(() => nativeAgent.stopHost({ ownerId: userId, clearCredentials: true }))
+    previousSessionDrain = stopping
+    await stopping
+  }
+  if (!readPhoneDeviceSettings(userId).enabled && deviceId && !await retainPhoneAgentDevice(userId, deviceId)) await chatService.removeDevice(deviceId)
+}
+
+/** Keep the real device address for its persisted Agents, without advertising a running host. */
+async function retainPhoneAgentDevice(userId: string, deviceId: string): Promise<boolean> {
+  if (!phoneAgentAvailable()) return false
+  const host = await nativeAgent.hostState({ ownerId: userId })
+  if (!host.sessions.length) return false
+  if (host.ownerId !== userId || host.deviceId !== deviceId || thisPhoneDeviceId(userId) !== deviceId || getRendererSession()?.user.id !== userId) {
+    throw new Error('手机会话与当前账号或设备不一致')
+  }
+  const { data, error } = await identityDb.from('gugu_devices').select('capabilities').eq('user_id', userId).eq('device_id', deviceId).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return false
+  const capabilities = data.capabilities
+  if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities) || capabilities.host_kind !== 'phone') throw new Error('手机设备登记信息不一致')
+  // A newer user action may already have enabled either endpoint again.
+  const settings = readPhoneDeviceSettings(userId)
+  if (settings.enabled || settings.hostEnabled) return true
+  if (getRendererSession()?.user.id !== userId) throw new Error('手机宿主的登录状态已改变')
+  const updated = await identityDb.from('gugu_devices').update({ status: 'offline', updated_at: new Date().toISOString(), capabilities: { ...capabilities, runtimes: [], host_runtime_capability: 0 } }).eq('user_id', userId).eq('device_id', deviceId)
+  if (updated.error) throw new Error(updated.error.message)
+  return true
+}
+
+export async function restartPhoneAgentHost(userId: string): Promise<void> {
+  await stopPhoneAgentHost(userId)
+  setPhoneAgentHostEnabled(userId, true)
 }
 
 /**
- * 断开:停掉、把设备行删掉 —— 助理那边当场看不到这台手机,❌ 留一行等 2 分钟后判离线(那期间它还会被调)。
+ * 断开:停掉。没有任务历史时删除设备行;已有 Agent 的手机保留离线地址,不再公布可运行能力。
  * 删不掉(没网)照样停:心跳一停,2 分钟后库会判它离线。
  */
-export async function disconnectPhoneDevice(userId: string): Promise<{ removed: boolean }> {
-  const deviceId = snapshot.deviceId ?? (() => {
-    try {
-      return phoneDeviceId(phoneInstallId(), userId)
-    } catch {
-      return null
-    }
-  })()
+export async function disconnectPhoneDevice(userId: string): Promise<{ removed: boolean; retainedForHost?: true }> {
+  if (readPhoneDeviceSettings(userId).hostEnabled) {
+    // Turning off phone data access revokes all groups, while an independently enabled
+    // task host keeps its device identity and message endpoint.
+    await refreshPhoneDevice()
+    return { removed: false, retainedForHost: true }
+  }
+  const deviceId = thisPhoneDeviceId(userId)
   const current = session
   current?.stop()
-  await current?.drain()
+  if (current) await current.drain()
+  else await ensurePhoneAgentHostStopped(userId)
   if (!deviceId) return { removed: false }
   try {
+    if (await retainPhoneAgentDevice(userId, deviceId)) return { removed: false, retainedForHost: true }
     await chatService.removeDevice(deviceId)
     return { removed: true }
   } catch (error) {

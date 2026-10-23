@@ -101,7 +101,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth } from './supabase'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -355,7 +355,7 @@ import { connectedSessionIntegrations } from './session/main/core/integrations/s
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
-import { personalAssistantContext, refreshAssistantContext } from './sessionpage/assistant-context'
+import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -723,6 +723,7 @@ function appInstallFrom(fromDevice: string, action: Record<string, unknown>): Re
 function desktopAuthProvider(): RuntimeAuthProvider {
   return (authProvider ??= createPushedRuntimeAuthProvider(() => pushedHumanAuth))
 }
+bindElectronSupabaseAuth(async () => (await desktopAuthProvider().getAuth())?.accessToken ?? null)
 let primaryGuguMcpHost: DesktopGuguMcpHost | null = null
 
 function hasPersistedMcpGrants(name: string): boolean {
@@ -2277,6 +2278,9 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  void refreshElectronSupabaseAuth().catch((error: unknown) => {
+    createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
+  })
   deviceRuntimeHost?.notifyAuthChanged()
   deviceProjectsPublisher?.notify()
   void handOffWechatIfAny()
@@ -2525,7 +2529,7 @@ if (sshMachineStore) {
     // 问 tunnel.open 只走咕咕云(要建的正是另一条路);一台机器一条频道,与窗口那条各订各的。
     const cloud = createDeviceRpcRequester({
       userId: async () => (await requireAuth()).userId,
-      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
+      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
     })
     const machines = createTunnelMachines({
       currentUserId,
@@ -3338,7 +3342,7 @@ function crossMachine(): CrossMachineSessions {
     userId: async () => (await requireAuth()).userId,
     openPipe: async (deviceId, handlers) => (sshLinks && ((await sshMachine(deviceId)) || tunnelMachines?.linkMachine(deviceId))
       ? openSshDeviceRpcPipe(sshLinks, deviceId, handlers)
-      : openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
+      : openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
     // #7199 第二步:设备推回来的「还在跑」与结果。「收到」之后管道本来就留着(只有超时且没有在途请求才拆),
     // 拆了也无妨:重发同一个 call_id 会重开管道,设备每 5 秒重推结果。
     onEvent: (deviceId, payload) => { deviceActionCallerInstance?.onEvent(deviceId, payload) },
@@ -5194,6 +5198,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
+        const assistantResourceOwner = info.providerId === 'claude' ? (await getSessionpageAuth())?.userId : null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5215,6 +5220,13 @@ app.whenReady().then(async () => {
             : Promise.resolve(false)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
+        const readAssistantResources = assistantRole ? async () => {
+          if (!assistantResourceOwner || (await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          const { assistantLocalIndex } = await import('./sessionpage/assistant-local-index')
+          const resources = await assistantLocalIndex(info.cwd, SERVER_MODE ? 'cloud' : 'computer')
+          if ((await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          return resources
+        } : undefined
         const projectContextBlock = buildSessionpageProjectContextBlock(provisioned.projectContext)
         const bundle = await buildSessionBundle({
           runtime: { authProvider, env: process.env },
@@ -5261,6 +5273,8 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
+            ...(assistantRole ? { personalAssistant: true as const } : {}),
+            ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
             // @@@2374 不带 auth:写文件与装扩展都不代表用户去调任何云端接口。桥没
@@ -5276,8 +5290,21 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        if (assistantRole) await refreshAssistantContext(info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer')
-        const capabilities = assistantRole ? personalAssistantContext(loaded, SERVER_MODE ? 'cloud' : 'computer') : loaded
+        const capabilities = assistantRole ? await preparePersonalAssistantContext(
+          loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
+            accountId: async () => {
+              const owner = (await getSessionpageAuth())?.userId
+              return owner && owner === assistantResourceOwner ? owner : null
+            },
+            localSources: readAssistantResources,
+            run: async (action, signal) => {
+              const auth = await getSessionpageAuth()
+              if (!auth) throw new Error('Assistant startup index: owner not authenticated')
+              return runAction(action, auth, signal)
+            },
+          },
+        ) : info.providerId === 'claude' && !SERVER_MODE
+          ? assistantHomeTaskContext(loaded, info.cwd, resolveGuguHome(process.env)) : loaded
         injectMark('capabilities-loaded')
         await applySessionMaterialization({
           cwd: info.cwd,

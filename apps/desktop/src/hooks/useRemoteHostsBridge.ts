@@ -62,7 +62,7 @@ export function useRemoteHostsBridge(
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
       devices
-        // 手机(#7199)不是 agent 的运行位置:设备列表在读的那一处已经分出去了(listDevices),这里不再画它。
+        // 手机宿主能运行 Agent，但尚不提供这条完整 workspace pipe；创建和对话走手机宿主自己的协议。
         .filter((device) => !device.device_id.startsWith('cloud:') && device.is_current_device !== true && !isPhoneDevice(device))
         .map((device) => ({
           id: device.device_id,
@@ -176,4 +176,3 @@ function signInExpiredAt(state: SshSignInState | undefined): string | null | und
   if (state.state === 'signedOut') return null
   return undefined
 }
-

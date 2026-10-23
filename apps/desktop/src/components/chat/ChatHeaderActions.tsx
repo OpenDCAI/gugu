@@ -8,6 +8,8 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
+import { openApp } from '../appSlot/useOpenApp'
+import { WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
 
 
 // #1234 消息头右上的 action icon。
@@ -77,6 +79,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const { t } = useTranslation('messaging')
   const { activeChatId } = useChatStore('activeChatId')
   const folderName = useChatFolderName(activeChatId) // 群文件夹 / 文件夹 (chatFolderName.ts)
+  const openFolder = () => {
+    onOpenWorkspacePanel()
+    if (activeChatId) openApp(WORKSPACE_APP_ID, activeChatId)
+  }
   const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯(五颗图标会把群名挤成「手机端设…」),搜索/工作区/历史收进 ⋯
   // 手机 Agent 私聊页头最右多了模式按钮(#7197):同一个收法,历史收进 ⋯ —— 四颗时 agent 名被挤成「Co…」、文件夹钻到头像底下(验收实拍)。
   const compactAgent = Boolean(mobile && modeButton && !compactRoom)
@@ -114,7 +120,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           aria-pressed={workspacePanelOpen}
           onClick={() => {
             if (workspacePanelOpen) onCloseWorkspacePanel()
-            else onOpenWorkspacePanel()
+            else openFolder()
           }}
         >
           <LayoutGrid />
@@ -196,7 +202,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           >
             {compactRoom && (<>
               <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />}>{t('header.searchConversation')}</MenuItem>
-              <MenuItem onClick={onOpenWorkspacePanel} icon={<LayoutGrid size={16} />}>{folderName}</MenuItem>
+              <MenuItem onClick={openFolder} icon={<LayoutGrid size={16} />}>{folderName}</MenuItem>
               <MenuItem onClick={() => onOpenHistoryPanel()} icon={<Clock size={16} />}>{t('header.history')}</MenuItem>
             </>)}
             {isGroupChat ? (

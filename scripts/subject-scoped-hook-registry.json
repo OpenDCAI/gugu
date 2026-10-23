@@ -101,5 +101,9 @@
   "apps/desktop/src/hooks/useStoredAgentTurnFailure.ts::useStoredAgentTurnFailure": {
     "how": "subject-scoped",
     "why": "快照携带账号、聊天、话题与Agent集合组成的subject；不符时立即返回空读数，取消旧主体请求；同主体只认最新读请求，迟到结果不能覆盖新事件。"
+  },
+  "apps/desktop/src/hooks/useKnownPhoneAgent.ts::useKnownPhoneAgent": {
+    "how": "derived",
+    "why": "无自有 state:渲染期由当前 agentId 从通讯录与设备两个 store 当场派生「它所在的设备是不是这个账号已知的手机」,换 agent 立刻换答案。"
   }
 }

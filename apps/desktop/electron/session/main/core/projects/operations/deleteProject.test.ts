@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   deleteProjectData: vi.fn(),
   deleteProjectRow: vi.fn(),
   deleteWhere: vi.fn(),
+  returningDeleted: vi.fn(),
   delViewState: vi.fn(),
   forgetSessionOutputs: vi.fn(),
   getProject: vi.fn(),
@@ -60,7 +61,8 @@ describe('deleteProject', () => {
     vi.clearAllMocks();
 
     mocks.deleteProjectRow.mockReturnValue({ where: mocks.deleteWhere });
-    mocks.deleteWhere.mockResolvedValue(undefined);
+    mocks.deleteWhere.mockReturnValue({ returning: mocks.returningDeleted });
+    mocks.returningDeleted.mockResolvedValue([{ id: 'project-1' }]);
     mocks.sessionsOfProject.mockResolvedValue([{ id: 'session-1' }]);
     mocks.getProject.mockReturnValue({ projectId: 'project-1' });
     mocks.closeProject.mockResolvedValue(ok());
@@ -96,6 +98,13 @@ describe('deleteProject', () => {
     expect(mocks.delViewState).toHaveBeenCalledWith('session:session-1:tabs');
     expect(mocks.forgetSessionOutputs).toHaveBeenCalledWith('session-1');
     expect(mocks.deleteWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a deletion when no project row was removed', async () => {
+    mocks.getProject.mockReturnValue(undefined);
+    mocks.returningDeleted.mockResolvedValue([]);
+    await deleteProject('missing');
+    expect(mocks.projectEmit).not.toHaveBeenCalled();
   });
 
   it('cleans PR sync data before deleting the project row', async () => {

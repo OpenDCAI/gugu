@@ -20,6 +20,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Switch } from '@renderer/lib/ui/switch';
 import { isSpentOneTimeAutomation, type Automation } from '@shared/core/automations/automation';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { homeSessions, homeTarget, localHomeSessions } from './assistant-home-sessions';
 import { assistantDescendants, groupByDay, type ListedSession } from './assistant-lineage';
 import { assistantRoutines, scheduleText } from './assistant-schedule';
@@ -262,7 +263,11 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                     setEnabled.mutate(
                       { id: automation.id, enabled },
                       {
-                        onSuccess: () => toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') }),
+                        onSuccess: () => {
+                          void reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'schedules', operation: 'edited',
+                            id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
+                          toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
+                        },
                         onError: () => toast({ title: t('routines.updateFailed'), tier: 'error' }),
                       }
                     )
@@ -296,6 +301,8 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                   onSuccess: () =>
                     destroy.mutate(automation.id, {
                       onSuccess: () => {
+                        void reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'schedules', operation: 'removed',
+                          id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled } });
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },

@@ -83,6 +83,17 @@ function Input({
   )
 }
 
+function Textarea({ className, rows = 8, ...props }: Omit<FieldPrimitive.Control.Props, 'className' | 'render' | 'type'> & ClassNameProp & { rows?: number }) {
+  return (
+    <FieldPrimitive.Control
+      {...props}
+      render={<textarea rows={rows} />}
+      data-slot="field-control"
+      className={cn(fieldControl, 'resize-y leading-[var(--lh-body)]', className)}
+    />
+  )
+}
+
 function Description({
   className,
   ...props
@@ -110,6 +121,7 @@ export const Field = {
   Root,
   Label,
   Input,
+  Textarea,
   Description,
   Error: ErrorMessage,
 }

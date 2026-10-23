@@ -430,6 +430,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
             device_id: device.device_id,
             label: device.label,
             kind: device.capabilities?.host_kind ?? null,
+            task_runtime: {
+              capability: device.capabilities?.host_runtime_capability ?? 0,
+              runtimes: device.capabilities?.runtimes ?? [],
+            },
             platform: device.platform,
             online: device.is_online,
             last_seen_at: device.last_seen_at,

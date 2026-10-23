@@ -371,7 +371,7 @@ Needs \`agents:control\` (or \`agents:control:all\` / \`agents:control:all-machi
 
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Programs and skills for this computer's agents. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
+Programs and skills for this computer's agents. Configuration/behavior: \`apps-settings\`; page calls: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -879,6 +879,16 @@ What the card, the detail sheet and the installed list show comes from manifest.
 `;
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
+
+## Standing agent behavior
+
+\`contributes.agentInstructions\`: 1–8000 characters of standing behavior, placed in the platform prompt
+without waiting for Skill discovery. Requires \`agents:tools\`, a runnable MCP program, and the same enabled,
+authorized App scope as tools. Works with native-listed and catalog tools. User instructions take precedence.
+New sessions receive it in full; restart existing sessions after enabling or changing it. Revoked tools are
+refused immediately, but an existing session's prompt is not rewritten. Use skills for detailed procedures.
+
+## Configuration
 
 An App with only programs or skills may omit \`entry\` and \`contributes.tabs\` (API 5). Clicking it
 opens the host's configuration/status page. No blank HTML or custom frontend is needed. An HTML App

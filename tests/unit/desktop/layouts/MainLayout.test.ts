@@ -13,7 +13,9 @@ import type { SessionpageMessageHost } from '../../../../apps/desktop/src/sessio
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
+import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
 const activationProbe = vi.hoisted(() => ({
@@ -232,7 +234,8 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
   chatServiceMock: { getOrCreateDM: vi.fn() },
   draftValues: new Map<string, string>(),
 }))
-vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
+vi.mock('../../../../apps/desktop/src/store/chatContext', async (importOriginal) => ({
+  appendToDraft: (await importOriginal<typeof import('../../../../apps/desktop/src/store/chatContext')>()).appendToDraft,
   useChatStore: () => ({
     ...chatStoreMock,
   })
@@ -751,6 +754,21 @@ describe('MainLayout', () => {
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
   })
+  // 手机键盘弹起时把整屏让给输入:有真实可编辑控件获得焦点就收起底栏,失焦后回来;❌ 冷启动自己抢焦点。
+  it('hides the tab bar while an editable control has focus and brings it back on blur', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+    expect(harness.container.querySelector('nav')).toBeTruthy()
+    expect(document.activeElement?.tagName).not.toBe('TEXTAREA')
+    const input = document.createElement('textarea')
+    harness.container.querySelector('[data-mobile-tab-page="chats"]')!.appendChild(input)
+    await act(async () => { input.focus() })
+    expect(harness.container.querySelector('nav')).toBeNull()
+    await act(async () => { input.blur(); await Promise.resolve() })
+    expect(harness.container.querySelector('nav')).toBeTruthy()
+    input.remove()
+  })
   // 对话列表里点和它的私聊 = 切到助理那一格,❌ 在对话页里另开一屏(owner:「点进去成两个 app 了」)。
   it('opens the assistant cell, not the chat page, when its private chat is picked from the list', async () => {
     platformMock.kind = 'capacitor'
@@ -906,8 +924,55 @@ describe('MainLayout: files.openWith', () => {
   })
 })
 
+
+describe('MainLayout: personal assistant destinations', () => {
+  const shell = { cloudAvailable: false, canHostHere: true, cloud: null, loadError: null,
+    assistant: { id: 'personal-agent', display_name: '咕咕', avatar: null, created_at: null },
+    assistantState: 'found' as const, ownerName: 'User', chatId: 'personal-dm', home: null,
+    setup: null, member: false, preparing: false }
+
+  beforeEach(() => { installAssistantShellBridge(); publishAssistantShell(shell) })
+  afterEach(() => { publishAssistantShell({ ...shell, assistant: null, assistantState: 'none', chatId: null }) })
+
+  it.each([
+    [GROUP_FILE_OPEN_EVENT, { chatId: 'personal-dm', itemId: 'personal-file' }],
+    [APP_OPEN_WITH_EVENT, { chatId: 'personal-dm', itemId: 'personal-file', name: 'budget.md', typedName: 'budget.md', choice: { kind: 'none' } }],
+    [APP_COMPOSE_EVENT, { chatId: 'personal-dm', text: 'follow-up' }],
+    [UI_EVENTS.notificationClicked, { chatId: 'personal-dm' }],
+  ])('opens %s in the desktop Gugu page and preserves the requested action', async (name, detail) => {
+    chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm', peer_user_id: 'personal-agent' } as never]
+    const navigate = vi.spyOn(appState.navigation, 'navigate').mockImplementation(() => undefined)
+    try {
+      await renderMainLayoutWithToast()
+      await act(async () => {
+        publishAssistantShell(shell)
+        window.dispatchEvent(new CustomEvent(name, { detail }))
+      })
+      expect(navigate).toHaveBeenCalledWith('assistant')
+      expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+      if ('itemId' in detail) expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('personal-file')
+      if ('text' in detail) expect(chatStoreMock.setDraft).toHaveBeenCalledWith('personal-dm', expect.any(Function))
+    } finally { navigate.mockRestore() }
+  })
+
+  it('opens the same file in the phone Gugu cell with its tab bar present', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    phoneAssistantMock.state.available = true
+    phoneAssistantMock.state.assistant = shell.assistant
+    phoneAssistantMock.state.chatId = 'personal-dm'
+    chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm' } as never]
+    await renderMainLayoutWithToast()
+    await act(async () => { window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail: { chatId: 'personal-dm', itemId: 'phone-file' } })) })
+    expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
+    expect(harness.container.querySelector('nav')).not.toBeNull()
+    expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('phone-file')
+  })
+})
+
 // Links and notifications use the chat door. A file request opens the source and split first,
 // so a temporary topic block cannot consume its file before normalizing to the source.
+
 describe('MainLayout: opening a topic on the desktop', () => {
   // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
   const SRC = '0b1e7c1a-0000-4000-8000-000000000001'

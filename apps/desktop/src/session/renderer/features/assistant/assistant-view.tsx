@@ -5,7 +5,7 @@ import '@/i18n/registerAgentsCatalog';
 import './assistant-today.css';
 import { PanelRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { ChevronLeft, Search, Settings } from '@/lib/icons';
@@ -82,6 +82,11 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   const { params, setParams } = useParams('assistant');
   const route = routeOf(params);
   const shell = useAssistantShell();
+  const bridge = readAssistantShellBridge();
+  const filePreviewOpen = useSyncExternalStore(
+    (listener) => bridge?.subscribe(listener) ?? (() => undefined),
+    () => bridge?.filePreviewOpen() ?? false,
+  );
   const home = shell?.assistant ? shell.home : null;
   // 住云上:管家给的样子(休眠中 / 正在唤醒 / 运行中);住电脑 = 没有这一份。
   const snapshot = home?.kind === 'cloud' ? shell?.cloud ?? null : null;
@@ -189,7 +194,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
 
   return (
     <AssistantCtx.Provider value={context}>
-      <div className="ta-app" style={tint} data-panel={panelOpen ? 'open' : 'closed'} data-testid="assistant-app">
+      <div className="ta-app" style={tint} data-panel={panelOpen || filePreviewOpen ? 'open' : 'closed'} data-testid="assistant-app">
         <div className="ta-chat-col" data-testid="assistant-chat-col" ref={setChatColumn}>
           <div className="ta-chat-top">
             <button
@@ -241,7 +246,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
           <VoiceRecordingBar context={context} column={chatColumn} />
           <AssistantIdeasLayer context={context} column={chatColumn} />
         </div>
-        {panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
+        {filePreviewOpen ? <section className="ta-panel" data-testid="assistant-file-preview"><ShellSlot name="file-preview" className="min-h-0 flex-1" /></section> : panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
       </div>
     </AssistantCtx.Provider>
   );

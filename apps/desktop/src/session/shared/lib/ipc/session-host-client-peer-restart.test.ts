@@ -80,8 +80,7 @@ describe('session host client: peer restart', () => {
     pipe.restart();
     expect(pipe.closed).toEqual([0]);
     expect(pipe.opens).toHaveLength(2);
-    await Promise.resolve();
-    await Promise.resolve();
+    await client.connect();
     expect(client.state()).toBe('open');
     client.close();
   });

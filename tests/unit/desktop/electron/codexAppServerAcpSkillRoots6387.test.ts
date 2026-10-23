@@ -61,7 +61,7 @@ function start(env: Record<string, string>) {
   writeFileSync(recordPath, '')
   const child = spawn(process.execPath, [ADAPTER], {
     cwd: dir,
-    env: { ...process.env, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
+    env: { ...process.env, GUGU_CODEX_SKILL_ROOTS: undefined, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   adapter = child

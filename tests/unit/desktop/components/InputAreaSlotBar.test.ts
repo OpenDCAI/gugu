@@ -50,7 +50,7 @@ describe('InputArea in a chat slot', () => {
   })
   it('keeps the phone layout unchanged even inside a slot', async () => {
     shell.mobile = true
-    expect(await render(true, 'website')).toMatchObject({ sendInBox: false, sendInPage: true, placeholder: 'Write a message… Type / for commands', boxPadding: '7px 15px', wordsPadding: '5px 0px' })
+    expect(await render(true, 'website')).toMatchObject({ sendInBox: false, sendInPage: true, placeholder: 'Write a message… Type / for commands', boxPadding: '7px 0px', wordsPadding: '5px 0px', boxShadow: 'none' })
   })
   // 原型里三处是同一个框:格子里的群框,文字和底排照会话框的位置(sessionComposerBox,真组件由浏览器测试量)。
   it('in a slot, starts the words and lays the bottom row where the session composer does', async () => {

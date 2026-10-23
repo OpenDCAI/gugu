@@ -8,7 +8,8 @@ vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({
 }))
 
 import { prepareLocalAssistantHome, wipeLocalAssistantHome } from '../../../../apps/desktop/electron/assistant-home-prepare'
-import { assistantHomePaths } from '../../../../packages/core/src/shared/assistantPolicy'
+import { assistantGuide, assistantHomePaths } from '../../../../packages/core/src/shared/assistantPolicy'
+import { refreshAssistantContext } from '../../../../apps/desktop/electron/sessionpage/assistant-instructions'
 
 async function scratch() {
   const root = await mkdtemp(join(tmpdir(), 'gugu-assistant-home-'))
@@ -30,7 +31,11 @@ describe('prepareLocalAssistantHome', () => {
     const result = await prepareLocalAssistantHome({ ownerProfile: '- 称呼：小明' }, { home, guguHome })
     const p = paths(result.workdir)
     expect(result.workdir).toBe(join(guguHome, 'assistant'))
-    expect(await readFile(p.instructions, 'utf8')).toContain('电脑开着你就在')
+    const brief = await readFile(p.instructions, 'utf8')
+    expect(brief).toContain('电脑开着你就在')
+    expect(brief.length).toBeLessThan(2400)
+    expect(brief).not.toContain('"batches"')
+    expect(await readFile(join(result.workdir, '.gugu-assistant-reference.md'), 'utf8')).toBe(assistantGuide('computer'))
     expect(JSON.parse(await readFile(p.settings, 'utf8')).permissions.deny).toContain('CronCreate')
     expect(await readFile(join(p.memoryDir, 'owner-profile.md'), 'utf8')).toContain('- 称呼：小明')
     expect(await readFile(p.memoryIndex, 'utf8')).toContain('(owner-profile.md)')
@@ -62,6 +67,22 @@ describe('prepareLocalAssistantHome', () => {
     expect(await readFile(join(p.memoryDir, 'owner-profile.md'), 'utf8')).toBe('被主人改过的记忆\n')
     const index = await readFile(p.memoryIndex, 'utf8')
     expect(index.match(/owner-profile\.md/g)).toHaveLength(1)
+  })
+
+  it('开通刷新与原生启动并发时,设置由同一串行入口合并', async () => {
+    const { home, guguHome, paths } = await scratch()
+    const first = await prepareLocalAssistantHome({}, { home, guguHome })
+    const p = paths(first.workdir)
+    await writeFile(p.settings, JSON.stringify({ model: 'keep', permissions: { deny: ['Read(secret)'] }, claudeMdExcludes: ['/custom.md'] }))
+    await Promise.all(Array.from({ length: 12 }, (_, i) => i % 2
+      ? prepareLocalAssistantHome({}, { home, guguHome })
+      : refreshAssistantContext(first.workdir, guguHome, 'computer', home)))
+    const settings = JSON.parse(await readFile(p.settings, 'utf8'))
+    expect(settings.model).toBe('keep')
+    expect(settings.permissions.deny).toEqual(['Read(secret)', 'CronCreate'])
+    expect(settings.claudeMdExcludes).toContain('/custom.md')
+    expect(settings.claudeMdExcludes).toContain(join(guguHome, '.claude/CLAUDE.md'))
+    expect((await readFile(p.instructions, 'utf8')).length).toBeLessThan(2400)
   })
 
   it('Claude Code 已经在那一夹里记过东西(真目录):搬进工作目录再换成链接,❌ 丢', async () => {

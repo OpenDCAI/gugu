@@ -1,0 +1,190 @@
+/* Phone settings and the guide consume the Codex settings roles, without extra card layers. */
+div.gg-phone-device-page,
+div.gg-phone-capabilities {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+  min-width: 0;
+}
+
+.gg-phone-device-page,
+.gg-phone-capabilities,
+.gg-phone-setup,
+.gg-phone-capability-sheet {
+  --phone-font-note: var(--phone-font-caption, calc((var(--font-caption) + var(--font-body)) / 2));
+  --phone-surface: color-mix(in oklab, var(--muted) 36%, var(--bg));
+}
+.gg-phone-device-page .gg-settings-card,
+.gg-phone-setup .gg-settings-card,
+.gg-phone-capabilities .gg-settings-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
+.gg-phone-device-page .gg-settings-row + .gg-settings-row,
+.gg-phone-setup .gg-settings-row + .gg-settings-row { border-top: 0; }
+.gg-phone-device-page .gg-settings-row,
+.gg-phone-setup .gg-settings-row { min-height: 56px; padding-inline: 0; column-gap: 12px; }
+.gg-phone-device-page .gg-settings-row-title,
+.gg-phone-setup .gg-settings-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
+.gg-phone-device-page .gg-settings-row-description,
+.gg-phone-setup .gg-settings-row-description,
+.gg-phone-device-page .gg-settings-note,
+.gg-phone-setup .gg-settings-note { font-size: var(--phone-font-note); line-height: var(--lh-body); }
+.gg-phone-device-page > .gg-settings-note { font-size: var(--font-prose); line-height: var(--lh-prose); }
+.gg-phone-device-page [data-slot='button'],
+.gg-phone-setup [data-slot='button'],
+.gg-phone-capability-sheet [data-slot='button'] { min-height: var(--control-h-touch); }
+.gg-phone-device-page [data-slot='button'][data-variant='secondary'],
+.gg-phone-setup [data-slot='button'][data-variant='secondary'],
+.gg-phone-capability-sheet [data-slot='button'][data-variant='secondary'] { border-color: transparent; background: var(--phone-surface); }
+
+.gg-phone-setting-icon { flex: none; color: var(--muted-fg); }
+.gg-phone-capabilities .gg-section-label,
+.gg-phone-host-control .gg-section-label,
+.gg-phone-device-page .gg-section-label,
+.gg-phone-setup .gg-section-label {
+  height: auto;
+  padding-inline: 0;
+  color: var(--fg);
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.gg-phone-capability-item + .gg-phone-capability-item { margin-top: 4px; }
+div.gg-phone-capability-row { min-height: 56px; align-items: center; padding-block: 4px; border-radius: var(--radius-control); }
+.gg-phone-capability-row .gg-settings-row-control { align-self: center; }
+div.gg-phone-capability-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 0;
+}
+.gg-phone-capability-content:empty { display: none; }
+.gg-phone-capability-status,
+.gg-phone-capability-notice,
+.gg-phone-capability-error,
+.gg-phone-host-status {
+  font-size: var(--phone-font-note);
+  line-height: var(--lh-body);
+  color: var(--muted-fg);
+  overflow-wrap: anywhere;
+}
+.gg-phone-capability-status[data-tone='live'],
+.gg-phone-host-status[data-ready='true'] { color: var(--live); }
+.gg-phone-capability-status[data-tone='warn'] { color: var(--fg); }
+.gg-phone-capability-error { color: var(--danger); }
+.gg-settings-row-body > .gg-phone-capability-status { margin-top: var(--spacing-xs); }
+div.gg-phone-capability-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+.gg-phone-capability-actions > [data-slot='button'],
+.gg-phone-capability-notice > [data-slot='button'] {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+  line-height: var(--lh-body);
+}
+div.gg-phone-permission-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-sm); }
+div.gg-phone-capability-details { margin-top: calc(-1 * var(--spacing-md)); }
+.gg-phone-capability-details > [data-slot='button'] { margin-inline-start: calc(-1 * var(--spacing-md)); }
+div.gg-phone-capability-prose { display: flex; flex-direction: column; gap: var(--spacing-md); padding-top: var(--spacing-sm); }
+.gg-phone-capability-prose p,
+p.gg-phone-setup-intro {
+  margin: 0;
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+  color: var(--muted-fg);
+}
+div.gg-phone-capability-sheet { display: flex; flex-direction: column; min-height: 0; max-height: calc(85dvh - env(safe-area-inset-bottom)); padding-top: 8px; }
+div.gg-phone-capability-sheet-body { display: flex; flex-direction: column; min-height: 0; gap: 16px; padding: 8px 16px 24px; overflow-y: auto; overscroll-behavior: contain; }
+.gg-phone-capability-sheet-body > * { flex-shrink: 0; }
+.gg-phone-capability-purpose { margin: 0; font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--muted-fg); }
+.gg-phone-capability-sheet-body > [data-slot='button'] { align-self: stretch; }
+.gg-phone-capability-actions { flex-direction: column; }
+.gg-phone-capability-actions > [data-slot='button'] { justify-content: flex-start; }
+.gg-phone-notification-scope { display: flex; flex-direction: column; gap: 16px; padding: 16px; border-radius: var(--radius-surface); background: var(--phone-surface); }
+.gg-phone-notification-scope p { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: var(--font-prose); line-height: var(--lh-prose); }
+.gg-phone-notification-scope p > span,
+.gg-phone-notification-scope p.gg-phone-capability-notice { font-size: var(--phone-font-note); line-height: var(--lh-body); color: var(--muted-fg); }
+
+/* The Sheet owns its existing modal behavior; only the body scrolls inside this guide. */
+div.gg-phone-setup {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: calc(85dvh - env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+div.gg-phone-setup-header {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: 24px 16px 16px;
+}
+.gg-phone-setup-eyebrow {
+  margin: 0;
+  color: var(--muted-fg);
+  font-size: var(--phone-font-note);
+  line-height: var(--lh-body);
+}
+.gg-phone-setup-heading {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--font-size-xl);
+  line-height: var(--lh-page);
+  font-weight: var(--font-weight-semibold);
+}
+ol.gg-phone-setup-steps {
+  display: flex;
+  gap: var(--spacing-md);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gg-phone-setup-steps li {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: var(--phone-font-note);
+  line-height: var(--lh-body);
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 8px;
+}
+.gg-phone-setup-steps li[aria-current='step'] { color: var(--fg); background: var(--phone-surface); font-weight: var(--font-weight-medium); }
+div.gg-phone-setup-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+  min-height: 0;
+  padding: 0 16px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  container: gg-settings / inline-size;
+}
+.gg-phone-setup-body > * { flex-shrink: 0; }
+div.gg-phone-setup-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: 16px;
+  border-top: 0;
+  background: var(--modal-bg);
+}
+div.gg-phone-setup-actions { display: flex; align-items: center; gap: var(--spacing-sm); }
+.gg-phone-setup-actions > [data-slot='button'] { min-height: var(--control-h-touch); min-width: 0; }
+.gg-phone-setup-actions > [data-variant='primary'] { margin-inline-start: auto; }
+
+@media (max-width: 359px) {
+  div.gg-phone-setup-header,
+  div.gg-phone-setup-footer { padding-inline: var(--spacing-lg); }
+  div.gg-phone-setup-body { padding-inline: var(--spacing-lg); }
+  div.gg-phone-capability-row { padding-inline: 0; column-gap: var(--spacing-sm); }
+  .gg-phone-capability-row .gg-settings-row-control > [data-slot='button'] { padding-inline: var(--spacing-sm); }
+}

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { Button } from '@/components/ui/Button'
+import { ListRowContent } from '@/components/ui/ListRow'
 import { IconButton } from '@/components/ui/IconButton'
 import { ChevronDown, ChevronUp, MoreHorizontal } from '@/lib/icons'
 import { Sheet } from '@/components/ui/Sheet'
@@ -10,8 +11,10 @@ import { formatRelativeTime } from '@/i18n/format'
 import { SessionAvatar } from './StatusGlyph'
 import { ScheduleMetaPart } from './schedule-meta'
 import { sessionPresentation } from './watch-status'
-import { updateSession } from './sessionpage-rpc'
+import { cancelPhoneSessionTurn, updateSession } from './sessionpage-rpc'
 import { rowOpens } from '@/session/shared/remote-sessions/session-directory'
+import { useLongPress } from '@/hooks/useLongPress'
+import './task-flow-catalog'
 
 /*
  * 「项目」页(ProjectsPage)用的会话行与管理动作。这里原来是「一台机器的会话页」:#7199 起手机底栏那一格按项目列、
@@ -27,12 +30,14 @@ export function SessionActionsSheet({
   open,
   session,
   deviceId,
+  phoneHost = false,
   onClose,
   onArchived
 }: {
   open: boolean
   session: SessionpageSessionSummary | null
   deviceId: string
+  phoneHost?: boolean
   onClose: () => void
   onArchived?: () => void
 }) {
@@ -56,12 +61,26 @@ export function SessionActionsSheet({
       .finally(() => setBusy(false))
   }
   const pinned = session?.isPinned === true
+  const cancelPhoneTask = async (): Promise<void> => {
+    if (!session) return
+    setBusy(true)
+    setError(null)
+    try {
+      await cancelPhoneSessionTurn(deviceId, session.conversationId)
+      onClose()
+    } catch (cause) { fail(cause) }
+    finally { setBusy(false) }
+  }
   return (
     <Sheet open={open} onClosed={() => { if (archived.current) onArchived?.() }} onClose={busy ? () => undefined : onClose} mobileFitContent testId="agent-watch-session-actions" ariaLabel={session?.title}>
       {session ? <div className="gg-aw gg-aw-sheet gg-aw-actions">
         <div className="gg-aw-actions-title">{session.title}</div>
         {error ? <div className="gg-aw-actions-error" data-testid="agent-watch-session-action-error">{error}</div> : null}
-        {step === 'menu' ? (
+        {phoneHost ? (
+          <Button variant="ghost" size="option" className="gg-aw-actions-item" disabled={busy} data-testid="agent-watch-session-stop" onClick={() => { void cancelPhoneTask() }}>
+            {t('agentWatch.sessions.stop')}
+          </Button>
+        ) : step === 'menu' ? (
           <>
             <Button variant="ghost" size="option" className="gg-aw-actions-item" disabled={busy} data-testid="agent-watch-session-pin" onClick={() => update({ pinned: !pinned })}>
               {t(pinned ? 'agentWatch.sessions.unpin' : 'agentWatch.sessions.pin')}
@@ -115,7 +134,9 @@ export function SessionRow({
   childrenOpen,
   onToggleChildren,
   onOpen,
-  onMenu
+  onMenu,
+  statusAvailable,
+  phoneHost = false,
 }: {
   session: SessionpageSessionSummary
   /** 这条会话背后的 agent 名(`Codex 3`);还没有身份就不给。 */
@@ -133,9 +154,13 @@ export function SessionRow({
   onOpen: (session: SessionpageSessionSummary) => void
   /** 管理动作入口(行尾「…」)。机器离线时不给:删除要机器端执行,离线只会等到超时。 */
   onMenu?: ((session: SessionpageSessionSummary) => void) | undefined
+  statusAvailable?: boolean | undefined
+  phoneHost?: boolean
 }) {
   const { t } = useTranslation('main')
-  const presentation = sessionPresentation(session, session.supported)
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const presentation = sessionPresentation(session, statusAvailable ?? session.supported)
+  const longPress = useLongPress(() => onMenu?.(session))
   const when = formatRelativeTime(session.lastInteractedAt)
   /*
    * 打不开的行分两种,说的不是同一件事:
@@ -151,7 +176,8 @@ export function SessionRow({
    * 打不开 / 没起来的行照旧写它自己的那句话(下面 rowMeta)。
    */
   const named = agentName && !session.title.startsWith(agentName) && !agentName.startsWith(session.title) ? agentName : undefined
-  const ownMeta = [named ? null : session.harness, when].filter((x): x is string => !!x)
+  const agentKind = phoneHost ? tFlow('phoneAgent') : session.harness
+  const ownMeta = [named ? null : agentKind, when].filter((x): x is string => !!x)
   /*
    * 没有记录可读的会话,新宿主照样打得开(spec session-always-openable,#6264):转录里是第一句话,
    * 为什么没起来说在那台机器那边。老宿主(不带 recordState)打不开,说一句「这里打不开」——
@@ -161,9 +187,9 @@ export function SessionRow({
   const rowMeta: string[] = session.supported
     ? ownMeta
     : session.recordState === 'not-started'
-      ? [t('agentWatch.sessions.notStarted'), session.harness, when].filter((x): x is string => !!x)
+      ? [t('agentWatch.sessions.notStarted'), agentKind, when].filter((x): x is string => !!x)
       : session.recordState === 'harness-unsupported'
-        ? [t('agentWatch.sessions.harnessUnsupported'), session.harness].filter((x): x is string => !!x)
+        ? [t('agentWatch.sessions.harnessUnsupported'), agentKind].filter((x): x is string => !!x)
         : session.unsupportedReason
           ? [t('agentWatch.sessions.cannotOpen')]
           : ownMeta
@@ -178,30 +204,33 @@ export function SessionRow({
     <Button
       variant="ghost"
       size="option"
-      className="gg-aw-item"
+      className="gg-list-row gg-row gg-aw-item"
+      data-mobile=""
+      data-emphasis={presentation?.emphasis || undefined}
+      data-pinned={session.isPinned || undefined}
       aria-disabled={openable ? undefined : true}
       disabled={!openable}
       data-session-id={session.conversationId}
       data-supported={session.supported ? 'true' : 'false'}
+      {...(onMenu ? longPress : {})}
+      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(session) } : undefined}
       onClick={openable ? () => onOpen(session) : undefined}
     >
-      <span className="gg-aw-item-ind" data-avatar="">
+      <ListRowContent title={session.title} leading={
         <SessionAvatar
           agentId={session.agent?.userId}
           sessionId={session.conversationId}
           presentation={presentation}
-          size={depth > 0 ? 26 : 32}
+          size={depth > 0 ? 28 : 40}
         />
-      </span>
-      <span className="gg-aw-item-main">
-        <span className="gg-aw-item-title">{session.title}</span>
+      } subtitle={
         <span className="gg-aw-item-meta">
           {session.schedule ? <ScheduleMetaPart schedule={session.schedule} /> : null}
           {meta.map((part, i) => (
             <span key={part + String(i)} className="gg-aw-item-part">{part}</span>
           ))}
         </span>
-      </span>
+      } />
     </Button>
     {childCount > 0 ? (
       <IconButton

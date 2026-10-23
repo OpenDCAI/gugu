@@ -36,7 +36,7 @@ type RpcChannel = {
 }
 
 type RpcSupabaseClient<TChannel> = {
-  realtime: { setAuth: (accessToken: string) => unknown | Promise<unknown> }
+  realtime: { setAuth: () => unknown | Promise<unknown> }
   channel: (topic: string, options: { config: { private: boolean; broadcast: { self: boolean; ack: boolean } } }) => TChannel
   removeChannel: (channel: TChannel) => unknown
 }
@@ -104,7 +104,6 @@ export type DeviceRpcAskers = {
 
 export function createDeviceRpcAskers<TChannel>(input: {
   supabase: RpcSupabaseClient<TChannel>
-  accessToken: string
   deviceId: string
   /** 一问:从发问端那条进来的请求交给它,回包与推送发回那条。 */
   handle: (payload: unknown, publishReply: PublishDeviceRpcReply, publishEvent: PublishDeviceRpcEvent, asker: DeviceRpcAskerContext) => Promise<void>
@@ -219,7 +218,6 @@ export function createDeviceRpcAskers<TChannel>(input: {
       return channel
     }
     asker.subscription = subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, createChannel(), {
-      accessToken: input.accessToken,
       label: `device-rpc-asker:${id.slice(0, 8)}`,
       createChannel,
       onStatus: (status, err) => {

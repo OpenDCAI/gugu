@@ -68,7 +68,7 @@ const SESSION_ROWS: SessionpageListSpec = {
 export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'session_devices',
-    description: 'List your machines — this one and the other computers and 咕咕 servers on your account — with whether each is online and when it was last seen. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
+    description: 'List your task hosts — this one and your other computers, phones with task hosting enabled, and 咕咕 servers — with online status, last seen time and task_runtime (capability and installed runtimes). Task hosting is separate from device_actions native-data grants. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
     schema: z.object({ ...listWindowShape }).strict(),
     action: 'devices',
     list: { namesOf: (row) => [row.label], catalog: true },
@@ -277,7 +277,10 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
 /**
  * 把 session_* 原子工具注册进已有 MCP server，动作交给宿主的会话分派器。
  *
- * 定义一字不随 grant 变(摩擦单 F54):工具清单是模型前缀的一段,按会话变就让每个新会话的首轮吃不到缓存。
+ * F54: keep fixed definitions within each role. The coordinator omits device_call;
+ * executors retain it, including those in the assistant's workspace. These are two
+ * fixed surfaces, not per-session variants; assistants share their own prefix and
+ * already have a different system prompt from executors. No shared settings deny.
  * 调用方自己是终端还是面板(#4378 曾写进 session_spawn 的说明)由会话的 surface 自述块说
  * (capability-bundle.ts guguSessionSurfaceBody)。
  */
@@ -285,6 +288,8 @@ export function registerGuguSessionTools(
   server: McpServer,
   runAction: SessionDispatcher | undefined,
   track: GuguMcpRequestTracker,
+  personalAssistant = false,
 ): void {
-  registerSessionpageTools(server, SESSION_TOOL_DEFS, runAction, (tool) => `${tool} is unavailable for this grant`, track)
+  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call') : SESSION_TOOL_DEFS
+  registerSessionpageTools(server, defs, runAction, (tool) => `${tool} is unavailable for this grant`, track)
 }

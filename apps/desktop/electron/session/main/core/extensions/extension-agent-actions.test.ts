@@ -803,7 +803,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
         target_dir: path.join(workDir, 'tools'),
         manifest: { ...minimal.manifest, permissions: { capabilities: ['agents:tools'] } },
       })
-    ).rejects.toThrow(/no contributes\.mcpServers or contributes\.skills/);
+    ).rejects.toThrow(/no contributes\.mcpServers, contributes\.skills or contributes\.agentInstructions/);
   });
 });
 

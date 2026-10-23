@@ -9,11 +9,12 @@
  * unlayered declaration beats every layer regardless of specificity. Every selector is scoped under
  * `.gg-md`, so nothing reaches outside a markdown body.
  *
- * Muted colours are mixed from currentColor, so the same rules read correctly on an accent-coloured bubble. */
+ * Text uses the host's muted colours: older Android WebViews resolve color-mix(currentColor, transparent)
+ * to transparent when it supplies color itself. Rules and fills can still mix currentColor safely. */
 
 .gg-md {
-  --md-muted: color-mix(in oklab, currentColor 68%, transparent);
-  --md-faint: color-mix(in oklab, currentColor 45%, transparent);
+  --md-muted: var(--foreground-muted, var(--muted-fg, var(--em-foreground-muted, currentColor)));
+  --md-faint: var(--foreground-passive, var(--faint-fg, var(--em-foreground-passive, currentColor)));
   --md-rule: color-mix(in oklab, currentColor 16%, transparent);
   --md-rule-soft: color-mix(in oklab, currentColor 9%, transparent);
   --md-fill: color-mix(in oklab, currentColor 5%, transparent);
