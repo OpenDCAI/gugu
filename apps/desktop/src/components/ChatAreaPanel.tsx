@@ -13,6 +13,7 @@ import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useContactsStore } from '../store/contactsContext'
 import { useAuth } from '../store/auth'
+import { useIsAssistantAvatar } from '../lib/avatarIdentity'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService, type ChatFileItem } from '../lib/chat'
@@ -210,8 +211,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   // 场所型(群/话题)读自己的 name/avatar;私聊读对端。名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName)。
   const activeChatName = activeChat ? chatDisplayName(activeChat, peerIdentity?.display_name) : ''
   const activeChatAvatar = isRoomChatSurface ? (activeChat?.avatar ?? null) : (peerIdentity?.avatar ?? null)
-  // @@@1145 单聊 Agent 的联系人档(供 AgentSettingsModal 取完整资料)。点名时优先弹设置面板;
-  // 找不到联系人(极少)则回落旧抽屉,不丢可达性。
+  const assistantPeer = useIsAssistantAvatar(activeChat?.peer_user_id ?? '')
   const agentChatContact = isAgentChat
     ? contacts.find((c) => c.id === activeChat?.peer_user_id) ?? null
     : null
@@ -1306,7 +1306,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           scrollerRef={setScrollerRef}
           rows={chatListRows}
           rowProps={rowProps} footer={chrome?.typing}
-          initialTopMostItemIndex={openLocation()} topInset={agentHero && !mobile && isAgentHeroBird(activeChatAvatar) ? AGENT_HERO_OVERHANG_PX : 0}
+          initialTopMostItemIndex={openLocation()} topInset={agentHero && !mobile && isAgentHeroBird(activeChatAvatar, assistantPeer) ? AGENT_HERO_OVERHANG_PX : 0}
           followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onJump: () => void jumpToUnreadEntry().catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
           // 打开会话时的初始 pin 发生在最后一条消息完成布局之前（markdown/代码块/字体异步撑高），
