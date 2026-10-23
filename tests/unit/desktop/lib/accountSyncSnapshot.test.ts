@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { openLocalSyncDb, type LocalImDbAdapter, type LocalImDbOperation } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { openImRepository, type OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
+import { openImRepository, replaceChatRowsAndIdentities, type OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
 import { ACCOUNT_REVISION_CURSOR_KEY, createAccountRevisionRuntime } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
 import { decodeAccountSnapshot, initializeAccountSync } from '../../../../apps/desktop/src/lib/accountSyncSnapshot'
 import { message } from '../../../support/testHarness'
@@ -86,6 +86,24 @@ describe('account snapshot bootstrap and repair', () => {
     await openImRepository('account-a', { adapter, initialize: initializeAccountSync })
     expect(rpc).toHaveBeenCalledTimes(1)
     await openImRepository('account-a', { adapter, initialize: initializeAccountSync })
+    expect(rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('rebuilds all 420 conversations and retains them through normal publication and reopen', async () => {
+    const one = populatedSnapshot()
+    const ids = Array.from({ length: 420 }, (_, index) => `chat-${index}`)
+    const snapshot = { ...one, identities: [identity], unread: [],
+      chats: ids.map((id) => ({ ...one.chats[0]!, id })),
+      memberships: ids.map((chat_id) => ({ ...one.memberships[0]!, chat_id })),
+      previews: ids.map((chat_id) => ({ ...one.previews[0]!, chat_id, id: null, preview: null })),
+    }
+    rpc.mockReturnValue({ abortSignal: vi.fn().mockResolvedValue({ data: snapshot, error: null }) })
+    const repository = await openImRepository('account-a', { adapter, initialize: initializeAccountSync })
+    expect(repository.snapshot().chat.map((row) => row.id).sort()).toEqual([...ids].sort())
+    await replaceChatRowsAndIdentities(repository, repository.snapshot().chat.map((row) => row.value), [identity])
+    const reopened = await openImRepository('account-a', { adapter, initialize: initializeAccountSync })
+    expect(reopened.snapshot().chat.map((row) => row.id).sort()).toEqual([...ids].sort())
+    expect(reopened.snapshot().sync_state[0]!.value).toEqual({ revision: '422010' })
     expect(rpc).toHaveBeenCalledTimes(1)
   })
 
