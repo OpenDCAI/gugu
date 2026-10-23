@@ -46,9 +46,9 @@ import {
   type AccountRevisionListener,
 } from '../lib/accountRevisionCoordinator'
 import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevisionSource'
+import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { rendererLogger } from '../lib/log'
-
 const revisionLog = rendererLogger('chat/account-revision')
 
 export function ChatProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
@@ -183,7 +183,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (imRepositoryScope.disposed || imRepositoryScope.accountId !== user.id) throw new Error(`IM repository scope ${user.id} disposed`)
     if (imRepositoryRef.current?.accountId === user.id) return imRepositoryRef.current
     if (imRepositoryPromiseRef.current?.accountId === user.id) return imRepositoryPromiseRef.current.promise
-    const promise = openImRepository(user.id)
+    const promise = openImRepository(user.id, { initialize: initializeAccountSync }).catch((error) => { imRepositoryPromiseRef.current = null; throw error })
     imRepositoryPromiseRef.current = { accountId: user.id, promise }
     const repository = await promise
     if (imRepositoryScope.disposed || imRepositoryPromiseRef.current?.promise !== promise) {
@@ -191,7 +191,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       throw new Error(`IM repository scope ${user.id} was disposed or superseded during open`)
     }
     imRepositoryRef.current = repository
-    subscribeIdentities(repository, setIdentitiesById) // #6306 同一份身份也经 identityDirectoryBridge 送进会话页
+    subscribeIdentities(repository, setIdentitiesById)
     return repository
   }, [imRepositoryScope, user?.id])
 

@@ -24,6 +24,13 @@ export const IM_STORE_NAMES = [
 export type ImStoreName = (typeof IM_STORE_NAMES)[number]
 export type LocalImRow = { accountId: string; [key: string]: unknown }
 
+/** Only server-derived cache validation can be recovered. Outbox/IO failures cannot. */
+export class LocalImCacheError extends Error {
+  constructor(cause: unknown, readonly outbox: LocalImRow[]) {
+    super(`Local IM cache requires a snapshot rebuild: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+  }
+}
+
 export type LocalImDbOperation =
   | { type: 'put'; store: ImStoreName; value: LocalImRow }
   | { type: 'delete'; store: ImStoreName; key: IDBValidKey }
@@ -330,12 +337,21 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
       const transaction = db.transaction(IM_STORE_NAMES, 'readonly')
       const entries = await Promise.all(IM_STORE_NAMES.map(async (name) => {
         const values = await requestResult<LocalImRow[]>(transaction.objectStore(name).index('accountId').getAll(accountId))
-        return [name, values.map((row) => validateCurrentRow(name, row, accountId))] as const
+        return [name, values] as const
       }))
       await transactionDone(transaction)
-      const rows = Object.fromEntries(entries) as Record<ImStoreName, LocalImRow[]>
-      validateCurrentRelations(rows)
-      return rows
+      const raw = Object.fromEntries(entries) as Record<ImStoreName, LocalImRow[]>
+      // Validate user-authored data first; never discard an invalid unsent message.
+      const outbox = raw.outbox.map((row) => validateCurrentRow('outbox', row, accountId))
+      try {
+        const rows = Object.fromEntries(IM_STORE_NAMES.map((name) => [name,
+          name === 'outbox' ? outbox : raw[name].map((row) => validateCurrentRow(name, row, accountId)),
+        ])) as Record<ImStoreName, LocalImRow[]>
+        validateCurrentRelations(rows)
+        return rows
+      } catch (error) {
+        throw new LocalImCacheError(error, outbox)
+      }
     },
     async commit(operations) {
       if (operations.length === 0) return
@@ -343,34 +359,46 @@ function createIndexedDbAdapter(db: IDBDatabase): LocalImDbAdapter {
         ? [...IM_STORE_NAMES]
         : [...new Set(operations.flatMap((operation) => operation.type === 'clearAccount' ? [] : [operation.store]))]
       const transaction = db.transaction(touched, 'readwrite')
-      try {
-        for (const operation of operations) {
-          if (operation.type === 'clearAccount') {
-            assertId(operation.accountId, 'accountId')
-            for (const store of IM_STORE_NAMES) deleteAccountRows(transaction.objectStore(store), operation.accountId)
-          } else if (operation.type === 'put') {
-            assertId(operation.value.accountId, 'row.accountId')
-            transaction.objectStore(operation.store).put(operation.value)
-          } else {
-            transaction.objectStore(operation.store).delete(operation.key)
+      let enqueueError: unknown
+      // A clear's cursor must finish BEFORE replacement puts: an advancing
+      // IndexedDB cursor would otherwise visit and delete the new rows too.
+      const enqueue = (offset: number): void => {
+        try {
+          for (let index = offset; index < operations.length; index += 1) {
+            const operation = operations[index]!
+            if (operation.type === 'clearAccount') {
+              assertId(operation.accountId, 'accountId')
+              let remaining = IM_STORE_NAMES.length
+              for (const store of IM_STORE_NAMES) deleteAccountRows(transaction.objectStore(store), operation.accountId, () => {
+                remaining -= 1
+                if (remaining === 0) enqueue(index + 1)
+              })
+              return
+            } else if (operation.type === 'put') {
+              assertId(operation.value.accountId, 'row.accountId')
+              transaction.objectStore(operation.store).put(operation.value)
+            } else {
+              transaction.objectStore(operation.store).delete(operation.key)
+            }
           }
+        } catch (error) {
+          enqueueError = error
+          transaction.abort()
         }
-      } catch (error) {
-        try { transaction.abort() } catch { /* the original enqueue error is authoritative */ }
-        await transactionDone(transaction).catch(() => undefined)
-        throw error
       }
-      await transactionDone(transaction)
+      const done = transactionDone(transaction)
+      enqueue(0)
+      await done.catch((error) => { throw enqueueError ?? error })
     },
     close: () => db.close(),
   }
 }
 
-function deleteAccountRows(store: IDBObjectStore, accountId: string): void {
+function deleteAccountRows(store: IDBObjectStore, accountId: string, done: () => void): void {
   const cursor = store.index('accountId').openKeyCursor(IDBKeyRange.only(accountId))
   cursor.onsuccess = () => {
     const current = cursor.result
-    if (!current) return
+    if (!current) { done(); return }
     store.delete(current.primaryKey)
     current.continue()
   }

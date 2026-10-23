@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { imSelectors, openImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { imSelectors, openImRepository as openRawRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import {
   ACCOUNT_REVISION_CURSOR_KEY,
   DRAIN_RETRY_DELAYS_MS,
@@ -10,6 +10,14 @@ import {
   type AccountRevisionPage,
   type AccountRevisionSource,
 } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
+
+async function openImRepository(...args: Parameters<typeof openRawRepository>) {
+  const repository = await openRawRepository(...args)
+  if (!repository.snapshot().sync_state.some((row) => row.key === 'account-revision-cursor')) {
+    await repository.transaction((transaction) => transaction.putSyncState('account-revision-cursor', { revision: '0' }))
+  }
+  return repository
+}
 
 function operation(revision: number | string, event: string, payload: unknown = {}): AccountRevisionOperation {
   return { revision: String(revision), event, payload }
@@ -158,7 +166,7 @@ describe('AccountRevisionRuntime', () => {
     runtime.start()
     await expect(runtime.whenIdle()).rejects.toThrow('account revision sequence is invalid at 3; expected 2')
     expect(seen).toEqual([])
-    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toBeUndefined()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
     await vi.advanceTimersByTimeAsync(DRAIN_RETRY_DELAYS_MS[0])
     await runtime.whenIdle()
     expect(syncSince.mock.calls.map((call) => call[0])).toEqual(['0', '0'])
@@ -223,7 +231,7 @@ describe('AccountRevisionRuntime', () => {
     runtime.start()
     await expect(runtime.whenIdle()).rejects.toThrow('account revision sequence')
     expect(repository.snapshot().view).toEqual([])
-    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toBeUndefined()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
     runtime.stop()
   })
 
@@ -241,7 +249,7 @@ describe('AccountRevisionRuntime', () => {
 
     expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(repository.snapshot().view).toEqual([])
-    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toBeUndefined()
+    expect(imSelectors.syncState(ACCOUNT_REVISION_CURSOR_KEY)(repository.snapshot())).toEqual({ revision: '0' })
   })
   it('#5649 skips the trailing catch-up when the wake that arrived mid-drain is already covered', async () => {
     const repository = await openImRepository('account-a', { adapter: createMemoryLocalSyncDb() })

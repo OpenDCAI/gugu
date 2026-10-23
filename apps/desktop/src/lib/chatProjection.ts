@@ -514,7 +514,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
   return owner
 }
 
-function membershipValue(row: Record<string, unknown>): unknown {
+export function membershipValue(row: Record<string, unknown>): Record<string, unknown> {
   return {
     chat_id: String(row.chat_id),
     user_id: String(row.user_id),
@@ -531,7 +531,7 @@ function membershipValue(row: Record<string, unknown>): unknown {
 }
 
 /** 同一 chat 的多条 stream locator 合成一条(取最早那条的位置、累加计数)。 */
-function mergeUnreadRows(
+export function mergeUnreadRows(
   rows: Array<Record<string, unknown> & { chat_id: string }>,
 ): Map<string, ChatUnreadLocator & { chat_id: string }> {
   const byChat = new Map<string, ChatUnreadLocator & { chat_id: string }>()

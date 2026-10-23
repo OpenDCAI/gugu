@@ -13,6 +13,7 @@ import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
 import {
   IM_STORE_NAMES,
+  LocalImCacheError,
   migrateLegacyChatList,
   openLocalSyncDb,
   type ImStoreName,
@@ -84,6 +85,7 @@ type Selector<T> = (snapshot: ImRepositorySnapshot) => T
 type Listener<T> = (value: T, snapshot: ImRepositorySnapshot) => void
 
 export interface ImRepositoryTransaction {
+  clear(): void
   putIdentity(value: unknown): void
   putChat(id: string, value: ChatItem, order?: number): void
   putMembership(chatId: string, identityId: string, value: EntityValue): void
@@ -151,15 +153,26 @@ export const imSelectors = {
 
 export async function openImRepository(
   accountId: string,
-  options: { adapter?: LocalImDbAdapter; storage?: Storage } = {},
+  options: { adapter?: LocalImDbAdapter; storage?: Storage; initialize?: (repository: AccountImRepository) => Promise<void> } = {},
 ): Promise<AccountImRepository> {
   assertId(accountId, 'accountId')
   const adapter = options.adapter ?? await openLocalSyncDb()
   try {
-    if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
-    else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
-    const initial = await adapter.loadAccount(accountId)
-    return createAccountRepository(accountId, adapter, initial, options.adapter === undefined)
+    if (!options.initialize) {
+      if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
+      else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
+    }
+    let initial: Record<ImStoreName, LocalImRow[]>
+    try {
+      initial = await adapter.loadAccount(accountId)
+    } catch (error) {
+      if (!(error instanceof LocalImCacheError) || !options.initialize) throw error
+      repositoryLog.warn({ accountId, error }, 'rebuilding invalid local IM cache')
+      initial = Object.fromEntries(IM_STORE_NAMES.map((name) => [name, name === 'outbox' ? error.outbox : []])) as Record<ImStoreName, LocalImRow[]>
+    }
+    const repository = createAccountRepository(accountId, adapter, initial, options.adapter === undefined)
+    await options.initialize?.(repository)
+    return repository
   } catch (error) {
     if (options.adapter === undefined) adapter.close()
     throw error
@@ -244,6 +257,7 @@ function createAccountRepository(
 function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
   return {
+    clear: () => operations.push({ type: 'clearAccount', accountId }),
     putIdentity: (value) => {
       const identity = displayIdentityFromRow(value)
       put('identity', { accountId, id: identity.id, value: identity })
