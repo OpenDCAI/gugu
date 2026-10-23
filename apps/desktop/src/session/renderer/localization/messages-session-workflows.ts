@@ -218,10 +218,6 @@ export const enUSSessionWorkflowMessages = {
 
   'task.openFile': 'Open file',
   'task.openFileHint': 'Select a file in the tree to open it here',
-  'task.reviewAfterSend': 'Review changes after the task is sent',
-  'task.machineToolsAfterSend': 'Opens on that machine once the task is sent',
-  'task.sideTaskAfterSend': 'Send the first message to branch this task',
-  'task.filesNeedWorkspace': 'This draft has no workspace to browse yet',
   'task.workspacePanel': 'Files panel',
   'task.closeTab': 'Close {label} tab',
   'task.addPanel': 'Add panel',
@@ -877,10 +873,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   'task.openFile': '打开文件',
   'task.openFileHint': '从文件树选择文件,文件将在这里打开',
-  'task.reviewAfterSend': '发送会话后可审阅更改',
-  'task.machineToolsAfterSend': '发送会话后可在那台机器上打开',
-  'task.sideTaskAfterSend': '发送第一条消息后才能创建分支任务',
-  'task.filesNeedWorkspace': '这条草稿还没有可浏览的工作目录',
   'task.workspacePanel': '文件面板',
   'task.closeTab': '关闭{label}标签',
   'task.addPanel': '添加面板',
