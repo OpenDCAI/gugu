@@ -82,3 +82,24 @@ it('IM markdown at the 16/24 bubble body lands every role on the ladder (#7333)'
   expect(read('.gg-md th')).toMatchObject({ fontSize: 14, lineHeight: 20 });
   expect(read('.gg-md td')).toMatchObject({ fontSize: 14, lineHeight: 20 });
 });
+
+it.each([
+  ['light', 'rgb(104, 105, 107)', 'rgb(26, 28, 31)'],
+  ['dark', 'rgb(147, 147, 147)', 'rgb(230, 230, 230)'],
+] as const)('%s markdown quotes, headers and notes keep visible host text colours', async (_, muted, ink) => {
+  host = document.createElement('div');
+  host.style.setProperty('--muted-fg', muted);
+  host.style.color = ink;
+  document.body.appendChild(host);
+  root = createRoot(host);
+  root.render(
+    <div className="gg-md gg-md--compact">
+      <Streamdown>{'> Quoted result\n\n| Result |\n| --- |\n| Readable |'}</Streamdown>
+      <section data-footnotes>Source note</section>
+    </div>,
+  );
+  await until('the quote and table are rendered', () => host!.querySelector('blockquote p') !== null && host!.querySelector('th') !== null);
+  for (const selector of ['blockquote p', 'th', '[data-footnotes]']) {
+    expect(getComputedStyle(host!.querySelector(selector)!).color).toBe(muted);
+  }
+});
