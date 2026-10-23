@@ -170,7 +170,7 @@ const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: st
       <TabStripShell
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
             {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
           </TabBarActionRow>
@@ -241,7 +241,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
           </ContextMenu>
         }
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             {multi ? <CloseBlockButton blockId={blockId} /> : null}
           </TabBarActionRow>
         }

@@ -8,7 +8,6 @@ import { listSlotOf, usePanelToggle } from '../lib/panelToggles'
 import { UI_EVENTS } from '../lib/uiEvents'
 import type { WindowMenuCommand } from '../../shared/window-menu-commands'
 import type { ShellNavigation } from '../hooks/useShellNavigation'
-import { FilePanelToggle } from './PanelToggleButtons'
 import { IconButton } from './ui/IconButton'
 import { DropdownMenu, MenuItem, MenuSeparator } from './ui/Menu'
 import type { DesktopWindowBridge } from './WindowControls'
@@ -17,10 +16,10 @@ import './WindowTitleBar.css'
 /**
  * @@@win-titlebar-row — Windows 的独立标题栏行:标准 Windows 应用的那条顶栏。
  *
- *   [← →] [文件 编辑 视图 帮助] ·········(拖拽区)········· [◨] [– □ ×]
+ *   [← →] [文件 编辑 视图 帮助] ·········(拖拽区)········· [– □ ×]
  *
  * The list toggle lives beside sidebar layout in the content header. Menus have the same
- * starting position on every tab; the file toggle remains beside window controls.
+ * starting position on every tab.
  *
  * 颜色与最左侧栏相同(--nav-rail),同在窗口底层;其下的区域关系与 mac 同一套(tokens.css 的
  * @@@win-titlebar-row)。拖窗口只归这一行。
@@ -57,7 +56,6 @@ export function WindowTitleBar({ desktopWindow: dw, controls, navigation, active
   // 这时下「全选」会选中整页而不是输入框(实测:Undo 碰巧不挑焦点,Select all 挑)。
   const pendingCommandRef = useRef<WindowMenuCommand | null>(null)
   const listPanel = usePanelToggle(listSlotOf(activeTab))
-  const filePanel = usePanelToggle(activeTab === 'tasks' ? 'files' : null)
 
   const rememberFocus = (event: SyntheticEvent) => {
     // 弹层是 portal 出去的,但 React 事件沿组件树冒泡 —— 点菜单项的 pointerdown 也会到这里,
@@ -143,7 +141,6 @@ export function WindowTitleBar({ desktopWindow: dw, controls, navigation, active
           <TabItem tab="contacts" activeTab={activeTab} onSelectTab={onSelectTab}>{t('shell.titlebar.items.contacts')}</TabItem>
           <MenuSeparator />
           <MenuItem shortcut={listPanel?.shortcut} disabled={!listPanel} onClick={() => listPanel?.toggle()}>{t('shell.titlebar.items.toggleSidebar')}</MenuItem>
-          <MenuItem shortcut={filePanel?.shortcut} disabled={!filePanel} onClick={() => filePanel?.toggle()}>{t('shell.titlebar.items.toggleFilePanel')}</MenuItem>
           <MenuSeparator />
           <MenuItem disabled={!navigation.canGoBack} onClick={navigation.goBack}>{t('shell.titlebar.goBack')}</MenuItem>
           <MenuItem disabled={!navigation.canGoForward} onClick={navigation.goForward}>{t('shell.titlebar.goForward')}</MenuItem>
@@ -170,12 +167,6 @@ export function WindowTitleBar({ desktopWindow: dw, controls, navigation, active
 
       {/* 余下的整段都是拖拽区(容器自己的 app-region: drag);双击它最大化 / 还原,与原生标题栏一致。 */}
       <div className="gg-titlebar-spacer" />
-
-      {activeTab === 'tasks' ? (
-        <div className="gg-titlebar-panel-toggle" data-edge="end">
-          <FilePanelToggle />
-        </div>
-      ) : null}
 
       <div className="gg-titlebar-controls" data-window-controls="">
         {controls}

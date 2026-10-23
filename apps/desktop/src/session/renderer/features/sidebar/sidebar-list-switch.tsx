@@ -15,7 +15,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
-import { ProjectNeedsYouDot } from './project-row-parts';
 import { sidebarHeaderIconButtonClass } from './sidebar-primitives';
 
 // gugu-dev#181「侧栏」:项目和对话默认分开,顶上「项目 | 对话」两枚页签;也能合在一起(右上「显示方式」或在侧栏上右键)。
@@ -62,12 +61,7 @@ export const SidebarListSwitch = observer(function SidebarListSwitch({
   );
   return (
     <div role="tablist" className="mb-2 flex h-8 w-full gap-[2px] rounded-lg bg-foreground/[0.06] p-[2px]">
-      {tab('projects', translate('sidebar.projects'), (
-        <>
-          <SidebarUnreadCount count={projectsUnread} />
-          <ProjectNeedsYouDot count={sidebarStore.projectsNeedYouCount} />
-        </>
-      ))}
+      {tab('projects', translate('sidebar.projects'), <SidebarUnreadCount count={projectsUnread} />)}
       {tab('chats', translate('sidebar.chats'), <SidebarUnreadCount count={chatsUnread} />)}
     </div>
   );

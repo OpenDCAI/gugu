@@ -47,7 +47,7 @@ export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
  * 不让开就是「浮动按钮压住内容」:实机(#4129 那张图)工作区面板全屏 + 侧栏收起时,首个页签的
  * 文件图标和这枚按钮叠成一团。会话栏 header 早就在让(session-chat-column.tsx),页签条没跟上。
  *
- * ❌ 别在调用点另写 40:按钮改档时这里是唯一要动的地方。
+ * ❌ 别在调用点手写车道宽度:按钮改档时这里是唯一要动的地方。
  */
 export const SHELL_RESTORE_LANE_PX =
   TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(2) + TITLEBAR_ACTION_SLOT_GAP_PX
@@ -108,28 +108,4 @@ export function windowControlsWidth(platform: string | undefined): number {
 
 export function titlebarActionsRight(platform: string | undefined): number {
   return windowControlsWidth(platform) + TITLEBAR_ACTION_EDGE_GAP_PX
-}
-
-/**
- * 同处一行的其它内容必须预留的右侧空间 = 窗口控制条 + 固定簇实宽 + 边缘呼吸 + 一道普通间距。
- *
- * 末尾那道就是 SLOT_GAP —— 于是「消息栏最后一个按钮 → 固定簇第一个按钮」和「同组内两个按钮」
- * 是同一个数,整排看上去就是等距的一排,不靠任何视觉把戏暗示分组。
- *
- * slotCount 由固定簇的成员清单推导(见 titlebar-actions.tsx),❌ 别在调用点手写数字:
- * 手写的槽位数是会过期的护栏 —— 簇里加一个按钮而这里忘了跟,预留就短一截,两边当场重叠。
- */
-export function titlebarActionsReserve(platform: string | undefined, slotCount: number): number {
-  // 簇里一个成员都没有时,它自己的 28px 与那道 4px 组内间距都该消失 —— 但 EDGE_GAP 不该:
-  // 那 8px 是**这一行右端**与窗口(或窗口控制条)之间的呼吸,谁排在最后谁享有它。
-  // ❌ 别把它一起短路掉:那样 mac 上最后一个按钮会贴死窗口右缘,Windows 上会贴死最小化键 ——
-  // 正是本模块存在的理由(「浮动按钮压住按钮」)。
-  // 留着它,「每加一个槽位就宽 SLOT_WIDTH + SLOT_GAP」这条律对 n=0 同样成立(见单测)。
-  if (slotCount <= 0) return windowControlsWidth(platform) + TITLEBAR_ACTION_EDGE_GAP_PX
-  return (
-    windowControlsWidth(platform) +
-    titlebarActionsWidth(slotCount) +
-    TITLEBAR_ACTION_EDGE_GAP_PX +
-    TITLEBAR_ACTION_SLOT_GAP_PX
-  )
 }

@@ -89,7 +89,7 @@ const AppTitlebar = observer(function AppTitlebar() {
     >
       {main?.enabled && params.appId ? (
         <div className="absolute top-0 right-0 flex" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }}>
-          <TabBarActionRow atWindowEdge fixedCluster={false}>
+          <TabBarActionRow atWindowEdge>
             <Button
               variant="ghost"
               size="icon-sm"

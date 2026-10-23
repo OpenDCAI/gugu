@@ -12,7 +12,6 @@ import { extensionSurfaceStore } from '@renderer/features/extensions/extension-s
 import { ExtensionTabToolbar } from '@renderer/features/extensions/extension-tab-toolbar';
 import { extensionViewStore } from '@renderer/features/extensions/extension-view-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import { sessionView } from '@renderer/features/sessions/view';
@@ -155,9 +154,7 @@ const AuxSessionPage = observer(function AuxSessionPage({
       <PageShownContext.Provider value={true}>
         <ScreenBlockContext.Provider value={place}>
           <sessionView.WrapView projectId={projectId} sessionId={sessionId}>
-            <SessionShellProvider>
-              <WorkspaceContentLayout titlebarSlot={<ShellTitlebarDragRegion />} mainPanel={<sessionView.MainPanel />} />
-            </SessionShellProvider>
+            <WorkspaceContentLayout titlebarSlot={<ShellTitlebarDragRegion />} mainPanel={<sessionView.MainPanel />} />
           </sessionView.WrapView>
         </ScreenBlockContext.Provider>
       </PageShownContext.Provider>
@@ -189,9 +186,7 @@ const AuxTabPage = observer(function AuxTabPage({ windowId, content }: { windowI
       <PageShownContext.Provider value={true}>
         <ScreenBlockContext.Provider value={place}>
           <sessionView.WrapView projectId={content.projectId} sessionId={content.sessionId}>
-            <SessionShellProvider>
-              <WindowTabPane windowId={windowId} paneId={paneId} />
-            </SessionShellProvider>
+            <WindowTabPane windowId={windowId} paneId={paneId} />
           </sessionView.WrapView>
         </ScreenBlockContext.Provider>
       </PageShownContext.Provider>
@@ -231,7 +226,7 @@ const AuxAppPage = observer(function AuxAppPage({ windowId, tabKind }: { windowI
       <TabStripShell
         leadingReservePx={auxLeadingReserve()}
         actionsSlot={
-          <TabBarActionRow atWindowEdge fixedCluster={false}>
+          <TabBarActionRow atWindowEdge>
             <PutBackButton windowId={windowId} />
           </TabBarActionRow>
         }

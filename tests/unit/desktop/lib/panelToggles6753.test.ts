@@ -30,12 +30,12 @@ describe('panelToggles 控制器', () => {
   it('撤销只撤自己那一份:先登记的卸载不会撤掉后登记的', () => {
     const first = { open: true, label: 'Collapse', toggle: vi.fn() }
     const second = { open: false, label: 'Expand', toggle: vi.fn() }
-    const withdrawFirst = publishPanelToggle('files', first)
-    const withdrawSecond = publishPanelToggle('files', second)
+    const withdrawFirst = publishPanelToggle('list:sessions', first)
+    const withdrawSecond = publishPanelToggle('list:sessions', second)
     withdrawFirst()
-    expect(readPanelToggle('files')).toBe(second)
+    expect(readPanelToggle('list:sessions')).toBe(second)
     withdrawSecond()
-    expect(readPanelToggle('files')).toBeNull()
+    expect(readPanelToggle('list:sessions')).toBeNull()
   })
 })
 

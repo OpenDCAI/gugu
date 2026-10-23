@@ -198,15 +198,6 @@ export const SESSION_COMMAND_DEFS = defineCommandDefs([
     iconKey: 'terminal',
   },
   {
-    id: 'session.toggleRightSidebar',
-    label: 'Toggle Right Sidebar',
-    description: 'Show or hide the right sidebar',
-    scope: 'task',
-    shortcutKey: 'toggleRightSidebar',
-    group: 'Panel',
-    iconKey: 'panel-right',
-  },
-  {
     id: 'session.newTerminal',
     label: 'New Terminal',
     description: 'Create a new terminal session',

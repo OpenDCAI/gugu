@@ -188,8 +188,6 @@ export const enUSSessionWorkflowMessages = {
 
   'task.expandSidebar': 'Expand sidebar',
   'task.collapseSidebar': 'Collapse sidebar',
-  'task.collapseWorkspacePanel': 'Collapse Files panel',
-  'task.expandWorkspacePanel': 'Expand Files panel',
   // 分隔条的无障碍名(PanelResizeHandle 的 aria-label)。从前两处都写死中文,英文界面读屏也念中文。
   'task.resizeWorkspacePanel': 'Resize Files panel',
   'task.resizeSidebar': 'Resize sidebar',
@@ -851,8 +849,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   'task.expandSidebar': '展开左侧栏',
   'task.collapseSidebar': '收起左侧栏',
-  'task.collapseWorkspacePanel': '收起文件面板',
-  'task.expandWorkspacePanel': '展开文件面板',
   'task.resizeWorkspacePanel': '调整工作区面板宽度',
   'task.resizeSidebar': '调整侧栏宽度',
 
