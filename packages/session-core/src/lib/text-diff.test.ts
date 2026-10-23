@@ -19,13 +19,16 @@ it.each([
 ] as const)('encodes %s bytes that independent git apply reconstructs exactly', async (_name, before, after) => {
   const directory = await mkdtemp(join(tmpdir(), 'gugu-text-patch-'));
   const path = join(directory, 'file.txt');
+  const patchPath = join(directory, 'input.patch');
   try {
     if (before !== null) await writeFile(path, before);
     const patch = textFilePatch('file.txt', before, after, 'file');
-    execFileSync('git', ['apply', '--unsafe-paths', '-'], { cwd: directory, input: patch.patch!.text, stdio: ['pipe', 'pipe', 'pipe'] });
+    await writeFile(patchPath, patch.patch!.text);
+    execFileSync('git', ['apply', patchPath], { cwd: directory, stdio: ['ignore', 'pipe', 'pipe'] });
     if (after === null) await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' });
     else expect(await readFile(path, 'utf8')).toBe(after);
   } finally {
+    await unlink(patchPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
     await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
     await rmdir(directory);
   }
