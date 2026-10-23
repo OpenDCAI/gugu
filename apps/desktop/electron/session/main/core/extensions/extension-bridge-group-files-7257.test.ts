@@ -61,7 +61,7 @@ vi.mock('@main/core/extensions/app-files', () => ({
   },
 }));
 
-const { bindExtensionSurface, notifyGroupWorkspaceChanged, notifyInstalledAppsChanged, registerExtensionBridge } = await import('./extension-bridge');
+const { bindExtensionSurface, notifyGroupWorkspaceChanged, notifyInstalledAppsChanged, registerExtensionBridge, stopPageWatches } = await import('./extension-bridge');
 const { MAX_HELD_IDS } = await import('@shared/extensions/coalesced-reads');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
@@ -70,6 +70,7 @@ const watch = (id: number, place: unknown, on = true) =>
 const changesTo = (id: number) => sent.filter((s) => s.id === id && s.event.type === 'filesChanged').map((s) => s.event.change);
 
 beforeEach(async () => {
+  for (const id of [PERSON_PAGE, AGENT_PAGE, OTHER_PAGE]) stopPageWatches(id);
   sent.length = 0;
   reads.asked.length = 0;
   reads.hold = null;
