@@ -1,3 +1,4 @@
+import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
 // 由 session-page 会话路径调用。原文件的 registerAcpEngineMethods()(HTTP RPC 端点)随对外
@@ -231,6 +232,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             return read()
           } } : {}),
         })
+        registerGuguActivityTools(server, sessionDispatcher, trackRequest)
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)
         registerGuguExtensionTools(

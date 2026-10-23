@@ -87,6 +87,7 @@ const ID_FIELD_KINDS = {
   session_id: 'session',
   spawned_by_session_id: 'session',
   parent_session_id: 'session',
+  related_session_id: 'session',
   recipient_session_id: 'session',
   sender_session_id: 'session',
   project_id: 'project',

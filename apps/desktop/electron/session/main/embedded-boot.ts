@@ -16,6 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
+import { installActivityCollector } from '@main/core/activity/collector'
 import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
@@ -639,6 +640,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // --- Eager service .initialize()/.start() block (index.ts:146-156). ---
   projectSettingsService.initialize()
   prSyncScheduler.initialize()
+  stopActivityCollector = installActivityCollector()
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
@@ -723,6 +725,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
 }
 
+let stopActivityCollector: (() => void) | null = null
+
 /**
  * Tears down the runtime worker processes the module spawned. The host folds this into its own
  * `before-quit` rather than letting the session backend register its own preventDefault quit handler.
@@ -760,6 +764,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('agent-config-runtime', disposeAgentConfigRuntimeProcess)
   await runPhase('module-scope', () => appScope.dispose())
   await runPhase('local-pty', disposeLocalPtySessions)
+  await runPhase('activity', () => { stopActivityCollector?.(); stopActivityCollector = null })
   await runPhase('database', closeDatabase)
   await runPhase('logging', flushLogWrites)
   await flushLogWrites()
