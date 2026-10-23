@@ -856,7 +856,6 @@ export function InputArea({
         {!inBar && <div style={mobileShell ? { ...COMPOSER_BTN_DOCK, height: 48 } : COMPOSER_BTN_DOCK}>{attachButton}</div>}
         {!inBar && verbs}
 
-
         {/* 中间框：只裹 textarea——border/圆角(--r-lg 12px)/focus/bg 在此层，独立增高(SSOT `.box` L148-149)。 */}
         <div
           className={inBar ? sessionComposerCardClassName : undefined} // 格子里:会话框那张卡(描边、无投影)
@@ -873,7 +872,6 @@ export function InputArea({
             }),
             borderRadius: 'var(--radius-thread)',
             padding: mobileShell ? '7px 0' : inBar ? 0 : '5px 10px', // 格子里的内距在文字和底排身上,同会话框
-
           }}
         >
           {/* SSOT `.box textarea` L150：flex:1 / border:none / 13.5px / lineHeight 1.5 / padding 5px 0 / max-height 110。 */}
