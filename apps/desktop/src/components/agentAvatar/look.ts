@@ -20,6 +20,9 @@ import { EXPRESSIONS, type ExpressionId } from './engine/spec'
 /** wear 不给 = 默认装扮(地址里没有 wear 参数,按 id 推导,见 wornOf);[] = 明确不戴 */
 export type AgentLook = AgentIdentity & { wear?: readonly WearItem[] }
 
+/** 个人助理未自定义时：奶油色、平静、明确不戴装扮，避免按临时或最终 id 自动配饰。 */
+export const DEFAULT_ASSISTANT_LOOK: AgentLook = { color: 0, rest: 'neutral', wear: [] }
+
 const log = rendererLogger('agents/look')
 
 /** avatars 桶里放共用形象定格图的根目录:这下面的东西(任何版本)都不归某一只 agent 所有。 */

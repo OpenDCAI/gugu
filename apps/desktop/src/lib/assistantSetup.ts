@@ -11,6 +11,7 @@ import {
 } from '@gugu/core/shared/assistantPolicy'
 import type { CreateAgentOnDeviceResult } from '@gugu/core/shared/types/chat'
 import { REST_FACES } from '../components/agentAvatar/engine/identity'
+import type { AgentLook } from '../components/agentAvatar/look'
 import type { ExpressionId } from '../components/agentAvatar/engine/spec'
 import { desktopIpc } from '../platform/desktopIpc'
 import {
@@ -38,11 +39,8 @@ export const OWNER_ABOUT_MAX = 1000
 export const ASSISTANT_NAME_IDEAS: readonly string[] = ['松果', '栗子', '糯米', '团子', 'Milo', 'Mochi', 'Kiwi', 'Coco']
 
 /** 引导里攒下的那一份:它叫什么、长什么颜色、主人怎么称呼和几句介绍。 */
-export type AssistantSetupDraft = {
+export type AssistantSetupDraft = AgentLook & {
   name: string
-  /** 小鸟身体颜色(BODY_COLORS 的下标);助理 App 的主题色就是它。 */
-  color: number
-  rest: ExpressionId
   owner: OwnerProfileInput
 }
 
@@ -51,8 +49,8 @@ export function randomRestFace(rng: () => number = Math.random): ExpressionId {
 }
 
 /** 头像字段那个形象地址(本套环境存储里那个颜色的定格图 + 休息表情)。 */
-export function draftAvatarUrl(draft: Pick<AssistantSetupDraft, 'color' | 'rest'>): string {
-  return contactsService.agentLookAvatarUrl({ color: draft.color, rest: draft.rest })
+export function draftAvatarUrl(draft: AgentLook): string {
+  return contactsService.agentLookAvatarUrl({ color: draft.color, rest: draft.rest, wear: draft.wear })
 }
 
 function cleanDraft(draft: AssistantSetupDraft) {
