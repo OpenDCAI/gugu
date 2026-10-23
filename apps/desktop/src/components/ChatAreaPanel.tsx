@@ -73,8 +73,7 @@ import { AgentFirstConversationEmpty } from './chat/AgentFirstConversationEmpty'
 import { MessageListSkeleton } from './chat/MessageListSkeleton'; import { ChatBottomDock } from './chat/ChatBottomDock'
 import { sendAttachmentBatch } from './chat/sendAttachmentBatch'
 import { ChatHeaderActions } from './chat/ChatHeaderActions'
-import { classifyFeedChange } from './chat/scrollControl'
-import { useFollowingTail } from './chat/useFollowingTail'
+import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import {
   COLOR_ACCENT,
@@ -198,7 +197,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
   // @@@whisper (#820) — 悄悄话目标：设置后 InputArea 进入悄悄话模式，发送强制 isWhisper+toUserIds。
   const [whisperTarget, setWhisperTarget] = useState<{ userId: string; displayName: string } | null>(null)
-  const lastNavigationRef = useRef(0)
   const [groupCollabSnapshot, setGroupCollabSnapshot] = useState<GroupCollabSnapshot>(EMPTY_GROUP_COLLAB)
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
   const peerIdentity = identitiesById[activeChat?.peer_user_id ?? '']
@@ -291,13 +289,6 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isAtBottomRef = useRef(true)
 
-  // fiResetChatRef: which chat the feed change classifier is currently baselined for.
-  // baselineRef: skip new-message/prepend bookkeeping on the initial messages snapshot after a switch.
-  // lastTrackRef: previous (window's earliest message id, newest id) to classify a window change as
-  // reveal/slide (front delta → firstItemIndex) vs append (new message at the end).
-  const fiResetChatRef = useRef<string | null>(null)
-  const baselineRef = useRef(true)
-  const lastTrackRef = useRef<{ firstId: string | null; lastId: string | null }>({ firstId: null, lastId: null })
   const readReceiptInFlightRef = useRef<Set<string>>(new Set())
   // @@@local-sync (#948) — 群名册内存镜像 cache(首帧 roster + #1877 删 Agent 收敛),与 loader / removed-agent-gate 共享 → 在此声明后传入两个 hook。
   const groupRosterMemoryCacheRef = useRef<Map<string, GroupCollabSnapshot>>(new Map())
@@ -749,86 +740,9 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
     ? importedHistoryState
     : null
 
-  if (fiResetChatRef.current !== chatResetKey) {
-    fiResetChatRef.current = chatResetKey
-    baselineRef.current = true
-  }
-
-  // @@@touch-bottom (#781 followup) - the old virtualized list's autoscrollToBottom under-shot on some
-  // platforms: it left scrollTop short of (scrollHeight - clientHeight), so after EVERY pin (send /
-  // open / new-msg button) the user can still scroll down a bit — "没触底", functional not visual. Set
-  // scrollTop to the DOM truth directly. Synchronous, NOT a rAF/setTimeout: the pin paths (track effect
-  // / button / #780 resize) all run AFTER the list's layout pass, so scrollHeight already reflects the
-  // new content. Gated on isAtBottomRef so it never fights a deliberate scroll-up (user scrolled up ⇒
-  // atBottomStateChange flips isAtBottomRef false ⇒ no-op). Single authoritative set — no layered timers.
-  const clampToTrueBottom = useCallback(() => {
-    const el = scrollerRef.current // @@@scroller-out-of-closures:闭包只读 ref,❌ 捕获 scrollerEl
-    if (!el || isPreservingPosition() || !isAtBottomRef.current) return
-    el.scrollTop = el.scrollHeight
-  }, [scrollerRef, isPreservingPosition])
-
-  const pinToBottom = useCallback(() => {
-    forgetSavedPosition()
-    // 已在回最新页(比如发送动作刚在 store 里发起)⇒ 不重开一次:重开会作废在途那次、白跑一趟。
-    if (messageWindow?.hasNewer) { if (messageWindow.loading !== 'latest') void returnToLatestMessages().catch(onHistoryError); return }
-    isAtBottomRef.current = true
-    listRef.current?.autoscrollToBottom()
-    clampToTrueBottom()
-  }, [listRef, clampToTrueBottom, messageWindow?.hasNewer, messageWindow?.loading, returnToLatestMessages, onHistoryError, forgetSavedPosition])
-  // #1315 — `scrollToBottom` (autoscroll+clamp WITHOUT setting isAtBottomRef first) was removed: its only
-  // caller, the unread-bubble onClick, left the clamp gated-out (isAtBottomRef still false at click time)
-  // and stopped ~80px short. The bubble now calls pinToBottom, which orders the flag before the clamp.
-
-  // @@@scroll-bottom-resize (#780) - keep pinned to the bottom when the viewport shrinks shortly after open
-  // (e.g. the async group-collab avatar bar renders and reduces the list height, leaving the initial pin
-  // short of the true bottom). Re-pins ONLY while the user is already at the bottom, so it never fights a
-  // deliberate scroll-up. autoscrollToBottom changes scrollTop, not clientHeight, so no feedback loop.
-  // Depends on scrollerEl so it (re)attaches once MessageList actually mounts the scroller (gated behind
-  // !loadingMessages), not just on this panel's first mount.
-  useEffect(() => {
-    const scroller = scrollerRef.current; if (!scroller) return
-    let prevH = scroller.clientHeight
-    const ro = new ResizeObserver(() => {
-      const h = scroller.clientHeight
-      if (h !== prevH) {
-        prevH = h
-        if (!isPreservingPosition() && isAtBottomRef.current) {
-          listRef.current?.autoscrollToBottom()
-          clampToTrueBottom()
-        }
-      }
-    })
-    ro.observe(scroller)
-    return () => ro.disconnect()
-  }, [scrollerEl, scrollerRef, clampToTrueBottom, isPreservingPosition])
-
-  useEffect(() => {
-    if (isFiltering || unreadNavigationPending) return
-    const feed = listedMessages
-    const firstId = feed.length ? feed[0].id : null
-    const lastId = feed.length ? feed[feed.length - 1].id : null
-    if (baselineRef.current) {
-      if (feed.length === 0) return
-      baselineRef.current = false
-      lastTrackRef.current = { firstId, lastId }
-      lastNavigationRef.current = messageWindow?.navigationVersion ?? 0
-      if (messageWindow?.navigation === 'anchor') return
-      if (prepareForSavedPosition()) return
-      pinToBottom()
-      return
-    }
-    // @@@1315 — one authoritative IM-scroll decision per window change (see scrollControl.ts):
-    //   • at bottom → new message (mine OR received) snaps to the true bottom (symptom: 收到他人消息差一截)
-    //   • scrolled up + received → unread bubble, no yank
-    // Prepend index updates belong to useChatHistoryPagination, in the same render as the rows.
-    const navigated = lastNavigationRef.current !== (messageWindow?.navigationVersion ?? 0)
-    lastNavigationRef.current = messageWindow?.navigationVersion ?? 0
-    if (navigated && (messageWindow?.navigation === 'older' || messageWindow?.navigation === 'newer' || messageWindow?.navigation === 'anchor')) { lastTrackRef.current = { firstId, lastId }; return }
-    if (navigated && messageWindow?.navigation === 'latest') { pinToBottom(); lastTrackRef.current = { firstId, lastId }; return }
-    // 往上翻时到的消息不在这里计数:窗口自己数(newMessageCount),它也数到被截在窗口外的行。
-    if (classifyFeedChange(lastTrackRef.current, feed, isAtBottomRef.current).pin) pinToBottom()
-    lastTrackRef.current = { firstId, lastId }
-  }, [listedMessages, isFiltering, unreadNavigationPending, pinToBottom, prepareForSavedPosition, messageWindow?.navigationVersion, messageWindow?.navigation])
+  const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages: listedMessages,
+    enabled: !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: returnToLatestMessages, onError: onHistoryError })
 
   const handleReaction = useCallback(
     (messageId: string, emoji: string) => {
@@ -1309,21 +1223,7 @@ function ChatAreaSurface({ activeTab, hidden = false, mobile = false, openNonce,
           initialTopMostItemIndex={openLocation()} topInset={agentHero && !mobile && isAgentHeroBird(activeChatAvatar) ? AGENT_HERO_OVERHANG_PX : 0}
           followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onJump: () => void jumpToUnreadEntry().catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
-          // 打开会话时的初始 pin 发生在最后一条消息完成布局之前（markdown/代码块/字体异步撑高），
-          // 内容随后长高但 clientHeight 不变 → #780 的 ResizeObserver（只看视口高）不触发，
-          // 最后一条消息被裁在容器外只剩一条边。总列表高度一变就重新钳底。
-          // 除 isAtBottomRef 门控外再加实测几何门：快速上滚到顶时 ref 会 stale-true
-          // 此刻 revealOlder prepend 旧页也会改变总高，
-          // 无几何门会把用户刚滚上去的视口拽回底部。距底 >400px 视为主动离底，不钳。
-          // rAF：该回调可能先于 DOM 布局提交触发（同步读 scrollHeight 拿旧值，实测钳完仍差 ~22px）。
-          onTotalListHeightChanged={() => {
-            requestAnimationFrame(() => {
-              const el = scrollerRef.current
-              if (!el || isPreservingPosition() || !isAtBottomRef.current) return
-              if (el.scrollHeight - el.clientHeight - el.scrollTop > 400) return
-              el.scrollTop = el.scrollHeight
-            })
-          }}
+          onTotalListHeightChanged={onTotalListHeightChanged}
         />
       )}
 

@@ -60,6 +60,6 @@ export function topicHistoryStub(chatId = 'topic-1') {
   const window = new ChatWindowCache().history(chatId)
   return {
     messageWindow: window.getSnapshot(), setFollowingTail: window.setFollowingTail,
-    revealOlder: async () => {}, loadNewer: async () => {}, loadMessageAnchor: async () => {},
+    revealOlder: async () => {}, loadNewer: async () => {}, returnToLatest: async () => {}, loadMessageAnchor: async () => {},
   }
 }

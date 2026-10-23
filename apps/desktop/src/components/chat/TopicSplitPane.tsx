@@ -48,7 +48,7 @@ import { ReadReceiptPopover } from '../ReadReceiptPopover'
 import { groupSlotMemory } from '../appSlot/groupSlotMemory'
 import { ChatBottomDock } from './ChatBottomDock'
 import type { TopicLine } from '@/hooks/useTopicLine'
-import { useFollowingTail } from './useFollowingTail'
+import { useFollowingTail, useTailPinning } from './useFollowingTail'
 import { useChatHistoryPagination } from './useChatHistoryPagination'
 import { useConversationScrollMemory } from './useConversationScrollMemory'
 
@@ -65,7 +65,7 @@ import { useConversationScrollMemory } from './useConversationScrollMemory'
 export type TopicSplitPaneProps = {
   visible?: boolean
   topic: { chatId: string; name: string }
-  history: Pick<TopicLine, 'messageWindow' | 'setFollowingTail' | 'revealOlder' | 'loadNewer' | 'loadMessageAnchor'>
+  history: Pick<TopicLine, 'messageWindow' | 'setFollowingTail' | 'revealOlder' | 'loadNewer' | 'loadMessageAnchor' | 'returnToLatest'>
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
@@ -346,7 +346,7 @@ export function TopicSplitPane({
     return () => window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
   }, [workspaceOpen, closeWorkspace, topic.chatId, rows])
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
-  const { scrollerEl, setScrollerRef, isPreservingPosition, openLocation, revealMessage } = useConversationScrollMemory({
+  const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: topic.chatId, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
@@ -355,6 +355,9 @@ export function TopicSplitPane({
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
   useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.revealOlder, loadNewer: history.loadNewer, window: messageWindow, onError: onHistoryError })
+  const { onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
+    enabled: visible !== false && !workspaceOpen, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatest, onError: onHistoryError })
   useSourceMessageReveal({
     activeChatId: workspaceOpen ? null : topic.chatId,
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
@@ -556,6 +559,7 @@ export function TopicSplitPane({
               initialTopMostItemIndex={revealLanding ?? openLocation()}
               followTail={!messageWindow.hasNewer && messageWindow.change !== 'newer'}
               onAtBottomChange={onAtBottomChange}
+              onTotalListHeightChanged={onTotalListHeightChanged}
               style={MESSAGE_LIST_STYLE}
               surface="aside"
             />
