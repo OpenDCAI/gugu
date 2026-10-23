@@ -27,7 +27,7 @@ describe('cached scoped history ownership', () => {
     expect(observe).toHaveBeenCalled()
     stop()
   })
-  it('keeps another viewport at its history range while a sender returns to the tail', () => {
+  it('keeps another viewport at its history range while a sender returns to the tail', async () => {
     const cache = new ChatWindowCache()
     cache.history('chat')
     const rows = Array.from({ length: 120 }, (_, index) => row(index + 1))
@@ -36,7 +36,7 @@ describe('cached scoped history ownership', () => {
     const stopReader = cache.subscribe('chat', () => undefined, start, reader)
     const stopSender = cache.subscribe('chat', () => undefined, start, sender)
     const history = cache.history('chat', reader), sending = cache.history('chat', sender)
-    history.replace(rows, true)
+    await history.restoreAnchor(async () => ({ messages: rows, hasNewer: false }))
     cache.setFollowingTail('chat', reader, false)
     const navigation = history.getSnapshot().navigationVersion
     expect(sending.followForSend()).toBe(true)
@@ -80,6 +80,22 @@ describe('cached scoped history ownership', () => {
     expect(b.getSnapshot().messages).toHaveLength(120)
     expect(a.getSnapshot().messages.at(0)?.seq).toBe(1)
     stopLeft(); stopRight()
+  })
+
+  it('withdraws a hidden Quick viewport from read reporting without freezing its live tail', () => {
+    const cache = new ChatWindowCache(), quick = {}
+    const stop = cache.subscribe('chat', () => undefined, undefined, quick)
+    cache.setFollowingTail('chat', quick, true)
+    cache.setFollowingTail('chat', quick, undefined)
+    for (let seq = 1; seq <= 180; seq++) cache.update('chat', (rows) => [...rows, row(seq)])
+    expect(cache.isFollowingTail('chat')).toBe(false)
+    expect(cache.history('chat', quick).getSnapshot()).toMatchObject({ hasNewer: false })
+    expect(cache.history('chat', quick).getSnapshot().messages).toHaveLength(120)
+    expect(cache.history('chat', quick).getSnapshot().messages.at(-1)?.seq).toBe(180)
+    cache.setFollowingTail('chat', quick, true)
+    expect(cache.isFollowingTail('chat')).toBe(true)
+    expect(cache.history('chat', quick).getSnapshot().messages.at(-1)?.seq).toBe(180)
+    stop()
   })
 
   it('keeps pending sends and rejects a page completed after its last observer leaves', async () => {

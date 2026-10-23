@@ -35,7 +35,7 @@ export function useUnreadLocatorNavigation(input: {
   enabled?: boolean
   onNavigate?: () => void
   rows: ReadonlyArray<ScrollableRow & { message?: { id: string; seq: number } }>
-  firstItemIndex: number
+  loadingAnchor?: boolean
   scrollerRef: RefObject<HTMLElement | null>
   listRef: MutableRefObject<FlowListHandle | null>
   setFollowingTail: (following: boolean) => void
@@ -48,11 +48,11 @@ export function useUnreadLocatorNavigation(input: {
   loadingNewer?: boolean
   loadNewerMessages?: () => Promise<void>
   loadMessageAnchor?: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
-}): void {
+}): boolean {
   const {
     activeChatId, navigationTarget = false, enabled = true, onNavigate,
     rows,
-    firstItemIndex,
+    loadingAnchor = false,
     listRef, scrollerRef,
     setFollowingTail,
     setFlashMessageId,
@@ -82,15 +82,18 @@ export function useUnreadLocatorNavigation(input: {
         if (previous && previous.token !== detail.token) previous.reject(new Error('Unread navigation was superseded'))
         return detail as UnreadMessageRevealRequest
       })
-      if (detail.streamKind === 'main' && detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).then(activate, detail.reject)
-      else activate()
+      activate()
+      if (detail.streamKind === 'main' && detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).catch((error) => {
+        detail.reject?.(error)
+        setPending((current) => current?.token === detail.token ? null : current)
+      })
     }
     window.addEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
     return () => window.removeEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
   }, [activeChatId, scrollerRef, navigationTarget, onNavigate, loadMessageAnchor])
 
   useEffect(() => {
-    if (!pending || !enabled) return
+    if (!pending || !enabled || loadingAnchor) return
     const reject = (error: unknown) => {
       pending.reject(error)
       setPending((current) => current?.token === pending.token ? null : current)
@@ -162,6 +165,7 @@ export function useUnreadLocatorNavigation(input: {
     return () => {
       window.cancelAnimationFrame(frame)
     }
-  }, [activeChatId, enabled, firstItemIndex, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
+  }, [activeChatId, enabled, loadingAnchor, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
     pending, rows, setFlashMessageId, setFollowingTail, listRef, scrollerRef])
+  return pending !== null
 }

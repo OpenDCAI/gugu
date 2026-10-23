@@ -83,6 +83,8 @@ import { useToast } from '../components/toastContext'
 import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
 import { addFilePills } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, APP_SHOW_MESSAGE_EVENT, GROUP_FILE_OPEN_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail, type AppShowMessageDetail, type GroupFileOpenDetail } from '../session/shared/extensions/app-runtime-protocol'
+import { chatSlotKey } from '../lib/shellSlots'
+import { assistantSlotKey } from '../lib/assistantShellBridge'
 import { askReveal } from '../hooks/useSourceMessageReveal'
 import { resolveQrScanRoute, type QrScanRoute } from '../lib/qrScanRoute'
 import { describeBarcodeScanError } from '../lib/barcodeScanError'
@@ -438,7 +440,7 @@ function InnerLayout({
   }, [effectsActive, mobile, phoneAssistant.available, sessionHostAvailable, user.id])
   const assistantUnread = phoneAssistant.chatId ? chats.find((chat) => chat.id === phoneAssistant.chatId)?.unread_count ?? 0 : 0
   // gugu-dev#181 桌面上没有单独的聊天页:对话是会话页这屏的一块,打开一条对话 = 请会话页把它那块摆出来(项目群摆项目块,
-  // 那边判)。true = 已经交给会话页;手机、没有会话页宿主的形态(网页)返回 false,照旧落在聊天页。
+  // 那边判)。返回真实呈现槽标识;没有块宿主时返回 null,照旧落在聊天页。
   const chatsAreBlocks = !mobile && sessionHostAvailable
   const composerFocusCleanupRef = useRef<(() => void) | null>(null)
   // 门控与移动软键盘语义都在契约里（见 lib/focusComposer.ts）；这里只表达「用户从哪个入口进来的」。
@@ -452,20 +454,20 @@ function InnerLayout({
   }, [mobile])
   useEffect(() => () => composerFocusCleanupRef.current?.(), [])
   /** focus:人从这个入口进来就该接着打字(与聊天页那一支同一个 reason);不给 = 不抢焦点。 */
-  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): boolean => {
-    if (openAssistantChat(chatId)) return true
-    if (!chatsAreBlocks) return false
+  const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason): string | null => {
+    if (openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
+    if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
     setSettingsModalOpen(false)
     setActiveTab('tasks')
     sessionPage.openChat(chatId, false)
     if (focus) focusComposerForUserEntry(focus, chatId)
-    return true
-  }, [chatsAreBlocks, focusComposerForUserEntry, openAssistantChat, t])
+    return chatSlotKey(chatId)
+  }, [chatsAreBlocks, focusComposerForUserEntry, mobile, openAssistantChat, t])
   useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
-    openChat: (chatId) => { if (openChatBlock(chatId)) return; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat') },
-    openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}) },
+    openChat: (chatId) => { const viewportKey = openChatBlock(chatId); if (viewportKey) return viewportKey; setActiveChatId(chatId); setActiveTab('chats'); setMobilePane('chat'); return 'chats' },
+    openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}); return mobile ? 'assistant' : assistantSlotKey(tasks ? 'task-chat' : 'chat') },
   })
   // 手机底栏的格子:开得了个人助理时它排第一(owner 10-16);桌面壳不变。
   // 引用要稳:分页器按它定位(useLayoutEffect 依赖 tabs),每次渲染换一个新数组就会在滑动 / 吸附途中被未读数一类的更新拽回当前页。
@@ -817,22 +819,23 @@ function InnerLayout({
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
   useEffect(() => {
-    const bringUp = (chatId: string | null, ask: (chatId: string) => void): boolean => {
+    const bringUp = (chatId: string | null, ask: (chatId: string, viewportKey?: string) => void): boolean => {
       const chat = chatsRef.current.find((candidate) => candidate.id === chatId)
       if (!chat) {
         toast(t('groupFile.notInGroup'), 'error')
         return false
       }
-      ask(chat.id)
       const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
       const shownChatId = topic?.source_chat_id ?? chat.id
-      if (!openChatBlock(shownChatId)) {
+      const viewportKey = openChatBlock(shownChatId)
+      if (!viewportKey) {
         setAgentCreateDraftOpen(false)
         setActiveTab('chats')
         setMobilePane('chat')
         setActiveChatId(shownChatId)
       }
       if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
+      ask(chat.id, topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats')
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
@@ -868,8 +871,8 @@ function InnerLayout({
     // makes way (useSlotMakesWay); another chat's comes up first, and its list goes to the message when it shows the chat.
     const onShowMessage = (event: Event) => {
       const detail = (event as CustomEvent<AppShowMessageDetail>).detail
-      if (!detail || detail.chatId === activeChatIdRef.current) return
-      bringUp(detail.chatId, (chatId) => askReveal(chatId, detail.messageId))
+      if (!detail) return
+      bringUp(detail.chatId, (chatId, viewportKey) => askReveal(chatId, detail.messageId, viewportKey))
     }
     // gugu.files.openWith, wherever the page is (a chat's panel, an App's own page, a session's tab): the file's chat comes
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.

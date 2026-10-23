@@ -86,6 +86,7 @@ export interface MessageListRowProps {
   onReaction: (messageId: string, emoji: string) => void
   // @@@1345 点击已读圆环 → 父层弹「谁已读/谁未读」名单(稳定回调，避免 reader 列表作对象 prop 破 memo)。
   onShowReadReceipt: ((messageId: string, anchor: HTMLElement) => void) | undefined
+  onShowMessage?: (id: string) => void
   onQuote: (msg: MessageItem) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
@@ -157,7 +158,7 @@ const MessageListRow = memo(function MessageListRow({
   memberProfiles,
   onReaction,
   onShowReadReceipt,
-  onQuote,
+  onQuote, onShowMessage,
   onForward,
   onDelete,
   onVisible,
@@ -239,7 +240,7 @@ const MessageListRow = memo(function MessageListRow({
       hideTime={showTimeDivider || mobile}
       onShowReadReceipt={onShowReadReceipt}
       highlight={highlight}
-      onQuote={onQuote}
+      onQuote={onQuote} onShowMessage={onShowMessage}
       onForward={onForward}
       onDelete={onDelete}
       isAgent={isAgentMessage}

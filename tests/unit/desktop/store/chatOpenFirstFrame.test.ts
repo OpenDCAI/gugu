@@ -260,6 +260,28 @@ describe('打开会话的第一帧', () => {
     } finally { upload.resolve('unused'); harness.cleanup() }
   })
 
+  it('builds the optimistic reply preview from the sending viewport history, outside the account tail', async () => {
+    network.resolve()
+    const all = Array.from({ length: 200 }, (_, index) => message({ id: `reply-${index + 1}`, chat_id: 'chatA', seq: index + 1, content: `old ${index + 1}` }))
+    vi.mocked(chatService.getMessages).mockImplementation(async (_chat, _user, way, limit = 40, before, after) =>
+      way === 'loadOlder' ? all.filter((row) => row.seq < before!).slice(-limit)
+        : way === 'loadNewer' ? all.filter((row) => row.seq > after!).slice(0, limit) : all.slice(-40))
+    vi.mocked(chatService.getMessageById).mockImplementation(async (id) => all.find((row) => row.id === id) ?? null)
+    const ack = deferred<MessageItem>()
+    vi.mocked(chatService.sendMessage).mockImplementation(() => ack.promise)
+    const harness = await mount(createElement(ScopedProbe, { chatId: 'chatA' }))
+    try {
+      await vi.waitFor(() => expect(scopedLines.get('chatA')?.messages.at(-1)?.seq).toBe(200), WAIT)
+      await act(async () => { await scopedLines.get('chatA')!.loadMessageAnchor('reply-20') })
+      expect(sharedAccess.read('chatA').messageWindow.messages.some((row) => row.id === 'reply-20')).toBe(false)
+      await act(async () => { await scopedLines.get('chatA')!.sendMessage('reply from history', { replyToMessageId: 'reply-20' }) })
+      const pending = scopedLines.get('chatA')!.messages.find((row) => row.content === 'reply from history')!
+      expect(pending).toMatchObject({ local_send_state: 'sending', reply_to_message_id: 'reply-20',
+        reply_to_sender_user_id: all[19]!.sender_user_id, reply_to_content: 'old 20' })
+      await act(async () => { ack.resolve({ ...pending, seq: 201, local_send_state: null }) })
+    } finally { harness.cleanup() }
+  })
+
   it('重选当前会话:视图版本不变(不整列表重挂)', async () => {
     await replaceMessageWindow(repository, 'chatA', [msgA1], false)
     const harness = await mount()

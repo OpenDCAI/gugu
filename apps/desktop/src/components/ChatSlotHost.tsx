@@ -44,7 +44,7 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
           <InChatSlot.Provider value={{ projectName: projectGroupChats.has(chatId) ? chats.find((chat) => chat.id === chatId)?.name ?? null : null }}>
             <TaskChatScope chatId={chatId}>
               <ChatAreaPanel
-                chatId={chatId}
+                viewportKey={key}
                 navigationTarget={sidebarView.focusedChatId === chatId}
                 activeTab="chats"
                 blockHost={{

@@ -46,10 +46,10 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     expect(w.getSnapshot().newMessageCount).toBe(1)
   })
 
-  it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', () => {
+  it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.replace(range(1, 10), false) // 定位到一段历史,尾部之后还有
+    await w.restoreAnchor(async () => ({ messages: range(1, 10), hasNewer: true })) // 定位到一段历史,尾部之后还有
     expect(w.getSnapshot().hasNewer).toBe(true)
     w.update((prev) => [...prev, row(50)])
     expect(seqs(w)).toEqual(range(1, 10).map((m) => m.seq))
@@ -70,7 +70,7 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
   it('发送钉底:离尾 ⇒ 交给回最新页;拉取期间自己的确认行不消失,并进最新页', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.replace(range(1, 10), false)
+    await w.restoreAnchor(async () => ({ messages: range(1, 10), hasNewer: true }))
     const before = w.getSnapshot()
     expect(w.followForSend()).toBe(false)
     expect(w.getSnapshot()).toBe(before)

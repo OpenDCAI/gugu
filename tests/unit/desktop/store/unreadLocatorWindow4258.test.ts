@@ -362,6 +362,28 @@ describe('#6530 opening a badged chat lands on the latest message (WeChat)', () 
 })
 // 下面这些用例的定位路径现在由「↑ N 条新消息」触发(主线)或列表直接触发(话题流未读)。
 describe('#4258 jumping to the unread locator', () => {
+  it('keeps two same-chat viewport requests current until each presenter confirms', async () => {
+    serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
+    serverMainReadSeq = 9
+    await renderProvider()
+    await openBadgedChat()
+    const a = document.createElement('div'), b = document.createElement('div')
+    let first!: Promise<void>, second!: Promise<void>
+    await act(async () => {
+      first = latestStore!.jumpToUnreadEntry(a)
+      second = latestStore!.jumpToUnreadEntry(b)
+      await Promise.resolve()
+    })
+    await waitForCondition(() => revealedRequests.length === 2, 'both viewport requests did not reach presentation')
+    expect(revealedRequests.map((request) => request.viewport)).toEqual([a, b])
+    expect(revealedRequests.every((request) => request.isCurrent?.())).toBe(true)
+    await act(async () => {
+      for (const request of pendingReveals.splice(0)) request.confirm(request.messageId)
+      await Promise.all([first, second])
+    })
+    expect(markStreamReadMock).toHaveBeenCalledTimes(2)
+  })
+
   it('leaves no unread message outside the rendered window when the badge reads 2', async () => {
     serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
     serverMainReadSeq = 9

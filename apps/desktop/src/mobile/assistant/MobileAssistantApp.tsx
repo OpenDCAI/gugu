@@ -225,7 +225,7 @@ function MobileAssistantAppContent({
         actions={
           <>
             {tab === 'chat' ? (
-              <IconButton size="lg" aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId } }))} data-testid="mobile-assistant-search">
+              <IconButton size="lg" aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId, viewportKey: "assistant" } }))} data-testid="mobile-assistant-search">
                 <Search />
               </IconButton>
             ) : null}
@@ -250,7 +250,7 @@ function MobileAssistantAppContent({
         />
       </div>
       <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
-        <FilePreviewHost.Provider value={{}}><ChatAreaPanel
+        <FilePreviewHost.Provider value={{}}><ChatAreaPanel viewportKey="assistant"
           chatId={chatId}
           navigationTarget={navigationTarget}
           activeTab="chats"

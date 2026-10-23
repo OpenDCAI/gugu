@@ -23,7 +23,6 @@ type Deps = {
   activeChatIdRef: MutableRefObject<string | null>
   isChatOpen: (chatId: string) => boolean
   threadRootOf: (chatId: string) => string | null
-  invalidateMessageSnapshots: (chatId: string) => void
   getMessageSnapshotEpoch: (chatId: string) => number
   setActiveChatId: (chatId: string) => void
   setActiveThreadRootId: (rootId: string | null, chatId: string) => void
@@ -37,10 +36,9 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   const { getMessageSnapshotEpoch } = deps
   const chatOpenInFlightRef = useRef(new Set<string>())
   const chatOpenWaitersRef = useRef(new Map<string, Set<{ resolve: () => void; reject: (error: Error) => void }>>())
-  const locatorNavigationRef = useRef<(OpenableUnreadTarget & { epoch: number }) | null>(null)
-  const [navigationPending, setNavigationPending] = useState(false)
+  const locatorNavigationRef = useRef(new Map<HTMLElement | 'primary', OpenableUnreadTarget & { epoch: number }>())
   const [unreadEntries, setUnreadEntries] = useState<Record<string, OpenableUnreadTarget & { epoch: number }>>({})
-  useEffect(() => () => { locatorNavigationRef.current = null }, [deps.user?.id])
+  useEffect(() => () => { locatorNavigationRef.current.clear() }, [deps.user?.id])
 
   const settleChatOpen = useCallback((chatId: string, error?: Error) => {
     const waiters = chatOpenWaitersRef.current.get(chatId)
@@ -56,13 +54,11 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   }), [chatOpenWaitersRef])
 
   const ownsChat = useCallback((chatId: string) => {
-    const target = locatorNavigationRef.current
-    return target?.chatId === chatId && target.epoch === getMessageSnapshotEpoch(chatId)
+    return [...locatorNavigationRef.current.values()].some((target) => target.chatId === chatId && target.epoch === getMessageSnapshotEpoch(chatId))
   }, [getMessageSnapshotEpoch])
-  const ownsThread = useCallback((chatId: string, rootId: string) => {
-    const locator = locatorNavigationRef.current
-    return ownsChat(chatId) && locator?.locator.stream_kind === 'thread' && locator.locator.thread_root_id === rootId
-  }, [ownsChat])
+  const ownsThread = useCallback((chatId: string, rootId: string) =>
+    [...locatorNavigationRef.current.values()].some((target) => target.chatId === chatId && target.epoch === getMessageSnapshotEpoch(chatId)
+      && target.locator.stream_kind === 'thread' && target.locator.thread_root_id === rootId), [getMessageSnapshotEpoch])
 
   const openStreamAtLocator = useCallback(async (chatId: string, saved?: ChatUnreadLocator, viewport?: HTMLElement | null): Promise<void> => {
     const locator = saved ?? deps.chatsRef.current.find((chat) => chat.id === chatId)?.unread_locator
@@ -73,12 +69,11 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
     if (!locator.message_id || locator.message_seq == null) {
       throw new Error(`Unread stream ${locator.stream_id} has no openable message locator`)
     }
-    deps.invalidateMessageSnapshots(chatId)
     const target = { chatId, epoch: deps.getMessageSnapshotEpoch(chatId), locator: { ...locator, message_id: locator.message_id, message_seq: locator.message_seq } }
-    locatorNavigationRef.current = target
-    setNavigationPending(true)
+    const viewportTarget = viewport ?? 'primary'
+    locatorNavigationRef.current.set(viewportTarget, target)
     let threadActivated = false
-    const isCurrent = () => locatorNavigationRef.current === target
+    const isCurrent = () => locatorNavigationRef.current.get(viewportTarget) === target
       && deps.getMessageSnapshotEpoch(chatId) === target.epoch
       && deps.isChatOpen(chatId)
       && (!threadActivated || deps.threadRootOf(chatId) === target.locator.thread_root_id)
@@ -136,7 +131,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
       // failure in the still-current navigation remains visible to the caller.
       if (isCurrent()) throw error
     } finally {
-      if (locatorNavigationRef.current === target) { locatorNavigationRef.current = null; setNavigationPending(false) }
+      if (locatorNavigationRef.current.get(viewportTarget) === target) locatorNavigationRef.current.delete(viewportTarget)
     }
   }, [deps, waitForChatOpen])
 
@@ -183,8 +178,6 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
   deps.cancelChatOpenRef.current = cancelChatOpen
 
   return {
-    navigationPending: navigationPending && ownsChat(deps.activeChatIdRef.current ?? ''),
-    locatorNavigationRef,
     ownsChat,
     ownsThread,
     openStreamAtLocator,

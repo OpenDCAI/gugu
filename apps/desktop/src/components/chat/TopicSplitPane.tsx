@@ -30,7 +30,7 @@ import { MemberListPanel } from './MemberListPanel'
 import { RightPanel, RightPanelBackButton } from './RightPanel'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from './MessageList'
 import { useToast } from '../toastContext'
-import { askReveal, useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
+import { useSourceMessageReveal } from '@/hooks/useSourceMessageReveal'
 import type { FlowListHandle, ListLanding } from '@/lib/flowList'
 import { APP_SHOW_MESSAGE_EVENT, type AppShowMessageDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import {
@@ -70,6 +70,8 @@ import { MessageListSkeleton } from './MessageListSkeleton'
  */
 export type TopicSplitPaneProps = {
   visible?: boolean
+  viewportKey?: string
+  navigationTarget?: boolean
   topic: { chatId: string; name: string }
   history: ChatConversation
   messages: MessageItem[]
@@ -211,7 +213,7 @@ const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
 }
 const TOPIC_SPLIT_EMPTY_STYLE: React.CSSProperties = { textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--font-body)', padding: '24px 0' }
 
-export function TopicSplitPane({
+export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false,
   topic,
   messages,
   loading,
@@ -321,7 +323,7 @@ export function TopicSplitPane({
 
   // 列表行与主线共用历史窗口和分页;分栏没有多选。
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
-  const search = useChatSearch(topic.chatId, visible !== false && !workspace.open && !filesOpen && !membersOpen, messages, paneRef)
+  const search = useChatSearch(topic.chatId, visible !== false && !workspace.open && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const rows = useMemo<ChatListRowItem[]>(
     () => displayedMessages.map((message) => ({ type: 'message' as const, message })),
@@ -346,7 +348,6 @@ export function TopicSplitPane({
       if (!workspaceOpen || detail?.chatId !== topic.chatId) return
       const index = rows.findIndex((row) => row.message.id === detail.messageId)
       if (index >= 0) setRevealLanding({ index, align: 'start', offset: -96 })
-      askReveal(topic.chatId, detail.messageId)
       closeWorkspace()
     }
     window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
@@ -354,28 +355,30 @@ export function TopicSplitPane({
   }, [workspaceOpen, closeWorkspace, topic.chatId, rows])
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
   const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
-    chatId: topic.chatId, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering, discardSaved: !!history.unreadEntry,
+    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering, discardSaved: !!history.unreadEntry,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!history.unreadNavigationPending,
-    hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  const firstItemIndex = useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !history.unreadNavigationPending,
-    scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
-  const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
-    enabled: visible !== false && !workspaceOpen && !isFiltering && !history.unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
-    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
-  useSourceMessageReveal({
-    activeChatId: workspaceOpen ? null : topic.chatId,
-    rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
-    onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
-  })
-  useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering,
-    onNavigate: () => search.setSearchMode(false), rows, firstItemIndex, listRef, scrollerRef,
+  const unreadNavigationPending = useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering,
+    onNavigate: () => search.setSearchMode(false), rows, loadingAnchor: messageWindow.loading === 'anchor', listRef, scrollerRef,
     setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) },
     setFlashMessageId, flashTimerRef, hasMoreOlder: messageWindow.hasOlder, loadingOlder: history.loadingOlder,
     loadOlderMessages: history.loadOlderMessages, hasMoreNewer: messageWindow.hasNewer,
     loadingNewer: messageWindow.loading === 'newer', loadNewerMessages: history.loadNewerMessages })
+  const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
+    hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
+  const firstItemIndex = useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending,
+    scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
+  const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
+    enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
+  const showMessage = useSourceMessageReveal({
+    viewportKey, navigationTarget, enabled: visible !== false,
+    activeChatId: workspaceOpen ? null : topic.chatId,
+    rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
+    onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
+  })
+
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows,
     messages,
@@ -390,6 +393,7 @@ export function TopicSplitPane({
     onOpenFile: onOpenAttachment,
     onShowReadReceipt,
     onReaction: onReaction ?? noop,
+    onShowMessage: showMessage,
     onQuote: (msg) => setQuoted({
       forChatId: topic.chatId,
       messageId: msg.id,
@@ -412,7 +416,7 @@ export function TopicSplitPane({
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, workspaceOpen, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, workspaceOpen, isFiltering, searchQuery])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
   const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : workspace.open ? workspace.close : onClose
@@ -569,7 +573,7 @@ export function TopicSplitPane({
               rowProps={rowProps}
               listRef={listRef}
               initialTopMostItemIndex={revealLanding ?? openLocation()}
-              followTail={!history.unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
+              followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
                 label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}

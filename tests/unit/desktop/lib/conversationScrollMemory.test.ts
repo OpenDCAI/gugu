@@ -27,7 +27,7 @@ describe('conversation scroll memory', () => {
     const setFollowingTail = vi.fn()
     const isAtBottomRef = { current: true }
     function Harness() {
-      memory = useConversationScrollMemory({ chatId: 'slot-chat', activationKey: 'slot-chat', enabled: true,
+      memory = useConversationScrollMemory({ viewportKey: 'test-slot', chatId: 'slot-chat', activationKey: 'slot-chat', enabled: true,
         messageIds: ['older', 'anchor', 'newer'], isAtBottomRef, setFollowingTail })
       return createPortal(createElement('div', { ref: memory.setScrollerRef },
         createElement('div', { 'data-msg-id': 'anchor' })), slot!)
@@ -114,7 +114,7 @@ describe('conversation scroll memory', () => {
       messageIds: string[]
       rowId: string
     }) {
-      memory = useConversationScrollMemory({
+      memory = useConversationScrollMemory({ viewportKey: 'test-slot',
         chatId,
         activationKey: chatId,
         enabled: true,
@@ -181,14 +181,14 @@ describe('conversation scroll memory', () => {
     const frames = (n: number) => act(async () => {
       for (let i = 0; i < n; i += 1) await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
     })
-    function mount() {
+    function mount(viewportKey = 'block-one') {
       const container = document.createElement('div')
       document.body.appendChild(container)
       const root = createRoot(container)
       const view = { memory: null as ReturnType<typeof useConversationScrollMemory> | null, rowTop: 84, scrollTop: 700, renders: 0 }
       function Harness({ chatId, messageIds, rows }: { chatId: string; messageIds: string[]; rows: string[] }) {
         view.renders += 1
-        view.memory = useConversationScrollMemory({ chatId, activationKey: chatId, enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail: vi.fn() })
+        view.memory = useConversationScrollMemory({ viewportKey, chatId, activationKey: chatId, enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail: vi.fn() })
         return createElement('div', { ref: view.memory.setScrollerRef },
           createElement('div', null, ...rows.map((id) => createElement('div', { key: id, 'data-msg-id': id }))))
       }
@@ -283,6 +283,24 @@ describe('conversation scroll memory', () => {
       } finally { await reopened.cleanup() }
     })
 
+    it('keeps same-chat anchors separate by stable presentation slot across remounts', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const a = mount('slot-a')
+      await a.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      a.geometry()
+      await a.cleanup()
+      const b = mount('slot-b')
+      await b.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      expect(b.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
+      b.view.memory!.forgetSavedPosition()
+      await b.cleanup()
+      const reopened = mount('slot-a')
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+      } finally { await reopened.cleanup() }
+    })
+
     it('does not replay another auth lifetime\'s saved position', async () => {
       const ids = ['first', 'anchor', 'last']
       const original = mount()
@@ -324,7 +342,7 @@ describe('conversation scroll memory', () => {
         const setFollowingTail = vi.fn()
         function Harness({ messageIds }: { messageIds: string[] }) {
           view.renders += 1
-          view.memory = useConversationScrollMemory({ chatId: 'chat-a', activationKey: 'chat-a', enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail, loadMessageAnchor })
+          view.memory = useConversationScrollMemory({ viewportKey: 'test-slot', chatId: 'chat-a', activationKey: 'chat-a', enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail, loadMessageAnchor })
           return createElement('div', { ref: view.memory.setScrollerRef },
             createElement('div', null, ...messageIds.map((id) => createElement('div', { key: id, 'data-msg-id': id }))))
         }

@@ -15,7 +15,7 @@ async function setup(loading = false) {
   const newer = vi.fn().mockResolvedValue(undefined)
   const input = {
     activeChatId: 'a', navigationTarget: true, enabled: true, onNavigate: vi.fn(), rows: [{ type: 'message', message: { id: 'm10', seq: 10 } }, { type: 'message', message: { id: 'm20', seq: 20 } }],
-    firstItemIndex: 100000, scrollerRef: { current: null as HTMLElement | null }, listRef: { current: null }, setFollowingTail: vi.fn(), setFlashMessageId: vi.fn(),
+    scrollerRef: { current: null as HTMLElement | null }, listRef: { current: null }, setFollowingTail: vi.fn(), setFlashMessageId: vi.fn(),
     flashTimerRef: { current: null }, hasMoreOlder: true, loadingOlder: loading, loadOlderMessages: older,
     hasMoreNewer: true, loadingNewer: false, loadNewerMessages: newer,
   }
@@ -39,6 +39,22 @@ describe('unread reveal outside a bounded history window', () => {
     expect(context[direction as 'older' | 'newer']).toHaveBeenCalledOnce()
     expect(context[direction === 'older' ? 'newer' : 'older']).not.toHaveBeenCalled()
     expect(request.confirm).not.toHaveBeenCalled()
+    expect(request.reject).not.toHaveBeenCalled()
+  })
+
+  it('keeps pending presentation local while another same-chat viewport remains available', async () => {
+    const context = await setup(true)
+    const other = document.createElement('div'), target = document.createElement('div')
+    context.input.scrollerRef.current = target
+    let aPending = false, bPending = false
+    function A() { aPending = useUnreadLocatorNavigation(context.input); return null }
+    function B() { bPending = useUnreadLocatorNavigation({ ...context.input, navigationTarget: false, scrollerRef: { current: other } }); return null }
+    await harness.render(createNode('div', null, createNode(A), createNode(B)))
+    const request = { token: 'owned', chatId: 'a', streamId: 'main:a', streamKind: 'main', threadRootId: null,
+      viewport: target, messageId: 'm5', messageSeq: 5, confirm: vi.fn(), reject: vi.fn() }
+    await act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.openUnreadMessage, { detail: request })) })
+    expect(aPending).toBe(true)
+    expect(bPending).toBe(false)
     expect(request.reject).not.toHaveBeenCalled()
   })
 

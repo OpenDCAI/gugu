@@ -9,7 +9,7 @@ type ConversationActions = Pick<ChatContextValue,
   'sendAttachments' | 'sendMessage' | 'toggleReaction' | 'refreshMessages' | 'loadOlderMessages' | 'loadNewerMessages' |
   'loadMessageAnchor' | 'returnToLatestMessages' | 'markMessageVisible' |
   'clearMessages' | 'removeMessage' | 'deleteMessage' | 'appendMessage' | 'openThread' |
-  'openUnreadChat' | 'jumpToUnreadEntry' | 'unreadEntry' | 'unreadNavigationPending'>
+  'openUnreadChat' | 'jumpToUnreadEntry' | 'unreadEntry'>
 
 export type ChatConversationAccess = {
   read: (chatId: string, viewport?: ConversationViewport) => ConversationSnapshot

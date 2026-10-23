@@ -98,7 +98,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   useReportChatOnScreen(visible ? chatId : null)
   const { conversations } = useChatStore('conversations')
   const { messages, loadingMessages, sendMessage, setFollowingTail } = useChatConversation(chatId, conversations)
-  useEffect(() => { setFollowingTail(visible) }, [visible, setFollowingTail])
+  useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
   const recent = messages.filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)

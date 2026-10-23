@@ -70,7 +70,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const unreadNavigationRef = useRef<ReturnType<typeof useChatUnreadStreamNavigation> | null>(null)
   const activeThreadRootIdRef = useRef<string | null>(null)
 
-  // One account cache owns every visible and persisted message window.
+  // Account facts/read ownership are shared; history and navigation belong to each presenter.
   const { cache } = useChatWindowCache(userId)
   const startConversationRef = useRef<(chatId: string) => () => void>(() => () => undefined)
   const subscribeChatWindow = useCallback<ChatConversationAccess['subscribe']>((chatId, listener, viewport) =>
@@ -607,7 +607,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [readChatWindow, setActiveChatIdState])
 
   const unreadNavigation = useChatUnreadStreamNavigation({ user, chatsRef, activeChatIdRef, threadRootOf: (id) => cache.view(id).activeThreadRootId,
-    invalidateMessageSnapshots, getMessageSnapshotEpoch, setActiveChatId,
+    getMessageSnapshotEpoch, setActiveChatId,
     isChatOpen: (id) => cache.isObserved(id),
     setActiveThreadRootId: (rootId, id) => cache.patchView(id, { activeThreadRootId: rootId }),
     setLoadingThread: (loading, id) => cache.patchView(id, { loadingThread: loading }),
@@ -681,7 +681,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         seq: -1,
         content: content.trim(),
         content_type: 'text',
-        ...optimisticReplyFields(cache.get(targetChatId) ?? [], opts.replyToMessageId ?? null), // @@@2015 乐观回复带全引用预览,回声前空名会触发 #1624
+        ...optimisticReplyFields(cache.rows(targetChatId), opts.replyToMessageId ?? null), // @@@2015 乐观回复带全引用预览,回声前空名会触发 #1624
         thread_root_id: threadRootId,
         is_thread_root: !!opts.isThreadRoot, // @@@threads (#1531) 乐观显 tanchor，不等 openThread 异步补
         retracted_at: null,
@@ -701,7 +701,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         // C3 发送把窗口钉回底部:含尾的窗口立即恢复跟尾(确认行按尾巴接上,不被当成窗口外丢掉);
         // 离尾的历史段先拉最新页(页里保留这条乐观行及其确认行)。已在拉就不重开。
         const targetWindow = cache.history(targetChatId, viewport)
-        if (targetWindow && !targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
+        if (!targetWindow.followForSend() && targetWindow.getSnapshot().loading !== 'latest') {
           void loadHistoryPage('latest', targetChatId, viewport).catch((error) => revisionLog.error({ error }, 'pin to latest on send failed'))
         }
         setMessagesAndCache((prev) => [...prev, tempMsg], targetChatId)
@@ -888,7 +888,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     clearMessages: () => clearMessages(chatId), removeMessage: (id) => removeMessage(id, chatId),
     deleteMessage: (id) => deleteMessage(id, chatId), appendMessage, openThread: (rootId) => openThread(rootId, chatId),
     openUnreadChat: unreadNavigation.openUnreadChat,
-    unreadEntry: unreadNavigation.entryFor(chatId), unreadNavigationPending: !!chatId && unreadNavigation.ownsChat(chatId),
+    unreadEntry: unreadNavigation.entryFor(chatId),
     jumpToUnreadEntry: (viewport) => unreadNavigation.jumpToUnreadEntry(chatId, viewport),
   }), [cache, sendAttachmentsToChat, sendMessageToChat, toggleReaction, refreshMessages, loadHistoryPage, loadMessageAnchor,
     markMessageVisible, clearMessages, removeMessage, deleteMessage, appendMessage, openThread, unreadNavigation])

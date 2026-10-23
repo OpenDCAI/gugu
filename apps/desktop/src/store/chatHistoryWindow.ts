@@ -168,16 +168,6 @@ export class ChatHistoryWindow {
       newMessageCount: previous.newMessageCount + received })
   }
 
-  /** Explicit navigation (e.g. unread locator) replaces the range and cancels its old requests. */
-  replace = (updater: MessageItem[] | ((previous: MessageItem[]) => MessageItem[]), reachedTail = true): void => {
-    this.invalidate()
-    this.followingTail = false
-    const messages = typeof updater === 'function' ? updater(this.state.messages) : updater
-    this.commit(boundRows(messages, MAX_WINDOW), { change: 'anchor', navigation: 'anchor', navigationVersion: this.state.navigationVersion + 1,
-      hasNewer: !reachedTail || this.state.latestSeen > maxMainlineSeq(messages),
-      latestSeen: Math.max(this.state.latestSeen, maxMainlineSeq(messages)), newMessageCount: 0 })
-  }
-
   /** A full cold-start delta cannot be joined to a disconnected cached range. */
   establishTail = (messages: MessageItem[]): void => {
     if (maxMainlineSeq(messages) < maxMainlineSeq(this.state.messages)) {

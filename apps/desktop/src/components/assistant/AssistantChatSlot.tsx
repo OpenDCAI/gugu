@@ -152,7 +152,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   return (
     <>
       <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel
-        chatId={chatId}
+        viewportKey={assistantSlotKey('chat')}
         activeTab="chats"
         hidden={!visible}
         chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}

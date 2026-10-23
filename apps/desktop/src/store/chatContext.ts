@@ -75,7 +75,6 @@ export interface ChatContextValue {
   hasMoreOlder: boolean
   loadingOlder: boolean
   messageWindow?: HistoryWindow
-  unreadNavigationPending?: boolean
   loadNewerMessages: () => Promise<void>
   loadMessageAnchor: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
   markMessageVisible: (message: MessageItem) => void

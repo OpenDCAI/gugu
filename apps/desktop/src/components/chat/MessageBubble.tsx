@@ -189,6 +189,7 @@ interface BubbleProps {
   // @@@1313 点开已读名单（谁读谁没读）：稳定回调，父层（持 roster+profiles）弹名单，避免把 reader 列表作对象 prop 传进破 memo。
   onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
   highlight?: string
+  onShowMessage?: (id: string) => void
   onQuote: (msg: MessageItem) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
@@ -229,7 +230,7 @@ export const MessageBubble = memo(function MessageBubble({
   readReceiptTotal,
   onShowReadReceipt,
   highlight,
-  onQuote,
+  onQuote, onShowMessage,
   onForward,
   onDelete,
   isAgent = false, hideAvatar = false, streaming = false,
@@ -520,7 +521,7 @@ export const MessageBubble = memo(function MessageBubble({
               <span style={{ color: 'var(--muted-fg)', fontStyle: 'italic' }}>{t('message.retracted')}</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                {msg.reply_to_message_id && <MessageQuote msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
+                {msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
                 ) : card ? (

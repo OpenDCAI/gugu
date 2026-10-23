@@ -18,7 +18,7 @@ const conversationActions = {
   returnToLatestMessages: async () => {}, setFollowingTail: () => {}, markMessageVisible: () => {},
   clearMessages: async () => {}, removeMessage: () => {}, deleteMessage: async () => {}, appendMessage: () => {},
   openThread: () => {}, openUnreadChat: async () => {}, jumpToUnreadEntry: async () => {},
-  unreadEntry: null, unreadNavigationPending: false,
+  unreadEntry: null,
 }
 
 /** Presentation fixtures supply a conversation without owning a read pipeline. */

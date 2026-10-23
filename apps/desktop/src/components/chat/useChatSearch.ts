@@ -4,7 +4,7 @@ import { isChatSearchTarget } from '@/lib/chatSearchTarget'
 import { UI_EVENTS } from '@/lib/uiEvents'
 
 /** The existing in-window search policy, independent of the pane's presentation. */
-export function useChatSearch(chatId: string | null, enabled: boolean, messages: MessageItem[], surface: RefObject<HTMLElement | null>) {
+export function useChatSearch(chatId: string | null, enabled: boolean, messages: MessageItem[], surface: RefObject<HTMLElement | null>, viewportKey: string) {
   const [searchMode, setSearchMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -23,12 +23,13 @@ export function useChatSearch(chatId: string | null, enabled: boolean, messages:
       }
     }
     const onOpen = (event: Event) => {
-      const target = (event as CustomEvent<{ chatId?: string }>).detail?.chatId
-      if (target ? target === chatId : isChatSearchTarget(surface.current, chatId)) open()
+      const target = (event as CustomEvent<{ chatId?: string; viewportKey?: string }>).detail
+      if (target?.chatId && target.chatId !== chatId) return
+      if (target?.viewportKey ? target.viewportKey === viewportKey : isChatSearchTarget(surface.current, chatId)) open()
     }
     window.addEventListener('keydown', onKey); window.addEventListener(UI_EVENTS.openChatSearch, onOpen)
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(UI_EVENTS.openChatSearch, onOpen) }
-  }, [chatId, enabled, surface])
+  }, [chatId, enabled, surface, viewportKey])
   const isFiltering = searchMode && !!searchQuery.trim()
   const displayedMessages = isFiltering ? messages.filter((message) => !message.retracted_at
     && message.content_type !== 'attachment' && (message.content ?? '').toLowerCase().includes(searchQuery.toLowerCase())) : messages
