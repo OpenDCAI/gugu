@@ -127,7 +127,6 @@ import {
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
 import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
-import { viewStateService } from '@main/core/view-state/view-state-service'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
@@ -204,8 +203,10 @@ import {
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge'
 import {
   listSessionStates,
+  setConnectionConfigRootResolver,
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
+import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
@@ -589,11 +590,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 分区改名后的目录搬迁:必须赶在任何浏览器会话打开之前(下面注册 RPC 之前)同步做完,见函数注释。
   if (browserFeatures) migrateLegacyBrowserPartitionDirs()
   if (browserFeatures) void cleanupLegacyBrowserPartitions()
-  try {
-    viewStateService.pruneOrphans()
-  } catch (e: unknown) {
-    log.warn('view-state: failed to prune orphaned entries', { error: e })
-  }
 
   // #6387 上一次运行的会话都已随进程结束:它们冻结的扩展副本、以及卸载时延后删的数据夹,在这里清掉。
   // 放在任何会话启动之前,才保证清的都是没人在用的。
@@ -690,6 +686,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ⚠️ 不跟着 browserFeatures 走:那道开关管的是浏览器 tab 扩展面,
   // 而手机看管页的状态与它无关 —— 挂上去等于「没开扩展就看不到 agent 在跑」。
   setSessionStatusFeed(onAgentStatus)
+  // 跑在非原生订阅连接上的 Claude 会话,记录在连接自己的配置根里:交给时间线服务去那里找(同样是注入,免得成环)。
+  setConnectionConfigRootResolver(connectionConfigRoot)
   // 手机端往一条**已经不活**的 ACP 会话里回话时,先按桌面端同一条「唤醒」把引擎拉起来。
   // 同样是注入(write-bridge 被本模块经 session-timeline 引着,反向 import 成环)。
   setSessionWake(ensureEmdashSession)

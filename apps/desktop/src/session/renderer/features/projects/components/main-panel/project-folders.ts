@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttachProjectFolderError, ProjectFolder } from '@shared/core/projects/project-folders';
 import { projectFoldersChangedChannel, projectGroupBindingChangedChannel } from '@shared/core/projects/projectEvents';
-import { events, rpc } from '@renderer/lib/ipc';
+import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { cachedDevicesAccount } from '@/store/devicesCache';
@@ -13,10 +15,10 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
  *
  * 一个项目可以在几台机器上各有一个本地项目(绑在同一个项目群上,#7341 第二步):这里把它们的文件夹汇总成一份。
  * 每个本地项目的文件夹由它所在的那台机器回答(rpc 按 projectId 自动路由,lib/ipc.ts)。
- * 那台机器此刻答不上(离线)时,用上一次读到的那份、标离线 —— 机器离线时它的文件夹照样列在项目里(product spec)。
+ * 那台机器此刻答不上(离线)时,用账号上记着的那份(#113)、标离线 —— 机器离线时它的文件夹照样列在项目里(product spec)。
  */
 
-/** 卡片上的一个文件夹:多一格「那台机器此刻答不上,这是上次读到的」。 */
+/** 卡片上的一个文件夹:多一格「那台机器此刻答不上,这是账号上记着的」。 */
 export type ShownFolder = ProjectFolder & { offline: boolean };
 
 /** 每个项目(按代表那一行的 id)「新会话从哪个文件夹开工」:切走再回来还在;没选过 = 代表行的根目录。 */
@@ -24,25 +26,19 @@ const folderChoice = new Map<string, string>();
 /** 刚挂上的文件夹(这一页里标「刚挂上」、排在最前)。 */
 const freshFolders = new Map<string, string>();
 
-const CACHE_KEY = 'gugu.projectFolders.v1';
-/** 一台机器这么久还没答(掉线了、连接还没断开):先列上一次读到的、标离线。 */
+/** 一台机器这么久还没答(掉线了、连接还没断开):先列账号上记着的、标离线。 */
 export const UNANSWERED_AFTER_MS = 3000;
-function readCache(): Record<string, ProjectFolder[]> {
-  try {
-    const raw = globalThis.localStorage?.getItem(CACHE_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, ProjectFolder[]>) : {};
-  } catch {
-    return {};
-  }
+
+/** 账号上记着的这个本地项目的文件夹(本机的项目 / 还没读到过账号上的那份 = null)。 */
+function accountFolders(projectId: string): ProjectFolder[] | null {
+  const machine = machineRegistry.machineOf(projectId);
+  return machine ? remoteHostsStore.accountFolders(machine, projectId) : null;
 }
-function writeCache(projectId: string, folders: ProjectFolder[]): void {
-  try {
-    const all = readCache();
-    all[projectId] = folders;
-    globalThis.localStorage?.setItem(CACHE_KEY, JSON.stringify(all));
-  } catch {
-    // 存不下只是下次离线时没有旧的可列,不影响这一次。
-  }
+
+/** 账号上那份比这一端经连接读到的新(见 RemoteHostsStore.accountIsNewer);本机的项目 = false。 */
+function accountIsNewer(projectId: string): boolean {
+  const machine = machineRegistry.machineOf(projectId);
+  return machine ? remoteHostsStore.accountIsNewer(machine) : false;
 }
 
 export function chosenFolderOf(rowId: string, folders: readonly ShownFolder[] | null): ShownFolder | null {
@@ -62,7 +58,7 @@ export type AttachResult =
 
 export type ProjectFoldersState = {
   folders: ShownFolder[] | null;
-  /** 一台都读不到、也没有上一次的:卡片如实说读不到(原因进日志),❌ 拿根目录冒充全部。 */
+  /** 一台都读不到、账号上也没有:卡片如实说读不到(原因进日志),❌ 拿根目录冒充全部。 */
   loadError: boolean;
   chosen: ShownFolder | null;
   /** 刚挂上的那一个(workspaceId)。 */
@@ -94,6 +90,9 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
   const shown = useRef<{ rowId: string; lists: Map<string, ShownFolder[]> } | null>(null);
   const bump = useCallback(() => setGeneration((value) => value + 1), []);
   const membersKey = memberIds.join('\u0000');
+  // 账号上记着的那几份变了(那台机器离线时挂 / 摘了文件夹之后记上来、这一端刚读到账号上的那份):重读一遍。
+  // 读的是 mobx 里的设备行 —— 项目首页是 observer,那一份变了这里才重算。
+  const accountKey = JSON.stringify(memberIds.map((projectId) => [accountFolders(projectId), accountIsNewer(projectId)]));
   // 换了项目:「刚挂上」跟着换成那个项目的(❌ 把上一个项目的那张带过来)。
   useEffect(() => setFresh(freshFolders.get(rowId)), [rowId]);
 
@@ -103,9 +102,8 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       ? { ...current, loadError: false }
       : { rowId, folders: null, loadError: false });
     const ids = membersKey.split('\u0000');
-    const cache = readCache();
-    const fromCache = (projectId: string): ShownFolder[] | null =>
-      Array.isArray(cache[projectId]) ? cache[projectId].map((folder): ShownFolder => ({ ...folder, offline: true })) : null;
+    const fromAccount = (projectId: string): ShownFolder[] | null =>
+      accountFolders(projectId)?.map((folder): ShownFolder => ({ ...folder, offline: true })) ?? null;
     // 每台各自回话:答了的(读到的,或读不到 = null)、过了时限还没答的。
     const answered = new Map<string, ShownFolder[] | null>();
     const late = new Set<string>();
@@ -114,12 +112,18 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
     const publish = () => {
       if (cancelled) return;
       const lastShown = shown.current?.rowId === rowId ? shown.current.lists : null;
-      // 一台的那一份:读到的 > 读不到就用上次读到的(标离线);过了时限还没答的同样;还没到时限的先照旧列着
-      // 上一次画的(❌ 每次重读远程机器的文件夹都闪一下),这一行头一回读就先不画它(undefined)。
+      // 一台的那一份:读到的 > 读不到就用账号上记着的与这一页刚才画的那份里新的那个(都标离线;账号上那份在那台机器
+      // 经连接答过之后没变 = 刚才画的更新,❌ 拿它把刚挂上、还没记到账号上的文件夹抹掉);过了时限还没答的同样;
+      // 还没到时限的先照旧列着上一次画的(❌ 每次重读远程机器的文件夹都闪一下),这一行头一回读就先不画它(undefined)。
       const listFor = (projectId: string): ShownFolder[] | null | undefined => {
-        if (answered.has(projectId)) return answered.get(projectId) ?? fromCache(projectId);
         const last = lastShown?.get(projectId);
-        if (late.has(projectId)) return fromCache(projectId) ?? last?.map((folder) => ({ ...folder, offline: true })) ?? null;
+        const offline = () => {
+          const shownBefore = last?.map((folder) => ({ ...folder, offline: true })) ?? null;
+          const recorded = fromAccount(projectId);
+          return (accountIsNewer(projectId) ? recorded ?? shownBefore : shownBefore ?? recorded) ?? null;
+        };
+        if (answered.has(projectId)) return answered.get(projectId) ?? offline();
+        if (late.has(projectId)) return offline();
         return last;
       };
       const lists = ids.map(listFor);
@@ -167,7 +171,6 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
         .then(() => rpc.projects.listProjectFolders(projectId))
         .then((result) => {
           if (result.success) {
-            writeCache(projectId, result.data);
             return result.data.map((folder): ShownFolder => ({ ...folder, offline: false }));
           }
           log.warn('[project-folders] 读不到这台机器上的文件夹', {
@@ -185,7 +188,7 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
           publish();
         });
     }
-    // 过了时限还没答的那台:先列上一次读到的、标离线;它答了再换成真的。
+    // 过了时限还没答的那台:先列账号上记着的、标离线;它答了再换成真的。
     const deadline = setTimeout(() => {
       for (const projectId of ids) if (!answered.has(projectId)) late.add(projectId);
       if (late.size > 0) publish();
@@ -194,19 +197,19 @@ export function useProjectFolders(rowId: string, memberIds: readonly string[] = 
       cancelled = true;
       clearTimeout(deadline);
     };
-  }, [rowId, membersKey, generation]);
+  }, [rowId, membersKey, generation, accountKey]);
 
-  // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:那台机器推一声就重读。
+  // 别处挂上 / 摘下 / 并进来(另一个窗口、agent、撤销)也要跟着变:在各成员项目所在的机器上订,那台推一声就重读。
   useEffect(() => {
     const ids = new Set(membersKey.split('\u0000'));
-    const offFolders = events.on(projectFoldersChangedChannel, ({ projectId: changed }) => {
-      if (ids.has(changed)) bump();
-    });
-    const offGroups = events.on(projectGroupBindingChangedChannel, () => bump());
-    return () => {
-      offFolders();
-      offGroups();
-    };
+    const machines = new Set([...ids].map((id) => machineRegistry.machineOf(id)));
+    const offs = [...machines].flatMap((machine) => [
+      onMachineEvent(machine, projectFoldersChangedChannel, ({ projectId: changed }) => {
+        if (ids.has(changed)) bump();
+      }),
+      onMachineEvent(machine, projectGroupBindingChangedChannel, () => bump()),
+    ]);
+    return () => offs.forEach((off) => off());
   }, [membersKey, bump]);
 
   const choose = useCallback(

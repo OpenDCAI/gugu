@@ -179,6 +179,28 @@ describe('Claude 用量', () => {
     expect(windowsFromClaudeUsage({ five_hour: null, seven_day: { utilization: 0 }, seven_day_opus: { utilization: 'unknown' } })).toEqual([{ windowMinutes: 10080, usedPercent: 0 }]);
   });
 
+  it('reads usage for a user who exported CLAUDE_CONFIG_DIR from that directory’s keychain item, and only gives up on the file', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    try {
+      const env = { CLAUDE_CONFIG_DIR: '/home/user/.config/claude-work' };
+      const exec = vi.fn().mockResolvedValue({ stdout: JSON.stringify({ claudeAiOauth: { accessToken: 'keychain-token' } }), stderr: '' });
+      requestUsage.mockResolvedValue({ five_hour: { utilization: 5 } });
+      await expect(readClaudeUsage(ctx({ exec, env }), { payer: 'subscription' })).resolves.toMatchObject({ kind: 'windows' });
+      // sha256('/home/user/.config/claude-work').slice(0, 8)
+      expect(exec).toHaveBeenCalledWith('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials-e9e628e4', '-w'], expect.anything());
+      expect(requestUsage).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), expect.objectContaining({ authorization: 'Bearer keychain-token' }));
+
+      const missing = vi.fn().mockRejectedValue(Object.assign(new Error('not found'), { code: 44 }));
+      const files = { '.claude/.credentials.json': JSON.stringify({ claudeAiOauth: { accessToken: 'someone-elses' } }) };
+      await expect(readClaudeUsage(ctx({ exec: missing, env, files }), { payer: 'subscription' })).resolves.toMatchObject({
+        kind: 'unavailable', reason: 'error', message: '无法读取所选 CLAUDE_CONFIG_DIR 的登录凭据。',
+      });
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+    }
+  });
+
   it('a failed usage request is explicit', async () => {
     requestUsage.mockRejectedValue(new Error('额度查询失败（HTTP 429）。'));
     await expect(readClaudeUsage(ctx({ env: { CLAUDE_CODE_OAUTH_TOKEN: 'test-token' } }), { payer: 'subscription' })).resolves.toMatchObject({ kind: 'unavailable', reason: 'error', message: '额度查询失败（HTTP 429）。' });

@@ -5,6 +5,7 @@ import { deleteSessionAttachmentFiles } from '@main/core/sessions/attachments/se
 import { deleteWorkspaceIfUnused } from '@main/core/sessions/operations/session-lifecycle-utils';
 import { cleanupDetachedSessions, sessionWorkspaceManager } from '@main/core/sessions/session-workspace-manager';
 import { viewStateService } from '@main/core/view-state/view-state-service';
+import { forgetSessionOutputs } from './session-outputs';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -77,6 +78,7 @@ export async function deleteSession(
   await forgetSessionPlatformModel(sessionId);
   void viewStateService.del(`session:${sessionId}`);
   void viewStateService.del(`session:${sessionId}:tabs`);
+  void forgetSessionOutputs(sessionId);
 
   sessionEvents._emit('session:deleted', sessionId);
   events.emit(sessionDeletedChannel, { sessionId, projectId });

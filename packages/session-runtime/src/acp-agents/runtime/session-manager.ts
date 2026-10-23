@@ -115,6 +115,9 @@ import type { AcpRuntimeDeps, AcpStartInput, SendPromptInput } from './types';
 
 type StartupSettingDimension = 'model' | 'effort';
 
+/** 流式正文的显示节拍(毫秒):一拍里的改动合成一次推送。 */
+const TRANSCRIPT_TICK_MS = 100;
+
 interface SessionRecordBase {
   input: AcpStartInput;
   cell: SessionCell;
@@ -169,6 +172,11 @@ interface SessionRecordBase {
   supplementalCommands?: readonly AvailableCommand[];
   queuePersistenceError: unknown | null;
   queuePersistenceFailure: () => Result<never, InvalidStateError> | null;
+  /**
+   * 流式正文的显示节拍(见 `publishOnTick`):这一拍还没过完 = 计时器在;这一拍里有没发出去的正文 = `transcriptPending`。
+   */
+  transcriptTick: ReturnType<typeof setTimeout> | null;
+  transcriptPending: boolean;
   lastSynced: {
     sessionState?: SessionState;
     config?: SessionConfigState;
@@ -1788,7 +1796,7 @@ export class SessionManager implements InboundRouter {
         ? { kind: 'subagent_stream', subagentSessionId: params.sessionId, event }
         : delivered
     );
-    this.syncRecord(record);
+    this.publishOnTick(record);
   }
 
   /** 与启动这一家时同一份 env(含托管配置根的 env),插件按它找自己的目录与存档。 */
@@ -2068,7 +2076,7 @@ export class SessionManager implements InboundRouter {
     const callbacks: SessionCellCallbacks = {
       onSessionStateChanged: () => this.syncRecord(record),
       onTranscriptChanged: () => {
-        this.syncRecord(record);
+        this.publishOnTick(record);
         this.emitCommittedTurns(record);
       },
       onDraftChanged: () => this.syncRecord(record),
@@ -2142,6 +2150,8 @@ export class SessionManager implements InboundRouter {
         ? acpErr.invalidState(`Prompt queue snapshot failed for session ${input.sessionId}`)
         : null,
       live: createSessionLiveModels(this.sessionHost, input.sessionId, cell.sessionState),
+      transcriptTick: null,
+      transcriptPending: false,
       lastSynced: {
         sessionState: cell.sessionState,
         config: cell.config,
@@ -2400,7 +2410,33 @@ export class SessionManager implements InboundRouter {
     record.emittedTurns = committed;
   }
 
+  /**
+   * 会话通知来了(流式的一块、一行工具输出、用量 / 命令这类附带的):按显示节拍发,每拍最多一次。前一拍里什么都没发生
+   * (流刚开始、停顿过后)时这一个改动当场发,首字不等;流持续着,改动攒到拍尾合成一次发出 —— 发的是那一刻的整份状态
+   * 对上一次的差,攒多少块都只是一次推送(远程看的人每一次就是一条广播)。一拍过完没有新改动,节拍停下。
+   * 不在回合里(`activeTurn` 空了 = 回合刚结束)当场发:最后一段字 ❌ 等到下一拍。状态机的变化(待批、排队、开始 / 停下)
+   * 与草稿本来就当场发,顺带把攒着的一起带走。
+   */
+  private publishOnTick(record: SessionRecord): void {
+    if (!record.cell.transcript.activeTurn) return this.syncRecord(record);
+    if (record.transcriptTick) {
+      record.transcriptPending = true;
+      return;
+    }
+    this.syncRecord(record);
+    const tick = () => {
+      record.transcriptTick = setTimeout(() => {
+        record.transcriptTick = null;
+        if (!record.transcriptPending) return;
+        this.syncRecord(record);
+        tick();
+      }, TRANSCRIPT_TICK_MS);
+    };
+    tick();
+  }
+
   private syncRecord(record: SessionRecord): void {
+    record.transcriptPending = false;
     // 记录移除之后 cell 还会回调(被关掉的那一轮这时才落定)。会话已经不归这里管:再写就是给它凭空补回一条摘要,
     // 列表里多出一条「还活着」的会话,带着它最后那一轮的结局 —— 停掉的会话因此被读成 error。
     if (this.cells.get(record.input.sessionId) !== record) return;
@@ -2547,6 +2583,7 @@ export class SessionManager implements InboundRouter {
   ): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
+    if (record.transcriptTick) clearTimeout(record.transcriptTick);
     record.cell.dispose();
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);

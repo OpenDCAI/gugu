@@ -67,6 +67,16 @@ describe('reduceAgentStatus', () => {
     expect(read(agentWait), 'opened while not working: session-level').toMatchObject({ status: 'needs_user' });
   });
 
+  it('宿主问人的等待(agent 的提问)熬过停下和下次开工,只由它自己的了结边收', () => {
+    const question: AgentStatusEvent = { kind: 'WaitStarted', sessionId: S, id: 'host-ask:q', waitKind: 'question', scope: 'host' };
+    expect(read(started(), question, ended())).toMatchObject({ status: 'needs_user', detail: 'question' });
+    expect(read(started(), question, ended(), started())).toMatchObject({ status: 'needs_user', detail: 'question', running: true });
+    expect(read(started(), question, { kind: 'WaitEnded', sessionId: S, id: '*' }), 'the harness\'s 「接着跑了」 is not an answer')
+      .toMatchObject({ status: 'needs_user', detail: 'question' });
+    expect(read(started(), question, ended(), started(), { kind: 'WaitEnded', sessionId: S, id: 'host-ask:q' }))
+      .toMatchObject({ status: 'working', detail: 'running' });
+  });
+
   it('打断不是做完:idle/plain,没有结束边;已有的失败照留', () => {
     expect(read(started(), { kind: 'Interrupted', sessionId: S })).toMatchObject({
       status: 'idle',

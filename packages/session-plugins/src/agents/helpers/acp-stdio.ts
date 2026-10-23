@@ -28,16 +28,13 @@ const DRAFT_SESSION_UPDATES = new Set([
   // （0.22.1 实查）联合里没有它们,不裹信封就在进门时被 -32602 扔掉。
   'compaction_update',
   'compaction_summary_chunk',
-  // 供应商提示:SDK 1.5.0 才进联合,咕咕钉的 1.4.0 没有。
+  // 供应商提示:SDK 1.5.0 才进联合;1.9 的联合要求 `severity`,v1 的家发的不一定带。
   'notice',
-  // agent 自己报的状态(ACP v2 草案 prompt 生命周期);v1 的联合里没有。
-  'state_update',
 ]);
 
 function draftUpdateId(update: Record<string, unknown>): string | undefined {
   // notice 没有 id,填位即可:解码那侧先认出 notice,绝不交给工具分支。
   if (update.sessionUpdate === 'notice') return 'notice';
-  if (update.sessionUpdate === 'state_update') return 'state';
   const id = update.subagentSessionId ?? update.asyncTaskId ?? update.compactionId;
   return typeof id === 'string' && id ? id : undefined;
 }

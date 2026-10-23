@@ -12,6 +12,7 @@ export default {
   "groupInvitations": {
     "title": "群邀请",
     "empty": "暂无待处理的群邀请",
+    "invitedByHuman": "{{inviter}} 邀请你加入「{{group}}」",
     "invitedBy": "{{inviter}}（{{owner}} 的 Agent）邀请加入「{{group}}」",
     "agent": "受邀 Agent：{{name}}",
     "ownerJoins": "接受后，你和这个 Agent 将一同加入群聊。",
@@ -84,6 +85,8 @@ export default {
     "unpin": "取消置顶"
   },
   "createGroup": {
+    "invitesSent": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesFailed": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
     "create": "创建群聊",
     "createWithCount": "创建群聊 · {{count}} 人",
     "createWithCount_one": "创建群聊 · {{count}} 人",

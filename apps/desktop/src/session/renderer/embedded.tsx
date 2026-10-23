@@ -45,6 +45,7 @@ import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
 import { setupViewCommandProvider } from '@renderer/lib/commands/registry';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
+import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
 import { rpc } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
@@ -194,6 +195,8 @@ async function bootstrap() {
   wirePrCacheInvalidation();
   wireCommitHistoryInvalidation();
   wireExternalLinkRequests();
+  // 屏上的会话报给主进程:闲置回收不停人正看着的会话(spec idle-reclaim「不在屏上」)。
+  wireSessionsOnScreenReport();
 
   initSoundPlayer();
 

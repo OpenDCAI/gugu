@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionpagePaneOpenRequest } from '@gugu/session-core/session-record/contract';
 import { SESSION_HOST_PANE } from '@shared/lib/ipc/session-host-device-frames';
-import { startRemotePaneViewer, type RemotePaneViewerDeps } from './remote-pane-viewer';
+import {
+  startRemotePaneViewer,
+  syncRemotePaneViewers,
+  type RemotePaneViewer,
+  type RemotePaneViewerDeps,
+  type WantedPaneViewer,
+} from './remote-pane-viewer';
 
 const request = (requestId: string, sessionId = 'conv-1', target: SessionpagePaneOpenRequest['target'] = { kind: 'file', path: '/srv/app/a.ts' }): SessionpagePaneOpenRequest => ({
   requestId,
@@ -51,7 +57,7 @@ function fakeLink(pending: SessionpagePaneOpenRequest[] = []) {
 function start(overrides: Partial<RemotePaneViewerDeps> & { link: RemotePaneViewerDeps['link'] }) {
   const open = overrides.open ?? vi.fn(() => ({ ok: true as const }));
   let n = 0;
-  const stop = startRemotePaneViewer({
+  const viewer = startRemotePaneViewer({
     deviceId: 'dev-1',
     sessionId: 'conv-1',
     browser: true,
@@ -59,7 +65,7 @@ function start(overrides: Partial<RemotePaneViewerDeps> & { link: RemotePaneView
     ...overrides,
     open,
   });
-  return { stop, open };
+  return { stop: viewer.stop, viewer, open };
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -147,6 +153,23 @@ describe('看着别的机器上的一条会话:那台机器上的 open_in_tab �
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it('a browser cell that comes or goes while watching re-subscribes the same subscription, never a gap', async () => {
+    const browserPage = request('page', 'conv-1', { kind: 'browser', url: 'http://localhost:5173/' });
+    const fake = fakeLink([browserPage]);
+    const { viewer, open } = start({ link: fake.link, browser: false });
+    await flush();
+    viewer.setBrowser(false);
+    viewer.setBrowser(true);
+    await flush();
+    expect(fake.subscribes()).toEqual([
+      { subscriptionId: 'pane-1', sessionId: 'conv-1', browser: false, pages: false, external: true, tabs: true },
+      { subscriptionId: 'pane-1', sessionId: 'conv-1', browser: true, pages: true, external: true, tabs: true },
+    ]);
+    expect(fake.calls.some(([channel]) => channel === SESSION_HOST_PANE.unsubscribe)).toBe(false);
+    // Both answers carry the queued page; it opens once.
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it('不看了就退订,之后推来的不再开', async () => {
     const fake = fakeLink();
     const { stop, open } = start({ link: fake.link });
@@ -155,5 +178,37 @@ describe('看着别的机器上的一条会话:那台机器上的 open_in_tab �
     fake.push('pane-1', request('late'));
     expect(open).not.toHaveBeenCalled();
     expect(fake.calls).toContainEqual([SESSION_HOST_PANE.unsubscribe, 'pane-1']);
+  });
+});
+
+describe('syncRemotePaneViewers: the viewers running are exactly the sessions on screen', () => {
+  it('starts the new ones, stops the ones gone, and leaves the rest running', () => {
+    const running = new Map<string, RemotePaneViewer>();
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const browsers: string[] = [];
+    const want = (browser: boolean, ...keys: string[]) =>
+      new Map<string, WantedPaneViewer>(
+        keys.map((key) => [
+          key,
+          {
+            browser,
+            start: () => {
+              started.push(key);
+              return { setBrowser: (next) => void browsers.push(`${key}:${next}`), stop: () => void stopped.push(key) };
+            },
+          },
+        ])
+      );
+    syncRemotePaneViewers(running, want(false, 'a', 'b'));
+    syncRemotePaneViewers(running, want(true, 'b', 'c'));
+    // b stayed on screen: never stopped or restarted, so the machine sees it watched the whole time; its browser cell
+    // is updated where it runs.
+    expect(started).toEqual(['a', 'b', 'c']);
+    expect(stopped).toEqual(['a']);
+    expect(browsers).toEqual(['b:true']);
+    syncRemotePaneViewers(running, want(true));
+    expect(stopped).toEqual(['a', 'b', 'c']);
+    expect(running.size).toBe(0);
   });
 });

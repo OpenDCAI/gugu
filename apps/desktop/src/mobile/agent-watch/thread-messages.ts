@@ -1,6 +1,7 @@
 import type { ThreadMessageLike } from '@assistant-ui/react'
+import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker'
 import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type TranscriptItem, type TranscriptTurn } from '@gugu/session-core/acp/client'
-import { pendingTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
+import { pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
 import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened-outputs'
 
@@ -19,7 +20,7 @@ import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened
  *                就在它发生的位置;❌ 再画一行通用工具行,也 ❌ 收进「N 次工具调用」那一组
  *   一轮的过程 → 单独一条 assistant 消息,metadata 带桌面折叠头那组事实(见 turn-process-message);
  *                哪些条目折进去、头写什么,和桌面同一份判断(`@gugu/session-chat-ui/turn-fold`)
- *   在跑、还没东西 → 同一条过程消息先空着出来,头已经在数秒(`pendingTurnHeader`)
+ *   在跑、还没有可折的过程 → 同一条过程消息先空着出来,头写「正在思考…」占位(`placeholderTurnHeader`)
  *   打开给人看的文件 / 网页(成功的 `session_open_in_tab`)→ 那一步照常在过程里,一轮最后另挂 `opened-outputs` data part,
  *                画成桌面同一张附件卡(#7193);哪些算、挂哪一轮、同一份只挂一张,与桌面同一份判断(`opened-outputs`)
  *
@@ -238,7 +239,7 @@ export function toThreadMessages(
     // 打开给人看的东西记下来,挂在一轮最后;轮本身照常折(与桌面 flattenTier 同一步)。
     // 还在跑的那一轮一张不挂(#7305,与桌面同一条判据,见 collectOpenedOutputs)。
     const opened = collectOpenedOutputs(tier.turns, { live: tier.live })
-    const { folds, runs, absorbed } = planTurnFoldRuns(tier.turns, undefined, true)
+    const { folds, runs, absorbed } = planTurnFoldRuns(tier.turns, undefined, true, tier.live)
     tier.turns.forEach((turn, index) => {
       // 被前一轮的折叠吸收了:它的条目已经排进那一轮的过程与收尾里。
       if (absorbed[index]) return
@@ -274,7 +275,8 @@ export function toThreadMessages(
             continue
           }
           if (item.kind === 'message') {
-            if (item.text) assistantParts.push({ type: 'text', text: item.text })
+            // `[NO_REPLY]` 是 agent 的「不回」,桌面不画它(unit-registry),手机也不画(#70 review)。
+            if (item.text && !isGuguSilence(item.text)) assistantParts.push({ type: 'text', text: item.text })
             continue
           }
           if (item.kind === THINKING_DATA_PART) {
@@ -294,30 +296,43 @@ export function toThreadMessages(
         }
       }
 
+      // 只有头、没有内容的一条过程消息(占位,见 `placeholderTurnHeader`)。id 与过程到了之后那一条相同 ——
+      // 它们落进同一个头,头不换。
+      const pushHeaderOnly = (turnProcess: TurnProcessHeader): void => {
+        messages.push({
+          role: 'assistant',
+          id: `${turn.id}:assistant:${messages.length - turnStart}`,
+          content: [],
+          status: SETTLED,
+          metadata: { custom: { turnProcess } satisfies TurnProcessMetadata },
+        })
+      }
+
       const fold = folds[index]
       if (!fold) {
-        emit(turn.items)
-        // 一轮开始了、还什么都没有:先画这一轮的时间头(同桌面,判断在 turn-fold),❌ 让消息下面空着等首字。
-        // 没有内容的一条过程消息,id 与思考 / 工具到了之后那一条相同 —— 它们落进同一个头,头不换。
+        // 跑着、还没有可折的过程:头占位,插在人那句话之后(同桌面,判断在 turn-fold),❌ 让消息下面空着等首字、
+        // ❌ 先开口说了一句就把头撤掉。
         const pending = pendingTurnHeader(turn, tier.live)
         if (pending) {
-          messages.push({
-            role: 'assistant',
-            id: `${turn.id}:assistant:${messages.length - turnStart}`,
-            content: [],
-            status: SETTLED,
-            metadata: { custom: { turnProcess: pending } satisfies TurnProcessMetadata },
-          })
+          emit(turn.items.slice(0, pending.at))
+          flushAssistant()
+          pushHeaderOnly(pending.header)
+          emit(turn.items.slice(pending.at))
+        } else {
+          emit(turn.items)
         }
       } else {
         const view = turnFoldView(turn, fold, runs.get(index), tier.live)
         emit(view.leading as readonly TranscriptItem[])
         for (const segment of view.segments) {
           if (segment.header) {
-            // 这一段过程单独成一条消息,折叠头挂在它上面;画不出东西就没有这条,也就没有头。
+            // 这一段过程单独成一条消息,折叠头挂在它上面;画不出东西就没有这条,也就没有头 ——
+            // 跑着的那一段除外:过程还空着(先开口说了一句、还没开始干活)时头占着位置(同桌面);
+            // 这一段还什么都没有(在等人答提问、刚插了话)就不占。
             flushAssistant()
             emit(segment.process as readonly TranscriptItem[])
-            flushAssistant({ turnProcess: segment.header })
+            if (assistantParts.length > 0) flushAssistant({ turnProcess: segment.header })
+            else if (segment.header.live && segment.tail.length > 0) pushHeaderOnly(placeholderTurnHeader(segment.header.id))
           } else {
             emit(segment.process as readonly TranscriptItem[])
           }

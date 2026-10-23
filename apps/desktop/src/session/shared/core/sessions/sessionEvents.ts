@@ -4,7 +4,7 @@ import type { AgentStatusReading } from '@gugu/core/shared/agentStatus';
 
 export type ProviderReviewGate = 'mcp';
 /** 阻塞的种类;它归哪一个活动态由 provider-review-gate.ts 的 PROVIDER_BLOCKER_STATUS 那张表决定。 */
-export type ProviderBlockerReason = 'workspace-trust' | 'auth' | 'account' | 'config';
+export type ProviderBlockerReason = 'workspace-trust' | 'hook-trust' | 'auth' | 'account' | 'config';
 export type ProviderBlocker = {
   kind: 'provider';
   reason: ProviderBlockerReason;

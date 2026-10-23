@@ -14,11 +14,9 @@ import {
   handleAgentRetireDeviceCommand,
   handleAgentStopDeviceCommand,
   handleAgentSetModelDeviceCommand,
-  pruneStaleGuestRecords,
   createDeviceCommandHoldingResolver,
   isDisclosedUndeliverableAgentCommand,
   resolveGuguIds,
-  syncAgentRuntimeSessions,
   type AgentRuntimeBridgeOptions
 } from '../local/agent/deviceCommandRuntime'
 
@@ -204,6 +202,8 @@ export interface DeviceRuntimeTickInput extends AgentRuntimeBridgeOptions {
   deviceIdCacheWriter?: DeviceIdCacheWriter
   operationTimeouts?: DeviceOperationTimeoutOverrides
   recoverOrphanedCommands?: boolean
+  /** 认领命令之前每一段结束时报一声(宿主拿它给慢的那一段计时);最后一声是 'claim'。 */
+  onPhase?: (phase: string) => void
   onHeartbeatError?: (error: unknown) => void
   // @@@1676 — 本 runtime 进程的实例 id(每进程启动生成一次,host loop 注入)。命令认领写进 claimed_by,
   // 每 tick 刷新实例心跳;orphan 恢复据此区分「活兄弟在途」与「死实例孤儿」。缺省=单实例 legacy 语义。
@@ -892,14 +892,6 @@ export async function runDeviceRuntimeTick(
       input.onHeartbeatError?.(error)
     }
   }
-  await pruneStaleGuestRecords({ env })
-  // @@@push-fresh-session - Owner's GoTrue session rotates on every refresh,
-  await syncAgentRuntimeSessions({
-    env,
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken,
-    ownerUserId: input.userId
-  })
   // @@@1676 — 实例心跳必须在 orphan 恢复 + 认领之前:保证认领命令时本实例心跳已新鲜,不被兄弟误回收。
   if (input.instanceId && !input.skipInstanceLeaseRenewal) {
     await reportRuntimeInstanceHeartbeat(
@@ -909,10 +901,12 @@ export async function runDeviceRuntimeTick(
       input.operationTimeouts,
     )
   }
+  input.onPhase?.('lease')
   let recoveredOrphans = 0
   if (input.recoverOrphanedCommands) {
     recoveredOrphans = await recoverOrphanedDeviceCommands(input.commandClient, deviceId, input.operationTimeouts)
   }
+  input.onPhase?.('orphans')
   // @@@2175 deliver 回合结局记录(连续异常计数)best-effort 收口:记录失败仅告警(fail-loud 可 grep),
   // 绝不影响命令流转——灯是派生信号,数据源写失败不能反过来弄失败回合本身。
   const recordDeliverOutcomeBestEffort = (outcome: AgentDeliverOutcomeInput): void => {
@@ -1018,6 +1012,7 @@ export async function runDeviceRuntimeTick(
         nowMs: () => Date.parse((input.nowIso ?? (() => new Date().toISOString()))()),
       })
     : undefined
+  input.onPhase?.('claim')
   const commands = await processPendingDeviceCommandsOnce(
     input.commandClient,
     deviceId,

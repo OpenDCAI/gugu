@@ -101,6 +101,13 @@ describe('flatten:成功的打开挂在这一轮最后', () => {
     expect(kinds(units)).toEqual(['message', 'turn-process', 'message', 'opened-output', 'opened-output']);
   });
 
+  it('agent 自己开头、一句话没说的一轮平铺:打开那一步不再画成一行,只剩那张卡(#70 review)', () => {
+    const units = flattenTier([turn('t1', [open('o1', { path: '/r/report.html' })])], ctx(), SEGMENTERS);
+    expect(kinds(units)).not.toContain('turn-process');
+    expect(kinds(units)).toEqual(['opened-output']);
+    expect(cards(units)).toEqual([{ kind: 'file', path: '/r/report.html' }]);
+  });
+
   it('同一份开了三次只挂一张;网页与文件各一张;顺序按最后一次打开', () => {
     const units = flattenTier(
       [

@@ -1,7 +1,7 @@
 import { revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { makeObservable, observable, runInAction } from 'mobx';
-import { eventSourceMachine, events, rpc, rpcOn } from '@renderer/lib/ipc';
+import { events, rpc, rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { machineLinkState, subscribeMachineLink } from '@renderer/lib/machine-clients';
 import { appState } from '@renderer/lib/stores/app-state';
@@ -50,9 +50,6 @@ export class ProjectManagerStore {
     makeObservable(this, { projects: observable, pendingCreationIds: observable });
 
     this._disposeProjectCreatedEvent = events.on(projectCreatedChannel, ({ project }) => {
-      // #6264 别的机器上新建的项目(不带 topic 的推送各台机器合流):先记到那台机器名下,之后的调用才走得对。
-      const machine = eventSourceMachine();
-      if (machine) machineRegistry.register(machine, [project.id]);
       let added = false;
       runInAction(() => {
         if (this.projects.has(project.id)) return;
@@ -77,8 +74,6 @@ export class ProjectManagerStore {
       appState.navigation.revalidate();
     });
     this._disposeProjectVisibilityEvent = events.on(projectVisibilityChangedChannel, ({ projectId, project }) => {
-      const machine = eventSourceMachine();
-      if (machine) machineRegistry.register(machine, [projectId]);
       if (project) {
         runInAction(() => {
           if (!this.projects.has(projectId)) this.projects.set(projectId, createUnmountedProject(project, 'idle'));
@@ -481,6 +476,8 @@ export class ProjectManagerStore {
         this.projects.delete(id);
       }
     });
+    // 那台机器的清单(连上读到的 / 账号上那份)并进来了:停在它的某个项目 / 会话上「还不知道」的那一页按此刻的重判。
+    appState.navigation.revalidate();
   }
 
   /** 那台机器又连上了:已挂着的项目重读任务列表(断开那段时间的推送收不到)。 */

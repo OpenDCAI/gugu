@@ -49,7 +49,8 @@ import {
 import { encodeTypedId } from '../../shared/typedId.mjs'
 import { ackForumViaRpc, recordForumFailureViaRpc, type ForumDeliveryFailure } from './forumInbox'
 import { coreLogger } from '../../log'
-import { agentQuotaReason, agentModelUnavailable } from '../../shared/agentQuotaReason'
+import { agentFailureReason, type AgentFailureReason } from '../../shared/agentQuotaReason'
+import { turnFailureMarker } from '../../shared/ui/systemNotice'
 
 const log = coreLogger('agent-inbox-reader')
 
@@ -164,13 +165,7 @@ export interface AgentInboxReaderDeps {
     accessToken: string | undefined,
   ) => Promise<Map<string, GuguIdentity>>
   /** injectable:批失败披露(默认稳定 id 直插 system 行;无 lease)。 */
-  postDisclosure?: (input: {
-    agentUserId: string
-    chatId: string
-    threadRootId: string | null
-    key: string
-    text: string
-  }) => Promise<void>
+  postDisclosure?: (input: DisclosureRow) => Promise<void>
   // @@@5856 checkAgentReplied / must-reply 违约判定已随**老 active 档**一起退役。
   // 两档之后留下的 active 是「叫得醒它,回不回它自己判断」——对这样的档位判「该回没回」,
   // 判出来的全是假违约,而它喂的是 recordDeliverOutcome 那盏异常计数灯。
@@ -227,7 +222,6 @@ export function readAgentInboxBatchAuditForTest(): Array<{ agentUserId: string; 
 }
 
 const PULL_LIMIT = 80
-const DISCLOSURE_TEXT_CAP = 400
 
 // ── 缺省云端实现 ────────────────────────────────────────────────────────────────
 async function fetchUnreadViaRpc(
@@ -356,15 +350,28 @@ async function downloadAttachment(
   return { bytes, localPath }
 }
 
+export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason }
+
 /**
- * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。
+ * The failure row's content: what agents and clients that cannot read the reason see. Fixed English, so an agent reads the
+ * same words whatever the viewers' language; a client that reads the reason (`systemNotice.ts`) says it in its own language.
+ */
+const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
+  weeklyQuota: 'Weekly usage limit reached for this model account. Switch models or wait for the limit to reset.',
+  monthlyQuota: 'Monthly usage limit reached for this model account. Switch models or wait for the limit to reset.',
+  quota: 'This model account has reached its usage limit. Switch models or top up, then retry.',
+  rateLimited: 'Too many requests to this model. Please try again shortly.',
+  modelUnavailable: 'The current model is not available or is at capacity. Resend later, or switch models and resend.',
+  generic: 'This reply could not be completed. Please try again later.',
+  notAdmitted: 'Gugu could not hand these messages to the agent. Please try again later.',
+  undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
+}
+
+/**
+ * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。原因编在 client_message_id(systemNotice.ts)。
  * 也是 [[device-command-runtime]] 对「无人持有的 agent」终态显形(#5041)用的同一条写口——聊天里对用户可见的失败只有这一种形状。
  */
-export async function postDeliveryDisclosureRow(
-  input: { agentUserId: string; chatId: string; threadRootId: string | null; key: string; text: string },
-  accessToken: string,
-): Promise<void> {
-  const trimmed = input.text.length > DISCLOSURE_TEXT_CAP ? `${input.text.slice(0, DISCLOSURE_TEXT_CAP)}…` : input.text
+export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToken: string): Promise<void> {
   const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -378,9 +385,9 @@ export async function postDeliveryDisclosureRow(
       id: input.key,
       chat_id: input.chatId,
       sender_user_id: input.agentUserId,
-      content: trimmed,
+      content: FAILURE_CONTENT[input.reason],
       content_type: 'system',
-      client_message_id: input.key,
+      client_message_id: turnFailureMarker(input.key, input.reason),
       thread_root_id: input.threadRootId,
       is_thread_root: false,
     }),
@@ -898,16 +905,13 @@ async function discloseBatchFailure(
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
 ): Promise<boolean> {
-  const post = deps.postDisclosure
-    ?? ((input: { agentUserId: string; chatId: string; threadRootId: string | null; key: string; text: string }) =>
-      postDeliveryDisclosureRow(input, deps.accessToken))
+  const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
+  const reason = failureReason(completionError)
   const byChat = new Map<string, PreparedMessage[]>()
-  const byPost = new Map<string, PreparedMessage[]>()
+  const byPost = new Set<string>()
   for (const member of members) {
     if (member.row.forum) {
-      const list = byPost.get(member.row.forum.postId) ?? []
-      list.push(member)
-      byPost.set(member.row.forum.postId, list)
+      byPost.add(member.row.forum.postId)
       continue
     }
     if (member.row.localSessionDirect) {
@@ -928,10 +932,10 @@ async function discloseBatchFailure(
   // 论坛来源:失败记在那条指派上(主人在帖子里看到),❌ 写成一条回复。没受理(游标没动、会重投)与受理了但那一轮失败分开记。
   const recordForum = deps.recordForumFailure
     ?? ((input: { agentUserId: string; postId: string; state: ForumDeliveryFailure; error: string }) => recordForumFailureViaRpc(input, deps.accessToken))
-  for (const [postId, postMembers] of byPost) {
+  for (const postId of byPost) {
     const state: ForumDeliveryFailure = completionError === undefined ? 'undelivered' : 'turn_failed'
     try {
-      await recordForum({ agentUserId, postId, state, error: failureText(postMembers.length, completionError) })
+      await recordForum({ agentUserId, postId, state, error: reason })
     } catch (error) {
       said = false
       log.error(
@@ -943,15 +947,8 @@ async function discloseBatchFailure(
   for (const [chatId, chatMembers] of byChat) {
     const ids = chatMembers.map((member) => encodeTypedId('msg', member.row.id))
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
-    const text = failureText(chatMembers.length, completionError)
     try {
-      await post({
-        agentUserId,
-        chatId,
-        threadRootId: chatMembers[0]!.row.threadRootId,
-        key,
-        text,
-      })
+      await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })
       log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
     } catch (error) {
       said = false
@@ -964,18 +961,10 @@ async function discloseBatchFailure(
   return said
 }
 
-/** 失败的人话(聊天里的披露行与论坛指派上的投递状态同一句):没受理是咕咕这边的错;受理后那一轮失败按原因说。 */
-function failureText(count: number, completionError: unknown): string {
-  const reason = completionError instanceof Error ? completionError.message : String(completionError ?? '')
-  const quota = agentQuotaReason(reason)
-  return completionError === undefined
-    ? `Agent 回合执行失败:这批 ${count} 条消息未处理成功。咕咕这边出错了，请稍后重试。`
-    : quota === 'weekly' ? '周限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。'
-      : quota === 'monthly' ? '月限额度不足，当前模型账号暂时无法回复。请切换模型，或等待额度恢复。'
-        : quota === 'exhausted' ? '当前模型账号的额度已用完。请切换模型，或补充额度后再试。'
-          : quota === 'rate-limited' ? '当前模型请求过于频繁，请稍后再试。'
-            : agentModelUnavailable(reason) ? '当前模型暂时不可用或已满载，请稍后重发，或切换模型后重发。'
-              : '本次回复未能完成，请稍后再试。'
+/** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
+function failureReason(completionError: unknown): AgentFailureReason {
+  if (completionError === undefined) return 'notAdmitted'
+  return agentFailureReason(completionError instanceof Error ? completionError.message : String(completionError)) ?? 'generic'
 }
 
 /**

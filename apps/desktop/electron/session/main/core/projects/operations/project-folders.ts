@@ -32,7 +32,8 @@ export type ProjectFolderTarget =
   | { kind: 'root' }
   | { kind: 'attached'; path: string; workspaceKind: WorkspaceKind | null };
 
-type FolderRef = {
+/** 一个文件夹本身(不带此刻的分支与会话读数)。 */
+export type ProjectFolderRef = {
   workspaceId: string;
   kind: ProjectFolder['kind'];
   path: string;
@@ -108,8 +109,15 @@ export async function projectRootFolder(projectId: string): Promise<{ workspaceI
 export async function listProjectFolders(
   projectId: string
 ): Promise<Result<ProjectFolder[], ProjectFolderNotFound>> {
+  const refs = await listProjectFolderRefs(projectId);
+  if (!refs) return err(projectNotFound(projectId));
+  return ok(await describeFolders(projectId, refs));
+}
+
+/** 同 listProjectFolders,只是文件夹本身(❌ 读分支、数会话):记到账号上的就是这一份(#113)。本机没有这个项目 = undefined。 */
+export async function listProjectFolderRefs(projectId: string): Promise<ProjectFolderRef[] | undefined> {
   const root = await projectRootFolder(projectId);
-  if (!root) return err(projectNotFound(projectId));
+  if (!root) return undefined;
   const rootWorkspaceId = root.workspaceId;
   const project = await getProjectById(projectId);
 
@@ -119,7 +127,7 @@ export async function listProjectFolders(
     .where(and(eq(workspaces.projectId, projectId), ne(workspaces.id, rootWorkspaceId)))
     .orderBy(asc(workspaces.attachedAt), asc(workspaces.createdAt), asc(workspaces.id));
 
-  const refs: FolderRef[] = [
+  return [
     // 会话在根目录那一行记着的路径里跑(workspace-bootstrap-service),所以卡上写的也是它。
     ...(!project?.rootFolderDetached ? [{ workspaceId: rootWorkspaceId, kind: 'root' as const, path: root.path, attachedAt: null }] : []),
     ...attachedRows.flatMap((row) =>
@@ -128,7 +136,6 @@ export async function listProjectFolders(
         : []
     ),
   ];
-  return ok(await describeFolders(projectId, refs));
 }
 
 /**
@@ -171,7 +178,7 @@ export async function attachProjectFolder(
   const outcome = db.transaction(
     (tx):
       | { kind: 'conflict'; error: AttachProjectFolderError }
-      | { kind: 'attached'; ref: FolderRef; changed: boolean } => {
+      | { kind: 'attached'; ref: ProjectFolderRef; changed: boolean } => {
       const [existing] = tx
         .select({ id: workspaces.id, path: workspaces.path, projectId: workspaces.projectId, attachedAt: workspaces.attachedAt })
         .from(workspaces)
@@ -330,7 +337,7 @@ export async function detachProjectFolder(
   return ok();
 }
 
-async function describeFolders(projectId: string, refs: FolderRef[]): Promise<ProjectFolder[]> {
+async function describeFolders(projectId: string, refs: ProjectFolderRef[]): Promise<ProjectFolder[]> {
   if (refs.length === 0) return [];
   const sessionRows = await db
     .select({ id: sessions.id, workspaceId: sessions.workspaceId })

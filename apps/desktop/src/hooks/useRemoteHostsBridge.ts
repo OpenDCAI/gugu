@@ -85,6 +85,8 @@ export function useRemoteHostsBridge(
           ...(device.capabilities?.server_update ? { serverUpdate: device.capabilities.server_update.state } : {}),
           ...(device.cloud_computer ? { cloudComputer: device.cloud_computer } : {}),
           ...(isAssistantHome(device, homeId) ? { assistantHome: true as const } : {}),
+          ...(device.projects ? { projects: device.projects } : {}),
+          ...(device.capabilities?.home_dir ? { homeDir: device.capabilities.home_dir } : {}),
         })),
     [devices, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
   )

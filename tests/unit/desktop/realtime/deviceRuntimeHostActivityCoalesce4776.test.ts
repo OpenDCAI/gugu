@@ -36,8 +36,15 @@ describe('device runtime activity publish coalescing', () => {
       releaseRunning = resolve
     })
     let runningReportStarted = false
+    let presenceReads = 0
     const reports = recorder()
     client.rpc = async (fn: string, args: Record<string, unknown>) => {
+      if (fn === 'get_agent_presence_batch') {
+        const result = await originalRpc(fn, args)
+        presenceReads += 1
+        reports.note()
+        return result
+      }
       if (fn === 'set_agent_runtime_state') {
         activityStatuses.push(args.p_activity_status)
         if (args.p_activity_status === 'running' && !runningReportStarted) {
@@ -80,7 +87,8 @@ describe('device runtime activity publish coalescing', () => {
     })
     host.start()
     try {
-      await reports.when('startup idle activity report', () => activityStatuses.includes('idle'))
+      // 开机那一轮对账读过云端(云端那一行本来就是空闲,没有要写的)。
+      await reports.when('startup presence reconcile', () => presenceReads >= 1)
       status = { status: 'working', detail: 'running', running: true, background: null }
       notifyStatusChanged.current?.('agent-1')
       await reports.when('running activity report to start', () => runningReportStarted)
@@ -89,7 +97,7 @@ describe('device runtime activity publish coalescing', () => {
       releaseRunning()
       await reports.when(
         'queued idle activity report',
-        () => activityStatuses.filter((status) => status === 'idle').length >= 2,
+        () => activityStatuses.includes('idle'),
       )
       const runningIndex = activityStatuses.lastIndexOf('running')
       expect(runningIndex).toBeGreaterThanOrEqual(0)

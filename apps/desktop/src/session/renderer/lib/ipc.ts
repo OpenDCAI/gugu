@@ -3,7 +3,7 @@ import { createEventEmitter, type EmitterAdapter } from '@shared/lib/ipc/events'
 import { createRPCClient } from '@shared/lib/ipc/rpc';
 import type { SessionHostBridgeApi } from '@shared/lib/ipc/session-host-client';
 import { findSessionHostBridge, type SessionHostBridge } from './electron-api';
-import { machineClient, machineClients, onMachineClientCreated } from './machine-clients';
+import { machineClient } from './machine-clients';
 import { machineCodec as codecOf, machineOfChannel, machineRegistry } from './machine-routing';
 
 // @@@task-fusion (#2802) / @@@task-web-host — 桥的解析在 electron-api.ts(桌面 preload 或网页版
@@ -87,43 +87,6 @@ function channelOf(eventName: string, topic?: string): string {
   return topic ? `${eventName}.${topic}` : eventName;
 }
 
-let dispatchingFrom: string | null = null;
-
-/**
- * 正在分发的这条推送来自哪台机器(null = 本机)。只在事件回调里同步读有意义:
- * 不带 topic 的推送各台机器合流,回调要知道「这个新项目是哪台机器上的」时读它。
- */
-export function eventSourceMachine(): string | null {
-  return dispatchingFrom;
-}
-
-/** 不带 topic 的订阅:本机 + 每台机器合流(以后才连上的机器接上时补订)。 */
-const fanIn = new Map<string, Set<(data: unknown) => void>>();
-const fanInOffs = new Map<string, Map<string, () => void>>();
-
-function attachFanIn(deviceId: string, api: SessionHostBridgeApi, channel: string): void {
-  let offs = fanInOffs.get(channel);
-  if (!offs) fanInOffs.set(channel, (offs = new Map()));
-  if (offs.has(deviceId)) return;
-  offs.set(
-    deviceId,
-    api.eventOn(codecOf(deviceId).outboundChannel(channel), (data) => {
-      const local = receiveFrom(deviceId, data);
-      const outer = dispatchingFrom;
-      dispatchingFrom = deviceId;
-      try {
-        for (const cb of [...(fanIn.get(channel) ?? [])]) cb(local);
-      } finally {
-        dispatchingFrom = outer;
-      }
-    })
-  );
-}
-
-onMachineClientCreated((deviceId, client) => {
-  for (const channel of fanIn.keys()) attachFanIn(deviceId, client.api, channel);
-});
-
 function createRendererAdapter(): EmitterAdapter {
   return {
     emit: (eventName: string, data: unknown, topic?: string) => {
@@ -143,22 +106,7 @@ function createRendererAdapter(): EmitterAdapter {
           cb(receiveFrom(deviceId, data))
         );
       }
-      const offLocal = electronAPI.eventOn(channel, cb);
-      if (topic) return offLocal;
-      let set = fanIn.get(channel);
-      if (!set) {
-        fanIn.set(channel, (set = new Set()));
-        for (const [id, client] of machineClients()) attachFanIn(id, client.api, channel);
-      }
-      set.add(cb);
-      return () => {
-        offLocal();
-        const current = fanIn.get(channel);
-        if (!current?.delete(cb) || current.size > 0) return;
-        fanIn.delete(channel);
-        for (const off of fanInOffs.get(channel)?.values() ?? []) off();
-        fanInOffs.delete(channel);
-      };
+      return electronAPI.eventOn(channel, cb);
     },
   };
 }
@@ -166,15 +114,16 @@ function createRendererAdapter(): EmitterAdapter {
 export const events = createEventEmitter(createRendererAdapter());
 
 /**
- * 只听某一台机器推的那一种不带 topic 的事件(资源库切到那台机器时的安装进度、GitHub 设备码……)。
- * null = 只听本机。返回退订。
+ * 在某一台机器上订一种不带 topic 的事件(null = 本机)。事件跟请求走同一条线:订阅方知道自己说的是哪台机器上的东西
+ * (项目、会话、资源库切到的那台),就只在那台机器上订。❌ 不带机器的 `events.on` 去听别的机器 —— 那只听本机。
  */
 export function onMachineEvent<T>(
   machine: string | null,
   event: { name: string; _data?: T },
   cb: (data: T) => void
 ): () => void {
-  return events.on(event as never, (data: T) => {
-    if (eventSourceMachine() === machine) cb(data);
-  });
+  if (!machine) return events.on(event as never, cb);
+  return remoteApi(machine).eventOn(codecOf(machine).outboundChannel(event.name), (data) =>
+    cb(receiveFrom(machine, data) as T)
+  );
 }

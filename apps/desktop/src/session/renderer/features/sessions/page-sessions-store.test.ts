@@ -19,7 +19,8 @@ const archiveSession = vi.hoisted(() => vi.fn());
 /** 记下每个频道的 handler —— 不记就测不到「事件到达之后发生了什么」。 */
 const eventHandlers = vi.hoisted(() => new Map<unknown, ((payload: unknown) => void)[]>());
 
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     on: (channel: unknown, handler: (payload: unknown) => void) => {
       const list = eventHandlers.get(channel) ?? [];
@@ -37,7 +38,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       markSessionSeen: vi.fn().mockResolvedValue(undefined),
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 vi.mock('@renderer/lib/pty/pty', () => ({
   loadXterm: async () => {},

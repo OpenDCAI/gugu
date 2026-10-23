@@ -9,6 +9,7 @@
 import type { DeviceSessionSummary } from '@gugu/core/shared/types/chat';
 import type { ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
 import type { CloudComputerPresence } from '@gugu/core/shared/types/deviceHost';
+import type { DeviceProject } from '@gugu/core/shared/types/deviceProject';
 import type { SessionHostPipeOpener } from './lib/ipc/session-host-client';
 
 export const REMOTE_HOSTS_BRIDGE_KEY = '__GUGU_REMOTE_HOSTS__';
@@ -75,6 +76,13 @@ export type RemoteHostDevice = {
    * 宿主那一侧换好)。不是 = 缺席。
    */
   assistantHome?: true;
+  /**
+   * #113 那台机器记在账号上的项目与文件夹(product spec「项目」:项目记在账号上)。没连着它时项目清单、群绑定、文件夹
+   * 都读这一份;连着时以那台机器此刻的为准。缺席 = 这一端还没读到过账号上的那份。
+   */
+  projects?: readonly DeviceProject[];
+  /** #113 那台机器的主目录(心跳报的);认它上面的「~」项目用。老宿主不报 = 缺席。 */
+  homeDir?: string;
 };
 
 /**
@@ -146,6 +154,15 @@ export type RemoteHostsBridge = {
 };
 
 type RemoteHostsWindow = Window & { [REMOTE_HOSTS_BRIDGE_KEY]?: RemoteHostsBridge };
+
+/**
+ * 心跳说它在;远程 SSH 的机器只看 SSH 这一条(要先登录 / 正在替它升级都不去连,升完那一刻再连)。到它的线只在这时开 ——
+ * 够不着时开一次就是一次发到它那里、没人应答的报到。SSH 映射着的照旧算够得着:SSH 那条通着时云端心跳可能是断的。
+ */
+export function remoteHostReachable(device: Pick<RemoteHostDevice, 'isOnline' | 'directTerminal' | 'sshLink'>): boolean {
+  if (device.sshLink === 'signInRequired' || device.sshLink === 'updating') return false;
+  return device.isOnline || device.directTerminal;
+}
 
 export function findRemoteHostsBridge(): RemoteHostsBridge | null {
   if (typeof window === 'undefined') return null;

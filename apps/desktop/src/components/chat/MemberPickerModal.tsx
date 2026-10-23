@@ -11,7 +11,7 @@ import { contactsService } from '../../lib/contacts'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { AGENT_SESSION_STARTED_EVENT } from '../../lib/agentConversationEvents'
 import { SearchField } from '../ui/SearchField'
-import { summarizeAgentJoinResults, type AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
+import { type AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
 import { IconButton } from '../ui/IconButton'
 
 type PickerTab = 'human' | 'agent'
@@ -83,7 +83,7 @@ export function MemberPickerModal({
         if (cancelled) return
         const humans = canInviteHumans ? all.filter((c) => (c.type ?? 'human') === 'human' && !inGroup.has(c.id)) : []
         // @@@1761 云 agent 禁入群(止血):加成员选择器不出现云 agent(双标记判定,同建群选择器)
-        const agents = all.filter((c) => c.type === 'agent' && !isCloudAgentMarked(c) && c.owner_user_id === currentUserId && !inGroup.has(c.id))
+        const agents = all.filter((c) => c.type === 'agent' && !isCloudAgentMarked(c) && (c.owner_user_id === currentUserId || c.agent_public === true) && !inGroup.has(c.id))
         setContacts(humans)
         setOwnedAgents(agents)
       } catch (err) {
@@ -124,23 +124,23 @@ export function MemberPickerModal({
     setNotice(null)
     try {
       if (tab === 'human' && !canInviteHumans) throw new Error(t('group.picker.humanPermissionError'))
-      // @@@2089 复用既有单人 add-member 服务逐个加(无批量 RPC,别新开路径);allSettled 收集部分失败,
+      // Each selected identity uses the common invitation RPC; related identities join directly.
       // 成功的已落库、reload 后从候选剔除,失败的保留在选择集里让用户重试。
       const results = await Promise.allSettled(
-        ids.map((id) => tab === 'human'
-          ? chatService.inviteGroupHuman(chatId, id)
-          : chatService.joinGroupAgent(chatId, id, 'member')),
+        ids.map((id) => chatService.inviteGroupMember(chatId, id)),
       )
       await onReload()
       const failedIds = ids.filter((_, i) => results[i].status === 'rejected')
-      const summary = summarizeAgentJoinResults(results)
-      if (summary.pendingApproval > 0) {
+      const pendingApproval = results.filter((r) => r.status === 'fulfilled' && r.value.status === 'pending_approval').length
+      const invited = results.filter((r) => r.status === 'fulfilled' && r.value.status === 'pending').length
+      if (pendingApproval > 0) {
         // 需审批的群:agent 没进群,是一条待审请求。留在弹窗里说清楚,并刷新行上的「等待审批」。
-        setNotice(t('group.picker.pendingApproval', { count: summary.pendingApproval }))
+        setNotice(t('group.picker.pendingApproval', { count: pendingApproval }))
         await reloadAgentRequests().catch(() => undefined)
       }
+      if (invited > 0) setNotice([pendingApproval > 0 ? t('group.picker.pendingApproval', { count: pendingApproval }) : '', t('group.picker.invitationSent', { count: invited })].filter(Boolean).join(' '))
       if (failedIds.length === 0) {
-        if (summary.pendingApproval === 0) onClose()
+        if (pendingApproval === 0 && invited === 0) onClose()
         else setSelectedIds(new Set())
       } else {
         setSelectedIds(new Set(failedIds))
@@ -167,6 +167,8 @@ export function MemberPickerModal({
             <X size={16} />
           </IconButton>
         </div>
+
+        <p className="px-[14px] py-[6px] text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('group.picker.invitationHint')}</p>
 
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)' }}>
           <PickerTabButton testId={AUTOMATION_TEST_IDS.groupMembersPickerHumanTab} active={tab === 'human'} onClick={() => selectTab('human')}>{t('group.picker.inviteHumans', { count: contacts.length })}</PickerTabButton>
@@ -292,7 +294,7 @@ export function MemberPickerModal({
               }}
             >
               <UserPlus size={13} />
-              {busy ? t('group.picker.adding') : t('group.picker.add')}
+              {busy ? t('group.picker.adding') : t(tab === 'human' ? 'group.picker.sendInvitation' : 'group.picker.add')}
             </button>
           </div>
         </div>

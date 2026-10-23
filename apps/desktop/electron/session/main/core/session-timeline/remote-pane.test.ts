@@ -96,20 +96,37 @@ describe('remote pane route', () => {
     await expect(route.open('conv-1', file('/srv/app/a.ts'), 'preview')).resolves.toEqual({ queued: true });
     await expect(route.open('conv-1', page('https://example.com/'), 'pinned')).resolves.toEqual({ queued: true });
     expect(published).toEqual([]);
-    expect(view('sub-a', 'conv-1', true).pending.map((request) => request.target)).toEqual([
-      file('/srv/app/a.ts'),
-      page('https://example.com/'),
-    ]);
-    // Delivered once: a second desktop does not get the same tabs again.
-    expect(view('sub-b', 'conv-1', true).pending).toEqual([]);
+    const handed = view('sub-a', 'conv-1', true).pending;
+    expect(handed.map((request) => request.target)).toEqual([file('/srv/app/a.ts'), page('https://example.com/')]);
+    // Handed over is not opened: until that desktop answers, the requests stay queued (its page may not be ready yet).
+    expect(route.ack({ requestId: handed[0]!.requestId, subscriptionId: 'sub-a', ok: true })).toBe(false);
+    expect(view('sub-b', 'conv-1', true).pending.map((request) => request.target)).toEqual([page('https://example.com/')]);
+    // Answered — opened or honestly not — it is out: a second desktop does not get the same tab again.
+    expect(route.ack({ requestId: handed[1]!.requestId, subscriptionId: 'sub-a', ok: false, failure: 'open_failed' })).toBe(false);
+    expect(view('sub-c', 'conv-1', true).pending).toEqual([]);
   });
 
   it('keeps a page for a desktop that has a browser tab when the first viewer has none', async () => {
     const { route, view } = setup();
     await route.open('conv-1', page('http://localhost:3000/'), 'pinned');
     await route.open('conv-1', file('/srv/app/a.ts'), 'pinned');
-    expect(view('tunnel-desktop', 'conv-1', false).pending.map((request) => request.target.kind)).toEqual(['file']);
+    const tunnel = view('tunnel-desktop', 'conv-1', false).pending;
+    expect(tunnel.map((request) => request.target.kind)).toEqual(['file']);
+    route.ack({ requestId: tunnel[0]!.requestId, subscriptionId: 'tunnel-desktop', ok: true });
     expect(view('ssh-desktop', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
+  });
+
+  it('updates a subscription subscribed again in place: watched throughout, and a page kept for a browser tab is handed over', async () => {
+    const { route, view } = setup();
+    await route.open('conv-1', page('http://localhost:3000/'), 'pinned');
+    expect(view('sub-a', 'conv-1', false).pending).toEqual([]);
+    expect(route.watching('conv-1')).toBe(true);
+    // The tunnel came up on that desktop: the same subscription, now with a browser tab.
+    expect(view('sub-a', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
+    expect(route.watching('conv-1')).toBe(true);
+    // Still one viewer, not two: one unsubscribe and nobody watches.
+    expect(route.unsubscribe('sub-a')).toBe(true);
+    expect(route.watching('conv-1')).toBe(false);
   });
 
   it('fails a page at once when the only viewers have no browser tab — no push, no wait', async () => {

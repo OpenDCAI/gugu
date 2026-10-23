@@ -11,6 +11,10 @@ import { FileAttachmentCard } from './FileAttachmentCard'
 import { Markdown } from '../markdown/Markdown'
 import './mediaAttachmentBubble.css'
 
+// @@@fit-bubble 气泡正文是 align-items:flex-start 的 flex 列,子项按内容宽取 fit-content;文件名不换行,卡片的最小内容宽顶到 260px,
+// 而气泡被封顶在列宽 → 窄栏下卡片从气泡右侧冒出。max-width:100% 在布局阶段按气泡内容区截回来(卡片里的文件名随之省略)。
+const FIT_BUBBLE = 'max-w-full'
+
 /** 与 .chat-inline-image 的上限一致:按宽高先留出画出来的那么大。 */
 const INLINE_MAX = 280
 
@@ -22,12 +26,12 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   const { t } = useTranslation('messaging')
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
   // App 包:按这条消息装(发布者就是发送者,装的时候由宿主读这条消息)。
-  if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
+  if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
   if (meta.source.kind === 'gone') {
-    return <div><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
+    return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
   }
-  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div><InlineImage meta={meta} isMine={isMine} />{caption}</div>
-  return <div><FileAttachmentCard file={meta} isMine={isMine} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
+  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div className={FIT_BUBBLE}><InlineImage meta={meta} isMine={isMine} />{caption}</div>
+  return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
 }
 
 function InlineImage({ meta, isMine }: { meta: ParsedAttachment; isMine: boolean }) {

@@ -104,6 +104,8 @@ describe('最左栏顶格 = 咕咕', () => {
         expect(top.getAttribute('aria-label')).toBe(label)
         expect(top.querySelector('.gg-sidebar-assistant-mark')).not.toBeNull()
         expect(top.querySelector('.gg-sidebar-assistant-face')?.hasAttribute('data-dim')).toBe(true)
+        // 占位鸟只是个入口图标:画成定格图,不挂上会动的头像(它一直呼吸、眨眼,一只就让主窗每分钟画上几百帧)
+        expect(top.querySelector('.gg-sidebar-assistant-face canvas')).toBeNull()
       } finally {
         harness.cleanup()
       }

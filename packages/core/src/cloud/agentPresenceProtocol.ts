@@ -2,12 +2,10 @@ import { unwrapPayload } from './payload'
 import {
   isAgentAccountStatus,
   isAgentActivityStatus,
-  normalizeAgentRuntimeStatus,
 } from '../shared/ui/agentConversationStatusModels'
 import type {
   AgentAccountStatus,
   AgentActivityStatus,
-  AgentRuntimeStatus,
   AgentType,
 } from '../shared/types/chat'
 import { parseAgentStatus, parseAgentStatusDetail, type AgentStatusView } from '../shared/agentStatus'
@@ -18,10 +16,8 @@ import { VALID_AGENT_TYPES } from '../agentTypes'
 export type AgentPresencePayload = {
   agentUserId: string
   accountStatus: AgentAccountStatus
-  runtimeStatus: AgentRuntimeStatus
-  // @@@derived-presence (#732 C1a/C1b) - heartbeat-derived online/offline + owner intent. C1b uses
-  // derivedStatus as the authoritative online/offline (flag-gated), retiring the imperative runtimeStatus.
-  derivedStatus: 'online' | 'offline' | null
+  // 在不在线 = 设备行(deviceStatus)+ owner 意图(desiredStatus)。载荷里的 runtime_status / derived_status 不读:
+  // desired=online 时它们的 offline 本来就改不了结果,后端也已不再计算 / 不再听它们。
   desiredStatus: 'online' | 'offline' | null
   activityStatus: AgentActivityStatus
   /**
@@ -44,7 +40,6 @@ export type AgentPresencePayload = {
   lastActionAt: string | null
   windowTitle: string | null
   pid: number | null
-  runtimeLastSeenAt: string | null
   deviceId: string | null
   deviceStatus: 'online' | 'offline' | null
   // @@@host-runtime-capability (#647) - the agent host's gugu runtime capability level. The renderer
@@ -59,8 +54,6 @@ export type AgentPresencePayload = {
 type RawPresence = {
   agent_user_id?: unknown
   account_status?: unknown
-  runtime_status?: unknown
-  derived_status?: unknown
   desired_status?: unknown
   activity_status?: unknown
   agent_status?: unknown
@@ -72,7 +65,6 @@ type RawPresence = {
   last_action_at?: unknown
   window_title?: unknown
   pid?: unknown
-  runtime_last_seen_at?: unknown
   device_id?: unknown
   device_status?: unknown
   device_last_seen_at?: unknown
@@ -153,8 +145,6 @@ export function parseAgentPresencePayload(raw: unknown): AgentPresencePayload | 
   return {
     agentUserId,
     accountStatus: presence.account_status,
-    runtimeStatus: normalizeAgentRuntimeStatus(presence.runtime_status),
-    derivedStatus: asOnlineOffline(presence.derived_status),
     desiredStatus: asOnlineOffline(presence.desired_status),
     activityStatus: isAgentActivityStatus(presence.activity_status) ? presence.activity_status : 'idle',
     status,
@@ -165,7 +155,6 @@ export function parseAgentPresencePayload(raw: unknown): AgentPresencePayload | 
     lastActionAt: asString(presence.last_action_at),
     windowTitle: asString(presence.window_title),
     pid: asNumber(presence.pid),
-    runtimeLastSeenAt: asString(presence.runtime_last_seen_at),
     deviceId: asString(presence.device_id),
     deviceStatus: asDeviceStatus(presence.device_status),
     // @@@1402 不要 `?? 0`：未上报 → null（未知）透传，而非伪装成 0（已知旧）→ 否则旧主机/缺字段永远误报 stale。

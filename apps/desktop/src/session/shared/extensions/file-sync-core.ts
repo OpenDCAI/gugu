@@ -492,6 +492,9 @@ export class FileSyncRelay {
     const { docName } = splitRoutingKey(head.key);
     const grant = page.grants.get(docName);
     if (!grant) {
+      // Said in the log as well as to the page: which page, which file, what frame — a refusal an App reports is only
+      // its own sentence, and this is the one place that knows why.
+      this.platform.warn('File sync: refused a frame, the page holds no grant for its file', { page: page.id, extensionId: page.extensionId, docName, frame: head.type });
       this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
       return;
     }
@@ -517,6 +520,7 @@ export class FileSyncRelay {
     if (!socket) {
       // Let go of (F106): the connections the page has may finish, no new one opens.
       if (grant.lettingGo) {
+        this.platform.warn('File sync: refused a new connection, its grant is being let go of', { page: page.id, extensionId: page.extensionId, docName, asAgent: grant.asAgent ?? null, frame: head.type });
         this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
         return;
       }

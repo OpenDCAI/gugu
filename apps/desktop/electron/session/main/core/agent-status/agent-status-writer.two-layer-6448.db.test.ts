@@ -174,6 +174,24 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     expect(row()).toEqual({ status: 'working', detail: 'running', seen: 1 });
   });
 
+  it('agent 的提问(宿主问人)熬过 claude 回合中的 start、停下和下一轮开工,答了才收', async () => {
+    seed('idle');
+    const hostWait = async (open: boolean) => {
+      agentStatusWriter.reportHostWait({ sessionId: cid, id: 'host-ask:agent-question:q1', open, waitKind: 'question' });
+      await statusWritesSettled(agentStatusWriter, cid);
+    };
+    await deliver(event('start'));
+    await hostWait(true);
+    expect(row()).toEqual({ status: 'needs_user', detail: 'question', seen: 0 });
+    // claude 的工具调用完了又报一次 start(接着跑了):那只了结它自己的等待。
+    await deliverNoop(event('start'));
+    await deliverNoop(event('stop'));
+    await deliverNoop(event('start'));
+    expect(row()).toMatchObject({ status: 'needs_user', detail: 'question' });
+    await hostWait(false);
+    expect(row()).toMatchObject({ status: 'working', detail: 'running' });
+  });
+
   it('用户打断(取消的 stop)⇒ idle/plain、已读、不响', async () => {
     seed('idle');
     await deliver(event('start'));

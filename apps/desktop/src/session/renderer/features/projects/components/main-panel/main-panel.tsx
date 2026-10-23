@@ -29,9 +29,11 @@ export const ProjectMainPanel = observer(function ProjectMainPanel() {
     return <PendingProjectStatus project={store} />;
   }
 
-  // gugu #2328: bootstrapping 直接渲染项目首页(乐观上屏)——远程项目挂载是网络物理耗时,
-  // 页面不等它;发送等控件由 mounted 态渐进解锁,❌ 整页 Setting up 转圈。
-  if (kind === 'bootstrapping') {
+  // 首页不等挂载(product spec「项目」:项目不属于任何一台机器,机器离线时它的文件夹照样列着、标离线):
+  // 挂载中(gugu #2328 乐观上屏,远程挂载是网络物理耗时)和还没挂上(那台机器没连上)都直接画首页 ——
+  // 文件夹卡列上次读到的、标离线,输入框说那台机器此刻用不了;挂上由首页自己要(useEnsureMounted)。
+  // ❌ 空白一页、❌ 整页 Setting up 转圈。
+  if (kind === 'bootstrapping' || kind === 'idle_unmounted') {
     return <ActiveProject />;
   }
 

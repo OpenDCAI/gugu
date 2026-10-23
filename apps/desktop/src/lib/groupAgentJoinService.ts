@@ -1,11 +1,10 @@
-import { dbPayload } from '@gugu/core/cloud/supabase'
 import { i18n } from '@/i18n'
 import { chatDb } from './supabase'
+import { currentGroupAdmin } from './groupAdmin'
 import { toUserFacingError } from './userFacingError'
 import {
   groupJoinDenialKey,
   latestAgentJoinRequestStatus,
-  parseGroupAgentJoinOutcome,
   type AgentJoinRequestStatus,
   type GroupAgentJoinOutcome,
 } from './groupAgentJoin'
@@ -26,20 +25,13 @@ export function groupJoinError(error: { message: string }): Error {
  * 结果是 pending_approval —— 一条待审请求,不入群。
  */
 export async function addGroupAgent(chatId: string, agentUserId: string, role: string): Promise<GroupAgentJoinOutcome> {
-  const { data, error } = await chatDb.rpc('add_group_agent', {
-    p_chat_id: chatId,
-    p_agent_user_id: agentUserId,
-    p_message: null,
-  })
-  if (error) throw groupJoinError(error)
-  if (parseGroupAgentJoinOutcome(data) === 'pending_approval') return 'pending_approval'
+  const admin = await currentGroupAdmin()
+  let result
+  try { result = await admin.addAgent(chatId, agentUserId) } catch (error) { throw groupJoinError(error as Error) }
+  if (result.status === 'pending_approval') return 'pending_approval'
   if (role !== 'member') {
-    const { error: roleError } = await chatDb
-      .from('chat_members')
-      .update(dbPayload({ role }))
-      .eq('chat_id', chatId)
-      .eq('user_id', agentUserId)
-    if (roleError) throw new Error(roleError.message)
+    if (role !== 'admin') throw new Error('Invalid group role')
+    await admin.setRole(chatId, agentUserId, role)
   }
   return 'joined'
 }

@@ -1,3 +1,4 @@
+import { currentGroupAdmin } from './groupAdmin'
 // 话题(topic)的服务层 —— product spec。
 //
 // 话题本身就是一条 chat(kind='topic'),所以**发消息、读历史、已读水位、成员管理一律复用现有
@@ -150,11 +151,7 @@ export const topicService = {
 
   /** 一键全撤:把自动转成的 passive 全部还原。撤回不解除「每个群只做一次」的闸门。 */
   async undoAgentFloodAdjustment(adjustmentId: string): Promise<number> {
-    const { data, error } = await chatDb.rpc('undo_agent_flood_adjustment', {
-      p_adjustment_id: adjustmentId,
-    })
-    if (error) throw new Error(error.message)
-    const row = (Array.isArray(data) ? data[0] : data) as { restored?: unknown } | undefined
-    return Number(row?.restored ?? 0)
+    const result = await (await currentGroupAdmin()).undoFlood(adjustmentId)
+    return result.restored as number
   },
 }

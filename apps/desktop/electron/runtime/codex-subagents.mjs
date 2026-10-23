@@ -81,7 +81,7 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
       const thread = params.thread ?? {}
       const source = thread.source?.subAgent?.thread_spawn
       if (!source?.parent_thread_id) return false
-      const info = { name: source.agent_path ?? thread.agentNickname ?? thread.agentRole }
+      const info = { name: thread.agentNickname ?? source.agent_nickname ?? thread.agentRole ?? source.agent_role ?? source.agent_path }
       if (!register(thread.id, source.parent_thread_id, info)) pendingThreads.set(thread.id, { parent: source.parent_thread_id, info })
       return true
     }

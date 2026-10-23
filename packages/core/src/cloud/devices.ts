@@ -258,6 +258,8 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(row.host_kind === 'server' || row.host_kind === 'desktop' || row.host_kind === 'phone' ? { host_kind: row.host_kind } : {}),
     ...(typeof row.os_name === 'string' && row.os_name ? { os_name: row.os_name.slice(0, 80) } : {}),
     ...(typeof row.arch === 'string' && row.arch ? { arch: row.arch.slice(0, 32) } : {}),
+    // 截断的路径是另一个路径:太长就当没报,❌ 切一截冒充。
+    ...(typeof row.home_dir === 'string' && row.home_dir && row.home_dir.length <= 4096 ? { home_dir: row.home_dir } : {}),
     ...(row.runs_as_root === true ? { runs_as_root: true } : {}),
     ...(row.assistant_home === true ? { assistant_home: true } : {}),
     ...normalizeServerUpdate(row.server_update),

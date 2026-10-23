@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool, RpcHttpError } from '../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { createGroupWithInvitations } from '../../../packages/core/src/cloud/groupChat'
 
 interface DatabaseClient {
   connect(): Promise<void>
@@ -64,9 +65,13 @@ async function group(creator: string, name: string, members: Array<[string, stri
   const id = randomUUID()
   await asUser(creator)
   await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [
-    id, name, creator, JSON.stringify(members.map(([user_id, role]) => ({ user_id, role }))),
+    id, name, creator, '[]',
   ])
   await db.query('RESET role')
+  // Fixture membership is privileged; product actions below use authenticated RPCs.
+  for (const [userId, role] of members) {
+    await db.query('INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,$3)', [id, userId, role])
+  }
   // 入群灰字(#6386)把「与建群同一个事务写进来的」当初始成员、不发;用例整条在一个事务里,所以把建群时刻往前挪。
   await db.query(`UPDATE chat.chats SET created_at = now() - interval '1 minute' WHERE id = $1`, [id])
   for (const [key, value] of Object.entries(settings)) {
@@ -102,7 +107,7 @@ function ownerRpc(owner: string) {
       await asUser(owner)
       const result = await db.query(
         `SELECT * FROM ${profile}.${name}(${keys.map((key, index) => `${key} => $${index + 1}`).join(', ')})`,
-        keys.map((key) => body[key]),
+        keys.map((key) => Array.isArray(body[key]) ? JSON.stringify(body[key]) : body[key]),
       )
       await db.query('RESET role')
       await db.query('RELEASE SAVEPOINT rpc_call')
@@ -141,6 +146,15 @@ function tools(w: World) {
     restRpc: ownerRpc(w.owner),
     // 群能不能看见、在不在里面都只按 RPC 判;直读的只有主人自己那几行里置顶的(置顶是主人自己的状态),以主人的 JWT(RLS)读。
     restGet: (path: string, profile = 'chat') => oneAtATime(async () => {
+      const identities = /^users\?id=in\.\(([^)]+)\)&select=id,type,owner_user_id$/.exec(path)
+      if (identities && profile === 'identity') {
+        await asUser(w.owner)
+        const result = await db.query('SELECT id,type,owner_user_id FROM identity.users WHERE id=ANY($1::text[])', [identities[1]!.split(',').map(decodeURIComponent)])
+        await db.query('RESET role')
+        return result.rows
+      }
+      const kind = /^chats\?id=eq\.([^&]+)&select=kind$/.exec(path)
+      if (kind && profile === 'chat') return (await db.query('SELECT kind FROM chat.chats WHERE id=$1', [decodeURIComponent(kind[1]!)])).rows
       const pinned = /^chat_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
       if (!pinned || profile !== 'chat') throw new Error(`group tools must not read tables directly: ${path}`)
       await db.query('SAVEPOINT pinned_read')
@@ -156,34 +170,28 @@ function tools(w: World) {
         throw error
       }
     }),
-    // group_update 的写口:PostgREST 把这条 PATCH 翻成以主人 JWT 执行的 UPDATE … RETURNING,判权是 chats 的 RLS 与列级 GRANT。
-    restPatchReturning: (path: string, body: Record<string, unknown>, profile = 'chat') => oneAtATime(async () => {
-      const target = /^chats\?id=eq\.([^&]+)&kind=eq\.group&select=id,name,description$/.exec(path)
-      if (!target || profile !== 'chat') throw new Error(`unexpected PATCH ${path}`)
-      const columns = Object.keys(body)
-      for (const column of columns) if (!['name', 'description'].includes(column)) throw new Error(`unexpected column ${column}`)
-      await db.query('SAVEPOINT patch_write')
-      try {
-        await asUser(w.owner)
-        const result = await db.query(
-          `UPDATE chat.chats SET ${columns.map((column, index) => `${column} = $${index + 2}`).join(', ')}
-            WHERE id = $1 AND kind = 'group' RETURNING id, name, description`,
-          [decodeURIComponent(target[1]!), ...columns.map((column) => body[column])],
-        )
-        await db.query('RESET role')
-        await db.query('RELEASE SAVEPOINT patch_write')
-        return result.rows
-      } catch (error) {
-        await db.query('ROLLBACK TO SAVEPOINT patch_write')
-        await db.query('RESET role')
-        throw error
-      }
-    }),
+    restPatchReturning: async () => { throw new Error('group writes must use the common RPC') },
   }
   return async (name: string, args: Record<string, unknown>) => JSON.parse(String(await callTool(context, name, args, deps)))
 }
 
 describe('#6492 group_list against the migrated database', () => {
+  it('creating Agent starts admin and can invite an external human; only its human owner owns the group', async () => {
+    const w = await world()
+    const result = await tools(w)('group_create', { name: 'Agent created', members: [`user:${w.stranger}`] })
+    expect(result.invitation_errors).toEqual([])
+    expect(result.invitations).toHaveLength(1)
+    expect(result.invitations[0]).toMatchObject({ status: 'pending', invitee_user_id: `user:${w.stranger}` })
+    expect(await isMember(result.chat_id, w.stranger)).toBe(false)
+    const { rows } = await db.query('SELECT m.user_id,m.role,u.type FROM chat.chat_members m JOIN identity.users u ON u.id=m.user_id WHERE m.chat_id=$1 ORDER BY m.role', [result.chat_id])
+    expect(rows).toEqual([{ user_id: w.self, role: 'admin', type: 'agent' }, { user_id: w.owner, role: 'owner', type: 'human' }])
+  })
+  it('human-created groups keep selected Agents as members and the human as sole owner', async () => {
+    const w = await world()
+    const result = await createGroupWithInvitations({ rpc: async (name, args) => ({ data: await ownerRpc(w.owner)(name, args), error: null }) }, 'Human created', w.owner, w.owner, [{ id: w.self, type: 'agent', owner_user_id: w.owner }])
+    const { rows } = await db.query('SELECT m.user_id,m.role,u.type FROM chat.chat_members m JOIN identity.users u ON u.id=m.user_id WHERE m.chat_id=$1 ORDER BY m.role', [result.chat_id])
+    expect(rows).toEqual([{ user_id: w.self, role: 'member', type: 'agent' }, { user_id: w.owner, role: 'owner', type: 'human' }])
+  })
   it('列出主人所在的群:joined 按当前 agent 判、需审批按主人角色判,主人不在的群不列', async () => {
     const w = await world()
     const outside = await group(w.owner, 'Agent outside', [[w.stranger, 'member']])
@@ -237,7 +245,7 @@ describe('#6492 group_add_agent against the migrated database', () => {
     const request = await db.query(
       `SELECT requester_user_id, requested_by_user_id, status FROM chat.group_join_requests WHERE id = $1`, [result.request_id],
     )
-    expect(request.rows).toEqual([{ requester_user_id: w.self, requested_by_user_id: w.owner, status: 'pending' }])
+    expect(request.rows).toEqual([{ requester_user_id: w.self, requested_by_user_id: w.self, status: 'pending' }])
   })
 
   it('把主人名下的另一个 agent 拉进来(user: 地址)', async () => {
@@ -252,8 +260,8 @@ describe('#6492 group_add_agent against the migrated database', () => {
     const w = await world()
     const target = await group(w.owner, 'Owners only', [[w.stranger, 'member']])
     const call = tools(w)
-    await expect(call('group_add_agent', { chat_id: target, agent: `user:${w.strangerAgent}` })).rejects.toThrow(/message_invite/)
-    await expect(call('group_add_agent', { chat_id: target, agent: `user:${w.stranger}` })).rejects.toThrow(/message_invite/)
+    await expect(call('group_add_agent', { chat_id: target, agent: `user:${w.strangerAgent}` })).rejects.toThrow(/agent_not_owned/)
+    await expect(call('group_add_agent', { chat_id: target, agent: `user:${w.stranger}` })).rejects.toThrow(/agent_not_owned/)
     expect(await isMember(target, w.strangerAgent)).toBe(false)
     expect(await call('group_add_agent', { chat_id: target, agent: `user:${w.sibling}` })).toMatchObject({ status: 'joined' })
   })
@@ -261,35 +269,49 @@ describe('#6492 group_add_agent against the migrated database', () => {
   it('主人不在的群 ⇒ 报错指向 group_list,不入群', async () => {
     const w = await world()
     const foreign = await group(w.stranger, 'Foreign', [[w.strangerAgent, 'member']])
-    await expect(tools(w)('group_add_agent', { chat_id: foreign })).rejects.toThrow(/group_list/)
+    await expect(tools(w)('group_add_agent', { chat_id: foreign })).rejects.toThrow(/actor_not_member/)
     expect(await isMember(foreign, w.self)).toBe(false)
   })
 })
 
-describe('#6698 group_update against the migrated database', () => {
-  async function nameOf(chatId: string): Promise<string> {
-    return String((await db.query('SELECT name FROM chat.chats WHERE id = $1', [chatId])).rows[0]?.name)
+describe('actor management through the real MCP handler and migrated database', () => {
+  async function nameOf(chatId: string) {
+    return (await db.query('SELECT name FROM chat.chats WHERE id=$1', [chatId])).rows[0]?.name
   }
-
-  it('主人是群主或管理员 ⇒ 改名、改群介绍落库;agent 自己只是普通成员也一样', async () => {
+  it('member agent cannot borrow its human group owner’s authority', async () => {
     const w = await world()
-    const owned = await group(w.owner, 'Claude 84、设计同事', [[w.self, 'member']])
+    const owned = await group(w.owner, 'Original', [[w.self, 'member'], [w.stranger, 'member']])
     const call = tools(w)
-    expect(await call('group_update', { chat_id: owned, name: '问题汇总群', description: '收问题' }))
-      .toEqual({ chat_id: owned, name: '问题汇总群', description: '收问题' })
-    expect(await nameOf(owned)).toBe('问题汇总群')
-    const administered = await group(w.stranger, 'Admin here', [[w.owner, 'admin']])
-    expect(await call('group_update', { chat_id: administered, name: 'Renamed by admin' })).toMatchObject({ name: 'Renamed by admin' })
+    await expect(call('group_update', { chat_id: owned, changes: { name: 'Hijacked' } })).rejects.toThrow('group_manager_required')
+    await expect(call('group_remove_member', { chat_id: owned, member: `user:${w.stranger}` })).rejects.toThrow('group_manager_required')
+    expect(await nameOf(owned)).toBe('Original'); expect(await isMember(owned, w.stranger)).toBe(true)
   })
-
-  it('主人只是普通成员、或不在群里 ⇒ 报错说主人没权限,群名不变', async () => {
+  it('agent admin manages humans while its owner is only an ordinary member', async () => {
     const w = await world()
-    const member = await group(w.stranger, 'Member only', [[w.owner, 'member']])
-    const foreign = await group(w.stranger, 'Foreign', [[w.strangerAgent, 'member']])
+    const target = await group(w.stranger, 'Original', [[w.owner, 'member'], [w.self, 'admin'], [w.sibling, 'member']])
     const call = tools(w)
-    await expect(call('group_update', { chat_id: member, name: 'Hijacked' })).rejects.toThrow(/your owner is not the owner or an admin/)
-    await expect(call('group_update', { chat_id: foreign, name: 'Hijacked' })).rejects.toThrow(/your owner is not the owner or an admin/)
-    expect(await nameOf(member)).toBe('Member only')
-    expect(await nameOf(foreign)).toBe('Foreign')
+    expect(await call('group_info', { chat_id: target })).toMatchObject({ my_role: 'admin', can_manage: true, can_dissolve: false })
+    expect(await call('group_update', { chat_id: target, changes: { name: 'Agent edited', rules: '共同规则' } })).toMatchObject({ name: 'Agent edited', group_prompt: '共同规则' })
+    expect(await nameOf(target)).toBe('Agent edited')
+    expect(await call('group_set_role', { chat_id: target, member: `user:${w.sibling}`, role: 'admin' })).toMatchObject({ role: 'admin' })
+    expect(await call('group_remove_member', { chat_id: target, member: `user:${w.owner}` })).toMatchObject({ status: 'removed' })
+    expect(await isMember(target, w.owner)).toBe(false)
+    await expect(call('group_remove_member', { chat_id: target, member: `user:${w.stranger}` })).rejects.toThrow('group_owner_cannot_leave')
+  })
+  it('leaves a two-person group without deleting the Agent or archiving its human owner', async () => {
+    const w = await world()
+    const target = await group(w.owner, 'Stay active', [[w.self, 'member']])
+    expect(await tools(w)('group_leave', { chat_id: target })).toMatchObject({ status: 'removed' })
+    expect(await isMember(target, w.self)).toBe(false); expect(await isMember(target, w.owner)).toBe(true)
+    expect((await db.query('SELECT status FROM chat.chats WHERE id=$1', [target])).rows).toEqual([{ status: 'active' }])
+    expect((await db.query('SELECT id FROM identity.users WHERE id=$1', [w.self])).rows).toHaveLength(1)
+  })
+  it('Agent admin posts, pins and deletes an announcement under its own author identity', async () => {
+    const w = await world()
+    const target = await group(w.stranger, 'Announcements', [[w.owner, 'member'], [w.self, 'admin']])
+    const call = tools(w)
+    const post = await call('group_announcement_post', { chat_id: target, text: '开会' })
+    expect(await call('group_announcement_update', { announcement_id: post.id, changes: { pinned: true } })).toMatchObject({ author_id: `user:${w.self}`, pinned: true })
+    expect(await call('group_announcement_delete', { announcement_id: post.id })).toMatchObject({ status: 'deleted' })
   })
 })

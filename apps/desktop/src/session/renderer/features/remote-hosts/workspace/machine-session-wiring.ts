@@ -1,5 +1,6 @@
 // #6264 一套工作台:看着别的机器上的一条会话时,这台电脑才有的那几件事 —— 会话视图本身与本机同一个。
-//  · 那台机器上的 agent 调 `open_in_tab` / 程序要「打开网页」:开进这条会话的工作区(remote-pane-viewer.ts);
+//  · 那台机器上的 agent 调 `open_in_tab` / 程序要「打开网页」:开进这条会话的工作区(remote-pane-viewer.ts)。屏上的
+//    每一条都订着,那台机器的闲置回收也认这份订阅(「有人看着」);
 //  · 点会话里的 localhost 链接:开进这条会话的浏览器格(页签自己经 SSH 转端口过去);
 //  · 会话输出里冒出 `localhost:5173` ⇒ 核实不是咕咕自己的端口后记进那台机器的端口表(machine-port-scanner.ts);
 //  · 那台机器上新发现的服务弹一声「可以打开了」(照 VS Code 自动转发后的那条通知),没在看就先记着。
@@ -12,10 +13,11 @@ import { sessionRegistry } from '@renderer/features/sessions/stores/session-regi
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, invokeOnMachine, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
-import { machineLinkState, subscribeMachineLink } from '@renderer/lib/machine-clients';
+import { onMachineReconnected } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { setRemoteLinkTargetProvider } from '@renderer/lib/remote-link-target';
 import { observeCommittedTurns, observePtyOutput } from '@renderer/lib/session-output-observers';
+import { sessionPagesOnScreen } from '@renderer/app/sessions-on-screen';
 import { appState } from '@renderer/lib/stores/app-state';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
@@ -24,12 +26,31 @@ import { remotePortDetectedChannel } from '@shared/remote-ports';
 import { remoteHostsStore } from '../remote-hosts-store';
 import { createMachinePortScanner } from './machine-port-scanner';
 import { openExternalFromMachine } from './remote-open-external';
-import { startRemotePaneViewer, type PaneLink, type PaneOpenResult } from './remote-pane-viewer';
+import {
+  startRemotePaneViewer,
+  syncRemotePaneViewers,
+  type PaneLink,
+  type PaneOpenResult,
+  type RemotePaneViewer,
+  type WantedPaneViewer,
+} from './remote-pane-viewer';
 import { remoteLoopbackPort, remoteWorkspaceTools } from './remote-workspace-routing';
 
 type ViewedMachineSession = { deviceId: string; projectId: string; sessionId: string };
 
-/** 此刻在看的、在别的机器上的那条会话(不是 ⇒ null)。 */
+/**
+ * 此刻在屏上的、在别的机器上的每一条会话(「在屏上」只在 app/sessions-on-screen.ts 定义一处)。
+ * 屏上的每一条都订着(见下面的 reaction):那台机器的闲置回收认这些订阅,❌ 只订主窗那一页 ——
+ * 摆在别的块里、开在窗里的会话会被那台机器当成没人看停掉(#92)。
+ */
+export function machineSessionsOnScreen(): ViewedMachineSession[] {
+  return sessionPagesOnScreen().flatMap(({ projectId, sessionId }) => {
+    const deviceId = machineRegistry.machineOf(projectId);
+    return deviceId ? [{ deviceId, projectId, sessionId }] : [];
+  });
+}
+
+/** 此刻在看的、在别的机器上的那条会话(主窗正显示的那一页;不是 ⇒ null):焦点给谁 —— 链接、端口通知开在哪。 */
 export function viewedMachineSession(): ViewedMachineSession | null {
   if (appState.navigation.currentViewId !== 'session') return null;
   const params = appState.navigation.viewParamsStore['session'] as { projectId?: string; sessionId?: string } | undefined;
@@ -93,9 +114,6 @@ function openRequested(session: ViewedMachineSession, request: SessionpagePaneOp
   // 和本机 agent 打开同一个位置:对话右边并排(spec session-page「并排」)。
   if (request.target.kind === 'file') view.paneLayout.open('file', { path: request.target.path }, { preview, beside: true, activate: false });
   else view.showPage(request.target.url, { preview, reload: true, beside: true, activate: false });
-  view.recordOutput(
-    request.target.kind === 'file' ? { kind: 'file', path: request.target.path } : { kind: 'page', url: request.target.url }
-  );
   return { ok: true, tabs: sessionPaneTabs(view.paneLayout) };
 }
 
@@ -103,14 +121,7 @@ function paneLink(deviceId: string): PaneLink {
   return {
     invoke: (channel, payload) => invokeOnMachine(deviceId, channel, payload),
     onOpenEvent: (cb) => onMachineEvent(deviceId, { name: SESSION_HOST_PANE.open }, cb),
-    onReconnected: (cb) => {
-      let open = machineLinkState(deviceId) === 'open';
-      return subscribeMachineLink(deviceId, () => {
-        const now = machineLinkState(deviceId) === 'open';
-        if (now && !open) cb();
-        open = now;
-      });
-    },
+    onReconnected: (cb) => onMachineReconnected(deviceId, cb),
   };
 }
 
@@ -123,30 +134,34 @@ export function ensureMachineSessionWiring(): void {
   if (wired) return;
   wired = true;
 
-  // 看着 = 订上这条会话的 open_in_tab(一个任务一条会话);换任务 / 离开会话页 = 退订。
-  let stopViewers: Array<() => void> = [];
+  // 看着 = 屏上每一条别的机器上的、会话页已经准备好的会话都订上它的 open_in_tab(一个任务一条会话);离开屏幕 = 退订。
+  // 那台机器的闲置回收据此判「有人看着」(remote-pane watching)。会话页还没准备好(远端工作区正在挂载)就不订:
+  // 订阅应答里攒着的那几条要开进这一页,页还没有就只能答「没开成」。
+  // 浏览器格读在这里(跟着那台机器的直连变),订着的就地改,❌ 只在开始订的那一刻取一次。
+  const viewers = new Map<string, RemotePaneViewer>();
   reaction(
-    () => {
-      const session = viewedMachineSession();
-      if (!session) return null;
-      const sessions = [...(sessionRegistry.get(session.sessionId)?.sessions.keys() ?? [])].sort();
-      return { ...session, sessions };
-    },
-    (viewed) => {
-      for (const stop of stopViewers) stop();
-      stopViewers = [];
-      if (!viewed) return;
-      const link = paneLink(viewed.deviceId);
-      stopViewers = viewed.sessions.map((sessionId) =>
-        startRemotePaneViewer({
-          link,
-          deviceId: viewed.deviceId,
-          sessionId,
-          browser: hasBrowser(viewed.deviceId),
-          open: (request) => openRequested(viewed, request),
-          log: (message, fields) => log.warn(`[machine-pane] ${message}`, fields),
-        })
-      );
+    () =>
+      machineSessionsOnScreen().filter((page) => sessionView(page.projectId, page.sessionId)).flatMap((page) => {
+        const browser = hasBrowser(page.deviceId);
+        return [...(sessionRegistry.get(page.sessionId)?.sessions.keys() ?? [])].sort().map((sessionId) => ({ page, sessionId, browser }));
+      }),
+    (watched) => {
+      const wanted = new Map<string, WantedPaneViewer>();
+      for (const { page, sessionId, browser } of watched) {
+        wanted.set(`${page.deviceId}\n${page.projectId}\n${page.sessionId}\n${sessionId}`, {
+          browser,
+          start: () =>
+            startRemotePaneViewer({
+              link: paneLink(page.deviceId),
+              deviceId: page.deviceId,
+              sessionId,
+              browser,
+              open: (request) => openRequested(page, request),
+              log: (message, fields) => log.warn(`[machine-pane] ${message}`, fields),
+            }),
+        });
+      }
+      syncRemotePaneViewers(viewers, wanted);
     },
     { equals: comparer.structural, fireImmediately: true }
   );

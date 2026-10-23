@@ -16,7 +16,7 @@ import { MessageRow } from './MessageRow'
 import { MessageBubble } from './MessageBubble'
 import { AgentFloodSystemNotice } from './AgentFloodSystemNotice'
 import { MemberJoinNotice, type MentionTarget } from '../groups/MemberJoinNotice'
-import { parseMemberJoinNotice } from '@gugu/core/shared/ui/memberJoinNotice'
+import { parseSystemNotice } from '@gugu/core/shared/ui/systemNotice'
 import { TopicAnchorCard } from './TopicAnchorCard'
 import { shouldShowTimeDivider } from './messageRowTime'
 import { TaskExchangeBubble } from '../assistant/TaskExchangeBubble'
@@ -74,42 +74,42 @@ export interface MessageListRowProps {
   messages: MessageItem[]
   isFiltering: boolean
   mobile: boolean
-  highlight?: string
+  highlight: string | undefined
   /** #1708 命中「来源消息跳转」时高亮闪烁的消息 id。 */
-  flashMessageId?: string | null
+  flashMessageId: string | null | undefined
   memberReadSeqs: Record<string, number>
   isAgentChat: boolean
   // 私聊/AI 没有 thread surface；群聊 thread 由右侧 panel 承载。
   isGroupChat: boolean
-  threeParty?: boolean
+  threeParty: boolean | undefined
   memberProfiles: Record<string, MemberProfileCardModel>
   onReaction: (messageId: string, emoji: string) => void
   // @@@1345 点击已读圆环 → 父层弹「谁已读/谁未读」名单(稳定回调，避免 reader 列表作对象 prop 破 memo)。
-  onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
+  onShowReadReceipt: ((messageId: string, anchor: HTMLElement) => void) | undefined
   onQuote: (msg: MessageItem) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   onVisible: (msg: MessageItem) => void
-  onOpenMemberProfile?: (
+  onOpenMemberProfile: ((
     member: MemberProfileCardModel,
     anchor: HTMLElement,
     preferredSide: MemberProfileSide,
-  ) => void
+  ) => void) | undefined
   // @@@5856 开话题(从本消息长出一条线)+ 本消息底下已有的话题锚点卡。锚点是溯源不是父容器:
   // 卡片只是双向连接的一端,话题本身在会话列表里缩进挂在来源那条线底下。
-  onOpenTopic?: (messageId: string) => void
-  topicAnchors?: ReadonlyMap<string, TopicSummary[]>
-  onOpenTopicAnchor?: (topicChatId: string) => void
+  onOpenTopic: ((messageId: string) => void) | undefined
+  topicAnchors: ReadonlyMap<string, TopicSummary[]> | undefined
+  onOpenTopicAnchor: ((topicChatId: string) => void) | undefined
   /** 这条线上「agent 超过 5 个已自动转 passive」的那条系统消息(每条线至多一条)。 */
-  agentFloodNoticeMessageId?: string | null
-  onAgentFloodUndone?: () => void
-  onOpenFile?: (meta: ParsedAttachment, message?: MessageItem) => void; onOpenLocalFileLink?: (path: string) => void
-  onMentionMember?: (target: MentionTarget) => void // @@@6386 入群灰字里点名字 → 输入框插 @
+  agentFloodNoticeMessageId: string | null | undefined
+  onAgentFloodUndone: (() => void) | undefined
+  onOpenFile: ((meta: ParsedAttachment, message?: MessageItem) => void) | undefined; onOpenLocalFileLink: ((path: string) => void) | undefined
+  onMentionMember: ((target: MentionTarget) => void) | undefined // @@@6386 入群灰字里点名字 → 输入框插 @
   // @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；onEnterSelectMode 透传给气泡「多选」菜单项。
   selectMode: boolean
   selectedIds: Set<string>
   onToggleSelect: (messageId: string) => void
-  onEnterSelectMode: (msg: MessageItem) => void
+  onEnterSelectMode: ((msg: MessageItem) => void) | undefined
 }
 
 // @@@2186 — 主时间线 rows 只有消息行。#1671 后 in-list 运行态改由 composer 上方浮动条统一显示，曾经的
@@ -214,7 +214,7 @@ const MessageListRow = memo(function MessageListRow({
   const anchoredTopics = topicAnchors?.get(msg.id)
   // @@@5856 自动调档那条系统消息用专门的版式渲染:居中、说清改了哪几个、就地一键全撤。
   const isAgentFloodNotice = msg.id === agentFloodNoticeMessageId && msg.content_type === 'system'
-  const joinedUserIds = parseMemberJoinNotice(msg) // @@@6386 服务端落的「X 加入了群聊」
+  const notice = parseSystemNotice(msg) // @@@6386 服务端落的「X 加入了群聊」;回合失败那种由气泡里的 SystemMessageNotice 画
   // 右键群聊里的发送者头像 → 输入框 @ 他:与点运行中头像同一条插入链路;能 @ 谁同入群灰字(在群、不是自己)。
   const mentionFromAvatar = (event: MouseEvent<HTMLDivElement>) => {
     if (!isGroupChat || !onMentionMember || !memberProfile || msg.is_mine || memberProfile.membership === 'former') return
@@ -286,8 +286,8 @@ const MessageListRow = memo(function MessageListRow({
         </div>
       ) : isAgentFloodNotice ? (
         <AgentFloodSystemNotice messageId={msg.id} content={msg.content ?? ''} onUndone={onAgentFloodUndone} />
-      ) : joinedUserIds ? (
-        <MemberJoinNotice userIds={joinedUserIds} content={msg.content ?? ''} memberProfiles={memberProfiles} onMention={onMentionMember} />
+      ) : notice?.kind === 'member-joined' ? (
+        <MemberJoinNotice userIds={notice.userIds} content={msg.content ?? ''} memberProfiles={memberProfiles} onMention={onMentionMember} />
       ) : bubble}
       {/* @@@5856 锚点:这条消息长出来的话题挂在它底下(它是这条消息的附件,所以跟气泡同侧同缩进),
           双向连接的另一端是分栏标题块里那句「引自…」。正文要传进去:话题名默认就是从这条正文截的,

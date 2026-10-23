@@ -124,6 +124,8 @@ describe('#7394 描述文件与受限权限', () => {
     expect(main).toContain(`<key>com.apple.application-identifier</key>\n    <string>${appIdentifier}</string>`)
     expect(main).toContain('<key>com.apple.developer.team-identifier</key>\n    <string>ABCDE12345</string>')
     expect(main).toMatch(new RegExp(`<key>keychain-access-groups</key>\\s*<array>\\s*<string>${appIdentifier.replace(/\./g, '\\.')}</string>`))
+    // Touch ID 通行密钥专用的那一组,与运行期 macWebAuthn.ts 从描述文件推出的同名。
+    expect(main).toContain(`<string>${appIdentifier}.webauthn</string>`)
     // 公共的那几条(JIT、麦克风……)一条不少。
     expect(main).toContain('<key>com.apple.security.cs.allow-jit</key>')
     expect(main).toContain('<key>com.apple.security.device.audio-input</key>')

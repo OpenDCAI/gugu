@@ -3,9 +3,14 @@ import { appService } from '@main/core/app/service';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { captureDeepSample } from './deep-sample';
+import { resourceHistory } from './history';
 import { hasResourceMonitorInternals, sampleOnce, setResourceMonitorOpen } from './resource-sampler';
 
 export const resourceMonitorController = createRPCController({
+  history: (since?: number, until?: number) => ok(resourceHistory.read(since, until)),
+  point: (id: number) => ok(resourceHistory.point(id)),
+  clearHistory: () => { resourceHistory.clear(); return ok(); },
+  exportHistory: async (title: string) => ok(await appService.saveTextFile({ title, defaultPath: `gugu-resource-history-${Date.now()}.json`, content: resourceHistory.export() }) ?? null),
   /** One-shot sample of current PTY resource usage. */
   getSnapshot: async () => {
     const { enabled } = await appSettingsService.get('resourceMonitor');

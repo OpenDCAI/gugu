@@ -17,7 +17,7 @@ export {
 } from './deliveryEnvelope'
 import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { normalizeAgentType, type AgentType } from '../../agentTypes'
-import type { AgentActivityStatus, AgentRuntimeStatus } from '../../shared/types/chat'
+import type { AgentActivityStatus } from '../../shared/types/chat'
 import type { AgentStatusReading } from '../../shared/agentStatus'
 import { AGENT_INIT_HELD_TIMEOUT_MS } from '../../shared/enums/deviceModels'
 import { getAgent, listAgents, removeAgents, updateAgent, cachedProviderSessionId, type LocalAgentRecord } from '../state/agents'
@@ -145,7 +145,6 @@ export interface AgentSetModelDevicePayload {
 
 export interface AgentRuntimeStateReport {
   agentUserId: string
-  runtimeStatus: AgentRuntimeStatus
   activityStatus: AgentActivityStatus
   runtimeKind: string
   runtimeLabel: string
@@ -390,8 +389,6 @@ export interface AgentCreateDeviceCommandResult {
   chat_id: string
   agent_type: AgentType
   project_path: string
-  runtime_status: 'offline'
-  activity_status: 'idle'
   created: boolean
 }
 
@@ -437,8 +434,6 @@ export interface AgentSetModelDeviceCommandResult {
 export interface AgentStopDeviceCommandResult {
   stopped: true
   gugu_user_id: string
-  runtime_status: 'offline'
-  activity_status: 'idle'
   runtime_type?: 'powershell'
   target_id?: string
   container_ref?: string
@@ -576,7 +571,6 @@ export async function handleAgentCreateDeviceCommand(
     await reportAgentRuntimeState(
       {
         agentUserId,
-        runtimeStatus: 'offline',
         activityStatus: 'idle',
         runtimeKind: 'gugu',
         runtimeLabel: hostname(),
@@ -590,8 +584,6 @@ export async function handleAgentCreateDeviceCommand(
       chat_id: provisioned.chatId,
       agent_type: agentType,
       project_path: projectPath,
-      runtime_status: 'offline',
-      activity_status: 'idle',
       created: provisioned.created,
     }
   } catch (error) {
@@ -599,7 +591,6 @@ export async function handleAgentCreateDeviceCommand(
     await reportAgentRuntimeState(
       {
         agentUserId,
-        runtimeStatus: 'offline',
         activityStatus: 'idle',
         runtimeKind: 'gugu',
         runtimeLabel: hostname(),
@@ -791,7 +782,6 @@ export async function handleAgentStopDeviceCommand(
   await reportAgentRuntimeState(
     {
       agentUserId: guguUserId,
-      runtimeStatus: 'offline',
       activityStatus: 'idle',
       runtimeKind: 'gugu',
       runtimeLabel: hostname(),
@@ -802,8 +792,6 @@ export async function handleAgentStopDeviceCommand(
   return {
     stopped: true,
     gugu_user_id: guguUserId,
-    runtime_status: 'offline',
-    activity_status: 'idle',
   }
 }
 
@@ -970,12 +958,13 @@ export async function syncAgentRuntimeSessions(
     /** #4277 这份 token 是谁的:记了别家 owner 的行不写(它们的主人回来时自己会刷)。 */
     ownerUserId?: string | null
   } = {}
-): Promise<void> {
+): Promise<boolean> {
   const env = options.env ?? process.env
-  if (!options.accessToken) return
+  if (!options.accessToken) return false
   const accessToken = options.accessToken
   const refreshToken = options.refreshToken ?? ''
   const agents = agentsForOwner(await listAgents(env), options.ownerUserId)
+  let allWritten = true
   for (const agent of agents) {
     if (!agent.gugu_user_id) continue
     try {
@@ -985,9 +974,11 @@ export async function syncAgentRuntimeSessions(
       )
     } catch {
       // Best-effort: a single agent's file write failing should not block the
-      // rest. Errors surface on the next tick if persistent.
+      // rest. Reported as not-all-written so the caller writes the batch again.
+      allWritten = false
     }
   }
+  return allWritten
 }
 
 /**
@@ -1084,7 +1075,7 @@ async function discloseForumUndeliverable(
       agentUserId: input.agentUserId,
       postId: input.postId,
       state: 'undelivered',
-      error: '暂未送达:这台设备上没有运行中的咕咕实例持有这个 agent。打开运行它的那个咕咕实例后,由它读取。',
+      error: 'undelivered',
     })
     return true
   } catch (error) {
@@ -1110,10 +1101,8 @@ async function discloseUndeliverable(
   const post = options.readerDeps?.postDisclosure
     ?? ((row: Parameters<typeof postDeliveryDisclosureRow>[0]) => postDeliveryDisclosureRow(row, options.accessToken!))
   const key = `undeliverable:${input.agentUserId}:${input.messageId}`
-  const disclosure = `消息暂未送达(${encodeTypedId('msg', input.messageId)}):这台设备上没有运行中的咕咕实例持有这个 agent。`
-    + `消息仍留在云端未读;打开运行它的那个咕咕实例后,由它读取。`
   try {
-    await post({ agentUserId: input.agentUserId, chatId: input.chatId, threadRootId: input.threadRootId, key, text: disclosure })
+    await post({ agentUserId: input.agentUserId, chatId: input.chatId, threadRootId: input.threadRootId, key, reason: 'undelivered' })
     return true
   } catch (error) {
     log.error(
