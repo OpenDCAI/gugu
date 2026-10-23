@@ -110,6 +110,35 @@ beforeEach(() => {
 });
 
 describe('an App program as a caller of its App (F16)', () => {
+  it('each later watch keeps its own caller after an owner watch, including repeated calls at the same topic', async () => {
+    granted.add('files:read');
+    const child = fakeChild();
+    const surface = attachProgramSurface('board', child as unknown as ChildProcess);
+    expect(await call(child, 850, 'filesWatch', { place: { chat: BOARD_CHAT } })).toMatchObject({ ok: true });
+    for (const [index, agent] of ['agent-1', 'agent-2', 'agent-3'].entries()) {
+      const callId = `watch-call-${index}`;
+      const release = surface.hand(callId, agent, [], [{ chatId: TOPIC, resourceChatId: FOLDER_CHAT, agentUserId: agent }]);
+      expect(await call(child, 851 + index * 2, 'filesWatch', { place: { chat: TOPIC } }, callId)).toMatchObject({ ok: true });
+      expect(await call(child, 852 + index * 2, 'filesWatch', { place: { chat: OTHER_CHAT } }, callId)).toMatchObject({ ok: false, code: 'denied' });
+      changedGroupFiles.mockClear();
+      const item = `agent-file-${index}`;
+      await notifyGroupWorkspaceChanged([
+        { chatId: BOARD_CHAT, itemIds: ['owner-file'] },
+        { chatId: FOLDER_CHAT, itemIds: [item] },
+        { chatId: OTHER_CHAT, itemIds: ['not-handed'] },
+      ]);
+      expect(changedGroupFiles.mock.calls.map(([chat, reader]) => [chat, reader])).toEqual([[BOARD_CHAT, null], [FOLDER_CHAT, agent]]);
+      expect(child.sent).toContainEqual(expect.objectContaining({
+        t: 'event', event: expect.objectContaining({ place: { chat: TOPIC }, change: expect.objectContaining({ entries: [expect.objectContaining({ id: item, chat: FOLDER_CHAT })] }) }),
+      }));
+      await release();
+      changedGroupFiles.mockClear();
+      await notifyGroupWorkspaceChanged([{ chatId: FOLDER_CHAT, itemIds: ['after-release'] }]);
+      expect(changedGroupFiles).not.toHaveBeenCalled();
+    }
+    surface.close();
+  });
+
   it('a handed topic grants its source files while message history keeps the topic address', async () => {
     granted.add('files:read');
     granted.add('chat:read');

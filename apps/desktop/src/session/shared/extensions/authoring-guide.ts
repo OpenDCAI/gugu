@@ -487,7 +487,7 @@ Claim an existing data file's name or suffix and open it live; never copy it int
 
 ## Which files you may open
 
-Topic file addresses resolve to the source group or DM; entries name that source. Messages keep their topic address.
+Topic file addresses resolve to their source chat; entries name that source. Messages keep their topic address.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or

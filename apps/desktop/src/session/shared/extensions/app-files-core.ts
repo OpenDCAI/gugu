@@ -491,9 +491,9 @@ export async function resourceChatIdOf(token: string, chatId: string, actor: str
   if (error) throw new AppFileError('failed', error.message);
   const row = (Array.isArray(data) ? data[0] : data) as { id: string; kind: string; source_chat_id: string | null } | null;
   if (!row) throw new AppFileError('not-found', 'This chat could not be read');
-  if (row.kind === 'topic' && row.source_chat_id) return row.source_chat_id;
-  if (row.kind === 'group' || row.kind === 'dm') return row.id;
-  throw new AppFileError('invalid', 'This chat has no shared folder');
+  if (row.kind !== 'topic') return row.id;
+  if (row.source_chat_id) return row.source_chat_id;
+  throw new AppFileError('invalid', 'This topic has no source chat');
 }
 
 /** Resolve `ref` in the resource container it names. Not-there and not-yours read the same. */

@@ -177,11 +177,11 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
       const refusal = new Error(`${named}: not a chat you are in, so it was not handed over`);
       let chatId = named.trim();
       if (/^\d+$/.test(chatId)) {
-        const { data, error } = await client.rpc('list_my_chats_as', { p_as_user_id: agentUserId });
+        const { data, error } = await client.rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: agentUserId });
         if (error) throw doorFailed(named, 'which chat this number is', error);
-        const rows = ((data as { chat_id: string; public_id: number }[] | null) ?? []).filter((row) => String(row.public_id) === chatId);
+        const rows = (data as { id: string }[] | null) ?? [];
         if (rows.length !== 1) throw refusal;
-        chatId = rows[0]!.chat_id;
+        chatId = rows[0]!.id;
       }
       const { error } = await client.rpc('workspace_status_as', { p_chat_id: chatId, p_as_user_id: agentUserId });
       if (error?.hint === 'workspace_not_member') throw refusal;

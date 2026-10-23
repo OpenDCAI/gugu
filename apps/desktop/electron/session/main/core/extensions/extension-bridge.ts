@@ -333,7 +333,7 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
  * background page, a program — by `placeKey`: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
-const pageWatches = new Map<number, { caller: BridgeCaller; places: Map<string, { place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }> }>();
+const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
 
 /** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
 const forumWatches = new Map<number, Map<string, () => void>>();
@@ -360,9 +360,9 @@ export function stopPageWatches(pageId: number): void {
   for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
   forumWatches.delete(pageId);
   const watching = pageWatches.get(pageId);
-  for (const watch of watching?.places.values() ?? []) watch.disk?.stop();
+  for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
-  for (const { resource } of watching?.places.values() ?? []) forgetUnheard(resource, watching!.caller);
+  for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
@@ -370,14 +370,14 @@ async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): P
   const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
   const key = placeKey(place);
   const watching = pageWatches.get(caller.pageId);
-  const existing = watching?.places.get(key);
+  const existing = watching?.get(key);
   if (!on) {
     existing?.disk?.stop();
-    watching?.places.delete(key);
-    if (existing) forgetUnheard(resource, caller);
+    watching?.delete(key);
+    if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (existing) return;
+  if (existing) { existing.caller = caller; return; }
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
@@ -388,12 +388,12 @@ async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): P
     });
   }
   if (!watching) {
-    pageWatches.set(caller.pageId, { caller, places: new Map([[key, { place, resource, disk }]]) });
+    pageWatches.set(caller.pageId, new Map([[key, { caller, place, resource, disk }]]));
     // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
     if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
     return;
   }
-  watching.places.set(key, { place, resource, disk });
+  watching.set(key, { caller, place, resource, disk });
 }
 
 /**
@@ -796,7 +796,9 @@ const readKey = (chatId: string, reader: string | null) => `${chatId}:${reader ?
 function forgetUnheard(place: AppPlace, caller: BridgeCaller): void {
   if (!('chat' in place)) return;
   const reader = readerOf(caller, place.chat);
-  for (const { caller: other, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === placeKey(place)) && readerOf(other, place.chat) === reader) return;
+  for (const places of pageWatches.values()) for (const watch of places.values()) {
+    if (placeKey(watch.resource) === placeKey(place) && hearsFiles(watch.caller, place.chat) && readerOf(watch.caller, place.chat) === reader) return;
+  }
   groupReads.forget(readKey(place.chat, reader));
 }
 
@@ -816,7 +818,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
   for (const { chatId, itemIds } of changes) {
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
-    for (const { caller, places } of pageWatches.values()) if ([...places.values()].some((watch) => placeKey(watch.resource) === key) && hearsFiles(caller, chatId)) readers.add(readerOf(caller, chatId));
+    for (const places of pageWatches.values()) for (const watch of places.values()) {
+      if (placeKey(watch.resource) === key && hearsFiles(watch.caller, chatId)) readers.add(readerOf(watch.caller, chatId));
+    }
     for (const reader of readers) {
       reads.push(groupReads.want(readKey(chatId, reader), itemIds, async (wanted) => {
         const change = await changedGroupFiles(chatId, reader, wanted);
@@ -829,9 +833,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
-  for (const { caller, places } of pageWatches.values()) {
-    if (!hearsFiles(caller, chatId) || readerOf(caller, chatId) !== reader) continue;
-    for (const watched of places.values()) if (placeKey(watched.resource) === key) caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
+  for (const places of pageWatches.values()) for (const watched of places.values()) {
+    if (placeKey(watched.resource) !== key || !hearsFiles(watched.caller, chatId) || readerOf(watched.caller, chatId) !== reader) continue;
+    watched.caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
   }
 }
 
@@ -860,7 +864,7 @@ export function notifyInstalledAppsChanged(): Promise<void> {
     }
   }
   const chats = new Set<string>();
-  for (const { places } of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
+  for (const places of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
   return notifyGroupWorkspaceChanged([...chats].map((chatId) => ({ chatId, itemIds: 'all' as const })));
 }
 
