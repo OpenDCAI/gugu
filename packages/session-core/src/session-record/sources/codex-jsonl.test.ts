@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +57,12 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('codex rollout 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root } = await stage();
+    const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('native subagent activity loads its own record, preserving nested ownership and history', async () => {
     const childId = 'native-child-thread';
     const line = (type: string, payload: object) => JSON.stringify({ type, timestamp: '2026-06-18T07:03:21Z', payload });

@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,6 +79,14 @@ const texts = (entries: RecordEntry[], kind: 'user_message_chunk' | 'agent_messa
   });
 
 describe('hermes state.db 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const fixture = await loadFixture();
+    const { path } = await stageDb(fixture, fixture.messages, true);
+    const { entries, started } = collect(createHermesSqliteSource({ harness: 'hermes', providerSessionId: fixture.session.id, roots: [path] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('按候选库依次找有这个会话的那一份;都没有就响亮地失败', async () => {
     const fixture = await loadFixture();
     const { path } = await stageDb(fixture, fixture.messages, true);

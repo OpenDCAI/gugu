@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -121,6 +122,12 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('opencode sqlite 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { dbPath, fixture } = await stage();
+    const entries = await startAll(createOpencodeSqliteSource({ harness: 'opencode', providerSessionId: fixture.session.id, roots: [dbPath] }));
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('库里没有这个会话时响亮地失败', async () => {
     const { dbPath } = await stage();
     await expect(

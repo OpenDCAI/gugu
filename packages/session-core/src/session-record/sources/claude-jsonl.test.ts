@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -70,6 +71,12 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('claude jsonl 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root } = await stage();
+    const entries = await startAll(createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] }));
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('定位不到会话文件时响亮地失败', async () => {
     const root = await mkdtemp(join(tmpdir(), 'claude-empty-'));
     disposers.push(() => rm(root, { recursive: true, force: true }));

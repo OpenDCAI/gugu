@@ -3,6 +3,9 @@
  */
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns';
 import type { RecordEntry } from './contract';
+import { AcpTranscriptParser } from '../acp/reducer';
+import { decodeSessionUpdate } from '../acp/transport/decode';
+import { questionAnswered } from './sources/question-tools';
 
 export type ToolItemView = TranscriptItem & { status: 'running' | 'done' | 'error' };
 
@@ -42,4 +45,32 @@ export function boundaryEntries(
   return entries.filter(
     (entry): entry is Extract<RecordEntry, { boundary: object }> => entry.boundary !== undefined
   );
+}
+
+/** Native fixture characterization: event identity, order, timestamps, boundaries and visible state. */
+export function recordProjection(entries: readonly RecordEntry[]) {
+  const parser = new AcpTranscriptParser({ sessionId: 'native-fixture' });
+  const records = entries.map((entry) => {
+    const at = entry.at ?? 1;
+    if (entry.boundary) {
+      const boundary = entry.boundary;
+      parser.settleTurn(boundary.kind === 'turn_aborted'
+        ? { kind: 'cancelled', reason: 'cancelled' }
+        : boundary.kind === 'turn_failed'
+          ? { kind: 'error', reason: 'prompt_failed' }
+          : { kind: 'done', reason: boundary.stopReason ?? 'end_turn' }, at);
+      return JSON.stringify(entry);
+    }
+    const decoded = decodeSessionUpdate(entry.update);
+    const event = decoded.kind === 'tool_update'
+      ? { ...decoded, recordedAnswers: questionAnswered('request_user_input', entry.update) }
+      : decoded;
+    parser.pushEvent(event, at);
+    return JSON.stringify({ key: entry.key, at: entry.at, event });
+  });
+  return {
+    records,
+    turns: [...parser.history, ...(parser.activeTurn ? [parser.activeTurn] : [])].map((turn) => JSON.stringify(turn)),
+    agents: parser.agents.map((agent) => JSON.stringify(agent)),
+  };
 }

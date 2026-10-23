@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,13 @@ async function timelineOf(name: string) {
 }
 
 describe('copilot events.jsonl 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root, id } = await stage('copilot-aborted.jsonl');
+    const { entries, started } = collect(createCopilotEventsSource({ harness: 'copilot', providerSessionId: id, roots: [root] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('按候选根依次找 `<id>/events.jsonl`;哪个根都没有就响亮地失败', async () => {
     const { root, id } = await stage('copilot-aborted.jsonl');
     const { entries, started } = collect(

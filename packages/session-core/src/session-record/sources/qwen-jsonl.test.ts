@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +49,13 @@ function collect(source: SessionRecordSource) {
 }
 
 describe('qwen jsonl 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root, id } = await stage();
+    const { entries, started } = collect(createQwenJsonlSource({ harness: 'qwen', providerSessionId: id, roots: [root] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('按会话 id 在各项目目录的 chats/ 里找到文件，解出对话内容', async () => {
     const { root, id } = await stage();
     const { entries, started } = collect(
