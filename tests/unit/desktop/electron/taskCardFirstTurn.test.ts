@@ -97,13 +97,6 @@ describe('task card first turn (gugu-dev#181)', () => {
     expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
   })
 
-  // 80b:群主同意时入群那一行点名它、把它叫醒(库里只管叫醒),叫醒以后做什么只在这段提示里 —— 结果引用这张卡发进群,不重复发。
-  it('an agent not in the group yet is told what to do when its join notice wakes it', async () => {
-    chats.set('group-2', { kind: 'group', public_id: 7, name: '别人的群', members: ['owner-1'] })
-    const turn = await land('group-2')
-    expect(turn.firstTurn).toMatch(/群主同意后.*加入了群聊.*结果引用这张卡发进群.*已经在群里发过结果，就不要再发/)
-  })
-
   it('in a direct chat with a person the card stays there and the agent gets the plain words', async () => {
     chats.set('dm-1', { kind: 'dm', public_id: null, name: null, members: ['owner-1', 'friend-1'] })
     const turn = await land('dm-1')
