@@ -144,23 +144,21 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
 
   // 头部插进一页旧消息(或窗口从头部裁掉几行):把读者正看着的那一行放回原处,在这次提交的绘制之前。
   // 浏览器的原生锚定多数时候已经做了(这里读到的差就是 0);它不管的是滚动条正好顶在 0 的时候,以及不支持锚定的 WebKit。
-  const preserveAnchor = useCallback(() => {
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current, anchor = anchorRef.current
     if (!scroller || !anchor || !anchor.row.isConnected || (followRef.current && atBottomRef.current)) return
     const delta = anchor.row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.top
     if (Math.abs(delta) > 0.5) scroller.scrollTop += delta
     capture(scroller)
-  }, [scrollerRef, capture])
-  useLayoutEffect(preserveAnchor, [headKey, preserveAnchor])
+  }, [headKey, scrollerRef, capture])
 
   // 内容长高/变矮:在底部就贴住(新消息、最后一条长高、图片晚到);ResizeObserver 在布局之后、绘制之前回调。
-  // 离尾时复用头部插行的锚点补偿:正文晚排版时,浏览器可能锚住行内节点而让整行漂移。
+  // 不在底部时视口上方的变化交给浏览器的滚动锚定,这里不动。
   useEffect(() => {
     const scroller = scrollerRef.current, content = contentRef.current
     if (!scroller || !content || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => {
       if (followRef.current && atBottomRef.current) scroller.scrollTop = scroller.scrollHeight
-      else preserveAnchor()
       callbacksRef.current.onTotalHeightChanged?.()
       report(scroller)
     })
@@ -172,7 +170,7 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
     }
     scroller.addEventListener('scroll', onScroll, { passive: true })
     return () => { observer.disconnect(); scroller.removeEventListener('scroll', onScroll) }
-  }, [resetKey, scrollerRef, contentRef, report, capture, preserveAnchor])
+  }, [resetKey, scrollerRef, contentRef, report, capture])
 
   useImperativeHandle(handleRef, () => ({
     scrollToIndex: ({ index, align = 'start', offset = 0, behavior }) => {

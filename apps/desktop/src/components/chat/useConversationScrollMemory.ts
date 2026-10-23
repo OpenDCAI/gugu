@@ -267,13 +267,14 @@ export function useConversationScrollMemory({
     const settle = (now: number) => {
       if (restoringActivationRef.current !== activationKey) return
       // @@@6595 列表挂载时在第一次绘制之前就落在这一行(openLocation;锚点后载进来时整列表重挂),这里只核对偏移。
-      const row = Array.from(scroller.querySelectorAll<HTMLElement>('[data-msg-id]'))
-        .find((candidate) => candidate.dataset.msgId === position.messageId)
+      const rows = Array.from(scroller.querySelectorAll<HTMLElement>('[data-msg-id]'))
+      const row = rows.find((candidate) => candidate.dataset.msgId === position.messageId)
       if (row) {
         const actualOffset = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top
         const delta = actualOffset - position.offset
         if (Math.abs(delta) <= RESTORE_OFFSET_TOLERANCE) {
-          stableFrames += 1
+          // The first paint contains only a slice; its later fill can still move this anchor.
+          stableFrames = rows.length === messageIds.length ? stableFrames + 1 : 0
           if (stableFrames >= RESTORE_STABLE_FRAMES) {
             completedActivationRef.current = activationKey
             restoringActivationRef.current = null

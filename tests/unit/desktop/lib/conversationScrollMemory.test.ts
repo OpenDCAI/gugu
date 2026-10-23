@@ -249,6 +249,22 @@ describe('conversation scroll memory', () => {
       } finally { await rig.cleanup() }
     })
 
+    it('does not finish on a stable first-paint slice before the rest of the window changes its layout', async () => {
+      const rig = mount()
+      try {
+        await leaveAndReturn(rig, ['anchor'])
+        rig.view.scrollTop = 700
+        await frames(5)
+        expect(rig.view.memory!.isPreservingPosition(), 'the saved row is stable but most rows have not painted').toBe(true)
+        rig.view.rowTop += 24
+        await rig.render({ chatId: 'chat-a', messageIds: ['first', 'anchor', 'last'], rows: ['first', 'anchor', 'last'] })
+        rig.geometry()
+        await frames(6)
+        expect(rig.view.scrollTop).toBe(724)
+        expect(rig.view.memory!.isPreservingPosition()).toBe(false)
+      } finally { await rig.cleanup() }
+    })
+
     it('keeps the same anchor and offset when a block unmounts without a main-chat transition', async () => {
       const ids = ['first', 'anchor', 'last']
       const original = mount()
