@@ -53,6 +53,23 @@ describe('FrameSessionHost over a device-shaped link', () => {
     client = null;
   });
 
+  it('首读正在等旧开线:替代连接接通就把同一问交到宿主,只执行一次', async () => {
+    const host = new FrameSessionHost();
+    const snapshot = { cursor: { epoch: 'test', seq: 1 }, turns: [], settlements: [], hasOlder: false };
+    const read = vi.fn(() => snapshot);
+    host.ipcMain.handle('sessionTimeline.sessionSnapshot', read);
+    const link = memoryLink(host);
+    let opens = 0;
+    client = createSessionHostClient((handlers) => ++opens === 1 ? new Promise(() => undefined) : link.open(handlers));
+    const got: unknown[] = [];
+    const firstRead = client.api.invoke('sessionTimeline.sessionSnapshot', { conversationId: 'test-session' }).then((value) => got.push(value));
+    client.reconnectNow();
+    await flush();
+    expect(got).toEqual([snapshot]);
+    expect(read).toHaveBeenCalledTimes(1);
+    await firstRead;
+  });
+
   it('pushes only the channels the client subscribed to', async () => {
     const host = new FrameSessionHost({ appVersion: () => '9.9.9' });
     const link = memoryLink(host);

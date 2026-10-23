@@ -10,7 +10,7 @@ type WakeChannel = {
 
 type WakeSupabaseClient<TChannel> = {
   realtime: {
-    setAuth: (accessToken: string) => unknown | Promise<unknown>
+    setAuth: () => unknown | Promise<unknown>
   }
   channel: (
     topic: string,
@@ -26,7 +26,7 @@ export function createDesktopDeviceCommandWakeSubscription<TChannel>({
   supabase: WakeSupabaseClient<TChannel>
   warn?: (message: string) => void
 }): SubscribeDeviceCommandWake {
-  return async ({ deviceId, accessToken, onCommand, onSubscribed, onSubscriptionLost, onSubscribeFailure }) => {
+  return async ({ deviceId, onCommand, onSubscribed, onSubscriptionLost, onSubscribeFailure }) => {
     let active = true
     let subscribedOnce = false
     const createWakeChannel = () => {
@@ -55,7 +55,6 @@ export function createDesktopDeviceCommandWakeSubscription<TChannel>({
       }
     }
     const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, wakeChannel, {
-      accessToken,
       label: `device-command-wake:${deviceId}`,
       createChannel: createWakeChannel,
       onStatus: (status, err) => {

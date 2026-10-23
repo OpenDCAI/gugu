@@ -100,7 +100,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth } from './supabase'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -721,6 +721,7 @@ function appInstallFrom(fromDevice: string, action: Record<string, unknown>): Re
 function desktopAuthProvider(): RuntimeAuthProvider {
   return (authProvider ??= createPushedRuntimeAuthProvider(() => pushedHumanAuth))
 }
+bindElectronSupabaseAuth(async () => (await desktopAuthProvider().getAuth())?.accessToken ?? null)
 let primaryGuguMcpHost: DesktopGuguMcpHost | null = null
 
 function hasPersistedMcpGrants(name: string): boolean {
@@ -2275,6 +2276,9 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  void refreshElectronSupabaseAuth().catch((error: unknown) => {
+    createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
+  })
   deviceRuntimeHost?.notifyAuthChanged()
   deviceProjectsPublisher?.notify()
   void handOffWechatIfAny()
@@ -2523,7 +2527,7 @@ if (sshMachineStore) {
     // 问 tunnel.open 只走咕咕云(要建的正是另一条路);一台机器一条频道,与窗口那条各订各的。
     const cloud = createDeviceRpcRequester({
       userId: async () => (await requireAuth()).userId,
-      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
+      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
     })
     const machines = createTunnelMachines({
       currentUserId,
@@ -3325,7 +3329,7 @@ function crossMachine(): CrossMachineSessions {
     userId: async () => (await requireAuth()).userId,
     openPipe: async (deviceId, handlers) => (sshLinks && ((await sshMachine(deviceId)) || tunnelMachines?.linkMachine(deviceId))
       ? openSshDeviceRpcPipe(sshLinks, deviceId, handlers)
-      : openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
+      : openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
     // #7199 第二步:设备推回来的「还在跑」与结果。「收到」之后管道本来就留着(只有超时且没有在途请求才拆),
     // 拆了也无妨:重发同一个 call_id 会重开管道,设备每 5 秒重推结果。
     onEvent: (deviceId, payload) => { deviceActionCallerInstance?.onEvent(deviceId, payload) },

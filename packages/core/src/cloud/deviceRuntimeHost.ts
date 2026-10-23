@@ -79,7 +79,6 @@ export type DeviceRuntimeTickTrigger = 'event' | 'reconcile'
 
 export type SubscribeDeviceCommandWake = (input: {
   deviceId: string
-  accessToken: string
   /** 有行变成 pending 了。事件点名了哪一行就带上它的 id(广播负载里有);不带 = 泛指(订上时的补拉)。 */
   onCommand: (commandId?: string) => Promise<void>
   /**
@@ -93,10 +92,9 @@ export type SubscribeDeviceCommandWake = (input: {
   onSubscribeFailure: () => void
 }) => Promise<() => void> | (() => void)
 
-// @@@device-rpc-seam - same inject shape as SubscribeDeviceCommandWake: the host owns realtime
+// 账号客户端拥有认证;订阅只跟设备与 owner 生灭,令牌续期不拆掉手机的窗口。
 export type SubscribeDeviceRpc = (input: {
   deviceId: string
-  accessToken: string
 }) => Promise<() => void> | (() => void)
 
 export interface DeviceRuntimeHostOptions {
@@ -339,9 +337,9 @@ export function createDeviceRuntimeHostLoop(
   let lastLeaseRenewAt: number | null = null
   // @@@5912 上一次跑 legacy / 陈旧行清理的时刻。换 owner 要重来 —— 那是另一批行。
   let lastLegacyCleanupAt: number | null = null
-  let commandWake: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let commandWake: { deviceId: string; unsubscribe: () => void } | null = null
   let commandWakeEpoch = 0
-  let deviceRpc: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let deviceRpc: { deviceId: string; unsubscribe: () => void } | null = null
   let lifecycleGeneration = 0
   let lastAuth: RuntimeAuth | null = null
   let activeOwnerUserId: string | null = null
@@ -475,17 +473,17 @@ export function createDeviceRuntimeHostLoop(
     }
   }
 
-  async function ensureDeviceRpc(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureDeviceRpc(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeDeviceRpc) return
     if (generation !== lifecycleGeneration) return
-    if (deviceRpc?.deviceId === deviceId && deviceRpc.accessToken === accessToken) return
+    if (deviceRpc?.deviceId === deviceId) return
     unsubscribeDeviceRpc()
-    const unsubscribe = await options.subscribeDeviceRpc({ deviceId, accessToken })
+    const unsubscribe = await options.subscribeDeviceRpc({ deviceId })
     if (generation !== lifecycleGeneration) {
       unsubscribe()
       return
     }
-    deviceRpc = { deviceId, accessToken, unsubscribe }
+    deviceRpc = { deviceId, unsubscribe }
   }
 
   // 一次「该取命令了」的请求。没有 tick 在飞就立刻跑一轮;有就排一个后续的 ——
@@ -546,16 +544,15 @@ export function createDeviceRuntimeHostLoop(
     return flight
   }
 
-  async function ensureCommandWake(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureCommandWake(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeCommandWake) return
     if (generation !== lifecycleGeneration) return
-    if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) return
+    if (commandWake?.deviceId === deviceId) return
     unsubscribeCommandWake()
     const wakeEpoch = commandWakeEpoch
     let failed = false
     const unsubscribe = await options.subscribeCommandWake({
       deviceId,
-      accessToken,
       onCommand: async (commandId) => {
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
         noteCommandAnnouncement(commandId)
@@ -575,7 +572,7 @@ export function createDeviceRuntimeHostLoop(
       onSubscribeFailure: () => {
         failed = true
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
-        if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) {
+        if (commandWake?.deviceId === deviceId) {
           unsubscribeCommandWake()
         }
         onCommandWakeSubscribeFailed(generation)
@@ -586,7 +583,7 @@ export function createDeviceRuntimeHostLoop(
       unsubscribe()
       return
     }
-    commandWake = { deviceId, accessToken, unsubscribe }
+    commandWake = { deviceId, unsubscribe }
   }
 
   // wake 是新命令的事件源。订不上不致命(入队的行是持久的,订上时的补拉与对账节拍都会把它们取回),但必须响亮,
@@ -711,7 +708,7 @@ export function createDeviceRuntimeHostLoop(
       lastDeviceId = deviceId
       // 先订设备 RPC,再写心跳:设备行里出现这台(心跳带 app_version)就等于它已经接得了 RPC。看到机器上线 / 换完版
       // 就去开线的路径(会话页的机器线)发来的请求是 broadcast,频道还没订上就直接丢了,只能等它超时。
-      await ensureDeviceRpc(deviceId, auth.accessToken, generation)
+      await ensureDeviceRpc(deviceId, generation)
       preClaim.mark('device-rpc')
       let heartbeatSynced = false
       if (syncHeartbeat) {
@@ -792,7 +789,7 @@ export function createDeviceRuntimeHostLoop(
         },
         env
       )
-      await ensureCommandWake(result.deviceId, auth.accessToken, generation)
+      await ensureCommandWake(result.deviceId, generation)
       // @@@scheduled-tasks (#987) — 定时任务由到期定时器驱动,❌ 不在 tick 里跑。tick 只负责本生命周期第一次确立 owner
       // 边界之后排第一次;周期重排挂在对账**定时器**上(见 start())—— 挂在 tick 上就是按事件频率扫表。
       if (!scheduledTasksPlanned) scheduleScheduledTasksRun()
