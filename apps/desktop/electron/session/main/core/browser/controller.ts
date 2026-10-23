@@ -1,4 +1,4 @@
-import { agentCursorArrived, pauseAgentBrowser, resumeAgentBrowser } from '@main/core/browser/agent-browser';
+import { forgetAgentBrowser, agentBrowserStateOf, agentCursorArrived } from '@main/core/browser/agent-browser';
 import { defaultBrowser, importDefaultBrowserCookies } from '@main/core/browser/browser-cookie-import';
 import { configureBrowserProfileSession } from '@main/core/browser/browser-profile-session';
 import {
@@ -13,6 +13,7 @@ import {
   runBrowserPageCommand,
   closeAgentOverlayLayers,
   setAgentCursorShown,
+  forwardAgentCursorInput,
   setBrowserPageZoom,
   snapshotBrowserPage,
   type BrowserPageCommand,
@@ -27,6 +28,7 @@ import {
   isBrowsingDataKind,
   type BrowserDataClearKind,
 } from '@shared/browser';
+import type { BrowserCursorInput } from '@shared/browser-cursor-input';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 
 export const browserController = createRPCController({
@@ -46,6 +48,7 @@ export const browserController = createRPCController({
 
   unregisterSession: (browserId: string) => {
     // 页签关了:它的网页当场关掉(❌ 留一块没主的网页 view 在窗口里)。
+    forgetAgentBrowser(browserId);
     destroyBrowserPage(browserId);
     browserWebContentsRegistry.unregisterSession(browserId);
     return { success: true as const };
@@ -76,6 +79,9 @@ export const browserController = createRPCController({
     setAgentCursorShown(args.browserId, args.shown);
     return { success: true as const };
   },
+  forwardAgentCursorInput: (args: { browserId: string; input: BrowserCursorInput }) => ({
+    success: forwardAgentCursorInput(args.browserId, args.input),
+  }),
   /** 页签那边不要盖在网页上的那几层了:按 window.open 的名字关(界面 ❌ 自己 window.close,那会关掉整扇窗)。 */
   closeAgentOverlayLayers: (frameNames: string[]) => {
     closeAgentOverlayLayers(frameNames);
@@ -101,17 +107,8 @@ export const browserController = createRPCController({
     }
   },
 
-  /** #7191 人在页签的「agent 正在操作」条上按「停止」。 */
-  pauseAgent: (browserId: string) => {
-    pauseAgentBrowser(browserId);
-    return { success: true as const };
-  },
-
-  /** #7191 人在页签上点「让 agent 继续」。 */
-  resumeAgent: (browserId: string) => {
-    resumeAgentBrowser(browserId);
-    return { success: true as const };
-  },
+  /** OpenDCAI/gugu#56 界面挂上来 / 重新露出来时补问:这个页签上 agent 现在是什么状态(事件只在变化时发一次)。 */
+  agentState: (browserId: string) => ({ state: agentBrowserStateOf(browserId) }),
 
   /** #7191 页签上 agent 的鼠标到位了:主进程这才把那一下交给网页。 */
   agentCursorArrived: (moveId: number) => {
