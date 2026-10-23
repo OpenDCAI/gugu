@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { codexFilePatches } from '../../acp/transport/codex-file-patches';
 import type { NormalizedEvent } from '../../acp/reducer/normalized-event';
 import { readCodexRecord, type CodexRecord, type CodexRecordItem } from '@gugu/core/local/agent/transcriptSources/codex';
 
@@ -79,7 +80,7 @@ export function createCodexJsonlSource(locator: SessionRecordLocator, options?: 
   };
   const root = createJsonlTailSource<Ordinals>(locator, options, {
     name: 'codex',
-    resumeVersion: 5,
+    resumeVersion: 6,
     resolve: () => resolveRolloutFile(locator),
     initial: () => ({ turn: 0, item: -1, calls: {}, children: {} }),
     decode(record, ordinals) {
@@ -247,6 +248,8 @@ function toEvent(item: CodexRecordItem, messageId: string): NormalizedEvent {
       return item.text ? { kind: 'thinking', messageId, text: item.text } : { kind: 'ignored' };
     case 'subagent':
       throw new Error('Codex subagent activity must be decoded with its source state');
+    case 'file_change':
+      return { ...toolCallResult(item.id, item.failed ? 'failed' : 'completed', { contentBlocks: codexFilePatches(item) }), title: 'apply_patch', toolKind: 'edit' };
     case 'tool_call':
       return toolCallStart(item.id, item.name, codexToolKind(item.name), item.input);
     case 'tool_result': {
