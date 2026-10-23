@@ -644,7 +644,11 @@ textarea.ta-input { min-height: 80px; resize: vertical; line-height: 1.5; }
 .ta-chips button[aria-pressed='true'] { background: var(--ta-chip-bg); color: var(--ta-chip-fg); }
 
 /* 没开云电脑 / 正在开:整页居中一块,上面一团柔光(欢迎页那团球)。 */
-.ta-centered { align-items: center; justify-content: center; }
+.ta-centered {
+  align-items: center;
+  justify-content: center;
+  background: var(--page);
+}
 .ta-intro { display: flex; width: min(460px, 100%); flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .ta-intro-glow {
   height: 96px;
