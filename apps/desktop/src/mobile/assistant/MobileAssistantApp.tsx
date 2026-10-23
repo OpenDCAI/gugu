@@ -102,7 +102,7 @@ function MobileAssistantAppContent({
   cloudDeviceId,
   home,
   visible,
-  chatRequest,
+  chatRequest, navigationTarget,
   ...chatHandlers
 }: {
   chatId: string
@@ -115,6 +115,7 @@ function MobileAssistantAppContent({
   visible: boolean
   /** 每变一次 = 别处打开了和它的私聊:落在聊天那一段。 */
   chatRequest: number
+  navigationTarget?: boolean
 } & AssistantChatHandlers) {
   const { t } = useTranslation('assistant')
   const [route, setRoute] = useState<PhoneRoute>({ tab: 'chat' })
@@ -251,6 +252,7 @@ function MobileAssistantAppContent({
       <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
         <FilePreviewHost.Provider value={{}}><ChatAreaPanel
           chatId={chatId}
+          navigationTarget={navigationTarget}
           activeTab="chats"
           mobile
           hidden={!chatShown}

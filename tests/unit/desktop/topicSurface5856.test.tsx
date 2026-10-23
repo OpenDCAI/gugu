@@ -8,6 +8,7 @@
 //      迁移 20260918223500)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
 //      反例同样钉住:别的线上开话题 ❌ 不许触发重拉(那是白跑一次往返)。
 //   ③ 分栏里 @ 到的人要真的写进 to_user_ids —— 那是「被 @ 进来」的唯一通路。
+import { chatWindowStub, topicHistoryStub } from '../../support/chatWindowStub'
 import { renderWithConversations } from '../../support/conversationAccountStub'
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,7 +18,9 @@ import { createNode, createReactHarness, chat, message, renderWithAppProviders }
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.fn<(chatId: string, seq: number) => Promise<unknown>>()
-const sendMessageToChat = vi.fn()
+const sendScopedMessage = vi.fn()
+const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
+function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
 const onCreateFailed = vi.fn()
 
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
@@ -92,18 +95,19 @@ beforeEach(() => {
   listTopicsOfChat.mockReset().mockResolvedValue([topic()])
   getMessages.mockReset().mockResolvedValue([])
   markRead.mockReset().mockResolvedValue(undefined)
-  sendMessageToChat.mockReset().mockResolvedValue('client-id')
+  actionsOf.mockClear()
+  sendScopedMessage.mockReset().mockResolvedValue('client-id')
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
 
 async function mount() {
-  await renderWithAppProviders(harness, createNode(Probe, {}), { chat: { sendMessageToChat } })
+  await renderWithAppProviders(harness, createNode(Probe, {}), { chat: sendingFixture() })
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
 async function openSplit(real = false) {
   if (real) await renderWithConversations(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), subscribeAccountRevision, { chat: { chats: [chat({ id: 'topic-1', unread_count: 9 })] } })
-  else await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: { sendMessageToChat } })
+  else await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: sendingFixture() })
   await act(async () => { await vi.dynamicImportSettled() })
 }
 
@@ -173,25 +177,26 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
   it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
     await openSplit()
     await act(async () => { await surface?.sendInSplit('@所有人 看一下', ['*']) })
-    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '@所有人 看一下', { toUserIds: ['*'], replyToMessageId: null })
+    expect(actionsOf).toHaveBeenLastCalledWith('topic-1', expect.any(Object))
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('@所有人 看一下', { toUserIds: ['*'], replyToMessageId: null })
   })
 
   it('keeps explicit recipients and replies on the shared optimistic outbox path', async () => {
     await openSplit()
     await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9'], 'original-message') })
-    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '小柯 看一下', { toUserIds: ['agent-9'], replyToMessageId: 'original-message' })
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('小柯 看一下', { toUserIds: ['agent-9'], replyToMessageId: 'original-message' })
     await act(async () => { await surface?.sendInSplit('我先看看', []) })
-    expect(sendMessageToChat).toHaveBeenLastCalledWith('topic-1', '我先看看', { toUserIds: null, replyToMessageId: null })
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('我先看看', { toUserIds: null, replyToMessageId: null })
   })
 
   it('does not send an empty or closed topic and preserves shared queue failures', async () => {
     await mount()
     await surface?.sendInSplit('not open')
-    expect(sendMessageToChat).not.toHaveBeenCalled()
+    expect(sendScopedMessage).not.toHaveBeenCalled()
     await openSplit()
     await surface?.sendInSplit('   ')
-    expect(sendMessageToChat).not.toHaveBeenCalled()
-    sendMessageToChat.mockRejectedValueOnce(new Error('queue unavailable'))
+    expect(sendScopedMessage).not.toHaveBeenCalled()
+    sendScopedMessage.mockRejectedValueOnce(new Error('queue unavailable'))
     await expect(surface?.sendInSplit('keep my draft')).rejects.toThrow('queue unavailable')
   })
 })

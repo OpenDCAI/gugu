@@ -422,6 +422,7 @@ function InnerLayout({
     return true
   }, [mobile, phoneAssistant.chatId])
   const assistantOnPhone = mobile && !!phoneAssistant.chatId && activeChatId === phoneAssistant.chatId
+  const unreadNavigationTarget = assistantOnPhone ? 'assistant' : 'chat'
   // 首次引导里点了「开通我的咕咕」(product spec,#7348):主界面挂上就打开咕咕那一格(开通流程自己从「住在哪」开始)。
   // 桌面 = 会话页的「助理」视图(同最左栏顶格那一下);手机 = 底栏咕咕那一格。这一格开不了时不跳,由人自己去看。
   useEffect(() => {
@@ -1351,7 +1352,7 @@ function InnerLayout({
           pages={{
             // #7199 个人助理那一格:默认是和它的聊天,页顶分段切 动态 / 任务 / 记忆 / <它的名字>;咕咕底栏一直在。
             assistant: mobile && phoneAssistant.available && (
-              <MobileAssistantTab key="assistant" state={phoneAssistant} visible={activeTab === 'assistant'} chatRequest={assistantChatRequest} onOpenUserChat={handleOpenProfileChat} />
+              <MobileAssistantTab key="assistant" state={phoneAssistant} visible={activeTab === 'assistant'} navigationTarget={unreadNavigationTarget === 'assistant'} chatRequest={assistantChatRequest} onOpenUserChat={handleOpenProfileChat} />
             ),
             // 手机端的「任务」= 看管 agent(机器 → 会话 → 时间线),❌ 不是桌面那张会话页 IDE 面
             // (那个 <720px 真不适配,它的槽在上面照旧 mobile 时 display:none)。
@@ -1410,7 +1411,7 @@ function InnerLayout({
                     <div inert={showCreateSurface || assistantOnPhone} className="flex min-h-0 min-w-0 flex-[1_1_auto]" style={showCreateSurface || assistantOnPhone ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}>
                       <ChatAreaPanel
                         chatId={activeChatId}
-                        navigationTarget
+                        navigationTarget={unreadNavigationTarget === 'chat'}
                         activeTab={activeTab}
                         hidden={showCreateSurface || onScreenChatId !== activeChatId}
                         mobile={mobile}

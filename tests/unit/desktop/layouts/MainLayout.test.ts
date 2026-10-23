@@ -105,10 +105,10 @@ const chatAreaProbe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    ChatAreaPanel: ({ activeTab, hidden = false }: { activeTab: string; hidden?: boolean }) => {
+    ChatAreaPanel: ({ activeTab, hidden = false, navigationTarget }: { activeTab: string; hidden?: boolean; navigationTarget?: boolean }) => {
       const [bumps, setBumps] = React.useState(0)
       React.useEffect(() => { chatAreaProbe.mounts += 1 }, [])
-      return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden) },
+      return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden), 'data-navigation-target': String(navigationTarget) },
         React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-area-bump', onClick: () => setBumps((n) => n + 1) }, 'bump'),
         'chat-area-panel')
     },
@@ -133,8 +133,8 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/usePhoneAssistant', () =>
 vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    MobileAssistantTab: ({ visible, chatRequest }: { visible: boolean; chatRequest: number }) =>
-      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest) }),
+    MobileAssistantTab: ({ visible, chatRequest, navigationTarget }: { visible: boolean; chatRequest: number; navigationTarget?: boolean }) =>
+      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest), 'data-navigation-target': String(navigationTarget) }),
   }
 })
 // 看管订阅的根:挂载/卸载计数量「切 tab 会不会把它拆掉」。
@@ -788,6 +788,18 @@ describe('MainLayout', () => {
     expect(live()).toEqual(['assistant'])
     expect(request(), 'the cell is told to land on its chat segment').toBeGreaterThan(before)
     expect(chatOnScreen(), 'the chat page does not also claim the chat as seen').toBeNull()
+    const target = (id: string) => harness.container.querySelector(`[data-testid="${id}"]`)?.getAttribute('data-navigation-target')
+    expect(target('mock-assistant-tab')).toBe('true')
+    expect(target('mock-chat-area')).toBe('false')
+    // A remains the main selection while its list is shown; an unread arrival then reopens A via this same route.
+    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
+    expect(live()).toEqual(['chats'])
+    const previousRequest = request()
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
+    expect(live()).toEqual(['assistant'])
+    expect(request()).toBeGreaterThan(previousRequest)
+    expect(target('mock-assistant-tab')).toBe('true')
+    expect(target('mock-chat-area')).toBe('false')
   })
   it('switches tab only once the pager settles on a whole page, and aligns the pager when a tab is tapped', async () => {
     platformMock.kind = 'capacitor'
