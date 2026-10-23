@@ -13,7 +13,7 @@ export function BoringAgentAvatar({ id, name, size }: { id: string; name: string
       size={size}
       aria-label={name}
       data-agent-avatar-boring={id}
-      style={{ display: 'block', flexShrink: 0 }}
+      className="block shrink-0"
     />
   )
 }

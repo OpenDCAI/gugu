@@ -5,6 +5,7 @@ import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { runtime } from '../../../../apps/desktop/src/components/agentAvatar/engine/runtime'
 import { AgentAvatar } from '../../../../apps/desktop/src/components/agentAvatar/AgentAvatar'
+import { installAssistantShellBridge, publishAssistantShell, type AssistantShellSnapshot } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { Avatar } from '../../../../apps/desktop/src/components/Avatar'
 
 // 单聊头栏那只小鸟:鼠标移上去就算跟它互动(拍一拍),有冷却;不开 hoverPoke 的小鸟(列表里几十只)不反应。
@@ -14,6 +15,8 @@ let pokes: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   harness = createReactHarness()
+  installAssistantShellBridge()
+  publishAssistantShell({ assistant: null } as AssistantShellSnapshot)
   now = 10_000
   pokes = vi.fn()
   vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -28,6 +31,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   harness.cleanup()
+  publishAssistantShell({ assistant: null } as AssistantShellSnapshot)
   vi.restoreAllMocks()
 })
 
@@ -58,7 +62,10 @@ describe('悬停拍一拍', () => {
     expect(pokes).not.toHaveBeenCalled()
   })
 
-  it('Avatar 把 hoverPoke 传给小鸟;人 / 照片头像没有这个反应', async () => {
+  it('Avatar keeps hoverPoke for the assistant; ordinary agents and humans have no 3D reaction', async () => {
+    await harness.render(createElement(Avatar, { name: 'Agent', seed: 'agent-1', size: 80, isAgent: true, hoverPoke: true }))
+    expect(harness.container.querySelector('canvas')).toBeNull()
+    await act(async () => publishAssistantShell({ assistant: { id: 'agent-1', display_name: 'Assistant', avatar: null } } as AssistantShellSnapshot))
     await harness.render(createElement(Avatar, { name: 'A', seed: 'agent-1', size: 80, isAgent: true, hoverPoke: true }))
     await enter()
     expect(pokes).toHaveBeenCalledTimes(1)
