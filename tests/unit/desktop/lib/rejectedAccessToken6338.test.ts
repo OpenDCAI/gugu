@@ -172,9 +172,11 @@ describe('authBoundedFetch rejected-token retry (#6338)', () => {
 
   it('retries at most once: a second 401 goes back to the caller', async () => {
     vi.stubGlobal('fetch', fetchMock)
-    fetchMock.mockResolvedValue(new Response('{}', { status: 401 }))
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 401 }))
     setRejectedAccessTokenRecovery(vi.fn(async () => newUser))
-    expect((await call(oldUser)).status).toBe(401)
+    const response = await call(oldUser)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({})
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
