@@ -30,7 +30,7 @@
 
 import type { Component } from 'solid-js';
 import type { ChatTranslator } from '@session-chat/localization';
-import type { AcpPermissionRequest, ChatItem, PlanState, SyntheticItem, TerminalExit, SessionCondition } from '@session-chat/model';
+import type { AcpPermissionRequest, ChatItem, SessionPlans, SyntheticItem, TerminalExit, SessionCondition } from '@session-chat/model';
 import type { ChatCaches } from './caches';
 import type { MeasureCtx, RenderCtx } from './define';
 import type { Margin } from './spacing';
@@ -123,7 +123,7 @@ export type SegmentCtx = {
   caches: ChatCaches;
   expanded: (id: string) => boolean;
   active: boolean;
-  plan: () => PlanState | null;
+  plan: () => SessionPlans | null;
   translate: ChatTranslator;
   pendingToolCallIds: () => Set<string>;
   /** 这次调用正在等的那条审批请求（计划审批卡拿它画选项）；没在等 ⇒ undefined。 */

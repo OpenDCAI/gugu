@@ -3,33 +3,32 @@ import { describe, expect, it } from 'vitest';
 import type { NormalizedEvent } from '../reducer/normalized-event';
 import { decodeSessionUpdate } from './decode';
 
-// Characterize the existing consumer projection before changing the protocol model.
-// Existing recorded Claude/Codex transcript snapshots must also remain unchanged.
+// The boundary retains canonical content and distinguishes absent fields from explicit null.
 const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
   {
     name: 'user message without a native id retains its revert anchor',
     update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'edit this' }, _meta: { guguRevertAnchor: 'anchor' } },
-    event: { kind: 'message', role: 'user', messageId: null, text: 'edit this', revertAnchor: 'anchor' },
+    event: { kind: 'message', role: 'user', messageId: null, text: 'edit this', content: [{ type: 'text', text: 'edit this' }], contentMode: 'append', revertAnchor: 'anchor' },
   },
   {
     name: 'assistant message keeps the native id',
     update: { sessionUpdate: 'agent_message_chunk', messageId: 'answer', content: { type: 'text', text: 'done' } },
-    event: { kind: 'message', role: 'assistant', messageId: 'answer', text: 'done' },
+    event: { kind: 'message', role: 'assistant', messageId: 'answer', text: 'done', content: [{ type: 'text', text: 'done' }], contentMode: 'append' },
   },
   {
     name: 'thinking is separate from assistant text',
     update: { sessionUpdate: 'agent_thought_chunk', messageId: 'thought', content: { type: 'text', text: 'checking' } },
-    event: { kind: 'thinking', messageId: 'thought', text: 'checking' },
+    event: { kind: 'thinking', messageId: 'thought', text: 'checking', content: [{ type: 'text', text: 'checking' }], contentMode: 'append' },
   },
   {
     name: 'an omitted tool title and locations remain an incomplete update',
     update: { sessionUpdate: 'tool_call_update', toolCallId: 'edit' },
-    event: { kind: 'tool_update', toolCallId: 'edit', title: null, toolKind: null, status: null, parentToolCallId: null, diffs: [] },
+    event: { kind: 'tool_update', toolCallId: 'edit' },
   },
   {
     name: 'an explicit null location collection stays null',
     update: { sessionUpdate: 'tool_call_update', toolCallId: 'edit', locations: null },
-    event: { kind: 'tool_update', toolCallId: 'edit', title: null, toolKind: null, status: null, parentToolCallId: null, diffs: [], locations: null },
+    event: { kind: 'tool_update', toolCallId: 'edit', locations: null },
   },
   {
     name: 'file preview, terminal reference and vendor tool name keep their identities',
@@ -40,6 +39,7 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
     },
     event: {
       kind: 'tool_call', toolCallId: 'write', title: 'Write note', toolName: 'Write', toolKind: 'edit', status: 'pending',
+      contentBlocks: [{ type: 'diff', path: '/note.txt', oldText: null, newText: 'one\n' }, { type: 'terminal', terminalId: 'terminal' }], _meta: { toolName: 'Write' },
       parentToolCallId: null, diffs: [{ path: '/note.txt', oldText: null, newText: 'one\n' }], locations: [], terminalId: 'terminal',
     },
   },
@@ -51,7 +51,8 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
         { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aW1n' } }],
     },
     event: {
-      kind: 'tool_update', toolCallId: 'browser', title: null, toolKind: null, status: 'completed', parentToolCallId: null, diffs: [],
+      kind: 'tool_update', toolCallId: 'browser', status: 'completed', diffs: [], contentMode: 'replace',
+      contentBlocks: [{ type: 'content', content: { type: 'text', text: '```text\nvisible\n```' } }, { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aW1n' } }],
       outputText: 'visible', images: [{ mimeType: 'image/png', data: 'aW1n' }], rawOutput: '{\n  "ok": true\n}',
     },
   },
@@ -92,7 +93,7 @@ for (const sessionUpdate of ['async_task_spawned', '_async_task_spawned']) {
   });
 }
 
-describe('transport boundary preserves the existing decoder projection', () => {
+describe('transport boundary decodes domain entities', () => {
   it.each(fixtures)('$name', ({ update, event }) => {
     expect(decodeSessionUpdate(update as SessionUpdate)).toStrictEqual(event);
   });

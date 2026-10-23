@@ -97,7 +97,7 @@ describe('时间线存档', () => {
     expect(resumed.epoch).toBe(archive!.epoch);
   });
 
-  it.each([1, TIMELINE_ARCHIVE_VERSION + 1])('rejects archive version %s and rebuilds from native history', async (version) => {
+  it.each([1, 2, TIMELINE_ARCHIVE_VERSION + 1])('rejects archive version %s and rebuilds from native history', async (version) => {
     const lines = await fixtureLines();
     const staged = await stage(lines);
     const before = await open(staged.root);

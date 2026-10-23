@@ -16,7 +16,7 @@ import {
   sessionConfigStateSchema,
   sessionUsageSchema,
 } from '../models/config';
-import { planStateSchema } from '../models/plan';
+import { sessionPlansSchema } from '../models/plan';
 import { promptDraftSchema } from '../models/prompt';
 import { sessionStateSchema, sessionSummarySchema } from '../models/session';
 import { transcriptTurnSchema } from '../models/turns';
@@ -195,7 +195,7 @@ export const acpApiContract = defineContract({
       state: liveState({ data: sessionStateSchema }),
       config: liveState({ data: sessionConfigStateSchema }),
       usage: liveState({ data: sessionUsageSchema.nullable() }),
-      plan: liveState({ data: planStateSchema.nullable() }),
+      plan: liveState({ data: sessionPlansSchema.nullable() }),
       agents: liveState({ data: z.array(agentStateSchema) }),
       activeTurn: liveState({ data: transcriptTurnSchema.nullable() }),
       draft: liveState({ data: promptDraftSchema.nullable() }),

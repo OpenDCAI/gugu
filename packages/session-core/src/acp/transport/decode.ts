@@ -16,7 +16,8 @@
 
 import type { SessionUpdate, ToolCallContent, ToolCallLocation } from '@agentclientprotocol/sdk';
 import { DRAFT_UPDATE_META_KEY } from '@gugu/core/shared/subagentUpdates.mjs';
-import { serializePayload, toolOutputText } from '../models/tool-payload';
+import { serializePayload, projectToolContent } from '../models/tool-payload';
+import { messageContentText, type EntityContent, type EntityMeta } from '../models/entity-content';
 import type { ToolImage } from '../models/turns/tool-calls';
 import type {
   NormalizedDiff,
@@ -25,17 +26,8 @@ import type {
   NormalizedToolStatus,
 } from '../reducer/normalized-event';
 
-function extractDiffs(
-  content: ReadonlyArray<ToolCallContent> | null | undefined
-): NormalizedDiff[] {
-  if (!content) return [];
-  const diffs: NormalizedDiff[] = [];
-  for (const block of content) {
-    if (block.type === 'diff') {
-      diffs.push({ path: block.path, oldText: block.oldText ?? null, newText: block.newText });
-    }
-  }
-  return diffs;
+function extractDiffs(content: ReadonlyArray<ToolCallContent> | null | undefined): NormalizedDiff[] {
+  return projectToolContent((content ?? []) as readonly EntityContent[]).diffs;
 }
 
 function normalizeLocations(
@@ -51,54 +43,13 @@ function normalizeLocations(
   });
 }
 
-function collectTextPayload(value: unknown, parts: string[]): void {
-  if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value)) {
-    for (const item of value) collectTextPayload(item, parts);
-    return;
-  }
-
-  const raw = value as { type?: unknown; text?: unknown; content?: unknown };
-  if (raw.type === 'text' && typeof raw.text === 'string') {
-    parts.push(raw.text);
-    return;
-  }
-  collectTextPayload(raw.content, parts);
+function extractTextOutput(content: ReadonlyArray<ToolCallContent> | null | undefined): string | undefined {
+  return projectToolContent((content ?? []) as readonly EntityContent[]).outputText;
 }
 
-function extractTextOutput(
-  content: ReadonlyArray<ToolCallContent> | null | undefined
-): string | undefined {
-  if (!content) return undefined;
-  const parts: string[] = [];
-  for (const block of content) {
-    const raw = block as { type?: unknown; content?: unknown; text?: unknown };
-    if (raw.type === 'content') {
-      collectTextPayload(raw.content, parts);
-    } else if (raw.type === 'text' && typeof raw.text === 'string') {
-      parts.push(raw.text);
-    }
-  }
-  const text = parts.join('\n');
-  return toolOutputText(text);
-}
-
-/**
- * The pictures a tool handed back: the image blocks of its `content` (`{ type: 'content', content: { type: 'image',
- * data, mimeType } }`), as they came. MCP's result blocks are ACP's, so every tool that returns pictures has them here —
- * an App's app_check, a browser screenshot. Its text blocks stay `outputText`; until 10-14 the pictures were dropped.
- */
 function extractImages(content: ReadonlyArray<ToolCallContent> | null | undefined): ToolImage[] | undefined {
-  if (!content) return undefined;
-  const images: ToolImage[] = [];
-  for (const block of content) {
-    if (block.type !== 'content') continue;
-    const inner = block.content as { type?: unknown; data?: unknown; mimeType?: unknown } | null | undefined;
-    if (inner?.type !== 'image' || typeof inner.data !== 'string' || !inner.data) continue;
-    if (typeof inner.mimeType !== 'string' || !inner.mimeType.startsWith('image/')) continue;
-    images.push({ mimeType: inner.mimeType, data: inner.data });
-  }
-  return images.length > 0 ? images : undefined;
+  const images = projectToolContent((content ?? []) as readonly EntityContent[]).images;
+  return images.length ? images : undefined;
 }
 
 /**
@@ -560,7 +511,36 @@ function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nul
  * Decode a raw ACP SessionUpdate into a NormalizedEvent.
  * Stateless — does not depend on turn or session context.
  */
+/** Decode snapshot updates without passing them through append-only chunk shapes. */
+function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | null {
+  const raw = update as unknown as {
+    sessionUpdate: string; messageId: string; content?: EntityContent[] | EntityContent | null;
+    toolCallId: string; _meta?: EntityMeta | null;
+  };
+  if (raw.sessionUpdate === 'agent_message' || raw.sessionUpdate === 'user_message' || raw.sessionUpdate === 'agent_thought') {
+    const content = raw.content as readonly EntityContent[] | null | undefined;
+    return {
+      kind: raw.sessionUpdate === 'agent_thought' ? 'thinking' : 'message',
+      ...(raw.sessionUpdate === 'agent_thought' ? {} : { role: raw.sessionUpdate === 'user_message' ? 'user' : 'assistant' }),
+      messageId: raw.messageId, text: messageContentText(content ?? []), contentMode: 'replace',
+      ...(content !== undefined ? { content } : {}),
+      ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
+    } as NormalizedEvent;
+  }
+  if (raw.sessionUpdate === 'plan_removed') return { kind: 'plan_remove', planId: (update as unknown as { planId: string }).planId };
+  if (raw.sessionUpdate === 'plan_update') {
+    const plan = (update as unknown as { plan: EntityContent & { planId: string; entries?: unknown[] } }).plan;
+    return { kind: 'plan', planId: plan.planId, entries: plan.type === 'items' ? plan.entries as Extract<NormalizedEvent, {kind: 'plan'}>['entries'] : [], body: plan, ...(raw._meta !== undefined ? { _meta: raw._meta } : {}) };
+  }
+  if (raw.sessionUpdate === 'tool_call_content_chunk') {
+    return { kind: 'tool_update', toolCallId: raw.toolCallId, contentBlocks: [raw.content as EntityContent], contentMode: 'append' };
+  }
+  return null;
+}
+
 export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
+  const contentUpdate = decodeEntityContentUpdate(update);
+  if (contentUpdate) return contentUpdate;
   // 先问会话形态那五种(#5117);不归它管才走下面的老分支。
   const subagentSession = decodeSubagentSessionUpdate(update);
   if (subagentSession) return subagentSession;
@@ -576,32 +556,35 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
 
   switch (update.sessionUpdate) {
     case 'user_message_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
       return {
         kind: 'message',
         role: 'user',
         messageId: update.messageId ?? null,
-        text: update.content.text,
+        text: update.content.type === 'text' ? update.content.text : '',
+        content: [update.content as EntityContent],
+        contentMode: 'append',
         ...(typeof update._meta?.guguRevertAnchor === 'string' ? { revertAnchor: update._meta.guguRevertAnchor } : {}),
       };
     }
 
     case 'agent_message_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
       return {
         kind: 'message',
         role: 'assistant',
         messageId: update.messageId ?? null,
-        text: update.content.text,
+        text: update.content.type === 'text' ? update.content.text : '',
+        content: [update.content as EntityContent],
+        contentMode: 'append',
       };
     }
 
     case 'agent_thought_chunk': {
-      if (update.content.type !== 'text' || !update.content.text) return { kind: 'ignored' };
       return {
         kind: 'thinking',
         messageId: update.messageId ?? null,
-        text: update.content.text,
+        text: update.content.type === 'text' ? update.content.text : '',
+        content: [update.content as EntityContent],
+        contentMode: 'append',
       };
     }
 
@@ -611,10 +594,12 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
       const rawInput = extractRawInput(update);
       const rawOutput = extractRawOutput(update);
       const outputText = extractTextOutput(update.content);
-      const toolName = extractVendorToolName(update);
+      const toolName = (update as unknown as { name?: string | null }).name ?? extractVendorToolName(update);
       const images = extractImages(update.content);
       return {
         kind: 'tool_call',
+        ...(update.content !== undefined ? { contentBlocks: update.content as EntityContent[] } : {}),
+        ...(update._meta !== undefined ? { _meta: update._meta } : {}),
         toolCallId: update.toolCallId,
         title: update.title,
         ...(toolName !== undefined ? { toolName } : {}),
@@ -633,28 +618,29 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
     }
 
     case 'tool_call_update': {
-      const outputText = extractTextOutput(update.content ?? undefined);
-      const images = extractImages(update.content);
+      const raw = update as typeof update & { name?: string | null };
+      const payload = (value: unknown) => value === null ? null : typeof value === 'string' ? value : serializePayload(value);
+      const content = raw.content;
+      const outputText = extractTextOutput(content ?? undefined);
+      const images = extractImages(content);
       const terminalId = extractTerminalId(update);
-      const rawInput = extractRawInput(update);
-      const rawOutput = extractRawOutput(update);
-      const locations = normalizeLocations(update.locations);
-      const toolName = extractVendorToolName(update);
+      const locations = normalizeLocations(raw.locations);
+      const name = raw.name !== undefined ? raw.name : extractVendorToolName(update);
       return {
-        kind: 'tool_update',
-        toolCallId: update.toolCallId,
-        title: update.title ?? null,
-        ...(toolName !== undefined ? { toolName } : {}),
-        toolKind: update.kind ?? null,
-        status: (update.status as NormalizedToolStatus | undefined | null) ?? null,
-        parentToolCallId: null,
-        diffs: extractDiffs(update.content ?? undefined),
+        kind: 'tool_update', toolCallId: raw.toolCallId,
+        ...(raw.title !== undefined ? { title: raw.title } : {}),
+        ...(name !== undefined ? { toolName: name } : {}),
+        ...(raw.kind !== undefined ? { toolKind: raw.kind } : {}),
+        ...(raw.status !== undefined ? { status: raw.status as NormalizedToolStatus | null } : {}),
+        ...(content !== undefined ? { contentBlocks: content as EntityContent[] | null, contentMode: 'replace' } : {}),
+        ...(content !== undefined ? { diffs: extractDiffs(content ?? undefined) } : {}),
         ...(locations !== undefined ? { locations } : {}),
         ...(outputText !== undefined ? { outputText } : {}),
         ...(images !== undefined ? { images } : {}),
-        ...(rawInput !== undefined ? { rawInput } : {}),
-        ...(rawOutput !== undefined ? { rawOutput } : {}),
+        ...(raw.rawInput !== undefined ? { rawInput: payload(raw.rawInput) } : {}),
+        ...(raw.rawOutput !== undefined ? { rawOutput: payload(raw.rawOutput) } : {}),
         ...(terminalId !== undefined ? { terminalId } : {}),
+        ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
       };
     }
 

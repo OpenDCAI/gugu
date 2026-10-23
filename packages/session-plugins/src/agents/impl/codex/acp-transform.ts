@@ -37,11 +37,11 @@ export function enrichCodexUpdate(update: NormalizedEvent, raw: SessionUpdate): 
           toolCallId: update.toolCallId,
           // ❌ 不给 title:codex 这四个工具的名字是函数名,不是给人读的词;行上的行为词
           //    由渲染层给。缺席 = 保持不变(见 normalized-event 里 title 那条)。
-          status: update.status,
-          parentToolCallId: update.parentToolCallId,
-          ...(update.rawInput !== undefined ? { rawInput: update.rawInput } : {}),
-          ...(update.rawOutput !== undefined ? { rawOutput: update.rawOutput } : {}),
-          ...(update.outputText !== undefined ? { outputText: update.outputText } : {}),
+          status: update.status ?? null,
+          parentToolCallId: update.parentToolCallId ?? null,
+          ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
+          ...(update.rawOutput != null ? { rawOutput: update.rawOutput } : {}),
+          ...(update.outputText != null ? { outputText: update.outputText } : {}),
           ...(agentCall.task !== undefined ? { inputSummary: agentCall.task } : {}),
           ...(agentCall.agentId !== undefined ? { agentId: agentCall.agentId } : {}),
         };

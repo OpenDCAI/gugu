@@ -85,6 +85,7 @@ export type {
   ToolNode,
   AcpPermissionRequest,
   PlanState,
+  SessionPlans,
 } from './model';
 
 // ── Transcript API ────────────────────────────────────────────────────────────

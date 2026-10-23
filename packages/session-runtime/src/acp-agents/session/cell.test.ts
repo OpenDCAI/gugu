@@ -1321,6 +1321,42 @@ describe('SessionCell permissions', () => {
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
   });
 
+  it.each([
+    { type: 'command', command: 'ls -la', cwd: '/work', toolCallId: 'call', terminalId: 'terminal', _meta: { vendor: { data: 1 } } },
+    { type: 'future_subject', vendorField: { preserved: true } },
+    null,
+    undefined,
+  ])('keeps non-tool permission subjects without inventing transcript tools: %j', async (subject) => {
+    const { cell } = makeCell();
+    const response = cell.requestPermission({
+      sessionId: 'session-1', title: 'Approval title', description: 'Approval details',
+      ...(subject === undefined ? {} : { subject }), _meta: { requestContext: 1 },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    });
+    const pending = cell.sessionState.pendingPermissions[0];
+    expect(pending).toMatchObject({ title: 'Approval title', description: 'Approval details', _meta: { requestContext: 1 } });
+    if (subject !== undefined) expect(pending.subject).toEqual(subject);
+    expect(pending).not.toHaveProperty('toolCall');
+    expect(cell.history().committed).toEqual([]);
+    cell.resolvePermission(pending.requestId, 'allow');
+    await expect(response).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } });
+    cell.dispose();
+  });
+
+  it('keeps the approval title separate from the subject tool title', async () => {
+    const { cell } = makeCell();
+    const subject = { type: 'tool_call', toolCall: { toolCallId: 't', name: 'Bash', title: 'Tool title', kind: 'execute', rawInput: { command: 'ls' }, _meta: { vendor: 1 } } };
+    const response = cell.requestPermission({
+      sessionId: 'session-1', title: 'Approval title', subject,
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    });
+    const pending = cell.sessionState.pendingPermissions[0];
+    expect(pending).toMatchObject({ title: 'Approval title', subject, toolCall: { title: 'Tool title', toolName: 'Bash' } });
+    cell.resolvePermission(pending.requestId, 'allow');
+    await response;
+    cell.dispose();
+  });
+
   it('keeps the rawInput of a request that names no call in the turn (a Codex MCP approval, #6900)', () => {
     const { cell } = makeCell();
     void cell.requestPermission({
@@ -1547,7 +1583,7 @@ describe('SessionCell permissions', () => {
 
     void cell.requestPermission(qwenPlanRequest);
     const pending = cell.sessionState.pendingPermissions[0];
-    expect(JSON.parse(pending.toolCall.rawInput ?? 'null')).toEqual({ plan: PLAN });
+    expect(JSON.parse(pending.toolCall!.rawInput ?? 'null')).toEqual({ plan: PLAN });
     expect(permissionWaitKind(pending)).toBe('plan');
 
     cell.resolvePermission(pending.requestId, 'cancel');
@@ -1572,7 +1608,7 @@ describe('SessionCell permissions', () => {
     });
 
     void cell.requestPermission(qwenPlanRequest);
-    const row = cell.sessionState.pendingPermissions[0].toolCall;
+    const row = cell.sessionState.pendingPermissions[0].toolCall!;
     expect(row.rawInput).toBe('{"plan":"from the stream"}');
     expect(row.outputText).toBe('stream text');
     expect(row.toolName).toBe('ExitPlanMode');
@@ -1597,7 +1633,7 @@ describe('SessionCell permissions', () => {
     });
     const pending = cell.sessionState.pendingPermissions;
     expect(pending).toHaveLength(1);
-    expect(pending[0].toolCall.toolName).toBe('ExitPlanMode');
+    expect(pending[0].toolCall!.toolName).toBe('ExitPlanMode');
     expect(permissionWaitKind(pending[0])).toBe('plan');
     cell.dispose();
   });

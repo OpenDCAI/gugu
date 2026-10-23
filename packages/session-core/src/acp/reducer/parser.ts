@@ -1,3 +1,4 @@
+import { findEntityOwner } from './entity-owner';
 /**
  * AcpTranscriptParser — stateful wrapper around the pure composite reducer.
  *
@@ -34,7 +35,7 @@
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentState } from '../models/agents';
 import type { SessionConfigState, SessionUsage } from '../models/config';
-import type { PlanState } from '../models/plan';
+import type { SessionPlans } from '../models/plan';
 import type { TranscriptTurn, TranscriptTurnOutcome } from '../models/turns';
 import type { EnrichHook, NormalizedEvent } from './normalized-event';
 import { initialState, reduce, type ParserState } from './reducer';
@@ -52,7 +53,7 @@ export type ReplayResult = {
   usage: SessionUsage | null;
   title: string | null;
   agents: AgentState[];
-  plan: PlanState | null;
+  plan: SessionPlans | null;
 };
 
 export type ReplayEntry = SessionUpdate | { update: SessionUpdate; ts?: number; at?: number };
@@ -83,6 +84,10 @@ export class AcpTranscriptParser {
 
   pushEvent(event: NormalizedEvent, at = Date.now()): void {
     this.state = reduce(this.state, { kind: 'event', event, at }, this.deps);
+  }
+
+  hasEntity(event: NormalizedEvent): boolean {
+    return findEntityOwner(this.state.transcript, event) !== undefined;
   }
 
   /**
@@ -203,7 +208,7 @@ export class AcpTranscriptParser {
     return this.state.agents;
   }
 
-  get plan(): PlanState | null {
+  get plan(): SessionPlans | null {
     return this.state.plan;
   }
 

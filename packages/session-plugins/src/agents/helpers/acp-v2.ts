@@ -5,7 +5,6 @@ import type {
   InitializeResponse,
   McpServer,
   PromptResponse,
-  RequestPermissionRequest,
   SessionConfigOption,
   SessionNotification,
   SessionUpdate,
@@ -42,7 +41,6 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
   );
   const turns = new PromptTurns();
   const terminals = new DisplayTerminals();
-  const messages = new MessageContents();
   const deliver = (notification: SessionNotification) => client.sessionUpdate(notification);
 
   const app = v2
@@ -51,7 +49,7 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
       const { sessionId, update } = params;
       let v1: SessionUpdate[];
       try {
-        v1 = v1Updates(update, terminals, messages);
+        v1 = v1Updates(update, terminals);
       } catch (error) {
         // An update the host cannot show ends the session's turns with that error, loudly.
         turns.failed(sessionId, error);
@@ -64,7 +62,7 @@ export function connectStdioAcpV2(io: AcpProcessIo, toClient: AcpClientFactory):
       turns.observe(sessionId, update);
     })
     .onRequest(v2.methods.client.session.requestPermission, async ({ params }) =>
-      client.requestPermission(v1PermissionRequest(params)),
+      client.requestPermission(params),
     );
   const connection = app.connect(stream);
   const agent = connection.agent;
@@ -216,22 +214,6 @@ function pendingTurn(): PendingTurn {
   return turn;
 }
 
-/** The messages of a connection the host already shows content of (message ids are unique). */
-class MessageContents {
-  private readonly shown = new Set<string>();
-
-  append(messageId: string | null | undefined): void {
-    if (messageId) this.shown.add(messageId);
-  }
-
-  replace(kind: string, messageId: string): void {
-    if (this.shown.has(messageId)) {
-      throw new Error(`ACP v2 ${kind} ${messageId} replaces content the host already shows; the host only appends`);
-    }
-    this.shown.add(messageId);
-  }
-}
-
 /**
  * The display terminals of a connection (ids are the agent's, unique on the connection): which tool
  * call shows each one, and its output so far. A terminal's output reaches the host as the text
@@ -285,7 +267,7 @@ function decodeBase64(data: string): string {
 }
 
 /** The v1 updates the host reads for one v2 update (none, one, or a terminal report too). */
-function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messages: MessageContents): SessionUpdate[] {
+function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals): SessionUpdate[] {
   switch (update.sessionUpdate) {
     case 'config_option_update': {
       const { configOptions } = update as v2.ConfigOptionUpdate;
@@ -293,30 +275,19 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messag
     }
     case 'available_commands_update':
       return [v1CommandsUpdate((update as v2.AvailableCommandsUpdate).availableCommands)];
-    case 'plan_update': {
-      // A plan of items is v1's plan; the host draws no other kind.
-      const { plan } = update as v2.PlanUpdate;
-      return plan.type === 'items' ? [{ sessionUpdate: 'plan', entries: (plan as v2.PlanItems).entries } as SessionUpdate] : [];
-    }
+    case 'user_message':
+      // Prompt insertion is still owned by the cell until the receipt/foreground step.
+      return [];
     case 'agent_message':
-    case 'agent_thought': {
-      // An upsert: its content replaces the message's content so far (v2 schema, AgentMessage). The
-      // host only appends chunks, so a message's first content is taken as chunks, and replacing
-      // content the host already shows is refused. Without content it patches only `_meta`.
-      const chunk = update.sessionUpdate === 'agent_message' ? 'agent_message_chunk' : 'agent_thought_chunk';
-      const message = update as v2.AgentMessage;
-      if (message.content === undefined) return [];
-      messages.replace(update.sessionUpdate, message.messageId);
-      return (message.content ?? []).map(
-        (content) => ({ sessionUpdate: chunk, messageId: message.messageId, content }) as SessionUpdate,
-      );
-    }
+    case 'agent_thought':
     case 'agent_message_chunk':
     case 'agent_thought_chunk':
-      messages.append((update as { messageId?: string | null }).messageId);
+    case 'tool_call_content_chunk':
+    case 'plan_update':
+    case 'plan_removed':
       return [update as unknown as SessionUpdate];
     case 'tool_call_update': {
-      const { content, ...fields } = v1ToolCall(update as v2.ToolCallUpdate);
+      const { content, ...fields } = update as v2.ToolCallUpdate;
       const reports: SessionUpdate[] = [];
       const v1Content = content?.flatMap((item): unknown[] => {
         if (item.type === 'terminal') {
@@ -331,7 +302,7 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messag
         {
           ...fields,
           sessionUpdate: 'tool_call_update',
-          ...(v1Content && (v1Content.length > 0 || content?.length === 0) ? { content: v1Content } : {}),
+          ...(content === null ? { content: null } : v1Content && (v1Content.length > 0 || content?.length === 0) ? { content: v1Content } : {}),
         } as SessionUpdate,
         ...reports,
       ];
@@ -347,17 +318,6 @@ function v1Updates(update: v2.SessionUpdate, terminals: DisplayTerminals, messag
     default:
       return [update as unknown as SessionUpdate];
   }
-}
-
-/**
- * A v2 tool call's fields as v1 carries them. v2 names the tool in `name`; v1 has no such field, and
- * the host reads the agent's own tool name from `_meta.toolName`, which is what tells it a plan
- * approval, a question or a todo list from any other call.
- */
-function v1ToolCall<T extends { name?: unknown; _meta?: unknown }>(toolCall: T): Omit<T, 'name'> {
-  const { name, ...fields } = toolCall;
-  if (typeof name !== 'string' || !name) return fields;
-  return { ...fields, _meta: { ...(fields._meta as Record<string, unknown> | null | undefined), toolName: name } };
 }
 
 /**
@@ -419,19 +379,6 @@ function v2McpServer(server: McpServer): v2.McpServer {
   }
   if ('type' in server && server.type === 'http') return server as v2.McpServer;
   return { ...(server as Extract<McpServer, { command: string }>), type: 'stdio' } as v2.McpServer;
-}
-
-function v1PermissionRequest(request: v2.RequestPermissionRequest): RequestPermissionRequest {
-  const subject = request.subject as { type: string; toolCall?: Record<string, unknown> };
-  if (subject.type !== 'tool_call' || !subject.toolCall) {
-    throw new Error(`Permission requests about a ${subject.type} are not supported`);
-  }
-  return {
-    sessionId: request.sessionId,
-    toolCall: { ...v1ToolCall(subject.toolCall), title: request.title } as RequestPermissionRequest['toolCall'],
-    options: request.options as RequestPermissionRequest['options'],
-    ...(request._meta ? { _meta: request._meta } : {}),
-  };
 }
 
 /** The v2 `initialize` for the host's request: v2 has no client file system or terminals. */

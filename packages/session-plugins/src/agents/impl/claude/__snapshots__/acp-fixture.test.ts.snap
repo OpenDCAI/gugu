@@ -298,6 +298,10 @@ exports[`Claude ACP fixture parsing > transcript 1`] = `
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "5b780ed62930cc660168ec21cfd65c5bdeac03c3864839a198ca259defa69b16",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:0:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -305,6 +309,10 @@ exports[`Claude ACP fixture parsing > transcript 1`] = `
           "text": "In one sentence, without reading any files, what is gugu?",
         },
         {
+          "content": {
+            "blocks": 13,
+            "sha256": "a1ab1e5b0cb618a7e2ee9d3fefe4edff5a32071f11209ec5559dc7191c35aba2",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:0:thinking:msg_015EBAhvJCPri7c5ENz1uFXR",
           "kind": "thinking",
@@ -323,6 +331,10 @@ Let me provide a clean, concise one-liner based on what I've been given.",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "b033854deeb2d0b5508a73d3e73a6a0116f33e3bb267e20eae853267d6640276",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:0:message:msg_015EBAhvJCPri7c5ENz1uFXR",
           "kind": "message",
           "role": "assistant",
@@ -340,6 +352,10 @@ Let me provide a clean, concise one-liner based on what I've been given.",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "ec3919e69078d6bc721b058dd23f3cfc2c19b1cfd09dd644dbae85c511978480",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:1:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -347,6 +363,10 @@ Let me provide a clean, concise one-liner based on what I've been given.",
           "text": "Think about how to explore this repo, then read \`AGENTS.md\` and give me the Repository Structure section as exactly 3 bullet points.",
         },
         {
+          "content": {
+            "blocks": 3,
+            "sha256": "27d692685c2b83c6046fafb6cc131295d2887554df78f43d7e5b88f7ec49d282",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:1:thinking:msg_012AxTxxN5TVLYEiq98L8AHU",
           "kind": "thinking",
@@ -362,8 +382,21 @@ Let me provide a clean, concise one-liner based on what I've been given.",
 Let me read the AGENTS.md file first to get the Repository Structure section.",
         },
         {
+          "_meta": {
+            "sha256": "605e428f42d5f89c243c01d864daf8ef3e70585bbcfd1f28fdda7ddc2b23899c",
+          },
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "623a30f176d98728dbaf9e13ccc2898ce6488dfe3ffd34c01f02c35ed7bb1848",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:1:tool:toolu_019KBHfhSqsvBKYbM3VbKBJB",
           "kind": "read-tool-call",
+          "locations": [
+            {
+              "line": 1,
+              "path": "/private/tmp/gugu-acp-fixture-1783037827823/AGENTS.md",
+            },
+          ],
           "outputText": "1	# Project Overview
 2	
 3	Gugu is a local-first, cross-platform Electron app for running multiple AI coding
@@ -473,9 +506,14 @@ Let me read the AGENTS.md file first to get the Repository Structure section.",
           "status": "done",
           "title": "Read /private/tmp/gugu-acp-fixture-1783037827823/AGENTS.md (1 - 50)",
           "toolCallId": "toolu_019KBHfhSqsvBKYbM3VbKBJB",
+          "toolKind": "read",
           "toolName": "Read",
         },
         {
+          "content": {
+            "blocks": 8,
+            "sha256": "3b6dce13d0088b2b7b4818ee4ba39b68e8e9eea897e3e36449a8a155ccee92df",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:1:thinking:msg_013RkzbccDS8Mkj5a8TsX32D",
           "kind": "thinking",
@@ -493,6 +531,10 @@ Let me make 3 concise bullet points that capture the essential structure:",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 7,
+            "sha256": "021411b6b716714bc4b2c7c7583f225b39cdb4f1c13828195ebbb0d5c7e49c48",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:1:message:msg_013RkzbccDS8Mkj5a8TsX32D",
           "kind": "message",
           "role": "assistant",
@@ -514,6 +556,10 @@ Let me make 3 concise bullet points that capture the essential structure:",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "fbc95c1b9cc832a1555df97c991986234bb69d5e3ae14b3536e93139d4270e5e",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:2:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -521,6 +567,10 @@ Let me make 3 concise bullet points that capture the essential structure:",
           "text": "Search the codebase for the definition of \`toAgentUpdate\` — give the file path and line number.",
         },
         {
+          "content": {
+            "blocks": 3,
+            "sha256": "ffb889cf50ff585b08a6683bc8cd64dbdad0202fefaeda9fa1ca703423275fcb",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:2:thinking:msg_01QWVzBTPgQSUaGRyaoxJ3Pb",
           "kind": "thinking",
@@ -533,9 +583,17 @@ Let me make 3 concise bullet points that capture the essential structure:",
 Let me search for it using grep.",
         },
         {
+          "_meta": {
+            "sha256": "f3c2a2e7c3ea33c37016d435e37f5a1ef2cc23434e0c88c0dc720918f7cd92e7",
+          },
           "command": "grep -rn "toAgentUpdate" /private/tmp/gugu-acp-fixture-1783037827823 --include="*.ts" --include="*.tsx" | head -20",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "6dbe734ea68e68e747cfa83d9cec54dfaacd58bfdf4f79c18b392ce3597cd729",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:2:tool:toolu_015T1fvNzvcrkCDuAoEEMf1p",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "/private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/agents/plugins/capabilities/acp.ts:85:   * \`toAgentUpdate\` conversion. Receives the already-decoded \`AgentUpdate\`
 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/agents/plugins/capabilities/acp.ts:90:   * Omit for standard-ACP passthrough — \`toAgentUpdate\` handles baseline decoding.
 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/acp-session-runtime.test.ts:902:  it('baseline toAgentUpdate runs even without a provider enrich', async () => {
@@ -584,9 +642,14 @@ Let me search for it using grep.",
           "status": "done",
           "title": "grep -rn "toAgentUpdate" /private/tmp/gugu-acp-fixture-1783037827823 --include="*.ts" --include="*.tsx" | head -20",
           "toolCallId": "toolu_015T1fvNzvcrkCDuAoEEMf1p",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
         {
+          "content": {
+            "blocks": 4,
+            "sha256": "0d6381de58d89fbcaa6f703020bdd48752b4a3f2de75d8e27e9e435735da9141",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:2:thinking:msg_012c1bsBg7MqfceSREeLeMX3",
           "kind": "thinking",
@@ -601,6 +664,10 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 2,
+            "sha256": "4a855e221ab77e71ac26b4ebc8b38a8b02fb0363396ba4c7aa616a626813a0ac",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:2:message:msg_012c1bsBg7MqfceSREeLeMX3",
           "kind": "message",
           "role": "assistant",
@@ -618,6 +685,10 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "93a3c00405329ccbdb181cd32442ae3c4ac410e531a2f20a0b4f06e9d4db070b",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -625,6 +696,10 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
           "text": "Read \`packages/core/src/acp/agent-update.ts\` and \`packages/core/src/acp/session-machine.ts\`, then explain in two sentences how they relate.",
         },
         {
+          "content": {
+            "blocks": 2,
+            "sha256": "5ba46870b134c9090aa6af9599f49aa6ab87a720e5d66f9cd77a800b297579c4",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:thinking:msg_01F2sC2qPhcPEqK9WG34rFTt",
           "kind": "thinking",
@@ -637,8 +712,21 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
         {
           "children": [
             {
+              "_meta": {
+                "sha256": "605e428f42d5f89c243c01d864daf8ef3e70585bbcfd1f28fdda7ddc2b23899c",
+              },
+              "contentBlocks": {
+                "blocks": 1,
+                "sha256": "8ad06074144cfd66263b0797f41f4feeafe48bdfda55713d313eb353660545e0",
+              },
               "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:tool:toolu_01EQQ7MeGGtaLE3iWWQR49hK",
               "kind": "read-tool-call",
+              "locations": [
+                {
+                  "line": 1,
+                  "path": "/private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/agent-update.ts",
+                },
+              ],
               "outputText": "1	/**
 2	 * gugu-owned, provider-neutral agent update vocabulary.
 3	 *
@@ -1033,11 +1121,25 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
               "status": "done",
               "title": "Read /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/agent-update.ts",
               "toolCallId": "toolu_01EQQ7MeGGtaLE3iWWQR49hK",
+              "toolKind": "read",
               "toolName": "Read",
             },
             {
+              "_meta": {
+                "sha256": "605e428f42d5f89c243c01d864daf8ef3e70585bbcfd1f28fdda7ddc2b23899c",
+              },
+              "contentBlocks": {
+                "blocks": 1,
+                "sha256": "caabfdccab6d1db3aa25788ba82d9564bbf8c1d18b4751c80490c30740d670c3",
+              },
               "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:tool:toolu_01FKwN7A4ztxfhDKm2qSFUyg",
               "kind": "read-tool-call",
+              "locations": [
+                {
+                  "line": 1,
+                  "path": "/private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/session-machine.ts",
+                },
+              ],
               "outputText": "1	/**
 2	 * Pure ACP session state machine.
 3	 *
@@ -2658,6 +2760,7 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
               "status": "done",
               "title": "Read /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/session-machine.ts",
               "toolCallId": "toolu_01FKwN7A4ztxfhDKm2qSFUyg",
+              "toolKind": "read",
               "toolName": "Read",
             },
           ],
@@ -2669,6 +2772,10 @@ The grep output shows \`export function toAgentUpdate(update: SessionUpdate): Ag
           "status": "done",
         },
         {
+          "content": {
+            "blocks": 18,
+            "sha256": "25a15ba1337d82dac01b94ef1531755065f7f9abfb29db35fcc680e1ffd02eab",
+          },
           "durationMs": 0,
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:thinking:msg_01UYwkDSUTu8dSqSiGTm6qQX",
           "kind": "thinking",
@@ -2692,6 +2799,10 @@ Let me write this in two sentences.",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 6,
+            "sha256": "756907055987278802982fe3e6dc77d9716dfc55880b6d85f9f57a2587cdfc1d",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:3:message:msg_01UYwkDSUTu8dSqSiGTm6qQX",
           "kind": "message",
           "role": "assistant",
@@ -2709,6 +2820,10 @@ Let me write this in two sentences.",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "88cc78157d31e496b2d6127349c4a3b6fd61ab7cfc640293a825d93fb7fd03ff",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:4:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2717,6 +2832,10 @@ Let me write this in two sentences.",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 30,
+            "sha256": "7cc68bd79003e8ecb094bb2d65e0ca16e6dd9f2bb13c95492f2fa912d1adaa9c",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:4:message:msg_018nsD7aD5n5mNmXQdSVJwDy",
           "kind": "message",
           "role": "assistant",
@@ -2766,6 +2885,10 @@ The two load-bearing spots are the union definition and \`toAgentUpdate\` (both 
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "b2e82a1e20eed2190ff997618b728a331c923f11c845188aa5201180a83b3d4c",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:5:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2773,9 +2896,17 @@ The two load-bearing spots are the union definition and \`toAgentUpdate\` (both 
           "text": "Run \`git rev-parse --abbrev-ref HEAD\` and tell me the current branch name.",
         },
         {
+          "_meta": {
+            "sha256": "f3c2a2e7c3ea33c37016d435e37f5a1ef2cc23434e0c88c0dc720918f7cd92e7",
+          },
           "command": "git rev-parse --abbrev-ref HEAD",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "872ddf9138c235382b07c320adc09bde1c0c9c4103ef136493c4743c90ccc778",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:5:tool:toolu_01JaFQWcogSDXZDV2gdCtAPX",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "HEAD",
           "rawInput": "{
   "command": "git rev-parse --abbrev-ref HEAD",
@@ -2786,10 +2917,15 @@ The two load-bearing spots are the union definition and \`toAgentUpdate\` (both 
           "status": "done",
           "title": "git rev-parse --abbrev-ref HEAD",
           "toolCallId": "toolu_01JaFQWcogSDXZDV2gdCtAPX",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 5,
+            "sha256": "b612e8fa91c886d34d91bdb1885718cdbda7a060469a8f39a18437ce64e11190",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:5:message:msg_01BFNx7jqLF9UinzgZwgsXex",
           "kind": "message",
           "role": "assistant",
@@ -2807,6 +2943,10 @@ The two load-bearing spots are the union definition and \`toAgentUpdate\` (both 
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "a7fbec3a4b854b6d3d8f75bfebffb14056ae6b79fb55889847fb57eebf3bff6f",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:6:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2814,9 +2954,17 @@ The two load-bearing spots are the union definition and \`toAgentUpdate\` (both 
           "text": "Run \`ls packages\` and list the workspace package names.",
         },
         {
+          "_meta": {
+            "sha256": "f3c2a2e7c3ea33c37016d435e37f5a1ef2cc23434e0c88c0dc720918f7cd92e7",
+          },
           "command": "ls packages",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "4cd837164ffc6223a78a797273319bdb34d1c9d80b3a708e2bf5778d67a1fa2c",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:6:tool:toolu_01LD1XT6tVwgeJpJJpmz44o7",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "chat-ui
 core
 plugins
@@ -2835,10 +2983,15 @@ ui",
           "status": "done",
           "title": "ls packages",
           "toolCallId": "toolu_01LD1XT6tVwgeJpJJpmz44o7",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "546d0b1b3440dfc703029dec5684678534ccc8a170153e198df1eebe94bee9c2",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:6:message:msg_01CHjCVcRmD2eKqPWJQKWVpp",
           "kind": "message",
           "role": "assistant",
@@ -2862,6 +3015,10 @@ ui",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "b6f1356324bf987dbae7d9fb2412e66262b7ea37b9ea0cd3428503074739271d",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:7:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2869,18 +3026,42 @@ ui",
           "text": "Create the file \`.acp-fixture-scratch/NOTES.md\` containing exactly this line: \`# ACP fixture notes\`",
         },
         {
+          "_meta": {
+            "sha256": "591d2f7781d61a9a418e3a95201fb4ade450ec06e226c75529f7a3d2c75b922a",
+          },
           "content": "# ACP fixture notes
 ",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "7b538c6718e4bc5be9f26469132efee5501396c6f0623a1f2c920a703d28dc3a",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:7:tool:toolu_01JeGgFpDENi9UKyGyURTM6X:/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
           "kind": "create-file-tool-call",
+          "locations": [
+            {
+              "path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+            },
+          ],
+          "outputText": "File created successfully at: /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md (file state is current in your context — no need to Read it back)",
           "path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+          "rawInput": "{
+  "file_path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+  "content": "# ACP fixture notes\\n"
+}",
+          "rawOutput": "File created successfully at: /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md (file state is current in your context — no need to Read it back)",
           "seq": 1,
           "status": "done",
           "title": "Write /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
           "toolCallId": "toolu_01JeGgFpDENi9UKyGyURTM6X",
+          "toolKind": "edit",
+          "toolName": "Write",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "3866c2a77dd51fb0c02a9854c06a36271ae8c777c05fe57c2f3422dbb371d96a",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:7:message:msg_01KT8Pkbv15P91bwomPmcPnt",
           "kind": "message",
           "role": "assistant",
@@ -2898,6 +3079,10 @@ ui",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "05876b8bc5c411790150ee314970cc6c3de0927d22fe8d187ef8e4b073103160",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:8:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2905,19 +3090,46 @@ ui",
           "text": "Append the line \`generated by fixture script\` to \`.acp-fixture-scratch/NOTES.md\`.",
         },
         {
+          "_meta": {
+            "sha256": "de770409226a61cd534625fa5b9e114c7129ddf0642d6119c25a765d9693b294",
+          },
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "a8a7434f867f3e14aa3a46c08356ca9dd6c814bee6ab6e71fc9a2c2ff0994cd3",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:8:tool:toolu_01SdTsjTARBJXjkPGAa31kzt:/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
           "kind": "modify-file-tool-call",
+          "locations": [
+            {
+              "line": 1,
+              "path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+            },
+          ],
           "newText": "# ACP fixture notes
 generated by fixture script",
           "oldText": "# ACP fixture notes",
+          "outputText": "The file /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md has been updated successfully. (file state is current in your context — no need to Read it back)",
           "path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+          "rawInput": "{
+  "replace_all": false,
+  "file_path": "/private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
+  "old_string": "# ACP fixture notes",
+  "new_string": "# ACP fixture notes\\ngenerated by fixture script"
+}",
+          "rawOutput": "The file /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md has been updated successfully. (file state is current in your context — no need to Read it back)",
           "seq": 1,
           "status": "done",
           "title": "Edit /private/tmp/gugu-acp-fixture-1783037827823/.acp-fixture-scratch/NOTES.md",
           "toolCallId": "toolu_01SdTsjTARBJXjkPGAa31kzt",
+          "toolKind": "edit",
+          "toolName": "Edit",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "dcdd9e9782b951753900781bc8262caee8965eebbdf7f9e71a2a401262d4bede",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:8:message:msg_01NDQLy3F4NYu6zVMdebDqfF",
           "kind": "message",
           "role": "assistant",
@@ -2940,6 +3152,10 @@ generated by fixture script
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "39ca7dcdb4c6a10918ab34dc6fa8d7314765e4baadfc5e054b6b8a712d6a768b",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:9:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -2947,9 +3163,17 @@ generated by fixture script
           "text": "Rename \`.acp-fixture-scratch/NOTES.md\` to \`.acp-fixture-scratch/NOTES2.md\`, then delete \`.acp-fixture-scratch/NOTES2.md\`.",
         },
         {
+          "_meta": {
+            "sha256": "f3c2a2e7c3ea33c37016d435e37f5a1ef2cc23434e0c88c0dc720918f7cd92e7",
+          },
           "command": "mv .acp-fixture-scratch/NOTES.md .acp-fixture-scratch/NOTES2.md && rm .acp-fixture-scratch/NOTES2.md && ls -la .acp-fixture-scratch",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "9569cc382f8f6945a179d29758fed9a9a1da6be9ae8a80087d63a0117a7b8e20",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:9:tool:toolu_01LB5oK2J3sbz7XV51uMA5Ub",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "total 0
 drwxr-xr-x@  2 davidkonopka  wheel   64 Jul  2 17:18 .
 drwxr-xr-x@ 29 davidkonopka  wheel  928 Jul  2 17:18 ..",
@@ -2964,10 +3188,15 @@ drwxr-xr-x@ 29 davidkonopka  wheel  928 Jul  2 17:18 ..",
           "status": "done",
           "title": "mv .acp-fixture-scratch/NOTES.md .acp-fixture-scratch/NOTES2.md && rm .acp-fixture-scratch/NOTES2.md && ls -la .acp-fixture-scratch",
           "toolCallId": "toolu_01LB5oK2J3sbz7XV51uMA5Ub",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "c79e49af8548d31539705b574c6ded42f2cebed1cdb98cf1fa708bd05a7a2587",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:9:message:msg_018hXa3UZ3ByPyhvXFH2NwxN",
           "kind": "message",
           "role": "assistant",
@@ -2985,6 +3214,10 @@ drwxr-xr-x@ 29 davidkonopka  wheel  928 Jul  2 17:18 ..",
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "d6cc43ab3f48b65ac841288a2de83889e7ff635b654b41c82ec27cf79a1bf3ca",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:10:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -3024,6 +3257,10 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 3,
+            "sha256": "0ace18b892455217518a0af6c017c49e9b7a42d3d7af5d4402c9c469a913a481",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:10:message:msg_01BpSD8mA4TtQqxp3dJsUKLV",
           "kind": "message",
           "role": "assistant",
@@ -3041,6 +3278,10 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
       "items": [
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 1,
+            "sha256": "dc0dc9fc0915d258110f36ce674e80469e8d5a43d9035b44fb5afa494f3d6540",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:11:message:auto:user:0",
           "kind": "message",
           "role": "user",
@@ -3048,9 +3289,17 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
           "text": "Explain the ACP session lifecycle in detail, using markdown headings for each phase and including a fenced code block showing an example sequence of events.",
         },
         {
+          "_meta": {
+            "sha256": "08f98be0144153dfc011320c8b51b4f13cc43e4551935bfc2047fd1a851c9fb1",
+          },
           "command": "grep -rl "stopReason" /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "2ca1fa91637856ddd6aa664ddea784817609d9f31525db320fc18477d9450dd0",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:11:tool:toolu_01AY8xD2Y4FtSd1YEV7FdL91",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "/private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/state.ts
 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/acp-test-support.ts
 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/acp-session-runtime.test.ts
@@ -3072,10 +3321,15 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
           "status": "done",
           "title": "grep -rl "stopReason" /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp",
           "toolCallId": "toolu_01AY8xD2Y4FtSd1YEV7FdL91",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
         {
           "at": 1577836800000,
+          "content": {
+            "blocks": 51,
+            "sha256": "93737236a1bd5a65c4bfd3f4932701203c926aac5d5b358fde43776bce9b88d9",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:11:message:msg_013h49auSubLZw7pd5oKY1Wa",
           "kind": "message",
           "role": "assistant",
@@ -3159,9 +3413,17 @@ Note how \`decide\` gates the \`Prompt\`/\`ResolvePermission\` **commands** (rej
 Separately — the background subagent finished its \`stopReason\` file search; want me to relay its summary?",
         },
         {
+          "_meta": {
+            "sha256": "08f98be0144153dfc011320c8b51b4f13cc43e4551935bfc2047fd1a851c9fb1",
+          },
           "command": "for f in state.ts acp-test-support.ts acp-session-runtime.test.ts session-machine.test.ts acp-session-runtime.ts session-machine.ts; do echo "===== $f ====="; head -30 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/$f; echo; done",
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "fe7839cf3d3b5f02c37f329c5567318b92f9729da7abc91d73904bc453230b98",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:11:tool:toolu_01HiEJYjpi7zXdZACwyuVM4Q",
           "kind": "execute-tool-call",
+          "locations": [],
           "outputText": "===== state.ts =====
 /**
  * Shared turn model for ACP conversation history.
@@ -3553,6 +3815,7 @@ import type {",
           "status": "done",
           "title": "for f in state.ts acp-test-support.ts acp-session-runtime.test.ts session-machine.test.ts acp-session-runtime.ts session-machine.ts; do echo "===== $f ====="; head -30 /private/tmp/gugu-acp-fixture-1783037827823/packages/core/src/acp/$f; echo; done",
           "toolCallId": "toolu_01HiEJYjpi7zXdZACwyuVM4Q",
+          "toolKind": "execute",
           "toolName": "Bash",
         },
       ],

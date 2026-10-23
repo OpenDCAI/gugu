@@ -38,7 +38,7 @@ import { createParseCaches } from '../core/caches';
 import type { ParseCaches } from '../core/caches';
 import type {
   AcpPermissionRequest,
-  PlanState,
+  SessionPlans,
   SessionCondition,
   TerminalExit,
   TranscriptTurn,
@@ -78,7 +78,7 @@ export type HeightmapStore = {
 export type ChatSessionState = {
   readonly state: ChatSessionSnapshot;
   setPermissions(permissions: readonly AcpPermissionRequest[]): void;
-  setPlan(plan: PlanState | null): void;
+  setPlan(plan: SessionPlans | null): void;
   setPendingPrompt(prompt: PendingPrompt | null): void;
   setTerminalOutput(terminalId: string, text: string | null): void;
   setTerminalOutputs(outputs: ReadonlyMap<string, string>): void;
@@ -90,7 +90,7 @@ export type ChatSessionState = {
 
 export type ChatSessionSnapshot = {
   readonly permissions: readonly AcpPermissionRequest[];
-  readonly plan: PlanState | null;
+  readonly plan: SessionPlans | null;
   readonly pendingToolCallIds: Set<string>;
   readonly pendingPrompt: PendingPrompt | null;
   /**
@@ -118,7 +118,7 @@ type LiveReadable<T> = {
 
 export type ConnectSessionSource = {
   activeTurn: LiveReadable<TranscriptTurn | null>;
-  plan: LiveReadable<PlanState | null>;
+  plan: LiveReadable<SessionPlans | null>;
   sessionState: LiveReadable<{
     pendingPermissions: readonly AcpPermissionRequest[];
     /** runtime 投影出来的忙态(见 session-runtime machine `projectSessionState`)。 */
@@ -283,7 +283,7 @@ export function createChatState(ctx: ChatContext, opts?: ChatStateOptions): Chat
 
 function createSessionState(): ChatSessionState {
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
-  const [plan, setPlan] = createSignal<PlanState | null>(null);
+  const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
@@ -306,7 +306,7 @@ function createSessionState(): ChatSessionState {
   const pendingToolCallIds = createMemo(() => {
     const ids = new Set<string>();
     for (const request of permissions()) {
-      ids.add(request.toolCall.toolCallId);
+      if (request.toolCall) ids.add(request.toolCall.toolCallId);
     }
     return ids;
   });

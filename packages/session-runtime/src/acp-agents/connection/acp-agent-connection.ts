@@ -1,4 +1,5 @@
-import type { Client, InitializeResponse, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
+import type { InitializeResponse, SessionUpdate } from '@agentclientprotocol/sdk';
 import type {
   AdapterExit,
   InitializeFailedError,
@@ -72,7 +73,7 @@ export async function createAcpAgentConnection(
     spawn: AgentHostAcpSpawn;
     scope: Scope;
     /** Factory called once; the runtime passes its buildAgentClient result here. */
-    buildClient: (agent: AcpAgentApi, normalize: AcpSessionUpdateNormalizer) => Client;
+    buildClient: (agent: AcpAgentApi, normalize: AcpSessionUpdateNormalizer) => AcpClient;
     /** Pool key this connection was provisioned under; carries the conversation id when the
      *  session is platform-isolated, so the logged binding is addressable. */
     connectionKey: string;

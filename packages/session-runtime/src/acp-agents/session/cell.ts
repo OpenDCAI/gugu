@@ -1,5 +1,5 @@
+import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import type {
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
   SessionModeState,
@@ -451,12 +451,13 @@ export class SessionCell {
     }
 
     // 不自报状态的家:请求已答复之后到的内容只能是上一段的尾巴(#6191)。自报的家开工会先报 running。
-    if (this.isIdleAgentTranscriptEvent(event) && !this.reportsState) {
+    const updatesExistingEntity = this.transcript.hasEntity(event);
+    if (!updatesExistingEntity && this.isIdleAgentTranscriptEvent(event) && !this.reportsState) {
       this.pushTurnTail(event);
       return;
     }
 
-    if (this.isTranscriptEvent(event) && !this.canAcceptTranscriptEvent()) {
+    if (!updatesExistingEntity && this.isTranscriptEvent(event) && !this.canAcceptTranscriptEvent()) {
       this.deps.logger.warn('SessionCell: dropping transcript update outside active turn', {
         sessionId: this.sessionId,
         phase: this.machine.phase.kind,
@@ -480,7 +481,7 @@ export class SessionCell {
     this.emitTranscriptChanged();
     // 请求先到、流里这一行后到(#7139):这一行缺的照待批的那条请求补一次，规则同 requestPermission。
     if (event.kind === 'tool_call') {
-      this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall.toolCallId === event.toolCallId)?.toolCall ?? null);
+      this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall?.toolCallId === event.toolCallId)?.toolCall ?? null);
     }
   }
 
@@ -812,18 +813,23 @@ export class SessionCell {
     return ok();
   }
 
-  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+  requestPermission(params: AcpPermissionParams): Promise<RequestPermissionResponse> {
     const requestId = crypto.randomUUID();
-    const fromRequest = requestToolUpdate(params.toolCall);
-    this.fillToolCall(fromRequest);
+    const subject = params.subject !== undefined ? params.subject : params.toolCall ? { type: 'tool_call', toolCall: params.toolCall } : undefined;
+    const rawToolCall = subject?.type === 'tool_call' ? subject.toolCall as AcpPermissionParams['toolCall'] : undefined;
+    const fromRequest = requestToolUpdate(rawToolCall);
+    this.fillToolCall(fromRequest ? {
+      ...fromRequest, rawInput: fromRequest.rawInput ?? undefined,
+      outputText: fromRequest.outputText ?? undefined, toolName: fromRequest.toolName ?? undefined,
+    } : null);
     const request: AcpPermissionRequest = {
       requestId,
-      toolCall: this.buildPermissionToolCall(requestId, params.toolCall, fromRequest),
-      options: params.options.map((option) => ({
-        optionId: option.optionId,
-        name: option.name,
-        kind: option.kind,
-      })),
+      title: params.title ?? rawToolCall?.title ?? '',
+      ...(params.description !== undefined ? { description: params.description } : {}),
+      ...(subject !== undefined ? { subject: structuredClone(subject) } : {}),
+      ...(params._meta !== undefined ? { _meta: structuredClone(params._meta) } : {}),
+      ...(rawToolCall ? { toolCall: this.buildPermissionToolCall(requestId, rawToolCall, fromRequest) } : {}),
+      options: params.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
     };
     this.rawLog.record({
       kind: 'permission_request',
@@ -2190,7 +2196,7 @@ export class SessionCell {
 
   private buildPermissionToolCall(
     requestId: string,
-    rawToolCall: RequestPermissionRequest['toolCall'] | undefined,
+    rawToolCall: AcpPermissionParams['toolCall'] | undefined,
     fromRequest: ToolUpdateEvent | null
   ): ToolCallItem {
     const activeTurn = this.transcript.activeTurn;
@@ -2206,8 +2212,8 @@ export class SessionCell {
       seq: 0,
       toolCallId,
       title: rawToolCall?.title ?? 'Permission request',
-      ...(fromRequest?.toolName !== undefined ? { toolName: fromRequest.toolName } : {}),
-      ...(fromRequest?.outputText !== undefined ? { outputText: fromRequest.outputText } : {}),
+      ...(fromRequest?.toolName != null ? { toolName: fromRequest.toolName } : {}),
+      ...(fromRequest?.outputText != null ? { outputText: fromRequest.outputText } : {}),
       toolKind: rawToolCall?.kind ?? null,
       status: 'pending',
       parentToolCallId: undefined,
@@ -2239,7 +2245,7 @@ type ToolUpdateEvent = Extract<NormalizedEvent, { kind: 'tool_update' }>;
 type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'>;
 
 /** 请求自带的 toolCall 按流里同一种 `tool_call_update` 解码:rawInput、正文、供应商工具名取法与流里一致。 */
-function requestToolUpdate(rawToolCall: RequestPermissionRequest['toolCall'] | undefined): ToolUpdateEvent | null {
+function requestToolUpdate(rawToolCall: AcpPermissionParams['toolCall'] | undefined): ToolUpdateEvent | null {
   if (!rawToolCall) return null;
   const event = decodeSessionUpdate({ sessionUpdate: 'tool_call_update', ...rawToolCall } as SessionUpdate);
   return event.kind === 'tool_update' ? event : null;

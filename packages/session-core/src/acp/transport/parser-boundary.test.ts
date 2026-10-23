@@ -4,12 +4,12 @@ import { AcpTranscriptParser } from '../reducer/parser';
 
 describe('parser transport boundary', () => {
   it('enriches a raw update once while already normalized events bypass the hook', () => {
-    const enrich = vi.fn((event: NormalizedEvent) => event.kind === 'message' ? { ...event, text: `provider: ${event.text}` } : event);
+    const enrich = vi.fn((event: NormalizedEvent) => event.kind === 'message' ? { ...event, text: `provider: ${event.text}`, content: [{ type: 'text', text: `provider: ${event.text}` }] } : event);
     const parser = new AcpTranscriptParser({ sessionId: 'boundary', enrich });
     const raw = { sessionUpdate: 'agent_message_chunk' as const, messageId: 'raw', content: { type: 'text' as const, text: 'raw' } };
     parser.push(raw, 10);
     parser.pushEvent({ kind: 'message', role: 'assistant', messageId: 'normalized', text: 'normalized' }, 11);
-    expect(enrich).toHaveBeenCalledExactlyOnceWith({ kind: 'message', role: 'assistant', messageId: 'raw', text: 'raw' }, raw);
+    expect(enrich).toHaveBeenCalledExactlyOnceWith({ kind: 'message', role: 'assistant', messageId: 'raw', text: 'raw', content: [raw.content], contentMode: 'append' }, raw);
     expect(parser.activeTurn?.items.map((item) => item.kind === 'message' ? item.text : null))
       .toEqual(['provider: raw', 'normalized']);
   });

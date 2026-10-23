@@ -9,13 +9,14 @@
 
 import {
   agentStateSchema,
-  planStateSchema,
+  sessionPlansSchema,
   sessionConfigStateSchema,
   sessionUsageSchema,
   transcriptTurnSchema,
 } from '@gugu/session-core/acp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { driveParser, loadFixture } from '../../../../tooling/fixtures/acp/drive-parser';
+import { entitySnapshot } from '../../../../tooling/fixtures/acp/entity-snapshot';
 import { enrichCodexUpdate } from './acp-transform';
 
 const fixture = loadFixture(new URL('./fixtures/acp-transcript.json', import.meta.url));
@@ -36,7 +37,7 @@ afterAll(() => {
 describe('Codex ACP fixture parsing', () => {
   it('transcript', () => {
     const parser = createParser();
-    expect({ committed: parser.history, active: parser.activeTurn }).toMatchSnapshot();
+    expect(entitySnapshot({ committed: parser.history, active: parser.activeTurn })).toMatchSnapshot();
   });
 
   it('config', () => {
@@ -70,7 +71,7 @@ describe('Codex ACP fixture parsing', () => {
     expect(() => transcriptTurnSchema.nullable().parse(parser.activeTurn)).not.toThrow();
     expect(() => sessionConfigStateSchema.parse(parser.config)).not.toThrow();
     expect(() => sessionUsageSchema.nullable().parse(parser.usage)).not.toThrow();
-    expect(() => planStateSchema.nullable().parse(parser.plan)).not.toThrow();
+    expect(() => sessionPlansSchema.nullable().parse(parser.plan)).not.toThrow();
     expect(() => agentStateSchema.array().parse(parser.agents)).not.toThrow();
   });
 });

@@ -194,8 +194,7 @@ export function toolCallResult(toolCallId: string, status: NormalizedToolStatus,
   const rawInput = serializePayload(toJsonValue(result.rawInput));
   const rawOutput = serializePayload(toJsonValue(result.rawOutput));
   return {
-    kind: 'tool_update', toolCallId, title: null, toolKind: null, status,
-    parentToolCallId: null, diffs: [],
+    kind: 'tool_update', toolCallId, status,
     ...(outputText !== undefined ? { outputText } : {}),
     ...(images?.length ? { images } : {}),
     ...(rawInput !== undefined ? { rawInput } : {}),

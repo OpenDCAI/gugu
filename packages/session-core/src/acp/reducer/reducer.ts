@@ -25,7 +25,7 @@
 import type { AgentState, AgentStatus } from '../models/agents';
 import type { SessionCommand, SessionConfigState, SessionUsage } from '../models/config';
 import { initialSessionConfigState } from '../models/config';
-import { SESSION_PLAN_ID, type PlanState } from '../models/plan';
+import { SESSION_PLAN_ID, type SessionPlans } from '../models/plan';
 import type {
   TranscriptItem,
   TranscriptThinking,
@@ -39,6 +39,7 @@ import { makeMessageId, makeThinkingId, makeTurnId } from './ids';
 import { foldItem, finalizeItems, type FoldEvent } from './item-fold';
 import { projectSubagentProgress } from './subagent-progress';
 import type { NormalizedEvent } from './normalized-event';
+import { findEntityOwner } from './entity-owner';
 
 type SynthesizedSegmentKind = 'message:user' | 'message:assistant' | 'thinking';
 
@@ -62,7 +63,7 @@ export interface ParserState {
   pendingModeId: string | null;
   segment: SegmentState;
   agents: AgentState[];
-  plan: PlanState | null;
+  plan: SessionPlans | null;
   /**
    * True between `replay_start` and `replay_end`.
    *
@@ -313,7 +314,7 @@ function materializeEvent(
     }
 
     const closed = closeSynthesizedSegment(transcript, segment, at);
-    if (event.kind === 'thinking' && closed.transcript.active) {
+    if (event.kind === 'thinking' && event.contentMode === undefined && closed.transcript.active) {
       return {
         ...closed,
         event: {
@@ -423,13 +424,8 @@ function resolveAsyncTask(
     return {
       kind: 'tool_update',
       toolCallId,
-      title: null,
-      toolKind: null,
       // 派发那次调用**在派发时就已经完成**了,「它还在后台跑」是另一件事。
       // ❌ 别把它改回 in_progress:那会让那次调用永远转圈。
-      status: null,
-      parentToolCallId: null,
-      diffs: [],
       backgroundTaskId: event.asyncTaskId,
     };
   }
@@ -441,12 +437,8 @@ function resolveAsyncTask(
   return {
     kind: 'tool_update',
     toolCallId,
-    title: null,
-    toolKind: null,
     // 被叫停 = 没跑完,按失败落定,原因在 outputText 里(与 resolveTaskNotification 同一约定)。
     status: event.state === 'stopped' ? 'failed' : event.state,
-    parentToolCallId: null,
-    diffs: [],
     backgroundTaskDone: true,
     ...(event.summary !== undefined ? { outputText: event.summary } : {}),
   };
@@ -561,17 +553,14 @@ function resolveTaskNotification(
   return {
     kind: 'tool_update',
     toolCallId: event.toolCallId,
-    title: null,
-    toolKind: null,
     // 后台命令被叫停(stop_task → stopped):它没跑完,那张命令卡按失败落定,原因在 outputText 里。
     //
     // 失联(disconnected)则**不写状态**:ACP 的工具状态只有 pending/in_progress/completed/
-    // failed 四个,失联一个都不是。这里 `null` 的约定是「保持不变」⇒ 如实表达「不知道」。
+    // failed 四个,失联一个都不是。这里字段缺席表示「保持不变」⇒ 如实表达「不知道」。
     // ❌ 别顺手写成 failed —— 那是把「不知道」断言成「知道它砸了」。
     status:
-      event.status === 'stopped' ? 'failed' : event.status === 'disconnected' ? null : event.status,
-    parentToolCallId: call.parentToolCallId ?? null,
-    diffs: [],
+      event.status === 'stopped' ? 'failed' : event.status === 'disconnected' ? undefined : event.status,
+    ...(call.parentToolCallId !== undefined ? { parentToolCallId: call.parentToolCallId } : {}),
     // 它不再在跑 —— 面板上那张「后台命令」卡据此撤下(#5117)。
     backgroundTaskDone: true,
     ...(event.summary !== undefined ? { outputText: event.summary } : {}),
@@ -772,19 +761,23 @@ function updateAgentSlice(
 }
 
 function updatePlanSlice(
-  plan: PlanState | null,
+  plans: SessionPlans | null,
   event: NormalizedEvent,
   at: number
-): PlanState | null {
-  if (event.kind !== 'plan') return plan;
-  return {
-    id: SESSION_PLAN_ID,
-    entries: event.entries.map((entry, index) => ({
-      id: `${SESSION_PLAN_ID}:entry:${index}`,
-      ...entry,
-    })),
-    updatedAt: at,
-  };
+): SessionPlans | null {
+  if (event.kind === 'plan_remove') {
+    if (!plans || !(event.planId in plans)) return plans;
+    const next = { ...plans };
+    delete next[event.planId];
+    return Object.keys(next).length ? next : null;
+  }
+  if (event.kind !== 'plan') return plans;
+  const id = event.planId ?? SESSION_PLAN_ID;
+  return { ...plans, [id]: {
+    id, entries: event.entries.map((entry, index) => ({ id: `${id}:entry:${index}`, ...entry })),
+    ...(event.body !== undefined ? { body: event.body } : {}),
+    ...(event._meta !== undefined ? { _meta: event._meta } : {}), updatedAt: at,
+  } };
 }
 
 function assertTurnInvariants(turn: TranscriptTurn): void {
@@ -959,6 +952,23 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   }
 
   if (event.kind === 'subagent_stream') return reduceSubagentStream(s, event, input.at, deps);
+
+  const owner = findEntityOwner(s.transcript, event);
+  if (owner && owner !== s.transcript.active) {
+    const items = foldItem(owner.items, event as FoldEvent, owner.id, input.at);
+    return { ...s, plan: updatePlanSlice(s.plan, event, input.at), transcript: { ...s.transcript, committed: s.transcript.committed.map(turn => turn === owner ? { ...owner, items } : turn) } };
+  }
+
+  if (event.kind === 'plan_remove') {
+    const remove = (turn: TranscriptTurn): TranscriptTurn => {
+      const items = turn.items.filter(item => item.kind !== 'create-plan-tool-call' || item.planId !== event.planId);
+      return items.length === turn.items.length ? turn : { ...turn, items };
+    };
+    return { ...s, plan: updatePlanSlice(s.plan, event, input.at), transcript: {
+      committed: s.transcript.committed.map(remove),
+      active: s.transcript.active ? remove(s.transcript.active) : null,
+    } };
+  }
 
   switch (event.kind) {
     case 'config': {
@@ -1184,6 +1194,6 @@ function backgroundCommandDone(
     toolCallId: event.toolCallId,
     name: typeof title === 'string' ? title : '',
     outcome: event.status === 'failed' ? 'failed' : 'completed',
-    ...(event.outputText !== undefined ? { summary: event.outputText } : {}),
+    ...(event.outputText != null ? { summary: event.outputText } : {}),
   };
 }

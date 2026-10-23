@@ -6,6 +6,7 @@ import type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -22,6 +23,7 @@ export type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -386,6 +388,7 @@ export type ChatPlan = {
   kind: 'plan';
   id: string;
   entries: ChatPlanEntry[];
+  body?: { type: 'markdown'; content: string } | { type: 'file'; uri: string };
   /** True while tasks are still being appended (drives preview auto-scroll + shimmer). */
   streaming?: boolean;
 };

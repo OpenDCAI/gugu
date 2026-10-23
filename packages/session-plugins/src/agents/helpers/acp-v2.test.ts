@@ -1,7 +1,7 @@
 import { PassThrough, Writable } from 'node:stream';
 import type { Client, SessionNotification } from '@agentclientprotocol/sdk';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
-import { decodeSessionUpdate } from '@gugu/session-core/acp';
+import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
 
 import { nodeReadableToWeb } from './acp-stdio';
@@ -163,36 +163,34 @@ describe('connectStdioAcpV2', () => {
       stopReason: 'max_tokens',
       usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 },
     });
-    // The client had the turn's idle when the prompt ended. The prompt's own message is the host's:
-    // the decoder draws no row for it.
-    expect(pair.kinds()).toEqual(['state_update', 'user_message', 'state_update', 'state_update']);
-    expect(decodeSessionUpdate(pair.updates[1]!.update)).toEqual({ kind: 'ignored' });
+    // The receipt still belongs to the prompt adapter; the cell inserts the local input.
+    expect(pair.kinds()).toEqual(['state_update', 'state_update', 'state_update']);
   });
 
-  it('takes a whole message as its chunks, and fails the turn loudly when one replaces content already shown', async () => {
+  it('forwards whole-message replacements and chunks to the domain decoder without ending the prompt', async () => {
     const taken = Promise.withResolvers<void>();
     const pair = agentPair({
       prompt: async () => {
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [{ type: 'text', text: 'hi' }] });
+        await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [] });
         taken.resolve();
         return { messageId: 'u1' };
       },
     });
     await initialize(pair.api);
-    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hi' }] });
+    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [] });
     await taken.promise;
-    // A new message's content is appended as chunks; later chunks append to it; a metadata-only
-    // upsert shows nothing.
     await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'one' }] });
     await pair.send({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: ' two' } });
     await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', _meta: { x: 1 } });
-    await settle();
-    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
-
-    // Replacing content the host already appended is not something the host can show.
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'other' }] });
-    await expect(outcome).rejects.toThrow(/agent_message a1 replaces content the host already shows/);
-    expect(pair.kinds()).toEqual(['user_message', 'agent_message_chunk', 'agent_message_chunk']);
+    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'short' }] });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
+    await expect(outcome).resolves.toEqual({ stopReason: 'end_turn' });
+    expect(pair.kinds()).toEqual(['agent_message', 'agent_message_chunk', 'agent_message', 'agent_message', 'state_update']);
+    const parser = new AcpTranscriptParser({ sessionId: 's1' });
+    for (const [index, { update }] of pair.updates.entries()) parser.pushEvent(decodeSessionUpdate(update), index);
+    const items = [...parser.history.flatMap(turn => turn.items), ...(parser.activeTurn?.items ?? [])];
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: 'message', text: 'short', _meta: { x: 1 } });
   });
 
   it('ends a prompt that the agent took in while an earlier one ran with that work, and waits for a later one', async () => {
@@ -313,7 +311,7 @@ describe('connectStdioAcpV2', () => {
     });
   });
 
-  it('gives the host the v2 name of a tool call where it reads the tool name', async () => {
+  it('preserves the standard tool name and a permission request with its own title', async () => {
     const pair = agentPair();
     await initialize(pair.api);
     await pair.send({
@@ -326,7 +324,7 @@ describe('connectStdioAcpV2', () => {
     });
     await pair.agent().request(v2.methods.client.session.requestPermission, {
       sessionId: 's1',
-      title: 'Ready to code?',
+      title: 'Approve implementation?',
       subject: { type: 'tool_call', toolCall: { toolCallId: 'plan-1', name: 'ExitPlanMode' } },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
     });
@@ -334,35 +332,38 @@ describe('connectStdioAcpV2', () => {
     expect(pair.updates[0]!.update).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'plan-1',
+      name: 'ExitPlanMode',
       title: 'Ready to code?',
       rawInput: { plan: '1. write the file' },
-      _meta: { claudeCode: { parentToolUseId: null }, toolName: 'ExitPlanMode' },
+      _meta: { claudeCode: { parentToolUseId: null } },
     });
     expect(pair.permissions).toEqual([
       {
         sessionId: 's1',
-        toolCall: { toolCallId: 'plan-1', title: 'Ready to code?', _meta: { toolName: 'ExitPlanMode' } },
+        title: 'Approve implementation?',
+        subject: { type: 'tool_call', toolCall: { toolCallId: 'plan-1', name: 'ExitPlanMode' } },
         options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
       },
     ]);
   });
 
-  it('asks the host about a v2 permission request as about its tool call, under the request title', async () => {
+  it.each([
+    { type: 'tool_call', toolCall: { toolCallId: 'tool-1', title: 'Tool title', kind: 'execute' } },
+    { type: 'command', command: 'ls -la', cwd: '/work', toolCallId: 'tool-1', terminalId: 'term-1', _meta: { vendor: { extra: true } } },
+    null,
+    undefined,
+  ])('preserves the complete permission subject %j without manufacturing a tool call', async (subject) => {
     const pair = agentPair();
     await initialize(pair.api);
-    const response = await pair.agent().request(v2.methods.client.session.requestPermission, {
-      sessionId: 's1',
-      title: 'Run ls?',
-      subject: { type: 'tool_call', toolCall: { toolCallId: 'tool-1', kind: 'execute' } },
+    const request = {
+      sessionId: 's1', title: 'Run command?', description: 'Approval details',
+      ...(subject === undefined ? {} : { subject }),
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-    });
+      _meta: { vendor: { context: 1 } },
+    };
+    const response = await pair.agent().request(v2.methods.client.session.requestPermission, request as v2.RequestPermissionRequest);
     expect(response).toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } });
-    expect(pair.permissions).toEqual([
-      {
-        sessionId: 's1',
-        toolCall: { toolCallId: 'tool-1', kind: 'execute', title: 'Run ls?' },
-        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-      },
-    ]);
+    expect(pair.permissions).toEqual([request]);
+    expect(pair.permissions[0]).not.toHaveProperty('toolCall');
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AcpTranscriptParser } from '../reducer/parser';
 import { agentStateSchema } from './agents';
 import { sessionConfigStateSchema, sessionUsageSchema } from './config';
-import { planStateSchema } from './plan';
+import { sessionPlansSchema } from './plan';
 import { transcriptTurnSchema } from './turns';
 
 function buildParserOutput(): AcpTranscriptParser {
@@ -88,6 +88,6 @@ describe('ACP zod models', () => {
       parser.usage === null ? null : sessionUsageSchema.parse(parser.usage)
     ).not.toThrow();
     expect(() => agentStateSchema.array().parse(parser.agents)).not.toThrow();
-    expect(() => (parser.plan === null ? null : planStateSchema.parse(parser.plan))).not.toThrow();
+    expect(() => (parser.plan === null ? null : sessionPlansSchema.parse(parser.plan))).not.toThrow();
   });
 });

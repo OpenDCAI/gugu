@@ -29,6 +29,7 @@ export type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
 } from '../models/plan';
 
 export type {

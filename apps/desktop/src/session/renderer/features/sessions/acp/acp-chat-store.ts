@@ -9,6 +9,8 @@ import type {
 import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
+  permissionTitle,
+  permissionDescription,
   type AttachmentMimeType,
   type AttachmentRef,
   type GuguPermissionMode,
@@ -19,7 +21,6 @@ import {
   type PromptInput,
   type QueuedPrompt,
   type QueuedPromptEdit,
-  toolCallLabel,
 } from '@gugu/session-core/acp/client';
 import type {
   CommandItem,
@@ -99,8 +100,9 @@ type AcpFailureTitle = Extract<SessionMessageKey, `acpFailure.${string}`>;
 
 type PermissionQueueItem = {
   requestId: string;
-  toolCallId: string;
+  toolCallId: string | null;
   title: string;
+  description?: string;
   options: Array<{ optionId: string; name: string; kind: string }>;
   waitKind: PermissionWaitKind;
 };
@@ -444,8 +446,9 @@ export class AcpChatStore {
   get permissionQueue(): PermissionQueueItem[] {
     return (this.session?.sessionState.current().pendingPermissions ?? []).map((request) => ({
       requestId: request.requestId,
-      toolCallId: request.toolCall.toolCallId,
-      title: toolCallLabel(request.toolCall),
+      toolCallId: request.toolCall?.toolCallId ?? null,
+      title: permissionTitle(request),
+      description: permissionDescription(request),
       options: request.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,

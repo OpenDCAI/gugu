@@ -19,7 +19,6 @@ import type {
   CreateFileToolCall,
   CreatePlanToolCall,
   ModifyFileToolCall,
-  ReadToolCall,
   TranscriptCompaction,
   TranscriptContextReset,
   TranscriptSessionNotice,
@@ -49,6 +48,9 @@ import type {
   NormalizedToolLocation,
   NormalizedToolStatus,
 } from './normalized-event';
+import { foldMessageContent } from './message-fold';
+import { patchToolEntity } from './tool-patch';
+import { projectToolContent } from '../models/tool-payload';
 
 export type FoldEvent =
   | Exclude<NormalizedEvent, { kind: 'message' | 'thinking' }>
@@ -268,6 +270,8 @@ export function createToolCallItem(params: {
       params.inputSummary
     ),
     ...toolPayloadFields(params),
+    toolKind: params.toolKind,
+    locations: [...params.locations],
   };
   const { title, toolKind } = params;
   if (isSubagentKind(toolKind)) {
@@ -286,7 +290,7 @@ export function createToolCallItem(params: {
   }
   // 按名字认(见 parseMcpToolName):ACP 那侧永远给不出 mcp 这个 kind,
   // 不这么认的话每次 MCP 调用都只剩一条原始函数名。
-  const mcp = parseMcpToolName(title);
+  const mcp = parseMcpToolName(params.toolName ?? title);
   if (mcp) {
     return { kind: 'mcp-tool-call', ...base, server: mcp.server, tool: mcp.tool };
   }
@@ -319,131 +323,6 @@ export function createToolCallItem(params: {
     };
   }
   return { kind: 'unknown-tool-call', ...base, toolKind, name: title };
-}
-
-function updateToolCallItem(
-  item: ToolCallItem,
-  title: string | null,
-  status: NormalizedToolStatus | null,
-  payload: ToolPayloadFields,
-  locations: ReadonlyArray<NormalizedToolLocation> | null | undefined,
-  terminalId?: string,
-  exitStatus?: TerminalExit,
-  parentToolCallId?: string
-): ToolCallItem {
-  const mapped = mapToolStatus(status ?? undefined);
-  const nextTitle = title ?? item.title;
-  // 归属只会**补上**,不会丢掉。
-  //
-  // ⚠️ 一次子调用的结果回来时,适配器发**两条** `tool_call_update`:先到的那条带
-  // `toolResponse` 却**不带** `parentToolUseId`,后到的那条才带(实机 2026-09-06:
-  // WebSearch 42 条带 / 21 条不带,顺序恒是不带的在前)。跨轮时先到的那条会在新一轮
-  // 里建出一个没有归属的条目 —— 而这个函数先前根本不接归属,后到的那条再也补不回来。
-  // 后果就是那条子调用掉回主消息列表,拼成 owner 截图里那面墙。
-  // ❌ 反过来不许:已经认了爹就不许被一条空的更新改判。
-  const nextParent = item.parentToolCallId ?? parentToolCallId;
-  // ⚠️ 这个联合类型里只有子智能体那一支有 `startedAt`,直接 `item.startedAt` 收窄不出来。
-  const priorStartedAt: number | undefined =
-    'startedAt' in item && typeof item.startedAt === 'number' ? item.startedAt : undefined;
-
-  // 还没认出来的调用,等真名字到了要**重新分类**(#4981)。
-  //
-  // ACP 允许 `tool_call_update` 先于 `tool_call` 到达,也允许它不带 title。那种情况下
-  // 这条调用会以「不认识」的身份被建出来,而下面的 switch 只改字段、**不改 kind** ——
-  // 于是身份在第一条事件那一刻就被永久冻住了。真机上的两个症状同出一源:
-  //   · `mcp__playwright__browser_navigate` 显示的是后来更新进来的真名字,
-  //     但 kind 还是 unknown,所以永远不会被拆成 server + tool;
-  //   · 没等到名字的那几行,直接把占位串 `unknown` 摆给了用户看。
-  //
-  // 只对 `unknown-tool-call` 做,且只在**名字真的变了**的时候:已经认出身份的调用
-  // 不该因为一次普通更新就改换门庭,那会让一行在读者眼皮底下变成另一种东西。
-  if (item.kind === 'unknown-tool-call' && title !== null && title !== item.title) {
-    const reclassified = createToolCallItem({
-      id: item.id,
-      seq: item.seq,
-      toolCallId: item.toolCallId,
-      title,
-      toolKind: item.toolKind,
-      status,
-      parentToolCallId: nextParent,
-      // ⚠️ 重分类沿用老条目的起点,❌ 不重置 —— 重置一次卡上的时长就往回跳。
-      ...(typeof priorStartedAt === 'number' ? { startedAt: priorStartedAt } : {}),
-      ...(item.inputSummary !== undefined ? { inputSummary: item.inputSummary } : {}),
-      ...toolPayloadFields(payload),
-      ...(terminalId !== undefined ? { terminalId } : {}),
-      ...(exitStatus !== undefined ? { exitStatus } : {}),
-      locations: locations ?? [],
-    });
-    // 仍旧不认识就走原路 —— ❌ 不要用一个新造的 unknown 覆盖掉已经攒下的字段。
-    if (reclassified.kind !== 'unknown-tool-call') {
-      return { ...item, ...reclassified } as ToolCallItem;
-    }
-  }
-  // Payload lands on `common`, so a later update carries request/result onto
-  // every kind rather than only the one kind that happens to render it today.
-  const common = {
-    ...item,
-    ...(mapped !== undefined ? { status: mapped } : {}),
-    ...(title !== null ? { title: title } : {}),
-    ...(nextParent !== undefined ? { parentToolCallId: nextParent } : {}),
-    ...toolPayloadFields(payload),
-  };
-  switch (item.kind) {
-    case 'execute-tool-call':
-      return {
-        ...common,
-        ...(title !== null ? { command: nextTitle } : {}),
-        ...(terminalId !== undefined ? { terminalId } : {}),
-        // Only ever written, never cleared: the exit arrives on the completing
-        // update and later updates for the same call do not carry it again.
-        ...(exitStatus !== undefined ? { exitStatus } : {}),
-      };
-    case 'read-tool-call': {
-      const readCommon = common as ReadToolCall;
-      if (locations === undefined) return readCommon;
-      if (locations?.[0] !== undefined) return { ...readCommon, path: locations[0].path };
-      const { path: _path, ...withoutPath } = readCommon;
-      return withoutPath;
-    }
-    case 'create-file-tool-call':
-      return common;
-    case 'modify-file-tool-call':
-      return common;
-    case 'delete-file-tool-call':
-      return common;
-    case 'search-tool-call':
-      return { ...common, ...(title !== null ? { query: nextTitle } : {}) };
-    case 'mcp-tool-call': {
-      // ⚠️ 更新也要**重新拆**一次名字(#4981)。
-      //
-      // 这一行原本写的是 `tool: nextTitle` —— 那是 `tool` 只可能等于整条标题的年代留下的。
-      // 现在建行时已经按 `mcp__<server>__<tool>` 拆开了,而 ACP 后续每条 `tool_call_update`
-      // 都会再把完整标题送一遍 ⇒ 第一条事件拆对,第二条原样盖回去。真机上量到的就是这个
-      // 半成品:`mcp-omnisearch.mcp__mcp-omnisearch__ai_search`(2026-09-05)——
-      // server 是对的,tool 又变回了裸名字,正好是 owner 报的那句「mcp 怎么还是裸的」。
-      //
-      // 拆不开就照旧原样放 `tool`:名字不长那样的时候不猜,与建行时同一条规矩。
-      const parsed = title !== null ? parseMcpToolName(nextTitle) : null;
-      return {
-        ...common,
-        ...(parsed !== null
-          ? { server: parsed.server, tool: parsed.tool }
-          : title !== null
-            ? { tool: nextTitle }
-            : {}),
-      };
-    }
-    case 'web-fetch-tool-call':
-      return { ...common, ...(title !== null ? { pageTitle: nextTitle } : {}) };
-    case 'spawn-subagent-tool-call':
-    case 'subagent-done-tool-call':
-    case 'background-command-done-tool-call':
-      return { ...common, ...(title !== null ? { name: nextTitle } : {}) };
-    case 'create-plan-tool-call':
-      return common;
-    case 'unknown-tool-call':
-      return { ...common, ...(title !== null ? { name: nextTitle } : {}) };
-  }
 }
 
 function upsertToolCallItem(items: TranscriptItem[], next: ToolCallItem): TranscriptItem[] {
@@ -668,38 +547,6 @@ function upsertFileOperations(
   return result;
 }
 
-function updateFileOperationStatuses(
-  items: TranscriptItem[],
-  toolCallId: string,
-  status: NormalizedToolStatus | null
-): TranscriptItem[] {
-  const mapped = mapToolStatus(status);
-  if (mapped === undefined) return items;
-  return items.map((item): TranscriptItem => {
-    switch (item.kind) {
-      case 'create-file-tool-call':
-      case 'modify-file-tool-call':
-      case 'delete-file-tool-call':
-        return item.toolCallId === toolCallId ? { ...item, status: mapped } : item;
-      default:
-        return item;
-    }
-  });
-}
-
-function hasFileOperationsForToolCall(items: TranscriptItem[], toolCallId: string): boolean {
-  return items.some((item) => {
-    switch (item.kind) {
-      case 'create-file-tool-call':
-      case 'modify-file-tool-call':
-      case 'delete-file-tool-call':
-        return item.toolCallId === toolCallId;
-      default:
-        return false;
-    }
-  });
-}
-
 function planStatus(entries: Extract<NormalizedEvent, { kind: 'plan' }>['entries']): ToolStatus {
   return entries.some((entry) => entry.status === 'in_progress') ? 'running' : 'done';
 }
@@ -709,7 +556,8 @@ function upsertPlanToolCall(
   turnId: string,
   event: Extract<NormalizedEvent, { kind: 'plan' }>
 ): TranscriptItem[] {
-  const id = makePlanId(turnId);
+  const planId = event.planId ?? SESSION_PLAN_ID;
+  const id = planId === SESSION_PLAN_ID ? makePlanId(turnId) : `${makePlanId(turnId)}:${planId}`;
   const idx = items.findIndex((it) => it.kind === 'create-plan-tool-call' && it.id === id);
   const next: CreatePlanToolCall = {
     kind: 'create-plan-tool-call',
@@ -718,7 +566,7 @@ function upsertPlanToolCall(
     toolCallId: id,
     title: 'Plan updated',
     status: planStatus(event.entries),
-    planId: SESSION_PLAN_ID,
+    planId,
   };
   if (idx >= 0) {
     const existing = items[idx] as CreatePlanToolCall;
@@ -844,6 +692,47 @@ function normalizeToolStructure(items: TranscriptItem[], turnId: string): Transc
  * Content-bearing events (message, tool, diff, plan) auto-finalize any open
  * thinking rows before appending (the agent has moved past the reasoning phase).
  */
+function foldToolEntity(
+  items: TranscriptItem[],
+  event: Extract<NormalizedEvent, { kind: 'tool_call' | 'tool_update' }>,
+  turnId: string,
+  at: number,
+): TranscriptItem[] {
+  const toolId = makeToolId(turnId, event.toolCallId);
+  const owned = items.filter((item): item is ToolCallItem => isToolCallItem(item) && item.toolCallId === event.toolCallId);
+  const previous = owned.find(item => item.id === toolId) ?? owned[0];
+  const initial = previous ?? createToolCallItem({
+    id: toolId, seq: nextSeq(items), toolCallId: event.toolCallId,
+    title: '', toolKind: null, status: null, parentToolCallId: undefined, locations: [], startedAt: at,
+  });
+  const merged = patchToolEntity(initial, event);
+  const diffs = event.contentBlocks !== undefined
+    ? projectToolContent(merged.contentBlocks ?? []).diffs
+    : event.diffs;
+  if (diffs?.length) {
+    const paths = new Set(diffs.map(diff => diff.path));
+    const base = items.filter(item => !isToolCallItem(item) || item.toolCallId !== event.toolCallId || !('path' in item) || typeof item.path !== 'string' || paths.has(item.path));
+    return upsertFileOperations(base, toolId, event.toolCallId, event.title === undefined && !previous ? null : merged.title, merged.parentToolCallId, diffs, event.status ?? null)
+      .map(item => isToolCallItem(item) && item.toolCallId === event.toolCallId ? { ...item, ...patchToolEntity(item, event), status: merged.status } : item);
+  }
+  // A status/name patch keeps file sections; replacing their content removes stale sections.
+  if (owned.some(item => item.id !== toolId) && event.contentBlocks === undefined && event.diffs !== null) {
+    return items.map(item => isToolCallItem(item) && item.toolCallId === event.toolCallId ? patchToolEntity(item, event) : item);
+  }
+  // A provider-owned specialized event already classified this entity; a sparse patch keeps that classification.
+  const fresh = previous && merged.toolKind === undefined && event.toolKind === undefined ? merged : createToolCallItem({
+    ...merged, id: toolId, seq: initial.seq, toolKind: merged.toolKind ?? null,
+    status: event.status ?? null, locations: merged.locations ?? [],
+    parentToolCallId: merged.parentToolCallId,
+  });
+  const next = { ...(fresh.kind === merged.kind ? merged : {}), ...fresh, status: merged.status } as ToolCallItem;
+  if (merged.contentBlocks !== undefined) next.contentBlocks = merged.contentBlocks;
+  if (merged._meta !== undefined) next._meta = merged._meta;
+  const first = items.findIndex(item => isToolCallItem(item) && item.toolCallId === event.toolCallId);
+  if (first < 0) return [...items, next];
+  return items.flatMap((item, i) => isToolCallItem(item) && item.toolCallId === event.toolCallId ? i === first ? [next] : [] : [item]);
+}
+
 export function foldItem(
   items: TranscriptItem[],
   event: FoldEvent,
@@ -864,55 +753,54 @@ export function foldItem(
       if (idx >= 0) {
         // Append chunk to existing message.
         const msg = base[idx] as TranscriptMessage;
-        const updated: TranscriptMessage = {
+        const updated: TranscriptMessage = foldMessageContent({
           ...msg,
-          text: msg.text + event.text,
           ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
           ...(event.attachments?.length
             ? { attachments: [...(msg.attachments ?? []), ...event.attachments] }
             : {}),
-        };
+        }, event);
         return normalizeToolStructure(
           base.map((it, i) => (i === idx ? updated : it)),
           turnId
         );
       }
       // New message.
-      const newMsg: TranscriptMessage = {
+      const newMsg: TranscriptMessage = foldMessageContent({
         kind: 'message',
         id,
         seq: nextSeq(base),
         role: event.role,
-        text: event.text,
+        text: '',
         ...(event.attachments?.length ? { attachments: event.attachments } : {}),
         ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
         // 只在**新建**这条消息时写:它说的是这条消息什么时候开始到的,后面的分片不该把它往后推。
         ...(stampAt !== undefined ? { at: stampAt } : {}),
-      };
+      }, event);
       return normalizeToolStructure([...base, newMsg], turnId);
     }
 
     case 'thinking': {
       const id = makeThinkingId(turnId, event.messageId);
       const idx = flatItems.findIndex(
-        (it) => it.kind === 'thinking' && it.id === id && it.status === 'thinking'
+        (it) => it.kind === 'thinking' && it.id === id
       );
       if (idx >= 0) {
         const th = flatItems[idx] as TranscriptThinking;
         return normalizeToolStructure(
-          flatItems.map((it, i) => (i === idx ? { ...th, text: th.text + event.text } : it)),
+          flatItems.map((it, i) => (i === idx ? foldMessageContent(th, event) : it)),
           turnId
         );
       }
-      const newThinking: TranscriptThinking = {
+      const newThinking: TranscriptThinking = foldMessageContent({
         kind: 'thinking',
         id,
         seq: nextSeq(flatItems),
         segmentId: event.messageId,
-        text: event.text,
+        text: '',
         status: 'thinking',
         startedAt: at,
-      };
+      }, event);
       return normalizeToolStructure([...finalizeOpenThinking(flatItems, at), newThinking], turnId);
     }
 
@@ -1025,134 +913,10 @@ export function foldItem(
       return normalizeToolStructure([...base, row], turnId);
     }
 
-    case 'tool_call': {
-      const toolId = makeToolId(turnId, event.toolCallId);
-      const parentToolCallId = event.parentToolCallId ?? undefined;
-      const base = finalizeOpenThinking(flatItems, at);
-      if (event.diffs.length > 0) {
-        const next = upsertFileOperations(
-          base,
-          toolId,
-          event.toolCallId,
-          event.title,
-          parentToolCallId,
-          event.diffs,
-          event.status
-        );
-        return normalizeToolStructure(next, turnId);
-      }
-
-      // ⚠️ 这里曾经是 `if (isEditKind(...)) return base` —— 一次还没产出差异的编辑
-      // **整个不渲染**:跑着的时候看不见,失败了也看不见(实测 edit + status=failed
-      // 一条条目都不留)。差异一到,`upsertFileOperations` 会把这一行换掉,所以照常建。
-      const tool = createToolCallItem({
-        id: toolId,
-        seq: nextSeq(base),
-        toolCallId: event.toolCallId,
-        title: event.title,
-        toolKind: event.toolKind,
-        status: event.status,
-        parentToolCallId,
-        ...(event.inputSummary !== undefined ? { inputSummary: event.inputSummary } : {}),
-        ...(event.toolName !== undefined ? { toolName: event.toolName } : {}),
-        ...(event.rawInput !== undefined ? { rawInput: event.rawInput } : {}),
-        ...(event.rawOutput !== undefined ? { rawOutput: event.rawOutput } : {}),
-        ...(event.outputText !== undefined ? { outputText: event.outputText } : {}),
-        ...(event.images !== undefined ? { images: event.images } : {}),
-        ...(event.backgroundTaskId !== undefined
-          ? { backgroundTaskId: event.backgroundTaskId }
-          : {}),
-        ...(event.terminalId !== undefined ? { terminalId: event.terminalId } : {}),
-        ...(event.exitStatus !== undefined ? { exitStatus: event.exitStatus } : {}),
-        locations: event.locations,
-        // 卡上那句「跑了多久」从这里算起(见 createToolCallItem 的 startedAt)。
-        startedAt: at,
-      });
-      const next = upsertToolCallItem(base, tool);
-      return normalizeToolStructure(next, turnId);
-    }
-
+    case 'tool_call':
     case 'tool_update': {
-      const toolId = makeToolId(turnId, event.toolCallId);
-      const parentToolCallId = event.parentToolCallId ?? undefined;
       const base = finalizeOpenThinking(flatItems, at);
-      if (event.diffs.length > 0) {
-        const next = upsertFileOperations(
-          base,
-          toolId,
-          event.toolCallId,
-          event.title,
-          parentToolCallId,
-          event.diffs,
-          event.status
-        );
-        return normalizeToolStructure(next, turnId);
-      }
-
-      const idx = base.findIndex((it) => isToolCallItem(it) && it.id === toolId);
-      let next: TranscriptItem[];
-      if (idx >= 0) {
-        const tool = base[idx] as ToolCallItem;
-        const updated = updateToolCallItem(
-          tool,
-          event.title,
-          event.status,
-          {
-            ...(event.toolName !== undefined ? { toolName: event.toolName } : {}),
-        ...(event.rawInput !== undefined ? { rawInput: event.rawInput } : {}),
-            ...(event.rawOutput !== undefined ? { rawOutput: event.rawOutput } : {}),
-            ...(event.outputText !== undefined ? { outputText: event.outputText } : {}),
-            ...(event.images !== undefined ? { images: event.images } : {}),
-            ...(event.backgroundTaskId !== undefined
-              ? { backgroundTaskId: event.backgroundTaskId }
-              : {}),
-            ...(event.backgroundTaskDone !== undefined
-              ? { backgroundTaskDone: event.backgroundTaskDone }
-              : {}),
-          },
-          event.locations,
-          event.terminalId,
-          event.exitStatus,
-          parentToolCallId
-        );
-        next = base.map((it, i) => (i === idx ? updated : it));
-      } else if (hasFileOperationsForToolCall(base, event.toolCallId)) {
-        // 差异行已经在了,它们才是这次编辑的主体 —— 不要再另起一行。
-        next = base;
-      } else {
-        next = upsertToolCallItem(
-          base,
-          createToolCallItem({
-            id: toolId,
-            seq: nextSeq(base),
-            toolCallId: event.toolCallId,
-            // ❌ 不写 'unknown':那是内部占位,真机上直接以「unknown」四个字母
-            // 出现在了行标题里(owner 2026-09-05)。留空串,由展示层退回通用「工具」。
-            title: event.title ?? '',
-            toolKind: event.toolKind,
-            status: event.status,
-            parentToolCallId,
-            ...(event.toolName !== undefined ? { toolName: event.toolName } : {}),
-        ...(event.rawInput !== undefined ? { rawInput: event.rawInput } : {}),
-            ...(event.rawOutput !== undefined ? { rawOutput: event.rawOutput } : {}),
-            ...(event.outputText !== undefined ? { outputText: event.outputText } : {}),
-            ...(event.images !== undefined ? { images: event.images } : {}),
-            ...(event.backgroundTaskId !== undefined
-              ? { backgroundTaskId: event.backgroundTaskId }
-              : {}),
-            ...(event.backgroundTaskDone !== undefined
-              ? { backgroundTaskDone: event.backgroundTaskDone }
-              : {}),
-            ...(event.terminalId !== undefined ? { terminalId: event.terminalId } : {}),
-            ...(event.exitStatus !== undefined ? { exitStatus: event.exitStatus } : {}),
-            locations: event.locations ?? [],
-            startedAt: at,
-          })
-        );
-      }
-
-      next = updateFileOperationStatuses(next, event.toolCallId, event.status);
-      return normalizeToolStructure(next, turnId);
+      return normalizeToolStructure(foldToolEntity(base, event, turnId, at), turnId);
     }
 
     case 'subagent':

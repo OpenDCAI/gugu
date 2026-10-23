@@ -20,6 +20,7 @@ import type { PlanEntryInput } from '../models/plan';
 import type { SessionNoticeCode } from '../models/turns/session-notice';
 import type { ToolImage } from '../models/turns/tool-calls';
 import type { TerminalExit } from '../models/terminals';
+import type { EntityContent, EntityMeta } from '../models/entity-content';
 
 export type NormalizedDiff = {
   path: string;
@@ -34,6 +35,9 @@ export type NormalizedToolLocation = Pick<ToolCallLocation, 'path' | 'line'>;
 export type NormalizedEvent =
   | {
       kind: 'message';
+      content?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
       role: 'user' | 'assistant';
       /**
        * Provider-assigned message id. Null when the provider omitted it; the reducer
@@ -49,11 +53,16 @@ export type NormalizedEvent =
     }
   | {
       kind: 'thinking';
+      content?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
       messageId: string | null;
       text: string;
     }
   | {
       kind: 'tool_call';
+      contentBlocks?: EntityContent[] | null;
+      _meta?: EntityMeta | null;
       toolCallId: string;
       title: string;
       /** 供应商自己的工具名,标题是显示名时由 EnrichHook 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
@@ -334,26 +343,29 @@ export type NormalizedEvent =
     }
   | {
       kind: 'tool_update';
+      contentBlocks?: EntityContent[] | null;
+      contentMode?: 'replace' | 'append';
+      _meta?: EntityMeta | null;
       /** Native result contained a completed, nonempty answer map before display formatting. */
       recordedAnswers?: boolean;
       toolCallId: string;
-      title: string | null;
+      title?: string | null;
       /** 同 tool_call 的 `toolName`。 */
-      toolName?: string;
-      toolKind: string | null;
-      status: NormalizedToolStatus | null;
-      parentToolCallId: string | null;
-      diffs: NormalizedDiff[];
+      toolName?: string | null;
+      toolKind?: string | null;
+      status?: NormalizedToolStatus | null;
+      parentToolCallId?: string | null;
+      diffs?: NormalizedDiff[] | null;
       /** Undefined leaves the prior collection unchanged; null or [] clears it. */
       locations?: NormalizedToolLocation[] | null;
-      outputText?: string;
+      outputText?: string | null;
       /** As on `tool_call`; undefined leaves the prior pictures unchanged. */
-      images?: ToolImage[];
+      images?: ToolImage[] | null;
       /** Serialized ACP `rawInput` — the arguments handed to the tool. */
-      rawInput?: string;
+      rawInput?: string | null;
       /** Serialized ACP `rawOutput` — the tool's own return value. */
-      rawOutput?: string;
-      terminalId?: string;
+      rawOutput?: string | null;
+      terminalId?: string | null;
       /**
        * How the command's process ended.
        *
@@ -375,8 +387,12 @@ export type NormalizedEvent =
     }
   | {
       kind: 'plan';
+      planId?: string;
+      body?: EntityContent;
+      _meta?: EntityMeta | null;
       entries: PlanEntryInput[];
     }
+  | { kind: 'plan_remove'; planId: string }
   | {
       /** Full config option array from config_option_update. */
       kind: 'config';

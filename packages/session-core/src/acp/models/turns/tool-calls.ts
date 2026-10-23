@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { entityContentSchema, type EntityContent, type EntityMeta } from '../entity-content';
 import type { TerminalExit } from '../terminals';
 import { terminalExitSchema } from '../terminals';
 import type { ToolCallGroupKind, ToolStatus } from './tools';
@@ -36,6 +37,11 @@ export interface BaseToolCallItem {
   seq: number;
   toolCallId: string;
   title: string;
+  toolKind?: string | null;
+  locations?: Array<{ path: string; line?: number | null }>;
+  /** Content and metadata are entity state; outputText/images are derived views. */
+  contentBlocks?: EntityContent[];
+  _meta?: EntityMeta;
   /**
    * 供应商报的工具名,标题是给人看的显示名时靠它认工具(Claude ACP 适配器每条调用都在 `_meta.claudeCode.toolName`
    * 报,EnrichHook 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
@@ -286,6 +292,10 @@ export function catalogCall(tool: string, rawInput: string | undefined): { tool:
 const toolChildrenSchema: z.ZodType<ToolNode[]> = z.lazy(() => z.array(toolNodeSchema));
 
 export const baseToolCallItemSchema = z.object({
+  toolKind: z.string().nullable().optional(),
+  locations: z.array(z.object({ path: z.string(), line: z.number().nullable().optional() })).optional(),
+  contentBlocks: z.array(entityContentSchema).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   id: z.string(),
   /** Stable order within the owning sibling list, assigned once by the reducer. */
   seq: z.number().int(),

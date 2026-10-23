@@ -127,6 +127,8 @@ export type {
   AcpProcessIo,
   AcpAgentApi,
   AcpClientFactory,
+  AcpClient,
+  AcpPermissionParams,
   LiveSettingCapability,
   LiveSettingChannel,
   LiveSettingDimension,

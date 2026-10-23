@@ -1,6 +1,6 @@
 import {
   agentStateSchema,
-  planStateSchema,
+  sessionPlansSchema,
   promptDraftSchema,
   sessionUsageSchema,
   sessionConfigStateSchema,
@@ -57,7 +57,7 @@ export class AcpLiveSession {
   readonly sessionState: ReplicaState<SessionState>;
   readonly config: ReplicaState<z.infer<typeof sessionConfigStateSchema>>;
   readonly usage: ReplicaState<z.infer<typeof sessionUsageSchema> | null>;
-  readonly plan: ReplicaState<z.infer<typeof planStateSchema> | null>;
+  readonly plan: ReplicaState<z.infer<typeof sessionPlansSchema> | null>;
   readonly activeTurn: ReplicaState<z.infer<typeof transcriptTurnSchema> | null>;
   readonly agents: ReplicaState<z.infer<typeof agentStateSchema>[]>;
   readonly draft: ReplicaState<z.infer<typeof promptDraftSchema> | null>;
@@ -77,7 +77,7 @@ export class AcpLiveSession {
       client.session.state(key, 'usage'),
       sessionUsageSchema.nullable()
     );
-    this.plan = createReplicaState(client.session.state(key, 'plan'), planStateSchema.nullable());
+    this.plan = createReplicaState(client.session.state(key, 'plan'), sessionPlansSchema.nullable());
     this.activeTurn = createReplicaState(
       client.session.state(key, 'activeTurn'),
       transcriptTurnSchema.nullable()

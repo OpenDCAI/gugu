@@ -1,3 +1,4 @@
+import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type {
@@ -8,7 +9,6 @@ import type {
   ForkSessionRequest,
   LoadSessionRequest,
   NewSessionRequest,
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
   SessionUpdate,
@@ -37,7 +37,7 @@ import type {
   InvalidStateError,
   SetConfigFailedError,
   NormalizedEvent,
-  PlanState,
+  SessionPlans,
   PromptDraft,
   PromptDraftUpdate,
   QueuedPrompt,
@@ -181,7 +181,7 @@ interface SessionRecordBase {
     sessionState?: SessionState;
     config?: SessionConfigState;
     usage?: SessionUsage | null;
-    plan?: PlanState | null;
+    plan?: SessionPlans | null;
     agents?: AgentState[];
     activeTurn?: TranscriptTurn | null;
     draft?: PromptDraft | null;
@@ -1926,7 +1926,7 @@ export class SessionManager implements InboundRouter {
 
   onPermissionRequest(
     connection: AcpConnectionContext,
-    params: RequestPermissionRequest
+    params: AcpPermissionParams
   ): Promise<RequestPermissionResponse> {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
     const record = sessionId ? this.cells.get(sessionId) : undefined;

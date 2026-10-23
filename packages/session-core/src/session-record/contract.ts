@@ -1,3 +1,4 @@
+import type { PermissionSubject } from '../acp/models/permissions';
 /**
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
  *
@@ -219,6 +220,7 @@ export type Settlement = {
   title?: string;
   /** 次要说明（命令行、路径、提问的补充）。 */
   detail?: string;
+  subject?: PermissionSubject | null;
   /** 可选项。空或缺省 ⇒ 手机不渲染可点按钮。 */
   options?: readonly SettlementOption[];
   /**
@@ -369,6 +371,7 @@ export type PendingRequest = {
   kind: 'permission' | 'question';
   title: string;
   detail?: string;
+  subject?: PermissionSubject | null;
   options: readonly SettlementOption[];
   /** Host-owned structured question, answerable on every harness. */
   questions?: readonly SettlementQuestion[];

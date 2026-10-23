@@ -65,12 +65,7 @@ export function enrichClaudeUpdate(update: NormalizedEvent, raw: SessionUpdate):
       return {
         kind: 'tool_update',
         toolCallId: started.toolUseId ?? started.taskId,
-        // 全 null = 只补字段,不动这次调用的名字/状态/归属(它在派出去那一刻就完成了)。
-        title: null,
-        toolKind: null,
-        status: null,
-        parentToolCallId: null,
-        diffs: [],
+        // 缺席的字段保持原值，只补后台任务身份。
         backgroundTaskId: started.taskId,
       };
     }
@@ -175,11 +170,11 @@ export function enrichClaudeUpdate(update: NormalizedEvent, raw: SessionUpdate):
       // "async_launched"`)⇒ 按上面那条口径,派发这次调用就是完成了;供应商没写字段,
       // 不等于它没说 —— 它在 toolResponse 里说了。
       status: update.status ?? (asyncLaunch ? 'completed' : null),
-      parentToolCallId: parentPatch.parentToolCallId ?? update.parentToolCallId,
+      parentToolCallId: parentPatch.parentToolCallId ?? update.parentToolCallId ?? null,
       inputSummary: agentInputSummary(raw),
-      ...(update.rawInput !== undefined ? { rawInput: update.rawInput } : {}),
-      ...(update.rawOutput !== undefined ? { rawOutput: update.rawOutput } : {}),
-      ...(update.outputText !== undefined ? { outputText: update.outputText } : outputPatch),
+      ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
+      ...(update.rawOutput != null ? { rawOutput: update.rawOutput } : {}),
+      ...(update.outputText != null ? { outputText: update.outputText } : outputPatch),
       ...(asyncLaunch ? { background: true } : {}),
       ...(asyncLaunch?.agentId !== undefined ? { agentId: asyncLaunch.agentId } : {}),
       ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
@@ -266,6 +261,9 @@ function isSubagentBookkeepingToolName(toolName: string | null): boolean {
 }
 
 function claudeToolName(raw: SessionUpdate): string | null {
+  const name = (raw as unknown as { name?: unknown }).name;
+  if (name !== undefined) return typeof name === 'string' ? name : null;
+
   const toolName = claudeMeta(raw)?.toolName;
   return typeof toolName === 'string' ? toolName : null;
 }

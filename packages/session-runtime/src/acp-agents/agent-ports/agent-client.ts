@@ -1,5 +1,6 @@
+import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type {
-  Client,
   CreateTerminalRequest,
   CreateTerminalResponse,
   KillTerminalRequest,
@@ -8,7 +9,6 @@ import type {
   ReadTextFileResponse,
   ReleaseTerminalRequest,
   ReleaseTerminalResponse,
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
   TerminalOutputRequest,
@@ -31,7 +31,7 @@ export interface InboundRouter {
   ): void;
   onPermissionRequest(
     connection: AcpConnectionContext,
-    params: RequestPermissionRequest
+    params: AcpPermissionParams
   ): Promise<RequestPermissionResponse>;
   onCreateTerminal(
     connection: AcpConnectionContext,
@@ -48,13 +48,13 @@ export function buildAgentClient(
   connection: AcpConnectionContext,
   router: InboundRouter,
   ports: AgentPorts
-): Client {
+): AcpClient {
   return {
     sessionUpdate: async (params: SessionNotification): Promise<void> => {
       router.onSessionUpdate(connection, params, connection.normalize(params.update));
     },
 
-    requestPermission: (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
+    requestPermission: (params: AcpPermissionParams): Promise<RequestPermissionResponse> => {
       return router.onPermissionRequest(connection, params);
     },
 

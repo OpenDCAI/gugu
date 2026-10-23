@@ -17,6 +17,8 @@ import type {
   NewSessionResponse,
   PromptRequest,
   PromptResponse,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
   SessionConfigOption,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
@@ -28,6 +30,7 @@ import type { SerializedError } from '@gugu/session-shared';
 import z from 'zod';
 import type { AcpPlatformInjection } from '../../../acp/api/runtime-contract';
 import type { EnrichHook } from '../../../acp/reducer/normalized-event';
+import type { PermissionSubject, AcpPermissionOption } from '../../../acp/models/permissions';
 
 export type LiveSettingDimension = 'model' | 'permission' | 'effort';
 export type LiveSettingChannel =
@@ -246,7 +249,19 @@ export interface AcpAgentApi {
 }
 
 /** The manager supplies this factory; the plugin forwards it into ClientSideConnection. */
-export type AcpClientFactory = (agent: AcpAgentApi) => Client;
+export type AcpPermissionParams = Omit<RequestPermissionRequest, 'toolCall' | 'options'> & {
+  toolCall?: RequestPermissionRequest['toolCall'];
+  options: AcpPermissionOption[];
+  title?: string;
+  description?: string | null;
+  subject?: PermissionSubject | null;
+};
+
+export type AcpClient = Omit<Client, 'requestPermission'> & {
+  requestPermission(params: AcpPermissionParams): RequestPermissionResponse | Promise<RequestPermissionResponse>;
+};
+
+export type AcpClientFactory = (agent: AcpAgentApi) => AcpClient;
 
 /** `IAcpBehavior.discoverCommands` 的入参 —— 宿主(运行时,Node 侧)递进来,插件自己不碰 `node:fs`。 */
 export interface AcpCommandDiscoveryContext {

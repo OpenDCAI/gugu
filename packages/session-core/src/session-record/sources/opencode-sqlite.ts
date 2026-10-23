@@ -283,8 +283,8 @@ class OpencodeSqliteSource extends SqlitePollSource<SessionRecordLocator> {
     const event: NormalizedEvent = emissions === 0
       ? {
           ...toolCallStart(callId, tool, opencodeToolKind(tool), state?.input), status,
-          ...(resultEvent.rawOutput !== undefined ? { rawOutput: resultEvent.rawOutput } : {}),
-          ...(resultEvent.outputText !== undefined ? { outputText: resultEvent.outputText } : {}),
+          ...(resultEvent.rawOutput != null ? { rawOutput: resultEvent.rawOutput } : {}),
+          ...(resultEvent.outputText != null ? { outputText: resultEvent.outputText } : {}),
         }
       : resultEvent;
     return { key, at: row.time_created, event };

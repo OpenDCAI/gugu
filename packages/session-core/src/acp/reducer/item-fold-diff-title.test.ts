@@ -17,10 +17,6 @@ const call: FoldEvent = {
 const preview: FoldEvent = {
   kind: 'tool_update',
   toolCallId: 'w1',
-  title: null,
-  toolKind: null,
-  status: null,
-  parentToolCallId: null,
   diffs: [{ path: '/work/plan.txt', oldText: null, newText: 'hello' }],
 };
 

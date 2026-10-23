@@ -8,7 +8,7 @@ export type ActiveTurnEvent =
   | {
       type: 'tool_update';
       id: string;
-      status?: 'running' | 'done' | 'error';
+      status?: 'running' | 'done' | 'error' | 'unknown';
       name?: string;
       inputSummary?: string;
     }
@@ -23,13 +23,13 @@ export type ActiveTurnEvent =
       type: 'file_op_update';
       id: string;
       ops?: Array<{ path: string }>;
-      status?: 'running' | 'done' | 'error';
+      status?: 'running' | 'done' | 'error' | 'unknown';
     }
   | { type: 'execute_start'; id: string; command: string; startedAt?: number; parentId?: string }
   | {
       type: 'execute_update';
       id: string;
-      status?: 'running' | 'done' | 'error';
+      status?: 'running' | 'done' | 'error' | 'unknown';
       durationMs?: number;
     }
   | {
@@ -40,7 +40,7 @@ export type ActiveTurnEvent =
       newText: string;
       parentId?: string;
     }
-  | { type: 'diff_update'; id: string; newText?: string; status?: 'running' | 'done' | 'error' }
+  | { type: 'diff_update'; id: string; newText?: string; status?: 'running' | 'done' | 'error' | 'unknown' }
   | {
       type: 'plan_update';
       id: string;
