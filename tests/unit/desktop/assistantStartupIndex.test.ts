@@ -61,6 +61,18 @@ it('distinguishes unavailable/invalid sources from a successfully read empty col
   expect(rows.filter(row => row.status === 'unavailable').every(row => !('items' in row))).toBe(true)
 })
 
+it.each(['awake', 'waking', 'asleep'] as const)('preserves verified cloud hosting (%s) without treating every server as a cloud device', async cloudState => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => action.action === 'devices'
+    ? Promise.resolve([{ ...host, cloud_computer: cloudState }, { ...mac, platform: 'linux', kind: 'server' }])
+    : original(action, signal))
+  const rows = records(await assistantStartupIndex(deps))
+  expect(rows.find(row => row.device_id === 'device:host')).toMatchObject({ this_machine: true, cloud_computer: cloudState })
+  expect(rows.find(row => row.device_id === 'device:mac')).not.toHaveProperty('cloud_computer')
+  expect(rows.find(row => row.device_id === 'device:phone')).toBeDefined()
+})
+
 it('bounds a non-answering remote read, cancels it and records an unavailable source', async () => {
   vi.useFakeTimers()
   try {

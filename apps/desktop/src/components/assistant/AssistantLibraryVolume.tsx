@@ -16,7 +16,7 @@ import { AssistantLibraryEditor } from './AssistantLibraryEditor'
 import { assistantAppClient } from './assistant-app-client'
 import { ASSISTANT_PANEL_APP } from '../../session/shared/extensions/assistant-app'
 import { extensionProgramNotifiedChannel } from '../../session/shared/extensions/marketEvents'
-import { events, eventSourceMachine } from '../../session/renderer/lib/ipc'
+import { onMachineEvent as onRuntimeMachineEvent } from '../../session/renderer/lib/ipc'
 import { onMachineEvent } from '../../mobile/agent-watch/sessionpage-rpc'
 
 function useLibraryNotifications(machine: LibraryProps['machine'], kind: UserLibraryKind, refresh: () => unknown) {
@@ -31,7 +31,7 @@ function useLibraryNotifications(machine: LibraryProps['machine'], kind: UserLib
     }
     const stop = !platform.capabilities.agentRuntime && machine
       ? onMachineEvent(machine.deviceId, extensionProgramNotifiedChannel, receive)
-      : events.on(extensionProgramNotifiedChannel, notification => { if (eventSourceMachine() === null) receive(notification) })
+      : onRuntimeMachineEvent(null, extensionProgramNotifiedChannel, receive)
     return () => { stop(); off() }
   }, [machine, kind, refresh])
 }

@@ -7,7 +7,6 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { log } from '@renderer/utils/logger';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
 import { cachedDevicesAccount } from '@/store/devicesCache';
-import { machineRegistry } from '@renderer/lib/machine-routing';
 
 /**
  * 项目首页的文件夹卡与输入框的文件夹选择器共用的数据(product spec「项目首页」,#7341)。

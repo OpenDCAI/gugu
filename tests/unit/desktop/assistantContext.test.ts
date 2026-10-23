@@ -195,7 +195,11 @@ it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through nat
     let name = 'first-project'
     const deps = {
       accountId: async () => 'owner',
-      run: async (action: { action: string }) => action.action === 'devices' ? []
+      run: async (action: { action: string }) => action.action === 'devices' ? [{
+        device_id: 'execution-host', label: 'Current host', platform: kind === 'cloud' ? 'linux' : 'darwin',
+        online: true, last_seen_at: null, this_machine: true, kind: kind === 'cloud' ? 'server' : 'desktop',
+        ...(kind === 'cloud' ? { cloud_computer: 'awake' } : {}),
+      }]
         : action.action === 'device_actions' ? { devices: [] }
           : action.action === 'project_list' ? [{ project_id: 'p', name, path: '/work' }] : { items: [] },
     }
@@ -203,6 +207,11 @@ it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through nat
     const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
     expect(options.systemPrompt).not.toContain('first-project')
     expect(hookIndex(start)).toContain('first-project')
+    const devices = hookIndex(start).split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    const executionHost = devices.find(row => row.device_id === 'device:execution-host')
+    expect(executionHost).toMatchObject({ this_machine: true })
+    if (kind === 'cloud') expect(executionHost).toHaveProperty('cloud_computer', 'awake')
+    else expect(executionHost).not.toHaveProperty('cloud_computer')
     expect(options.systemPrompt).toContain('identity and product rules')
     expect(start.sessionPrompt).toBe('identity and product rules')
     name = 'renamed-project'
