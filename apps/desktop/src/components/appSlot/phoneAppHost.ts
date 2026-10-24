@@ -312,7 +312,7 @@ export function hostAppFrame(
   frame: HTMLIFrameElement,
   initial: PhoneAppBinding,
   hooks: {
-    showMessage(detail: AppShowMessageDetail): void
+    showMessage(detail: AppShowMessageDetail): void | Promise<void>
     /**
      * `showSession`: the task tab opens the session's row, as a tap on it does — or, listed nowhere, the machines whose
      * lists were not read (`listedSession`).
@@ -752,7 +752,8 @@ declare const __GUGU_TIER__: string
 const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
 
 /** Host facts and transports only; target parsing and opening order are shared with main. */
-export function openPhoneLink(target: string | GuguLinkTarget) {
+export async function openPhoneLink(target: string | GuguLinkTarget) {
+  if (platform.kind === 'capacitor') await phoneApps.ready()
   return openLinkWith({
     scheme: phoneLinkScheme(),
     installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),

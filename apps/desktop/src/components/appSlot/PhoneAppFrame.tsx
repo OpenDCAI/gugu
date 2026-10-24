@@ -129,7 +129,7 @@ export function PhoneAppFrame({
     const frame = frameRef.current
     if (!frame || !app) return undefined
     const host = hostAppFrame(frame, { ...bindingRef.current, capabilities: app.capabilities }, {
-      showMessage: (detail: AppShowMessageDetail) => { void openLinkTarget({ kind: 'chat', chatId: detail.chatId, messageId: detail.messageId }) },
+      showMessage: async (detail: AppShowMessageDetail) => { await openLinkTarget({ kind: 'chat', chatId: detail.chatId, messageId: detail.messageId }) },
       showSession: (sessionId, peek) => {
         const listed = listedSession(devicesRef.current, liveDeviceSessions(), sessionId)
         if (!('row' in listed)) return listed

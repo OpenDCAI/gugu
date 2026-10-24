@@ -169,7 +169,7 @@ export type ChatCommands = {
   /**
    * Synchronously classify an `href` from a rendered markdown link.
    * Returns `{ kind: 'workspace-file'; path: string; at? }` for workspace files (`at` the place its `#…` names),
-   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, opened by `onOpenGroupFile`; `at` the place a pill points at),
+   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, claimed first by `onOpenLink`; `at` the place a pill points at),
    * or `{ kind: 'external' }` to keep the default external-link behavior.
    */
   classifyLink?: (

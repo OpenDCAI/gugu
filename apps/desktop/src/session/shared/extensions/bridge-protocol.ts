@@ -48,9 +48,9 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 8, and a client that knows only 7 is handed the App's last version for 7.
  * 9 (10-20, 论坛): `gugu.forum.*` (app-forum-core.ts). An App that calls it says 9, so a client without it is handed the
  * App's last version for 8 instead of a page whose calls are missing.
- * 11: common resource linkTo/openLink on desktop, phone and programs (generation only).
  * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
  * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
+ * 11: common resource linkTo/openLink on desktop, phone and programs (generation only).
  */
 export const EXTENSION_API_VERSION = 11;
 
