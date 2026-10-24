@@ -120,6 +120,7 @@ export function AppProductPage({
   onOpenExternal = confirmOpenExternalLink,
   backgroundSupported = true,
   permissionRevocationSupported = true,
+  phoneAgentFeaturesUnavailable = false,
   similar = [],
   menu,
 }: {
@@ -162,6 +163,8 @@ export function AppProductPage({
   backgroundSupported?: boolean;
   /** Whether this host lets people take back individual permissions after installation. */
   permissionRevocationSupported?: boolean;
+  /** Agent capabilities declared by the App, before the phone removes them from its permission list. */
+  phoneAgentFeaturesUnavailable?: boolean;
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
@@ -638,6 +641,7 @@ export function AppProductPage({
   // 信息表:正文最后一节,平铺在页上(照 App Store 产品页的「信息」),❌ 收进弹框里。
   const info: [string, ReactNode][] = [
     [translate('extensions.stripVersion'), `v${shownVersion}`],
+    ...(declaring.platforms?.length ? ([[translate('extensions.infoPlatforms'), listOf(declaring.platforms.map((platform) => translate(`extensions.platform.${platform}`)), locale)]] as [string, ReactNode][]) : []),
     ...(publishedAt ? ([[translate('extensions.updatedOn'), longDate(publishedAt, locale)]] as [string, ReactNode][]) : []),
     ...(minApp ? ([[translate('extensions.stripNeedsApp'), translate('extensions.stripAndUp', { version: minApp })]] as [string, ReactNode][]) : []),
     ...(size ? ([[translate('extensions.stripSize'), size]] as [string, ReactNode][]) : []),
@@ -713,6 +717,11 @@ export function AppProductPage({
         <div className="mk-banner" role="status" data-testid="app-product-installed">
           <Check className="size-3.5" />
           {translate('extensions.justInstalled')}
+        </div>
+      ) : null}
+      {phoneAgentFeaturesUnavailable ? (
+        <div className="mk-banner" data-testid="app-product-phone-agent-features">
+          {translate('extensions.phoneAgentsUnavailable')}
         </div>
       ) : null}
       {/* 装不上 / 停止维护 / 这一版被撤回:一句话,带它的下一步。 */}
@@ -960,7 +969,9 @@ function VersionHistoryRow({
   const [expanded, setExpanded] = useState(false);
   const isInstalled = entry.version === installedVersion;
   const yankedReason = entry.yanked ? translate('extensions.historyYanked', { note: entry.yanked.reason }) : null;
-  const compatReason = entry.compat
+  const compatReason = entry.platformRefusal
+    ? translate('extensions.platformVersionUnavailable')
+    : entry.compat
     ? entry.compat.reason === 'needs-newer-app'
       ? translate('extensions.needsNewerApp', { version: entry.compat.minAppVersion })
       : translate('extensions.needsAuthorUpdate')

@@ -13,6 +13,7 @@ import type {
 } from '@shared/extensions/market';
 import { compatOf, MARKET_PAGE_SIZE } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
 import { queryScore, queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
@@ -308,6 +309,7 @@ export class CloudExtensionMarket {
     if (row.yanked) {
       throw new Error(`Extension ${extensionId}@${version} was withdrawn: ${row.yanked.reason}`);
     }
+    requireAppPlatform(row.manifest, host.platform);
     const compat = compatOf(row, host);
     if (compat) {
       // 每条安装路径(Apps 页、群里的「用 X 打开」、首启、agent 的 app_install)都走到这里,兼容性只在这里判一次。
