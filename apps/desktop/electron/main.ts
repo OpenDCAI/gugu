@@ -103,7 +103,8 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
+import { createAccountResumeHandler, installNativeResumeSource, watchHostResumeGap } from './server/account-resume-wiring'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -3458,6 +3459,13 @@ function kickInboxForAgent(agentUserId: string, trigger: string): void {
   })
 }
 
+const resumeAccountMessaging = createAccountResumeHandler({
+  kickInbox: kickInboxForAgent,
+  reconnect: resumeElectronSupabaseRealtime,
+  reconcile: async () => { await reconcileSessionpagePlatformOnResume?.() },
+  notifyCommands: () => deviceRuntimeHost?.notifyCommandsChanged(),
+})
+
 /**
  * spec delivery-routing「session-live 的产地」(#4896):一条会话转为**可投递就绪**时宿主只做这两件事 ——
  * 读者拉一次(云端账本)+ 排一次该会话的本机 outbox(本机账本)。两份账本、同一个就绪时刻;各腿在各自的
@@ -4130,18 +4138,7 @@ app.whenReady().then(async () => {
   if (hasPersistedMcpGrants('extension-gateway')) {
     void getExtensionGatewayHost().start().catch((err: unknown) => createLogger('stable-endpoint').warn({ err }, '扩展网关没能提前绑回端口'))
   }
-  powerMonitor.on('resume', () => {
-    notifyRendererForeground()
-    // #5906 —— 睡着的时候 wake 是聋的,定时器也只数醒着的时间 ⇒ 醒来当场取一次,不等对账节拍也不等 realtime 重连。
-    deviceRuntimeHost?.notifyCommandsChanged()
-    const reconcile = reconcileSessionpagePlatformOnResume
-    createLogger('sessionpage/platform').info({ hasReconcile: Boolean(reconcile) }, '平台凭据恢复事件收到')
-    if (reconcile) {
-      void reconcile().catch((error) => {
-        createLogger('sessionpage/platform').error({ err: error }, '平台凭据恢复对账失败')
-      })
-    }
-  })
+  installNativeResumeSource(powerMonitor, notifyRendererForeground, resumeAccountMessaging)
   // @@@test-seam host-resume(GUGU_TEST_HOST_RESUME=1 才注册)—— 上面这条与 mainWindow 的 'focus'
   // 都要求一个能切焦点的 GUI 会话,锁屏的无人测试机上两条都按不动。这个信号跑的是**同一个**
   // reconcileSessionpagePlatformOnResume,不另立语义;env 没开时不注册,生产行为逐字不变。
@@ -5807,10 +5804,12 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link }).then(
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, resume: () => resumeAccountMessaging('controller') }).then(
             (server) => createLogger('server').info({ socket: server.socketPath }, '账号进程套接字已开(设备连接 link 与 open-url 走它)'),
             (err: unknown) => createLogger('server').error({ err }, '账号进程套接字开不出来 —— 设备连接(link)与 open-url 不可用'),
           )
+          const stopResumeGapWatch = watchHostResumeGap(resumeAccountMessaging)
+          app.once('will-quit', stopResumeGapWatch)
           // 远程隧道:别的电脑经中转连到这里的终端 / 浏览器 / 端口(不挡启动,失败原因留给 tunnel.open 答)。
           void startServerTunnelEndpoint()
         }
