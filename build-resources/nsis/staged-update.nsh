@@ -52,8 +52,9 @@
     FileRead $R2 $R3
     FileClose $R2
     ${If} $R3 == "${VERSION}"
-      # A directory cannot be renamed while anything runs from it. The quitting app gets 5 s; whatever still runs from
-      # the old directory after that (typically the user reopening it) is closed; give up after 30 s.
+      # A directory cannot be renamed while anything runs from it. The quitting app gets 3 s (it exits in ~1 s; the
+      # template's own check closes it after ~1.3 s); then whatever still runs from the old directory (typically the
+      # user reopening it) is closed, again every 5 s should they reopen it once more; give up after 30 s.
       StrCpy $R4 0
       ${Do}
         ClearErrors
@@ -62,11 +63,13 @@
           ${Break}
         ${EndIf}
         IntOp $R4 $R4 + 1
-        ${If} $R4 = 50
+        ${If} $R4 >= 300
+          ${Break}
+        ${EndIf}
+        IntOp $R6 $R4 % 50
+        ${If} $R6 = 30
           nsExec::Exec `${GUGU_PS} "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR\', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId -Force }"`
           Pop $R5
-        ${ElseIf} $R4 >= 300
-          ${Break}
         ${EndIf}
         Sleep 100
       ${Loop}
