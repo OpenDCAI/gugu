@@ -6,13 +6,14 @@
  */
 import { chat, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../../../../../tests/support/testHarness';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { i18n } from '@/i18n';
 import '@/i18n/registerMessagingCatalog';
 import '@/i18n/registerMainCatalog';
 import '@/styles/tokens.css';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
+import { clearDraggedScreenContent, getDraggedScreenContent, SCREEN_CONTENT_DRAG_TYPE } from '@renderer/lib/drag-screen-content';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
 vi.mock('@/store/devicesContext', async (original) => ({ ...(await original<object>()), useDevicesStore: () => ({ devices: [] }) }));
@@ -53,7 +54,7 @@ let harness: ReturnType<typeof createReactHarness>;
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
 });
-afterEach(() => harness?.cleanup());
+afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); });
 
 async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false) {
   harness = createReactHarness();
@@ -68,6 +69,29 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobi
 }
 
 describe('the IM chat list in the master\'s roles (#7333)', () => {
+  it.each(['dm-1', 'grp-1', 't-live'])('drags %s with the shared workspace content identity', async (chatId) => {
+    await page.viewport(1000, 800);
+    const root = await renderList();
+    const target = document.createElement('div');
+    target.style.cssText = 'position:fixed;left:400px;top:100px;width:200px;height:100px';
+    const drops: unknown[] = [];
+    target.addEventListener('dragover', (event) => event.preventDefault());
+    target.addEventListener('drop', (event) => {
+      event.preventDefault();
+      drops.push({ trusted: event.isTrusted, types: [...event.dataTransfer!.types], content: getDraggedScreenContent(event.dataTransfer!) });
+    });
+    document.body.appendChild(target);
+    try {
+      await userEvent.dragAndDrop(root.querySelector<HTMLElement>(`[data-chat-row="${chatId}"]`)!, target);
+      expect(drops).toEqual([{ trusted: true, types: [SCREEN_CONTENT_DRAG_TYPE], content: { kind: 'chat', chatId, title: chatId === 'dm-1' ? '林知夏' : chats.find((chat) => chat.id === chatId)!.name } }]);
+    } finally { target.remove(); }
+  });
+
+  it('keeps mobile chat and topic rows non-draggable', async () => {
+    const root = await renderList('grp-1', vi.fn(), true);
+    for (const row of root.querySelectorAll<HTMLElement>('[data-chat-row]')) expect(row.draggable).toBe(false);
+  });
+
   it('a sidebar topic activation requests a split toggle on its source', async () => {
     const root = await renderList();
     await userEvent.click(root.querySelector<HTMLElement>('[data-topic-subrow="t-live"]')!);

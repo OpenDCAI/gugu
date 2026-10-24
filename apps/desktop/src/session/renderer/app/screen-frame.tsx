@@ -33,7 +33,7 @@ import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
-import { clearDraggedSession, getDraggedSession, hasDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
+import { clearDraggedScreenContent, getDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 
 /**
  * 这一屏的骨架(spec session-page「一屏几块」):几块怎么分、分界在哪,每块一个占位。
@@ -224,7 +224,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
             <ContextMenuTrigger className="flex h-full items-center">
               <BlockGrip
                 label={translate('screen.gripApp')}
-                onDragStart={(event) => startAppBlockDrag(event, tabKind)}
+                onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'app', tabKind, title: label }, event.currentTarget.closest<HTMLElement>('.session-tab-bar'))}
                 onDragEnd={(event) => {
                   if (droppedOutsideWindow(event)) openInWindow({ kind: 'app', tabKind }, { screenX: event.screenX, screenY: event.screenY });
                 }}
@@ -266,20 +266,6 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
   );
 });
 
-/** 一个 App 块被拖起来:落在另一块的边上 = 挪过去(落点判在 ScreenArea 的原生拖放里)。 */
-let draggedAppKind: string | null = null;
-export const getDraggedAppBlock = () => draggedAppKind;
-const APP_BLOCK_DRAG_TYPE = 'application/x-gugu-app-block';
-export const hasDraggedAppBlock = (dataTransfer: DataTransfer) => dataTransfer.types.includes(APP_BLOCK_DRAG_TYPE);
-
-function startAppBlockDrag(event: DragEvent<HTMLElement>, tabKind: string): void {
-  draggedAppKind = tabKind;
-  event.dataTransfer.setData(APP_BLOCK_DRAG_TYPE, tabKind);
-  event.dataTransfer.effectAllowed = 'move';
-  const strip = event.currentTarget.closest<HTMLElement>('.session-tab-bar');
-  if (strip) event.dataTransfer.setDragImage(strip, 12, 20);
-}
-
 /**
  * 每块页签条最左的 ⋮⋮(照 Zen 分屏块的拖柄):平时只留位置,指着页签条才淡淡显出来,指着它时整块描一圈 ——
  * 告诉你抓的是整块。按住拖 = 整块走;右键菜单由调用点给。
@@ -310,8 +296,7 @@ export function BlockGrip({
       onDragStart={onDragStart}
       onDragEnd={(event) => {
         onDragEnd?.(event);
-        draggedAppKind = null;
-        clearDraggedSession();
+        clearDraggedScreenContent();
         setBlockDropPreview(null);
       }}
       onContextMenu={onContextMenu}
@@ -342,7 +327,7 @@ export function startSessionBlockDrag(
   event: DragEvent<HTMLElement>,
   session: { projectId: string; sessionId: string; title: string }
 ): void {
-  setDraggedSession(event.dataTransfer, session, event.currentTarget.closest<HTMLElement>('.session-tab-bar'));
+  setDraggedScreenContent(event.dataTransfer, { kind: 'session', ...session }, event.currentTarget.closest<HTMLElement>('.session-tab-bar'));
 }
 
 /** 屏上不止一块时,每块页签条右端那枚:从这屏拿走(左边列表里还在)。 */
@@ -444,34 +429,25 @@ function MentionDropPreview({ blockId, sessionId }: { blockId: string; sessionId
  * (聊天区、输入框、终端自己收,这里只把落点画出来);App 落在会话中间归那一格。
  */
 export function screenDropHandlers(enabled: boolean) {
-  const contentOf = (dataTransfer: DataTransfer) => {
-    if (hasDraggedAppBlock(dataTransfer)) {
-      const tabKind = getDraggedAppBlock();
-      return tabKind ? ({ kind: 'app', tabKind } as const) : null;
-    }
-    if (!hasDraggedSession(dataTransfer)) return null;
-    const dragged = getDraggedSession(dataTransfer);
-    return dragged?.projectId ? ({ kind: 'session', projectId: dragged.projectId, sessionId: dragged.sessionId } as const) : null;
-  };
   const inComposer = (target: EventTarget | null) => target instanceof Element && target.closest('[data-slot="composer-bar"]') !== null;
   /** 指针下是另一条会话的输入面(聊天区 / 终端,`data-session-chat-surface`):松手由它自己插 @。 */
   const mentionAt = (event: DragEvent<HTMLElement>): MentionDrop | null => {
-    const dragged = getDraggedSession(event.dataTransfer);
+    const dragged = getDraggedScreenContent(event.dataTransfer);
     const surface = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-session-chat-surface]') : null;
     const blockId = surface?.closest('[data-screen-page]')?.getAttribute('data-screen-page');
     const sessionId = surface?.dataset.sessionChatSessionId;
-    if (!dragged || !blockId || !sessionId || sessionId === dragged.sessionId) return null;
+    if (dragged?.kind !== 'session' || !blockId || !sessionId || sessionId === dragged.sessionId) return null;
     return { blockId, mention: { sessionId } };
   };
   const resolve = (event: DragEvent<HTMLElement>) => {
-    const content = contentOf(event.dataTransfer);
-    if (!content || (content.kind === 'session' && inComposer(event.target))) return null;
+    const content = getDraggedScreenContent(event.dataTransfer);
+    if (!content || (content.kind !== 'app' && inComposer(event.target))) return null;
     const drop = resolveBlockDrop(event.clientX, event.clientY, content);
     return drop ? { drop, content } : null;
   };
   return {
     onDragOverCapture: (event: DragEvent<HTMLElement>) => {
-      if (!enabled || !(hasDraggedSession(event.dataTransfer) || hasDraggedAppBlock(event.dataTransfer))) return;
+      if (!enabled || !hasDraggedScreenContent(event.dataTransfer)) return;
       const hit = resolve(event);
       setBlockDropPreview(hit?.drop ?? mentionAt(event));
       if (!hit) return;
@@ -480,7 +456,7 @@ export function screenDropHandlers(enabled: boolean) {
       event.dataTransfer.dropEffect = 'move';
     },
     onDropCapture: (event: DragEvent<HTMLElement>) => {
-      if (!enabled || !(hasDraggedSession(event.dataTransfer) || hasDraggedAppBlock(event.dataTransfer))) return;
+      if (!enabled || !hasDraggedScreenContent(event.dataTransfer)) return;
       const hit = resolve(event);
       setBlockDropPreview(null);
       if (!hit) return;

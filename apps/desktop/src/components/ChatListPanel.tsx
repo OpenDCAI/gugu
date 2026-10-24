@@ -8,6 +8,7 @@ import { SearchField } from './ui/SearchField'
 import { HeaderSearch } from './ui/HeaderSearch'
 import { Pane, PaneHeader } from './ui/Pane'
 import { ListRow } from './ui/ListRow'
+import { clearDraggedScreenContent, setDraggedScreenContent } from '../session/renderer/lib/drag-screen-content'
 import { Chip } from './ui/Chip'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
@@ -230,8 +231,9 @@ const TOPIC_SUBROW_STYLE: React.CSSProperties = { paddingLeft: 40, paddingTop: 4
 const TOPIC_SUBROW_ICON_STYLE: React.CSSProperties = { color: 'var(--text-tertiary)' }
 const TOPIC_SUBROW_NAME_STYLE: React.CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }
 
-function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
+function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
   topic: ChatItem
+  mobile: boolean
   isActive: boolean
   tabIndex: number
   onClick: (event: React.MouseEvent) => void
@@ -258,6 +260,9 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
       data-chat-id={topic.id}
       data-chat-row={topic.id}
       data-topic-subrow={topic.id}
+      draggable={!mobile}
+      onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: topic.id, title: topic.name }, event.currentTarget)}
+      onDragEnd={clearDraggedScreenContent}
       selected={isActive}
       emphasis={topic.unread_count > 0}
       role="option"
@@ -325,6 +330,9 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
       <ListRow
         data-chat-id={chat.id}
         data-chat-row={chat.id}
+        draggable={!mobile}
+        onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.id, title: displayName }, event.currentTarget)}
+        onDragEnd={clearDraggedScreenContent}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
@@ -705,6 +713,7 @@ export function ChatListPanel({
       <TopicSubRow
         key={topic.id}
         topic={topic}
+        mobile={mobile}
         isActive={!inSidebar && topic.id === activeTopicChatId}
         tabIndex={focusedChatId === topic.id ? 0 : -1}
         onClick={(event) => selectChat(topic, 'composer', event.metaKey || event.ctrlKey)}
