@@ -56,7 +56,6 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const [pending, setPending] = useState<Record<string, ExtensionPendingAction>>({})
   const inFlight = useRef(false)
   const [failed, setFailed] = useState<string | null>(null)
-  const [justInstalled, setJustInstalled] = useState<string | null>(null)
   const [layer, setLayer] = useState<HTMLDivElement | null>(null)
   const sentinel = useRef<HTMLDivElement | null>(null)
   const rows = phoneMarketRows(catalog.data?.entries ?? [], query.trim())
@@ -112,11 +111,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
       setPending({})
     }
   }
-  const install = (ref: MarketSourceRef) => void change(ref.extensionId, 'installing', async () => {
-    const result = await phoneApps.installFromMarket({ ref })
-    if (result.success && result.data.installed) setJustInstalled(ref.extensionId)
-    return result
-  })
+  const install = (ref: MarketSourceRef) => void change(ref.extensionId, 'installing', () => phoneApps.installFromMarket({ ref }))
   const act = (item: MarketListItem) => {
     const id = item.manifest.id
     const state = lifecycleOf(id, item)
@@ -152,7 +147,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
               chip={chip} onChipChange={setChip}
               query={query.trim()} hostKey="phone" api={phoneProductApi}
               lifecycleOf={lifecycleOf} installedIds={new Set(store.manifests.map((manifest) => manifest.id))}
-              pending={pending} downloadPercent={{}} onOpen={(item) => { setJustInstalled(null); setDetail(item) }} onAction={act} sentinelRef={sentinel}
+              pending={pending} downloadPercent={{}} onOpen={setDetail} onAction={act} sentinelRef={sentinel}
             />
           ) : null}
         </div>
@@ -166,7 +161,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
                 key={detail.manifest.id}
                 subject={{ manifest: grantableBy(detail.manifest, PHONE_CAPABILITIES), installed: installed ? grantableBy(installed, PHONE_CAPABILITIES) : undefined, cloud: detail.cloud, installRef: detail.ref }}
                 enabled={store.isEnabled(detail.manifest.id)} lifecycle={lifecycleOf(detail.manifest.id, detail)} pending={pending[detail.manifest.id]}
-                locale={locale} translate={translate} api={phoneProductApi} onOpenExternal={(url) => { window.open(url, '_blank', 'noopener,noreferrer') }} justInstalled={justInstalled === detail.manifest.id}
+                locale={locale} translate={translate} api={phoneProductApi} onOpenExternal={(url) => { window.open(url, '_blank', 'noopener,noreferrer') }}
                 onBack={() => setDetail(null)} onLifecycle={() => act(detail)} onInstallVersion={install}
                 backgroundSupported={false}
                 permissionRevocationSupported={false}
