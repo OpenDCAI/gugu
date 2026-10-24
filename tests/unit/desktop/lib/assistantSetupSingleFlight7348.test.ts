@@ -106,10 +106,11 @@ describe('assistant setup appearance', () => {
     const plain = { ...draft, ...DEFAULT_ASSISTANT_LOOK }
     provision.provisionSingleAgent.mockResolvedValueOnce(completed('new-assistant'))
     await setUpAssistantOnThisComputer(plain, 'device-1')
-    const saved = parseAgentLook(provision.provisionSingleAgent.mock.calls[0][1].avatar)!
-    expect(saved).toEqual({ color: 0, rest: 'neutral', wear: [] })
-    expect(wornOf(saved, 'assistant-draft')).toEqual([])
-    expect(wornOf(saved, 'new-assistant')).toEqual([])
+    const avatar = provision.provisionSingleAgent.mock.calls[0][1].avatar
+    const saved = parseAgentLook(avatar)!
+    expect(saved).toEqual({ color: 0, rest: 'neutral' })
+    expect(new URL(avatar).searchParams.has('wear')).toBe(false)
+    expect(wornOf(saved)).toEqual([])
   })
 
   it('preserves all selected appearance fields when creating a local assistant', async () => {
@@ -119,7 +120,7 @@ describe('assistant setup appearance', () => {
     expect(parseAgentLook(provision.provisionSingleAgent.mock.calls[0][1].avatar)).toEqual({ color: 9, rest: 'happy', wear: [{ id: 'set-puppy', cw: 0 }] })
   })
 
-  it('sends the same explicitly plain appearance to cloud setup', async () => {
+  it('sends the same plain default to cloud setup', async () => {
     await claimCloudAssistant({ ...draft, ...DEFAULT_ASSISTANT_LOOK })
     expect(parseAgentLook(cloudAvatar())).toEqual(DEFAULT_ASSISTANT_LOOK)
   })

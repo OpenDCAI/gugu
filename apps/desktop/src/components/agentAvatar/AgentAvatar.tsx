@@ -106,8 +106,8 @@ export function AgentAvatar({
   }
   const gain = Math.min(1.8, Math.max(1, 1 + (110 - px) / 110))
   const look = useAgentLook(id, explicitLook, avatar)
-  // 实际穿的那一身:存了按存的,没存按 id 推导(同一个 id 在哪台设备上都一样)
-  const worn = wornOf(look, id)
+  // 实际穿着:存了按存的,没存不戴装扮
+  const worn = wornOf(look)
   const wear = wearKey(worn)
   const canvasStyle: CSSProperties = {
     width: px,

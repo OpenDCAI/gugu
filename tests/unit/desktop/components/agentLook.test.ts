@@ -103,7 +103,7 @@ describe('形象地址不归任何一只 agent 管', () => {
 
   it('image-only projections use Boring for built-in agent looks and keep human posters', () => {
     const look = { color: 7, rest: 'curious' } as const
-    expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', 'human')).toBe(agentLookPoster(look, 'agent-1'))
+    expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', 'human')).toBe(agentLookPoster(look))
     const generated = displayAvatarUrl(null, 'agent-1', 'test', 'agent')!
     expect(decodeURIComponent(generated)).toContain('data-agent-avatar-boring="agent-1"')
     expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', 'agent')).toBe(generated)

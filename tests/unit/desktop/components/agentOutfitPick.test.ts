@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { BODY_COLORS, hash32 } from '@/components/agentAvatar/engine/identity'
+import { BODY_COLORS } from '@/components/agentAvatar/engine/identity'
 import { OUTFIT_BY_ID, clashes } from '@/components/agentAvatar/engine/outfitCatalog'
-import { DERIVE_V1, ROLL_RULES, blendsWithBody, defaultWear, pickWear } from '@/components/agentAvatar/engine/outfitPick'
+import { ROLL_RULES, blendsWithBody, pickWear } from '@/components/agentAvatar/engine/outfitPick'
 
 const { accentChance: ACCENT_CHANCE, excluded: CLIPPING_PAIRS, pool: MAIN_POOL } = ROLL_RULES
-import { rollLook, rollWear, wornOf, type AgentLook } from '@/components/agentAvatar/look'
+import { parseAgentLook, rollLook, rollWear, wornOf, type AgentLook } from '@/components/agentAvatar/look'
 
 /** 可复现的伪随机(mulberry32) */
 function seeded(seed: number) {
@@ -75,64 +75,34 @@ describe('随机抽一身(owner 10-19:好看、不要太复杂)', () => {
   })
 })
 
-describe('推导规则 v1 是一份冻结的快照', () => {
-  it('v1 里的每件都还在目录里、配色序号都有效;点缀从不和主件打架', () => {
-    for (const [id, it] of Object.entries(DERIVE_V1.items)) {
+describe('掷骰子规则与目录一致', () => {
+  it('规则里的每件都还在目录里、配色序号都有效;点缀从不和主件打架', () => {
+    for (const [id, it] of Object.entries(ROLL_RULES.items)) {
       const def = OUTFIT_BY_ID.get(id)
       expect(def, id).toBeTruthy()
       expect(def!.slot, id).toBe(it.slot)
       expect(def!.colorways.length, id).toBeGreaterThanOrEqual(it.swatches.length)
     }
-    for (const g of DERIVE_V1.pool)
+    for (const g of ROLL_RULES.pool)
       for (const id of g.ids)
-        for (const a of DERIVE_V1.accents[DERIVE_V1.items[id].slot] ?? []) expect(clashes(OUTFIT_BY_ID.get(id)!, OUTFIT_BY_ID.get(a)!), `${id}+${a}`).toBe(false)
-  })
-
-  /**
-   * 钉死一批 id 在 v1 下的默认装扮(2026-10-19 算出)。没存过装扮的鸟永远按 v1 推导:谁原地改了 DERIVE_V1 的表、
-   * 判据或推导的种子,这格就红 —— 要改抽法请新开一份规则给 ROLL_RULES,❌ 动 v1。
-   */
-  it('固定 id 的 v1 推导结果不变', () => {
-    const worn = (id: string, color: number) => defaultWear(id, color).map((w) => `${w.id}.${w.cw}`).join(',')
-    expect(GOLDEN.map(([id, color]) => [id, color, worn(id, color)])).toEqual(GOLDEN)
-    // 24 行看得懂,但对小改动不够灵敏(比如点缀概率 0.18 → 0.2 一行都不变):再钉 2000 只的摘要
-    const all = Array.from({ length: 2000 }, (_, i) => worn(`agent-${i}`, i % 12)).join('|')
-    expect(hash32(all)).toBe(GOLDEN_DIGEST)
+        for (const a of ROLL_RULES.accents[ROLL_RULES.items[id].slot] ?? []) expect(clashes(OUTFIT_BY_ID.get(id)!, OUTFIT_BY_ID.get(a)!), `${id}+${a}`).toBe(false)
   })
 })
 
-describe('默认装扮:按 id 推导,不写库', () => {
-  it('同一个 id + 颜色,推几次都是同一身(两台设备算出来一样)', () => {
-    for (let i = 0; i < 200; i++) {
-      const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
-      expect(defaultWear(id, i % 12)).toEqual(defaultWear(id, i % 12))
-    }
-  })
-
-  it('不同的 id 穿得各不一样(主件铺得开);推导不看日期,不会出圣诞帽', () => {
-    const mains = new Set<string>()
-    for (let i = 0; i < 3000; i++) {
-      const w = defaultWear(`agent-${i}`, i % 12)
-      mains.add(w[0].id)
-      expect(w.some((x) => x.id === 'santahat')).toBe(false)
-    }
-    expect(mains.size).toBeGreaterThanOrEqual(20)
-  })
-
-  it('地址里没有 wear = 按 id 推导;wear= 空 = 不戴;存了的照存的穿', () => {
-    const base = { color: 3, rest: 'happy' as const }
-    expect(wornOf(base, 'agent-x')).toEqual(defaultWear('agent-x', 3))
-    expect(wornOf({ ...base, wear: [] }, 'agent-x')).toEqual([])
-    expect(wornOf({ ...base, wear: [{ id: 'crown', cw: 1 }] }, 'agent-x')).toEqual([{ id: 'crown', cw: 1 }])
+describe('助手的默认装扮', () => {
+  it('地址里没有 wear = 不戴;wear= 空 = 不戴;存了的照存的穿', () => {
+    const base = 'https://example.test/avatars/agent-look/v1/sky.webp?rest=happy'
+    expect(wornOf(parseAgentLook(base)!)).toEqual([])
+    expect(wornOf(parseAgentLook(`${base}&wear=`)!)).toEqual([])
+    expect(wornOf(parseAgentLook(`${base}&wear=crown.1`)!)).toEqual([{ id: 'crown', cw: 1 }])
   })
 })
 
 describe('抽法不会抽不出来', () => {
   it('每种身体颜色、每个主件类别里都至少有一件有不融进身体的配色(所以 pickWear 的「抽不出就报错」碰不到)', () => {
     for (let color = 0; color < BODY_COLORS.length; color++)
-      for (const rules of [DERIVE_V1, ROLL_RULES])
-        for (const g of rules.pool)
-          expect(g.ids.some((id) => rules.items[id].swatches.some((sw) => !blendsWithBody(sw, color, rules))), `${color} ${g.ids[0]}`).toBe(true)
+      for (const g of ROLL_RULES.pool)
+        expect(g.ids.some((id) => ROLL_RULES.items[id].swatches.some((sw) => !blendsWithBody(sw, color, ROLL_RULES))), `${color} ${g.ids[0]}`).toBe(true)
   })
 })
 
@@ -161,31 +131,3 @@ describe('掷骰子', () => {
     expect(dup).toBeLessThanOrEqual(2)
   })
 })
-
-const GOLDEN: [string, number, string][] = [
-  ['00000000-0000-4000-8000-000000000000', 0, 'bow.3'],
-  ['00000000-0000-4000-8000-000000007919', 5, 'bowtie.2'],
-  ['00000000-0000-4000-8000-000000015838', 10, 'headphones.3'],
-  ['00000000-0000-4000-8000-000000023757', 3, 'partyhat.1'],
-  ['00000000-0000-4000-8000-000000031676', 8, 'tophat.1,scarf.1'],
-  ['00000000-0000-4000-8000-000000039595', 1, 'flower.1'],
-  ['00000000-0000-4000-8000-000000047514', 6, 'scarf.1'],
-  ['00000000-0000-4000-8000-000000055433', 11, 'set-wizard.1'],
-  ['00000000-0000-4000-8000-000000063352', 4, 'set-dino.2'],
-  ['00000000-0000-4000-8000-000000071271', 9, 'set-frog.0,glasses.1'],
-  ['00000000-0000-4000-8000-000000079190', 2, 'bell.0'],
-  ['00000000-0000-4000-8000-000000087109', 7, 'beanie.2'],
-  ['00000000-0000-4000-8000-000000095028', 0, 'headphones.2'],
-  ['00000000-0000-4000-8000-000000102947', 5, 'strawhat.2'],
-  ['00000000-0000-4000-8000-000000110866', 10, 'set-bee.0'],
-  ['00000000-0000-4000-8000-000000118785', 3, 'set-puppy.0'],
-  ['00000000-0000-4000-8000-000000126704', 8, 'set-chef.2'],
-  ['00000000-0000-4000-8000-000000134623', 1, 'headphones.2'],
-  ['00000000-0000-4000-8000-000000142542', 6, 'set-chef.2'],
-  ['00000000-0000-4000-8000-000000150461', 11, 'flower.1'],
-  ['00000000-0000-4000-8000-000000158380', 4, 'headphones.2'],
-  ['00000000-0000-4000-8000-000000166299', 9, 'set-puppy.2'],
-  ['00000000-0000-4000-8000-000000174218', 2, 'bowtie.3'],
-  ['00000000-0000-4000-8000-000000182137', 7, 'headphones.1']
-]
-const GOLDEN_DIGEST = 2579403302
