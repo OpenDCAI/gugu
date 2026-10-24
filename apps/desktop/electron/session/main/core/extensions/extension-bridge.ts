@@ -1,4 +1,4 @@
-import { groupFileLink, type LinkPlace } from '@gugu/core/shared/ui/guguLink';
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';

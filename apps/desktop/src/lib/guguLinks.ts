@@ -39,7 +39,7 @@ export async function openTarget(target: GuguLinkTarget): Promise<boolean> {
 }
 
 /** DOM callers claim synchronously; the one promise reports a failure through the existing notice host. */
-export function followLink(raw: string): boolean {
+export function followLink(raw: string | GuguLinkTarget): boolean {
   const opened = openLink(raw)
   if (!opened) return false
   void opened.catch((error: unknown) => notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }))

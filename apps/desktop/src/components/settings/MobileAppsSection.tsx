@@ -1,4 +1,4 @@
-import { openTarget } from '../../lib/guguLinks'
+import { followLink } from '../../lib/guguLinks'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -25,8 +25,6 @@ import { Button } from '../ui/Button'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { SearchField } from '../ui/SearchField'
 import { Sheet } from '../ui/Sheet'
-import { PaneHeader } from '../ui/Pane'
-import { RightPanelBackButton } from '../chat/RightPanel'
 import { SettingsNote } from './SettingsPrimitives'
 import { AppsSection } from './AppsSection'
 import { phoneMarketRows, phoneProductApi, readPhoneMarketPage } from './phoneMarketPage'
@@ -119,7 +117,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
     else if (state?.kind === 'enable') void change(id, undefined, () => phoneApps.setEnabled(id, true))
     else if (state?.kind === 'open') {
       const kind = store.mainTabOf(id)?.kind
-      if (kind) void openTarget({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
+      if (kind) void followLink({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
     }
   }
   const error = failed ? <SettingsNote tone="danger" role="alert">{failed}</SettingsNote> : null

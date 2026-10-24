@@ -33,12 +33,16 @@ import { renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 
 const AGENT = 'agent-3641'
 const HUMAN = 'human-3641'
+const GROUP = '00000000-0000-4000-8000-000000000001'
+const OTHER_GROUP = '00000000-0000-4000-8000-000000000002'
+const TOPIC = '00000000-0000-4000-8000-000000000003'
+const OTHER_TOPIC = '00000000-0000-4000-8000-000000000004'
 
 function row(id: string, seq: number, over: Partial<AgentInboxUnreadRow> = {}): AgentInboxUnreadRow {
   return {
-    chatId: 'g1', chatKind: 'group', chatPublicId: 7, chatName: 'g', chatCreatorUserId: HUMAN,
+    chatId: GROUP, chatKind: 'group', chatPublicId: 7, chatName: 'g', chatCreatorUserId: HUMAN,
     listenMode: 'active', notificationLevel: 'all', lastReadSeq: 0,
-    id, seq, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
+    id: `10000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
     senderGuguNumber: null, content: `body ${id}`, contentType: 'text', toUserIds: null, isWhisper: false,
     replyToMessageId: null, replyToSenderUserId: null, replyToContent: null,
     threadRootId: null, isThreadRoot: false, createdAt: '2026-09-23T10:00:00.000Z',
@@ -99,20 +103,20 @@ describe('decideGroupRulesDelivery', () => {
 describe('effectiveGroupRules', () => {
   it('话题没立规矩时沿用来源群;自己立了就用自己的', async () => {
     const facts: Record<string, ChatFactsRow> = {
-      g1: group('群规矩'),
-      t1: { kind: 'topic', source_chat_id: 'g1', group_prompt: null },
-      t2: { kind: 'topic', source_chat_id: 'g1', group_prompt: '话题规矩' },
+      [GROUP]: group('群规矩'),
+      [TOPIC]: { kind: 'topic', source_chat_id: GROUP, group_prompt: null },
+      [OTHER_TOPIC]: { kind: 'topic', source_chat_id: GROUP, group_prompt: '话题规矩' },
     }
     const read = async (id: string) => facts[id] ?? null
-    expect(await effectiveGroupRules('t1', read)).toBe('群规矩')
-    expect(await effectiveGroupRules('t2', read)).toBe('话题规矩')
+    expect(await effectiveGroupRules(TOPIC, read)).toBe('群规矩')
+    expect(await effectiveGroupRules(OTHER_TOPIC, read)).toBe('话题规矩')
     expect(await effectiveGroupRules('nope', read)).toBe('')
   })
 })
 
 describe('读者随投递送达群规', () => {
   it('首条群投递附原文,同批第二条只带版本;下一批不再附(同一上下文)', async () => {
-    const h = harness({ facts: { g1: group('先给检索式再给结论。') } })
+    const h = harness({ facts: { [GROUP]: group('先给检索式再给结论。') } })
     h.unread.push(row('m1', 1), row('m2', 2))
     await pullAgentInbox(AGENT, h.deps)
     const version = groupRulesVersion('先给检索式再给结论。')
@@ -128,7 +132,7 @@ describe('读者随投递送达群规', () => {
 
   it('决定沉默的 agent 也收到了群规 —— 送达不依赖它发言', async () => {
     // 这一格是旧设计的洞:唯一通道在发送闸,不发言就永远见不到。这里 agent 只被投递、从不调用发送工具。
-    const h = harness({ facts: { g1: group('无人点名时只由组长回答') } })
+    const h = harness({ facts: { [GROUP]: group('无人点名时只由组长回答') } })
     h.unread.push(row('m1', 1))
     await pullAgentInbox(AGENT, h.deps)
     expect(h.injected).toHaveLength(1)
@@ -136,11 +140,11 @@ describe('读者随投递送达群规', () => {
   })
 
   it('群规改了 ⇒ 下一次投递前重达新版', async () => {
-    const facts = { g1: group('规矩A') }
+    const facts = { [GROUP]: group('规矩A') }
     const h = harness({ facts })
     h.unread.push(row('m1', 1))
     await pullAgentInbox(AGENT, h.deps)
-    facts.g1 = group('规矩B')
+    facts[GROUP] = group('规矩B')
     h.unread.push(row('m2', 2))
     await pullAgentInbox(AGENT, h.deps)
     expect(h.injected[1]!.text).toContain('<![CDATA[规矩B]]>')
@@ -148,7 +152,7 @@ describe('读者随投递送达群规', () => {
 
   it('会话换了新的 provider 上下文 ⇒ 重达;同一上下文 ⇒ 不重复(正对照)', async () => {
     let key = 'conv:session-1'
-    const h = harness({ facts: { g1: group('规矩A') }, contextKey: () => key })
+    const h = harness({ facts: { [GROUP]: group('规矩A') }, contextKey: () => key })
     h.unread.push(row('m1', 1))
     await pullAgentInbox(AGENT, h.deps)
     h.unread.push(row('m2', 2))
@@ -162,11 +166,11 @@ describe('读者随投递送达群规', () => {
 
   it('送达记录落盘:进程内存清空后(重启)不重复送达;文件里记的是版本与上下文', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'gugu-3641-')), 'delivery', 'group-rules-delivered.json')
-    const h = harness({ facts: { g1: group('规矩A') }, ledger: groupRulesLedgerAt(path), contextKey: () => 'conv:s1' })
+    const h = harness({ facts: { [GROUP]: group('规矩A') }, ledger: groupRulesLedgerAt(path), contextKey: () => 'conv:s1' })
     h.unread.push(row('m1', 1))
     await pullAgentInbox(AGENT, h.deps)
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
-      [AGENT]: { g1: { version: groupRulesVersion('规矩A'), contextKey: 'conv:s1' } },
+      [AGENT]: { [GROUP]: { version: groupRulesVersion('规矩A'), contextKey: 'conv:s1' } },
     })
     // 模拟重启:两份进程内状态都清空,只剩盘上的记录。
     resetAgentInboxReaderStateForTests()
@@ -178,7 +182,7 @@ describe('读者随投递送达群规', () => {
   })
 
   it('注入没被受理(not-live)⇒ 不记已送达,下次照附(否则会记下一次它根本没看到的送达)', async () => {
-    const h = harness({ facts: { g1: group('规矩A') } })
+    const h = harness({ facts: { [GROUP]: group('规矩A') } })
     let verdict: 'not-live' | 'accepted' = 'not-live'
     h.deps.inject = async (input) => { h.injected.push(input); return verdict }
     h.deps.fetchUnread = async () => [row('m1', 1)]
@@ -190,10 +194,10 @@ describe('读者随投递送达群规', () => {
   })
 
   it('私聊与没立规矩的群:不读、不带任何群规格子', async () => {
-    const h = harness({ facts: { g2: group(null) } })
-    h.unread.push(row('d1', 1, { chatId: 'dm1', chatKind: 'dm' }), row('m1', 1, { chatId: 'g2' }))
+    const h = harness({ facts: { [OTHER_GROUP]: group(null) } })
+    h.unread.push(row('d1', 1, { chatId: 'dm1', chatKind: 'dm' }), row('m1', 1, { chatId: OTHER_GROUP }))
     await pullAgentInbox(AGENT, h.deps)
-    expect(h.factReads).toEqual(['g2'])
+    expect(h.factReads).toEqual([OTHER_GROUP])
     for (const input of h.injected) {
       expect(input.text).not.toContain('rules=')
       expect(input.text).not.toContain('<group_rules')
@@ -201,8 +205,8 @@ describe('读者随投递送达群规', () => {
   })
 
   it('话题投递沿用来源群的规矩', async () => {
-    const h = harness({ facts: { g1: group('群规矩'), t1: { kind: 'topic', source_chat_id: 'g1', group_prompt: null } } })
-    h.unread.push(row('m1', 1, { chatId: 't1', chatKind: 'topic' }))
+    const h = harness({ facts: { [GROUP]: group('群规矩'), [TOPIC]: { kind: 'topic', source_chat_id: GROUP, group_prompt: null } } })
+    h.unread.push(row('m1', 1, { chatId: TOPIC, chatKind: 'topic' }))
     await pullAgentInbox(AGENT, h.deps)
     expect(h.injected[0]!.text).toContain('<![CDATA[群规矩]]>')
   })

@@ -1,4 +1,4 @@
-import { openTarget } from '../../lib/guguLinks'
+import { followLink } from '../../lib/guguLinks'
 import { comparer, reaction } from 'mobx'
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,8 +9,6 @@ import { compareExtensionVersions, type ExtensionManifest } from '../../session/
 import type { MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { phoneApps } from '../appSlot/phoneApps'
 import { Button } from '../ui/Button'
-import { PaneHeader } from '../ui/Pane'
-import { RightPanelBackButton } from '../chat/RightPanel'
 import { Sheet } from '../ui/Sheet'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow, Toggle } from './SettingsPrimitives'
 
@@ -43,7 +41,6 @@ export function AppsSection() {
   /** The App whose 「版本」 sheet is open, and its versions as the market lists them for this phone (null: not read yet / unreadable). */
   const [versionsOf, setVersionsOf] = useState<{ id: string; name: string } | null>(null)
   const [history, setHistory] = useState<MarketVersionHistoryEntry[] | 'error' | null>(null)
-  /** The App page opened from its row: its tab kind, and the name its sheet is called by. */
   // Installed, but not runnable by this build (phoneApps `tell`): the row's title is its id, its line the refusal as it
   // is (not the id again — L3 phone ②, 125 10-06), and it is still removable: any App the phone cannot read must be.
   const [unusable, setUnusable] = useState<{ id: string; reason: string }[]>([])
@@ -173,7 +170,7 @@ export function AppsSection() {
                   control={
                     <div className="flex items-center gap-1">
                       {page && enabled ? (
-                        <Button size="sm" variant="ghost" data-testid="settings-apps-open" onClick={() => void openTarget({ kind: 'app', extensionId: manifest.id, tab: page.slice(manifest.id.length + 1), path: '', query: {}, place: null })}>
+                        <Button size="sm" variant="ghost" data-testid="settings-apps-open" onClick={() => void followLink({ kind: 'app', extensionId: manifest.id, tab: page.slice(manifest.id.length + 1), path: '', query: {}, place: null })}>
                           {t('settings.apps.open')}
                         </Button>
                       ) : null}

@@ -1,4 +1,4 @@
-import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget, type LinkPlace } from '@gugu/core/shared/ui/guguLink'
+import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'

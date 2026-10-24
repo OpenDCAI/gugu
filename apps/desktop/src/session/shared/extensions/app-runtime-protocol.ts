@@ -1,4 +1,3 @@
-import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { FileOpenerCandidate } from './file-openers';
 /**

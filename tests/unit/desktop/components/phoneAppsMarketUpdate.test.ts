@@ -58,10 +58,8 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/insta
     }),
   }
 })
-// The page itself is the phone's frame (SessionAppFrame, measured where it is drawn); here only which one is asked for.
-vi.mock('../../../../apps/desktop/src/components/appSlot/SessionAppFrame', () => ({
-  SessionAppFrame: ({ kind }: { kind: string }) => createElement('div', { 'data-testid': 'app-page-frame', 'data-kind': kind }),
-}))
+const { followLink } = vi.hoisted(() => ({ followLink: vi.fn(() => true) }))
+vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ followLink }))
 const { AppsSection } = await import('../../../../apps/desktop/src/components/settings/AppsSection')
 const { installedExtensionsStore: store } = (await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')) as unknown as {
   installedExtensionsStore: { disabled: string[]; autoUpdateOff: string[] }
@@ -70,6 +68,7 @@ const { installedExtensionsStore: store } = (await import('../../../../apps/desk
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  followLink.mockClear()
   // Nothing newer unless a case says so (an answer set in one case is not left for the next).
   phone.marketUpdates.mockReset().mockResolvedValue(NOTHING_NEWER)
   phone.installFromMarket.mockClear()
@@ -189,15 +188,13 @@ describe('「App」 on the phone: every App has its switch, as on the desktop (1
 describe('「App」 on the phone: an App with a page of its own opens it from its row', () => {
   const openButton = (id: string) => row(id)?.querySelector<HTMLButtonElement>('[data-testid="settings-apps-open"]') ?? null
 
-  it('「打开」 on the row of an App with its own page, not on one that only opens files; pressed, its page over the screen', async () => {
+  it('「打开」 asks the common opener for its own page; file-only Apps have no such button', async () => {
     await harness.render(createElement(AppsSection))
     await marketAnswered(1)
     expect(openButton('notes')?.textContent).toBe('打开')
     expect(openButton('vote')).toBeNull()
-    expect(harness.container.ownerDocument.querySelector('[data-testid="app-page-frame"]')).toBeNull()
     await act(async () => { openButton('notes')!.click() })
-    await until('its page is open', () => harness.container.ownerDocument.querySelector('[data-testid="app-page-frame"]') !== null)
-    expect(harness.container.ownerDocument.querySelector<HTMLElement>('[data-testid="app-page-frame"]')?.dataset.kind).toBe('notes.main')
+    expect(followLink).toHaveBeenCalledExactlyOnceWith({ kind: 'app', extensionId: 'notes', tab: 'main', path: '', query: {}, place: null })
   })
 
   it('switched off: no 「打开」 (it is not opened)', async () => {
