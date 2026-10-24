@@ -98,8 +98,6 @@ export const AUTOMATION_TEST_IDS = {
   groupAgentJoinRole: 'group-agent-join-role',
   groupMembersAddButton: 'group-members-add-button',
   groupMembersAvatarRow: 'group-members-avatar-row',
-  groupMembersPickerHumanTab: 'group-members-picker-human-tab',
-  groupMembersPickerAgentTab: 'group-members-picker-agent-tab',
   groupMembersPickerHumanDenied: 'group-members-picker-human-denied',
   groupAgentCreateInput: 'group-agent-create-input',
   groupMemberProfileButton: 'group-member-profile-button',

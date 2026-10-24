@@ -1,5 +1,5 @@
 import { useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { Check, ChevronLeft } from '@/lib/icons'
+import { ChevronLeft } from '@/lib/icons'
 import { cn } from '@/lib/cn'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { displayName, groupContacts, PINNED_CONTACTS_SECTION } from '../../lib/contactsListSort'
@@ -24,9 +24,8 @@ import { useDisplayDevices } from '@/hooks/useAssistantHomeLabel'
 import { partitionContactsByDevice } from './contactsByDevice'
 import { useBackLayer } from '../ui/sheetStack'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { ContactsLetterPicker } from './ContactsLetterPicker'
-
-const AZ_INDEX = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('')
+import { ContactsAzIndex } from './ContactsLetterPicker'
+import { SelectionCheckbox } from './ContactSearch'
 
 // @@@ui-ruler 移动壳的联系人索引也只吃原语:列 → Pane nav、列头 → PaneHeader、行 → ListRow、
 // 字母分区头 → SectionLabel(加 sticky)。原来这里另写了一套 56/42 行高、11/9 间距、15/13 字号。
@@ -34,20 +33,6 @@ const rowKeyActivate = (activate: () => void) => (event: KeyboardEvent<HTMLDivEl
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
   activate()
-}
-
-function SelectionCheckbox({ checked }: { checked: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'grid h-[var(--avatar-xs)] w-[var(--avatar-xs)] shrink-0 place-items-center rounded-full border !mr-2 text-[var(--primary-fg)]',
-        checked ? 'border-[var(--primary)] bg-[var(--primary)]' : 'border-[var(--border-strong)] bg-transparent',
-      )}
-    >
-      {checked ? <Check size={12} /> : null}
-    </span>
-  )
 }
 
 function ContactRow({ contact, currentUserId, selected, multiSelected, selectionMode, onSelect, onToggleSelection, onRemove, onStartChat, onPin, onMarkUnread, onToggleNotif, isPinned, notifMuted, removeLabel, mobile }: {
@@ -174,7 +159,7 @@ export function ContactsIndex({ title, subtitle, summaryLabel, headerActions, mo
               {items.map((contact) => <ContactRow key={contact.id} contact={contact} currentUserId={currentUserId} selected={!mobile && !selectionMode && contact.id === selectedContactId} multiSelected={selectedContactIds.has(contact.id)} selectionMode={selectionMode} onSelect={() => onSelect(contact)} onToggleSelection={() => onToggleContact(contact)} onRemove={onRemoveContact} onStartChat={onStartChat} onPin={onPin} onMarkUnread={onMarkUnread} onToggleNotif={onToggleNotif} isPinned={contactPinned?.get(contact.id) ?? false} notifMuted={contactNotifMuted?.get(contact.id) ?? false} removeLabel={getContactRemoveLabel(contact)} mobile={mobile} />)}
             </div>)}
           </div>
-          {showAzRail && mobile ? <ContactsLetterPicker present={presentLetters} onPick={jump} /> : showAzRail ? <div className="pointer-events-none absolute inset-y-3 right-1 flex w-4 flex-col items-center justify-center">{AZ_INDEX.map((letter) => { const present = presentLetters.has(letter); return <Button variant="ghost" size="sm" key={letter} onClick={() => jump(letter)} disabled={!present} className={cn('!min-h-[13px] !w-[15px] !p-0 text-[9px]', present ? 'pointer-events-auto text-[var(--muted-fg)]' : 'pointer-events-none text-[var(--text-tertiary)]')}>{letter}</Button> })}</div> : null}
+          {showAzRail ? <ContactsAzIndex mobile={mobile} present={presentLetters} onPick={jump} /> : null}
         </div>
       )}
       <ContactsListDock

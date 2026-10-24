@@ -82,6 +82,7 @@
 }
 
 /* spec session-page「拼在一屏的几块是一组」(#7097):左边列表里一组 = 一个框,组员一行一条叠在框里。
+   「项目」「置顶」的会话行和壳画的「对话」那几行(对话行、没有项目的会话行,有话题子行时是连同子行的那一层)用这同一份。
    每一行画自己那一段 —— 行高不能动(项目区是虚拟滚动,一行 32px 写死),所以框是行身后的 ::before:
    左右各探出 3px,上沿 / 下沿再探出 2px,选中、悬浮照旧画在行自己身上、盖在框之上。
    正看着这组 = 框是页签条那种浅灰、正看着那条是页签那种白(灰条上白页签);不在看 = 只剩一道细框。
@@ -113,7 +114,9 @@
 [data-join][data-join-on]::before {
   background-color: var(--tab-strip);
 }
-[data-join][data-join-on][data-active='true'] {
+[data-join][data-join-on][data-active='true'],
+[data-join][data-join-on][data-selected],
+[data-join][data-join-on] > [data-selected] {
   background-color: var(--tab-face);
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--fg, currentColor) 5%, transparent),
