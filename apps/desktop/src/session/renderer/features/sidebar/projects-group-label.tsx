@@ -95,7 +95,7 @@ export const ProjectsGroupLabel = observer(function ProjectsGroupLabel() {
             />
             <TooltipContent>
               {translate('sidebar.addProject')}
-              <BoundShortcut settingsKey="newProject" variant="keycaps" />
+              <BoundShortcut commandId="app.newProject" variant="keycaps" />
             </TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="min-w-60">

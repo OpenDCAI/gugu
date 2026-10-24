@@ -136,7 +136,7 @@ export const TerminalsPanel = observer(function TerminalsPanel() {
             className="flex items-center gap-2"
           >
             {translate('session.newTerminal')}
-            <BoundShortcut settingsKey="newTerminal" variant="keycaps" />
+            <BoundShortcut commandId="session.newTerminal" variant="keycaps" />
           </Button>
         )
       }

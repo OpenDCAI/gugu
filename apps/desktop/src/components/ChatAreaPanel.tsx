@@ -1,3 +1,4 @@
+import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -25,7 +26,7 @@ import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupColla
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'
+import { UI_EVENTS } from '../lib/uiEvents'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTopicsPanelRequest } from '../hooks/useTopicsPanelRequest'
 import type { HistoryTab } from './historyPanelModels'
@@ -332,17 +333,11 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     loadGroupCollab()
   }, [loadGroupCollab, openNonce])
 
-  useEffect(() => {
-    // 块页签的右键菜单(gugu-dev#181):点名是哪个对话、开哪一页;屏上几块里只有那个对话的这块面答。
-    const handleOpenDetailsDrawer = (event: Event) => {
-      const detail = (event as CustomEvent<ChatDetailsRequest>).detail
-      if (!activeChatId || detail?.chatId !== activeChatId) return
-      if (detail.page === 'announcement') handleOpenAnnounce()
-      else handleOpenSettingsDrawer()
-    }
-    window.addEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-    return () => window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-  }, [activeChatId, handleOpenAnnounce, handleOpenSettingsDrawer])
+  const groupRename = useChatCommands({
+    chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
+    canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
+    openSettings: handleOpenSettingsDrawer, openAnnouncement: handleOpenAnnounce,
+  })
 
   useEffect(() => {
     if (!activeChatId || !isRoomChatSurface || !user?.id) return
@@ -1311,7 +1306,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {/* 会话/群设置、群公告:与成员列表同一个右栏外壳(RightPanel),同槽位互斥。 */}
         <AnimatePresence>
           {showDrawer && (
-            <ChatSettingsPanel
+            <GroupRenameContext.Provider value={groupRename}><ChatSettingsPanel
               activeChat={activeChat}
               messages={messages}
               onClose={() => setShowDrawer(false)}
@@ -1335,7 +1330,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
               onLeaveGroup={() => leaveGroup(activeChat.id)}
               onDissolveGroup={() => deleteChat(activeChat.id, true)}
               mobile={mobile}
-            />
+            /></GroupRenameContext.Provider>
           )}
         </AnimatePresence>
         {/* 从页头 ⋯ 开的群公告 / 👥 开的名册没有上一层:页头与群设置同一个,桌面 ⊗、手机左上返回 = 关。

@@ -1,5 +1,5 @@
 import { Search } from '@/lib/icons'
-import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { commandRegistry } from '@renderer/lib/commands/registry';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
@@ -11,13 +11,12 @@ import { sidebarRowContentInsetX, sidebarRowShortcutClass } from './sidebar-prim
  */
 export function SidebarSearchTrigger() {
   const { translate } = useSessionMessages();
-  const showCommandPalette = useShowModal('commandPaletteModal');
   return (
     // The header owns placement; reuse the existing search surface and content inset.
     // 底色和别处的搜索框同一个输入面(--em-surface-input,#132):它长得就是一个搜索框。
     <button
       type="button"
-      onClick={() => showCommandPalette({})}
+      onClick={() => commandRegistry.dispatch('app.quickSwitcher')}
       aria-label={translate('sidebar.searchConversations')}
       data-testid="sidebar-search-trigger"
       className={cn(
@@ -27,7 +26,7 @@ export function SidebarSearchTrigger() {
     >
       <Search className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
       <span className="min-w-0 flex-1 truncate text-left">{translate('sidebar.searchPlaceholder')}</span>
-      <BoundShortcut settingsKey="commandPalette" variant="keycaps" className={sidebarRowShortcutClass} />
+      <BoundShortcut commandId="app.quickSwitcher" variant="keycaps" className={sidebarRowShortcutClass} />
     </button>
   );
 }

@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm';
 import { db, sqlite } from '@main/db/client';
 import { sessions, projects, workspaces } from '@main/db/schema';
 import { log } from '@main/lib/logger';
-import { ALL_COMMAND_DEFS } from '@shared/commands';
 import type { Session } from '@shared/core/sessions/sessions';
 import type {
   CommandPaletteQuery,
@@ -54,26 +53,33 @@ class SearchService {
       this.removeByType('session', sessionId)
     );
 
+    sqlite.prepare("DELETE FROM search_index WHERE item_type = 'command'").run();
     this.backfill();
-    this.seedCommands();
   }
 
   searchFiles(workspaceId: string, query: string, limit?: number): WorkspaceFileHit[] {
     return workspaceFileIndexService.searchFiles(workspaceId, query, limit);
   }
 
-  search({ query, context }: CommandPaletteQuery): SearchItem[] {
-    if (!query.trim()) return this.recents(context);
+  search({ query }: CommandPaletteQuery): SearchItem[] {
+    if (!query.trim()) return this.recents();
 
     // Trigram tokenizer requires each term to be at least 3 characters.
-    // Terms shorter than 3 chars are dropped; if nothing survives, fall back
-    // to recents rather than sending an invalid query to SQLite.
+    // Short titles (including CJK) use a literal substring query.
     const terms = query
       .trim()
       .split(/[\s\-_]+/)
       .filter((t) => t.length >= 3);
 
-    if (terms.length === 0) return this.recents(context);
+    if (terms.length === 0) {
+      const pattern = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
+      return (sqlite.prepare(`SELECT item_type, item_id, project_id, title, 0 AS rank
+        FROM search_index WHERE (title LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\')
+        AND ${LOCAL_PROJECTS_ONLY} LIMIT 30`).all(pattern, pattern) as FtsRow[]).map((row) => ({
+          kind: row.item_type as SearchItemKind, id: row.item_id, projectId: row.project_id,
+          title: row.title, subtitle: '', score: row.rank,
+        }));
+    }
 
     const ftsQuery = terms.map((t) => `"${t}"`).join(' AND ');
 
@@ -102,37 +108,23 @@ class SearchService {
       score: r.rank,
     }));
 
-    if (context?.workspaceId) {
-      const fileHits = workspaceFileIndexService.search(context.workspaceId, query);
-      for (const h of fileHits) {
-        results.push({
-          kind: 'file',
-          id: h.path,
-          projectId: context.projectId ?? null,
-          title: h.filename,
-          subtitle: h.path,
-          score: 0,
-        });
-      }
-    }
 
     return results;
   }
 
-  /** 没有输入时:最近交互的会话(在一个项目里就只看这个项目的)。 */
-  private recents(context?: CommandPaletteQuery['context']): SearchItem[] {
+  /** 没有输入时:最近交互的任务。 */
+  private recents(): SearchItem[] {
     const rows = sqlite
       .prepare(
         `SELECT c.id, c.title, c.project_id
          FROM sessions c
          WHERE c.archived_at IS NULL AND c.automation_run_id IS NULL
-           AND (? IS NULL OR c.project_id = ?)
            AND NOT EXISTS (SELECT 1 FROM projects p
              WHERE p.id = c.project_id AND p.workspace_provider != 'local')
          ORDER BY c.last_interacted_at DESC
          LIMIT 10`
       )
-      .all(context?.projectId ?? null, context?.projectId ?? null) as RecentSessionRow[];
+      .all() as RecentSessionRow[];
 
     return rows.map((r) => ({
       kind: 'session' as const,
@@ -193,24 +185,6 @@ class SearchService {
         .run(itemId, itemType);
     } catch (e) {
       log.warn('SearchService: removeByType failed', { itemType, itemId, error: String(e) });
-    }
-  }
-
-  private seedCommands(): void {
-    try {
-      sqlite.transaction(() => {
-        sqlite.prepare(`DELETE FROM search_index WHERE item_type = 'command'`).run();
-        const stmt = sqlite.prepare(
-          `INSERT INTO search_index (item_type, item_id, project_id, title, keywords)
-           VALUES ('command', ?, NULL, ?, ?)`
-        );
-        for (const def of ALL_COMMAND_DEFS) {
-          stmt.run(def.id, def.label, def.description ?? '');
-        }
-      })();
-      log.info('SearchService: seeded commands', { count: ALL_COMMAND_DEFS.length });
-    } catch (e) {
-      log.warn('SearchService: seedCommands failed', { error: String(e) });
     }
   }
 

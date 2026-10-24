@@ -1,60 +1,54 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { detectPlatform, matchesKeyboardEvent, useHotkey } from '@tanstack/react-hotkeys';
 import { observer } from 'mobx-react-lite';
+import { useEffect } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import {
-  APP_SHORTCUTS,
-  getEffectiveHotkey,
-  getHotkeyRegistration,
-  type ShortcutSettingsKey,
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { COMMANDS, getEffectiveHotkey, getHotkeyRegistration, type CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { commandRegistry } from './registry';
 
-/**
- * Registers one useHotkey for a single shortcut key and delegates to
- * commandRegistry.dispatch(). Mounted/unmounted by CommandShortcutBinder
- * as commands come and go from the registry.
- */
-function SingleKeyBinder({ shortcutKey }: { shortcutKey: ShortcutSettingsKey }) {
+function CommandKey({ id }: { id: CommandId }) {
   const { value: keyboard } = useAppSettingsKey('keyboard');
-
-  useHotkey(
-    getHotkeyRegistration(shortcutKey, keyboard),
-    () => {
-      commandRegistry.dispatch(shortcutKey);
-    },
-    {
-      enabled: getEffectiveHotkey(shortcutKey, keyboard) !== null,
-    }
-  );
-
+  useHotkey(getHotkeyRegistration(id, keyboard), () => commandRegistry.dispatch(id), {
+    enabled: getEffectiveHotkey(id, keyboard) !== null,
+    ignoreInputs: COMMANDS[id].ignoreInputs,
+  });
   return null;
 }
 
-/**
- * Derives the active shortcut key set directly from commandRegistry.activeCommands.
- * As providers are registered/unregistered (e.g. on navigation), the observer
- * re-renders and mounts/unmounts SingleKeyBinder components accordingly.
- *
- * No scope field needed on APP_SHORTCUTS — the registry is the source of truth
- * for which keys are currently bound. When app-level commands are migrated to
- * the registry, they will automatically get bindings here, at which point they
- * can be removed from AppKeyboardShortcuts.
- */
-export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
-  const keys = [
-    ...new Set(
-      commandRegistry.activeCommands
-        .filter((c) => c.shortcutKey != null && c.shortcutKey in APP_SHORTCUTS)
-        .filter((c) => APP_SHORTCUTS[c.shortcutKey!].conflictBehavior !== 'allow')
-        .map((c) => c.shortcutKey!)
-    ),
-  ];
+/** xterm consumes Ctrl sequences on Windows/Linux before document bubbling. */
+function FindCommandKey() {
+  const { value: keyboard } = useAppSettingsKey('keyboard');
+  const hotkey = getEffectiveHotkey('app.find', keyboard);
+  useEffect(() => {
+    if (!hotkey) return;
+    const platform = detectPlatform();
+    const find = (event: KeyboardEvent) => {
+      if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active.closest('.monaco-editor, [cmdk-root], [role=menu]')) return;
+      commandRegistry.setContext(active);
+      if (!commandRegistry.dispatch('app.find')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('keydown', find, true);
+    return () => document.removeEventListener('keydown', find, true);
+  }, [hotkey]);
+  return null;
+}
 
-  return (
-    <>
-      {keys.map((k) => (
-        <SingleKeyBinder key={k} shortcutKey={k} />
-      ))}
-    </>
-  );
+export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
+  useEffect(() => {
+    const capture = (event: Event) => {
+      if (event.target instanceof HTMLElement) commandRegistry.setContext(event.target);
+    };
+    document.addEventListener('focusin', capture, true);
+    document.addEventListener('pointerdown', capture, true);
+    return () => {
+      document.removeEventListener('focusin', capture, true);
+      document.removeEventListener('pointerdown', capture, true);
+    };
+  }, []);
+  const ids = [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
+    .filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
+  return <>{ids.map((id) => id === 'app.find' ? <FindCommandKey key={id} /> : <CommandKey key={id} id={id} />)}</>;
 });
