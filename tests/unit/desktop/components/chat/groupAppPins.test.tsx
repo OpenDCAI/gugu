@@ -85,17 +85,17 @@ async function picker() {
 }
 
 describe('personal group App shortcuts', () => {
-  it('places Group Apps and its pinned shortcuts before the other desktop actions', async () => {
+  it('places pinned shortcuts before Group Apps and the other desktop actions', async () => {
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const width = this.hasAttribute('data-chat-area-header') ? 1200 : this.hasAttribute('data-tabbar-actions') ? 320 : 32
       return new DOMRect(0, 0, width, 32)
     })
     try {
-      row('user-1', 'g1', ['board'])
+      row('user-1', 'g1', ['board', 'calendar'])
       await header('g1', 'user-1', false)
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-pinned-app"]')).not.toBeNull())
       const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
-      expect(actions).toEqual(['群 Apps', 'board', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
+      expect(actions).toEqual(['board', 'calendar', '群 Apps', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
     } finally { bounds.mockRestore() }
   })
 
@@ -103,11 +103,11 @@ describe('personal group App shortcuts', () => {
     row('user-1', 'g1', ['board'])
     await header('g1', 'user-1', mobile)
     if (mobile) {
-      const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
-      expect(items).toContain('群文件夹')
-      expect(items).toContain('群 Apps')
-      expect(items).not.toContain('历史记录')
       await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-menu-app"] .gg-menu-item-label')?.textContent).toBe('board'))
+      const items = [...document.querySelectorAll('[role="menuitem"] .gg-menu-item-label')].map((item) => item.textContent)
+      expect(items).toEqual(['在对话中搜索', '群文件夹', '群公告', '设置', 'board', '群 Apps'])
+      const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
+      expect(actions).toEqual(['成员列表', '更多操作'])
     } else {
       expect(document.querySelector('button[aria-label="群文件夹"]')).not.toBeNull()
       expect(document.querySelector('[data-testid="chat-header-apps-button"]')).not.toBeNull()
