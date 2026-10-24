@@ -50,6 +50,10 @@ describe('App modals in the phone host', () => {
     from(child, { t: 'hello' });
     expect(chrome).not.toHaveBeenCalled();
     expect(await call(child, 'getContext')).toMatchObject({ ok: true, value: { tabId: 'board-tab', modal: { data: { column: 'todo' } }, capabilities: [], layout: { fullscreen: true } } });
+    host.update({ extensionId: 'board', tabId: 'board-tab', chatId: null, capabilities: [], locale: 'zh', themeMode: 'light' });
+    expect(await call(child, 'getContext')).toMatchObject({ ok: true, value: { locale: 'zh', themeMode: 'light', modal: { data: { column: 'todo' } } } });
+    host.programNotified({ server: 'tools', method: 'changed' });
+    expect(posted.get(child)!.mock.calls.map(([message]) => message.event)).toContainEqual({ type: 'programNotification', server: 'tools', method: 'changed' });
     expect(await call(frame, 'modalClose', { result: 'forged' })).toMatchObject({ ok: false, code: 'invalid' });
     expect(await call(child, 'modalClose', { result: { cardId: 'created' } })).toMatchObject({ ok: true });
     expect(posted.get(frame)!.mock.calls.map(([message]) => message).filter((message) => message.event?.type === 'modalClosed')).toEqual([{ m: APP_FRAME_MARKER, t: 'event', event: { type: 'modalClosed', id: 'phone-one', result: { cardId: 'created' } } }]);

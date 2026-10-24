@@ -5,8 +5,9 @@ export function createModalApi(host: GuguHost) {
   const modal = host.modal!;
   const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
   let content = false;
-  const focusable = () => [...document.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[tabindex]')]
-    .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden],[inert]') && el.getClientRects().length > 0);
+  const focusable = () => [...document.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[contenteditable]:not([contenteditable=false]),[tabindex]')]
+    .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden],[inert]') && el.getClientRects().length > 0)
+    .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
   const report = (error: unknown) => void host.reportError(`App modal: ${error instanceof Error ? error.message : String(error)}`);
 
   host.onModalClosed!(({ id, result, error }) => {
@@ -20,7 +21,7 @@ export function createModalApi(host: GuguHost) {
     content = true;
     const focus = () => {
       const candidates = focusable();
-      const target = edge === 'last' ? candidates.at(-1) : document.querySelector<HTMLElement>('[autofocus]') ?? candidates[0];
+      const target = edge === 'last' ? candidates.at(-1) : candidates.find((element) => element.hasAttribute('autofocus')) ?? candidates[0];
       if (target) target.focus();
       else { document.body.tabIndex = -1; document.body.focus(); }
     };

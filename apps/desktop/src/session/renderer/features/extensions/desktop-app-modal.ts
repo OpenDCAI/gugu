@@ -1,3 +1,4 @@
+import { rpc } from '@renderer/lib/ipc';
 import { desktopIpc } from '@/platform/desktopIpc';
 import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
 import type { AppModalHostAction, AppModalPage } from '@shared/extensions/app-modal';
@@ -25,7 +26,19 @@ export function openDesktopAppModal(page: AppModalPage): void {
     focus, dismiss,
     attach(element) {
       guest = element as BrowserWebviewElement;
-      const ready = () => void control({ type: 'bind', id: page.id, webContentsId: guest!.getWebContentsId() }).then(() => focus('first')).catch(fail);
+      let boundId: number | null = null;
+      const report = () => {
+        if (boundId !== null) void rpc.extensions.reportLayout({ webContentsId: boundId, visible: true, width: element.clientWidth, height: element.clientHeight }).catch(fail);
+      };
+      const observer = new ResizeObserver(report);
+      observer.observe(element);
+      const ready = () => {
+        const webContentsId = (element as BrowserWebviewElement).getWebContentsId();
+        void control({ type: 'bind', id: page.id, webContentsId }).then(() => {
+          if (guest !== element) return;
+          boundId = webContentsId; report(); return focus('first');
+        }).catch((error: unknown) => { if (guest === element) void fail(error); });
+      };
       const gone = () => void fail(new Error('The App modal content process exited'));
       const failed = (event: Event) => {
         const failure = event as Event & { errorCode?: number; errorDescription?: string };
@@ -35,6 +48,7 @@ export function openDesktopAppModal(page: AppModalPage): void {
       element.addEventListener('render-process-gone', gone);
       element.addEventListener('did-fail-load', failed);
       return () => {
+        observer.disconnect();
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
         element.removeEventListener('did-fail-load', failed);

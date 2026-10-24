@@ -326,6 +326,7 @@ export function hostAppFrame(
   },
 ): { pageId: number; update(binding: PhoneAppBinding): void; filesChanged(changes: readonly { chatId: string; itemIds: readonly string[] }[]): Promise<void>; membersChanged(changes: readonly MemberChange[]): void; command(commandId: string): void; programNotified(notification: { server: string; method: string; params?: unknown }): void; dispose(): void } {
   const pageId = nextPageId++
+  const modalHosts = new Map<ReturnType<typeof hostAppFrame>, PhoneAppBinding>()
   // Only ever the App's own document, both ways (appOrigin.ts).
   const channel = appFrameChannel(frame)
   // The sync port waits here until the frame's runtime says it listens ('sync-port'), in either
@@ -473,15 +474,17 @@ export function hostAppFrame(
             opener: frame, focus, dismiss: (error) => phoneModals.close(modal.id, null, error),
             attach(element) {
               const childFrame = element as HTMLIFrameElement
-              const childHost = hostAppFrame(childFrame, { ...modal.binding, modal: { id: modal.id, data: modal.options.data } }, {
+              const childBinding = { ...modal.binding, modal: { id: modal.id, data: modal.options.data } }
+              const childHost = hostAppFrame(childFrame, childBinding, {
                 ...hooks,
                 // The content page's initial hello must not clear its opener's title, badge or error.
                 chrome(detail) { if (detail.error) hooks.chrome({ error: detail.error }) },
               })
+              modalHosts.set(childHost, childBinding)
               phoneModals.bind(modal.id, childHost.pageId)
               const ready = () => focus('first')
               childFrame.addEventListener('load', ready)
-              return () => { childFrame.removeEventListener('load', ready); childHost.dispose() }
+              return () => { childFrame.removeEventListener('load', ready); modalHosts.delete(childHost); childHost.dispose() }
             },
           })
         } catch (error) {
@@ -741,6 +744,8 @@ export function hostAppFrame(
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
+      for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
       const placed = () => { if (moved) for (const link of takeOpeningLinks(hosted.binding)) event(link) }
       // The theme is part of it: the page's ui.js picks its palette from context.themeMode.
@@ -753,11 +758,13 @@ export function hostAppFrame(
     },
     /** These chats' files changed (the account revision bus names them): the ones the page asked about are told how those files are now. */
     filesChanged(changes) {
-      if (!hosted.binding.capabilities.includes('files:read')) return Promise.resolve()
-      return Promise.all(changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
+      const children = [...modalHosts.keys()].map((childHost) => childHost.filesChanged(changes))
+      if (!hosted.binding.capabilities.includes('files:read')) return Promise.all(children).then(() => undefined)
+      return Promise.all([...children, ...changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))]).then(() => undefined)
     },
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {
+      for (const childHost of modalHosts.keys()) childHost.membersChanged(changes)
       if (!rosterMoved(members ?? null, changes)) return
       void readMembers().then(() => event({ type: 'context', context: contextOf() }), unread)
     },
@@ -767,6 +774,7 @@ export function hostAppFrame(
     },
     /** owner 10-16 The App's program on the session's computer sent a notification (`onProgramNotification`). */
     programNotified(notification) {
+      for (const childHost of modalHosts.keys()) childHost.programNotified(notification)
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {

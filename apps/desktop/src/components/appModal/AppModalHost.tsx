@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sheet } from '../ui/Sheet';
 import { Dialog } from '../ui/Dialog';
+import { Button } from '../ui/Button';
 import { createModal, type BaseModalProps } from '../ui/modal-registry';
 import { listenAppModals, type AppModalPresentation } from './appModal';
 import type { BrowserWebviewElement } from '@/session/renderer/features/browser/browser-webview-types';
@@ -38,7 +39,7 @@ function AppModalSheet({ presentation: modal, onClose }: { presentation: AppModa
       <div className="flex min-h-0 flex-1 flex-col" data-app-modal-id={modal.id}>
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] !px-5 !py-3">
           <div className="min-w-0"><p className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{modal.appName}</p><Dialog.Title id={titleId} className="text-[length:var(--font-title)] font-medium">{modal.title}</Dialog.Title></div>
-          <button type="button" data-app-modal-close aria-label={t('dialog.close')} onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)]"><XIcon className="size-4" /></button>
+          <Button type="button" variant="ghost" size="icon" data-app-modal-close aria-label={t('dialog.close')} onClick={onClose} className="shrink-0"><XIcon className="size-4" /></Button>
         </header>
         <span tabIndex={0} className="h-0 overflow-hidden" onFocus={() => focus('first')} />
         {modal.partition ? <webview ref={attach} src={modal.url} partition={modal.partition} className="min-h-0 w-full flex-1" /> : <iframe ref={attach} name={modal.frameName} title={modal.title} src={modal.url} sandbox="allow-scripts allow-same-origin allow-forms" className="min-h-0 w-full flex-1 border-0" />}

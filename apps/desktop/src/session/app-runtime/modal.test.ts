@@ -60,5 +60,13 @@ describe('App modal runtime', () => {
     expect(raw.modal.close).not.toHaveBeenCalled();
     last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     expect(raw.modal.close).toHaveBeenCalledOnce();
+    raw.modal.key.mockClear();
+    const editor = document.createElement('div'); editor.contentEditable = 'true'; editor.tabIndex = 1;
+    Object.defineProperty(editor, 'getClientRects', { value: () => [new DOMRect(0, 0, 10, 10)] });
+    first.tabIndex = 2; document.body.append(editor);
+    focus('first'); expect(document.activeElement).toBe(editor);
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(raw.modal.key).toHaveBeenCalledOnce();
+    focus('last'); expect(document.activeElement).toBe(last);
   });
 });
