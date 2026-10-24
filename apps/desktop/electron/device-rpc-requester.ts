@@ -27,15 +27,20 @@ export type SharedSshLinks = {
  * 远程 SSH 那条:借窗口那条连接。管道关 = 不再听,❌ 关连接 —— 连接归 link manager(窗口在用、机器被移除、退出时才关)。
  */
 export async function openSshDeviceRpcPipe(links: SharedSshLinks, deviceId: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
+  const pipe = attachSshDeviceRpcPipe(links, deviceId, handlers)
+  try {
+    const opened = await links.open(deviceId)
+    if (!opened.ok) throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
+    return pipe
+  } catch (error) { pipe.close(); throw error }
+}
+
+/** File reads may only borrow a link that is already held; this never opens a connection. */
+export function attachSshDeviceRpcPipe(links: Pick<SharedSshLinks, 'tap' | 'send'>, deviceId: string, handlers: DeviceRpcPipeHandlers): DeviceRpcPipe {
   const untap = links.tap(deviceId, {
     onMessage: (message) => handlers.onMessage(message),
     onClosed: (reason) => handlers.onClosed(new DeviceRpcChannelError(`device channel closed: ${reason}`, 'closed')),
   })
-  const opened = await links.open(deviceId)
-  if (!opened.ok) {
-    untap()
-    throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
-  }
   return {
     send: async (message) => {
       if (!links.send(deviceId, message)) throw new DeviceRpcChannelError('ssh link is not open', 'closed')

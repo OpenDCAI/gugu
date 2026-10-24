@@ -23,6 +23,7 @@ import { createSshAutoUpgrader, sshServerUpgradeRunner, type SshAutoUpgrader } f
 import { buildEnsureMasterArgs, classifySshFailure, type SshTarget } from './ssh-install/logic'
 import { systemSpawnSsh } from './ssh-install/system'
 import type { SharedSshLinks } from '../device-rpc-requester'
+import type { HeldFileSshLinks } from '../projectFileSsh'
 import { createSshLinkManager, type SshLinkManager } from './ssh-link'
 import { findSshMachine, sshTargetOf, terminalControlPath, type SshMachine, type SshMachineStore } from './ssh-machines'
 import { createTerminalAskpass } from './ssh-prompts'
@@ -76,7 +77,7 @@ export function registerSshLinkIpc(options: {
    * 不替它升级(它自己经咕咕云升级)、不问登录(只用咕咕钥匙)。
    */
   tunnels?: { linkMachine(deviceId: string): { target: SshTarget; accountUserId: string } | null; reportBroken(deviceId: string): void }
-}): SshLinkManager & SharedSshLinks {
+}): SshLinkManager & SharedSshLinks & HeldFileSshLinks {
   const send = (channel: string, payload: unknown) => {
     const win = options.getWindow()
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
@@ -251,5 +252,7 @@ export function registerSshLinkIpc(options: {
     for (const deviceId of links.openDeviceIds()) if (!known.has(deviceId)) close(deviceId)
   })
   // closeAll 经 this.close 收,也走上面那一层。
-  return Object.assign(links, { close, tap })
+  return Object.assign(links, { close, tap, async ownedOpen(deviceId: string, accountId: string) {
+    return (await options.currentUserId()) === accountId && !!findSshMachine(options.store.list(), deviceId, accountId) && links.isOpen(deviceId)
+  } })
 }
