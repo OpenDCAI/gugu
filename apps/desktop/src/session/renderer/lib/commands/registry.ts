@@ -5,6 +5,7 @@ import { SCOPE_LEVELS, type AppCommand, type CommandProvider, type ScopeId } fro
 export class CommandRegistry {
   private providers = new Set<CommandProvider>();
   contextElement: HTMLElement | null = null;
+  shortcutsPaused = false;
 
   constructor() {
     makeAutoObservable<this, 'providers'>(this, { providers: observable.shallow, contextElement: observable.ref });
@@ -13,6 +14,10 @@ export class CommandRegistry {
   register(provider: CommandProvider): () => void {
     this.providers.add(provider);
     return () => { this.providers.delete(provider); };
+  }
+
+  setShortcutsPaused(paused: boolean): void {
+    this.shortcutsPaused = paused;
   }
 
   unregister(scopeId: ScopeId): void {

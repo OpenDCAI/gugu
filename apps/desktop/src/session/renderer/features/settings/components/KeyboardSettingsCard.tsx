@@ -1,6 +1,7 @@
 import { useHotkeyRecorder, type Hotkey } from '@tanstack/react-hotkeys';
 import { RotateCcw, X } from '@/lib/icons'
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import {
@@ -86,6 +87,11 @@ const KeyboardSettingsCard: React.FC = () => {
     setEditingKey(key);
     recorder.startRecording();
   };
+
+  useEffect(() => {
+    commandRegistry.setShortcutsPaused(recorder.isRecording);
+    return () => commandRegistry.setShortcutsPaused(false);
+  }, [recorder.isRecording]);
 
   const handleReset = (key: CommandId) => {
     resetField(key);

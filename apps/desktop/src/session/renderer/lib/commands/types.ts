@@ -5,8 +5,8 @@ export interface AppCommand {
   label?: string;
   description?: string;
   /**
-   * When false the command is visible in the palette but not executable and
-   * the hotkey dispatcher skips it, falling through to the next scope.
+   * When false the palette hides the command and the hotkey dispatcher skips
+   * it, falling through to the next scope.
    * Defaults to true when omitted.
    */
   enabled?: boolean;

@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommandShortcutBinder } from './command-shortcut-binder';
+import { HotkeyRecorder } from '@tanstack/hotkeys';
 import { commandRegistry } from './registry';
 
 const settings = vi.hoisted(() => ({ platform: 'windows' as 'windows' | 'linux' | 'mac', keyboard: {} as Record<string, string | null> }));
@@ -34,7 +35,7 @@ beforeEach(async () => {
   await act(async () => input.focus());
 });
 afterEach(async () => {
-  await act(async () => { root.unmount(); dispose(); });
+  await act(async () => { root.unmount(); dispose(); commandRegistry.setShortcutsPaused(false); });
   host.remove(); commandRegistry.setContext(document.body);
 });
 async function press(key: string) {
@@ -42,6 +43,25 @@ async function press(key: string) {
 }
 
 describe('global commands before widget key consumption', () => {
+  it('lets the shortcut recorder capture an assigned chord without executing it', async () => {
+    const open = vi.fn();
+    const recorded = vi.fn();
+    const recorder = new HotkeyRecorder({ onRecord: recorded });
+    let disposeEntry!: () => void;
+    await act(async () => {
+      disposeEntry = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id: 'app.commandPalette', execute: open }] });
+      commandRegistry.setShortcutsPaused(true);
+    });
+    try {
+      recorder.start();
+      await press('p');
+      expect(recorded).toHaveBeenCalledTimes(1);
+      expect(open).not.toHaveBeenCalled();
+      await act(async () => commandRegistry.setShortcutsPaused(false));
+      await press('p');
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally { recorder.destroy(); await act(async () => disposeEntry()); }
+  });
   it.each([
     ['windows', 'app.quickSwitcher', 'o'], ['windows', 'app.commandPalette', 'p'],
     ['linux', 'app.quickSwitcher', 'o'], ['linux', 'app.commandPalette', 'p'],

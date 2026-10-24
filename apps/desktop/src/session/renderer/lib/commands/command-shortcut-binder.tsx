@@ -21,7 +21,7 @@ function CapturedCommandKey({ id }: { id: CommandId }) {
   useEffect(() => {
     if (!hotkey) return;
     const platform = detectPlatform();
-    const find = (event: KeyboardEvent) => {
+    const onCommandKey = (event: KeyboardEvent) => {
       if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, [cmdk-root], [role=menu]'))) return;
@@ -30,8 +30,8 @@ function CapturedCommandKey({ id }: { id: CommandId }) {
       event.preventDefault();
       event.stopImmediatePropagation();
     };
-    document.addEventListener('keydown', find, true);
-    return () => document.removeEventListener('keydown', find, true);
+    document.addEventListener('keydown', onCommandKey, true);
+    return () => document.removeEventListener('keydown', onCommandKey, true);
   }, [hotkey, id]);
   return null;
 }
@@ -48,7 +48,7 @@ export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
       document.removeEventListener('pointerdown', capture, true);
     };
   }, []);
-  const ids = [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
+  const ids = commandRegistry.shortcutsPaused ? [] : [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
     .filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
   return <>{ids.map((id) => COMMANDS[id].capture ? <CapturedCommandKey key={id} id={id} /> : <CommandKey key={id} id={id} />)}</>;
 });
