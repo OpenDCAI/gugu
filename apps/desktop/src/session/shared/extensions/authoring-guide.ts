@@ -219,17 +219,15 @@ Free (they only concern your own tab):
 
 Needs \`chat:relay\`:
 
-- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: tells an agent — or another person ("tell me when it is
-  full") — the moment something happens in your App, no @ needed: a whisper in the operator's name, from your App,
-  in the chat you name — \`{ chat: ctx.chat.id }\`, or the one its \`refs\` point into (pills under the
-  text). \`text\` says only what happened ("your move"); the state stays in the file. \`to\` is the
-  one it concerns (a card's owner, who asked), never everyone: a \`user:<uuid>\` from \`chat.members\`. One of your
-  agents here: \`messageAgent\` (\`apps-agents\`).
-  Refused: \`not-found\` — \`to\` cannot get it (left, never was, yourself): drop it from what you keep; \`denied\` —
-  no capability; \`rate-limited\` — over 30 a minute per person and App: send less, later; \`invalid\` — fix the call. For agents to follow what happens, give them a
-  tool (\`apps-programs\`): gugu tells it which agent calls, which no agent can fake — never a
-  list they write their own ids into. Keep followers in your data; in \`onContextChanged\` drop
-  the ones no longer in \`chat.members\`.
+- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: one whisper in the operator's name, from your App, no @ needed.
+  Name \`{ chat: ctx.chat.id }\` or the chat its \`refs\` point into (pills below the text). Tell only the person concerned
+  what happened ("your move"); keep state in the file. \`to\`: a \`user:<uuid>\` from \`chat.members\`, never everyone.
+  Your own agents: \`messageAgent\` (\`apps-agents\`).
+  Refused: \`not-found\` — recipient left, was never there, or is yourself: remove it from followers;
+  \`denied\` — no capability; \`rate-limited\` — over 30/minute per person and App: send less, later;
+  \`invalid\` — fix the call. To let agents follow changes, give them a tool (\`apps-programs\`): gugu supplies its
+  caller's identity, never trust an agent-written id list. Keep followers in your data; on \`onContextChanged\`, drop
+  anyone no longer in \`chat.members\`.
 
 Free, from a click or key (they read and write no data):
 
