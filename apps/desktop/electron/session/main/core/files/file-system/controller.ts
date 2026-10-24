@@ -297,7 +297,7 @@ export const workspaceFileSystemController = createRPCController({
   watchDirectory: async (projectId: string, workspaceId: string, dirPath: string) => {
     const env = resolveWorkspace(projectId, workspaceId);
     if (!env) return err({ type: 'not_found' as const, entity: 'filesystem' as const, detail: undefined });
-    const watched = env.watchDirectory(dirPath);
+    const watched = await env.watchDirectory(dirPath);
     if (!watched.success) return err({ type: 'fs_error' as const, message: fileErrorToMessage(watched.error) });
     const leaseId = crypto.randomUUID();
     directoryWatches.set(leaseId, watched.data);

@@ -20,3 +20,11 @@ it('uses a host identity an installable App cannot claim', () => {
   expect(isValidExtensionId('ordinary-app')).toBe(true)
   expect(isValidExtensionId(ASSISTANT_PANEL_APP.extensionId)).toBe(false)
 })
+it('tells the assistant not to use or repeat deleted memory from retained history', () => {
+  const text = assistantAppChangeText({ ...change, resource: 'memory', operation: 'removed', after: undefined })
+  expect(text).toContain('不再使用，也不在回复中复述其内容')
+  expect(text).toContain('即使聊天记录或摘要里仍有')
+  expect(JSON.parse(text.split('\n')[1])).toMatchObject({ resource: 'memory', operation: 'removed' })
+  expect(assistantAppChangeText({ ...change, resource: 'memory' })).not.toContain('主人已删除这条记忆')
+  expect(assistantAppChangeText({ ...change, resource: 'pending-work', operation: 'removed' })).toContain('不是取消任务或停止执行者')
+})

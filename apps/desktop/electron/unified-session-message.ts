@@ -12,7 +12,7 @@
 // 本模块只做寻址解析、预检次序与结果合并;投递归编排层,❌ 不在这里长出第二套投递。
 
 import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
-import { workReportSchema, type WorkReport } from '../src/session/shared/assistant-work'
+import { assertWorkReportArgument, workReportSchema, type WorkReport } from '../src/session/shared/assistant-work'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '@gugu/core/shared/typedId.mjs'
 
 export type UnifiedRecipientResult = {
@@ -85,6 +85,7 @@ export async function handleUnifiedSessionMessage(
   }
   const text = typeof record.text === 'string' ? record.text : ''
   if (!text.trim()) throw new Error('message text is required')
+  assertWorkReportArgument(record)
   // 取值由收件那台机器的编排层判(远端调用者不经过本机 schema),这里只原样带过去。
   const said: SessionMessageSaid = {
     ...(record.work_result !== undefined ? { work_result: workReportSchema.parse(record.work_result) } : {}),

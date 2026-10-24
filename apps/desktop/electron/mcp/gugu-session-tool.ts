@@ -11,7 +11,7 @@ import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import type { GuguMcpRequestTracker } from '../gugu-mcp-host'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { workReportSchema } from '../../src/session/shared/assistant-work'
+import { assertWorkReportArgument, workReportSchema } from '../../src/session/shared/assistant-work'
 import { SESSION_MESSAGE_REPLY_TO, SESSION_MESSAGE_THEN } from '@gugu/core/local/agent/deliveryEnvelope'
 import {
   registerSessionpageTools,
@@ -196,7 +196,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       ),
       text: z.string().min(1),
       work_id: z.string().uuid().optional(),
-      work_result: workReportSchema.optional(),
+      work_result: workReportSchema.optional().describe('Delegated execution report. Fill this argument, not text. completed/cancelled closes only the matching executor wait; progress/question does not.'),
       files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
@@ -211,6 +211,9 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
             ? 'session_message no longer takes session_id — pass to: an array of typed addresses, e.g. {to:["session:<id>"], text:"..."}, {to:["aid:<Agent ID>"], text:"..."} or {to:["gugu:<number>"], text:"..."}'
             : undefined)
         : undefined,
+    }).superRefine((value, ctx) => {
+      try { assertWorkReportArgument(value) }
+      catch (error) { ctx.addIssue({ code: 'custom', path: ['work_result'], message: (error as Error).message }) }
     }),
     action: 'message',
   },

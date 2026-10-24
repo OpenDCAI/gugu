@@ -1,6 +1,7 @@
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
+import { mkdir } from 'node:fs/promises'
 import {
   ASSISTANT_COMPUTER_WORKDIR_NAME, assistantHomePaths, assistantRecoveryContext, type AssistantHomeKind,
 } from '@gugu/core/shared/assistantPolicy'
@@ -10,7 +11,7 @@ export { refreshAssistantContext } from './assistant-instructions'
 import type { Materialization } from '../capability-bundle'
 import type { AssistantStartupIndexDeps } from './assistant-startup-index'
 import { openingAssistantIndex } from './assistant-index-cache'
-import { assistantRecoveryHook, assistantResourceHook } from './assistant-resource-hook'
+import { assistantRecoveryHook } from './assistant-resource-hook'
 import { assistantPendingHook } from './assistant-pending-hook'
 import { assistantNoteWriteHook } from './assistant-note-hook'
 
@@ -35,20 +36,24 @@ export async function preparePersonalAssistantContext(
   capabilities: Materialization, cwd: string, guguHome: string, kind: AssistantHomeKind,
   deps: AssistantStartupIndexDeps, home = homedir(),
 ): Promise<Materialization> {
-  const [, opening] = await Promise.all([
+  const [instructions, opening] = await Promise.all([
     refreshAssistantContext(cwd, guguHome, kind, home),
     openingAssistantIndex(guguHome, cwd, kind, deps),
   ])
   const memoryDir = assistantHomePaths(home, cwd, kind).memoryDir
+  await mkdir(memoryDir, { recursive: true, mode: 0o700 })
   return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
+    instructions: [instructions?.brief, instructions?.custom].filter(Boolean).join('\n\n'),
     recoveryContext: assistantRecoveryContext(memoryDir), workingContextPath: join(memoryDir, 'working-context.md') })
 }
 
 /** Personal-assistant work uses Gugu's explicit capabilities, not the host's coding setup. */
-export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; recoveryContext?: string; workingContextPath?: string }): Materialization {
+export function personalAssistantContext(capabilities: Materialization, kind: AssistantHomeKind = 'computer', startup?: { index: string; guguHome: string; instructions?: string; recoveryContext?: string; workingContextPath?: string }): Materialization {
   const meta = capabilities.sessionNewPatch?.meta ?? {}
   const claude = (meta.claudeCode ?? {}) as Record<string, unknown>
   const options = (claude.options ?? {}) as Record<string, unknown>
+  const explicitPrompt = typeof options.systemPrompt === 'string' ? options.systemPrompt
+    : (options.systemPrompt as { append?: string } | undefined)?.append
   const env = { ...(options.env as Record<string, string> | undefined), CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000' }
   delete (env as Record<string, string>).CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
   const plugins = (options.plugins ?? []) as Array<{ type: string; path: string }>
@@ -68,40 +73,31 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
   const guguServer = Object.entries(servers).find(([name]) => name.endsWith('_gugu'))?.[1] as
     { url: string; headers: Record<string, string> } | undefined
   if (startup && !guguServer?.url) throw new Error('Assistant is missing its live Gugu resource endpoint')
-  const rebuildScript = startup ? assistantResourceHook(guguServer!) : null
   const recoveryScript = startup?.recoveryContext ? assistantRecoveryHook(startup.recoveryContext, startup.workingContextPath) : null
   const memoryDir = startup?.workingContextPath ? dirname(startup.workingContextPath) : null
   const pendingScript = memoryDir ? assistantPendingHook(join(memoryDir, 'pending-work.json')) : null
   const noteScript = memoryDir ? assistantNoteWriteHook(memoryDir) : null
-  // Claude restores the original systemPrompt on --resume (measured on 2.1.296).
-  // Dynamic facts must use the native SessionStart additionalContext channel.
-  // An immutable, account/content-addressed plugin avoids concurrent starts sharing a snapshot.
+  // Native snapshot:false was verified with managed Claude 2.1.310: resume replaces
+  // the system text without discarding conversation history. Full indices must not
+  // enter SessionStart additionalContext, which accumulates in that history.
   const startupRoot = startup ? join(startup.guguHome, 'capability-packages', 'claude', 'gugu-assistant-context',
-    createHash('sha256').update(JSON.stringify({ index: startup.index, rebuildScript, recoveryScript, pendingScript, noteScript })).digest('hex')) : null
+    createHash('sha256').update(JSON.stringify({ recoveryScript, pendingScript, noteScript })).digest('hex')) : null
   if (startup && startup.index.length > ASSISTANT_INDEX_LIMIT) throw new Error('Assistant startup index must be a single bounded snapshot')
   const startupArtifacts: NonNullable<Materialization['artifacts']> = startupRoot && startup ? [
     { path: join(startupRoot, '.claude-plugin', 'plugin.json'), mode: 0o644,
       content: JSON.stringify({ name: 'gugu-assistant-context', version: '1.0.0' }) },
     { path: join(startupRoot, 'hooks', 'hooks.json'), mode: 0o600,
       content: JSON.stringify({ hooks: {
-        SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command',
-          command: 'node "${CLAUDE_PLUGIN_ROOT}/startup.cjs"', timeout: 5 }] },
-          { matcher: 'compact|clear|fork', hooks: [{ type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/rebuild.cjs"', timeout: 45 }] },
-          ...(startup.recoveryContext ? [{ matcher: 'resume|compact|clear|fork', hooks: [{ type: 'command',
+        SessionStart: [...(startup.recoveryContext ? [{ matcher: 'resume|compact|clear|fork', hooks: [{ type: 'command',
             command: 'node "${CLAUDE_PLUGIN_ROOT}/recovery.cjs"', timeout: 5 }] }] : []),
           ...(pendingScript ? [{ matcher: 'startup|resume|compact|clear|fork', hooks: [{ type: 'command',
             command: 'node "${CLAUDE_PLUGIN_ROOT}/pending.cjs"', timeout: 5 }] }] : [])],
         ...(noteScript ? { PreToolUse: [{ matcher: 'Write|Edit', hooks: [{ type: 'command',
           command: 'node "${CLAUDE_PLUGIN_ROOT}/note-write.cjs"', timeout: 5 }] }] } : {}),
       } }) },
-    { path: join(startupRoot, 'rebuild.cjs'), mode: 0o600, content: rebuildScript! },
     ...(recoveryScript ? [{ path: join(startupRoot, 'recovery.cjs'), mode: 0o600 as const, content: recoveryScript }] : []),
     ...(pendingScript ? [{ path: join(startupRoot, 'pending.cjs'), mode: 0o600 as const, content: pendingScript }] : []),
     ...(noteScript ? [{ path: join(startupRoot, 'note-write.cjs'), mode: 0o600 as const, content: noteScript }] : []),
-    { path: join(startupRoot, 'startup.cjs'), mode: 0o600,
-      content: `process.stdout.write(${JSON.stringify(JSON.stringify({ hookSpecificOutput: {
-        hookEventName: 'SessionStart', additionalContext: startup.index,
-      } }))} + '\\n')\n` },
   ] : []
   return {
     ...capabilities,
@@ -117,7 +113,9 @@ export function personalAssistantContext(capabilities: Materialization, kind: As
             // Use the SDK's full-system-prompt channel, replacing its coding
             // preset. Keep Gugu's platform and identity byte-for-byte in that
             // same system message; never move them into a user turn.
-            systemPrompt: options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
+            systemPrompt: startup ? { type: 'custom', snapshot: false,
+              prompt: [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt, explicitPrompt, startup.instructions, startup.index].filter(Boolean).join('\n\n') }
+              : options.systemPrompt ?? [ASSISTANT_SYSTEM_PROMPT, capabilities.sessionPrompt].filter(Boolean).join('\n\n'),
             ...(startupRoot ? { plugins: [...plugins, { type: 'local', path: startupRoot }] } : {}),
             // Reception should not inherit the coding harness's implicit high effort.
             // Explicit session/user choices still take precedence; thinking stays enabled.

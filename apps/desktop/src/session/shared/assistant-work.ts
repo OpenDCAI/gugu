@@ -2,6 +2,13 @@ import { z } from 'zod'
 
 export const workReportSchema = z.object({ work_id: z.string().uuid(), status: z.enum(['progress', 'question', 'completed', 'cancelled']) }).strict()
 export type WorkReport = z.infer<typeof workReportSchema>
+/** Refuse a protocol report misplaced in prose; never infer completion from the prose itself. */
+export function assertWorkReportArgument(input: { text?: unknown; work_result?: unknown }): void {
+  if (input.work_result === undefined && typeof input.text === 'string'
+    && /(?:^|\n)\s*(?:【|\[)?work_result(?:】|\])?\s*[:：]?\s*(?:\{|work_id\s*=)/.test(input.text)) {
+    throw new Error('Put work_result:{work_id,status} in the session_message argument, not in text. Text does not settle the executor wait.')
+  }
+}
 export const pendingAssistantWorkRowSchema = z.object({
   id: z.string(), kind: z.enum(['executor', 'question']), source_link: z.string().optional(),
   source_message_id: z.string().optional(), source_summary: z.string().max(401).optional(),

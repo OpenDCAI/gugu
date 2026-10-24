@@ -9,7 +9,6 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.security.KeyStore;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -28,7 +27,6 @@ final class GuguAgentHostStore {
             throw new IllegalArgumentException("缺少手机宿主登录凭据");
         JSObject config = new JSObject(incoming.toString());
         config.put("ownerId", owner);
-        JSObject previous = read(context, owner);
         JSONObject committed;
         synchronized (GuguAuthStoragePlugin.STORAGE_LOCK) {
             String raw = context.getSharedPreferences("gugu-auth-storage", Context.MODE_PRIVATE).getString("sb-main", null);
@@ -37,6 +35,14 @@ final class GuguAgentHostStore {
             if (!"SESSION".equals(envelope.optString("state"))) throw new SecurityException("账号已退出，旧宿主不能恢复登录");
             committed = new JSONObject(envelope.getString("raw"));
             if (committed.optJSONObject("user") == null || !owner.equals(committed.getJSONObject("user").optString("id"))) throw new SecurityException("手机宿主与当前登录账号不一致");
+        }
+        JSObject previous;
+        try { previous = read(context, owner); }
+        catch (CorruptConfiguration error) {
+            // Reconfigure only with the already committed current login, never a stale WebView token.
+            if (!config.optString("accessToken").equals(committed.optString("access_token")))
+                throw new SecurityException("手机宿主设置已损坏，请重新登录后连接");
+            previous = null;
         }
         boolean changedSession = previous != null && !sessionId(previous.optString("accessToken")).equals(sessionId(config.optString("accessToken")));
         if (changedSession && (!sessionId(config.optString("accessToken")).equals(sessionId(committed.optString("access_token")))
@@ -58,15 +64,24 @@ final class GuguAgentHostStore {
     static synchronized JSObject read(Context context, String owner) throws Exception {
         File target = file(context, owner);
         if (!target.exists()) return null;
-        ByteBuffer body = ByteBuffer.wrap(Files.readAllBytes(target.toPath()));
+        try {
+        byte[] bytes = Files.readAllBytes(target.toPath());
+        if (bytes.length < 30) throw new CorruptConfiguration();
+        ByteBuffer body = ByteBuffer.wrap(bytes);
         int length = body.get() & 0xff;
-        if (length != 12 || body.remaining() <= length) throw new SecurityException("手机宿主凭据文件损坏");
+        if (length != 12 || body.remaining() < length + 16) throw new CorruptConfiguration();
         byte[] iv = new byte[length]; body.get(iv);
         byte[] encrypted = new byte[body.remaining()]; body.get(encrypted);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, iv));
         cipher.updateAAD(GuguAgentHostPolicy.owner(owner).getBytes(StandardCharsets.UTF_8));
         return new JSObject(new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8));
+        } catch (java.security.GeneralSecurityException | org.json.JSONException error) {
+            throw new CorruptConfiguration();
+        }
+    }
+    private static final class CorruptConfiguration extends SecurityException {
+        CorruptConfiguration() { super("手机宿主设置已损坏，请重新连接"); }
     }
 
     static synchronized JSObject updateSession(Context context, String owner, JSONObject session) throws Exception {
@@ -111,9 +126,7 @@ final class GuguAgentHostStore {
         ByteBuffer body = ByteBuffer.allocate(1 + iv.length + encrypted.length).put((byte) iv.length).put(iv).put(encrypted);
         File target = file(context, owner);
         if (!target.getParentFile().isDirectory() && !target.getParentFile().mkdirs()) throw new IllegalStateException("无法创建手机宿主凭据目录");
-        File temp = new File(target.getPath() + ".tmp");
-        Files.write(temp.toPath(), body.array());
-        Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        DurablePhoneHostFile.write(target, body.array());
     }
 
     private static File file(Context context, String owner) { return new File(context.getNoBackupFilesDir(), "phone-agent-host/" + GuguAgentHostPolicy.owner(owner) + "/config.enc"); }
