@@ -473,10 +473,10 @@ describe('市场页 (#7059)', () => {
 
   it('reads every catalog page before selecting recommendations and complete New results', async () => {
     const entries = Array.from({ length: 14 }, (_, i) => app(`app-${i}`, ['productivity']));
-    h.api.market.mockImplementation(async ({ page }: { page: number }) => ({ success: true, data: {
+    h.api.market.mockImplementation((async ({ page }: { page: number }) => ({ success: true, data: {
       extensions: entries.slice(page * 12, (page + 1) * 12), invalid: [], errorKind: null, error: null,
       total: 14, page, hasMore: page === 0, fetchedAt: null,
-    } }) as never);
+    } })) as never);
     await render(false);
     expect(h.api.market).toHaveBeenCalledWith({ page: 1, query: '' });
     expect(dom.window.document.querySelectorAll('[data-testid^="extension-card-"]')).toHaveLength(14);
