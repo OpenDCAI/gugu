@@ -219,30 +219,22 @@ export type GuguLinkTarget =
   | { kind: 'project'; projectId: string }
   | { kind: 'server-login'; code: string }
 
-/** The shared-test/production login approval belongs to the database named by this build. */
-export function serverLoginCode(raw: string, supabaseUrl: string): string | null {
-  try {
-    const url = new URL(raw)
-    const base = new URL(supabaseUrl)
-    if (url.origin !== base.origin || url.pathname.replace(/\/+$/, '') !== `${base.pathname.replace(/\/+$/, '')}/functions/v1/server-login`) return null
-    return url.searchParams.get('code')?.trim() ?? ''
-  } catch {
-    return null
-  }
-}
-
 /** One reader for stored references and OS links. Only external invocation binds a link to a build's scheme. */
 export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {}): GuguLinkTarget | null {
   const chat = parseConversationLink(raw)
   if (chat) return { kind: 'chat', ...chat }
   const file = parseGroupFileLink(raw)
   if (file) return { kind: 'file', ...file }
-  if (options.supabaseUrl) {
-    const code = serverLoginCode(raw, options.supabaseUrl)
-    if (code !== null) return { kind: 'server-login', code }
-  }
   let url: URL
   try { url = new URL(raw) } catch { return null }
+  if (options.supabaseUrl) {
+    try {
+      const base = new URL(options.supabaseUrl)
+      if (url.origin === base.origin && url.pathname.replace(/\/+$/, '') === `${base.pathname.replace(/\/+$/, '')}/functions/v1/server-login`) {
+        return { kind: 'server-login', code: url.searchParams.get('code')?.trim() ?? '' }
+      }
+    } catch { /* An invalid database URL cannot name a login approval. */ }
+  }
   const scheme = url.protocol.slice(0, -1)
   if (!/^gugu(?:-[a-z0-9-]+)?$/.test(scheme)) return null
   if (url.hostname === 'ext') {

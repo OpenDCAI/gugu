@@ -2,7 +2,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { serverLoginCode, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { parseGuguLink, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../../../apps/desktop/src/session/shared/extensions/open-link'
 import { useLinkNavigation } from '../../../../apps/desktop/src/hooks/useLinkNavigation'
 import { openLink, openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
@@ -32,21 +32,21 @@ import {
 
 const LINK = 'https://devdb.example.test/functions/v1/server-login?code=ABCD-EFGH'
 
-describe('serverLoginCode', () => {
+describe('login approvals in the common parser', () => {
   it('本库的确认链接 → 短码', () => {
-    expect(serverLoginCode(LINK, 'https://devdb.example.test')).toBe('ABCD-EFGH')
-    expect(serverLoginCode('https://devdb.example.test/functions/v1/server-login/?code=abcd-efgh', 'https://devdb.example.test/')).toBe('abcd-efgh')
+    expect(parseGuguLink(LINK, { supabaseUrl: 'https://devdb.example.test' })).toEqual({ kind: 'server-login', code: 'ABCD-EFGH' })
+    expect(parseGuguLink('https://devdb.example.test/functions/v1/server-login/?code=abcd-efgh', { supabaseUrl: 'https://devdb.example.test/' })).toEqual({ kind: 'server-login', code: 'abcd-efgh' })
   })
 
   it('没带短码 → 空串(仍是确认页链接,批准页照实说找不到)', () => {
-    expect(serverLoginCode('https://devdb.example.test/functions/v1/server-login', 'https://devdb.example.test')).toBe('')
+    expect(parseGuguLink('https://devdb.example.test/functions/v1/server-login', { supabaseUrl: 'https://devdb.example.test' })).toEqual({ kind: 'server-login', code: '' })
   })
 
   it('别的库、别的路径、不是地址 → 不认', () => {
-    expect(serverLoginCode('https://db.example.test/functions/v1/server-login?code=ABCD-EFGH', 'https://devdb.example.test')).toBeNull()
-    expect(serverLoginCode('https://devdb.example.test/functions/v1/server-login/poll?code=ABCD-EFGH', 'https://devdb.example.test')).toBeNull()
-    expect(serverLoginCode('http://devdb.example.test/functions/v1/server-login?code=ABCD-EFGH', 'https://devdb.example.test')).toBeNull()
-    expect(serverLoginCode('not a url', 'https://devdb.example.test')).toBeNull()
+    expect(parseGuguLink('https://db.example.test/functions/v1/server-login?code=ABCD-EFGH', { supabaseUrl: 'https://devdb.example.test' })).toBeNull()
+    expect(parseGuguLink('https://devdb.example.test/functions/v1/server-login/poll?code=ABCD-EFGH', { supabaseUrl: 'https://devdb.example.test' })).toBeNull()
+    expect(parseGuguLink('http://devdb.example.test/functions/v1/server-login?code=ABCD-EFGH', { supabaseUrl: 'https://devdb.example.test' })).toBeNull()
+    expect(parseGuguLink('not a url', { supabaseUrl: 'https://devdb.example.test' })).toBeNull()
   })
 })
 
