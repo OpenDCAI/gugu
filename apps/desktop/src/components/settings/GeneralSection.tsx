@@ -23,7 +23,7 @@ const LANGUAGE_OPTIONS: readonly LocalePreference[] = ['system', ...SUPPORTED_LO
 const NOTIFICATION_ROWS: ReadonlyArray<{
   key: keyof NotificationSettings
   labelKey: string
-  descriptionKey: string
+  descriptionKey?: string
   ariaKey: string
 }> = [
   {
@@ -41,7 +41,6 @@ const NOTIFICATION_ROWS: ReadonlyArray<{
   {
     key: 'sound',
     labelKey: 'settings.general.notificationsSound',
-    descriptionKey: 'settings.general.notificationsSoundDescription',
     ariaKey: 'settings.general.notificationsSoundAria',
   },
 ]
@@ -160,7 +159,7 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
           <SettingsRow
             key={row.key}
             title={t(row.labelKey)}
-            description={t(row.descriptionKey)}
+            description={row.descriptionKey ? t(row.descriptionKey) : undefined}
             control={(
               <Toggle
                 checked={notificationSettings[row.key]}
@@ -176,7 +175,6 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         <SettingsRow
           stack
           title={t('settings.general.notificationsTest')}
-          description={t('settings.general.notificationsTestDescription')}
           control={(
             <Button
               variant="secondary"

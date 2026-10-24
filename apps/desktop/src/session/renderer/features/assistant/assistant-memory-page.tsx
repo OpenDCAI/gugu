@@ -71,7 +71,6 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
           {aboutYou.length === 0 ? (
             <div className="flex flex-col items-start gap-3">
-              <p className="ta-page-sub">{t('memory.aboutEmpty', { name })}</p>
               <button type="button" className="ta-pill-btn" onClick={() => context.askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
                 <Sparkles />
                 {t('memory.faster')}

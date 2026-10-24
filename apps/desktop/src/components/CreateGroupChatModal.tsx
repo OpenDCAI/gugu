@@ -170,12 +170,9 @@ export function CreateGroupChatForm({ onClose, onCreated, initialName, initialSe
           placeholder={t('createGroup.searchPlaceholder')}
         />
 
-        {/* 选中成员芯片条(设计稿 .ng-selbar);空=提示,有选=芯片(头像+名,可点删) */}
+        {/* 选中成员芯片条(设计稿 .ng-selbar);头像+名,可点删 */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minHeight: 26, alignItems: 'center', marginBottom: 8 }}>
-          {selectedContacts.length === 0 ? (
-            <span style={{ fontSize: 'var(--font-body)', color: 'var(--faint-fg)' }}>{t('createGroup.selectionHint')}</span>
-          ) : (
-            selectedContacts.map((c) => (
+          {selectedContacts.map((c) => (
               <button
                 key={c.id}
                 type="button"
@@ -186,8 +183,7 @@ export function CreateGroupChatForm({ onClose, onCreated, initialName, initialSe
                 <Avatar name={c.display_name} avatarUrl={c.avatar} seed={c.id} size="xs" isAgent={c.type === 'agent'} />
                 {c.display_name}
               </button>
-            ))
-          )}
+          ))}
         </div>
 
         {/* 联系人列表(设计稿 .ng-list,分 个人 / Agent 两区) */}

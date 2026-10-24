@@ -347,7 +347,6 @@ const TerminalSettingsCard: React.FC = () => {
       />
       <SettingsRow
         title={translate('terminal.fontSize')}
-        description={translate('terminal.fontSizeDescription')}
         control={
           <div className={cn('flex h-9 flex-shrink-0 items-center justify-between rounded-md border border-border bg-background px-1', CONTROL_COLUMN_WIDTH)}>
             <Button
@@ -391,7 +390,6 @@ const TerminalSettingsCard: React.FC = () => {
       {isMac ? (
         <SettingsRow
           title={translate('terminal.optionAsMeta')}
-          description={translate('terminal.optionAsMetaDescription')}
           control={
             <Switch
               checked={macOptionIsMeta}

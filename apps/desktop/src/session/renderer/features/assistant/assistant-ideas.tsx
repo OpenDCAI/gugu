@@ -186,10 +186,7 @@ function IdeasBody({ view, name, fill }: { view: TodayFeedView; name: string; fi
   const items = part.state === 'ok' ? part.value.items : [];
   if (items.length === 0)
     return note(
-      <span className="flex flex-col items-center gap-1">
-        <span className="ta-empty-title">{t('ideas.empty')}</span>
-        <span>{t('ideas.emptyBody', { name })}</span>
-      </span>,
+      <span className="ta-empty-title">{t('ideas.empty')}</span>,
       { label: t('ideas.ask', { name }), draft: t('ideas.askPrompt') },
       'assistant-ideas-empty'
     );

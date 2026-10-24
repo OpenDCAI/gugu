@@ -30,7 +30,6 @@ export default {
     "actionLabel": "{{action}} {{group}}",
     "creator": "by {{name}}",
     "empty": "No public groups yet",
-    "emptyHint": "Groups appear here after their owner enables \"Group settings > Publish to Plaza\".",
     "featured": "Featured groups",
     "featuredHint": "Popular public groups by member count",
     "inviteClosed": "The group owner has closed invitation links.",
@@ -118,7 +117,6 @@ export default {
   "workbench": {
     "agents": "Agents",
     "cannotContinue": "Could not continue team creation",
-    "emptyHint": "The team catalog is empty. Check again later.",
     "emptyTitle": "No preset teams yet",
     "loadFailed": "Could not load agents: {{error}}",
     "loadingTeams": "Loading preset teams",

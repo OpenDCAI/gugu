@@ -170,9 +170,6 @@ export function BaseProjectSettingsSection({
       <Field orientation="horizontal">
         <div className="flex flex-1 flex-col gap-1">
           <FieldTitle>{translate('projects.settings.enableTmux')}</FieldTitle>
-          <FieldDescription className="text-foreground-muted">
-            {translate('projects.settings.enableTmuxDescription')}
-          </FieldDescription>
         </div>
         <Switch checked={form.tmux} onCheckedChange={(checked) => update('tmux', checked)} />
       </Field>

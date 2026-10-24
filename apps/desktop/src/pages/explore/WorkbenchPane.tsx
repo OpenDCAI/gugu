@@ -263,7 +263,6 @@ function WorkbenchPaneContent({
           <PaneEmptyState
             icon={<LayoutGrid size={26} color="var(--text-tertiary)" />}
             caption={t('workbench.emptyTitle')}
-            hint={t('workbench.emptyHint')}
           />
         </div>
       )}

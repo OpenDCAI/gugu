@@ -104,7 +104,7 @@ function VoiceNotesList({ machine, name, go }: { machine: AssistantMachine; name
       {(items: PhoneVoiceItem[]) =>
         items.length === 0 ? (
           <div className="ta-card">
-            <AssistantEmpty title={ta('memory.voiceNotesEmptyTitle')}>{ta('memory.voiceNotesEmpty', { name })}</AssistantEmpty>
+            <AssistantEmpty title={ta('memory.voiceNotesEmptyTitle')} />
           </div>
         ) : (
           groupVoiceNotesByWeek(items, (item) => item.createdAt, new Date()).map((group) => (

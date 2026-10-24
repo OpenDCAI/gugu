@@ -268,7 +268,6 @@ export const enUSProjectMessages = {
     'Used when publishing task branches and pushing commits.',
   'projects.settings.sameAsBaseRemote': 'Same as base remote',
   'projects.settings.enableTmux': 'Enable tmux',
-  'projects.settings.enableTmuxDescription': 'Run the agent task inside a tmux session.',
   'projects.settings.lifecycleScripts': 'Lifecycle scripts',
   'projects.settings.lifecycleScriptsDescription':
     'Shell commands run at each stage of the worktree lifecycle. One command per line. When both are set to auto-run, the Run script waits for Setup to complete.',
@@ -545,7 +544,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.settings.pushRemoteDescription': '用于发布会话分支和推送提交。',
   'projects.settings.sameAsBaseRemote': '与基础远程仓库相同',
   'projects.settings.enableTmux': '启用 tmux',
-  'projects.settings.enableTmuxDescription': '在 tmux 会话中运行 agent 会话。',
   'projects.settings.lifecycleScripts': '生命周期脚本',
   'projects.settings.lifecycleScriptsDescription':
     '在 worktree 生命周期各阶段运行的 shell 命令，每行一条。两者都设为自动运行时，Run 脚本会等待 Setup 完成。',

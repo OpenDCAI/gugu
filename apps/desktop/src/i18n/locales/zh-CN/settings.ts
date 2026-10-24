@@ -230,7 +230,6 @@ export default {
       "menu": "能做的事",
       "back": "设备",
       "thisTitle": "这台电脑能做的事",
-      "thisSubtitle": "连接服务与数据，让助理更好地帮你",
       "thisNote": "你的助理（包括你的咕咕）能在这台电脑上做下面这些事。只有你在这里连上的才能用，断开立刻生效；要你拍板的事，它会先在聊天里问你。",
       "connected": "已授权",
       "available": "可用",
@@ -592,8 +591,6 @@ export default {
     "copied": "已复制地址",
     "assistantPage": {
       "title": "设备",
-      "note": "让{{name}}帮你操作以下设备",
-      "noteNoName": "让助理帮你操作以下设备",
       "presence": {
         "awake": "在线"
       },
@@ -655,7 +652,6 @@ export default {
       }
     },
     "current": "本机",
-    "description": "运行智能体的电脑和服务器。",
     "empty": {
       "none": "还没有登录咕咕的机器",
       "title": "目前只有这台电脑",
@@ -812,7 +808,6 @@ export default {
     "submitted": "反馈已提交，感谢你的问题报告",
     "submitting": "提交中…",
     "thanks": {
-      "body": "你写的每一条我们都会看完。",
       "done": "完成",
       "illustrationAlt": "咕咕抱着你刚寄出的那封反馈信，正在向你道谢",
       "title": "谢谢你的反馈"
@@ -946,7 +941,6 @@ export default {
     },
     "engines": "按引擎",
     "enginesEmpty": "这段时间还没有用过任何引擎。",
-    "enginesHint": "这段时间用过的引擎",
     "heat": {
       "less": "少",
       "more": "多",
@@ -1045,7 +1039,6 @@ export default {
     },
     "rhythm": "节奏",
     "rhythmEmpty": "这段时间还没有开过会话。",
-    "rhythmHint": "一天里什么时候开会话",
     "streaks": "连续 {{current}} 天 · 最长 {{longest}} 天 · 活跃 {{active}} 天",
     "syncError": "这台设备的最新数据没送上去，下面显示的是上一次的。",
     "syncing": "正在同步这台设备的最新数据…",

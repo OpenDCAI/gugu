@@ -124,7 +124,6 @@ const NotificationSettingsCard: React.FC = () => {
         <SettingsRow
           className={dimmed}
           title={translate('notifications.sound')}
-          description={translate('notifications.soundDescription')}
           control={
             <>
               <ResetToDefaultButton

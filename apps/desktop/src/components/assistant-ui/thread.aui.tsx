@@ -330,9 +330,6 @@ const ThreadWelcome: FC = () => {
       <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-lg font-medium tracking-tight duration-200">
         {c.emptyTitle}
       </h1>
-      <p className="aui-thread-welcome-hint text-muted-foreground mt-1.5 text-sm">
-        {c.emptyHint}
-      </p>
     </div>
   );
 };

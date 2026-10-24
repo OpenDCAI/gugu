@@ -49,7 +49,6 @@ export function AgentsSettingsPage({
       <PageHeader
         sticky
         title={translate('settings.agents')}
-        description={translate('settings.agentsDescription')}
         remoteDescription={(device) => translate('deviceScope.subtitle.agents', { device })}
       >
         <div className="flex items-center justify-end gap-2">

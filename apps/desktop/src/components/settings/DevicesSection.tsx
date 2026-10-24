@@ -201,12 +201,11 @@ export function DevicesSection({
 
   return (
     <SettingsPage data-testid={AUTOMATION_TEST_IDS.settingsDevicesPane}>
-      <div className="flex flex-wrap items-start gap-3">
-        <SettingsNote className="min-w-[160px] flex-1">{t('devices.description')}</SettingsNote>
-        {canAddServer && !addingServer && (
+      {canAddServer && !addingServer && (
+        <div className="flex justify-end">
           <AddServerMenu defaultOpen={addMenuFromIntent} onPick={setAddingServer} testId="settings-add-server-button" />
-        )}
-      </div>
+        </div>
+      )}
 
       {addingServer && (
         <AddServerPanel

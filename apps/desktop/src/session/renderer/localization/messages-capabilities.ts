@@ -64,14 +64,12 @@ export const enUSCapabilityMessages = {
   'terminal.fontLoading': 'Loading fonts...',
   'terminal.fontEmpty': 'No fonts found.',
   'terminal.fontSize': 'Terminal font size',
-  'terminal.fontSizeDescription': 'Adjust the font size used by terminal sessions and CLI agents.',
   'terminal.fontSizeDecrease': 'Decrease terminal font size',
   'terminal.fontSizeIncrease': 'Increase terminal font size',
   'terminal.autoCopy': 'Auto-copy selected text',
   'terminal.autoCopyDescription':
     'Automatically copy text to clipboard when you select it in the terminal.',
   'terminal.optionAsMeta': 'Use Option as Meta key',
-  'terminal.optionAsMetaDescription': 'Treat the Option key as the Meta key in the terminal.',
 
   // ── settings · left sidebar metadata ───────────────────────────────────────
   'sidebarMeta.stateGroups': 'Group tasks by status',
@@ -132,8 +130,6 @@ export const enUSCapabilityMessages = {
 
   // ── settings · repository ──────────────────────────────────────────────────
   'repository.defaultProjectsDirectory': 'Default projects directory',
-  'repository.defaultProjectsDirectoryDescription':
-    'New projects are created inside this directory.',
   'repository.autoGitignore': 'Auto-update .gitignore',
   'repository.autoGitignoreDescription':
     'When {appName} writes CLI hook configs, also add their paths to .gitignore.',
@@ -144,7 +140,6 @@ export const enUSCapabilityMessages = {
   'notifications.description':
     'For agents on the task page. Chat and agent-contact notifications are under General.',
   'notifications.sound': 'Sound',
-  'notifications.soundDescription': 'Play audio cues for agent events.',
   'notifications.previewSound': 'Preview sound',
   'notifications.preview': 'Preview',
   'notifications.customSound': 'Custom sound',
@@ -413,11 +408,9 @@ export const enUSCapabilityMessages = {
   'agentsPage.customEdit': 'Change',
   'agentsPage.localNote': "Installed by you; update it outside Gugu.",
   'agentsPage.localNewer': 'v{version} available. Switch to Gugu-managed to update here.',
-  'agentsPage.managedNoteInstalled': 'Can be updated and uninstalled',
   'agentsPage.managedNoteAbsent':
     'Installs a separate copy; your own install is untouched',
   'agentsPage.managedUnavailable': "Automatic install not supported",
-  'agentsPage.managedNoteFresh': 'Can be updated and uninstalled after install',
   'agentsPage.installAndSwitch': 'Install and switch',
   'agentsPage.customNoteEmpty': 'Specify a program or command',
   'agentsPage.customMissing': "can't find this program",
@@ -517,7 +510,6 @@ export const enUSCapabilityMessages = {
   'agentsPage.environmentVariablesTooltip': 'Environment variables set when running the agent',
 
   // ── automations ────────────────────────────────────────────────────────────
-  'automations.subtitle': 'Run agents on a schedule across your projects',
   'automations.searchPlaceholder': 'Search automations...',
   'automations.new': 'New Automation',
   'automations.searchEmpty': 'No automations match your search.',
@@ -925,13 +917,11 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'terminal.fontLoading': '正在加载字体...',
   'terminal.fontEmpty': '未找到字体。',
   'terminal.fontSize': '终端字号',
-  'terminal.fontSizeDescription': '调整终端会话和 CLI 智能体使用的字号。',
   'terminal.fontSizeDecrease': '减小终端字号',
   'terminal.fontSizeIncrease': '增大终端字号',
   'terminal.autoCopy': '自动复制选中文本',
   'terminal.autoCopyDescription': '在终端中选中文本时自动复制到剪贴板。',
   'terminal.optionAsMeta': '把 Option 作为 Meta 键',
-  'terminal.optionAsMetaDescription': '在终端中把 Option 键当作 Meta 键。',
 
   // ── 设置 · 左侧栏信息 ───────────────────────────────────────────────────────
   'sidebarMeta.stateGroups': '二级分类',
@@ -991,7 +981,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
 
   // ── 设置 · 仓库 ─────────────────────────────────────────────────────────────
   'repository.defaultProjectsDirectory': '默认项目目录',
-  'repository.defaultProjectsDirectoryDescription': '新项目会创建在此目录下。',
   'repository.autoGitignore': '自动更新 .gitignore',
   'repository.autoGitignoreDescription':
     '{appName} 写入 CLI hook 配置时，同时把这些路径加入 .gitignore。',
@@ -1001,7 +990,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'notifications.title': '会话通知',
   'notifications.description': '只管项目页里的智能体。聊天和联系人里智能体的通知在「通用」里。',
   'notifications.sound': '提示音',
-  'notifications.soundDescription': '为智能体事件播放提示音。',
   'notifications.previewSound': '试听提示音',
   'notifications.preview': '试听',
   'notifications.customSound': '自定义提示音',
@@ -1259,10 +1247,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'agentsPage.customEdit': '修改',
   'agentsPage.localNote': '自行安装，需在咕咕外更新。',
   'agentsPage.localNewer': '有新版本 v{version}。切换到「咕咕管理」后可直接更新。',
-  'agentsPage.managedNoteInstalled': '可更新和卸载',
   'agentsPage.managedNoteAbsent': '另装一份，不影响本机已安装的版本',
   'agentsPage.managedUnavailable': '不支持自动安装',
-  'agentsPage.managedNoteFresh': '安装后可更新和卸载',
   'agentsPage.installAndSwitch': '安装并切换',
   'agentsPage.customNoteEmpty': '指定程序或命令',
   'agentsPage.customMissing': '找不到这个程序',
@@ -1350,7 +1336,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'agentsPage.environmentVariablesTooltip': '运行该智能体时设置的环境变量',
 
   // ── 自动化 ──────────────────────────────────────────────────────────────────
-  'automations.subtitle': '按计划在各个项目中运行智能体',
   'automations.searchPlaceholder': '搜索自动化...',
   'automations.new': '新建自动化',
   'automations.searchEmpty': '没有匹配的自动化。',

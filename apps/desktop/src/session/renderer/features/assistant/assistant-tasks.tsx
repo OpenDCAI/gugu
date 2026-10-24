@@ -116,7 +116,7 @@ const SubAgents = observer(function SubAgents({ context }: AssistantPageProps) {
         >
           {cloudRead.sessions.length === 0 && context.readiness !== 'ready'
             ? t('tasks.notRead', { name: context.assistant.display_name })
-            : t('tasks.empty', { name: context.assistant.display_name })}
+            : null}
         </AssistantEmpty>
       </AssistantSection>
     );

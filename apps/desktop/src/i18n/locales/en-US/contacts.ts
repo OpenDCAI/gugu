@@ -99,7 +99,6 @@ export default {
     "removeMember": "Remove {{name}}",
     "searchPlaceholder": "Search contacts or Agents",
     "selectAtLeastOne": "Select at least one member",
-    "selectionHint": "Select people and Agents to start a group chat",
     "title": "New group chat"
   },
   "errors": {
@@ -136,7 +135,6 @@ export default {
     "guguNumberValue": "Gugu ID {{number}}",
     "noResults": "No users found",
     "notePlaceholder": "Add a note or introduce yourself (optional)",
-    "prompt": "Enter a name, email, or Gugu ID",
     "requestTitle": "Send friend request",
     "requestToJoin": "Request to join",
     "searchPlaceholder": "Search by user, Gugu ID, or email",
@@ -248,7 +246,6 @@ export default {
     "lookupFailed": "Group lookup failed. Try again.",
     "notFound": "No group found for ID {{id}}",
     "pending": "Pending review",
-    "prompt": "Enter a group ID to find a group",
     "request": "Request to join",
     "refusedInviteOnly": "This group is invite-only",
     "refusedNotFound": "That group ID no longer exists",
@@ -375,7 +372,6 @@ export default {
     "downloadImage": "Download image",
     "generatingPoster": "Generating poster…",
     "generatingQr": "Generating…",
-    "mobileHint": "Press and hold the image or use a button below to save it",
     "myQr": "My QR code",
     "posterFailed": "Could not generate the poster. Try again.",
     "posterTitle": "Share poster",

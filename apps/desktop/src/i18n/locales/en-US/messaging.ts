@@ -455,7 +455,6 @@ export default {
     },
     "topicInvite": {
       "title": "Add topic members",
-      "hint": "Choose members from the source chat. An invitation message will be sent in the topic.",
       "search": "Search members",
       "message": "{{names}} You are invited to join this topic.",
       "confirm": "Add ({{count}})",
@@ -478,7 +477,6 @@ export default {
     "nameLoading": "Loading…",
     "namePlaceholder": "Group name",
     "picker": {
-      "invitationHint": "Your Agents join directly. Other members join after accepting an invitation.",
       "sendInvitation": "Send invitation",
       "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
       "agentRequestRejected": "Your last request was declined; you can submit again",
@@ -509,7 +507,6 @@ export default {
       "selection": "Add {{count}} members to the group",
       "selection_one": "Add {{count}} member to the group",
       "selection_other": "Add {{count}} members to the group",
-      "selectionHint": "Select one or more members to add",
       "title": "Add group members"
     },
     "renameFailed": "Rename did not go through — check your connection or permissions, then press Enter again",
@@ -603,7 +600,6 @@ export default {
       "rules": "Collaboration rules",
       "rulesPlaceholder": "Core principles, direction, and collaboration agreements…",
       "rulesUnset": "No collaboration rules",
-      "shareLinkHint": "Share this link to invite people to the group",
       "sharePoster": "Share group poster",
       "title": "Group settings",
       "unavailable": "Unavailable",

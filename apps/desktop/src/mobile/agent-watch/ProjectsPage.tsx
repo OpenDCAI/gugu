@@ -306,7 +306,7 @@ export function ProjectsPage({
       {nothingYet && !waitingForMachines && !refreshing && !devicesError && failures.length === 0 ? (
         <div className="gg-aw-placeholder" data-testid="agent-watch-projects-empty">
           <div>{t('agentWatch.projects.empty')}</div>
-          <div>{hostCount === 0 ? phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines') : t('agentWatch.projects.emptyHint')}</div>
+          {hostCount === 0 && <div>{phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.projects.noMachines')}</div>}
           {hostCount === 0 ? <PhoneHostSetupEntry /> : onCreate ? (
             <Button variant="secondary" size="lg" onClick={onCreate} data-testid="agent-watch-empty-create">{tFlow('createTask')}</Button>
           ) : null}

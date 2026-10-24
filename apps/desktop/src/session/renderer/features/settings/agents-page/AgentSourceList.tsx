@@ -100,6 +100,9 @@ export const AgentSourceList = observer(function AgentSourceList({
     inst && inst.status !== 'available' ? (
       <span className="text-foreground-warning">{translate(readingLabelKey('detected-but-broken'))}</span>
     ) : null;
+  const managedNote = managed ? broken(managed)
+    : !canInstall ? translate('agentsPage.managedUnavailable')
+    : local || custom ? translate('agentsPage.managedNoteAbsent') : null;
 
   const uninstall = () => {
     // @@@raw agent name — agent 名是 provider 数据,只做插值。
@@ -200,13 +203,7 @@ export const AgentSourceList = observer(function AgentSourceList({
                   {program.managedVersion ? mono(program.managedVersion) : translate('agentsPage.notInstalled')}
                 </p>
               ))}
-              <p className="m-0 text-sm text-foreground-muted">
-                {managed
-                  ? broken(managed) ?? translate('agentsPage.managedNoteInstalled')
-                  : canInstall
-                    ? translate(local || custom ? 'agentsPage.managedNoteAbsent' : 'agentsPage.managedNoteFresh')
-                    : translate('agentsPage.managedUnavailable')}
-              </p>
+              {managedNote && <p className="m-0 text-sm text-foreground-muted">{managedNote}</p>}
             </>
           )
         }

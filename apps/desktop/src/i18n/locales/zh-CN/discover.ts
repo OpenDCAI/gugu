@@ -30,7 +30,6 @@ export default {
     "actionLabel": "{{action}} {{group}}",
     "creator": "by {{name}}",
     "empty": "暂无公开群",
-    "emptyHint": "群主在「群设置 → 公开到广场」开启后，群就会出现在这里",
     "featured": "广场精选",
     "featuredHint": "热门公开群 · 按成员数",
     "inviteClosed": "群主暂未开放加入（邀请链接已关闭）",
@@ -118,7 +117,6 @@ export default {
   "workbench": {
     "agents": "Agent",
     "cannotContinue": "无法继续团队创建",
-    "emptyHint": "团队目录还没有内容，稍后再来看看",
     "emptyTitle": "暂无预设团队",
     "loadFailed": "加载失败：{{error}}",
     "loadingTeams": "正在加载预设团队",

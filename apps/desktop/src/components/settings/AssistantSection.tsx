@@ -104,8 +104,6 @@ export function AssistantSection({ available, onOpenSection, onOpenAssistantPage
 
   return (
     <SettingsPage data-testid="settings-assistant">
-      <SettingsNote>{t('settingsPage.intro', { name })}</SettingsNote>
-
       {/* 它是谁:头像 + 名字(就地改)+ 形象与性格(形象工坊)。 */}
       <SettingsGroup presentation="summary">
         {contact ? (

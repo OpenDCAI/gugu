@@ -55,7 +55,7 @@ export function PhoneProfile(props: PhonePageProps) {
       // 设备那一页(AssistantDevicesPage)自己带标题和说明,这里不再叠一层(与桌面同)。
       <div className="ta-page ta-phone-profile" data-testid="assistant-slot-devices">
         <div className="ta-skin">
-          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} assistantName={name} />
+          <AssistantDevicesPage cloudDeviceId={cloudDeviceId} />
         </div>
       </div>
     )

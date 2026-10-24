@@ -171,8 +171,6 @@ export function MemberPickerModal({
           </IconButton>
         </div>
 
-        <p className="px-[14px] py-[6px] text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('group.picker.invitationHint')}</p>
-
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)' }}>
           <PickerTabButton testId={AUTOMATION_TEST_IDS.groupMembersPickerHumanTab} active={tab === 'human'} onClick={() => selectTab('human')}>{t('group.picker.inviteHumans', { count: contacts.length })}</PickerTabButton>
           <PickerTabButton testId={AUTOMATION_TEST_IDS.groupMembersPickerAgentTab} active={tab === 'agent'} onClick={() => selectTab('agent')}>{t('group.picker.addAgents', { count: ownedAgents.length })}</PickerTabButton>
@@ -272,7 +270,7 @@ export function MemberPickerModal({
 
         <div style={{ height: 56, borderTop: '1px solid var(--border-subtle)', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ minWidth: 0, color: 'var(--text-tertiary)', fontSize: 'var(--font-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {selectedIds.size > 0 ? t('group.picker.selection', { count: selectedIds.size }) : t('group.picker.selectionHint')}
+            {selectedIds.size > 0 ? t('group.picker.selection', { count: selectedIds.size }) : null}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button type="button" onClick={onClose} disabled={busy} style={{ height: 32, minWidth: 60, padding: '0 12px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-document)', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontSize: 'var(--font-body)', cursor: busy ? 'default' : 'pointer' }}>{t('common.cancel')}</button>

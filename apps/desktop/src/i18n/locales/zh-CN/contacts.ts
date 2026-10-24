@@ -99,7 +99,6 @@ export default {
     "removeMember": "移除 {{name}}",
     "searchPlaceholder": "搜索联系人或 Agent",
     "selectAtLeastOne": "请至少选择一个成员",
-    "selectionHint": "选择成员发起群聊（可同时选 Agent 与个人）",
     "title": "新建群聊"
   },
   "errors": {
@@ -136,7 +135,6 @@ export default {
     "guguNumberValue": "咕咕号 {{number}}",
     "noResults": "未找到用户",
     "notePlaceholder": "附言：说明理由 / 打个招呼（选填）",
-    "prompt": "输入昵称 / 邮箱 / 咕咕号搜索",
     "requestTitle": "发送好友申请",
     "requestToJoin": "申请加入",
     "searchPlaceholder": "搜索用户 / 咕咕号 / 邮箱",
@@ -248,7 +246,6 @@ export default {
     "lookupFailed": "查找群失败，请稍后重试",
     "notFound": "没有找到群号 {{id}}",
     "pending": "审核中",
-    "prompt": "输入群号查找群聊",
     "request": "申请加入",
     "refusedInviteOnly": "该群仅限被邀请加入",
     "refusedNotFound": "这个群号不存在了",
@@ -375,7 +372,6 @@ export default {
     "downloadImage": "下载图片",
     "generatingPoster": "正在生成海报…",
     "generatingQr": "生成中…",
-    "mobileHint": "长按图片或使用下方按钮保存分享",
     "myQr": "我的二维码",
     "posterFailed": "海报生成失败，请重试",
     "posterTitle": "分享海报",

@@ -145,7 +145,6 @@ const linkBoxStyle: CSSProperties = {
 const linkTextStyle: CSSProperties = {
   flex: 1, minWidth: 0, fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
-const linkHintStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.5 }
 const posterButtonStyle: CSSProperties = { marginTop: 10, width: '100%' }
 
 /** 群设置一级页上给普通成员的那一块邀请链接(没有链接 = 不画)。项目群不拉人(gugu-dev#181):只说原因。 */
@@ -189,7 +188,6 @@ export function GroupInviteLinkBlock({ inviteLink, onOpenPoster }: { inviteLink:
           {t('group.settings.copyLink')}
         </Button>
       </div>
-      <div style={linkHintStyle}>{t('group.settings.shareLinkHint')}</div>
       <Button variant="secondary" size="md" style={posterButtonStyle} onClick={onOpenPoster}>{t('group.settings.sharePoster')}</Button>
     </div>
   )

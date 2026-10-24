@@ -455,7 +455,6 @@ export default {
     },
     "topicInvite": {
       "title": "添加话题成员",
-      "hint": "从来源对话选择成员。添加后会在话题中发送邀请消息。",
       "search": "搜索成员",
       "message": "{{names}} 邀请你们加入话题。",
       "confirm": "添加（{{count}}）",
@@ -478,7 +477,6 @@ export default {
     "nameLoading": "加载中...",
     "namePlaceholder": "群名称",
     "picker": {
-      "invitationHint": "自己的 Agent 直接加入；其他成员接受邀请后加入。",
       "sendInvitation": "发送邀请",
       "agentRequestPending": "已提交审批，等群主或管理员批准",
       "agentRequestRejected": "上次的申请被拒绝了，可以再提交一次",
@@ -509,7 +507,6 @@ export default {
       "selection": "将 {{count}} 人加入群聊",
       "selection_one": "将 {{count}} 人加入群聊",
       "selection_other": "将 {{count}} 人加入群聊",
-      "selectionHint": "选择成员后即可添加（可多选）",
       "title": "添加群成员"
     },
     "renameFailed": "改名没成功——检查一下网络或你的权限，再按一次回车",
@@ -603,7 +600,6 @@ export default {
       "rules": "协作规则",
       "rulesPlaceholder": "群协作规则：核心原则、方向确认、协作约定…",
       "rulesUnset": "未设置协作规则",
-      "shareLinkHint": "分享此链接邀请他人加入群",
       "sharePoster": "分享本群（生成海报）",
       "title": "群设置",
       "unavailable": "不可用",

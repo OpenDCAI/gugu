@@ -55,7 +55,6 @@ export function ExternalLinkChoiceDialog({
         <DialogTitle>{translate('externalLink.title')}</DialogTitle>
       </DialogHeader>
       <DialogContentArea className="space-y-4 pt-0 text-sm leading-relaxed">
-        <p>{translate('externalLink.description')}</p>
         <div className="bg-background-2/50 relative rounded-md border border-border">
           <div className="max-h-32 overflow-y-auto px-3 py-2.5 pr-10 font-mono text-xs leading-relaxed break-all text-foreground">
             {url}

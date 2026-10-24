@@ -21,7 +21,6 @@ export function AutomationsHeader({
   return (
     <PageHeader
       title={translate('automations.title')}
-      description={translate('automations.subtitle')}
       remoteDescription={(device) => translate('deviceScope.subtitle.automations', { device })}
     >
       <div className="flex items-center justify-between gap-2">

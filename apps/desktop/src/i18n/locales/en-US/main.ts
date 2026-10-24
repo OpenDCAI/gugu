@@ -43,7 +43,6 @@ export default {
     "thread": {
       "scrollToBottom": "Jump to latest",
       "emptyTitle": "Nothing in this task yet",
-      "emptyHint": "It will show up here as soon as the agent speaks",
       "placeholder": "Reply…",
       "composerLabel": "Reply box",
       "dictate": "Voice input",
@@ -98,7 +97,6 @@ export default {
       "title": "Projects",
       "loading": "Loading projects…",
       "empty": "No projects yet",
-      "emptyHint": "Agents created on your machines show up here.",
       "noMachines": "No machines under this account yet. Install Gugu on a computer and sign in with the same account — its projects will show up here."
     },
     "machines": {
@@ -398,9 +396,7 @@ export default {
       "notificationsBlockedAction": "Open Permissions",
       "notificationsSound": "Notification sound",
       "notificationsSoundAria": "Enable notification sound",
-      "notificationsSoundDescription": "Play the system sound when a banner appears",
       "notificationsTest": "System banners",
-      "notificationsTestDescription": "Sends a real system notification so you can see whether the chain works",
       "notificationsTestAction": "Send a test notification",
       "notificationsTestAria": "Send a test notification",
       "notificationsTestTitle": "咕咕",

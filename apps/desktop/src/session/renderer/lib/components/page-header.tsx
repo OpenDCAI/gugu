@@ -61,6 +61,7 @@ export function PageHeader({
   const device = scope?.deviceLabel ?? null;
   const shownDescription = device && remoteDescription ? remoteDescription(device) : description;
   if (useContext(InSettingsPanelContext) && !showTitleInSettings) {
+    if (!scope?.control && !shownDescription && !children) return null;
     return (
       <div className="flex flex-col gap-4">
         {scope?.control ? <div className="flex min-w-0" data-slot="page-scope">{scope.control}</div> : null}

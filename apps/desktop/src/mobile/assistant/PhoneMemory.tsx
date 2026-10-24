@@ -91,7 +91,6 @@ function AboutYou({ assistant, askInChat, go, notes }: PhonePageProps & { notes:
     <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
       {aboutYou.length === 0 ? (
         <div className="ta-phone-empty-body">
-          <p className="ta-page-sub">{t('memory.aboutEmpty', { name })}</p>
           <Button variant="ghost" className="ta-pill-btn" onClick={() => askInChat(t('memory.fasterPrompt'))} data-testid="assistant-memory-ask">
             <Sparkles />
             {t('memory.faster')}
