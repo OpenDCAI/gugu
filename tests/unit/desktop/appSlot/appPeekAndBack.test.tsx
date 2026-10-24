@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement } from 'react'
+import { act, createElement, useState } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
 
@@ -88,6 +88,32 @@ describe('G2: back from a file opened by an App goes back to that App', () => {
       createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), appToOpen: { chatId, extensionId: 'kanban', request: 9113 } })))
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)).toBe(previous)
+  })
+})
+
+describe('tabbed group panel expansion', () => {
+  it.each([false, true])('expands and restores the current page (App=%s)', async (app) => {
+    const chatId = `expand-panel-${app}`
+    const onClose = vi.fn()
+    function Panel() {
+      const [full, setFull] = useState(false)
+      return createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
+        createElement(GroupAppSlot, {
+          chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose, tabbed: true, full,
+          onToggleFull: () => setFull((value) => !value),
+          ...(app ? { appToOpen: { chatId, extensionId: 'kanban', request: 9120 } } : {}),
+        }))
+    }
+    await harness.render(createElement(Panel))
+    const opened = groupSlotMemory.opened(chatId)
+    const toggle = () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-full"]')!
+    expect(toggle()).not.toBeNull()
+    act(() => toggle().click())
+    expect(toggle().getAttribute('aria-pressed')).toBe('true')
+    act(() => toggle().click())
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+    expect(groupSlotMemory.opened(chatId)).toBe(opened)
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
 

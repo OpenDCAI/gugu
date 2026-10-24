@@ -522,6 +522,11 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     </IconButton>
   ) : null
   const closeButton = <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
+  const fullButton = mobile || !props.onToggleFull ? null : (
+    <IconButton size="sm" data-testid="group-app-slot-full" aria-pressed={props.full === true} onClick={props.onToggleFull} aria-label={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
+      {props.full ? <Minimize2 /> : <Maximize2 />}
+    </IconButton>
+  )
   const commands = (
     <>
       {inline.map((command) => (
@@ -551,14 +556,14 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
     </>
   )
-  const slimRow = Boolean(opened) || inline.length + folded.length > 0 || hasBadge || Boolean(appError)
+  const slimRow = Boolean(opened) || inline.length + folded.length > 0 || hasBadge || Boolean(appError) || fullButton !== null
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
       {opened?.file ? null : props.tabbed ? (slimRow ? (
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="group-app-slot-bar">
           {backButton}
           {marks}
-          <span className="ml-auto flex items-center gap-1">{commands}{fromMessage ? closeButton : null}</span>
+          <span className="ml-auto flex items-center gap-1">{commands}{fullButton}{fromMessage ? closeButton : null}</span>
         </div>
       ) : null) : <PaneHeader
         title={<span title={heading.tooltip}>{heading.label}</span>}
@@ -569,11 +574,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
         actions={
           <>
             {commands}
-            {mobile || !props.onToggleFull ? null : (
-              <IconButton size="sm" data-testid="group-app-slot-full" aria-pressed={props.full === true} onClick={props.onToggleFull} aria-label={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
-                {props.full ? <Minimize2 /> : <Maximize2 />}
-              </IconButton>
-            )}
+            {fullButton}
             {mobile && !fromMessage ? null : closeButton}
           </>
         }
