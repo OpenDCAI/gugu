@@ -28,7 +28,7 @@ it.each(['web', 'capacitor'] as const)('continues to home choices on %s outside 
   services.kind = kind;
   await page.viewport(390, 844);
   harness = createReactHarness();
-  const user = { id: 'setup-owner', nickname: 'Researcher', email: 'researcher@example.test', avatarUrl: null };
+  const user = { id: 'setup-owner', nickname: 'Researcher', email: 'researcher@example.test' };
   await harness.render(<FirstRunGate user={user}>
     <AssistantOnboarding ownerUserId={user.id} ownerName={user.nickname} snapshot={null} device={null}
       cloudAvailable={true} localDeviceId={null} />
