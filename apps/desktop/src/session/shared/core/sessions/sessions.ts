@@ -128,6 +128,8 @@ export type SessionMessage = {
   text: string;
   kind?: 'ordinary' | 'session-direct';
   state?: 'pending' | 'dispatching';
+  /** Host-only: this exact message is already claimed by the deferred queue. */
+  deferredDispatch?: true;
 };
 
 /**
@@ -202,6 +204,8 @@ export type Session = {
   initialQueue?: InitialQueuePrompt[];
   /** Stable id for the first startup-delivered user message. */
   initialMessageId?: string;
+  /** gugu-dev#181: the chat whose composer dispatched this task — its first turn lands there as a task card. */
+  taskChatId?: string;
   /** Ordinary messages waiting for the declared sessionpage transport to accept them. */
   messageOutbox?: SessionMessage[];
   agentStatus?: AgentStatus | null;

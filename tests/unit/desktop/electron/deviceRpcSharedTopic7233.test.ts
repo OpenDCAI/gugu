@@ -56,7 +56,7 @@ describe('共用 topic', () => {
       warn: () => undefined,
       createHandlers: () => ({ handlers: { 'taskhost.call': handler }, dispose: () => undefined }),
     })
-    await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never)
+    await subscribe({ deviceId: 'dev-1' } as never)
     say(SHARED, { type: 'taskhost.call', request_id: 'r1', user_id: 'u1', payload: {} })
     await settle()
     expect(handler).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('共用 topic', () => {
       warn: () => undefined,
       createHandlers: () => ({ handlers: { 'taskpage.preview.subscribe': handler }, dispose: () => undefined }),
     })
-    await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never)
+    await subscribe({ deviceId: 'dev-1' } as never)
     say(SHARED, { type: 'taskpage.preview.subscribe', request_id: 'p1', user_id: 'viewer', payload: { chatId: 'c' } })
     await settle()
     expect(handler).toHaveBeenCalledTimes(1)
@@ -80,7 +80,7 @@ describe('共用 topic', () => {
   it('报到:订上那个发问端自己的 topic(gugu:<dev>:rpc:<asker>)', async () => {
     const { supabase, channels, say } = fakeSupabase()
     const subscribe = createDesktopDeviceRpcSubscription({ supabase: supabase as never, warn: () => undefined })
-    await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never)
+    await subscribe({ deviceId: 'dev-1' } as never)
     say(SHARED, { type: 'taskhost.attach', request_id: 'a1', user_id: 'u1', payload: { asker: 'askerAAAA1111', protocol: REMOTE_PROTOCOL_VERSION } })
     expect([...channels.keys()]).toEqual([SHARED, `${SHARED}:askerAAAA1111`])
   })
@@ -89,7 +89,7 @@ describe('共用 topic', () => {
     vi.useFakeTimers()
     const { supabase, channels } = fakeSupabase()
     const subscribe = createDesktopDeviceRpcSubscription({ supabase: supabase as never, warn: () => undefined })
-    const stop = await subscribe({ deviceId: 'dev-1', accessToken: 'token' } as never)
+    const stop = await subscribe({ deviceId: 'dev-1' } as never)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(channels.get(SHARED)!.sent).toEqual([{ type: 'taskhost.alive' }])
     stop()

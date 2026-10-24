@@ -154,7 +154,7 @@ export const enUSSessionWorkflowMessages = {
   'task.deviceNone': 'No devices available',
   'task.deviceSelect': 'Select device',
   'task.deviceOffline': 'Offline',
-  'task.deviceLocal': 'This device',
+  'task.deviceLocal': 'This computer',
   // 「咕咕」是品牌常量，不随 locale 翻译（见 foundation/localization）；英文侧同样保留原字。
   'task.deviceEmpty': 'No 咕咕 devices on your account yet',
   'task.deviceNoOtherMachines': 'No other machines yet.',
@@ -188,8 +188,6 @@ export const enUSSessionWorkflowMessages = {
 
   'task.expandSidebar': 'Expand sidebar',
   'task.collapseSidebar': 'Collapse sidebar',
-  'task.collapseWorkspacePanel': 'Collapse Files panel',
-  'task.expandWorkspacePanel': 'Expand Files panel',
   // 分隔条的无障碍名(PanelResizeHandle 的 aria-label)。从前两处都写死中文,英文界面读屏也念中文。
   'task.resizeWorkspacePanel': 'Resize Files panel',
   'task.resizeSidebar': 'Resize sidebar',
@@ -220,10 +218,6 @@ export const enUSSessionWorkflowMessages = {
 
   'task.openFile': 'Open file',
   'task.openFileHint': 'Select a file in the tree to open it here',
-  'task.reviewAfterSend': 'Review changes after the task is sent',
-  'task.machineToolsAfterSend': 'Opens on that machine once the task is sent',
-  'task.sideTaskAfterSend': 'Send the first message to branch this task',
-  'task.filesNeedWorkspace': 'This draft has no workspace to browse yet',
   'task.workspacePanel': 'Files panel',
   'task.closeTab': 'Close {label} tab',
   'task.addPanel': 'Add panel',
@@ -249,9 +243,7 @@ export const enUSSessionWorkflowMessages = {
   'task.switchToGeneralView': 'Switch to Work mode',
   'task.switchToCodeView': 'Switch to Code mode',
   'task.modeMenu': 'Mode: {mode}',
-  'task.modeChat': 'Chat',
   'task.modeChatNeedsIdentity': "Chat mode isn’t available for this task yet",
-  'task.modeChatOpenFailed': "Couldn't open the chat. Try again in a moment.",
   'task.unpin': 'Unpin',
   'task.pin': 'Pin',
   'task.archive': 'Archive',
@@ -820,7 +812,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.deviceNone': '无可用设备',
   'task.deviceSelect': '选择设备',
   'task.deviceOffline': '离线',
-  'task.deviceLocal': '本机',
+  'task.deviceLocal': '这台电脑',
   'task.deviceEmpty': '名下还没有咕咕设备',
   'task.deviceNoOtherMachines': '还没有其他机器。',
   'task.deviceAdd': '添加一台机器…',
@@ -853,8 +845,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   'task.expandSidebar': '展开左侧栏',
   'task.collapseSidebar': '收起左侧栏',
-  'task.collapseWorkspacePanel': '收起文件面板',
-  'task.expandWorkspacePanel': '展开文件面板',
   'task.resizeWorkspacePanel': '调整工作区面板宽度',
   'task.resizeSidebar': '调整侧栏宽度',
 
@@ -883,10 +873,6 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
 
   'task.openFile': '打开文件',
   'task.openFileHint': '从文件树选择文件,文件将在这里打开',
-  'task.reviewAfterSend': '发送会话后可审阅更改',
-  'task.machineToolsAfterSend': '发送会话后可在那台机器上打开',
-  'task.sideTaskAfterSend': '发送第一条消息后才能创建分支任务',
-  'task.filesNeedWorkspace': '这条草稿还没有可浏览的工作目录',
   'task.workspacePanel': '文件面板',
   'task.closeTab': '关闭{label}标签',
   'task.addPanel': '添加面板',
@@ -912,9 +898,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.switchToGeneralView': '切换为通用模式',
   'task.switchToCodeView': '切换为编程模式',
   'task.modeMenu': '模式：{mode}',
-  'task.modeChat': '聊天',
   'task.modeChatNeedsIdentity': '此任务暂不支持聊天模式',
-  'task.modeChatOpenFailed': '打不开聊天，稍后再试一次',
   'task.unpin': '取消置顶',
   'task.pin': '置顶',
   'task.archive': '归档',

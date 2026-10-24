@@ -1,17 +1,15 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { commandRegistry } from '@renderer/lib/commands/registry';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { ChevronDown, SquareArrowRight } from '@/lib/icons'
 import React, { useCallback, useContext, useMemo } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import {
-  getEffectiveHotkey,
-  getHotkeyRegistration,
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
 import { rpc } from '@renderer/lib/ipc';
+import { ContextMenuItem } from '@renderer/lib/ui/context-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/lib/ui/select';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -24,17 +22,15 @@ interface OpenInMenuProps {
   borderless?: boolean;
 }
 
-export const OpenInMenu: React.FC<OpenInMenuProps> = ({
-  path,
-  className,
-  borderless = false,
-}) => {
+/**
+ * 「在哪里打开」这个路径能用的那几个 app,和打开它的那一下:页签条上这颗分裂按钮,和项目页签右键菜单里那几行
+ * (gugu-dev#181)读同一份,❌ 各写一份。`menuApps` 默认的那个排在最前。
+ */
+export function useOpenInTargets(path: string) {
   const { toast } = useToast();
   const { translate } = useSessionMessages();
   const { icons, labels, installedApps, availability, loading } = useOpenInApps();
   const { value: openIn, update } = useAppSettingsKey('openIn');
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  const openInHotkey = getEffectiveHotkey('openInEditor', keyboard);
 
   const defaultApp: OpenInAppId | null =
     openIn?.default && isValidOpenInAppId(openIn.default) ? openIn.default : null;
@@ -94,6 +90,17 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
     [availability, sortedApps]
   );
 
+  return { icons, labels, availability, loading, defaultApp, menuApps, triggerOpenIn, selectAndOpenApp };
+}
+
+export const OpenInMenu: React.FC<OpenInMenuProps> = ({
+  path,
+  className,
+  borderless = false,
+}) => {
+  const { translate } = useSessionMessages();
+  const { icons, labels, availability, loading, defaultApp, menuApps, triggerOpenIn, selectAndOpenApp } = useOpenInTargets(path);
+
   // Listens on the document: only the page on screen answers (@@@retained-session-pages), and of the
   // blocks on the screen only the one looked at (#7052).
   const pageShown = useContext(PageShownContext);
@@ -108,14 +115,12 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
 
   const buttonAppLabel = buttonAppId ? (labels[buttonAppId] ?? buttonAppId) : null;
 
-  useHotkey(
-    getHotkeyRegistration('openInEditor', keyboard),
-    () => {
-      if (!buttonAppId) return;
-      void triggerOpenIn(buttonAppId);
-    },
-    { enabled: shown && !!buttonAppId && !loading && openInHotkey !== null }
-  );
+  useCommandProvider({
+    scopeId: 'project',
+    getCommands: () => !shown || !buttonAppId || loading ? [] : [{
+      id: 'project.openInEditor', execute: () => { void triggerOpenIn(buttonAppId); },
+    }],
+  });
 
   const renderOpenButton = (nativeDisabled: boolean) => (
     <button
@@ -126,7 +131,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
       )}
       onClick={() => {
         if (loading || !buttonAppId) return;
-        void triggerOpenIn(buttonAppId);
+        commandRegistry.dispatch('project.openInEditor');
       }}
       disabled={nativeDisabled || undefined}
       aria-disabled={buttonAppId ? undefined : true}
@@ -168,7 +173,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
                   app: buttonAppLabel || translate('titlebar.openInFallback'),
                 })}
               </span>
-              <BoundShortcut settingsKey="openInEditor" variant="keycaps" />
+              <BoundShortcut commandId="project.openInEditor" variant="keycaps" />
             </div>
           </TooltipContent>
         </Tooltip>
@@ -221,3 +226,31 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
     </div>
   );
 };
+
+/**
+ * 「在 X 中打开」那几行,摆进一个右键菜单里(项目页签,gugu-dev#181):和上面那颗分裂按钮同一份 app、同一下打开。
+ * `targets` 由菜单的主人(一直挂着的页签)读:菜单打开时这台机器装了哪些 app 已经知道,❌ 先铺一排灰的再缩回去。
+ */
+export function OpenInMenuItems({ targets }: { targets: ReturnType<typeof useOpenInTargets> }) {
+  const { translate } = useSessionMessages();
+  const { icons, labels, availability, loading, menuApps, selectAndOpenApp } = targets;
+  if (loading) return null;
+  return (
+    <>
+      {menuApps.map((app) => {
+        const isAvailable = availability[app.id] !== false;
+        const label = labels[app.id] || app.label;
+        return (
+          <ContextMenuItem key={app.id} className="flex items-center gap-2" disabled={!isAvailable} onClick={() => selectAndOpenApp(app.id)}>
+            {icons[app.id] ? (
+              <img src={icons[app.id]} alt="" className={`size-4 rounded-sm ${app.invertInDark ? 'emdark:invert' : ''}`} />
+            ) : (
+              <span className="size-4" />
+            )}
+            {translate('titlebar.openIn', { app: label })}
+          </ContextMenuItem>
+        );
+      })}
+    </>
+  );
+}

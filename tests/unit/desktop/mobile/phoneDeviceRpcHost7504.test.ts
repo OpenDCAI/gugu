@@ -6,7 +6,7 @@ import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { createPhoneDeviceRpcHost } from '../../../../apps/desktop/src/mobile/phone-device/phoneDeviceRpcHost'
 
 describe('current desktop RPC reaches the phone through an attached private topic', () => {
-  it('completes an actual caller/host round trip and does not send the result to another asker', async () => {
+  it('refuses a remote action at caller and receiver without touching the provider', async () => {
     const subscribers = new Map<string, Set<DeviceTopicHandlers>>()
     const frames: Array<{ topic: string; message: unknown }> = []
     const join: JoinDeviceTopic = async (name, handlers) => {
@@ -28,14 +28,17 @@ describe('current desktop RPC reaches the phone through an attached private topi
       openPipe: async (deviceId, handlers) => openAttachedDeviceRpcPipe({ ...handlers, deviceId, asker: 'desktopAsk123', userId: async () => 'owner', join }),
       onEvent: (deviceId, payload) => { caller.onEvent(deviceId, payload) },
     })
-    const caller = createDeviceActionCaller({ listDevices: async () => [{ device_id: 'phone-test', label: 'phone', online: true, last_seen_at: new Date().toISOString(), actions: { v: 1, updated_at: new Date().toISOString(), actions: [{ name: 'sms.get', group: 'sms', title: 'SMS', description: 'read SMS', risk: 'low', confirm: 'never', input_schema: { type: 'object' }, available: true }] } }], rpc: (id, type, payload, options) => requester.call(id, type, payload, options) })
+    const caller = createDeviceActionCaller({ listDevices: async () => [{ device_id: 'phone-test', label: 'phone', online: true, last_seen_at: new Date().toISOString(), actions: { v: 1, actions: [{ name: 'sms.get', group: 'sms', title: 'SMS', description: 'read SMS', risk: 'low', confirm: 'never', input_schema: { type: 'object' }, available: true }] } }], rpc: (id, type, payload, options) => requester.call(id, type, payload, options) })
     try {
-      expect(await caller.call({ deviceId: 'phone-test', action: 'sms.get', args: { id: '1' } })).toMatchObject({ ok: true, data: { body: 'sms from the real phone provider' } })
-      expect(provider.run).toHaveBeenCalledTimes(1)
+      expect(await caller.call({ deviceId: 'phone-test', action: 'sms.get', args: { id: '1' } })).toMatchObject({ ok: false, code: 'device_scope_mismatch' })
+      // Bypass the new caller (as an older client can): the phone still refuses.
+      for (const type of ['device.action', 'device.action.result_ack']) {
+        expect(await requester.call('phone-test', type, { v: 1, call_id: 'forged-local', action: 'sms.get', caller: { deviceId: 'phone-test' } }, { timeoutMs: 1000 }))
+          .toMatchObject({ error: { code: 'device_scope_mismatch', message: expect.stringContaining('device:phone-test') } })
+      }
+      expect(provider.run).not.toHaveBeenCalled()
       expect(bystander).not.toHaveBeenCalled()
-      const resultFrames = frames.filter((f) => JSON.stringify(f.message).includes('sms from the real phone provider'))
-      expect(resultFrames.length).toBeGreaterThan(0)
-      expect(resultFrames.every((f) => f.topic === shared + ':desktopAsk123')).toBe(true)
+      expect(frames.some(f => JSON.stringify(f.message).includes('sms from the real phone provider'))).toBe(false)
     } finally { requester.closeAll(); host.dispose(); await sharedSubscription.close(); await other.close() }
   })
   it('ignores another account before creating an asker topic', async () => {

@@ -51,7 +51,7 @@ function fromFrame(data: Record<string, unknown>): void {
 describe('what a page says about itself goes with its document on the phone too', () => {
   it('reader → shelf: the reader names the slot; the shelf’s hello takes its title, badge and error back', async () => {
     const chrome = vi.fn()
-    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', chatId: CHAT, capabilities: [], locale: 'zh-CN', themeMode: 'dark' }, {
+    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', tabName: 'shelf', chatId: CHAT, capabilities: [], locale: 'zh-CN', themeMode: 'dark' }, {
       showMessage: vi.fn(),
       showSession: () => ({ shown: true }),
       openWith: vi.fn(),

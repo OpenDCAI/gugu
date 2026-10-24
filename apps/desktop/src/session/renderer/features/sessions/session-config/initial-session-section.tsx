@@ -32,6 +32,7 @@ import {
   useState,
   type ChangeEvent,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
@@ -116,8 +117,8 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import {
   createLocalSessionMentionProvider,
   localSessionMentionHiddenContext,
-  useSessionAgentCreationTools,
 } from '@renderer/lib/chat/local-session-mention-provider';
+import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -994,9 +995,10 @@ export function useInitialSessionState(
   //    `harnessCatalogState` 恒停在 `'unknown'`,这一格就会永远显示「正在读取可用模型…」——
   //    一个不会结束的进度。从前它被 providerError 顺带挡住了(那时「没选」是一条错误);
   //    #5740 把「没选」改成合法空态之后,这一项必须自己写出来。
-  // 选的是别的机器、此刻没连上:为什么连不上由新建框那一行说(版本太旧正在更新 / 离线 / 要先登录),
-  // ❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题。
-  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || (remoteHost && !remoteHost.online)
+  // 选的是别的机器、此刻没连上:为什么连不上由右下角那台机器的提示说(重连中 / 离线 / 要先登录 / 版本太旧,
+  // 见 remote-hosts/machine-notice.ts),❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题,是机器的。
+  const machineUnreachable = Boolean(remoteHost && !remoteHost.online);
+  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || machineUnreachable
     ? null
     : harnessCatalogNotice(harnessCatalogState, agentDisplayName, translate);
 
@@ -1177,7 +1179,8 @@ export function useInitialSessionState(
   // ❌ 别再在这里自己编一句「咕咕模型尚未对 X 开通」:原来「已安排」那一面关掉分组时就这么写,
   //    而那时咕咕的模型明明对 X 开着,是界面自己没去读。
   // 宿主报的是原因码,这里按界面语言说成人话;认不出的原文(老版本宿主)❌ 上屏。
-  const platformCatalogNotice = guguCatalogNotice(platformCatalog.catalogError, translate);
+  // 机器没连上时同理:咕咕模型的目录也是问那台机器要的,问不到是机器离线的结果,❌ 说成「模型列表尚未就绪」再给个「重试」。
+  const platformCatalogNotice = machineUnreachable ? null : guguCatalogNotice(platformCatalog.catalogError, translate);
   const platformNotice = platformCatalogNotice?.text ?? null;
   // 失败细节 ❌ 不拼进上面那句内联文案:那是 composer 工具栏,而 reason 是长度不可控的外部串,拼进去会把
   // 工具栏撑破、溢出到卡片外(真机上就是这么炸的)。工具栏留一句定性(「读取 X 的模型失败」),原因就地
@@ -1483,13 +1486,22 @@ function promptHasIssueMention(text: string, token: string): boolean {
   return extractIssueMentionTargets(text).some((target) => target.token === token);
 }
 
+/** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag);标签上画所选 agent 的标,所以给成 agent 的函数。 */
+export interface ComposerVerbLook {
+  tone: 'task';
+  tag: (agentId: string | undefined) => ReactNode;
+}
+
 interface InitialSessionFieldProps {
   state: InitialSessionState;
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault: boolean;
   enableMentions?: boolean;
   onPromptBlur?: () => void;
-  placeholder?: string;
+  /** 给成函数 = 随所选 agent 变(「想让 Claude 做点什么？」)。 */
+  placeholder?: string | ((agentName: string) => string);
+  /** 这一框是一件事(新任务 / 定时任务,gugu-dev#181):框换那件事的色,标签排在输入行最前面。 */
+  verb?: ComposerVerbLook;
   textareaClassName?: string;
   showAutoApproveToggle?: boolean;
   /**
@@ -1510,6 +1522,7 @@ export function InitialSessionField({
   enableMentions = true,
   onPromptBlur,
   placeholder,
+  verb,
   textareaClassName,
   showAutoApproveToggle = true,
   enableAttachments = true,
@@ -1523,11 +1536,12 @@ export function InitialSessionField({
   const localMentionItemsRef = useRef<MentionItem[]>([]);
   const { value: promptLibrary } = usePromptLibrary();
   const harnessModelOptions = useHarnessModelOptions(state.provider, sessionpageLegOfView(state.sessionView));
-  const { data: agents, isPending: agentsPending } = useAgents();
+  const { data: agents, isLoading: agentsLoading } = useAgents();
   // #6264 名单要跨云问另一台机器时,那一格画「正在读取」,❌ 空着让人以为那台机器上什么都开不了。
+  // 只在真在读时画(isLoading):那台机器没连上就不问,❌ 一直转到它回来(原因由机器的提示说)。
   const remoteCreateForActions = useLibraryHost().remote !== null;
-  const agentOptionsLoading = remoteCreateForActions && agentsPending;
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
+  const agentOptionsLoading = remoteCreateForActions && agentsLoading;
+  const { tools: agentCreationTools, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const agentCreationToolsByEngine = useMemo(
     () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
     [agentCreationTools],
@@ -1649,16 +1663,14 @@ export function InitialSessionField({
     }
   }, [linkedIssueMention, state.issueContext, state.prompt]);
 
-  const renderMentionIcon = useCallback<RenderMentionIcon>(({ id, kind, engine }) => {
-    if (kind === 'custom' && engine) {
-      const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-      return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-    }
+  const renderMentionIcon = useCallback<RenderMentionIcon>((attrs) => {
+    const { id, kind } = attrs;
+    if (kind === 'custom') return renderAgentMentionIcon(attrs);
     if (kind !== 'issue') return null;
     const target = parseIssueMentionToken(id);
     if (!target) return null;
     return <IntegrationIcon provider={target.provider} size={12} />;
-  }, [agentCreationToolsByEngine]);
+  }, [renderAgentMentionIcon]);
 
   // Automation prompts use this field as a plain text input. Keep their existing contract while
   // the normal New task composer shares the session mention provider with in-session ACP chat.
@@ -1667,10 +1679,9 @@ export function InitialSessionField({
       enableMentions
         ? createLocalSessionMentionProvider({
             creationToolsByEngine: agentCreationToolsByEngine,
-            creationToolsError: agentCreationToolsError,
           })
         : null,
-    [agentCreationToolsByEngine, agentCreationToolsError, enableMentions]
+    [agentCreationToolsByEngine, enableMentions]
   );
 
   // 侧栏会话行拖进来 = 与 @ 弹层同一枚 pill(behavior session-page「把会话拖成 @」)。这里还要**先记账**:
@@ -1974,8 +1985,11 @@ export function InitialSessionField({
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}
           placeholder={
-            placeholder ?? 'Describe what the agent should do, or use / to select a prompt...'
+            (typeof placeholder === 'function' ? placeholder(selectedAgentName) : placeholder) ??
+            'Describe what the agent should do, or use / to select a prompt...'
           }
+          tone={verb?.tone}
+          leading={verb?.tag(state.providerError ? undefined : (state.provider ?? undefined))}
           onSubmit={() => onSubmit?.()}
           onInputChange={handleComposerInputChange}
           editorApiRef={editorApiRef}

@@ -76,8 +76,8 @@ const maxWorkers = ((globalThis as typeof globalThis & { __guguVitestMaxWorkers?
 // 每隔一次漏判一次,换了依赖的 PR 会读到按旧锁文件转的模块、vi.mock 静默落空。详见 lockfileScopedModuleCacheDir。
 // mac1 实测(4 片 × 2 worker,同一窗口对照):transform 累计 18s → 5s,整片 CPU 400s → ~310s。
 // 只开给下面四个纯 node 的单测 project:浏览器那两个 project 走 vite 自己的中间件,没测过,不碰。
-// 只在声明过的 CI 槽里开:本地开发不需要为一个 experimental 选项背「缓存是不是旧了」的疑问。
-const unitModuleCache = process.env.GUGU_CI_SLOT_ID
+// Hosted CI opts in independently of slot worker allocation; local runs keep the default off.
+const unitModuleCache = process.env.GUGU_CI_SLOT_ID || process.env.GUGU_VITEST_MODULE_CACHE === '1'
   ? { experimental: { fsModuleCache: true, fsModuleCachePath: lockfileScopedModuleCacheDir(__dirname) } }
   : {}
 
@@ -379,9 +379,7 @@ export default defineConfig({
             // CI 冷缓存上它跑到一半才被发现 ⇒ 预构建 + 整页重载 ⇒ 两份 React,5818 整个文件 Invalid hook call、行永远挂不上。
             '@dicebear/core',
             '@dicebear/collection',
-            // #6722 主聊天框的 @ 候选真浏览器判据首次把 InputArea 带进 session-browser；它的
-            // caret 落点与拼音匹配分别依赖这两项。不预构建会在用例中途 reload 整页。
-            'textarea-caret',
+            // Group mention matching uses pinyin; prebundle it before mounting the shared composer.
             'pinyin-pro',
             // #6544 确认框几何判据挂真 Dialog + Checkbox(ConfirmActionDialog 的页脚)。
             '@base-ui/react/dialog',
@@ -408,6 +406,7 @@ export default defineConfig({
         },
         test: {
           name: 'session-browser',
+          env: guguTestEnv,
           testTimeout: BROWSER_CASE_CAP_MS,
           hookTimeout: BROWSER_CASE_CAP_MS,
           // 串行跑。默认并行时多个测试文件共用同一个浏览器同时跑,终端那几个文件测的是

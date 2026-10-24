@@ -27,6 +27,7 @@ vi.mock('@main/lib/logger', () => {
 });
 
 import { setProjectGroupHost, type ProjectGroupHost, type ProjectGroupSubject } from '../project-group-host';
+import { onActivitySignal } from '../../activity/signals';
 import {
   bindProjectToGroup,
   ensureProjectGroup,
@@ -92,6 +93,22 @@ describe('project groups (会话页一侧)', () => {
   it('宿主没接上 ⇒ 响亮失败,❌ 当成「没有绑定」', async () => {
     await expect(listProjectGroupBindings()).rejects.toMatchObject({ code: 'host_not_ready' });
     await expect(ensureProjectGroup('project-a')).rejects.toMatchObject({ code: 'host_not_ready' });
+  });
+
+  it('records only changed project-group associations after the host commits them', async () => {
+    let bound = false;
+    const activity: string[] = [];
+    const off = onActivitySignal(event => activity.push(event.kind));
+    setProjectGroupHost(fakeHost({
+      ensureGroup: async () => { const changed = !bound; bound = true; return ok({ chatId: 'chat-one', changed }); },
+      unbind: async () => { const changed = bound; bound = false; return ok({ changed }); },
+    }).host);
+    try {
+      await ensureProjectGroup('project-a'); await ensureProjectGroup('project-a');
+      await unbindProjectGroup('project-a'); await unbindProjectGroup('project-a');
+      expect((await bindProjectToGroup('missing', 'chat-one')).success).toBe(false);
+      expect(activity).toEqual(['project.group_bound', 'project.group_unbound']);
+    } finally { off(); }
   });
 
   it('读绑定:问的是这台机器上还在的每个本地项目', async () => {

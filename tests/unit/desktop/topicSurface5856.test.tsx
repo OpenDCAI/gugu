@@ -8,36 +8,41 @@
 //      迁移 20260918223500)。老的 thread 面板有这条实时(#1588),换成话题不能反而丢掉。
 //      反例同样钉住:别的线上开话题 ❌ 不许触发重拉(那是白跑一次往返)。
 //   ③ 分栏里 @ 到的人要真的写进 to_user_ids —— 那是「被 @ 进来」的唯一通路。
+import { chatWindowStub, topicHistoryStub } from '../../support/chatWindowStub'
+import { renderWithConversations } from '../../support/conversationAccountStub'
 import { act, createElement, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../support/testHarness'
+import { createNode, createReactHarness, chat, message, renderWithAppProviders } from '../../support/testHarness'
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.fn<(chatId: string, seq: number) => Promise<unknown>>()
-const writeMessage = vi.fn()
+const sendScopedMessage = vi.fn()
+const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
+function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
 const onCreateFailed = vi.fn()
+const createTopic = vi.fn()
+let sourceMessages: MessageItem[]
 
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
     listTopicsOfChat: (sourceChatId: string) => listTopicsOfChat(sourceChatId),
-    createTopic: vi.fn(),
+    createTopic: (...args: unknown[]) => createTopic(...args),
   },
 }))
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
     getMessages: (...args: unknown[]) => getMessages(...(args as [])),
+    _callCountsBySource: {},
     markRead: (chatId: string, seq: number) => markRead(chatId, seq),
     getOtherMembersReadSeqs: () => Promise.resolve({}),
     revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
   },
 }))
+
 vi.mock('../../../apps/desktop/src/lib/chatMessageWriter', () => ({
-  writeIdempotentChatMessage: (row: unknown) => {
-    writeMessage(row)
-    return Promise.resolve({ ...(row as Record<string, unknown>), seq: 99 })
-  },
+  writeIdempotentChatMessage: () => { throw new Error('topic bypassed shared send queue') },
 }))
 
 const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTopicSurface')
@@ -71,6 +76,7 @@ let harness: ReturnType<typeof createReactHarness>
 let surface: Surface | null
 function Probe({ chatKind = 'group' }: { chatKind?: 'group' | 'topic' }) {
   surface = useTopicSurface({
+    messages: sourceMessages,
     chat: { id: 'chat-A', kind: chatKind },
     userId: 'user-1',
     closeRightSurfaces: () => {},
@@ -88,45 +94,52 @@ function OpenSplit({ chatId, name }: { chatId: string; name: string }) {
 
 beforeEach(() => {
   listeners = new Map()
+  sourceMessages = []
+  createTopic.mockReset().mockResolvedValue({ chat_id: 'topic-1', name: 'Projected default' })
   surface = null
   listTopicsOfChat.mockReset().mockResolvedValue([topic()])
   getMessages.mockReset().mockResolvedValue([])
   markRead.mockReset().mockResolvedValue(undefined)
-  writeMessage.mockReset()
+  actionsOf.mockClear()
+  sendScopedMessage.mockReset().mockResolvedValue('client-id')
   harness = createReactHarness()
 })
 afterEach(() => harness.cleanup())
 
 async function mount() {
-  await renderWithAppProviders(harness, createNode(Probe, {}))
+  await renderWithAppProviders(harness, createNode(Probe, {}), { chat: sendingFixture() })
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
-async function openSplit() {
-  await harness.render(createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })))
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+async function openSplit(real = false) {
+  if (real) await renderWithConversations(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), subscribeAccountRevision, { chat: { chats: [chat({ id: 'topic-1', unread_count: 9 })] } })
+  else await renderWithAppProviders(harness, createElement('div', null, createNode(Probe, {}), createNode(OpenSplit, { chatId: 'topic-1', name: '分片下载失败' })), { chat: sendingFixture() })
+  await act(async () => { await vi.dynamicImportSettled() })
 }
 
-describe('分栏里读过的东西要推已读水位', () => {
-  it('分栏加载出消息之后按最大 seq 推一次', async () => {
+describe('topic reading uses the shared visible-message watermark', () => {
+  it('loading a window does not mark hidden rows read; the actually visible row advances the watermark', async () => {
     getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 7 })])
-    await openSplit()
-    expect(markRead).toHaveBeenCalledWith('topic-1', 7)
+    await openSplit(true)
+    expect(markRead).not.toHaveBeenCalled()
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
+    expect(markRead).toHaveBeenLastCalledWith('topic-1', 3)
   })
-
-  it('同一批消息 ❌ 不重复推;水位涨了才再推一次', async () => {
+  it('does not mark a newer row until it becomes visible, and does not repeat a settled watermark', async () => {
     getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 })])
-    await openSplit()
+    await openSplit(true)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
     expect(markRead).toHaveBeenCalledTimes(1)
-    getMessages.mockResolvedValue([message({ id: 'm1', chat_id: 'topic-1', seq: 3 }), message({ id: 'm2', chat_id: 'topic-1', seq: 9 })])
-    // 迁移前的旧行不带消息本体 ⇒ 线走补洞(问已验证尾之后还有什么)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages[0]!) })
+    expect(markRead).toHaveBeenCalledTimes(1)
+    getMessages.mockResolvedValue([message({ id: 'm2', chat_id: 'topic-1', seq: 9 })])
     await emit('message_created', 'topic-1', { entity_id: 'm2' })
+    expect(markRead).toHaveBeenCalledTimes(1)
+    await act(async () => { surface?.splitLine.markMessageVisible(surface.splitLine.messages.find((row) => row.id === 'm2')!) })
     expect(markRead).toHaveBeenCalledTimes(2)
     expect(markRead).toHaveBeenLastCalledWith('topic-1', 9)
   })
-
-  it('空话题不推 —— 没读到任何东西就没有水位可言', async () => {
-    getMessages.mockResolvedValue([])
-    await openSplit()
+  it('does not advance an empty conversation', async () => {
+    await openSplit(true)
     expect(markRead).not.toHaveBeenCalled()
   })
 })
@@ -169,16 +182,45 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
   it('#6004: @所有人 keeps the topic chat ID and broadcast sentinel, without expanding source members', async () => {
     await openSplit()
     await act(async () => { await surface?.sendInSplit('@所有人 看一下', ['*']) })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({
-      chatId: 'topic-1', toUserIds: ['*'], content: '@所有人 看一下', threadRootId: null,
-    }))
+    expect(actionsOf).toHaveBeenLastCalledWith('topic-1', expect.any(Object))
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('@所有人 看一下', { toUserIds: ['*'], replyToMessageId: null })
   })
 
-  it('有收件人时原样带上,没有时是 null(❌ 不发空数组)', async () => {
+  it('keeps explicit recipients and replies on the shared optimistic outbox path', async () => {
     await openSplit()
-    await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9']) })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: 'topic-1', toUserIds: ['agent-9'] }))
-    await act(async () => { await surface?.sendInSplit('我先看看') })
-    expect(writeMessage).toHaveBeenLastCalledWith(expect.objectContaining({ toUserIds: null }))
+    await act(async () => { await surface?.sendInSplit('小柯 看一下', ['agent-9'], 'original-message') })
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('小柯 看一下', { toUserIds: ['agent-9'], replyToMessageId: 'original-message' })
+    await act(async () => { await surface?.sendInSplit('我先看看', []) })
+    expect(sendScopedMessage).toHaveBeenLastCalledWith('我先看看', { toUserIds: null, replyToMessageId: null })
   })
+
+  it('does not send an empty or closed topic and preserves shared queue failures', async () => {
+    await mount()
+    await surface?.sendInSplit('not open')
+    expect(sendScopedMessage).not.toHaveBeenCalled()
+    await openSplit()
+    await surface?.sendInSplit('   ')
+    expect(sendScopedMessage).not.toHaveBeenCalled()
+    sendScopedMessage.mockRejectedValueOnce(new Error('queue unavailable'))
+    await expect(surface?.sendInSplit('keep my draft')).rejects.toThrow('queue unavailable')
+  })
+})
+
+it('projects agent references before naming a topic and still recognizes the supplied name as automatic', async () => {
+  const { isTopicNameCutFromSource } = await import('../../../apps/desktop/src/components/chat/topicAnchorModels')
+  const source = message({ id: 'ref-source', content_type: 'text', content: '@[Claude 17](aid:11111111-1111-4111-8111-111111111111) Reply with a task reference and enough text to exceed the title limit.\nSecond line' })
+  sourceMessages = [source]
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  const input = createTopic.mock.calls[0]?.[0]
+  expect(input).toMatchObject({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: '@Claude 17 Reply with a task reference a…' })
+  expect(isTopicNameCutFromSource(input.name, source.content)).toBe(true)
+})
+
+it.each(['system', 'attachment'] as const)('keeps server naming for a %s source', async (content_type) => {
+  const source = message({ id: 'non-text-source', content_type, content: 'Non-text payload' })
+  sourceMessages = [source]
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  expect(createTopic).toHaveBeenCalledWith({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: null })
 })

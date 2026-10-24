@@ -41,7 +41,7 @@ let host: ReturnType<typeof hostAppFrame> | undefined
 const SESSION: { id: string; deviceId: string; deviceLabel: string; projectId: string; online?: boolean } = { id: 's-there', deviceId: 'dev-server', deviceLabel: 'server', projectId: 'p-2' }
 function start(where: { chatId: string | null; session?: typeof SESSION }) {
   host?.dispose()
-  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', ...where, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' }, {
+  host = hostAppFrame(frame, { extensionId: 'spexcode', tabId: 'tab-1', tabName: 'main', ...where, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' }, {
     showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn(),
   })
 }

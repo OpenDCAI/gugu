@@ -18,10 +18,11 @@ vi.mock('electron', () => ({
 
 const activation = { isActive: false }
 Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
-const preload = await import('../../../../apps/desktop/electron/extension-bridge-preload')
+await import('../../../../apps/desktop/electron/extension-bridge-preload')
 
 type Host = {
   getContext(): Promise<unknown>
+  openLink(url: string): Promise<unknown>
   showMessage(id: string): Promise<unknown>
   showSession(id: string): Promise<unknown>
   compose(text: string, where: { chat: string }): Promise<unknown>
@@ -47,8 +48,7 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
   forumBlock: () => host.forum.block('user:0c000000-0000-4000-8000-000000000003', true),
   forumAssign: () => host.forum.assign('0b000000-0000-4000-8000-000000000002'),
   forumAward: () => host.forum.award('0b000000-0000-4000-8000-000000000002', []),
-  // not on window.gugu: the preload's own, for a link of gugu's the person clicked in the page
-  openLink: () => preload.openClickedLink('gugu://ext/radar/radar'),
+  openLink: () => host.openLink('gugu://ext/radar/radar'),
 }
 
 const methodsSent = () => electron.invoke.mock.calls.map(([, request]) => (request as { method: string }).method)

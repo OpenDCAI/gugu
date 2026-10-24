@@ -17,7 +17,7 @@ import { tunnelFacts, wantsTunnel, type TunnelState } from '../lib/tunnelMachine
 import { sshLinkFacts } from '../lib/sshLinkOnline'
 import { useSshLinkProblems } from './useSshLinkProblems'
 import { useDevicesStore } from '../store/devicesContext'
-import { openRemoteSessionHostPipe } from '../lib/remoteSessionHost'
+import { openMachineSessionHostPipe } from '../lib/remoteSessionHost'
 import { retryServerVersionMatch } from '../lib/serverVersionRetry'
 import { chatService } from '../lib/chat'
 import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
@@ -62,7 +62,7 @@ export function useRemoteHostsBridge(
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
       devices
-        // 手机(#7199)不是 agent 的运行位置:设备列表在读的那一处已经分出去了(listDevices),这里不再画它。
+        // 手机宿主能运行 Agent，但尚不提供这条完整 workspace pipe；创建和对话走手机宿主自己的协议。
         .filter((device) => !device.device_id.startsWith('cloud:') && device.is_current_device !== true && !isPhoneDevice(device))
         .map((device) => ({
           id: device.device_id,
@@ -125,7 +125,7 @@ export function useRemoteHostsBridge(
         }
       },
       // 那台机器的整套会话页宿主(一套工作台):线同上,在 deviceRpc.ts 里按机器挑。
-      openSessionHost: (deviceId) => openRemoteSessionHostPipe(deviceId),
+      openSessionHost: (deviceId) => openMachineSessionHostPipe(deviceId),
       pickFolder: (deviceId, initialPath) => pickFolderRef.current(deviceId, initialPath),
       openAddMachine: () => openAddMachineRef.current?.(),
       signInSsh: async (deviceId) => (await signInSshMachine(deviceId)).ok,
@@ -176,4 +176,3 @@ function signInExpiredAt(state: SshSignInState | undefined): string | null | und
   if (state.state === 'signedOut') return null
   return undefined
 }
-

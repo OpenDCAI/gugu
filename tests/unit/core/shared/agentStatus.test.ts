@@ -7,7 +7,7 @@ import {
   isAgentActive,
   legacyAgentStatusWord,
   mostUrgent,
-  needsAttention,
+  mostUrgentAttention,
   parseAgentStatus,
   parseAgentStatusDetail,
   parseAgentStatusReading,
@@ -87,11 +87,11 @@ describe('agent status projections', () => {
     expect(isAgentActive(null)).toBe(false);
   });
 
-  it('要人来处理 = 需要你或出错', () => {
-    expect(needsAttention('needs_user')).toBe(true);
-    expect(needsAttention('error')).toBe(true);
-    expect(needsAttention('working')).toBe(false);
-    expect(needsAttention(null)).toBe(false);
+  it('要人来处理 = 需要你或出错,几个一起时取最急的:需要你先于出错', () => {
+    expect(mostUrgentAttention(['error', 'needs_user', 'working'])).toBe('needs_user');
+    expect(mostUrgentAttention(['idle', 'error', null])).toBe('error');
+    expect(mostUrgentAttention(['working', 'idle', null])).toBeNull();
+    expect(mostUrgentAttention([])).toBeNull();
   });
 
   it('紧急度:需要你 > 出错 > 在跑 > 做完未读 > 空闲 > 没有状态源', () => {

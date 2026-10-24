@@ -7,6 +7,7 @@ import { ToastContext, type ToastContextValue } from '../../apps/desktop/src/com
 import { AuthContext, type AuthUser } from '../../apps/desktop/src/store/auth'
 import { ChatStoreProvider } from '../../apps/desktop/src/store/chatContext'
 import type { ChatContextValue } from '../../apps/desktop/src/store/chatContext'
+import { chatWindowStub } from './chatWindowStub'
 import { deriveThreadScope } from '../../apps/desktop/src/store/threadScope'
 import { ContactsContext } from '../../apps/desktop/src/store/contactsContext'
 import type { ContactsContextValue } from '../../apps/desktop/src/store/contactsContext'
@@ -58,9 +59,7 @@ export async function renderWithAppProviders(
   } = {},
 ) {
   let tree = node
-  if (options.chat) {
-    tree = createElement(ChatStoreProvider, { value: chatStore(options.chat) }, tree)
-  }
+  tree = createElement(ChatStoreProvider, { value: chatStore({ ...chatWindowStub(options.auth?.id), ...options.chat }) }, tree)
   if (options.contacts) {
     tree = createElement(ContactsContext.Provider, { value: contactsStore(options.contacts) }, tree)
   }
@@ -207,9 +206,9 @@ export function device(
 
 export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContextValue {
   const merged: ChatContextValue = {
+    ...chatWindowStub(),
     getImRepository: async () => { throw new Error('test repository not configured') },
     subscribeAccountRevision: () => () => undefined,
-    subscribeChatWindow: () => () => undefined,
     identitiesById: {},
     chats: [],
     activeChatId: null,
@@ -217,6 +216,7 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     messages: [],
     loadingChats: false,
     chatsLoadFailed: false,
+    chatsRead: true,
     loadingMessages: false,
     messagesError: null,
     hasMoreOlder: false,
@@ -238,6 +238,7 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     openUnreadChat: vi.fn(async () => {}),
     jumpToUnreadEntry: vi.fn(async () => {}),
     setActiveChatId: vi.fn(),
+    sendAttachments: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => undefined),
     sendMessageToChat: vi.fn(async () => undefined),
     retrySend: vi.fn(),

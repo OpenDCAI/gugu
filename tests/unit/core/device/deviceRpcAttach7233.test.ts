@@ -141,6 +141,38 @@ describe('发问端报到,之后只在自己那条上问', () => {
   })
 })
 
+describe('管道属于开它的那个账号', () => {
+  it('没登录:开管道以账号那层的错失败,一条 topic 都不订(❌ 先订上去、被拒成「连不上」)', async () => {
+    const cloud = fakeCloud()
+    const notSignedIn = new Error('this machine is not signed in to 咕咕')
+    await expect(openPipe(cloud, { userId: async () => { throw notSignedIn } })).rejects.toBe(notSignedIn)
+    expect(cloud.join).not.toHaveBeenCalled()
+  })
+
+  it('先认出是谁再订;报到报的是开管道时的那个人,每一问 ❌ 再去问账号', async () => {
+    const cloud = fakeCloud()
+    const order: string[] = []
+    const userId = vi.fn(async () => {
+      order.push('account')
+      return 'u1'
+    })
+    const join = cloud.join
+    const { pipe } = await openPipe(cloud, {
+      userId,
+      join: (name, handlers) => {
+        order.push(`join ${name}`)
+        return join(name, handlers)
+      },
+    })
+    await pipe.send(request(1))
+    pipe.recover!()
+    await pipe.send(request(2))
+    expect(order.slice(0, 2)).toEqual(['account', `join ${SHARED}`])
+    expect(userId).toHaveBeenCalledTimes(1)
+    expect(cloud.sentOn(SHARED).filter((p) => p.type === 'taskhost.attach').map((p) => (p as { user_id?: string }).user_id)).toEqual(['u1', 'u1'])
+  })
+})
+
 describe('旧机器 / 报到不成', () => {
   it('旧机器(协议 9 以前)在共用 topic 上回 unknown_method:这一问以 DeviceRpcRefused 失败(调用方据此说「请更新那台机器」)', async () => {
     const cloud = fakeCloud({ answerAttach: 'old-host' })

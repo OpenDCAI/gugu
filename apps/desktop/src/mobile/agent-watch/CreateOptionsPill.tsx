@@ -25,6 +25,7 @@ import { ModelMenuFooter } from './ModelMenuFooter'
 import { composerTierLabel } from '@renderer/features/sessions/session-config/use-composer-model-options'
 import { guguReasonText } from '@renderer/features/sessions/gugu-reason'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
+import './task-flow-catalog'
 
 /**
  * 新建会话的「项目 · harness」胶囊 —— 与会话页那颗选项胶囊(SessionOptionsPill)**同一形制**:
@@ -48,6 +49,7 @@ export function CreateOptionsPill({
   busy,
   models,
   modelsState,
+  phoneHost = false,
 }: {
   options: SessionpageSessionCreateOptions
   selection: CreateSelection
@@ -57,18 +59,20 @@ export function CreateOptionsPill({
   /** 选定 harness 的模型目录;还没到 / 探失败时 null,由 `modelsState` 说明是哪种。 */
   models: SessionpageSessionCreateModels | null
   modelsState: 'idle' | 'loading' | 'ready' | 'failed'
+  phoneHost?: boolean
 }) {
   const { t } = useTranslation('main')
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
   const [view, setView] = useState<'project' | 'harness' | 'view' | 'permission' | 'model' | 'effort' | null>(null)
   const harnessOption = options.harnesses.find((h) => h.id === selection.harness) ?? null
-  const label = createPillLabel(options, selection, models)
+  const label = createPillLabel(options, selection, models, phoneHost ? tFlow('phoneAgent') : undefined)
 
   // 一个值都没有就整个不画(与会话选项胶囊同一条):机器上没项目、也没 harness 的情形,
   // 页面正文已经在说原因了,这里再摆一个空胶囊只会多一个「这是啥」。
   if (!label) return null
 
-  const atRoot = view === 'project'
-  const backToRoot = () => setView('project')
+  const atRoot = view === (phoneHost ? 'model' : 'project')
+  const backToRoot = () => setView(phoneHost ? 'model' : 'project')
 
   return (
     <>
@@ -80,7 +84,7 @@ export function CreateOptionsPill({
         data-testid="agent-watch-create-options-open"
         aria-haspopup="dialog"
         aria-expanded={view !== null}
-        onClick={() => setView('project')}
+        onClick={() => setView(phoneHost ? 'model' : 'project')}
       >
         <span className="gg-aw-pill-text">{label}</span>
         <ChevronDown />
@@ -153,7 +157,9 @@ export function CreateOptionsPill({
             ) : view === 'model' ? (
               <ModelChoices
                 models={models}
-                harnessName={harnessOption?.name ?? selection.harness ?? ''}
+                platformOnly={phoneHost || harnessOption?.chatAvailable === true && !harnessOption.watchable}
+                harnessName={phoneHost ? tFlow('phoneAgent') : harnessOption?.name ?? selection.harness ?? ''}
+                defaultHint={phoneHost ? tFlow('phoneModelDefaultHint') : undefined}
                 state={modelsState}
                 selection={selection}
                 onPick={(model) => {
@@ -184,7 +190,7 @@ export function CreateOptionsPill({
                       </span>
                       <span className="gg-aw-choice-body">
                         <span className="gg-aw-choice-label">{project.name}</span>
-                        <span className="gg-aw-choice-desc">{project.path}</span>
+                        {!harnessOption?.chatAvailable || harnessOption.watchable ? <span className="gg-aw-choice-desc">{project.path}</span> : null}
                       </span>
                     </Button>
                   )
@@ -234,7 +240,7 @@ export function CreateOptionsPill({
 
             {atRoot ? (
               <div className="gg-aw-summary-group">
-                <Button
+                {!phoneHost && <Button
                   variant="ghost"
                   size="option"
                   className="gg-aw-summary"
@@ -247,9 +253,9 @@ export function CreateOptionsPill({
                     {harnessOption?.name ?? t('agentWatch.options.unknownValue')}
                   </span>
                   <ChevronRight />
-                </Button>
+                </Button>}
                 {/* 展示(编程/通用):这家给两种才摆;只给一种就不摆(桌面同一条:控件不出现)。 */}
-                {harnessOption && harnessOption.sessionViews.length > 1 ? (
+                {!phoneHost && harnessOption && harnessOption.sessionViews.length > 1 ? (
                   <SummaryRow
                     dimension="view"
                     label={t('agentWatch.create.sessionView.label')}
@@ -260,7 +266,7 @@ export function CreateOptionsPill({
                   />
                 ) : null}
                 {/* 权限档:这家声明了才摆(桌面同一条:不摆不存在的档)。 */}
-                {harnessOption && harnessOption.permissionModes.length > 0 ? (
+                {!phoneHost && harnessOption && harnessOption.permissionModes.length > 0 ? (
                   <SummaryRow
                     dimension="permission"
                     label={t('agentWatch.options.mode')}
@@ -271,7 +277,7 @@ export function CreateOptionsPill({
                   />
                 ) : null}
                 {/* 模型一行:harness 选定后才有意义;写「默认」而不是留空 —— 不指定本身就是一个明确的选择。 */}
-                <Button
+                {!phoneHost && <Button
                   variant="ghost"
                   size="option"
                   className="gg-aw-summary"
@@ -288,7 +294,7 @@ export function CreateOptionsPill({
                         : t('agentWatch.create.modelDefault'))}
                   </span>
                   <ChevronRight />
-                </Button>
+                </Button>}
                 {/* 推理档:引擎不声明就不摆。 */}
                 {models && models.efforts.length > 0 ? (
                   <SummaryRow
@@ -387,15 +393,19 @@ function ChoiceList({
  */
 function ModelChoices({
   models,
+  platformOnly = false,
   harnessName,
+  defaultHint,
   state,
   selection,
   onPick,
   onLeave,
 }: {
   models: SessionpageSessionCreateModels | null
+  platformOnly?: boolean
   /** 「你的 X 模型」的 X。 */
   harnessName: string
+  defaultHint?: string
   state: 'idle' | 'loading' | 'ready' | 'failed'
   selection: CreateSelection
   onPick: (model: string | null) => void
@@ -447,7 +457,7 @@ function ModelChoices({
   }
   return (
     <div className="gg-aw-choice-group" role="radiogroup" data-dimension="model" data-state={state}>
-      {choice(null, t('agentWatch.create.modelDefault'), t('agentWatch.create.modelDefaultHint'))}
+      {choice(null, t('agentWatch.create.modelDefault'), defaultHint ?? t('agentWatch.create.modelDefaultHint'))}
       {state === 'loading' ? (
         <div className="gg-aw-choice-desc gg-aw-choice-note" data-testid="agent-watch-create-models-note">
           {t('agentWatch.create.modelLoading')}
@@ -458,7 +468,7 @@ function ModelChoices({
         </div>
       ) : null}
       {models
-        ? groups.map(({ source, reason }) => {
+        ? groups.filter(({ source }) => !platformOnly || source === 'gugu').map(({ source, reason }) => {
             // 只列点得中、跑得起来的:要会员的、他在设置里关掉的都不列(#7056,与桌面下拉同一个判据)。
             const rows = models.models.filter((m) => m.source === source && offeredInCreateMenu(m))
             return (

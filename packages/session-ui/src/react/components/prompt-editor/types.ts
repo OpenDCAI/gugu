@@ -31,13 +31,16 @@ export interface MentionItem {
    */
   name?: string;
   /**
-   * Optional icon rendered in the suggestion popup. Agent entries also expose
-   * `engine` so the pill host can resolve the same catalog asset after selection.
-   * Pass a React element, e.g. a catalog-backed image or lucide icon.
+   * Host-owned icon rendered in the suggestion popup. When absent, the popup
+   * uses the identity resolver, `renderMentionIcon`.
    */
   icon?: ReactNode;
   /** Optional secondary description shown in the popup row. For agent peers, this is the sidebar title. */
   description?: string;
+  /** Host-owned information in the suggestion row, separate from the serialized name. */
+  optionLabel?: ReactNode;
+  /** Display-only annotation, e.g. a reference to someone outside this group. */
+  annotation?: string;
   /** When provided, selecting this item inserts raw text instead of a mention node. */
   insertText?: string;
   /** Host-controlled resolving state for mention pills. Not included in plain-text serialization. */
@@ -50,6 +53,8 @@ export type RenderMentionIcon = (attrs: {
   id: string;
   label: string;
   kind: MentionKind;
+  name?: string;
+  role?: MentionRole | null;
   engine?: string | null;
 }) => ReactNode | null;
 
@@ -62,6 +67,11 @@ export type RenderMentionIcon = (attrs: {
  * cancel, etc.) without breaking the component API.
  */
 export interface ContextMentionProvider {
+  allowSpaces?: boolean;
+  emptyLabel?: string;
+  isQueryActive?(query: string): boolean;
+  /** Restore a serialized reference without treating arbitrary text as a mention. */
+  resolve?(target: string, label: string): MentionItem | null;
   /**
    * Return suggestions matching the given partial query string. `requery`:编辑器在 `onResultsChanged` 之后按同一个查询
    * 再查一次(不是用户的新输入)。
@@ -117,8 +127,8 @@ export interface CommandItem {
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface PromptEditorRef {
-  /** Focus the editor. */
-  focus(): void;
+  /** Focus the editor, optionally moving the caret to a document boundary. */
+  focus(position?: 'start' | 'end'): void;
   /** Clear all content. */
   clear(): void;
   /** Read the current serialized plain text. */
@@ -136,6 +146,9 @@ export interface PromptEditorRef {
 }
 
 export interface PromptEditorProps {
+  inputTestId?: string;
+  inputRef?: (element: HTMLElement | null) => void;
+  enterBehavior?: 'submit' | 'newline';
   /** Controlled placeholder text when the editor is empty. */
   placeholder?: string;
   /** Whether the editor is disabled (read-only, no input). */
@@ -172,7 +185,7 @@ export interface PromptEditorProps {
    */
   mentionProvider?: ContextMentionProvider;
   /**
-   * Optional host renderer for mention pill icons. Used when the host owns
+   * Optional host renderer for mention suggestion icons. Used when the host owns
    * provider-specific assets that this package cannot import directly.
    */
   renderMentionIcon?: RenderMentionIcon;

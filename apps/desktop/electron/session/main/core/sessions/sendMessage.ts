@@ -6,6 +6,9 @@ import { db } from '@main/db/client';
 import { sessions, messages } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { taskExchangeRecorded } from '../session-timeline/task-exchanges';
+import { activitySignal } from '../activity/signals';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { conversationLink, parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import {
   acceptSessionMessage,
   enqueueSessionMessage,
@@ -308,7 +311,10 @@ function persistAcceptedMessage(
       ))
       .run();
   });
-  if (pending.kind === 'session-direct') taskExchangeRecorded(params.sessionId);
+  if (pending.kind === 'session-direct') {
+    taskExchangeRecorded(params.sessionId);
+    recordDeliveryActivity(params.sessionId, pending);
+  }
 }
 
 function persistFailedMessage(
@@ -382,6 +388,16 @@ function persistDeliveredSessionDirect(
     }).run();
   });
   taskExchangeRecorded(params.sessionId);
+  recordDeliveryActivity(params.sessionId, message);
+}
+
+function recordDeliveryActivity(sessionId: string, message: { id: string; text: string }): void {
+  const facts = readDeliveryEnvelope(message.text)?.segments[0]?.facts;
+  const source = facts?.sourceLink ? parseConversationLink(facts.sourceLink) : null;
+  activitySignal({ event_id: `session.message_delivered:${message.id}`, kind: 'session.message_delivered',
+    session_id: sessionId, object_id: message.id, occurred_at: Date.now(),
+    ...(facts?.fromId?.startsWith('session:') ? { related_session_id: facts.fromId.slice('session:'.length) } : {}),
+    ...(source ? { source_ref: conversationLink(source.chatId, source.messageId) } : {}) });
 }
 
 /** Record a startup prompt that was delivered by the provider's native spawn transport. */

@@ -5,11 +5,11 @@ import '@/i18n/registerAgentsCatalog';
 import './assistant-today.css';
 import { PanelRight } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { ChevronLeft, Search, Settings } from '@/lib/icons';
-import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
+import { assistantSlotKey, readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { OPEN_ASSISTANT_TASK_CHAT, showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat';
 import type { ViewDefinition } from '@renderer/app/view-registry';
@@ -68,7 +68,7 @@ export function AssistantViewWrapper({ children }: { children: ReactNode } & Ass
   return <>{children}</>;
 }
 
-/** 没开云电脑、正在开、还没有助理:整页一块居中的(与首屏同一块渐变底)。 */
+/** 没开云电脑、正在开、还没有助理:整页一块居中的(与首屏同一块中性底)。 */
 function Centered({ children, testId }: { children: ReactNode; testId: string }) {
   return (
     <div className="ta-app ta-centered" data-testid={testId}>
@@ -82,6 +82,11 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
   const { params, setParams } = useParams('assistant');
   const route = routeOf(params);
   const shell = useAssistantShell();
+  const bridge = readAssistantShellBridge();
+  const filePreviewOpen = useSyncExternalStore(
+    (listener) => bridge?.subscribe(listener) ?? (() => undefined),
+    () => bridge?.filePreviewOpen() ?? false,
+  );
   const home = shell?.assistant ? shell.home : null;
   // 住云上:管家给的样子(休眠中 / 正在唤醒 / 运行中);住电脑 = 没有这一份。
   const snapshot = home?.kind === 'cloud' ? shell?.cloud ?? null : null;
@@ -126,8 +131,8 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
     );
   }
   // 新用户 / 还没有它:整页是给它安家的引导(欢迎 → 起名选色 → 你的称呼 → 安家;壳画进格子)。
-  // 管家正在云上开它(会员一键领取之后)也在这一页:那几步的进度由壳画。
-  if (shell.setup === 'shell' || (!shell.assistant && shell.assistantState === 'none')) {
+  const waitingForCloudSetup = shell.setup !== null && (snapshot?.state === 'provisioning' || snapshot?.state === 'error');
+  if (waitingForCloudSetup || shell.setup === 'shell' || (!shell.assistant && shell.assistantState === 'none')) {
     return (
       <div className="ta-app ta-centered" data-testid="assistant-onboarding">
         <ShellSlot name="onboarding" className="ta-skin ta-onb-slot" />
@@ -189,7 +194,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
 
   return (
     <AssistantCtx.Provider value={context}>
-      <div className="ta-app" style={tint} data-panel={panelOpen ? 'open' : 'closed'} data-testid="assistant-app">
+      <div className="ta-app" style={tint} data-panel={panelOpen || filePreviewOpen ? 'open' : 'closed'} data-testid="assistant-app">
         <div className="ta-chat-col" data-testid="assistant-chat-col" ref={setChatColumn}>
           <div className="ta-chat-top">
             <button
@@ -208,7 +213,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
                 className="ta-circle"
                 aria-label={t('top.search')}
                 title={t('top.search')}
-                onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: context.chatId } }))}
+                onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: context.chatId, viewportKey: assistantSlotKey('chat') } }))}
                 data-testid="assistant-search"
               >
                 <Search />
@@ -241,7 +246,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
           <VoiceRecordingBar context={context} column={chatColumn} />
           <AssistantIdeasLayer context={context} column={chatColumn} />
         </div>
-        {panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
+        {filePreviewOpen ? <section className="ta-panel" data-testid="assistant-file-preview"><ShellSlot name="file-preview" className="min-h-0 flex-1" /></section> : panelOpen ? <AssistantPanel context={context} onCollapse={() => setPanelOpen(false)} /> : null}
       </div>
     </AssistantCtx.Provider>
   );

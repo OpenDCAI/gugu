@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 import type { TabBarItemProps, TabContentProps } from './tab-host';
 
 /**
@@ -91,7 +91,7 @@ export interface CommandEntry<T> {
   // oxlint-disable-next-line typescript/no-explicit-any
   exec(resource: T, ...args: any[]): void;
   isAvailable?(resource: T): boolean;
-  shortcut?: ShortcutSettingsKey | (() => string | undefined);
+  shortcut?: CommandId | (() => string | undefined);
 }
 
 /**

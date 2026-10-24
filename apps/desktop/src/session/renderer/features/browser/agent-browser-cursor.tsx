@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type WheelEvent } from 'react';
 import { observer } from 'mobx-react-lite';
 import { events, rpc } from '@renderer/lib/ipc';
 import { MotionPlayer, type Pt } from '@renderer/lib/vendor/cua-cursor-motion';
 import { browserAgentCursorChannel } from '@shared/events/browserEvents';
+import type { BrowserCursorInput } from '@shared/browser-cursor-input';
 import { agentBrowserState } from './agent-browser-state';
 
 /** 每个页签上 agent 的鼠标最后停在哪。画布随 agent 停手消失,下次从这里接着飞。 */
@@ -21,11 +22,10 @@ export function skipAgentCursorMove(event: { browserId: string; moveId: number; 
  * 人自己的鼠标指针不被挪动。轨迹与画法用 cua 的 cursor-motion(lib/vendor)。
  *
  * 画布在窗口里叠在网页上面的那层里(agent-browser-overlay.tsx),那层铺满网页、点不穿:只在画鼠标时露出(告诉主进程),
- * 这期间人点网页落在画布上 = 人接管(这一下只接管、不点到网页上;键盘焦点交给网页),和点进网页一样让 agent 停手
- * (agent-browser.ts 第 3 条);滚动、悬停这时也到不了网页。
+ * 落在画布上的真实鼠标输入交给网页(它和画布一样大),点击、输入与滚动不改变 agent 的运行状态。
  *
  * 主进程每一下点击 / 悬停 / 滚动 / 打字前报一声 `move`,等这里回「到了」才把那一下交给网页(agent-browser.ts)。
- * 页签不在屏上(后台页签、会话页不在屏上)或人接管了就不播,当场回话 —— 没人看着时 ❌ 让 agent 白等。
+ * 页签不在屏上(后台页签、会话页不在屏上)或 agent 没在操作就不播,当场回话 —— 没人看着时 ❌ 让 agent 白等。
  */
 export const AgentBrowserCursor = observer(function AgentBrowserCursor({
   browserId,
@@ -38,6 +38,31 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerRef = useRef<MotionPlayer | null>(null);
   const [sized, setSized] = useState(false);
+
+  const forward = (input: BrowserCursorInput) => void rpc.browser.forwardAgentCursorInput({ browserId, input });
+  const modifiers = (event: MouseEvent) => {
+    const result: NonNullable<BrowserCursorInput['modifiers']> = [];
+    if (event.shiftKey) result.push('shift');
+    if (event.ctrlKey) result.push('control');
+    if (event.altKey) result.push('alt');
+    if (event.metaKey) result.push('meta');
+    if (event.buttons & 1) result.push('leftbuttondown');
+    if (event.buttons & 2) result.push('rightbuttondown');
+    if (event.buttons & 4) result.push('middlebuttondown');
+    return result;
+  };
+  const mouse = (type: BrowserCursorInput['type'], event: MouseEvent<HTMLCanvasElement>) => forward({
+    type, x: event.clientX, y: event.clientY,
+    button: event.button === 1 ? 'middle' : event.button === 2 ? 'right' : 'left',
+    clickCount: event.detail, modifiers: modifiers(event),
+  });
+  const wheel = (event: WheelEvent<HTMLCanvasElement>) => {
+    const scaleX = event.deltaMode === 2 ? event.currentTarget.clientWidth : event.deltaMode === 1 ? 16 : 1;
+    const scaleY = event.deltaMode === 2 ? event.currentTarget.clientHeight : event.deltaMode === 1 ? 16 : 1;
+    forward({ type: 'mouseWheel', x: event.clientX, y: event.clientY,
+      deltaX: -event.deltaX * scaleX, deltaY: -event.deltaY * scaleY,
+      hasPreciseScrollingDeltas: event.deltaMode === 0, canScroll: true, modifiers: modifiers(event) });
+  };
 
   useEffect(() => {
     if (!shown) return;
@@ -97,8 +122,13 @@ export const AgentBrowserCursor = observer(function AgentBrowserCursor({
       ref={canvasRef}
       aria-hidden
       data-testid="agent-browser-cursor"
-      className="absolute inset-0 h-full w-full"
-      onMouseDown={() => void rpc.browser.pauseAgent(browserId)}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      onMouseDown={(event) => mouse('mouseDown', event)}
+      onMouseUp={(event) => mouse('mouseUp', event)}
+      onMouseMove={(event) => mouse('mouseMove', event)}
+      onMouseEnter={(event) => mouse('mouseEnter', event)}
+      onMouseLeave={(event) => mouse('mouseLeave', event)}
+      onWheel={wheel}
     />
   );
 });

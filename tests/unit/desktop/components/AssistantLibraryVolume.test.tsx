@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
 import { AssistantLibraryCard, AssistantLibraryVolume } from '../../../../apps/desktop/src/components/assistant/AssistantLibraryVolume'
 import type { AssistantMachine } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-machine-core'
 import { assistantPaths } from '../../../../apps/desktop/src/session/renderer/features/assistant/assistant-files'
@@ -7,7 +8,14 @@ import { clickElement, createReactHarness, renderWithAppProviders, typeInto } fr
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
+const notifications = vi.hoisted(() => new Set<(notice: unknown) => void>())
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc')>(),
+  onMachineEvent: (_device: string, _event: unknown, listener: (notice: unknown) => void) => {
+    notifications.add(listener); return () => notifications.delete(listener)
+  },
+}))
+beforeEach(() => { notifications.clear(); harness = createReactHarness() })
 afterEach(() => harness.cleanup())
 function fixture() {
   const volume = { kind: 'capabilities', name: 'capabilities', path: '/gugu/library/capabilities', index: '/gugu/library/capabilities' }
@@ -15,14 +23,19 @@ function fixture() {
   const read = vi.fn().mockResolvedValue({ volume, content: 'Aggregate index is not the UI', items: [item] })
   const entry = vi.fn().mockResolvedValue({ ...item, content: '# Original instructions' })
   const write = vi.fn().mockResolvedValue({ ...item, content: '' })
-  const machine = { deviceId: 'owned-device', projectId: 'project', workspaceId: 'workspace', home: '/owner', paths: assistantPaths('/owner', '/owner/assistant', 'computer'), rpc: { app: { getUserLibraryVolume: read, readUserLibraryEntry: entry, writeUserLibraryEntry: write } } } as unknown as AssistantMachine
-  return { machine, read, entry, write }
+  const appCall = vi.fn(async (verb: string, args: { name: string; arguments: Record<string, unknown> }) => {
+    if (verb === 'messageAgent') return { id: 'durable-message', deferred: true }
+    if (verb === 'callProgram' && args.name === 'library_write') return { content: [], structuredContent: { result: await write(args.arguments) } }
+    throw new Error('Unexpected App call')
+  })
+  const machine = { deviceId: 'owned-device', projectId: 'project', workspaceId: 'workspace', home: '/owner', paths: assistantPaths('/owner', '/owner/assistant', 'computer'), rpc: { app: { getUserLibraryVolume: read, readUserLibraryEntry: entry, writeUserLibraryEntry: write, assistantAppCall: appCall } } } as unknown as AssistantMachine
+  return { machine, read, entry, write, appCall }
 }
 
 describe('Gugu structured capabilities', () => {
   it('shows groups and independent entries, then opens only that entry by ID', async () => {
     const { machine, entry } = fixture()
-    await renderWithAppProviders(harness, <AssistantLibraryVolume machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
     await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
     expect(harness.container.textContent).toContain('工作')
     expect(harness.container.textContent).not.toContain('Aggregate index')
@@ -33,7 +46,7 @@ describe('Gugu structured capabilities', () => {
   it('surfaces host failure and rejects the old unstructured response rather than showing false zero', async () => {
     const { machine, read } = fixture()
     read.mockRejectedValueOnce(new Error('private diagnostic sentinel')).mockResolvedValueOnce({ volume: null, content: null })
-    await renderWithAppProviders(harness, <AssistantLibraryVolume machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
     await vi.waitFor(() => expect(harness.container.textContent).toContain('暂时读不到资源'))
     expect(harness.container.textContent).not.toContain('private diagnostic sentinel')
     await clickElement([...harness.container.querySelectorAll('button')].find(node => node.textContent === '重试')!)
@@ -44,14 +57,14 @@ describe('Gugu structured capabilities', () => {
   })
   it('counts real entries and does not send the owner to install AutoLibrary', async () => {
     const { machine } = fixture()
-    await renderWithAppProviders(harness, <AssistantLibraryCard machine={machine} kind="capabilities" onOpen={vi.fn()} />)
+    await renderWithAppProviders(harness, <AssistantLibraryCard assistantId={"assistant"} machine={machine} kind="capabilities" onOpen={vi.fn()} />)
     await vi.waitFor(() => expect(harness.container.textContent).toContain('1 条记录'))
     expect(harness.container.textContent).not.toContain('AutoLibrary')
   })
   it('saves an independent entry and preserves input on failed save', async () => {
-    const { machine, write, read } = fixture()
+    const { machine, write, read, appCall } = fixture()
     write.mockRejectedValueOnce(new Error('save failed'))
-    await renderWithAppProviders(harness, <AssistantLibraryVolume machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
     await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
     await clickElement([...harness.container.querySelectorAll('button')].find(node => node.textContent === '添加条目')!)
     await typeInto(harness.container.querySelector('input')!, '会议记录')
@@ -62,6 +75,35 @@ describe('Gugu structured capabilities', () => {
     await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
     expect(write).toHaveBeenLastCalledWith({ kind: 'capabilities', name: '会议记录', description: '', group: null, content: '' })
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+    const sent = appCall.mock.calls.filter(([verb]) => verb === 'messageAgent')
+    expect(sent).toHaveLength(1)
+    expect(sent[0][1]).toMatchObject({ agentId: 'user:assistant', defer: true })
+    expect(JSON.parse((sent[0][1] as unknown as { text: string }).text.split('\n')[1])).toMatchObject({ resource: 'capabilities', operation: 'created', id: 'calendar' })
+  })
+
+  it('refreshes the open panel when the resource program notifies an Agent edit, without sending an echo', async () => {
+    const { machine, read, appCall } = fixture()
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
+    read.mockResolvedValueOnce({ volume: { kind: 'capabilities' }, items: [{ id: 'calendar', name: 'Agent 改名', description: 'Agent 保存的简介', group: null }] })
+    await act(async () => {
+      for (const receive of notifications) receive({ extensionId: 'gugu.assistant', server: 'resources', method: 'notifications/resources/updated', params: { resource: 'capabilities' } })
+    })
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('Agent 保存的简介'))
+    expect(appCall.mock.calls.filter(([verb]) => verb === 'messageAgent')).toHaveLength(0)
+  })
+
+  it('drops the previous assistant editor and its draft when account identity changes', async () => {
+    const { machine, read } = fixture()
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant-A" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('查看安排'))
+    await clickElement([...harness.container.querySelectorAll('button')].find(node => node.textContent === '添加条目')!)
+    await typeInto(harness.container.querySelector('input')!, 'PRIVATE-ACCOUNT-A-DRAFT')
+    read.mockResolvedValue({ volume: { kind: 'capabilities' }, items: [] })
+    await renderWithAppProviders(harness, <AssistantLibraryVolume assistantId="assistant-B" machine={machine} kind="capabilities" askInChat={vi.fn()} />)
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-testid="assistant-library-editor"]')).toBeNull())
+    expect(harness.container.textContent).not.toContain('PRIVATE-ACCOUNT-A-DRAFT')
+    await vi.waitFor(() => expect(harness.container.textContent).not.toContain('查看安排'))
   })
 
 })

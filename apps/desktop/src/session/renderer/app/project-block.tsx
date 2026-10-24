@@ -1,0 +1,138 @@
+import { observer } from 'mobx-react-lite';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ProjectMainPanel } from '@renderer/features/projects/components/main-panel/main-panel';
+import { ProjectTabMenu } from '@renderer/features/projects/components/project-menu';
+import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
+import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
+import { TabStripShell } from '@renderer/features/tabs/tab-bar';
+import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
+import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
+import { useSessionMessages } from '@renderer/localization/use-session-messages';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
+import { ChatEmptyContent, ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
+import { cancelComposerVerb, composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
+import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
+import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
+import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
+import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
+import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
+import { useFloatingCardKeys } from './floating-card-keys';
+import { rpcOn } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { log } from '@renderer/utils/logger';
+import { screenLayout } from './screen-layout';
+
+/**
+ * 一个项目占一块(gugu-dev#181「块与页签」):顶上一条页签条(和会话块同一套),第一枚是项目群,不能关;
+ * 下面是这一枚的内容:项目群的消息流(和对话页同一个群聊组件,由壳画进格子)。群里还没有消息(包括刚建的项目)
+ * 时正中是项目首页那一套 —— 文件夹卡 + 输入框,和以前点项目进来看到的一样。
+ * The conversation supplies the strip's actions even while its empty column shows the project home.
+ * More and the project tab's context menu share the conversation's announcement/settings actions.
+ */
+export const ProjectBlock = observer(function ProjectBlock({
+  blockId,
+  projectId,
+  blockActions,
+}: {
+  blockId: string;
+  projectId: string;
+  /** 屏上不止一块时右端那枚「关闭这一块」(由这屏的骨架给)。 */
+  blockActions?: ReactNode;
+}) {
+  const { translate } = useSessionMessages();
+  const { isLeftOpen } = useWorkspaceLayoutContext();
+  const corners = screenLayout.corners(blockId);
+  const focused = screenLayout.focusedBlockId === blockId;
+  const label = projectDisplayName(getProjectStore(projectId)) ?? translate('projects.fallbackName');
+  const chatId = projectGroupsStore.chatIdOf(projectId);
+  const verb = useComposerVerb(chatId);
+  // 项目就是群(gugu-dev#181):项目一摆上屏,它的群就该在 —— 新建的项目一进来就建好(只有自己一个人),
+  // 老项目没有群的也在这时补上。幂等;建好了由绑定变更事件刷新各处。
+  useEffect(() => {
+    void Promise.resolve().then(() => rpcOn(machineRegistry.machineOf(projectId) ?? null).projects.ensureProjectGroup(projectId)).then((result) => {
+      if (!result.success) log.warn('[project-block] 项目群没建成', { projectId, error: result.error });
+    }).catch((error: unknown) => log.warn('[project-block] 项目群没建成', { projectId, error: String(error) }));
+  }, [projectId]);
+  return (
+    <>
+      <TabStripShell
+        reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
+        actionsSlot={
+          <TabBarActionRow atWindowEdge={corners.topRight}>
+            {chatId ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
+            {blockActions}
+          </TabBarActionRow>
+        }
+      >
+        <TabSlot data-project-block-tab={projectId}>
+          <ProjectTabMenu projectId={projectId} chatId={chatId ?? null}>
+            <TabChip
+              isActive
+              isFocusedPane={focused}
+              label={label}
+              // 点群这一枚 = 右边让开、群占满(右边开着的照旧是页签,gugu-dev#181 第 ⑥ 步)。
+              onClick={chatId ? () => requestShellChatAction({ kind: 'show-chat-alone', chatId }) : undefined}
+            />
+          </ProjectTabMenu>
+        </TabSlot>
+        {chatId ? <ChatPartSlot chatId={chatId} part="tabs" className="contents" /> : null}
+      </TabStripShell>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
+        {/* The conversation owns the header and right panels even before its first message. */}
+        {chatId ? (
+          <>
+            <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+            <ChatEmptyContent chatId={chatId}><ProjectMainPanel projectId={projectId} /></ChatEmptyContent>
+            {/* gugu-dev#181 群里输入框选了「新任务」:那个框收起,这里换上新任务的框(建在这个项目里)。 */}
+            {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : null}
+          </>
+        ) : projectGroupsStore.bindingKnown(projectId) ? (
+          <ProjectMainPanel projectId={projectId} />
+        ) : null}
+      </div>
+    </>
+  );
+});
+
+/**
+ * 在项目里开新任务(gugu-dev#181「输入框」):框原地换成新任务的框(与项目首页同一个,ProjectTaskComposer),项目的文件夹卡
+ * 浮到群聊上面 —— 整片统一淡下去、虚一点,卡和输入框在最上面同一层(输入框不被盖住)。点一张文件夹 = 新任务从那里开工,
+ * 卡让开;直接打字、按 Esc,卡也让开。点卡旁边的空白不让开(owner 10-23:点空了不该把这一页退掉)。卡就是项目首页那一张(useProjectFolderStage),❌ 另画一份。
+ */
+const ProjectTaskDock = observer(function ProjectTaskDock({ chatId, projectId }: { chatId: string; projectId: string }) {
+  const { translate } = useSessionMessages();
+  // 选「新任务」那一刻群里输入框写着的话跟过来:要在新建框挂上(读草稿)之前放好。
+  useState(() => {
+    const carried = takeComposerCarry(chatId);
+    if (carried) composerDrafts.set(projectDraftKey(projectId), carried);
+    return null;
+  });
+  // 框里已经有字(群里写着带过来的、新建会话页选项目带过来的)= 卡一开始就让开,与打了字同一个道理(核对 #37)。
+  const [cardShown, setCardShown] = useState(() => !composerDrafts.get(projectDraftKey(projectId)).trim());
+  const stage = useProjectFolderStage(projectId, { floating: true, onChosen: () => setCardShown(false) });
+  const dockRef = useRef<HTMLDivElement>(null);
+  useFloatingCardKeys(cardShown, () => setCardShown(false), dockRef);
+  const close = () => setComposerVerb(chatId, null);
+  return (
+    <>
+      {cardShown ? (
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-(--em-surface-base)/65 px-4 pb-32 backdrop-blur-[2px]"
+          data-project-task-card=""
+        >
+          {stage.card}
+        </div>
+      ) : null}
+      <div ref={dockRef} className="relative z-30">
+        <ProjectTaskComposer
+          projectId={projectId}
+          stage={stage}
+          verb={composerVerbLook('task', { label: translate('taskDispatch.task'), onCancel: () => cancelComposerVerb(chatId, projectDraftKey(projectId)), testId: 'task-dispatch' })}
+          placeholder={(agent) => translate('taskDispatch.placeholder', { agent })}
+          onSessionCreated={close}
+          focusOnOpen
+        />
+      </div>
+    </>
+  );
+});

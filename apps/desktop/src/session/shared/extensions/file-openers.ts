@@ -1,4 +1,4 @@
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { claimedSuffixes, type ExtensionManifest, type FileOpenContext } from './manifest';
 
 /**

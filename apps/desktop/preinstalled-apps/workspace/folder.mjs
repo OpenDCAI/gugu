@@ -11,7 +11,7 @@ import { basename, isAbsolute, join } from 'node:path'
 const CHAT = {
   type: 'string',
   format: 'gugu-chat',
-  description: 'The chat whose folder it is: the chat= of your delivery, <project_group>\'s chat_id, or the number people see.',
+  description: 'The source group or private chat whose folder it is. A topic address uses its source folder. Use the delivery chat=, <project_group>\'s chat_id, or the number people see.',
 }
 const ITEM = { type: 'string', format: 'gugu-file', description: 'A file of a chat\'s folder: its id, as list or a gugu-file:// link gives it.' }
 /** 子文件夹: a folder of a chat's folder, as the tools take it — by its path from the top, or its id. */
@@ -39,11 +39,11 @@ const STORED_MAX_BYTES = 25 * 1024 * 1024
 const bytesOf = (text) => Buffer.byteLength(text, 'utf8')
 
 /** The file as a link, handed over whole: in a message it shows as that file and opens it (never assembled by the agent). */
-const linkOf = (entry) => `[${entry.name.replace(/[[\]\\]/g, (c) => `\\${c}`)}](gugu-file://${entry.id})`
+const linkOf = async (entry) => `[${entry.name.replace(/[[\]\\]/g, (c) => `\\${c}`)}](${await gugu.linkTo({ kind: 'file', file: entry.id })})`
 /** A file's link — a folder has none: it is listed and entered, never opened (子文件夹). */
-const linked = (entry) => (entry.type === 'folder' ? {} : { link: linkOf(entry) })
+const linked = async (entry) => (entry.type === 'folder' ? {} : { link: await linkOf(entry) })
 const byOf = (entry) => (entry.createdBy?.id ? { id: entry.createdBy.id, name: entry.createdBy.name, kind: entry.createdBy.kind } : null)
-const rowOf = (entry) => ({
+const rowOf = async (entry) => ({
   id: entry.id,
   name: entry.name,
   path: entry.path,
@@ -51,7 +51,7 @@ const rowOf = (entry) => ({
   size: entry.size,
   by: byOf(entry),
   updated_at: entry.updatedAt,
-  ...linked(entry),
+  ...await linked(entry),
 })
 
 /** `rows`, as every listing tool takes it: "20" is the first 20, "21-40" rows 21 to 40; default the first 20. */
@@ -184,7 +184,7 @@ async function saveLocally(entry, data, agent) {
 
 export const list = {
   description:
-    'The files in a chat\'s folder (群文件夹 of a group, topic or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
+    'The files in a chat\'s folder (群文件夹 of a source group or private chat), newest first: id, name, path (from the top: 合同/2026/甲方.pdf), type (folder for a subfolder), size, who made it, link; the header counts its text files, stored files and folders. folder lists only what is directly in that folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],
@@ -223,7 +223,7 @@ export const list = {
       total: wanted.length,
       rows: shown.length ? `${window.from}-${window.from + shown.length - 1}` : null,
       next: window.to < wanted.length ? `${window.to + 1}-${window.to + size}` : null,
-      items: shown.map(rowOf),
+      items: await Promise.all(shown.map(rowOf)),
     }
   },
 }
@@ -245,7 +245,7 @@ export const read = {
   async run({ item_id, offset, limit, save }, { agent } = {}) {
     return withFile(item_id, { readOnly: true }, async (f) => {
       const entry = f.entry
-      const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: linkOf(entry) }
+      const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: await linkOf(entry) }
       if (f.type === 'binary' || save === true) {
         const data = f.type === 'binary' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
         const saved = await saveLocally(entry, data, agent)
@@ -258,7 +258,7 @@ export const read = {
 
 export const create = {
   description:
-    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its link, in a message, opens it. A file made in a topic is in the topic\'s folder, not the group\'s.',
+    'Put a new file in a chat\'s folder: content makes a text file (markdown; JSON when the content is a JSON object), path puts a file from this computer there; folder puts it in that subfolder (made when it is not there), and folder alone makes the subfolder. A name already in that folder gets " (2)", " (3)": the answer says the name it got. Its link, in a message, opens it. A file made from a topic is in its source group or private chat\'s shared folder.',
   inputSchema: {
     type: 'object',
     required: ['chat_id'],
@@ -304,7 +304,7 @@ export const create = {
     const [entry] = await gugu.files.upload(folder === undefined ? { chat: chat_id } : { chat: chat_id, folder }, file, { sourceMessageIds })
     return {
       created: { id: entry.id, name: entry.name, path: entry.path, type: entry.type, size: entry.size },
-      link: linkOf(entry),
+      link: await linkOf(entry),
       stored_as:
         entry.type === 'binary'
           ? `stored bytes (${entry.contentType}): read saves it on this computer; edit with path and the version read gave stores its next version`
@@ -351,12 +351,12 @@ export const edit = {
         const moved = await gugu.files.move({ id: item_id }, { folder: wanted.slice(0, slash), name: base }).catch((error) => {
           throw taken(error)
         })
-        return { moved: { id: moved.id, name: moved.name, path: moved.path }, ...linked(moved) }
+        return { moved: { id: moved.id, name: moved.name, path: moved.path }, ...await linked(moved) }
       }
       const renamed = await gugu.files.rename({ id: item_id }, wanted).catch((error) => {
         throw taken(error)
       })
-      return { renamed: { id: renamed.id, name: renamed.name, path: renamed.path }, ...linked(renamed) }
+      return { renamed: { id: renamed.id, name: renamed.name, path: renamed.path }, ...await linked(renamed) }
     }
     if (path !== undefined) {
       const bytes = await localFile(path, 'edit')
@@ -379,7 +379,7 @@ export const edit = {
         }
         throw said(error, item_id)
       })
-      return { replaced: replaced.id, version: replaced.version, link: linkOf(replaced) }
+      return { replaced: replaced.id, version: replaced.version, link: await linkOf(replaced) }
     }
     if (typeof old !== 'string' || !old) throw new Error('old must not be empty: copy the text to replace from read')
     if (typeof next !== 'string') throw new Error('new is the text that goes in old\'s place (an empty string removes it)')

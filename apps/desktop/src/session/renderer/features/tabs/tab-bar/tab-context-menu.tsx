@@ -13,7 +13,7 @@ import {
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { BoundShortcut, Shortcut } from '@renderer/lib/ui/shortcut';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 import type { TabCommand } from './tab-commands';
 
 const _PLATFORM = detectPlatform();
@@ -22,7 +22,7 @@ const _PLATFORM = detectPlatform();
 function CmdShortcut({
   shortcut,
 }: {
-  shortcut?: ShortcutSettingsKey | (() => string | undefined);
+  shortcut?: CommandId | (() => string | undefined);
 }) {
   if (!shortcut) return null;
   if (typeof shortcut === 'function') {
@@ -31,7 +31,7 @@ function CmdShortcut({
     const parsed = raw ? (parseHotkey(raw, _PLATFORM) as any) : null;
     return parsed ? <Shortcut hotkey={parsed} className="ml-auto" /> : null;
   }
-  return <BoundShortcut settingsKey={shortcut} className="ml-auto" />;
+  return <BoundShortcut commandId={shortcut} className="ml-auto" />;
 }
 
 /**
@@ -66,7 +66,7 @@ export const TabContextMenu = observer(function TabContextMenu({
       id: 'engine:close',
       label: translate('tabs.close'),
       group: 'close' as const,
-      shortcut: 'tabClose' as const,
+      shortcut: 'session.tabClose' as const,
       run: () => host.requestCloseTab(tab.tabId),
     },
     {
@@ -109,7 +109,7 @@ export const TabContextMenu = observer(function TabContextMenu({
       id: 'engine:split-right',
       label: translate('tabs.splitRight'),
       group: 'split' as const,
-      shortcut: 'splitPane' as const,
+      shortcut: 'session.splitPane' as const,
       isEnabled: () => host.inSplitLayout,
       run: () => split('right'),
     },

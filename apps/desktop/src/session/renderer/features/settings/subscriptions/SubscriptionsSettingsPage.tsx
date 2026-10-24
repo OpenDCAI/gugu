@@ -1,7 +1,7 @@
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SubscriptionUsageReading, SubscriptionUsageWindow } from '@gugu/session-core/agents/plugins';
 import { SettingsGroup, SettingsNote, SettingsPage } from '@/components/settings/SettingsPrimitives';
 import { LibraryHostProvider, machineLibraryHost } from '@renderer/features/library/library-host';
@@ -11,7 +11,7 @@ import { useAgentAuthStatus } from '@renderer/lib/stores/use-agent-auth-status';
 import { refreshSpendingPower } from '@/lib/billing';
 import { GuguSubscriptionRow } from './GuguSubscriptionRow';
 import { SubscriptionServiceRow } from './SubscriptionServiceRow';
-import { SubscriptionConnections, useSubscriptionConnections } from './SubscriptionConnections';
+import { SubscriptionConnections, useSubscriptionConnections, type SwitchNotice } from './SubscriptionConnections';
 import './subscriptions.css';
 import { AppIcon } from '@renderer/lib/components/app-icon';
 import { PageHeader } from '@renderer/lib/components/page-header';
@@ -113,6 +113,7 @@ function SubscriptionList({ machine }: { machine: string | null }) {
 
 function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: string | null }) {
   const { translate, locale } = useSessionMessages();
+  const [switchNotice, setSwitchNotice] = useState<SwitchNotice | null>(null);
   const connections = useSubscriptionConnections(machine, agent.id);
   const manageable = agent.id === 'claude' || agent.id === 'codex';
   const currentConnection = connections.data?.find((connection) => connection.current);
@@ -156,7 +157,8 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
           ? translate('subscriptions.connections.count', { count: String(connections.data.length) })
           : translate('subscriptions.connections.device')
       }
-      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} /> : undefined}
+      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice} /> : undefined}
+      notice={switchNotice ? <SwitchNoticeLine notice={switchNotice} /> : undefined}
     >
       <UsageBlock
         agentId={agent.id}
@@ -171,6 +173,13 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
       </div>}
     </SubscriptionServiceRow>
   );
+}
+
+/** 被拒(有会话正在工作)是平常事,用安静的字色说;真出错才红。 */
+function SwitchNoticeLine({ notice }: { notice: SwitchNotice }) {
+  return notice.tone === 'gentle'
+    ? <p className="subscription-note" role="status">{notice.text}</p>
+    : <p className="subscription-error" role="alert">{notice.text}</p>;
 }
 
 function UsageBlock({

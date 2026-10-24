@@ -1,6 +1,7 @@
 export default {
   "agent": {
     "identity": {
+      "phone": "手机 Agent",
       "pending": "智能体 · 类型确认中",
       "unavailable": "智能体类型不可用",
       "removed": "已移除的智能体",
@@ -31,7 +32,6 @@ export default {
       "openFailed": "无法在任务中打开：{{reason}}",
       "mode": {
         "menu": "模式：{{mode}}",
-        "chat": "聊天",
         "code": "编程",
         "general": "通用",
         "switchToCode": "切换为编程模式",
@@ -72,7 +72,7 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
-      "notAdmitted": "咕咕这边出错了，这批消息没能交给 Agent，请稍后重试。",
+      "notAdmitted": "消息已保留，助理就绪后回复。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
@@ -270,9 +270,6 @@ export default {
     "noResults": "未找到对话",
     "listLabel": "对话列表",
     "pin": "置顶",
-    "rowTag": {
-      "group": "群聊"
-    },
     "scan": "扫一扫",
     "search": "搜索",
     "unpin": "取消置顶"
@@ -342,6 +339,7 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {
         "removed": "Agent 已移除，不能继续发送消息",
@@ -371,10 +369,15 @@ export default {
     "mentionMembers": "@ 提及成员",
     "mentionNoMatch": "没有匹配的成员",
     "placeholder": "发送消息… 输入 / 唤起命令",
+    "mobilePlaceholder": "消息",
+    "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
     "removeFilePill": "移除 {{label}}",
     "sendFailed": "发送失败：{{reason}}",
     "slashCommands": "斜杠命令",
+    "verb": {
+      "task": "新任务"
+    },
     "whisperBanner": "悄悄话给 {{name}} · 仅你与对方可见",
     "whisperPlaceholder": "悄悄话给 {{name}}…"
   },
@@ -408,6 +411,7 @@ export default {
     "title": "转发"
   },
   "group": {
+    "projectGroupNoInvite": "项目群只有你和你的 agent。要与其他人协作，请在对话中新建群聊。",
     "addMember": "添加成员",
     "agentFlood": {
       "ledgerLoadFailed": "读不到这条自动调档的台账，撤回入口暂时给不出来。过一会儿重开这条线再试。",
@@ -445,6 +449,7 @@ export default {
       "notParticipant": "你还不是这条话题的参与者，所以看不到成员名单。在里面说一句就进来了。",
       "sectionAgents": "Agent",
       "sectionPeople": "人",
+      "myAgents": "我的 agent · {{count}}",
       "title": "群成员",
       "titleTopic": "话题成员"
     },
@@ -473,8 +478,6 @@ export default {
     "nameLoading": "加载中...",
     "namePlaceholder": "群名称",
     "picker": {
-      "invitationHint": "自己的 Agent 直接加入；其他成员接受邀请后加入。",
-      "sendInvitation": "发送邀请",
       "agentRequestPending": "已提交审批，等群主或管理员批准",
       "agentRequestRejected": "上次的申请被拒绝了，可以再提交一次",
       "invitationSent": "已发送 {{count}} 个邀请，等待本人或 Agent 主人接受后入群",
@@ -482,29 +485,13 @@ export default {
       "pendingApproval_one": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "pendingApproval_other": "已提交审批：{{count}} 个 Agent 等群主或管理员批准后入群",
       "add": "添加",
-      "addAgents": "添加 Agent（{{count}}）",
-      "addAgents_one": "添加 Agent（{{count}}）",
-      "addAgents_other": "添加 Agent（{{count}}）",
+      "addWithCount": "添加 · {{count}} 位成员",
+      "addWithCount_one": "添加 · {{count}} 位成员",
+      "addWithCount_other": "添加 · {{count}} 位成员",
       "adding": "添加中…",
       "allFailed": "{{failed}} 人添加失败：{{reason}}",
-      "guguId": "咕咕号 {{number}}",
-      "guguIdUnassigned": "咕咕号未分配",
-      "humanPermissionError": "你当前没有邀请人类成员的权限",
       "humanPermissionHint": "你当前不能邀请人类成员；仍可添加你自己的 Agent。",
-      "inviteHumans": "邀请人类（{{count}}）",
-      "inviteHumans_one": "邀请人类（{{count}}）",
-      "inviteHumans_other": "邀请人类（{{count}}）",
-      "noAgentResults": "没有匹配的 Agent",
-      "noAgents": "没有可添加的 Agent",
-      "noContactResults": "没有匹配的联系人",
-      "noContacts": "没有可邀请的联系人",
       "partialFailure": "{{succeeded}} 人已加入，{{failed}} 人添加失败：{{reason}}",
-      "searchAgents": "搜索 Agent",
-      "searchContacts": "搜索联系人",
-      "selection": "将 {{count}} 人加入群聊",
-      "selection_one": "将 {{count}} 人加入群聊",
-      "selection_other": "将 {{count}} 人加入群聊",
-      "selectionHint": "选择成员后即可添加（可多选）",
       "title": "添加群成员"
     },
     "renameFailed": "改名没成功——检查一下网络或你的权限，再按一次回车",
@@ -606,8 +593,15 @@ export default {
     }
   },
   "header": {
+    "groupApps": "群 Apps",
+    "personalPins": "仅自己",
+    "pinGroupApp": "将{{name}}固定到本群头栏",
+    "unpinGroupApp": "从本群头栏移除{{name}}",
+    "appPinsLoadFailed": "无法读取固定的 App。",
+    "appPinsSaveFailed": "无法保存固定的 App。",
+    "noGroupApps": "本设备暂无可用的 App。",
+    "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
-    "history": "历史记录",
     "memberList": "成员列表",
     "more": "更多操作",
     "searchChat": "搜索对话",
@@ -686,6 +680,23 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "sending": "发送中"
+    },
+    "showQuoted": "跳到被引用的消息",
+    "taskCard": {
+      "task": "新任务",
+      "schedule": "已安排",
+      "handedTo": "交给",
+      "onMachine": "在 {{machine}} 上",
+      "onColleagueComputer": "在 {{name}} 的电脑上",
+      "awaitingApproval": "等群主同意它进群",
+      "rejected": "群主没有同意它进群，结果在它的会话里",
+      "open": "打开这个会话",
+      "line": "新任务：{{text}}",
+      "scheduleLine": "已安排：{{text}}",
+      "question": "需要你确认",
+      "questionLine": "需要你确认：{{text}}",
+      "questionAnswered": "已回答：{{answer}}",
+      "questionInSession": "到任务里回答"
     },
     "unread": "未读",
     "aiSent": "AI 发送",

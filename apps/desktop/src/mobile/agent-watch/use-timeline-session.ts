@@ -32,6 +32,8 @@ export type SessionpageTimelineClient = {
   subscribeSession(deviceId: string, sessionId: string, subscriptionId: string, cursor: RecordCursor | null): Promise<unknown>
   unsubscribeSession(deviceId: string, subscriptionId: string): Promise<unknown>
   subscribeSessionEvents(deviceId: string, subscriptionId: string, onResult: (result: TimelineAfterResult) => void): () => void
+  /** A transport that reads incrementally itself can expose a precise read failure. */
+  subscribeSessionErrors?(deviceId: string, subscriptionId: string, onError: (error: unknown) => void): () => void
   /** 到那台机器的窗口断了 / 又通了。又通 = 那边已拆了这条窗口上的订阅,要重订。 */
   onLinkChange(deviceId: string, cb: (open: boolean) => void): () => void
   sendSessionText(
@@ -266,6 +268,14 @@ export function useTimelineSession(
       if (cancelled || !readyRef.current) return
       applyResult(result)
     })
+    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, (err) => {
+      if (cancelled) return
+      setLink('lost')
+      const code = rpcErrorCode(err)
+      if (code === null || TRANSIENT_LOAD_CODES.has(code)) return
+      setError(describe(err))
+      setErrorCode(code)
+    })
     // 窗口断了:标断开;又通了:那台机器已经拆了这条订阅(订阅跟着窗口生灭),整个重来 —— 手里有游标就只重订 + 补差量。
     const stopLink = client.onLinkChange(deviceId, (open) => {
       if (cancelled) return
@@ -348,6 +358,7 @@ export function useTimelineSession(
       readyRef.current = false
       document.removeEventListener('visibilitychange', onVisible)
       stopEvents()
+      stopErrors?.()
       // 走之前把手里这份存下来:下次进来第一帧就有东西。
       const current = timelineRef.current
       if (current.cursor && current.turns.length > 0) writeCachedTimeline(cacheKey, current)

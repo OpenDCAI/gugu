@@ -23,11 +23,14 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
+  type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
   type LocalPlace,
   type SyncRevokeReason,
 } from './app-runtime-protocol';
+import { fileOpenersFor } from './file-openers';
+import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
 
 /**
@@ -347,7 +350,9 @@ export async function extensionChatOf(
     if (error) throw new AppFileError('failed', error.message);
     return data as { id: string; kind: string; name: string | null; source_chat_id: string | null } | null;
   };
-  const row = await read(chatId);
+  let row = await read(chatId);
+  if (!row) throw new AppFileError('not-found', 'This chat could not be read');
+  if (row.kind === 'topic') row = row.source_chat_id ? await read(row.source_chat_id) : null;
   if (!row) throw new AppFileError('not-found', 'This chat could not be read');
   if (row.kind === 'group') return { id: row.id, name: row.name ?? '', kind: 'group', groupId: row.id };
   if (row.kind === 'dm') {
@@ -357,9 +362,7 @@ export async function extensionChatOf(
     const [peer] = other ? await platform.identities(token, [other]) : [];
     return { id: row.id, name: peer?.name ?? '', kind: 'dm', groupId: null };
   }
-  if (row.kind !== 'topic') return null;
-  const source = row.source_chat_id ? await read(row.source_chat_id) : null;
-  return { id: row.id, name: row.name ?? '', kind: 'topic', groupId: source?.kind === 'group' ? source.id : null };
+  return null;
 }
 
 /**
@@ -485,7 +488,18 @@ async function clashOf(token: string, row: ItemRow, picked: string, actor: strin
   }
 }
 
-/** Resolve `ref` in the chat it names. Not-there and not-yours read the same. */
+/** A topic names its source's resources. Read as the actor, even when its owner is not in that chat. */
+export async function resourceChatIdOf(token: string, chatId: string, actor: string): Promise<string> {
+  const { data, error } = await chatClient(token).rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: actor });
+  if (error) throw new AppFileError('failed', error.message);
+  const row = (Array.isArray(data) ? data[0] : data) as { id: string; kind: string; source_chat_id: string | null } | null;
+  if (!row) throw new AppFileError('not-found', 'This chat could not be read');
+  if (row.kind !== 'topic') return row.id;
+  if (row.source_chat_id) return row.source_chat_id;
+  throw new AppFileError('invalid', 'This topic has no source chat');
+}
+
+/** Resolve `ref` in the resource container it names. Not-there and not-yours read the same. */
 async function resolve(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef): Promise<{ row: ItemRow; handedOver: boolean }> {
   const { token } = account;
   const actor = surface.asAgent ?? account.userId;
@@ -493,7 +507,7 @@ async function resolve(surface: FileSurface, account: { token: string; userId: s
     const row = await itemById(token, ref.id, actor);
     if (!row) throw new AppFileError('not-found', 'No such file in a chat you are in');
     // Both said, and they disagree: the call is wrong, said where — the person can read the file, so naming its chat tells nothing new.
-    if (ref.chat !== undefined && row.chat_id !== ref.chat) {
+    if (ref.chat !== undefined && row.chat_id !== ref.chat && row.chat_id !== await resourceChatIdOf(token, ref.chat, actor)) {
       throw new AppFileError('invalid', `File ${ref.id} is in chat ${row.chat_id}, not ${ref.chat}: pass the entry or ctx.file as it is`);
     }
     return { row, handedOver: row.id === surface.itemId };
@@ -652,6 +666,7 @@ export function createAppFiles(platform: FilesPlatform) {
     if (wanted.length === 0) return { entries: [], gone: [] };
     const { token, userId } = await platform.account();
     const rows = (await Promise.all(wanted.map((id) => itemById(token, id, as.asAgent ?? userId)))).filter((row): row is ItemRow => row !== null);
+    if (rows.some((row) => row.chat_id !== chatId)) chatId = await resourceChatIdOf(token, chatId, as.asAgent ?? userId);
     const here = rows.filter((row) => row.chat_id === chatId);
     const found = new Set(here.map((row) => row.id));
     return { entries: await entriesOf(token, here, platform, as.asAgent ?? userId), gone: wanted.filter((id) => !found.has(id)) };
@@ -689,6 +704,11 @@ export function createAppFiles(platform: FilesPlatform) {
   return {
     open,
     self,
+
+    async resourceChat(chatId: string, as: { asAgent?: string | null } = {}): Promise<string> {
+      const { token, userId } = await platform.account();
+      return resourceChatIdOf(token, chatId, as.asAgent ?? userId);
+    },
 
     /** After `stale-epoch:<n>`: the same file at its new epoch; the old open file is dropped. */
     async reopen(surface: FileSurface, args: { ref: Extract<ChatFileRef, { id: string }>; readOnly?: boolean }): Promise<AppFileOpened> {
@@ -747,8 +767,33 @@ export function createAppFiles(platform: FilesPlatform) {
     async groupFile(chatId: string, itemId: string) {
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
+      if (row && row.chat_id !== chatId) chatId = await resourceChatIdOf(token, chatId, userId);
       if (!row || row.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
       return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 } };
+    },
+
+    /**
+     * API 14 `chatFile`: the file an App names for a chat, as a file of it opened with that App — at the top of the chat's
+     * folder, made empty for the person the first time (`{}` for JSON, a JSON file holding an object; the App fills it).
+     * Two making it at once: the folder names the later one apart, which goes again, and both open the first.
+     */
+    async appChatFile(chatId: string, manifest: ExtensionManifest | undefined): Promise<AppOpenWithDetail> {
+      const tab = manifest?.contributes.tabs.find((candidate) => candidate.chatFile !== undefined);
+      const name = tab?.chatFile;
+      if (!manifest || !tab || !name) throw new AppFileError('not-found', `${manifest?.id ?? 'That App'} names no file of a chat (chatFile)`);
+      const candidate = fileOpenersFor(name, [manifest], 'chat').find((opener) => opener.tabKind === `${manifest.id}.${tab.name}`);
+      if (!candidate) throw new AppFileError('invalid', `${manifest.id}.${tab.name} does not open ${name} in a chat`);
+      const { token, userId } = await platform.account();
+      const first = async () => (await itemsByPath(token, chatId, name, userId)).find((row) => row.kind !== 'folder' && row.parent_id === null);
+      let row = await first();
+      if (!row) {
+        const contentType = contentTypeOf(name);
+        const made = await insertDocument(token, { chatId, name, contentType, content: /json/i.test(contentType) ? '{}' : '', sourceMessageIds: [], parentId: null }, userId);
+        if (made.filename !== name) await agentRows(token, 'workspace_delete_as', { p_item_id: made.id, p_as_user_id: userId });
+        row = made.filename === name ? made : await first();
+        if (!row) throw new AppFileError('failed', `${name} was made as ${made.filename}, and the one it gave way to is gone`);
+      }
+      return { ...(await this.groupFile(chatId, row.id)), choice: { kind: 'one', candidate } };
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */

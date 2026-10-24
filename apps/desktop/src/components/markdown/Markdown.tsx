@@ -22,13 +22,13 @@ import {
 } from '@gugu/session-shared/markdown/dialect'
 import { readEffectiveHostTheme, subscribeToHostTheme } from '@renderer/lib/theme/host-theme'
 import { MermaidDiagram } from '@renderer/lib/ui/mermaid-diagram'
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
-import { isMentionMarkerUrl } from '../../lib/mentionMdast'
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { displayAgentReferences, isMentionMarkerUrl } from '../../lib/mentionMdast'
 import { markdownCodeHighlighter } from './codeHighlight'
 import { FILE_PILL_CLASS, hookFilePillCopy, rehypeGroupFilePills } from './filePills'
 import { GroupFileName } from './GroupFileName'
 import { revealMarkdownAnchor } from './revealAnchor'
-import { openConversationLink } from '../../lib/conversationLinks'
+import { followLink } from '../../lib/guguLinks'
 
 export type MarkdownDensity = 'compact' | 'comfortable'
 
@@ -119,7 +119,7 @@ export const Markdown = memo(function Markdown({
   useEffect(() => hookFilePillCopy(), [])
 
   const plugins = pluginsFor({ trust, hardBreaks, frontmatter })
-  const source = useMemo(() => normalizeMarkdownSource(content), [content])
+  const source = useMemo(() => normalizeMarkdownSource(displayAgentReferences(content)), [content])
   const components = useMemo(
     () => ({
       a: ({ href, children, node: _node, ...rest }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {
@@ -143,7 +143,7 @@ export const Markdown = memo(function Markdown({
         }
         const onClick = (event: { preventDefault(): void }) => {
           // A link the host did not claim goes to the system browser only if it is a web, mail or phone link.
-          if ((href && (openConversationLink(href) || openLinkRef.current?.(href))) || !EXTERNAL_LINK.test(href ?? '')) event.preventDefault()
+          if ((href && (followLink(href) || openLinkRef.current?.(href))) || !EXTERNAL_LINK.test(href ?? '')) event.preventDefault()
         }
         // App 引用 pill: `@` + a group file's link (rehypeGroupFilePills) is the transcript's file pill; its click is the
         // link's, so it opens where that link opens — at the place it points at.

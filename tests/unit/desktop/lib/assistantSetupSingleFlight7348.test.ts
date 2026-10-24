@@ -15,9 +15,15 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ getCurrentAuthUser
 const ipc = vi.hoisted(() => ({ invoke: vi.fn(async () => ({ workdir: '/home/assistant', home: '/home' })) }))
 vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc: () => ipc }))
 vi.mock('../../../../apps/desktop/src/lib/cloudComputerStore', () => ({ provisionCloudComputer: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({ contactsService: { agentLookAvatarUrl: () => 'https://db.example/look.webp' } }))
+vi.mock('../../../../apps/desktop/src/lib/contacts', async () => {
+  const { buildLookUrl, lookObjectPath } = await import('../../../../apps/desktop/src/components/agentAvatar/look')
+  return { contactsService: { agentLookAvatarUrl: (look: import('../../../../apps/desktop/src/components/agentAvatar/look').AgentLook) =>
+    buildLookUrl(`https://db.example/storage/v1/object/public/avatars/${lookObjectPath(look.color)}`, look.rest, look.wear) } }
+})
+const { DEFAULT_ASSISTANT_LOOK, parseAgentLook, wornOf } = await import('../../../../apps/desktop/src/components/agentAvatar/look')
+const { provisionCloudComputer } = await import('../../../../apps/desktop/src/lib/cloudComputerStore')
 
-const { setUpAssistantOnThisComputer, resumeLocalAssistant, setupStillStarting, AssistantSetupError } = await import('../../../../apps/desktop/src/lib/assistantSetup')
+const { setUpAssistantOnThisComputer, resumeLocalAssistant, setupStillStarting, AssistantSetupError, claimCloudAssistant } = await import('../../../../apps/desktop/src/lib/assistantSetup')
 
 const draft = { name: 'Gugu', color: 0, rest: 'curious', owner: { preferredName: 'Neo', about: '' } } as const
 const record = { operationId: 'op-1' } as never
@@ -93,3 +99,41 @@ describe('local assistant setup runs once at a time on this computer (#7348)', (
     expect(setupStillStarting(new AssistantSetupError('failed', 'agent.create failed'))).toBe(false)
   })
 })
+
+
+describe('assistant setup appearance', () => {
+  it('keeps the untouched default plain for both the draft and final identity', async () => {
+    const plain = { ...draft, ...DEFAULT_ASSISTANT_LOOK }
+    provision.provisionSingleAgent.mockResolvedValueOnce(completed('new-assistant'))
+    await setUpAssistantOnThisComputer(plain, 'device-1')
+    const avatar = provision.provisionSingleAgent.mock.calls[0][1].avatar
+    const saved = parseAgentLook(avatar)!
+    expect(saved).toEqual({ color: 0, rest: 'neutral' })
+    expect(new URL(avatar).searchParams.has('wear')).toBe(false)
+    expect(wornOf(saved)).toEqual([])
+  })
+
+  it('preserves all selected appearance fields when creating a local assistant', async () => {
+    const selected = { ...draft, color: 9, rest: 'happy', wear: [{ id: 'set-puppy', cw: 0 }] } as const
+    provision.provisionSingleAgent.mockResolvedValueOnce(completed('new-assistant'))
+    await setUpAssistantOnThisComputer(selected, 'device-1')
+    expect(parseAgentLook(provision.provisionSingleAgent.mock.calls[0][1].avatar)).toEqual({ color: 9, rest: 'happy', wear: [{ id: 'set-puppy', cw: 0 }] })
+  })
+
+  it('sends the same plain default to cloud setup', async () => {
+    await claimCloudAssistant({ ...draft, ...DEFAULT_ASSISTANT_LOOK })
+    expect(parseAgentLook(cloudAvatar())).toEqual(DEFAULT_ASSISTANT_LOOK)
+  })
+})
+
+  it('preserves chosen accessories in cloud setup', async () => {
+    const selected = { ...draft, color: 4, rest: 'shy', wear: [{ id: 'set-bear', cw: 0 }] } as const
+    await claimCloudAssistant(selected)
+    expect(parseAgentLook(cloudAvatar())).toEqual({ color: 4, rest: 'shy', wear: [{ id: 'set-bear', cw: 0 }] })
+  })
+
+function cloudAvatar(): string | null {
+  const assistant = vi.mocked(provisionCloudComputer).mock.calls[0][0]?.assistant
+  if (!assistant || !('avatar' in assistant)) throw new Error('expected a new cloud assistant setup')
+  return assistant.avatar
+}

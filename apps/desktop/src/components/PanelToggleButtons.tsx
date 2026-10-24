@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { readPanelToggle, usePanelToggle, type PanelSlot } from '../lib/panelToggles'
 import { IconButton } from './ui/IconButton'
@@ -9,8 +9,8 @@ function withShortcut(label: string, shortcut: string | undefined): string {
 
 /**
  * @@@panel-toggles (#6753) 左那颗:收放一个列表栏。**只此一个组件**,挂载点各管各的定位 ——
- * Windows 标题栏行、mac 上会话页根部、mac 上对话页(壳)。文案与状态全从控制器那一格读,所以会话页那份模块也能直接挂它。
- * slot 为空(这一页没有列表栏)时画成禁用占位,❌ 不画:Windows 上它右边紧挨着菜单栏,少一颗菜单就会随切页左右跳。
+ * 工作区页头、对话页(壳)。文案与状态全从控制器那一格读,所以会话页那份模块也能直接挂它。
+ * slot 为空(这一页没有列表栏)时仍画成禁用占位,保持调用方的其它控件位置稳定。
  */
 export function ListColumnToggle({ slot, disabledLabel = '' }: { slot: PanelSlot | null; disabledLabel?: string }) {
   const panel = usePanelToggle(slot)
@@ -29,7 +29,7 @@ export function ListColumnToggle({ slot, disabledLabel = '' }: { slot: PanelSlot
   return (
     <IconButton
       size="sm"
-      // strong:与会话页右上角那颗文件面板开关同色(--muted-fg),两颗面板开关站在同一档。
+      // Keep the existing sidebar-control tone.
       tone="strong"
       data-titlebar-sidebar-toggle=""
       aria-label={label}
@@ -52,17 +52,6 @@ export function ListColumnToggle({ slot, disabledLabel = '' }: { slot: PanelSlot
     >
       {/* 图标随状态换形:一眼读出这一下是收起还是展开(Close/Open 是本仓库既有的面板开关词汇)。 */}
       {open ? <PanelLeftClose /> : <PanelLeftOpen />}
-    </IconButton>
-  )
-}
-
-/** 右那颗:会话页的文件面板(Windows 标题栏行)。当前视图没有文件面板时不画 —— 它贴着窗口控件,不画也不会让别的东西移位。 */
-export function FilePanelToggle() {
-  const panel = usePanelToggle('files')
-  if (!panel) return null
-  return (
-    <IconButton size="sm" tone="strong" aria-label={panel.label} title={withShortcut(panel.label, panel.shortcut)} onClick={() => panel.toggle()}>
-      {panel.open ? <PanelRightClose /> : <PanelRightOpen />}
     </IconButton>
   )
 }

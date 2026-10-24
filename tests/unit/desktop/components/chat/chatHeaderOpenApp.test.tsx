@@ -14,6 +14,8 @@ import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 const app = (id: string, name: string, tab: Record<string, unknown>) =>
   parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
 
+vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
+
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
@@ -39,33 +41,34 @@ async function openMenu(mobile: boolean) {
     isGroupChat: true,
     isRoomChat: true,
     searchMode: false,
-    workspacePanelOpen: false,
+    folderShown: false,
     memberListOpen: false,
-    historyPanelOpen: false,
     showHeaderMenu: true,
     mobile,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
-    onOpenWorkspacePanel: vi.fn(),
+    onOpenFolder: vi.fn(),
     onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(),
     onOpenMemberList: vi.fn(),
     onCloseRightSurfaces: vi.fn(),
-    onOpenHistoryPanel: vi.fn(),
-    onCloseHistoryPanel: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
     onOpenAnnouncement: vi.fn(),
   }), { chat: { activeChatId: 'g', chats: [{ id: 'g', kind: 'group' }] as never } })
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-testid="chat-header-menu-app"]'))
+  const entry = mobile
+    ? [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '群 Apps')!
+    : document.querySelector<HTMLElement>('button[aria-label="群 Apps"]')!
+  await clickElement(entry)
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-testid="group-apps-open"]'))
 }
 
-describe('页头 ⋯ 打开本机的 App', () => {
+describe('群 Apps 打开本机的 App', () => {
   for (const mobile of [false, true]) {
     it(`${mobile ? '手机' : '桌面'}:只列开着、有自己页面的 App;点一下 = openApp(它, 本对话)`, async () => {
       const rows = await openMenu(mobile)
       // 停用的(读论文)与只为文件打开的(你画我猜)不列。
-      expect(rows.map((row) => row.querySelector('.gg-menu-item-label')?.textContent)).toEqual(['海龟汤'])
+      expect(rows.map((row) => row.querySelector('span.truncate')?.textContent)).toEqual(['海龟汤'])
       const asked = vi.fn()
       const listen = (event: Event) => asked((event as CustomEvent).detail)
       window.addEventListener(UI_EVENTS.openApp, listen)
@@ -78,7 +81,7 @@ describe('页头 ⋯ 打开本机的 App', () => {
     })
   }
 
-  it('没有可打开的 App:⋯ 里没有这一段', async () => {
+  it('没有可打开的 App:群 Apps 列表为空', async () => {
     runInAction(() => { installedExtensionsStore.disabled = ['turtle-soup', 'paper-reader'] })
     expect(await openMenu(false)).toEqual([])
   })

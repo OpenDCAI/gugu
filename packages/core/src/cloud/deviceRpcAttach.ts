@@ -86,8 +86,13 @@ function leaveTopic(name: string, topic: DeviceTopic): void {
   leavingTopics.set(name, done)
 }
 
-/** 订上共用 topic 之后 resolve;报到在第一次发问时做。 */
+/**
+ * 订上共用 topic 之后 resolve;报到在第一次发问时做。
+ * 管道属于开它的那个账号:先认出是谁、再订(私有 topic 按账号放行,报到也报这个人)。没登录 ⇒ 账号那层的错原样抛出,
+ * ❌ 先去订、被服务端拒成「连不上」。换了账号,旧账号的 topic 会被拒、整条作废,请求方按新账号重开。
+ */
 export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOptions): Promise<DeviceRpcPipe> {
+  const owner = await options.userId()
   const { deviceId, asker } = options
   const sharedName = deviceRpcChannelName(deviceId)
   const askerName = deviceRpcAskerChannelName(deviceId, asker)
@@ -211,7 +216,6 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
         heard.mine = now()
         const id = newRequestId()
         requestId = id
-        const userId = await options.userId()
         const reply = await new Promise<ReturnType<typeof parseDeviceRpcReply>>((settle, failSend) => {
           attachWaiter = {
             requestId: id,
@@ -224,7 +228,7 @@ export async function openAttachedDeviceRpcPipe(options: AttachedDeviceRpcPipeOp
             .then((s) => s!.send({
               type: 'broadcast',
               event: 'broadcast',
-              payload: createDeviceRpcRequestEnvelope(DEVICE_RPC_ATTACH, id, userId, { asker, protocol: REMOTE_PROTOCOL_VERSION }),
+              payload: createDeviceRpcRequestEnvelope(DEVICE_RPC_ATTACH, id, owner, { asker, protocol: REMOTE_PROTOCOL_VERSION }),
             }))
             .catch(failSend)
         })

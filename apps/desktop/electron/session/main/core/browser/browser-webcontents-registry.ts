@@ -26,12 +26,8 @@ import {
   browserLinkCopiedChannel,
   browserOpenInNewTabChannel,
 } from '@shared/events/browserEvents';
-import {
-  APP_SHORTCUTS,
-  getElectronTabNavigationDirection,
-  resolveDefaultHotkey,
-  type ShortcutSettingsKey,
-} from '@shared/shortcuts';
+import { COMMANDS, type CommandId } from '@shared/commands';
+import { getElectronTabNavigationDirection, resolveDefaultHotkey,  } from '@shared/shortcuts';
 import { isGoogleAuthUrl, userAgentForBrowserUrl } from './browser-user-agent';
 
 type RegisteredBrowserSession = {
@@ -125,7 +121,7 @@ export class BrowserWebContentsRegistry {
     const webContentsId = webContents.id;
     this.hardenBrowserWebContents(webContents, placement);
 
-    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;agent 在用时 = 人接管)。
+    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;不据此暂停 agent)。
     webContents.on('before-mouse-event', (_event, mouse) => {
       if (mouse.type !== 'mouseDown') return;
       const boundBrowserId = this.browserIdByWebContentsId.get(webContentsId);
@@ -291,16 +287,16 @@ export class BrowserWebContentsRegistry {
         }
       }
 
-      const shortcutKey = getBrowserShortcutKey(input, this.browserShortcuts);
-      if (shortcutKey === null) return;
+      const commandId = getBrowserShortcutKey(input, this.browserShortcuts);
+      if (commandId === null) return;
 
-      if (shortcutKey !== 'browserCopyUrl') {
+      if (commandId !== 'session.browserCopyUrl') {
         const browserId = this.browserIdByWebContentsId.get(webContents.id);
         if (!browserId) return;
         event.preventDefault();
         events.emit(browserAppShortcutChannel, {
           source: { kind: 'browser', browserId },
-          shortcutKey,
+          commandId,
         });
         return;
       }
@@ -532,31 +528,31 @@ type ParsedShortcut = {
 
 function getBrowserShortcuts(
   keyboard?: AppSettings['keyboard']
-): Map<ShortcutSettingsKey, ParsedShortcut> {
-  const shortcuts = new Map<ShortcutSettingsKey, ParsedShortcut>();
-  for (const shortcutKey of Object.keys(APP_SHORTCUTS) as ShortcutSettingsKey[]) {
-    if (shortcutKey === 'closeModal' || APP_SHORTCUTS[shortcutKey].ignoreWhenBrowserFocused) {
+): Map<CommandId, ParsedShortcut> {
+  const shortcuts = new Map<CommandId, ParsedShortcut>();
+  for (const commandId of Object.keys(COMMANDS) as CommandId[]) {
+    if (commandId === 'app.closeModal' || COMMANDS[commandId].ignoreWhenBrowserFocused) {
       continue;
     }
 
-    const configured = keyboard?.[shortcutKey];
+    const configured = keyboard?.[commandId];
     if (configured === null) continue;
 
-    const fallback = resolveDefaultHotkey(APP_SHORTCUTS[shortcutKey]) ?? null;
+    const fallback = resolveDefaultHotkey(COMMANDS[commandId]) ?? null;
     const hotkey = configured ?? fallback;
     if (hotkey === null) continue;
 
     const parsed = parseShortcut(hotkey);
     if (parsed) {
-      shortcuts.set(shortcutKey, parsed);
+      shortcuts.set(commandId, parsed);
       continue;
     }
 
     if (configured) {
       const parsedFallback = fallback ? parseShortcut(fallback) : null;
-      if (parsedFallback) shortcuts.set(shortcutKey, parsedFallback);
+      if (parsedFallback) shortcuts.set(commandId, parsedFallback);
       log.warn('Invalid browser app shortcut, falling back to default', {
-        shortcutKey,
+        commandId,
         shortcut: configured,
       });
     }
@@ -566,10 +562,10 @@ function getBrowserShortcuts(
 
 function getBrowserShortcutKey(
   input: Electron.Input,
-  shortcuts: ReadonlyMap<ShortcutSettingsKey, ParsedShortcut>
-): ShortcutSettingsKey | null {
+  shortcuts: ReadonlyMap<CommandId, ParsedShortcut>
+): CommandId | null {
   if (input.type !== 'keyDown') return null;
-  for (const [shortcutKey, parsed] of shortcuts) {
+  for (const [commandId, parsed] of shortcuts) {
     if (
       normalizeInputKey(input.key) === parsed.key &&
       Boolean(input.shift) === parsed.shift &&
@@ -577,7 +573,7 @@ function getBrowserShortcutKey(
       Boolean(input.meta) === parsed.meta &&
       Boolean(input.control) === parsed.control
     ) {
-      return shortcutKey;
+      return commandId;
     }
   }
   return null;

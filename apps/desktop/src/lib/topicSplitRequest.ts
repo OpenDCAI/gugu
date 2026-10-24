@@ -21,6 +21,8 @@ export type TopicSplitRequest = {
    * 顺手打字回车就发进了大群 —— 正是「消息隔离」要防的那个方向。
    */
   focusComposer?: boolean
+  /** Activating a sidebar topic again closes its existing split. */
+  toggle?: boolean
 }
 
 /** 过期阈值:点完话题却又去点了别处,这条请求就作废,❌ 不许日后回到那条线时突然自己弹出来。 */
@@ -41,7 +43,7 @@ export function drainTopicSplitRequest(currentChatId: string | null): TopicSplit
   if (!pending) return null
   if (Date.now() - pending.at > TOPIC_SPLIT_REQUEST_TTL_MS) { pending = null; return null }
   if (!currentChatId || pending.sourceChatId !== currentChatId) return null
-  const { chatId, name, sourceChatId, focusComposer } = pending
+  const { chatId, name, sourceChatId, focusComposer, toggle } = pending
   pending = null
-  return { chatId, name, sourceChatId, focusComposer }
+  return { chatId, name, sourceChatId, focusComposer, toggle }
 }

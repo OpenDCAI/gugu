@@ -19,7 +19,7 @@ export async function sendBroadcast(channel: BroadcastChannel, event: string, pa
 
 export type ElectronRealtimeClient = {
   realtime: {
-    setAuth: (accessToken: string) => unknown | Promise<unknown>
+    setAuth: () => unknown | Promise<unknown>
   }
   removeChannel: (channel: ElectronManagedRealtimeChannel) => unknown
 }
@@ -43,7 +43,6 @@ export type ElectronRealtimeChannelRegistryEntry = {
 }
 
 export type SubscribeElectronRealtimeChannelOptions = {
-  accessToken: string
   label: string
   createChannel?: () => ElectronManagedRealtimeChannel
   onStatus?: (status: string, err?: Error) => void
@@ -52,7 +51,6 @@ export type SubscribeElectronRealtimeChannelOptions = {
 }
 
 type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegistryEntry & {
-    accessToken: string
     channel: ElectronManagedRealtimeChannel
     client: ElectronRealtimeClient
     createChannel: (() => ElectronManagedRealtimeChannel) | null
@@ -66,6 +64,7 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
   }
 
 const registry = new Map<string, InternalElectronRealtimeChannelRegistryEntry>()
+const reconnectFlights = new Map<string, Promise<void>>()
 const debugStatusHandlers = new Map<string, (status: string, err?: Error) => void>()
 let nextChannelId = 1
 
@@ -86,7 +85,6 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
     lastError: null,
     createdAt: now,
     updatedAt: now,
-    accessToken: options.accessToken,
     channel,
     client,
     createChannel: options.createChannel ?? null,
@@ -124,6 +122,12 @@ export function listElectronRealtimeChannelRegistry(): ElectronRealtimeChannelRe
   }))
 }
 
+/** After an explicit host resume, replace stale physical subscriptions now,
+ * without waiting for CHANNEL_ERROR or the normal reconnect backoff. */
+export async function reconnectElectronRealtimeChannels(): Promise<void> {
+  await Promise.all([...registry.keys()].map(id => retryNow(id)))
+}
+
 // TEST-ONLY, env-gated (GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS=1). The flag is fixed at
 // Electron process startup, so this module-level assignment is stable for the full runtime.
 // Unset in production -> NOT assigned -> no product surface / no runtime probe.
@@ -143,6 +147,7 @@ export function _resetElectronRealtimeChannelRegistryForTesting(): void {
     if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer)
   }
   registry.clear()
+  reconnectFlights.clear()
   debugStatusHandlers.clear()
   nextChannelId = 1
 }
@@ -178,7 +183,8 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
 
   setRegistryStatus(id, reconnecting ? 'reconnecting' : 'authenticating')
   try {
-    await entry.client.realtime.setAuth(entry.accessToken)
+    // 认证由账号客户端现取;频道重连不能拿创建时的旧令牌覆盖共享连接。
+    await entry.client.realtime.setAuth()
   } catch (error) {
     setRegistryStatus(id, 'auth_error', errorMessage(error))
     scheduleReconnect(id)
@@ -254,7 +260,17 @@ function clearReconnectTimer(id: string): void {
   entry.reconnectTimer = null
 }
 
-async function retryNow(id: string): Promise<void> {
+function retryNow(id: string): Promise<void> {
+  const existing = reconnectFlights.get(id)
+  if (existing) return existing
+  const flight = replacePhysicalChannel(id).finally(() => {
+    if (reconnectFlights.get(id) === flight) reconnectFlights.delete(id)
+  })
+  reconnectFlights.set(id, flight)
+  return flight
+}
+
+async function replacePhysicalChannel(id: string): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active || !entry.createChannel) return
   clearReconnectTimer(id)

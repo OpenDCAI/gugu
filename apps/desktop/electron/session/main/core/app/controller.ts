@@ -11,6 +11,7 @@ import { resolveWorkspace } from '../projects/utils';
 import { appService } from './service';
 import { createRemoteDownloads, type RemoteDownloads } from './remote-downloads';
 import { readUserLibrary, readUserLibraryEntry, readUserLibraryVolume, writeUserLibraryEntry } from './user-library';
+import { callAssistantApp } from './assistant-app';
 
 let downloads: RemoteDownloads | null = null;
 const remoteDownloads = (): RemoteDownloads =>
@@ -52,6 +53,7 @@ async function getPlatformDisplayName(): Promise<string> {
 }
 
 export const appController = createRPCController({
+  assistantAppCall: callAssistantApp,
   openExternal: async (url: string) => {
     try {
       await appService.openExternal(url);
@@ -223,7 +225,7 @@ export const appController = createRPCController({
   getUserLibrary: () => readUserLibrary(),
   getUserLibraryVolume: (kind: import('@shared/user-library').UserLibraryKind) => readUserLibraryVolume(kind),
   readUserLibraryEntry: (kind: import('@shared/user-library').UserLibraryKind, link: string) => readUserLibraryEntry(kind, link),
-  writeUserLibraryEntry: (input: import('@shared/user-library').UserLibraryWrite) => writeUserLibraryEntry(input),
+  writeUserLibraryEntry: (input: import('@shared/user-library').UserLibraryWrite) => writeUserLibraryEntry(input, undefined, 'ui'),
   getElectronVersion: () => process.versions.electron,
   getPlatform: () => process.platform,
   getPlatformDisplayName,

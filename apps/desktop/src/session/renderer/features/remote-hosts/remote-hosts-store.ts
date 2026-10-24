@@ -121,6 +121,8 @@ export class RemoteHostsStore {
   readonly hosts = observable.map<string, RemoteHostState>();
   /** #7199 deviceId → 这一端叫醒那台云电脑走到哪了。 */
   readonly wakes = observable.map<string, CloudWake>();
+  /** deviceId → 到这台机器的线自上次连通以来拨过几次(连通即清零)。重连提示读它,见 dialsSinceOpen。 */
+  readonly dials = observable.map<string, number>();
   /** #7199 正在叫的那一次:同一台再叫就等同一个结果(❌ 没醒就当醒了往下走)。 */
   private readonly wakeInFlight = new Map<string, Promise<boolean>>();
   /** #7403 deviceId → 请它换成匹配版本的那一次(请时它报的版本 + 结果):同一个版本只请一次,各处等同一个结果。 */
@@ -443,6 +445,14 @@ export class RemoteHostsStore {
     reconnectMachine(deviceId);
   }
 
+  /**
+   * 到这台机器的线自上次连通以来拨过几次(没连通过的机器第一次拨也算)。「第几次重连」的数字读它:
+   * 一次提示里原地换这个数,❌ 每次重试各发一条。
+   */
+  dialsSinceOpen(deviceId: string): number {
+    return this.dials.get(deviceId) ?? 0;
+  }
+
   /** 侧栏那颗点:连接中 / 已连接 / 重连中 / 离线 / 要先登录 / 版本太旧。 */
   connectionState(deviceId: string): HostConnectionState | null {
     const state = this.hosts.get(deviceId);
@@ -524,6 +534,8 @@ export class RemoteHostsStore {
       runInAction(() => {
         if (current) current.device = device;
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
+        // 读成离线了:这一轮重连到此为止(提示换成「离线」,不带第几次);回来之后从第一次数起。
+        if (!remoteHostReachable(device)) this.dials.delete(device.id);
         // #7199 叫醒没成之后它在别处被叫醒了(正在醒 / 醒了):那条旧的「没叫醒」不再盖住它此刻的样子。
         if (device.cloudComputer && device.cloudComputer !== 'asleep' && this.wakes.get(device.id)?.status === 'failed') this.wakes.delete(device.id);
       });
@@ -547,12 +559,17 @@ export class RemoteHostsStore {
       updateDeviceSessions(deviceId, { projects: [], sessions: stored.sessions, cached: true, loading: false });
     });
     let wasOpen = false;
+    let lastLink: MachineLinkState | null = null;
     const onLink = () => {
       const link = machineLinkState(deviceId);
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
+        const dials = dialsAfter(this.dials.get(deviceId) ?? 0, lastLink, link, state ? remoteHostReachable(state.device) : true);
+        if (dials === 0) this.dials.delete(deviceId);
+        else this.dials.set(deviceId, dials);
       });
+      lastLink = link;
       if (link === 'open') {
         this.startListSync(deviceId);
         void this.syncProjects(deviceId).then(() => {
@@ -618,7 +635,10 @@ export class RemoteHostsStore {
     closeMachineClient(deviceId);
     appState.projects.dropMachine(deviceId);
     machineRegistry.forgetMachine(deviceId);
-    runInAction(() => this.hosts.delete(deviceId));
+    runInAction(() => {
+      this.hosts.delete(deviceId);
+      this.dials.delete(deviceId);
+    });
     if (this.homeDirs[deviceId]) {
       const { [deviceId]: _home, ...rest } = this.homeDirs;
       runInAction(() => (this.homeDirs = rest));
@@ -680,6 +700,16 @@ export function linkNeedsReopen(
   return link === 'tooOld' && client.state() === 'open' && !!device.version && !!helloVersion && device.version !== helloVersion;
 }
 
+/**
+ * 这一轮重连拨了几次(纯函数,单测钉):每次从「没在拨」进到「在拨」算一次,连通了清零。
+ * 同一次拨里线状态的重复通知(connecting → connecting)不算。那台机器读成离线时线照样隔一会儿拨一次,那不算
+ * 这一轮的 —— ❌ 机器回来那一下亮出「第 125 次尝试」(owner 试用实例实测)。
+ */
+export function dialsAfter(dials: number, previous: MachineLinkState | null, link: MachineLinkState, reachable = true): number {
+  if (link === 'open' || !reachable) return 0;
+  return link === 'connecting' && previous !== 'connecting' ? dials + 1 : dials;
+}
+
 /** 侧栏那颗点的判据(纯函数,单测钉):设备状况 + 到它会话页宿主的线。 */
 export function machineConnectionState(
   state: Pick<RemoteHostState, 'device' | 'link' | 'synced'>,
@@ -689,10 +719,13 @@ export function machineConnectionState(
   // 远程 SSH 的机器太旧:设备连接那一格说得更具体(正在替它升级 / 没升成),先看它。
   const ssh = state.device.sshLink;
   if (state.link === 'tooOld' && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
+  // 线没通就是在连:不管这一刻是在拨(connecting)还是在等下一次退避(closed)。只看 closed 的话,连上过的机器断了之后,
+  // 每一次重连在飞的那几秒会读成「已连接」,再一失败又翻回「重连中」,直到心跳租约过期才停(#137)。
+  const attempting = state.link === 'connecting' || state.link === 'closed';
   return hostConnectionState({
     online: state.device.isOnline,
-    loading: state.link === 'connecting' && !state.synced,
-    unreachable: state.device.isOnline && state.link === 'closed' && state.synced,
+    loading: attempting && !state.synced,
+    unreachable: state.device.isOnline && attempting && state.synced,
     sshLink: state.device.sshLink ?? null,
     cloudComputer: state.device.cloudComputer ?? null,
     wake: state.device.cloudComputer ? wake : null,

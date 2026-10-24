@@ -9,12 +9,14 @@
 
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { findMentionSpans } from '@gugu/core/shared/mentionToken.mjs'
+import { markdownMentionReferences } from '@gugu/session-shared/markdown/dialect'
 import { i18n } from '@/i18n'
 
 export interface MentionCandidate {
   id: string
   name: string
   type: 'all' | 'human' | 'agent'
+  avatar?: string | null
   ownerDisplayName?: string
   /** 只用于 @ 候选搜索(lib/mentionMatch):咕咕号与 owner 给的备注。插入与投递仍用 name。 */
   guguNumber?: number | null
@@ -23,14 +25,14 @@ export interface MentionCandidate {
 
 export type GroupRosterCandidate = MentionCandidate & { type: 'human' | 'agent' }
 
-type RosterIdentity = { display_name: string; owner_user_id?: string | null; gugu_number?: number | null }
+type RosterIdentity = { display_name: string; avatar?: string | null; owner_user_id?: string | null; gugu_number?: number | null }
 
 // 名册条目的附加字段:agent 的主人名(候选里显示「· 某某的」)与咕咕号(候选搜索用)。
 function rosterExtras(type: MentionCandidate['type'], identity: RosterIdentity, identities: Readonly<Record<string, RosterIdentity>>) {
   const ownerDisplayName = type === 'agent' && identity.owner_user_id
     ? identities[identity.owner_user_id]?.display_name
     : undefined
-  const guguNumber = identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}
+  const guguNumber = { avatar: identity.avatar, ...(identity.gugu_number != null ? { guguNumber: identity.gugu_number } : {}) }
   return ownerDisplayName?.trim() ? { ownerDisplayName, ...guguNumber } : guguNumber
 }
 
@@ -81,9 +83,18 @@ export function withSourceLineCandidates(
 export const MENTION_ALL_USER_ID = '*'
 
 /** 输入框里点选的人还算不算:名字在正文里仍是一处提及,和发送路由同一个读法(名册上取最长,「@Claude 2」不算 Claude)。 */
-export function activeMentionPicks<T extends { displayName: string }>(text: string, picks: T[], members: MentionCandidate[]): T[] {
-  const typed = new Set(findMentionSpans(text, [...members.map((m) => m.name), ...picks.map((pick) => pick.displayName)]).map((span) => span.name))
-  return picks.filter((pick) => typed.has(pick.displayName))
+export function activeMentionPicks<T extends { displayName: string; userId?: string }>(text: string, picks: T[], members: MentionCandidate[]): T[] {
+  const { references, plain } = mentionParts(text)
+  const addressed = new Set(references.filter((ref) => ref.target.startsWith('aid:')).map((ref) => ref.target.slice(4)))
+  const typed = new Set(findMentionSpans(plain, [...members.map((m) => m.name), ...picks.map((pick) => pick.displayName)]).map((span) => span.name))
+  return picks.filter((pick) => (pick.userId && addressed.has(pick.userId)) || typed.has(pick.displayName))
+}
+
+function mentionParts(text: string) {
+  const references = markdownMentionReferences(text)
+  let plain = text
+  for (const ref of [...references].reverse()) plain = plain.slice(0, ref.start) + ' '.repeat(ref.end - ref.start) + plain.slice(ref.end)
+  return { references, plain }
 }
 
 /**
@@ -103,10 +114,15 @@ export function resolveMentionUserIds(
 ): string[] {
   const ids = new Set(pickerUserIds)
   if (isGroupChat) {
+    const { references, plain } = mentionParts(text)
+    const memberIds = new Set(members.map((member) => member.id))
+    for (const ref of references) {
+      if (ref.target.startsWith('aid:') && memberIds.has(ref.target.slice(4))) ids.add(ref.target.slice(4))
+    }
     const selectedNames = new Set(members
       .filter((member) => ids.has(member.type === 'all' ? MENTION_ALL_USER_ID : member.id))
       .map((member) => member.name))
-    const typedNames = new Set(findMentionSpans(text, members.map((m) => m.name)).map((span) => span.name))
+    const typedNames = new Set(findMentionSpans(plain, members.map((m) => m.name)).map((span) => span.name))
     for (const m of members) {
       if (selectedNames.has(m.name)) continue
       if (typedNames.has(m.name)) ids.add(m.type === 'all' ? MENTION_ALL_USER_ID : m.id)
@@ -115,7 +131,7 @@ export function resolveMentionUserIds(
   return [...ids]
 }
 
-// @@@2017 owner 终版 + product spec §3 —— @all 正文 token 是 `@所有人`(镜像 InputArea 候选名),兜底徽标「全员」。
+// @@@2017 owner 终版 + product spec §3 —— @all 正文 token 是 `@所有人`(镜像 ChatMessageComposer 候选名),兜底徽标「全员」。
 // 「寻址的表达」单重显示的完整实现(注入 nonce marker + 注入后再解析定高亮/兜底)见 mentionRenderModel.buildMentionRender。
 export function mentionAllName(): string { return i18n.t('composer.mentionAll', { ns: 'messaging' }) }
 export function mentionAllBadge(): string { return i18n.t('composer.memberType.all', { ns: 'messaging' }) }

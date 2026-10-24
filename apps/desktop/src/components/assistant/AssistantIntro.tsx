@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Avatar } from '../Avatar'
+import { AgentAvatar } from '../agentAvatar/AgentAvatar'
+import { DEFAULT_ASSISTANT_LOOK, type AgentLook } from '../agentAvatar/look'
 import { Button } from '../ui/Button'
 import { ListChecks, MessageCircle } from '@/lib/icons'
 import '../../i18n/registerAssistantCatalog'
@@ -17,6 +18,7 @@ export function AssistantIntro({
   onLater,
   busy = false,
   error = null,
+  look = DEFAULT_ASSISTANT_LOOK,
 }: {
   primaryLabel: string
   onPrimary: () => void
@@ -25,12 +27,14 @@ export function AssistantIntro({
   onLater?: () => void
   busy?: boolean
   error?: string | null
+  /** 开通流程退回介绍页时沿用已经确认的形象。 */
+  look?: AgentLook
 }) {
   const { t } = useTranslation('assistant')
   const rows: { key: string; icon: ReactNode; title: string; body: string }[] = [
     {
       key: 'gugu',
-      icon: <Avatar name={t('rail')} seed="gugu-default" size={22} isAgent harnessBadge={false} />,
+      icon: <AgentAvatar id="assistant-draft" name={t('rail')} look={look} size={22} />,
       title: t('intro.guguTitle'),
       body: t('intro.guguBody'),
     },
@@ -39,7 +43,7 @@ export function AssistantIntro({
   ]
   return (
     <>
-      <Avatar name={t('rail')} seed="gugu-default" size={88} isAgent harnessBadge={false} />
+      <AgentAvatar id="assistant-draft" name={t('rail')} look={look} size={88} />
       <h1 className="ta-onb-title">{t('intro.title')}</h1>
       <p className="ta-onb-sub">{t('intro.sub')}</p>
       <ul className="ta-onb-intro" data-testid="assistant-intro-rows">
@@ -63,6 +67,7 @@ export function AssistantIntro({
           className="rounded-full ta-onb-primary"
           onClick={onPrimary}
           disabled={busy}
+          aria-busy={busy}
           data-testid="assistant-intro-primary"
         >
           {primaryLabel}

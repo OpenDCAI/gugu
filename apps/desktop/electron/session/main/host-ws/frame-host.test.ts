@@ -6,12 +6,12 @@ import {
   type SessionHostClient,
   type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
-import { broadcastDeviceSessionHostEvent, installDeviceSessionHost } from './device-session-host';
-import { FrameSessionHost, type FrameSocket } from './frame-host';
+import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
+import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
 import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
-function memoryLink(host: FrameSessionHost, policy?: (channel: string) => boolean) {
+function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
   const serverSockets: Array<{ drop(): void }> = [];
   const open: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
     let serverFrame: ((frame: string | Uint8Array) => void) | null = null;
@@ -51,6 +51,53 @@ describe('FrameSessionHost over a device-shaped link', () => {
   afterEach(() => {
     client?.close();
     client = null;
+  });
+
+  it('首读正在等旧开线:替代连接接通就把同一问交到宿主,只执行一次', async () => {
+    const host = new FrameSessionHost();
+    const snapshot = { cursor: { epoch: 'test', seq: 1 }, turns: [], settlements: [], hasOlder: false };
+    const read = vi.fn(() => snapshot);
+    host.ipcMain.handle('sessionTimeline.sessionSnapshot', read);
+    const link = memoryLink(host);
+    let opens = 0;
+    client = createSessionHostClient((handlers) => ++opens === 1 ? new Promise(() => undefined) : link.open(handlers));
+    const got: unknown[] = [];
+    const firstRead = client.api.invoke('sessionTimeline.sessionSnapshot', { conversationId: 'test-session' }).then((value) => got.push(value));
+    client.reconnectNow();
+    await flush();
+    expect(got).toEqual([snapshot]);
+    expect(read).toHaveBeenCalledTimes(1);
+    await firstRead;
+  });
+
+  it('sends no broadcasts before the first subscription, even when opening never finishes', () => {
+    const host = new FrameSessionHost();
+    const frames: Array<string | Uint8Array> = [];
+    let receive: (frame: string | Uint8Array) => void = () => { throw new Error('not attached'); };
+    const detach = host.attach({
+      send: (frame) => { frames.push(frame); },
+      close: () => undefined,
+      onFrame: (handler) => { receive = handler; },
+      onClose: () => undefined,
+    });
+    try {
+      frames.length = 0; // The host hello is a direct protocol message.
+      host.broadcast('pty:data.other', 'unsolicited');
+      expect(frames).toEqual([]);
+
+      receive(JSON.stringify({ t: 'sub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.other', 'still unrelated');
+      host.broadcast('pty:data.mine', 'subscribed');
+      expect(frames.map((frame) => JSON.parse(String(frame)))).toEqual([
+        { t: 'event', channel: 'pty:data.mine', data: 'subscribed' },
+      ]);
+
+      receive(JSON.stringify({ t: 'unsub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.mine', 'after unsub');
+      expect(frames).toHaveLength(1);
+    } finally {
+      detach();
+    }
   });
 
   it('pushes only the channels the client subscribed to', async () => {
@@ -176,6 +223,18 @@ describe('FrameSessionHost over a device-shaped link', () => {
     client = createSessionHostClient(link.open);
     await expect(client.api.invoke('tasks.getTasks')).resolves.toEqual(['t1']);
     await expect(client.api.invoke('app.quit')).rejects.toThrow(/No handler registered for 'app.quit'/);
+  });
+
+  it('checks App operation arguments on a persistent frame connection as well as one-shot calls', async () => {
+    const host = new FrameSessionHost();
+    const run = vi.fn((_event, _verb, input) => input.name);
+    host.ipcMain.handle('app.assistantAppCall', run);
+    client = createSessionHostClient(memoryLink(host, remoteInvokePolicyForCaller('owner')).open);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_list' }, 'owner')).resolves.toBe('assistant_work_list');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'owner')).resolves.toBe('assistant_work_clear');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'other')).rejects.toThrow(/No handler/);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'library_write' }, 'owner')).rejects.toThrow(/No handler/);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('opens a wire transport that carries messages both ways and reports the drop', async () => {

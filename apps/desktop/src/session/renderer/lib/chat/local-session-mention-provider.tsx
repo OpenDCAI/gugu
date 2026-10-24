@@ -1,12 +1,6 @@
 import type { ContextMentionProvider, MentionItem } from '@gugu/session-ui/react/components';
-import { AGENT_TYPES } from '@gugu/core/shared/enums/agentTypeModels';
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
-import {
-  agentCreationToolsFromDescriptors,
-  LOCAL_AGENT_CREATION_TOOLS,
-  type AgentCreationToolDescriptor,
-  type LocalAgentCreationTool,
-} from '@/lib/agentCreationTools';
+import type { LocalAgentCreationTool } from '@/lib/agentCreationTools';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
@@ -20,7 +14,6 @@ import {
 } from './chat-mention-provider';
 import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { log } from '@renderer/utils/logger';
-import { useEffect, useState } from 'react';
 
 type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string };
 
@@ -29,7 +22,6 @@ type MentionTool = Pick<LocalAgentCreationTool, 'icon'>;
 export type LocalSessionMentionOptions = {
   excludeSessionId?: string;
   creationToolsByEngine?: ReadonlyMap<string, MentionTool>;
-  creationToolsError?: string | null;
 };
 
 /**
@@ -54,7 +46,6 @@ function findSessionForMention(
 function candidatesFromRows(
   rows: readonly SessionShellPeer[],
   options: LocalSessionMentionOptions,
-  warnedMissingEngines: Set<string>,
 ): MentionCandidate[] {
   return rows.flatMap((peer) => {
     if (peer.sessionId === options.excludeSessionId) return [];
@@ -70,26 +61,6 @@ function candidatesFromRows(
 
     const engine = peer.engine;
     const iconUrl = engine ? options.creationToolsByEngine?.get(engine)?.icon?.trim() || '' : '';
-    const isKnownEngine = (AGENT_TYPES as readonly string[]).includes(engine);
-    if (
-      !iconUrl
-      && (
-        !isKnownEngine
-        || Boolean(options.creationToolsByEngine?.size)
-        || Boolean(options.creationToolsError)
-      )
-    ) {
-      const missingEngine = engine || '<missing>';
-      if (!warnedMissingEngines.has(missingEngine)) {
-        warnedMissingEngines.add(missingEngine);
-        log.warn('Agent mention harness icon unavailable; using initial avatar', {
-          engine: engine || null,
-          userId: users.id,
-          name,
-        });
-      }
-    }
-
     return [{
       id: users.id,
       sessionId: peer.sessionId,
@@ -125,9 +96,6 @@ function mentionItemsFromLocalSessionCandidates(
       role: 'agent' as const,
       engine: candidate.engine,
       description: candidate.title,
-      icon: candidate.iconUrl
-        ? <img src={candidate.iconUrl} alt="" width={16} height={16} />
-        : undefined,
     }));
 }
 
@@ -168,12 +136,10 @@ export function localSessionMentionHiddenContext(
  */
 async function loadLocalSessionMentionCandidates(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
-  warnedMissingEngines: Set<string> = new Set<string>(),
 ): Promise<{ candidates: MentionCandidate[]; notRead: readonly { id: string; label: string }[] }> {
-  if (!window.electronAPI) return { candidates: [], notRead: [] };
   const local = await shellPort().sessionPeers();
   const remote = remoteHostsStore.directoryPeers();
-  const candidates = candidatesFromRows([...local, ...remote.peers], options, warnedMissingEngines);
+  const candidates = candidatesFromRows([...local, ...remote.peers], options);
   if (options.mentionUri) {
     registerLocalSessionMentions(options.mentionUri, candidates);
   }
@@ -204,11 +170,10 @@ export type LocalSessionMentionProvider = ContextMentionProvider & {
 export function createLocalSessionMentionProvider(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
 ): LocalSessionMentionProvider {
-  const warnedMissingEngines = new Set<string>();
   return {
     async search(query) {
       try {
-        const { candidates, notRead } = await loadLocalSessionMentionCandidates(options, warnedMissingEngines);
+        const { candidates, notRead } = await loadLocalSessionMentionCandidates(options);
         return [...mentionItemsFromLocalSessionCandidates(candidates, query), ...notRead.map(notReadItem)];
       } catch (error) {
         log.warn('Failed to load local session mentions', { error });
@@ -219,7 +184,7 @@ export function createLocalSessionMentionProvider(
       const wanted = sessionId.trim();
       if (!wanted) return null;
       try {
-        const { candidates } = await loadLocalSessionMentionCandidates(options, warnedMissingEngines);
+        const { candidates } = await loadLocalSessionMentionCandidates(options);
         const match = candidates.find((candidate) => candidate.sessionId === wanted);
         if (!match) return null;
         // 空查询走与弹层同一条映射,pill 的形状(名字/图标/副标题)因此不会分叉。
@@ -230,39 +195,4 @@ export function createLocalSessionMentionProvider(
       }
     },
   };
-}
-
-/** The provider and initial task composer share the same Electron tool catalog. */
-export function useSessionAgentCreationTools(): {
-  tools: readonly LocalAgentCreationTool[];
-  error: string | null;
-} {
-  const [tools, setTools] = useState<readonly LocalAgentCreationTool[]>(() =>
-    typeof window !== 'undefined' && window.electronAPI ? [] : LOCAL_AGENT_CREATION_TOOLS,
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const electron = typeof window !== 'undefined' ? window.electronAPI : undefined;
-    const load = electron?.getAgentCreationTools
-      ? electron
-          .getAgentCreationTools()
-          .then((raw) => agentCreationToolsFromDescriptors(raw as AgentCreationToolDescriptor[]))
-      : Promise.resolve(LOCAL_AGENT_CREATION_TOOLS);
-    let active = true;
-    void load
-      .then((next) => {
-        if (!active) return;
-        setTools(next);
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : String(reason));
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  return { tools, error };
 }

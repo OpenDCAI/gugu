@@ -1,3 +1,4 @@
+import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
 // ACP 引擎运行时工具 —— 从已删除的 JSON-RPC automation 层(原 rpc/methods/acpEngine.ts)抽出的
 // 纯生产函数：引擎配置加载 / provider 凭据 allowlist / 注入式社交桥。
 // 由 session-page 会话路径调用。原文件的 registerAcpEngineMethods()(HTTP RPC 端点)随对外
@@ -5,6 +6,8 @@
 
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { requireRuntimeAuth, resolveGuguHome, type RuntimeAuth, type RuntimeAuthProvider } from '@gugu/core'
+import { assistantExecutionAction } from '@gugu/core/shared/assistantWorkflow'
+import { coordinateAssistantAction, type AssistantWorkBinding } from './sessionpage/assistant-work'
 import { makeIdentityClient } from './supabase'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -14,6 +17,8 @@ import { GUGU_MCP_SERVER_NAME } from './mcp/gugu-mcp-name.mjs'
 import { registerGuguScheduleTools } from './mcp/gugu-schedule-tool'
 import { registerGuguProjectTools } from './mcp/gugu-project-tool'
 import { registerGuguLibraryTools } from './mcp/gugu-library-tool'
+import { registerAssistantResource } from './mcp/gugu-assistant-resource'
+import type { AssistantLocalSource } from './sessionpage/assistant-local-index'
 import { registerGuguSessionTools, type SessionDispatcher } from './mcp/gugu-session-tool'
 import { registerGuguExtensionTools } from './mcp/gugu-extension-tool'
 import { runAppAction } from './mcp/app-tool-host'
@@ -23,6 +28,8 @@ import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, type CatalogTool } from '.
 import { registerGuguAppSearchTool, type AppSearchHit } from './mcp/gugu-app-search-tool'
 import { buildAgentIdentityBlock } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type { McpServerOwner } from '@gugu/session-core/mcp'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import type { GuguMcpRequestTracker } from './gugu-mcp-host'
 
 export type AcpMcpServer =
   | {
@@ -139,7 +146,11 @@ export function providerEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 interface GuguMcpContextBase {
   expectedOwnerUserId: string
   subjectId: string
+  /** Explicit provision role, never inferred from workspace or inherited by executors. */
+  personalAssistant?: true
+  assistantWork?: AssistantWorkBinding
   runSessionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
+  readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 `gugu_session` 的 app_* 动作:写一个会话页 tab 扩展并装上。不需要 owner 令牌。 */
   runExtensionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   /** #6615 这张卡的 key(`taskpage:<会话>`):扩展目录按它认会话。 */
@@ -191,8 +202,15 @@ export type DesktopGuguMcpHost = GuguMcpHost<GuguMcpContext>
 
 export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): DesktopGuguMcpHost {
   return new GuguMcpHost<GuguMcpContext>(
-    (getContext, grantSignal, trackRequest) => {
+    (getContext, grantSignal, trackHostRequest) => {
       const initial = getContext()
+      const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
+        const tracked = trackHostRequest(work, toolName)
+        if (initial.personalAssistant && toolName) {
+          void tracked.then(() => startupDiscovery.release(), () => startupDiscovery.release())
+        }
+        return tracked
+      }
       const server = initial.kind === 'social'
         ? createGuguImServer(() => {
             const latest = getContext()
@@ -202,18 +220,36 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         : new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
       // session_* 与 app_* 两个域(#4191)与社交域同 server 注册:
       // 一条 grant 只要拿得到其中任一半就两个域全部注册,缺的那一半在调用时报错 —— 工具清单不随
-      // grant 变,否则每种组合都是一份新的模型前缀。
+      // 同角色的 grant 变,否则每种组合都是一份新的模型前缀。个人助理只排除 device_call;
+      // 这是两种固定角色工具面,不是按会话的动态授权清单。
       if (getContext().runSessionAction || getContext().runExtensionAction) {
         const sessionDispatcher: SessionDispatcher | undefined = getContext().runSessionAction
           ? (action, requestSignal) => {
               const run = getContext().runSessionAction
               if (!run) throw new Error('session_* tools are unavailable for this grant')
-              return run(action, AbortSignal.any([grantSignal, requestSignal]))
+              const dispatch = (input: unknown) => run(input, AbortSignal.any([grantSignal, requestSignal]))
+              const work = initial.personalAssistant ? assistantExecutionAction(action) : action
+              return initial.personalAssistant && initial.assistantWork ? coordinateAssistantAction(initial.assistantWork, work, dispatch) : dispatch(work)
             }
           : undefined
-        registerGuguSessionTools(server, sessionDispatcher, trackRequest)
+        registerGuguSessionTools(server, sessionDispatcher, trackRequest, initial.personalAssistant === true)
         registerGuguProjectTools(server, sessionDispatcher, trackRequest)
         registerGuguLibraryTools(server, sessionDispatcher, trackRequest)
+        if (sessionDispatcher) registerAssistantResource(server, {
+          accountId: async () => {
+            const context = getContext()
+            if (context.kind !== 'social' || context.forkOf !== undefined) return null
+            await context.getAccessToken(grantSignal)
+            return context.expectedOwnerUserId
+          },
+          run: (action, signal) => sessionDispatcher(action, AbortSignal.any([grantSignal, signal])),
+          ...(initial.readAssistantResources ? { localSources: () => {
+            const read = getContext().readAssistantResources
+            if (!read) throw new Error('Personal assistant context is unavailable')
+            return read()
+          } } : {}),
+        })
+        registerGuguActivityTools(server, sessionDispatcher, trackRequest)
         // #7221 schedule_* 与 session_* 同一个分派器:给自己排的已安排只作用于这条会话。
         registerGuguScheduleTools(server, sessionDispatcher, trackRequest)
         registerGuguExtensionTools(
@@ -261,11 +297,12 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       subjectId: context.subjectId,
       // 分叉的 IM 工具「注册但不可执行」—— 台账要照实记,否则一条不能收发消息的 grant 会以
       // 「gugu+session」的面目留在审计里。
-      toolScope: context.kind !== 'social'
+      toolScope: (context.kind !== 'social'
         ? 'session-only'
         : context.forkOf !== undefined
           ? (context.runSessionAction ? 'runtime-fork+session' : 'runtime-fork')
-          : (context.runSessionAction ? 'gugu+session' : 'gugu'),
+          : (context.runSessionAction ? 'gugu+session' : 'gugu'))
+        + (context.personalAssistant ? ':assistant' : ''),
     }),
     persistence,
   )
@@ -276,8 +313,11 @@ export interface BuildSocialBridgeDeps {
   getSupabaseAnonKey?: () => string
   host: DesktopGuguMcpHost
   grantKey: string
+  personalAssistant?: true
+  assistantWork?: AssistantWorkBinding
   runHostAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   runSessionAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
+  readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 无需 owner 令牌:写文件与装扩展都不代表用户去调任何云端接口。 */
   runExtensionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   /** 运行时分叉:来源 agent 的显示名。见 GuguMcpContext.forkOf。 */
@@ -317,8 +357,16 @@ export async function buildSocialBridge(
       threadRootId: threadRootId ?? null,
       guguHome: resolveGuguHome(context.env),
       grantKey: deps.grantKey,
+      ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
+      ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
+      ...(deps.readAssistantResources ? { readAssistantResources: async () => {
+        await getBoundAuth()
+        const resources = await deps.readAssistantResources!()
+        await getBoundAuth()
+        return resources
+      } } : {}),
       ...(deps.runHostAction
         ? { runHostAction: async (action: unknown, signal?: AbortSignal) => {
             const result = await deps.runHostAction!(action, await getBoundAuth(signal), signal!)

@@ -31,7 +31,9 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     // The folder's doors, as the person: the deck by its id, who may delete what (everyone, everything).
     // (Built when asked: this client is made while the module loads, before DECK is.)
     const rpc = async (name: string, args: Record<string, unknown>) =>
-      name === 'workspace_deletable_as'
+      name === 'chat_facts'
+        ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
+        : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
         : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null }
     return { from: () => query, rpc }
@@ -49,7 +51,7 @@ function start(capabilities: PhoneAppBinding['capabilities']) {
   host?.dispose()
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
     {
       showMessage: vi.fn(),
       showSession: (sessionId: string) => {
@@ -190,7 +192,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
 
   it('files:read:all-machines is kept when installed here and has what files:read gives: its verbs, and a watched chat changing', async () => {
     start(['chat:relay'])
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
     const manifest = parseExtensionManifest({
       id: 'board',
       name: 'Board',
@@ -203,12 +205,12 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
     const kept = grantableBy(manifest, PHONE_CAPABILITIES).permissions?.capabilities ?? []
     expect(kept).toEqual(['files:read:all-machines', 'chat:relay'])
     start(kept)
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     const filesChanged = () => posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'filesChanged')
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(1)
     // A new theme rebinds the frame (update): what the word covers stays.
-    host!.update({ extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
+    host!.update({ extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(2)
   })

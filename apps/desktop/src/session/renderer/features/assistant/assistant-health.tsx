@@ -1,11 +1,10 @@
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpToLine, FileText, Heart, Moon, RefreshCw, Sparkles, Zap } from '@/lib/icons';
-import { LoadingIndicator } from '@/lib/loading/LoadingIndicator';
+import { ArrowUpToLine, FileText, Heart, Moon, Sparkles, Zap } from '@/lib/icons';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import type { BaselineStatus, HealthNight, HealthSignal, HealthSummary, HealthWorkout } from '@gugu/core/shared/healthSummary';
 import type { AssistantContext, AssistantPageProps } from './assistant-context';
-import { usePhoneHealth, useMemoryNotes, type PhoneHealthView } from './assistant-data';
+import { useMemoryNotes } from './assistant-data';
 import { AssistantEmpty, AssistantRow, AssistantSection, PageHead, Tile } from './assistant-ui';
 
 type T = ReturnType<typeof useTranslation<'assistant'>>['t'];
@@ -17,101 +16,21 @@ export const HEALTH_REPORT_ACCEPT = 'application/pdf,image/*';
 export const isHealthNote = (file: string) => /^health[_-]/i.test(file);
 
 /**
- * 健康(入口在「记忆」首页那张「健康」卡):
- * 页头 → 读不到时如实说是哪一种并给下一步 →「今天」关键指标(两列小卡:值、基线状态、7 天小柱)→ 昨晚 → 锻炼 → 身体 →
- * 你的健康分析(让它解读;它记进记忆的 health_* 那几条)→ 分析健康报告(选 PDF / 图片,放进和它的聊天,人看过再发)。
- * 数据是此刻经设备动作问主人的手机读的(phone-health.ts),与云电脑上的它 device_call 同一条路;❌ 叫醒云电脑。
+ * Desktop health data must come from this computer or a cloud data source. Neither source currently
+ * provides a health summary. Keep the empty state explicit; do not query another device or invent zeros.
+ * HealthBody below remains shared with the phone, which reads its own local health provider.
  */
 export function AssistantHealthPage({ context }: AssistantPageProps) {
   const { t } = useTranslation('assistant');
-  const health = usePhoneHealth();
-  const view = health.data;
   return (
-    <div className="ta-page" data-testid="assistant-health" data-state={health.isLoading ? 'loading' : health.isError ? 'error' : view?.state}>
-      <PageHead
-        title={t('health.title')}
-        sub={view?.state === 'ok' ? t('health.from', { device: view.label, time: clock(view.summary.generated_at) }) : undefined}
-        action={
-          <button
-            type="button"
-            className="ta-circle"
-            aria-label={t('health.refresh')}
-            title={t('health.refresh')}
-            disabled={health.isFetching}
-            onClick={() => void health.refetch()}
-            data-testid="assistant-health-refresh"
-          >
-            {health.isFetching ? <LoadingIndicator size="inline" /> : <RefreshCw />}
-          </button>
-        }
-      />
-      {health.isLoading ? (
-        <AssistantEmpty>
-          <span className="inline-flex items-center gap-2">
-            <LoadingIndicator size="inline" />
-            {t('health.loading')}
-          </span>
-        </AssistantEmpty>
-      ) : health.isError || !view ? (
-        <div className="ta-card" data-testid="assistant-health-error">
-          <AssistantEmpty title={t('health.state.errorTitle')} action={<RetryButton onRetry={() => void health.refetch()} t={t} />}>
-            {t('health.state.errorBody')}
-          </AssistantEmpty>
-        </div>
-      ) : view.state === 'ok' ? (
-        <HealthBody summary={view.summary} t={t} />
-      ) : (
-        <ConnectCard view={view} onRetry={() => void health.refetch()} t={t} />
-      )}
+    <div className="ta-page" data-testid="assistant-health" data-state="empty">
+      <PageHead title={t('health.title')} />
+      <div className="ta-card" data-testid="assistant-health-empty">
+        <AssistantEmpty>{t('health.desktopEmpty')}</AssistantEmpty>
+      </div>
       <Analysis context={context} t={t} />
       <ReportUpload context={context} t={t} />
     </div>
-  );
-}
-
-/** 读不到:「让健康状况一目了然」那张卡,下面一句说清是哪一种、去哪弄好。 */
-function ConnectCard({ view, onRetry, t }: { view: Exclude<PhoneHealthView, { state: 'ok' }>; onRetry: () => void; t: T }) {
-  const device = 'label' in view ? view.label : '';
-  const line = (() => {
-    switch (view.state) {
-      case 'no-phone':
-        return t('health.state.noPhone');
-      case 'old-app':
-        return t('health.state.oldApp', { device });
-      case 'offline':
-        return view.lastSeenAt ? t('health.state.offline', { device, time: serverTime(view.lastSeenAt) }) : t('health.state.offlineNever', { device });
-      case 'not_granted':
-        return t('health.state.notGranted', { device });
-      case 'os_permission':
-        return view.detail ?? t('health.state.osPermission', { device });
-      case 'unsupported':
-        return t('health.state.unsupported', { device });
-      case 'failed':
-        return t('health.state.failed', { message: view.message });
-      case 'unreadable':
-        return t('health.state.unreadable', { problem: view.problem });
-    }
-  })();
-  const retry = view.state === 'offline' || view.state === 'failed';
-  return (
-    <div className="ta-card ta-health-connect" data-testid={`assistant-health-${view.state}`}>
-      <span className="ta-tile-icon">
-        <Heart />
-      </span>
-      <h2 className="ta-card-title">{t(view.state === 'unreadable' ? 'health.state.unreadableTitle' : 'health.emptyStateTitle')}</h2>
-      <p className="ta-page-sub">{t('health.emptyStateSubtitle')}</p>
-      <div className="ta-card-divider" />
-      <p className="ta-health-line">{line}</p>
-      {retry ? <RetryButton onRetry={onRetry} t={t} /> : null}
-    </div>
-  );
-}
-
-function RetryButton({ onRetry, t }: { onRetry: () => void; t: T }) {
-  return (
-    <button type="button" className="ta-pill-btn" onClick={onRetry} data-testid="assistant-health-retry">
-      {t('health.retry')}
-    </button>
   );
 }
 

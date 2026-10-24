@@ -7,6 +7,7 @@
  * 离线、不在名下、够不着、太旧都在发出之前说清;发出去没回音就说「那边可能已经做了」,❌ 排队、❌ 换机器。
  */
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isAgentHostDevice } from '@gugu/core/cloud/devices'
 import { cloudComputerPresence, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
 import { encodeTypedId } from '@gugu/core/shared/typedId.mjs'
@@ -130,15 +131,18 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
   const describe = (device: Device) => `"${device.label}" (device:${device.device_id})`
   const labelOf = async (deviceId: string) => (await deps.listDevices()).find((row) => row.device_id === deviceId)?.label ?? null
+  const noTaskRuntime = (device: Device) => new CrossMachineError('device_no_task_runtime',
+    `${describe(device)} 没有启用任务宿主。请主人在那台设备上开启任务宿主后重试；其他设备不能代调它的原生能力。`)
 
   /** 那台机器此刻能不能接 —— 不能就在发出去之前说清为什么。 */
-  const reachable = async (deviceId: string): Promise<Device> => {
+  const reachable = async (deviceId: string, requireTaskRuntime = true): Promise<Device> => {
     const { thisDeviceId, rows } = await devices()
     if (deviceId === thisDeviceId) throw new CrossMachineError('SESSION_DEVICE_IS_THIS_MACHINE', `device:${deviceId} is this machine`)
     const device = rows.find((row) => row.device_id === deviceId)
     if (!device) {
       throw new CrossMachineError('SESSION_DEVICE_UNKNOWN', `device:${deviceId} is not one of this account's machines — session_devices lists them`)
     }
+    if (requireTaskRuntime && !isAgentHostDevice(device)) throw noTaskRuntime(device)
     if (!device.is_online) {
       // #7199 睡着的云电脑:先叫醒,醒了照常发出去;醒不来就说是哪台、为什么。
       let woke = false
@@ -201,7 +205,17 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId), `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+    request(await reachable(deviceId, !('kind' in caller)), `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+
+  const assertFileHandoffSupported = async (deviceIds: string[]) => {
+    for (const id of new Set(deviceIds)) {
+      const device = await reachable(id)
+      const protocol = device.capabilities.remote_protocol
+      if (typeof protocol !== 'number' || protocol < 11) throw new CrossMachineError(
+        'SESSION_DEVICE_OUTDATED', `Update 咕咕 on ${describe(device)} before sending session files; nothing was uploaded or sent there`,
+      )
+    }
+  }
 
   /** 本机库里没有的 `session:` id 各在哪台机器:先查记下的,再并发问在线的机器。 */
   const locateSessions = async (ids: string[], caller: RemoteSessionCaller, signal?: AbortSignal) => {
@@ -209,9 +223,9 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const missing = ids.filter((id) => !found.has(id))
     const { thisDeviceId, rows } = await devices()
     const others = rows.filter((row) => row.device_id !== thisDeviceId)
-    const unasked = others.filter((row) => !row.is_online)
+    const unasked = others.filter((row) => !row.is_online || !isAgentHostDevice(row))
     if (!missing.length) return { found, unasked: [] as Device[] }
-    await Promise.all(others.filter((row) => row.is_online).map(async (device) => {
+    await Promise.all(others.filter((row) => row.is_online && isAgentHostDevice(row)).map(async (device) => {
       try {
         const result = await call(device.device_id, caller, { action: 'locate', session_ids: missing }, signal) as { session_ids?: unknown }
         for (const id of Array.isArray(result?.session_ids) ? result.session_ids : []) {
@@ -229,7 +243,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   const notFoundMessage = (ids: string[], unasked: Device[]) => {
     const list = ids.map((id) => `session:${id}`).join(', ')
     const tail = unasked.length
-      ? ` — could not check: ${unasked.map((device) => `${describe(device)} (${device.is_online ? 'no answer' : `offline, last seen ${ago(device.last_seen_at, now())}`})`).join(', ')}`
+      ? ` — could not check: ${unasked.map((device) => !isAgentHostDevice(device) ? noTaskRuntime(device).message : `${describe(device)} (${device.is_online ? 'no answer' : `offline, last seen ${ago(device.last_seen_at, now())}`})`).join(', ')}`
       : ''
     return `${list} is not a session on this machine or on any of this account's online machines${tail}. session_peers (with device for another machine) lists what is addressable; nothing was sent`
   }
@@ -278,7 +292,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     let caller: RemoteSessionCaller
     try {
       const { thisDeviceId, rows } = await devices()
-      others = rows.filter((row) => row.device_id !== thisDeviceId && row.is_online)
+      others = rows.filter((row) => row.device_id !== thisDeviceId && row.is_online && isAgentHostDevice(row))
       if (!others.length) return local
       caller = await callerOf()
     } catch {
@@ -340,6 +354,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const sinceMs = since ? Date.parse(since) : Number.NEGATIVE_INFINITY
     const { sessions, unreached }: Awaited<ReturnType<OtherMachines['sessions']>> = { sessions: [], unreached: [] }
     await Promise.all(rows.filter((row) => row.device_id !== thisDeviceId).map(async (device) => {
+      if (!isAgentHostDevice(device)) {
+        unreached.push({ deviceId: device.device_id, label: device.label, detail: noTaskRuntime(device).message })
+        return
+      }
       if (!device.is_online) {
         if (!(Date.parse(device.last_seen_at) < sinceMs)) {
           unreached.push({
@@ -430,6 +448,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
             device_id: device.device_id,
             label: device.label,
             kind: device.capabilities?.host_kind ?? null,
+            task_runtime: {
+              capability: device.capabilities?.host_runtime_capability ?? 0,
+              runtimes: device.capabilities?.runtimes ?? [],
+            },
             platform: device.platform,
             online: device.is_online,
             last_seen_at: device.last_seen_at,
@@ -457,6 +479,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     appReadFile,
     appCall,
     messageDeps,
+    assertFileHandoffSupported,
     answer,
   }
 }

@@ -59,6 +59,7 @@ export class PtySessionRegistry {
     options: {
       /** PTY 起的网格:屏幕从第一个字节起就要按 PTY 自己的网格解析。 */
       size: PtyDimensions;
+      scrollback?: number;
       preserveBufferOnExit?: boolean;
       metadata?: PtySessionMetadata;
       onProviderReviewGate?: (gate: ProviderReviewGate) => void;
@@ -77,7 +78,7 @@ export class PtySessionRegistry {
     if (options.metadata) this.metadata.set(ptySessionId, options.metadata);
 
     this.ptyMap.set(ptySessionId, pty);
-    const screen = new PtyScreen(options.size);
+    const screen = new PtyScreen(options.size, undefined, options.scrollback);
     this.screens.set(ptySessionId, screen);
 
     // Adopt the grid the renderer already asked for.  Spawn callers size the PTY

@@ -7,27 +7,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
+vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
+
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
-const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenWorkspacePanel = vi.fn()) =>
+const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenFolder = vi.fn()) =>
   renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
     searchMode: false,
-    workspacePanelOpen: false,
+    folderShown: false,
     memberListOpen: false,
-    historyPanelOpen: false,
     showHeaderMenu: false,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
-    onOpenWorkspacePanel,
+    onOpenFolder,
     onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(),
     onOpenMemberList: vi.fn(),
     onCloseRightSurfaces: vi.fn(),
-    onOpenHistoryPanel: vi.fn(),
-    onCloseHistoryPanel: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
     onOpenAnnouncement: vi.fn(),
@@ -35,7 +34,7 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
 const workspaceButton = () => document.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
 
 describe('a private chat has the folder (workspace) button in its header', () => {
-  it.each([false, true])('mobile=%s: it is there, and opens the panel', async (mobile) => {
+  it.each([false, true])('mobile=%s: it is there, and opens the folder in the panel', async (mobile) => {
     const onOpen = vi.fn()
     await header({ isGroupChat: false, isRoomChat: false, mobile }, onOpen)
     expect(workspaceButton()).not.toBeNull()

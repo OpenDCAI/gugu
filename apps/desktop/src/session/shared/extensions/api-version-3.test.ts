@@ -26,27 +26,24 @@ function issues(raw: unknown): string {
 describe('an App written for apiVersion 1 or 2', () => {
   it.each([1, 2])('%i: refused in one sentence that says what to do — and nothing about what changed', (version) => {
     expect(issues(app(version))).toBe(
-      `apiVersion: apiVersion ${version} is an older App interface; ask an agent to rewrite the App for apiVersion 10 as app_create writes Apps.`,
+      `apiVersion: apiVersion ${version} is an older App interface; ask an agent to rewrite the App for apiVersion ${EXTENSION_API_VERSION} as app_create writes Apps.`,
     );
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(10);
+    expect(EXTENSION_API_VERSION).toBe(14);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
   // 4 (10-15, App 引用 pill) took `about` out of compose / send: an App on 3 still installs and runs — only a call
   // passing `about` is refused, when it is made — and the market hands a client that knows only 3 an App's 3.
-  it('3 to 8 still parse; the market uses 5 for host pages, 6 for chat:read, 7 for places in task links, 8 for subtitle, 9 for the forum, 10 for a compose naming no place, and refuses a future interface', () => {
+  it('keeps installed supported Apps readable and refuses a future interface', () => {
     expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(3);
-    expect(issues(app(3))).toBe('');
-    expect(issues(app(4))).toBe('');
-    expect(issues(app(5))).toBe('');
-    expect(issues(app(6))).toBe('');
-    expect(issues(app(7))).toBe('');
-    expect(issues(app(8))).toBe('');
-    expect(issues(app(9))).toBe('');
-    expect(issues(app(11))).toBe('apiVersion: apiVersion 11 needs a newer gugu (this build supports up to 10)');
+    for (let version = EXTENSION_API_VERSION_MIN_SUPPORTED; version <= EXTENSION_API_VERSION; version++) {
+      expect(issues(app(version))).toBe('');
+    }
+    const future = EXTENSION_API_VERSION + 1;
+    expect(issues(app(future))).toBe(`apiVersion: apiVersion ${future} needs a newer gugu (this build supports up to ${EXTENSION_API_VERSION})`);
   });
 });
 

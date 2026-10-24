@@ -2,6 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding'
 import { Button } from '@/components/ui/Button'
 import { PaneHeader } from '@/components/ui/Pane'
+import { AgentAvatar } from '@/components/agentAvatar/AgentAvatar'
+import { DEFAULT_ASSISTANT_LOOK } from '@/components/agentAvatar/look'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
 import { canSetUpCloudAssistant } from '@/lib/assistantHome'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -31,7 +33,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'cloud-unreadable':
         return (
           <>
-            <p className="ta-intro-body">{t('cloud.unreadable')}</p>
+            <p className="ta-intro-body" role="alert">{t('cloud.unreadable')}</p>
             <Button variant="ghost" className="ta-pill-btn" onClick={() => void refreshCloudComputer().catch(() => undefined)} data-testid="mobile-assistant-cloud-retry">
               {t('machine.retry')}
             </Button>
@@ -42,9 +44,9 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'identity':
         return (
           <>
-            <div className="ta-intro-glow" aria-hidden />
+            <AgentAvatar name={who} id="gugu-default" look={DEFAULT_ASSISTANT_LOOK} size={72} />
             <h1 className="ta-intro-title">{t('identity.title')}</h1>
-            <p className="ta-intro-body">{t(`identity.${stage.state}`)}</p>
+            <p className="ta-intro-body" role={stage.state === 'unreadable' ? 'alert' : 'status'}>{t(`identity.${stage.state}`)}</p>
             {stage.state === 'unreadable' ? (
               <Button variant="ghost" className="ta-pill-btn" onClick={() => reloadMyAssistant(user?.id)} data-testid="mobile-assistant-identity-retry">
                 {t('machine.retry')}
@@ -57,7 +59,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'chat-failed':
         return (
           <>
-            <p className="ta-intro-body">{t('chat.openFailed', { name: who })}</p>
+            <p className="ta-intro-body" role="alert">{t('chat.openFailed', { name: who })}</p>
             <Button variant="ghost" className="ta-pill-btn" onClick={stage.retry} data-testid="mobile-assistant-chat-retry">
               {t('machine.retry')}
             </Button>
@@ -71,7 +73,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
     const device = snapshot?.deviceId ? devices.find((d) => d.device_id === snapshot.deviceId) ?? null : null
     return (
       <div className="ta-phone" data-testid="mobile-assistant-gate-onboarding">
-        <PaneHeader mobile title={who} />
+        <PaneHeader mobile title={who} titleLevel="page" />
         <main className="ta-phone-gate ta-phone-onboarding">
           <AssistantOnboarding ownerUserId={user.id} ownerName={ownerName} snapshot={snapshot} device={device} cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)} localDeviceId={null} />
         </main>
@@ -81,7 +83,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
 
   return (
     <div className="ta-phone" data-testid={`mobile-assistant-gate-${stage.stage}`}>
-      <PaneHeader mobile title={who} />
+      <PaneHeader mobile title={who} titleLevel="page" />
       <main className="ta-phone-gate">
         <div className="ta-intro">{body}</div>
       </main>
@@ -91,7 +93,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
 
 function Waiting({ text }: { text: string }) {
   return (
-    <p className="ta-intro-body inline-flex items-center gap-2">
+    <p className="ta-intro-body inline-flex items-center gap-2" role="status">
       <LoadingIndicator size="inline" />
       {text}
     </p>

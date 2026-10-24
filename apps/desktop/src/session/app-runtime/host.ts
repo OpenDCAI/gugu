@@ -8,6 +8,12 @@ import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
 export interface GuguHost {
+  readonly modal?: {
+    open(options: Record<string, unknown>): Promise<unknown>;
+    close(result?: unknown): Promise<void>;
+    key(key: string): Promise<void>;
+  };
+  onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */
   readonly framed?: boolean;
@@ -23,7 +29,7 @@ export interface GuguHost {
   readonly checkPage?: { report(counts: PageCounts): Promise<void> };
   /** `level: 'hint'` (摩擦单 F62): for the App's author, not a sign it is broken — recorded, but no red dot. Default `error`. */
   reportError(message: string, options?: { level?: 'error' | 'hint' }): Promise<void>;
-  onFilesChanged(handler: (place: AppPlace, change: ExtensionFileChangeBatch) => void): () => void;
+  onFilesChanged(handler: (watchId: string, change: ExtensionFileChangeBatch) => void): () => void;
   /** Every call names where its file is (`AppPlace`, `AppFileRef`, 真源原则 13). */
   readonly appFiles: {
     open(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
@@ -41,7 +47,7 @@ export interface GuguHost {
     move(args: { ref: AppFileRef; folder?: string; name?: string }): Promise<AppFileEntry>;
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
-    watch(args: { place: AppPlace; on: boolean }): Promise<void>;
+    watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
     readVersion(args: { ref: AppFileRef; n: number }): Promise<AppFileVersionContent>;

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { EXTENSION_API_VERSION } from './bridge-protocol';
 import { networkHostAllowed } from './partition';
+import { APP_PLATFORMS } from './app-platforms';
+import { claimTakes } from './file-openers';
 
 /**
  * Extension (App) manifest — the `manifest.json` at the root of an
@@ -68,7 +70,7 @@ function isBundleRelativePath(value: string): boolean {
   return segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
-const bundlePathSchema = z
+export const bundlePathSchema = z
   .string()
   .min(1)
   .max(256)
@@ -262,6 +264,13 @@ const tabContributionSchema = z.strictObject({
    */
   opensFiles: opensFilesSchema.optional(),
   /**
+   * API 14 (owner 10-24: one App's one resource is one tab): the file this tab shows when the App is opened in a chat — a
+   * name at the top of that chat's folder (`"协作看板.board.json"`), one of this tab's `opensFiles.chat` claims. The host
+   * finds it before any of the App runs, made empty the first time (`{}` for JSON, which the App fills): so the App opened
+   * from the chat and that file opened from the folder are one tab. Without it, the App in a chat is its own page.
+   */
+  chatFile: z.string().trim().min(1).max(128).regex(/^[^/\\]+$/, { message: 'a file name at the top of the chat folder, without folders' }).optional(),
+  /**
    * The icon of each kind of file this tab opens, by its claim in `opensFiles`: `{ ".md": "md.png" }` — what a file list
    * draws next to such a file (owner 10-17: a markdown file drawn with the folder App's own icon reads as a folder). The
    * same rules as `icon`: raster, re-encoded by the host. A claim without one is drawn with the host's generic file mark,
@@ -434,6 +443,8 @@ export const extensionManifestSchema = z
     }),
     /** Human-facing extension name. */
     name: z.string().trim().min(1).max(64),
+    /** Required when publishing or installing; installed older Apps remain readable at runtime. */
+    platforms: z.array(z.enum(APP_PLATFORMS)).optional(),
     /**
      * What it does, for the market card and the detail sheet. Optional: every
      * bundle that exists predates it, and a manifest is not less valid for not
@@ -567,6 +578,8 @@ export const extensionManifestSchema = z
        * session as-is — text the agent reads, nothing gugu runs.
        */
       skills: bundlePathSchema.optional(),
+      /** Standing behavior delivered in the session platform prompt, independently of skill discovery. */
+      agentInstructions: z.string().trim().min(1).max(8000).optional(),
       /**
        * The App's own choice of how its programs' tools reach agents (owner 10-06「本身一个 app 自己初始化的时候也给自己
        * 抉择啊」): listed in every new session's tool list instead of the catalog (D-10's default). Read once, at the
@@ -612,6 +625,16 @@ export const extensionManifestSchema = z
           ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'fileIcons', claim], message: `"${claim}" is not one of this tab's opensFiles claims (${claims.join(', ') || 'none'}): fileIcons are keyed by them` });
         }
       }
+      if (tab.chatFile !== undefined) {
+        if (manifest.apiVersion < 14) ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'chatFile requires apiVersion 14' });
+        const chatClaims = claimedSuffixes(tab, 'chat');
+        if (!chatClaims.some((claim) => claimTakes(claim, tab.chatFile!))) {
+          ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs', index, 'chatFile'], message: `"${tab.chatFile}" is not a file this tab opens in a chat (its opensFiles.chat: ${chatClaims.join(', ') || 'none'})` });
+        }
+      }
+    }
+    if (manifest.contributes.tabs.filter((tab) => tab.chatFile !== undefined).length > 1) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'tabs'], message: 'one tab at most names the file it shows in a chat (chatFile)' });
     }
     // 同时声明窄的和宽的是自相矛盾的:安装清单要照哪一条写给用户看?默默取宽的
     // 那个,等于让「默认最小」在一个笔误上悄悄失效。当场判错。
@@ -648,13 +671,16 @@ export const extensionManifestSchema = z
     if (subtitled && manifest.apiVersion < 8) {
       ctx.addIssue({ code: 'custom', path: ['apiVersion'], message: 'subtitle requires apiVersion 8' });
     }
-    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined;
+    if (manifest.contributes.agentInstructions && servers.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['contributes', 'agentInstructions'], message: 'standing instructions require an MCP program' });
+    }
+    const extendsAgents = servers.length > 0 || manifest.contributes.skills !== undefined || manifest.contributes.agentInstructions !== undefined;
     const offersTools = (declared as readonly string[]).includes('agents:tools');
     if (extendsAgents && !offersTools) {
       ctx.addIssue({
         code: 'custom',
         path: ['permissions', 'capabilities'],
-        message: 'an App that gives agents MCP servers or skills must declare "agents:tools", so the install sheet says so',
+        message: 'an App that gives agents MCP servers, skills or standing instructions must declare "agents:tools", so the install sheet says so',
       });
     }
     if (offersTools && !extendsAgents) {
@@ -662,7 +688,7 @@ export const extensionManifestSchema = z
         code: 'custom',
         path: ['permissions', 'capabilities'],
         // app_create takes these same fields, in its manifest (S1), so one name serves both.
-        message: '"agents:tools" is declared but there are no contributes.mcpServers or contributes.skills',
+        message: '"agents:tools" is declared but there are no contributes.mcpServers, contributes.skills or contributes.agentInstructions',
       });
     }
     if (manifest.contributes.toolsListed && servers.length === 0) {

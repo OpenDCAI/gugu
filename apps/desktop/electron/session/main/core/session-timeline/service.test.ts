@@ -464,7 +464,7 @@ describe('session timeline service', () => {
     ).resolves.toMatchObject({ ok: false, error: { code: 'session_not_started' } });
   });
 
-  it('绑在非原生订阅连接上的会话:记录先去那条连接自己的配置根里找,原生会话不带它', async () => {
+  it('单一目录之前绑在非原生连接上的会话:用户根优先,那条连接自己的配置根排最后兜底;原生会话不带它', async () => {
     const factory = vi.fn(async () => makeTimeline().timeline);
     service.setSessionTimelineFactory(factory);
     service.setConnectionConfigRootResolver((provider, id) => (provider === 'claude' && id !== 'native' ? `/conn/${id}/.claude` : null));
@@ -472,8 +472,9 @@ describe('session timeline service', () => {
 
     state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'conn-1' } })];
     await service.snapshot({ conversationId: 'conv-1' });
-    expect(rootsOf()[0]).toBe('/conn/conn-1/.claude/projects');
-    expect(rootsOf().length).toBeGreaterThan(1); // 默认根仍在后面:会话在绑定之前留下的记录照样找得到
+    // 搬家后新内容只长在用户根里;连接根里那份是搬家时的旧副本,只给搬失败的兜底。
+    expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');
+    expect(rootsOf().length).toBeGreaterThan(1);
 
     service.resetSessionTimelineService();
     state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'native' } })];
@@ -491,7 +492,7 @@ describe('session timeline service', () => {
       row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
     ];
     await service.snapshot({ conversationId: 'fork' });
-    expect(rootsOf()[0]).toBe('/conn/conn-1/.claude/projects');
+    expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');
 
     service.resetSessionTimelineService();
     service.setConnectionConfigRootResolver(() => { throw new Error('userData unavailable'); });

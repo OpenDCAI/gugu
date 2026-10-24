@@ -377,6 +377,7 @@ export class ProjectSessionsStore {
       initialQueue: ic.initialQueue,
       startupOrigin: ic.startupOrigin,
       initialMessageId: ic.initialMessageId,
+      taskChatId: ic.taskChatId,
       // spec session-resume：创建 = 带着第一句话开一件活，那句话此刻就在手上。漏掉它，面板会在
       // 首轮落进 transcript 之前把这条会话读成「空白会话」，于是「今天我们做点什么？」这块占位页
       // 闪一下再消失，输入框也跟着从「随心输入」切成「要求后续变更」—— 一次纯粹的假状态。

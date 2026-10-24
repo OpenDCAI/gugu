@@ -1,6 +1,7 @@
 export function createCapacitorPlatformTestDouble() {
   return {
     kind: 'capacitor',
+    subscribeAppForeground: () => () => {},
     capabilities: {
       directoryPicker: false,
       appVersion: false,

@@ -458,7 +458,7 @@ async function createSessionSteps(
       version: '2',
       workspace: { kind: 'repository-instance', workspaceId: repositoryWorkspaceId },
     },
-    ...(request.chatId ? { birthChatId: request.chatId } : {}),
+    ...(request.chatId ? { birthGroup: { chatId: request.chatId, asTask: false } } : {}),
   };
 
   const prepared = await prepareCreateSession(params);

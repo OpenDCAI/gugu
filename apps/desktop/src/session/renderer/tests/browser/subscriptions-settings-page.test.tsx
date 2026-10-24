@@ -8,9 +8,10 @@
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { until } from '../../../../../../../tests/support/awaitCondition';
+import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { SessionSettingsContent } from '@renderer/features/settings/components/SettingsPage';
 import { queryClient } from '@renderer/lib/query-client';
+import { setLocalePreference } from '@/i18n';
 import type { HarnessConnection } from '@gugu/session-core/workspace-server/agent-config';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
@@ -47,6 +48,8 @@ const control = vi.hoisted(() => ({
   connections: [] as HarnessConnection[],
   codex: false,
   rejectSelect: false,
+  selectMessage: 'Switch failed',
+  selectBusy: null as { providerId: string; count: number } | null,
   connectionsError: false,
 }));
 
@@ -82,7 +85,9 @@ vi.mock('@renderer/lib/agent-config/runtime-client', () => ({
       return { success: true, data: connection };
     },
     selectConnection: async ({ connectionId }: { connectionId: string }) => {
-      if (control.rejectSelect) return { success: false, error: { message: 'Switch failed' } };
+      if (control.rejectSelect) {
+        return { success: false, error: { type: 'invalid-state', message: control.selectMessage, ...(control.selectBusy ? { sessionsBusy: control.selectBusy } : {}) } };
+      }
       control.selected = connectionId;
       control.connections = control.connections.map(c => ({ ...c, current: c.id === connectionId }));
       return { success: true };
@@ -121,6 +126,8 @@ beforeEach(() => {
   control.selected = '';
   control.codex = false;
   control.rejectSelect = false;
+  control.selectMessage = 'Switch failed';
+  control.selectBusy = null;
   control.connectionsError = false;
   control.connections = [{ id: 'native', kind: 'native', name: '', current: true }];
   host = document.createElement('div');
@@ -134,7 +141,8 @@ beforeEach(() => {
   window.addEventListener('error', onError);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  setLocalePreference('en-US');
   window.removeEventListener('error', onError);
   root.unmount();
   host.remove();
@@ -250,6 +258,103 @@ it('a failed dropdown switch keeps the previous current connection', async () =>
   expect(thrown).toEqual([]);
 });
 
+
+// 2026-10-23 真机:6 个 Codex 会话在干活时点「切换连接」,被拒的那句长提示进了最右那一列(宽度 auto),
+// 按最大宽度把列撑开,中间的账号列被挤到几乎没有宽度 —— 邮箱一个字一行,提示压在标题上。
+// 判据是真排版:提示出现前后账号列一样宽;提示整句落在这一行之内、在标题与账号之下。
+it('a long switch refusal is shown under the row heading and does not squeeze the account column', async () => {
+  control.codex = true;
+  control.rejectSelect = true;
+  control.selectMessage = '6 Codex sessions are still working. Switch the subscription after they finish; switching restarts every running Codex session.';
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  host.style.width = '720px';
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
+  const identity = row.querySelector('.subscription-service-identity') as HTMLElement;
+  await until('the account line is drawn', () => (identity.textContent ?? '').includes('me@example.test'));
+  // 连接数读回来之后右列的文案才定下来(「当前设备」→「当前设备 · 2 个连接」),账号列的宽度跟着变;等它稳了再量。
+  await until('the connection count is shown', () => row.querySelector('.subscription-scope')?.textContent?.includes('2') === true);
+  await untilStable('the account column settles', () => Math.round(identity.getBoundingClientRect().width));
+  const widthBefore = identity.getBoundingClientRect().width;
+  expect(widthBefore).toBeGreaterThan(150);
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the refusal is displayed', () => row.textContent?.includes('6 Codex sessions are still working') === true);
+
+  const alert = row.querySelector('[role="alert"]') as HTMLElement;
+  const card = row.getBoundingClientRect();
+  const heading = row.querySelector('.subscription-service-heading')!.getBoundingClientRect();
+  const message = alert.getBoundingClientRect();
+  expect(identity.getBoundingClientRect().width).toBeCloseTo(widthBefore, 0);
+  expect(message.top).toBeGreaterThanOrEqual(heading.bottom - 0.5);
+  expect(message.left).toBeGreaterThanOrEqual(card.left);
+  expect(message.right).toBeLessThanOrEqual(card.right + 0.5);
+  expect(control.connections.find(c => c.current)?.id).toBe('native');
+
+  // 下一次动作一开始,上一次的原因就撤掉;这次成功了,行里不再留着旧的拒绝。
+  control.rejectSelect = false;
+  if (!layer.querySelector('[data-testid="connection-use-saved-api"]')) (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used again', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the refusal is gone once a switch goes through', () => row.querySelector('[role="alert"]') === null);
+  expect(control.selected).toBe('saved-api');
+  expect(thrown).toEqual([]);
+});
+
+
+// 2026-10-23 owner:「提示更温柔一点,不要飘红,language 也变一下」。因有会话正在工作而没切,不是出错:
+// 主进程把「哪一家、几个」随错误带来,界面按自己的语言用安静的字色说;不认得这个字段的旧主进程走上面那条(红、原文)。
+it.each([
+  ['en-US' as const, 6, /^6 Codex sessions are still working\. Switch once they finish/],
+  ['en-US' as const, 1, /^1 Codex session is still working\. Switch once it finishes/],
+  ['zh-CN' as const, 6, /^还有 6 个 Codex 会话正在工作，等它们完成后再切换吧/],
+])('a refusal because sessions are working is a calm note in the UI language (%s, %i)', async (language, count, expected) => {
+  setLocalePreference(language);
+  control.codex = true;
+  control.rejectSelect = true;
+  control.selectBusy = { providerId: 'codex', count };
+  control.selectMessage = `${count} Codex sessions are still working. Switch the subscription after they finish; switching restarts every running Codex session.`;
+  control.connections.push({ id: 'saved-api', kind: 'api-key', name: 'Saved API', current: false });
+  host.style.width = '720px';
+  root.render(<SessionSettingsContent section="subscriptions" portalContainer={layer} />);
+  await until('the Codex switch is ready', () => host.querySelector('[data-testid="subscription-switch-codex"]') !== null);
+  const row = host.querySelector('[data-testid="subscription-row-codex"]') as HTMLElement;
+  (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the note is displayed', () => row.querySelector('.subscription-note') !== null);
+
+  const note = row.querySelector('.subscription-note') as HTMLElement;
+  expect(note.textContent).toMatch(expected);
+  expect(row.textContent).not.toContain('Switch the subscription after they finish');
+  expect(note.getAttribute('role')).toBe('status');
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  // 不飘红:字色与真错误那条不同。
+  const reference = document.createElement('p');
+  reference.className = 'subscription-error';
+  row.append(reference);
+  expect(getComputedStyle(note).color).not.toBe(getComputedStyle(reference).color);
+  reference.remove();
+  expect(control.connections.find(c => c.current)?.id).toBe('native');
+
+  // 提示的字句是渲染时算的,界面语言一换它跟着换;下一次切成功了,行里不再留着旧的「还在忙」。
+  const other = language === 'zh-CN' ? 'en-US' : 'zh-CN';
+  const before = note.textContent;
+  setLocalePreference(other);
+  await until('the note follows the language', () => row.querySelector('.subscription-note')?.textContent !== before);
+  expect(row.querySelector('.subscription-note')?.textContent).toMatch(other === 'zh-CN' ? /^还有 \d+ 个 Codex 会话/ : /^\d+ Codex sessions? (is|are) still working/);
+  control.rejectSelect = false;
+  if (!layer.querySelector('[data-testid="connection-use-saved-api"]')) (host.querySelector('[data-testid="subscription-switch-codex"]') as HTMLButtonElement).click();
+  await until('the saved API option can be used again', () => layer.querySelector('[data-testid="connection-use-saved-api"]')?.hasAttribute('data-disabled'), disabled => disabled === false);
+  (layer.querySelector('[data-testid="connection-use-saved-api"]') as HTMLElement).click();
+  await until('the note is gone once a switch goes through', () => row.querySelector('.subscription-note') === null);
+  expect(control.selected).toBe('saved-api');
+  expect(thrown).toEqual([]);
+});
 
 it.each([
   { provider: 'claude', kind: 'native' as const }, { provider: 'codex', kind: 'native' as const },

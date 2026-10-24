@@ -85,6 +85,11 @@ export type ChatMessage = {
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
    */
   hookNotice?: HookNotice;
+  /**
+   * 这条用户消息其实是宿主替主人交来的回答(`<gugu_question_answer>`,gugu-dev#181 ⑨):画成一行「你回答了：X」,
+   * ❌ 把那段 XML 原样摆进气泡。由消息单元从正文里解出来,与 `hookNotice` 同一路数。`answer` = null:问题被收回了。
+   */
+  questionAnswer?: { answer: string | null };
 };
 
 export type ChatToolCall = {

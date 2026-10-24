@@ -342,7 +342,7 @@ function decorateAcpRuntimeHandle(handle: AcpRuntimeProcessHandle): AcpRuntimeHa
 // servers, but still carries trusted session metadata and keeps the same host-selected permission mode.
 // 合并说明:`effort`(本 PR,起始推理档)与 `startupOrigin`/`initialMessageId`/`initialQueue`
 // (dev #4612,聊天页首轮走信封)是两侧各自的纯新增,没有语义冲突 —— 取并集,❌ 别二选一。
-async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
+async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; taskChatId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
   input: T,
   lifecycle: 'fresh' | 'fork' | 'resume',
   facts: SessionInjectionFacts,
@@ -391,6 +391,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     reasoningEffort: (facts.effort !== undefined ? facts.effort : input.input.effort) ?? null,
     startupOrigin: input.input.startupOrigin,
     initialMessageId: input.input.initialMessageId,
+    taskChatId: input.input.taskChatId,
     initialMessageText: input.input.initialQueue?.[0]?.text,
     // @@@5004 行上有没有 provider session 是「首次 spawn / 重来」与「重开」的分水岭;注入器据此判
     // 「sessionId 为空却没带首句载荷」这种不一致,❌ 不再拿 lifecycle=fresh 当首次 spawn 用。
@@ -749,6 +750,14 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
 
   return {
     ...client,
+    cancelTurn: async (input, meta) => {
+      // Harnesses do not all cancel their outstanding MCP requests when interrupted.
+      // Stop this turn's browser work at the owning host as well; the person's page stays open.
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.cancelTurn(input, meta), closingBrowser]);
+      return result;
+    },
     revertSession: createHistoryReverter({
       boundary: storedRevertBoundary,
       revert: client.revertSession,
@@ -808,7 +817,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       const inFlight = startsInFlight.get(input.sessionId);
       if (inFlight) inFlight.stopped = true;
       startsInFlight.delete(input.sessionId);
-      const result = await client.stopSession(input, meta);
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.stopSession(input, meta), closingBrowser]);
       await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
       // @@@stop-settles-the-credential — 「停了」和「它的凭据没了」必须是**同一个结果**。
       //

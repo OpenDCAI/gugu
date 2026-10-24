@@ -404,9 +404,17 @@ export const messageToShow = files.messageToShow;
 export const chatMembersOf = files.members;
 export const chatsOf = files.chats;
 export const surfaceChatOf = files.chat;
+export const resourceChatOf = files.resourceChat;
 export const chatOfItem = files.chatOf;
 export const groupFiles = files.groupFiles;
 export const groupFile = files.groupFile;
+
+/** API 14 `chatFile`: the file an App opened in this chat shows, as that file opened with it (made the first time). */
+export function appChatFile(chatId: string, extensionId: string) {
+  const service = extensionsService();
+  const manifest = service.list().extensions.find((entry) => entry.manifest.id === extensionId && service.isEnabled(extensionId))?.manifest;
+  return files.appChatFile(chatId, manifest);
+}
 
 /**
  * Who opens a chat file of this kind: the most specific claim, or the person's 「始终用它」 — what a click opens; with

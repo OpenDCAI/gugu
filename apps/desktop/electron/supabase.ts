@@ -1,6 +1,7 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { net } from 'electron'
 import WebSocket from 'ws'
+import { reconnectElectronRealtimeChannels } from './realtime-channel'
 
 // #5331 主进程里所有云往返共用 Chromium 的连接池:已用过的空闲连接保活约 5 分钟,不像 Node 全局 fetch
 // (undici 默认 keepAliveTimeout 4 s)那样在两次新建会话之间断掉、下一发重握 0.95 s 的 TLS。
@@ -20,9 +21,33 @@ const electronRealtime = {
 // requirement (no hardcoded fallback) is enforced on first real use, not at
 // import time.
 type ElectronSupabaseClient = ReturnType<typeof createGuguSupabaseClient>
+let currentAccessToken: (() => Promise<string | null>) | null = null
+
+/** 账号拥有登录态;频道只从这里现取,不能各自保存一枚令牌去改整条共享连接。 */
+export function bindElectronSupabaseAuth(provider: () => Promise<string | null>): void {
+  currentAccessToken = provider
+}
+
+export async function refreshElectronSupabaseAuth(): Promise<void> {
+  await cachedSupabase?.realtime.setAuth()
+}
+
+/** A suspended kernel preserves sockets that the server has already dropped.
+ * Close them proactively; inbox REST reconciliation runs independently. */
+export async function resumeElectronSupabaseRealtime(): Promise<void> {
+  if (!cachedSupabase) return
+  await cachedSupabase.realtime.disconnect()
+  await reconnectElectronRealtimeChannels()
+  cachedSupabase.realtime.connect()
+}
+
 let cachedSupabase: ElectronSupabaseClient | null = null
 function resolveSupabase(): ElectronSupabaseClient {
   return (cachedSupabase ??= createGuguSupabaseClient({
+    accessToken: async () => {
+      if (!currentAccessToken) throw new Error('Electron Supabase account provider is not bound')
+      return currentAccessToken()
+    },
     fetch: electronFetch,
     realtime: electronRealtime
   }))

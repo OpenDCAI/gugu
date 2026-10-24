@@ -1,5 +1,4 @@
 import { observer } from 'mobx-react-lite';
-import { ComposerNotice } from '@/components/chat/ComposerNotice';
 import { useEffect, useState } from 'react';
 import { getGitRepositoryStore } from '@renderer/features/projects/stores/project-selectors';
 import {
@@ -10,10 +9,10 @@ import { useCreateSessionState } from '@renderer/features/sessions/create-sessio
 import { useProjectGitContext } from '@renderer/features/sessions/create-session-modal/use-project-git-context';
 import { useSessionSettings } from '@renderer/features/sessions/hooks/useSessionSettings';
 import { SessionField } from '@renderer/features/sessions/session-config/session-field';
+import type { ComposerVerbLook } from '@renderer/features/sessions/session-config/initial-session-section';
 import { useInitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
 import { SessionStateProvider } from '@renderer/features/sessions/session-config/session-state-context';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { SidePanelSplit } from '@renderer/lib/layout/side-panel-split';
 import { ComposerProjectPicker } from './composer-context-tray';
 import { describeImplicitProjectFailure, machineComposerProps } from './use-machine-create-target';
 import { useNewSessionMachine } from '@renderer/features/remote-hosts/use-new-session-machine';
@@ -21,7 +20,6 @@ import { useWakeCloudOnInput } from '@renderer/features/remote-hosts/use-wake-cl
 import { machineLibraryHost } from '@renderer/features/library/library-host';
 import { ComposerTray } from './composer-tray';
 import { useRemoteInstallBeforeCreate } from './remote-install-before-create';
-import { DraftWorkspacePanel } from './draft-workspace-panel';
 import {
   ImplicitSessionHomeProjectError,
   ensureImplicitSessionHomeProjectId
@@ -31,9 +29,9 @@ import {
   sessionComposerDockBandClassName,
   sessionComposerDockedWidthClassName
 } from './session-composer-styles';
-import { useSessionShellContext } from './session-shell-context';
 import { CreateDeliveryError } from './create-session-modal/create-delivery-error';
-import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
+import { NEW_SESSION_DRAFT_KEY, composerDrafts } from './composer-drafts';
+import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
 // 新建页与项目首页、会话页共用底部 composer。Project context is optional in the UI.
@@ -45,18 +43,21 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 // gugu #2549: exported so the composer-only embed root (对话页原地创建 Agent,
 // app/composer-embed-root.tsx) can reuse this exact createSession input and submission path.
 // gugu #2525: 上下文托盘的控件也已共用（composer-context-tray.tsx）——对话页那条托盘比这里多一个
-// 设备选择器。仍留在会话页独有的只剩 title 与 DraftWorkspacePanel。
+// 设备选择器。新建页在这份共享 composer 上加标题。
 export const NewSessionComposer = observer(function NewSessionComposer({
   projectId,
   blockReason,
-  blockIsStatus = false,
+  blocked = false,
   isContextPending,
   creationSurface,
   birthChatId,
+  taskChatId,
+  openAfterCreate,
   onSessionCreated,
   machine = null,
   draftKey,
   placeholder,
+  verb,
   workspaceId,
 }: {
   projectId: string | undefined;
@@ -64,16 +65,20 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   // 挡住发送 + 原样显示原因，❌ 不静默换一台设备把任务建到别处去。
   blockReason?: string | null;
   /**
-   * #7199 blockReason 只是在说所选云电脑此刻的状态(休眠中 / 正在唤醒):照样挡住发送,但画成说明 ——
-   * 与私聊里「所在的云电脑休眠中」同一个组件(ComposerNotice),❌ 报错的红字。
+   * 所选机器此刻用不了(离线 / 休眠 / 正在连…):挡住发送、草稿留着。原因由统一提示条里那台机器的一条说
+   * (remote-hosts/machine-notice.ts),❌ 在这里再画一行 —— 它一变输入框就跟着动。
    */
-  blockIsStatus?: boolean;
+  blocked?: boolean;
   // 默认值读取期间只挡住提交，不渲染独立状态行；真实阻塞仍由 blockReason fail loud。
   isContextPending?: boolean;
   /** 缺省 = 会话页。只有对话页/联系人页的创建草稿传 'chat-page'(见 SessionCreationSurface)。 */
   creationSurface?: SessionCreationSurface;
   /** 建出来的 agent 一出生就进这个群(对话页从群成员里点的「新建 Agent」)。 */
   birthChatId?: string;
+  /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(见 useCreateSessionCallback)。 */
+  taskChatId?: string;
+  /** false = 建完人留在原处、当场起它(见 useCreateSessionCallback);缺省 = 导航过去。 */
+  openAfterCreate?: boolean;
   onSessionCreated?: (result: { projectId: string; sessionId: string }) => void;
   /**
    * #6264 所选机器是另一台(一套工作台:项目就是那台机器上的项目,建会话走同一条路);
@@ -85,8 +90,10 @@ export const NewSessionComposer = observer(function NewSessionComposer({
    * 缺省 = 不暂存,草稿只活在这棵组件里。
    */
   draftKey?: string;
-  /** 缺省 = 通用的「发消息」提示;项目页换成它自己那句。 */
-  placeholder?: string;
+  /** 缺省 = 通用的「发消息」提示;项目页换成它自己那句;给成函数 = 随所选 agent 变。 */
+  placeholder?: string | ((agentName: string) => string);
+  /** 这一框是「新任务 / 定时任务」:框换色、标签进框(gugu-dev#181)。 */
+  verb?: ComposerVerbLook;
   /**
    * #7341 这个项目里从哪个文件夹开工(项目首页的文件夹卡 / 托盘上选的那一个)。
    * 缺省 = 项目根目录。只能是这个项目的文件夹 —— 不是的,主进程建会话时拒掉(fail loud)。
@@ -152,6 +159,8 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     },
     creationSurface,
     birthChatId,
+    taskChatId,
+    openAfterCreate,
     beforeCreate: remoteInstall.beforeCreate,
   });
   const effectiveBlockReason = blockReason || messageTransportError;
@@ -160,6 +169,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     initialSession.prompt.trim().length > 0 || initialSession.attachments.length > 0;
   const canSend =
     canCreate &&
+    !blocked &&
     !effectiveBlockReason &&
     !isContextPending &&
     !initialSession.providerError &&
@@ -180,6 +190,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
       >
           <SessionField
             placeholder={placeholder ?? translate('composer.messagePlaceholder')}
+            verb={verb}
             // Permission profiles are capability-backed and apply to both task and message-page
             // creation. The surface only changes where the created session lands; it must not
             // hide the user's pre-dispatch permission choice.
@@ -192,11 +203,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
           session-composer-styles.ts 里实测记过:嵌进 gugu 的会话页子树里 --color-* 家族解析为空,
           Tailwind v4 对未定义 color key 直接不出规则 → 报错文案会**无声**变成普通正文色。
           这是一条 fail-loud 提示,它的可见性本身就是功能的一部分,不能赌。 */}
-      {blockReason && blockIsStatus ? (
-        <ComposerNotice data-testid="composer-machine-status" style={{ margin: '6px 0 0' }}>
-          <span>{blockReason}</span>
-        </ComposerNotice>
-      ) : effectiveBlockReason ? (
+      {effectiveBlockReason ? (
         <p
           role="alert"
           className="border-t border-border px-4 py-2 text-xs text-[var(--em-foreground-destructive)]"
@@ -204,7 +211,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
           {effectiveBlockReason}
         </p>
       ) : null}
-      {effectiveBlockReason ? null : remoteInstall.note}
+      {blocked || effectiveBlockReason ? null : remoteInstall.note}
       <CreateDeliveryError failure={deliveryError} />
     </div>
   );
@@ -220,7 +227,6 @@ export const NewSessionPage = observer(function NewSessionPage({
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [implicitProjectId, setImplicitProjectId] = useState<string | undefined>(undefined);
   const [implicitProjectFailure, setImplicitProjectFailure] = useState<unknown>(null);
-  const { isNewSessionWorkspaceOpen, setNewSessionWorkspaceOpen } = useSessionShellContext();
 
   // An unselected project is a real first-class state, not an alias for projects[0]. Prepare the
   // hidden app-owned execution context in the background while keeping the composer editable.
@@ -244,7 +250,7 @@ export const NewSessionPage = observer(function NewSessionPage({
         setImplicitProjectFailure(error);
       });
     return () => {
-      cancelled = true;
+    cancelled = true;
     };
   }, []);
 
@@ -256,7 +262,8 @@ export const NewSessionPage = observer(function NewSessionPage({
   const openProject = (projectId: string | undefined) => {
     setSelectedId(projectId);
     if (!projectId) return;
-    composerDrafts.moveToEmpty(NEW_SESSION_DRAFT_KEY, projectDraftKey(projectId));
+    // gugu-dev#181 ⑩:选项目 = 去那个项目里开新任务,写好的话跟着进项目块新任务框的草稿。
+    prepareProjectTask(projectId, NEW_SESSION_DRAFT_KEY);
     navigate('project', { projectId });
   };
 
@@ -270,55 +277,37 @@ export const NewSessionPage = observer(function NewSessionPage({
   );
 
   return (
-    // @@@draft-split — 右侧面板与会话页是**同一个**分栏组件(lib/layout/side-panel-split.tsx):
-    // 通高分隔线、贴边命中带、同一条弹簧、同一份存下来的宽度。
-    // ❌ 别再为新建页另写一套:原来那套 react-resizable-panels 分栏被 #6303 把把手缩成 40px
-    // 居中一截,分隔线也跟着只剩这一截 —— owner 2026-09-25:「一个没有分界线的悬空把手」。
-    <SidePanelSplit
-      form={isNewSessionWorkspaceOpen ? 'side' : 'closed'}
-      resizeLabel={translate('task.resizeWorkspacePanel')}
-      onCollapseWorkspace={() => setNewSessionWorkspaceOpen(false)}
-      workspacePanel={
-        <DraftWorkspacePanel
-          projectId={effectiveProjectId}
-          visible={isNewSessionWorkspaceOpen}
-          remoteDeviceId={remote?.deviceId ?? null}
-        />
-      }
-      chatColumn={
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 items-center justify-center px-4">
-          {/* 去掉入场滑入(不解释状态变化,只是每次开页都要看的表演)与 `text-xl font-semibold`
-              (`.gg-type-page-title` 现在真有定义 20/28/600,别写两遍)。规格 §2 */}
-          <h1 className="gg-type-page-title">
-            {translate('task.newTask')}
-          </h1>
-        </div>
-        <div className={sessionComposerDockBandClassName}>
-          <div className={sessionComposerDockedWidthClassName}>
-            <ComposerTray
-              projectPicker={projectPicker}
-              devicePicker={devicePicker}
-              host={machineContext?.host ?? machineLibraryHost(null)}
-            >
-              <NewSessionComposer
-                // 换机器 = 换一个创建目标:整棵重挂,上一台机器的选择(agent、模型)不带到下一台;
-                // 写好的话经 draftKey 那一格跟着走。
-                key={remote?.deviceId ?? 'local'}
-                draftKey={NEW_SESSION_DRAFT_KEY}
-                {...machineComposerProps(machineContext, { projectId: effectiveProjectId })}
-                onSessionCreated={onSessionCreated}
-              />
-            </ComposerTray>
-            {implicitProjectError && !selectedId ? (
-              <p className="mt-3 text-center text-xs text-foreground-destructive">
-                {implicitProjectError}
-              </p>
-            ) : null}
-          </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-4">
+        {/* 去掉入场滑入(不解释状态变化,只是每次开页都要看的表演)与 `text-xl font-semibold`
+            (`.gg-type-page-title` 现在真有定义 20/28/600,别写两遍)。规格 §2 */}
+        <h1 className="gg-type-page-title">
+          {translate('task.newTask')}
+        </h1>
+      </div>
+      <div className={sessionComposerDockBandClassName}>
+        <div className={sessionComposerDockedWidthClassName}>
+          <ComposerTray
+            projectPicker={projectPicker}
+            devicePicker={devicePicker}
+            host={machineContext?.host ?? machineLibraryHost(null)}
+          >
+            <NewSessionComposer
+              // 换机器 = 换一个创建目标:整棵重挂,上一台机器的选择(agent、模型)不带到下一台;
+              // 写好的话经 draftKey 那一格跟着走。
+              key={remote?.deviceId ?? 'local'}
+              draftKey={NEW_SESSION_DRAFT_KEY}
+              {...machineComposerProps(machineContext, { projectId: effectiveProjectId })}
+              onSessionCreated={onSessionCreated}
+            />
+          </ComposerTray>
+          {implicitProjectError && !selectedId ? (
+            <p className="mt-3 text-center text-xs text-foreground-destructive">
+              {implicitProjectError}
+            </p>
+          ) : null}
         </div>
       </div>
-      }
-    />
+    </div>
   );
 });

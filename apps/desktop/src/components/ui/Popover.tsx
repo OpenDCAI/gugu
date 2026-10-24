@@ -48,6 +48,10 @@ function Popup({
   )
 }
 
+function Arrow({ className, ...props }: Omit<PopoverPrimitive.Arrow.Props, 'className'> & ClassNameProp) {
+  return <PopoverPrimitive.Arrow className={className} {...props} />
+}
+
 function Close({
   className,
   ...props
@@ -64,4 +68,5 @@ export const Popover = {
   Positioner,
   Popup,
   Close,
+  Arrow,
 }

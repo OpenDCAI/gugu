@@ -157,6 +157,14 @@ describe('account-scoped normalized IM repository', () => {
     ], [identity('identity-1')])
     expect(snapshots).toEqual([{ chats: 0, identities: 0 }, { chats: 1, identities: 1 }])
   })
+  it.each(['chats', 'chats and identities'])('persists a complete %s snapshot beyond 300 conversations', async (kind) => {
+    const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    const rows = Array.from({ length: 420 }, (_, index) => chat(`chat-${index}`))
+    if (kind === 'chats') await replaceChatRows(repository, rows)
+    else await replaceChatRowsAndIdentities(repository, rows, [])
+    const reopened = await openImRepository('account-a', { adapter, storage: window.localStorage })
+    expect(readChatRows(reopened).map((row) => row.id)).toEqual(rows.map((row) => row.id))
+  })
   it('keeps outbox durable across reopen and atomically replaces it with the acknowledged message', async () => {
     const repository = await openImRepository('account-a', { adapter, storage: window.localStorage })
     await putOutboxRecord(repository, outbox('message-1', 'account-a'))

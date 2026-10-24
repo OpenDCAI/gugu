@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, type ComponentProps } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
-import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
+import { folderTab, groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { AuthContext } from '../../../../apps/desktop/src/store/auth'
 
@@ -40,17 +40,17 @@ afterEach(() => {
 
 const detailOf = (chatId: string, itemId: string) => ({
   chatId, itemId, name: `${itemId}.pptx`, typedName: `${itemId}.pptx`,
-  choice: { kind: 'one', candidate: { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公' }, onlyTab: true, claim: '.pptx' } },
+  choice: { kind: 'one', candidate: { extensionId: 'office', tabKind: 'office.main', tabTitle: 'Office', app: { name: '咕咕办公' }, onlyTab: true, claim: '.pptx', suffix: '.pptx' } },
 })
 let request = 7400_000
 const slot = (props: Partial<ComponentProps<typeof GroupAppSlot>>) =>
   createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-    createElement(GroupAppSlot, { chatId: 'g1', kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), ...props }))
+    createElement(GroupAppSlot, { chatId: 'g1', onClose: vi.fn(), ...props }))
 const asked = (chatId: string, opener: ReturnType<typeof detailOf>) => ({ chatId, itemId: opener.itemId, request: ++request, opener: opener as never })
 
 describe('a file opened in a group\'s panel is kept for 最近打开, once', () => {
   it('opened: one workspace_note_open with its id; shown again when the person comes back: no other', async () => {
-    await harness.render(slot({ chatId: 'g-note', fileToOpen: asked('g-note', detailOf('g-note', 'F1')) }))
+    await harness.render(slot({ chatId: 'g-note', asked: asked('g-note', detailOf('g-note', 'F1')) }))
     expect(groupSlotMemory.opened('g-note')?.itemId).toBe('F1')
     expect(rpc.mock.calls).toEqual([['workspace_note_open', { p_item_id: 'F1' }]])
     // The person goes to another chat and comes back: the panel shows F1 again from what it remembered.
@@ -62,7 +62,7 @@ describe('a file opened in a group\'s panel is kept for 最近打开, once', () 
   })
 
   it('an App\'s own page in the panel (no file) is not a file opened: nothing kept', async () => {
-    groupSlotMemory.setOpened('g-page', null)
+    groupSlotMemory.open('g-page', folderTab())
     await harness.render(slot({ chatId: 'g-page' }))
     expect(rpc).not.toHaveBeenCalled()
   })
@@ -76,7 +76,7 @@ describe('files.openWith for another chat\'s file goes to the chat shell', () =>
     try {
       const other = detailOf('g-other', 'F2')
       await act(async () => {
-        await harness.render(slot({ chatId: 'g-here', fileToOpen: { ...asked('g-here', other), itemId: 'F2' } }))
+        await harness.render(slot({ chatId: 'g-here', asked: { ...asked('g-here', other), itemId: 'F2' } }))
       })
       expect(heard).toEqual([other])
       expect(groupSlotMemory.opened('g-here')?.itemId ?? null).toBe(null)

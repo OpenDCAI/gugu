@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "c52a5e1b21f9b5c8673232026ceb5fa73144d97e",
-  "status": "Device projects release (OpenDCAI/gugu-supabase#18) merged to dev; pinned to its merge commit."
+  "ref": "fb005740bc077d33db4f8191b45f5184ec7f874a",
+  "status": "Merged: topic source resources, participant-scoped session attachments and same-identity assistant provisioning recovery companions OpenDCAI/gugu-supabase#28, #29 and #31."
 }

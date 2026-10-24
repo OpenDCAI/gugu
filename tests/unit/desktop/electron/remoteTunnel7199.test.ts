@@ -578,6 +578,17 @@ describe('桌面那一头:状态机', () => {
     }
   })
 
+  it('publishes a failure event when local auth is unavailable, releasing tunnel waiters', async () => {
+    const machines = createTunnelMachines(deps({ currentUserId: async () => null }).deps)
+    try {
+      const changed = new Promise<TunnelState>((resolve) => { machines.onChange(resolve) })
+      machines.want([{ deviceId: 'd1', label: 'L' }])
+      await expect(changed).resolves.toEqual({ ready: [], problems: { d1: 'unreachable' } })
+    } finally {
+      machines.closeAll()
+    }
+  })
+
   it('登录态一时没就绪:过一会儿自己重试连上(❌ 停在「正在连接」)', async () => {
     vi.useFakeTimers()
     try {
@@ -586,7 +597,7 @@ describe('桌面那一头:状态机', () => {
       const machines = createTunnelMachines(d)
       machines.want([{ deviceId: 'd1', label: 'L' }])
       await vi.advanceTimersByTimeAsync(50)
-      expect(machines.state()).toEqual({ ready: [], problems: {} })
+      expect(machines.state()).toEqual({ ready: [], problems: { d1: 'unreachable' } })
       signedIn = true
       await vi.advanceTimersByTimeAsync(5_000)
       expect(machines.state()).toEqual({ ready: ['d1'], problems: {} })

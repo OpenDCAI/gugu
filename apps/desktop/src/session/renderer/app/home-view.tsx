@@ -1,5 +1,5 @@
 import { NewSessionPage } from '@renderer/features/sessions/new-session-page';
-import { SessionTitlebar } from '@renderer/features/sessions/session-titlebar';
+import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 
 // The task tab opens on the same composer as the sidebar's "新建任务" action. Project setup
 // remains reachable from the composer's project picker (and the sidebar project controls), but
@@ -7,6 +7,6 @@ import { SessionTitlebar } from '@renderer/features/sessions/session-titlebar';
 export const HomeMainPanel = NewSessionPage;
 
 export const homeView = {
-  TitlebarSlot: SessionTitlebar,
+  TitlebarSlot: ShellTitlebar,
   MainPanel: HomeMainPanel,
 };

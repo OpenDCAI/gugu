@@ -26,7 +26,11 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchSession', () 
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/AgentThread', () => ({ AgentThread: () => null }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/StatusGlyph', () => ({ SessionAvatar: () => null }))
 
-const device = { device_id: 'device-1', label: 'Mac', is_online: true, last_seen_at: null } as unknown as Device
+const device: Device = {
+  device_id: 'device-1', label: 'Mac', hostname: 'fixture-mac', platform: 'darwin', status: 'online',
+  is_online: true, last_seen_at: '2026-10-15T00:00:00.000Z',
+  capabilities: { terminals: [], runtimes: ['claude'], host_runtime_capability: 1 },
+}
 const session = (extra: Partial<SessionpageSessionSummary> = {}): SessionpageSessionSummary => ({
   conversationId: 'conversation-1', projectId: 'project-1', title: 'Task one', harness: 'claude', runtime: 'pty',
   agentStatus: null, lastInteractedAt: '2026-10-15T00:00:00.000Z', supported: true, ...extra,

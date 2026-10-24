@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createDeviceRpcRequestHandler } from '@gugu/core/cloud/deviceRpcResponder'
 import { createDeviceActionCaller } from '@gugu/core/cloud/deviceActionCaller'
 import { ok, type ActionDef, type ActionFamily } from '../../../../apps/desktop/electron/device-actions/catalog'
 import { createDeviceActionsRuntime } from '../../../../apps/desktop/electron/device-actions/runtime'
@@ -35,6 +36,7 @@ function setup() {
     actions: [action('computer.click', 'computer'), action('clipboard.read', 'clipboard')],
   }
   const runtime = createDeviceActionsRuntime({
+      deviceId: async () => "local-test",
     userData: dir,
     deps: {} as never,
     nativeDir: null,
@@ -74,7 +76,7 @@ describe('#7317 Computer Use is the switch of computer control', () => {
     // What the heartbeat row carries: the published capability, through JSON.
     const published = () => JSON.parse(JSON.stringify(runtime.capability())) as unknown
     const caller = createDeviceActionCaller({
-      listDevices: async () => [{ device_id: 'mac', label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: published() }],
+      listDevices: async () => [{ device_id: 'mac', this_machine: true, label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: published() }],
       rpc: async () => { throw new Error('nothing may be sent for an action this computer does not have') },
     })
     const refused = await caller.call({ deviceId: 'mac', action: 'computer.click' })
@@ -131,4 +133,21 @@ describe('#7317 Computer Use is the switch of computer control', () => {
     expect(heard).toEqual(['re-register'])
     runtime.dispose()
   })
+})
+
+
+it('receiver refuses remote calls before replay lookup while local execution and control requests remain usable',async()=>{
+  const {runtime,turn}=setup();turn(true)
+  const handlers=runtime.rpcHandlers()
+  const handle=createDeviceRpcRequestHandler({handlers:{...handlers,probe:()=>({result:'control'})}})
+  const replies: unknown[]=[]
+  const reply=(value:unknown)=>{replies.push(value)}
+  try {
+    await handle({type:'probe',request_id:'reused',user_id:'owner',payload:{}},reply)
+    for(const type of ['device.action','device.action.result_ack']) {
+      await handle({type,request_id:'reused',user_id:'owner',payload:{caller:{deviceId:'local-test'}}},reply)
+      expect(replies.at(-1)).toMatchObject({error:{code:'device_scope_mismatch',message:expect.stringContaining('device:local-test')}})
+    }
+    expect(await runtime.readLocal('computer.click',{})).toMatchObject({ok:true,data:{done:'computer.click'}})
+  } finally {runtime.dispose()}
 })

@@ -355,6 +355,7 @@ export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId:
 /**
  * The failure row's content: what agents and clients that cannot read the reason see. Fixed English, so an agent reads the
  * same words whatever the viewers' language; a client that reads the reason (`systemNotice.ts`) says it in its own language.
+ * Retained admission gaps use a Chinese pending notice rather than a terminal failure.
  */
 const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   weeklyQuota: 'Weekly usage limit reached for this model account. Switch models or wait for the limit to reset.',
@@ -363,7 +364,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   rateLimited: 'Too many requests to this model. Please try again shortly.',
   modelUnavailable: 'The current model is not available or is at capacity. Resend later, or switch models and resend.',
   generic: 'This reply could not be completed. Please try again later.',
-  notAdmitted: 'Gugu could not hand these messages to the agent. Please try again later.',
+  notAdmitted: '消息已保留，助理就绪后回复。',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
 }
 
@@ -502,7 +503,9 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
   let scanAfter: AgentInboxFetchInput['scanAfter']
   let scanFence: number | undefined
   for (;;) {
+    const readStartedAt = Date.now()
     const fetchedRows = await fetchUnread({ agentUserId, limit: PULL_LIMIT, scanAfter, scanFence })
+    log.debug({ agentUserId, elapsedMs: Date.now() - readStartedAt, rows: fetchedRows.length }, 'agent inbox cloud read completed')
     // Pagination follows cloud rows, not local outbox positions. Every cloud row is already one the
     // RPC decided to hand this agent (chat.message_wakes_agent); the reader adds no eligibility of its own.
     // This cursor is discarded on every exit (including failure); the next trigger starts
@@ -717,12 +720,14 @@ async function prepareMessage(
       isAgent: row.senderType === 'agent',
     })
   }
-  const mentionRecipientIds = [...new Set(
-    (row.toUserIds ?? []).filter((id) => id && id !== row.senderUserId && id !== '*'),
+  // Everyone the envelope names besides the sender: whom it is for, and whose message it quotes (that can be the
+  // agent itself, quoted back by its owner) — else the envelope can only give their bare id.
+  const namedIds = [...new Set(
+    [...(row.toUserIds ?? []), row.replyToSenderUserId].filter((id): id is string => !!id && id !== row.senderUserId && id !== '*'),
   )]
-  if (mentionRecipientIds.length && deps.resolveGuguIds) {
-    const mentionIdentities = await deps.resolveGuguIds(mentionRecipientIds, deps.accessToken)
-    for (const [id, identity] of mentionIdentities) identities.set(id, identity)
+  if (namedIds.length && deps.resolveGuguIds) {
+    const named = await deps.resolveGuguIds(namedIds, deps.accessToken)
+    for (const [id, identity] of named) identities.set(id, identity)
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)

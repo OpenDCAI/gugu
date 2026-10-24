@@ -1,10 +1,12 @@
 import type { AttachmentMeta } from '@gugu/core/shared/ui/attachmentModels'
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 
-export type DocumentPreviewKind = 'text' | 'markdown' | 'html' | 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'video' | 'unsupported'
+export type DocumentPreviewKind = 'image' | 'text' | 'markdown' | 'html' | 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'video' | 'unsupported'
 
 const TEXT_EXTENSIONS = new Set(['css', 'js', 'jsx', 'json', 'md', 'mdx', 'toml', 'ts', 'tsx', 'txt', 'xml', 'yaml', 'yml', 'csv'])
 
 export function classifyDocumentPreview(file: Pick<AttachmentMeta, 'fileName' | 'mimeType'>): DocumentPreviewKind {
+  if (isRenderableImage(file.fileName, file.mimeType)) return 'image'
   const mime = file.mimeType.toLowerCase().split(';', 1)[0].trim()
   const extension = file.fileName.toLowerCase().split('.').pop() ?? ''
 

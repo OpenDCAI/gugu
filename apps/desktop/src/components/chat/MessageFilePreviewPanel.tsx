@@ -32,17 +32,26 @@ export interface MessageFilePreviewPanelProps {
   mobile?: boolean
   /** Fills the box it is put in (beside an App, AppPeek) instead of taking a side panel's width. */
   fill?: boolean
+  /** The host tab already carries this file name and its close button. */
+  tabbed?: boolean
 }
 
-export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false }: MessageFilePreviewPanelProps) {
+export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading, error, loadingLabel, loadingFraction, actions = [], onOpenExternal, onBack, full, onToggleFull, onClose, mobile = false, fill = false, tabbed = false }: MessageFilePreviewPanelProps) {
   const { t } = useTranslation('messaging')
   // 手机页头第二行:扩展名 + 大小(「HTML · 791 B」);大小还不知道就只写扩展名。❌ MIME 原文。
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(file.fileName)?.[1]?.toUpperCase() ?? null
   const meta = [extension, file.sizeBytes > 0 ? formatAttachmentSize(file.sizeBytes) : null].filter(Boolean).join(' · ')
+  const fullButton = onToggleFull ? <IconButton size={tabbed ? 'sm' : 'md'} className={tabbed ? 'ml-auto' : undefined} aria-pressed={full === true} aria-label={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} onClick={onToggleFull}>{full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</IconButton> : null
   return (
     <aside data-testid="message-file-preview-panel" data-preview-kind={kind} style={{ width: mobile || fill ? '100%' : 'clamp(380px, 38vw, 520px)', height: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: mobile ? undefined : '1px solid var(--border-subtle)', background: 'var(--bg-primary)' }}>
-      {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回,右上关闭整栏。 */}
-      {mobile ? (
+      {/* 手机左上返回、右上消息动作;桌面从 App/列表打开时左上返回;页签内的 × 关闭当前文件。 */}
+      {tabbed && !mobile ? (
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="message-file-preview-tab-bar">
+          {onBack ? <IconButton size="sm" aria-label={t('common.back')} onClick={onBack}><ChevronLeft /></IconButton> : null}
+          {fullButton}
+          <IconButton size="sm" className={fullButton ? undefined : 'ml-auto'} aria-label={t('common.close')} onClick={onClose}><X /></IconButton>
+        </div>
+      ) : mobile ? (
         <PaneHeader
           mobile
           divider
@@ -52,7 +61,7 @@ export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading
               {meta ? <span data-testid="message-file-preview-meta" className="gg-pane-meta">{meta}</span> : null}
             </span>
           }
-          leading={<IconButton size="lg" aria-label={t('common.back')} onClick={onBack ?? onClose}><ChevronLeft /></IconButton>}
+          leading={<IconButton size="lg" aria-label={t(onBack ? 'common.back' : 'common.close')} onClick={onBack ?? onClose}>{onBack ? <ChevronLeft /> : <X />}</IconButton>}
           actions={actions.map((item) => <IconButton key={item.key} size="lg" aria-label={item.label} title={item.label} disabled={item.disabled} onClick={item.onSelect}><item.icon /></IconButton>)}
         />
       ) : (
@@ -61,7 +70,7 @@ export function MessageFilePreviewPanel({ file, videoUrl, kind, content, loading
             {onBack ? <IconButton size="md" aria-label={t('common.back')} onClick={onBack}><ChevronLeft size={18} /></IconButton> : <FileText size={18} color="var(--text-link)" />}
             <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 'var(--font-title)' }}>{file.fileName}</strong>
           </div>
-          {onToggleFull ? <IconButton size="md" aria-pressed={full === true} aria-label={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} onClick={onToggleFull}>{full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</IconButton> : null}
+          {fullButton}
           <IconButton size="md" aria-label={onBack ? t('common.close') : t('chatArea.filePreview.close')} title={onBack ? t('common.close') : t('chatArea.filePreview.close')} onClick={onClose}><X size={18} /></IconButton>
         </header>
       )}

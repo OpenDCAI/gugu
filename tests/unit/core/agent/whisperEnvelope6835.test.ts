@@ -4,8 +4,8 @@ import { buildAgentDeliveryEnvelope, readDeliveryEnvelope } from '../../../../pa
 // #6835 悄悄话与 App 代发各是信封上的一格事实:谁对谁说的悄悄话、哪个 App 以当前用户的名义送来。
 const input = {
   guguUserId: 'agent-1',
-  chatId: 'chat-1',
-  messageId: 'm-1',
+  chatId: '00000000-0000-4000-8000-000000000001',
+  messageId: '00000000-0000-4000-8000-000000000002',
   senderUserId: 'human-1',
   content: 'psst',
   replyTo: null,

@@ -11,7 +11,7 @@ import { OwnedStdioTransport, lastStderrLine } from '@main/core/mcp/owned-stdio-
 import { extensionsService } from './extensions-root';
 import { programRuntimePath } from './app-runtime-dir';
 import { PROGRAM_CALL_META_KEY } from '@shared/extensions/app-runtime-protocol';
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink';
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { firstSentence } from '../../../../mcp/first-sentence';
 import {
   attachProgramSurface,

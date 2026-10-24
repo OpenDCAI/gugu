@@ -162,8 +162,43 @@ export const composerShell = recipe({
       },
       false: {},
     },
+    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙 —— 描边换色,外面一圈同色的浅环。
+    // 悬停 / 聚焦也留在这个色上(base 里那两条会把描边换回灰)。
+    tone: {
+      task: {
+        borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 35%, ${vars.border})`,
+        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
+        selectors: {
+          '&:hover, &:focus-within': { borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})` },
+        },
+      },
+    },
   },
   defaultVariants: { hasBand: false, dragActive: false },
+});
+
+/** 输入行最前面那枚标签(`leading`):和第一行字同高、居中,后面是编辑器本体(照旧长满,点空白就进输入)。 */
+export const editorLeadRow = style({
+  display: 'flex',
+  gap: '0.5rem',
+  flexGrow: 1,
+  flexShrink: 0,
+  minWidth: 0,
+});
+
+export const editorLead = style({
+  display: 'flex',
+  alignItems: 'center',
+  flex: 'none',
+  alignSelf: 'flex-start',
+  height: tokenVars.textTitleLineHeight,
+});
+
+export const editorLeadBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  minWidth: 0,
 });
 
 // ── Attachments ───────────────────────────────────────────────────────────────
@@ -394,8 +429,15 @@ export const editorArea = style({
   // ⚠️ 这个数是**含内距**的(border-box),所以不是 44 而是 44 + 12 + 20 = 76px。
   //    写 44 的话它比现状(52)还小 —— 一条不起作用的声明,静默无效。
   //
-  // ⚠️ 这个数是**含内距**的(border-box):44 + 上下内距(14+8) = 66px。
-  minHeight: '4.125rem',
+  // ⚠️ 这个数是**含内距**的(border-box):一行文字(行高 24)+ 上下内距(14+8) = 46px —— 再低就是文字自己撑着,写了不起作用。
+  // Phones keep the compact one-line editor; desktop restores its earlier empty height below.
+  minHeight: '2.875rem',
+  selectors: {
+    [`${composerRoot}:not([data-mobile]):not([data-phone-shell] *) &`]: {
+      // Restore the desktop editor's previous empty height; phones keep one line.
+      minHeight: 'calc(2.875rem + var(--spacing-xl))',
+    },
+  },
   maxHeight: '200px',
   overflowY: 'auto',
   // 内距照 assistant-ui composer:那张卡是「外沿 10px + 输入自己再缩 12px」= 文字左缘 22px,
@@ -1694,3 +1736,6 @@ globalStyle(
   `[data-slot="composer-toolbar"][data-disclosure="6"] [data-testid="composer-model-trigger"]:has(${modelTriggerIcon}) :is(${modelTriggerLabel}, ${modelTriggerEffort})`,
   { display: 'none' },
 )
+
+// Touch targets belong to the shared composer, including its chat hosts.
+globalStyle(`${composerRoot}[data-mobile] [data-slot="composer-toolbar"] button`, { minHeight: 44, minWidth: 44 });

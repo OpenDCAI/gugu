@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { autorun } from 'mobx';
 import { describe, expect, it } from 'vitest';
-import { extensionSurfaceStore } from './extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from './extension-surface-store';
 import { extensionViewStore, residentPageKey, residentPlace } from './extension-view-store';
 
 /**
@@ -10,6 +10,37 @@ import { extensionViewStore, residentPageKey, residentPlace } from './extension-
  * the slot draws (every slot of that page reads it there), else under the slot. The slot reads it by the same rule.
  */
 const el = () => document.createElement('div');
+
+describe('object titles shared by every tab host', () => {
+  it('keeps the file name first and the App semantic title in its hint and tooltip', () => {
+    const surface = { title: 'Attention Is All You Need', badge: null, error: null };
+    expect(extensionTabTitle(surface, 'Reader', { name: 'paper.pdf', path: 'papers/paper.pdf', hint: 'papers' })).toEqual({
+      label: 'paper.pdf', hint: 'papers · Attention Is All You Need', tooltip: 'papers/paper.pdf · Attention Is All You Need',
+    });
+  });
+
+  it('does not repeat the reported file name and uses the App title only for its own page', () => {
+    const surface = { title: 'audit-notes.md', badge: null, error: null };
+    expect(extensionTabTitle(surface, 'Files', { name: 'audit-notes', path: 'audit-notes.md' })).toEqual({
+      label: 'audit-notes', hint: undefined, tooltip: 'audit-notes.md',
+    });
+    expect(extensionTabTitle(surface, 'Files').label).toBe('audit-notes.md');
+    expect(extensionTabTitle({ ...surface, title: null }, 'Files').label).toBe('Files');
+  });
+
+  it('reacts to this file page only, including while another file is shown', () => {
+    extensionSurfaceStore.say(null, 'title-file-a', { title: 'First semantic title' });
+    extensionSurfaceStore.say(null, 'title-file-b', { title: 'Second semantic title' });
+    const read = () => extensionTabTitle(extensionSurfaceStore.said(null, 'title-file-a'), 'Viewer', { name: 'first', path: 'first.md' });
+    expect(read().hint).toBe('First semantic title');
+    extensionSurfaceStore.say(null, 'title-file-b', { title: 'Changed elsewhere' });
+    expect(read().hint).toBe('First semantic title');
+    extensionSurfaceStore.say(null, 'title-file-a', { title: 'Changed here' });
+    expect(read()).toEqual({ label: 'first', hint: 'Changed here', tooltip: 'first.md · Changed here' });
+    extensionSurfaceStore.forget(null, 'title-file-a');
+    extensionSurfaceStore.forget(null, 'title-file-b');
+  });
+});
 
 describe('what a page says about itself: one rule to keep it and to read it', () => {
   it('a group’s page: kept under the group’s page, read the same by every slot that draws it', () => {

@@ -87,6 +87,7 @@ class TerminalTabResource implements TerminalTabResourceView {
     if (this.isDisposed) return;
     this.isDisposed = true;
     this.disposeStaleReaction();
+    this.session?.dispose();
     this.terminalManager.closeTerminal?.(this.terminalId);
   }
 

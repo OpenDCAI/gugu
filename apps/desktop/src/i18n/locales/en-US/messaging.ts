@@ -1,6 +1,7 @@
 export default {
   "agent": {
     "identity": {
+      "phone": "Phone Agent",
       "pending": "Agent · identifying harness",
       "unavailable": "Agent harness unavailable",
       "removed": "Removed agent",
@@ -31,7 +32,6 @@ export default {
       "openFailed": "Could not open in Tasks: {{reason}}",
       "mode": {
         "menu": "Mode: {{mode}}",
-        "chat": "Chat",
         "code": "Code",
         "general": "Work",
         "switchToCode": "Switch to Code mode",
@@ -72,7 +72,7 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
-      "notAdmitted": "Gugu ran into an error and could not hand these messages to the Agent. Please try again later.",
+      "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
       "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
@@ -270,9 +270,6 @@ export default {
     "noResults": "No chats found",
     "listLabel": "Chats",
     "pin": "Pin",
-    "rowTag": {
-      "group": "Group chat"
-    },
     "scan": "Scan",
     "search": "Search",
     "unpin": "Unpin"
@@ -342,6 +339,7 @@ export default {
     "action": "Add to composer"
   },
   "composer": {
+    "notInGroup": "Not in this group",
     "agent": {
       "disabledReason": {
         "removed": "This Agent was removed and cannot receive more messages.",
@@ -371,10 +369,15 @@ export default {
     "mentionMembers": "Mention a member",
     "mentionNoMatch": "No matching members",
     "placeholder": "Write a message… Type / for commands",
+    "mobilePlaceholder": "Message",
+    "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
     "removeFilePill": "Remove {{label}}",
     "sendFailed": "Could not send: {{reason}}",
     "slashCommands": "Slash commands",
+    "verb": {
+      "task": "New task"
+    },
     "whisperBanner": "Whisper to {{name}} · only visible to you both",
     "whisperPlaceholder": "Whisper to {{name}}…"
   },
@@ -408,6 +411,7 @@ export default {
     "title": "Forward"
   },
   "group": {
+    "projectGroupNoInvite": "A project group holds only you and your agents. To work with others, start a group chat in Chats.",
     "addMember": "Add member",
     "agentFlood": {
       "ledgerLoadFailed": "Could not read the ledger for this automatic change, so undo is unavailable. Reopen this line in a moment and try again.",
@@ -445,6 +449,7 @@ export default {
       "notParticipant": "You are not in this topic yet, so its member list is not visible. Say something in it to join.",
       "sectionAgents": "Agents",
       "sectionPeople": "People",
+      "myAgents": "My agents · {{count}}",
       "title": "Group members",
       "titleTopic": "Topic members"
     },
@@ -473,8 +478,6 @@ export default {
     "nameLoading": "Loading…",
     "namePlaceholder": "Group name",
     "picker": {
-      "invitationHint": "Your Agents join directly. Other members join after accepting an invitation.",
-      "sendInvitation": "Send invitation",
       "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
       "agentRequestRejected": "Your last request was declined; you can submit again",
       "invitationSent": "Sent {{count}} invitations; members join after they or their Agent owner accept",
@@ -482,29 +485,13 @@ export default {
       "pendingApproval_one": "Submitted for approval: {{count}} Agent will join once the owner or an admin approves",
       "pendingApproval_other": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
       "add": "Add",
-      "addAgents": "Add Agents ({{count}})",
-      "addAgents_one": "Add Agent ({{count}})",
-      "addAgents_other": "Add Agents ({{count}})",
+      "addWithCount": "Add · {{count}} members",
+      "addWithCount_one": "Add · {{count}} member",
+      "addWithCount_other": "Add · {{count}} members",
       "adding": "Adding…",
       "allFailed": "{{failed}} failed: {{reason}}",
-      "guguId": "Gugu ID {{number}}",
-      "guguIdUnassigned": "Gugu ID not assigned",
-      "humanPermissionError": "You do not have permission to invite people",
       "humanPermissionHint": "You cannot invite people, but you can still add your own Agents.",
-      "inviteHumans": "Invite people ({{count}})",
-      "inviteHumans_one": "Invite person ({{count}})",
-      "inviteHumans_other": "Invite people ({{count}})",
-      "noAgentResults": "No matching Agents",
-      "noAgents": "No Agents available to add",
-      "noContactResults": "No matching contacts",
-      "noContacts": "No contacts available to invite",
       "partialFailure": "{{succeeded}} added, {{failed}} failed: {{reason}}",
-      "searchAgents": "Search Agents",
-      "searchContacts": "Search contacts",
-      "selection": "Add {{count}} members to the group",
-      "selection_one": "Add {{count}} member to the group",
-      "selection_other": "Add {{count}} members to the group",
-      "selectionHint": "Select one or more members to add",
       "title": "Add group members"
     },
     "renameFailed": "Rename did not go through — check your connection or permissions, then press Enter again",
@@ -606,8 +593,15 @@ export default {
     }
   },
   "header": {
+    "groupApps": "Group Apps",
+    "personalPins": "Only you",
+    "pinGroupApp": "Pin {{name}} to this group header",
+    "unpinGroupApp": "Remove {{name}} from this group header",
+    "appPinsLoadFailed": "Could not load pinned Apps.",
+    "appPinsSaveFailed": "Could not save pinned Apps.",
+    "noGroupApps": "No Apps available on this device.",
+    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
-    "history": "History",
     "memberList": "Members",
     "more": "More actions",
     "searchChat": "Search chat",
@@ -686,6 +680,23 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "sending": "Sending"
+    },
+    "showQuoted": "Go to the quoted message",
+    "taskCard": {
+      "task": "New task",
+      "schedule": "Scheduled",
+      "handedTo": "Assigned to",
+      "onMachine": "on {{machine}}",
+      "onColleagueComputer": "on {{name}}’s computer",
+      "awaitingApproval": "Waiting for the group owner to let it in",
+      "rejected": "Not let into the group; its result is in its session",
+      "open": "Open this session",
+      "line": "New task: {{text}}",
+      "scheduleLine": "Scheduled: {{text}}",
+      "question": "Your input",
+      "questionLine": "Your input: {{text}}",
+      "questionAnswered": "Answered: {{answer}}",
+      "questionInSession": "Answer in the task"
     },
     "unread": "Unread",
     "aiSent": "AI sent",

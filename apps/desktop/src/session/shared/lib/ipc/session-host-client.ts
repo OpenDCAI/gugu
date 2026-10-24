@@ -20,7 +20,8 @@ import {
 
 /** 一条接上了的线。send 在线已断时抛错。 */
 export type SessionHostPipe = {
-  send(frame: string | Uint8Array): void
+  /** `heartbeat` = 这一帧只是心跳:管道可以按「探活」对待它(例如等应答等得更短),❌ 当成要办的事。 */
+  send(frame: string | Uint8Array, kind?: 'heartbeat'): void
   close(): void
 }
 
@@ -132,6 +133,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let beat: ReturnType<typeof setInterval> | null = null
   let state: SessionHostConnectionState = 'closed'
   let opening: Promise<void> | null = null
+  // 作废的是一次物理开线,不是等连接的调用。立即叫醒旧调用,让它跟随新的那次;
+  // 不能等旧 opener 自己结算(它可能正卡在断掉的网络上)。
+  let abandonOpening: (() => void) | null = null
   let lastHello: SessionHostHello | null = null
   let nextId = 1
   let retryDelay = 1000
@@ -166,6 +170,16 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       send(message)
     } catch {
       /* 断着:重连时订阅会重报 */
+    }
+  }
+
+  // 心跳标明是心跳:管道据此把它当探活(设备连接上那一问回得慢 = 对面没了,见 remoteSessionHost)。
+  const sendHeartbeat = (): void => {
+    if (!pipe || state !== 'open') return
+    try {
+      pipe.send(encodeHostWsMessage({ t: 'hb' }), 'heartbeat')
+    } catch {
+      /* 断着:重连之后照常 */
     }
   }
 
@@ -276,6 +290,8 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     pipe = null
     stopTimers()
     opening = null
+    abandonOpening?.()
+    abandonOpening = null
     setState('closed')
     // 原因进日志,用户文案只留下一步(user-copy-leak 棘轮)。
     warn('会话页宿主连接关闭', { reason })
@@ -291,9 +307,11 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       onClosed(generation, reason)
       dead?.close()
     } else if (state === 'connecting') {
-      // 在路上的那一次作废:它迟到的回包按代数认不出来(成了也当场关掉,❌ 盖掉新线),等它的调用方照旧拿到它的结果
+      // 在路上的那一次作废:等它的调用方当场跟随新线,迟到的回包只负责清理。
       generation += 1
       opening = null
+      abandonOpening?.()
+      abandonOpening = null
     }
     if (retryTimer) clearTimeout(retryTimer)
     retryTimer = null
@@ -326,7 +344,10 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow()) ?? null
     setState('connecting')
     const gen = ++generation
-    opening = open({
+    const abandoned = new Promise<never>((_resolve, reject) => {
+      abandonOpening = () => reject(new Error('[session-host] opening replaced or closed'))
+    })
+    const attempt = open({
       onFrame: (frame) => {
         if (gen !== generation) return
         lastSeenAt = now()
@@ -334,7 +355,15 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (decoded) handle(decoded as HostWsServerMessage)
       },
       onClose: (reason) => onClosed(gen, reason),
-    }).then(
+    }).then((opened) => {
+      // race 已经把等待者交给新线,旧 opener 仍可能迟到成功。这里拥有那条管道的清理。
+      if (gen !== generation || disposed) {
+        opened.close()
+        throw new Error('[session-host] obsolete opening')
+      }
+      return opened
+    })
+    opening = Promise.race([attempt, abandoned]).then(
       (opened) => {
         if (gen !== generation || disposed) {
           // 这一次已被后来的一次取代:等它的调用方接着等现在那一次,❌ 拿一句「连不上」(disposed 时 connect 自己拒)
@@ -351,9 +380,10 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         watchdog = setInterval(() => {
           if (gen === generation && !dropIfSilent()) lastTickAt = now()
         }, Math.max(1000, Math.floor(Math.min(staleMs, frozenMs) / 4)))
-        if (heartbeatMs > 0) beat = setInterval(() => trySend({ t: 'hb' }), heartbeatMs)
+        if (heartbeatMs > 0) beat = setInterval(sendHeartbeat, heartbeatMs)
         setState('open')
         opening = null
+        abandonOpening = null
         if (options.subscribeEvents) {
           for (const channel of eventListeners.keys()) trySend({ t: 'sub', channel })
         }
@@ -374,6 +404,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (gen === generation) {
           generation += 1
           opening = null
+          abandonOpening = null
           setState('closed')
           // 开线器说那台机器此刻够不着(离线):这就是离线,❌ 记成「连不上」、❌ 退避空转 —— 停在 closed,
           // 它回来时由调用方 reconnectNow;有人要用它时再 connect 一次(当场又说够不着,不出网)。
@@ -494,6 +525,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       unwatchPeer = null
       if (retryTimer) clearTimeout(retryTimer)
       generation += 1
+      abandonOpening?.()
+      abandonOpening = null
+      opening = null
       stopTimers()
       pipe?.close()
       pipe = null

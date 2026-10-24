@@ -31,46 +31,48 @@ export function usePhoneRead<T>(
   const full = key === null ? null : `${key}#${attempt}`
   const fullRef = useRef(full)
   fullRef.current = full
+  const refreshRef = useRef<{ key: string; run: () => Promise<void> } | null>(null)
   useEffect(() => {
     if (full === null) return
     let cancelled = false
+    let request = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     // 上一次读到后定的间隔:悄悄重读偶尔失败一次不该让它从此不再刷新(「处理中」就一直停在处理中),按同一个间隔接着排下一次。
     let lastInterval: number | null = null
-    const run = (quiet: boolean) => {
-      Promise.resolve().then(() => readRef.current()).then(
-        (data) => {
-          if (cancelled) return
-          setResult({ key: full, read: { state: 'ok', data } })
-          lastInterval = pollRef.current?.(data) ?? null
-          if (lastInterval) timer = setTimeout(() => run(true), lastInterval)
-        },
-        (error: unknown) => {
-          if (cancelled) return
-          log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
-          if (!quiet) setResult({ key: full, read: { state: 'error', error } })
-          else if (lastInterval) timer = setTimeout(() => run(true), lastInterval)
-        },
-      )
+    const run = async (quiet: boolean, explicit = false): Promise<void> => {
+      clearTimeout(timer)
+      const current = ++request
+      const active = () => !cancelled && fullRef.current === full && current === request
+      try {
+        const data = await readRef.current()
+        if (!active()) return
+        lastInterval = pollRef.current?.(data) ?? null
+        setResult({ key: full, read: { state: 'ok', data } })
+        if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
+      } catch (error) {
+        if (!active()) return
+        log.warn({ what, quiet, error: error instanceof Error ? error.message : String(error) }, 'assistant phone read failed')
+        if (!quiet) setResult({ key: full, read: { state: 'error', error } })
+        else if (lastInterval) timer = setTimeout(() => void run(true), lastInterval)
+        // A requested refresh must not turn a failed verification into a successful mutation.
+        if (explicit) throw error
+      }
     }
-    run(false)
+    const refresher = { key: full, run: () => run(false, true) }
+    refreshRef.current = refresher
+    void run(false)
     return () => {
       cancelled = true
       clearTimeout(timer)
+      if (refreshRef.current === refresher) refreshRef.current = null
     }
   }, [full, what])
   const reload = useCallback(() => setAttempt((n) => n + 1), [])
-  // 改完一样东西之后悄悄重读(开关拨完不让整页闪回「在读」);读失败只记日志,留着上一次的读数。
+  // 改完后重读不闪回「在读」；失败交给页面重试，并让调用方知道尚未核对成功。
   const refresh = useCallback(async () => {
-    const at = fullRef.current
-    if (at === null) return
-    try {
-      const data = await readRef.current()
-      if (fullRef.current === at) setResult({ key: at, read: { state: 'ok', data } })
-    } catch (error) {
-      log.warn({ what, error: error instanceof Error ? error.message : String(error) }, 'assistant phone refresh failed')
-    }
-  }, [what])
+    const reader = refreshRef.current
+    if (reader && reader.key === fullRef.current) await reader.run()
+  }, [])
   const current: PhoneRead<T> = result && result.key === full ? result.read : { state: 'loading' }
   return { ...current, reload, refresh }
 }

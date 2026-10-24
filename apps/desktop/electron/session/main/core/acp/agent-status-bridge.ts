@@ -7,6 +7,7 @@ import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
 import { applyHarnessTitle } from '../sessions/renameSession';
+import { SessionActivityObserver } from '../activity/session-observation';
 import {
   applyContextUsageChange,
   contextUsageChange,
@@ -21,6 +22,7 @@ type SessionSummaryList = Record<string, SessionSummary>;
 const sessionSummaryListSchema = z.record(z.string(), sessionSummarySchema);
 
 class AcpAgentStatusBridge {
+  private readonly activity = new SessionActivityObserver();
   private readonly summaries = new Map<string, SessionSummary>();
   /**
    * #7342 记录里每条会话那份上下文读数的影子:摘要每个 token 都会来一份,判要不要写只比内存,
@@ -47,6 +49,7 @@ class AcpAgentStatusBridge {
   }
 
   dispose(): void {
+    this.activity.dispose();
     this.spawnedUnsubscribe?.();
     this.spawnedUnsubscribe = null;
     this.processExitUnsubscribe?.();
@@ -126,6 +129,7 @@ class AcpAgentStatusBridge {
     for (const summary of Object.values(nextSummaries)) {
       seen.add(summary.sessionId);
       const previous = this.summaries.get(summary.sessionId);
+      this.activity.observe(previous, summary);
       this.applyActions(this.derive(previous, summary));
       if (summary.title && summary.title !== previous?.title) this.applyTitle(summary);
       this.applyContextUsage(summary);
@@ -136,6 +140,7 @@ class AcpAgentStatusBridge {
       if (seen.has(sessionId)) continue;
       this.applyActions(this.derive(summary, undefined));
       this.summaries.delete(sessionId);
+      this.activity.forget(sessionId);
       this.recordedUsage.delete(sessionId);
     }
   }

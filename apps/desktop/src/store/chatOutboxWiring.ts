@@ -4,7 +4,7 @@
 // 连带动作对「实时发送」与「重启恢复的投递」走同一条 onSent 路径——上下文一律从 refs/记录派生,
 // 不闭包捕获发送时的组件状态(恢复投递没有那个闭包)。
 
-import type { Dispatch, SetStateAction } from 'react'
+import type { SetStateAction } from 'react'
 import type { ToastType } from '../components/toastContext'
 import type { ChatItem, MessageContentType, MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
@@ -27,9 +27,9 @@ export interface OutboxWiringIo {
   chats(): ChatItem[]
   identity(id: string): { type: 'human' | 'agent'; display_name: string; avatar: string | null } | undefined
   activeChatId(): string | null
-  activeThreadRootId(): string | null
+  activeThreadRootId(chatId?: string): string | null
   setMessagesAndCache(updater: (prev: MessageItem[]) => MessageItem[], chatId: string): void
-  setThreadMessages: Dispatch<SetStateAction<MessageItem[]>>
+  setThreadMessages: (updater: SetStateAction<MessageItem[]>, chatId: string) => void
   patchChat(chatId: string, partial: Partial<ChatItem>): void
   toast(message: string, type?: ToastType): void
   /** @@@4439 — store 的权威单行摄入 chokepoint(store/chat.tsx appendMessage):按 id 归并主线窗口,
@@ -113,7 +113,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     const patchRow = (m: MessageItem) =>
       m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'] } : m
     if (record.payload.threadRootId) {
-      io.setThreadMessages((prev) => prev.map(patchRow))
+      io.setThreadMessages((prev) => prev.map(patchRow), record.chatId)
     } else {
       io.setMessagesAndCache((prev) => prev.map(patchRow), record.chatId)
     }
@@ -131,7 +131,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     beforeDeliverHooks.delete(record.clientMessageId)
     if (!active) return
     if (record.payload.threadRootId) {
-      io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId))
+      io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
     } else {
       io.setMessagesAndCache((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
     }
@@ -154,8 +154,8 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       ])
       if (!active) return
       applyThreadSnapshot({ chatId, rootId: threadRootId, msgs, chats: io.chats(),
-        setThreadMessages: io.setThreadMessages, patchChat: io.patchChat,
-        activeChatId: io.activeChatId, activeThreadRootId: io.activeThreadRootId })
+        setThreadMessages: (update) => io.setThreadMessages(update, chatId), patchChat: io.patchChat,
+        activeChatId: () => chatId, activeThreadRootId: () => io.activeThreadRootId(chatId) })
     } else {
       // @@@4439 ack-seq-jump — 权威 row 经 store 的单行摄入 chokepoint 落窗:appendMessage 在合并时
       // 检测权威 seq 是否越过窗口旧尾,越过即异步重验证被跳过的区间(交错落库的入站行不得沉到增量
@@ -281,7 +281,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (!user) return
       const rows = outbox.pendingFor(chatId, rootId).map((r) => outboxRecordToMessage(r, user))
       if (rows.length === 0) return
-      io.setThreadMessages((prev) => rows.reduce((list, row) => upsertMessageById(list, row), prev))
+      io.setThreadMessages((prev) => rows.reduce((list, row) => upsertMessageById(list, row), prev), chatId)
     },
     retrySend(clientMessageId) {
       if (active) void outbox.retry(clientMessageId).catch((err) => { if (active) console.error('[chatOutbox] retry failed', err) })

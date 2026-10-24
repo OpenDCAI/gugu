@@ -30,7 +30,7 @@ export const LUCIDE_ALLOWLIST = new Set([
   // 方向性面板开关:Solar 搜 `panel` 零命中,只有 sidebar / sidebar-minimalistic / sidebar-code
   // 三个,没有左/右/下之分。硬凑会让四个开关长得一样,用户分不出开的是哪个面板。
   // Close/Open 那两对是**同一族的状态形**:面板开关的图标要随状态换形,一眼读出这一下是收起
-  // 还是展开(见 shell-titlebar.tsx / session-titlebar.tsx)。Solar 同样没有,理由同上。
+  // 还是展开(见 shell-titlebar.tsx / file-content-toolbar.tsx)。Solar 同样没有,理由同上。
   'PanelLeft', 'PanelRight', 'PanelBottom', 'Columns2',
   'PanelLeftClose', 'PanelLeftOpen', 'PanelRightClose', 'PanelRightOpen',
   // 拖拽手柄:Solar 搜 `drag` 零命中;凑成 menu-dots 会把手柄变成菜单按钮。

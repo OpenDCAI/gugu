@@ -4,6 +4,7 @@ import { useGroupRef } from 'react-resizable-panels';
 import { X } from '@/lib/icons';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { TabBarActionRow } from '@renderer/features/sessions/titlebar-actions';
 import type { PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
@@ -26,6 +27,11 @@ import {
   blockMinExtent,
   type MentionDrop,
 } from './screen-layout-actions';
+import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
+import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
+import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
+import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
+import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
 import { clearDraggedSession, getDraggedSession, hasDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
 
@@ -127,7 +133,7 @@ const BlockCut = observer(function BlockCut({ node }: { node: Extract<PaneLayout
   );
 });
 
-/** 一块的占位。会话块是空的(会话页贴在它上面);App 块在这里画它那条页签条和它的页。 */
+/** 一块的占位。会话块是空的(会话页贴在它上面);App 块、项目块在这里画它那条页签条和它的页。 */
 const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) {
   const block = screenLayout.blocks.get(blockId);
   return (
@@ -138,7 +144,61 @@ const BlockSlot = observer(function BlockSlot({ blockId }: { blockId: string }) 
       onPointerDownCapture={() => focusScreenBlock(blockId)}
     >
       {block?.kind === 'app' ? <AppBlock blockId={blockId} tabKind={block.tabKind} /> : null}
+      {block?.kind === 'project' ? (
+        <ProjectBlock
+          blockId={blockId}
+          projectId={block.projectId}
+          blockActions={screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
+        />
+      ) : null}
+      {block?.kind === 'chat' ? <ChatBlock blockId={blockId} chatId={block.chatId} /> : null}
     </div>
+  );
+});
+
+/**
+ * 对话块(gugu-dev#181:对话也是一块,⌘ 点拼到右边):和项目块同一条页签条,第一枚是这个对话(头像 + 名字,关不掉);
+ * 对话由壳画进格子,头像和名字、右端那排图标(搜索、群文件夹、成员、历史)也由壳画进页签条留的几格。
+ * 公告、设置、在本群打开 App 在这枚页签的右键菜单里(右端没有 ⋯)。
+ * 屏上不止一块时右端一枚「关闭这一块」。
+ */
+const ChatBlock = observer(function ChatBlock({ blockId, chatId }: { blockId: string; chatId: string }) {
+  const { translate } = useSessionMessages();
+  const { isLeftOpen } = useWorkspaceLayoutContext();
+  const corners = screenLayout.corners(blockId);
+  return (
+    <>
+      <TabStripShell
+        reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
+        actionsSlot={
+          <TabBarActionRow atWindowEdge={corners.topRight}>
+            <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" />
+            {screenLayout.order.length > 1 ? <CloseBlockButton blockId={blockId} /> : null}
+          </TabBarActionRow>
+        }
+      >
+        <TabSlot data-chat-block-tab={chatId}>
+          <ContextMenu>
+            <ContextMenuTrigger className="flex h-full w-full min-w-0">
+              <TabChip
+                isActive
+                isFocusedPane={screenLayout.focusedBlockId === blockId}
+                label={translate('sidebar.chats')}
+                labelSlot={<ChatPartSlot chatId={chatId} part="title" className="flex min-w-0 flex-1" />}
+                onClick={() => requestShellChatAction({ kind: 'show-chat-alone', chatId })}
+              />
+            </ContextMenuTrigger>
+            <ContextMenuContent finalFocus={false} className="min-w-40">
+              <ChatTabMenuItems chatId={chatId} />
+            </ContextMenuContent>
+          </ContextMenu>
+        </TabSlot>
+        <ChatPartSlot chatId={chatId} part="tabs" className="contents" />
+      </TabStripShell>
+      <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+      {/* 对话的输入框选了「新任务 / 定时任务」:那个框收起,这里换上对应的框(结果回这个对话)。 */}
+      <ComposerVerbDock chatId={chatId} />
+    </>
   );
 });
 
@@ -150,7 +210,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
   const { translate } = useSessionMessages();
   const { isLeftOpen } = useWorkspaceLayoutContext();
   const contribution = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === tabKind);
-  const label = contribution?.title ?? tabKind;
+  const { label, tooltip } = extensionTabTitle(extensionSurfaceStore.said(null, `screen:${blockId}`), installedExtensionsStore.tabTitle(tabKind) ?? tabKind);
   const corners = screenLayout.corners(blockId);
   const multi = screenLayout.order.length > 1;
   const focused = screenLayout.focusedBlockId === blockId;
@@ -182,7 +242,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
           </ContextMenu>
         }
         actionsSlot={
-          <TabBarActionRow atWindowEdge={corners.topRight} fixedCluster={false}>
+          <TabBarActionRow atWindowEdge={corners.topRight}>
             {multi ? <CloseBlockButton blockId={blockId} /> : null}
           </TabBarActionRow>
         }
@@ -192,6 +252,7 @@ const AppBlock = observer(function AppBlock({ blockId, tabKind }: { blockId: str
             isActive
             isFocusedPane={focused}
             label={label}
+            title={tooltip}
             preSlot={<ExtensionMark iconDataUrl={contribution?.iconDataUrl} />}
             closeLabel={translate('task.closeTab', { label })}
             onClose={takeAway}

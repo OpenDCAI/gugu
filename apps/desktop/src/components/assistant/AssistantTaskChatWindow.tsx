@@ -14,6 +14,7 @@ import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { useAssistantDm } from './useAssistantDm'
 import type { AssistantChatHandlers } from './AssistantChatSlot'
+import { assistantSlotKey } from '../../lib/assistantShellBridge'
 import { TaskChatScope } from './TaskChatScope'
 import './assistant-task-chat.css'
 
@@ -32,10 +33,10 @@ export function AssistantTaskChatWindow({ agent, onClose, ...handlers }: {
         <PaneHeader title={agent.display_name} mobile={mobile} divider
           leading={<><IconButton aria-label={t('panel.back')} onClick={onClose} data-testid="assistant-task-chat-close"><ChevronLeft /></IconButton><Avatar name={agent.display_name} seed={agent.id} avatarUrl={agent.avatar} size="sm" isAgent still harnessBadge={false} /></>}
           actions={<>
-            {dm.chatId && <IconButton aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: dm.chatId } }))}><Search /></IconButton>}
+            {dm.chatId && <IconButton aria-label={t('top.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: dm.chatId, viewportKey: assistantSlotKey('task-chat') } }))}><Search /></IconButton>}
           </>} />
         {dm.chatId
-          ? <TaskChatScope chatId={dm.chatId}><ChatAreaPanel chatId={dm.chatId} activeTab="chats" mobile={mobile}
+          ? <TaskChatScope chatId={dm.chatId}><ChatAreaPanel viewportKey={assistantSlotKey('task-chat')} activeTab="chats" mobile={mobile}
               chrome={{ placeholder: t('chat.placeholder', { name: agent.display_name }), attachGlyph: <Plus />, hideRunningStatus: true }} {...handlers} /></TaskChatScope>
           : <div className="assistant-task-chat-window__pending">
               {dm.failed

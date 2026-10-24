@@ -15,8 +15,6 @@ import {
   PlugFilled,
   ChevronLeft,
   ChevronRight,
-  Folder,
-  FolderFilled,
   Globe,
   GlobeFilled,
   Palette,
@@ -157,7 +155,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'sessions', labelKey: 'settings.nav.sessions', il: <Bot size={15} />, ib: <BotFilled size={15} /> },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
   { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
-  { key: 'repository', labelKey: 'settings.nav.repository', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
 ]
 
@@ -220,6 +217,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
               // 组与组之间靠留白 + 一行小标题分开(settings.css 的 gg-settings-nav-group)。
               <div key={group.id} role="group" aria-label={caption ?? undefined} className="gg-settings-nav-group" data-group={group.id}>
                 {caption ? <div className="gg-settings-nav-caption" title={caption}>{caption}</div> : null}
+                <div className="gg-settings-nav-group-items">
                 {group.items.map(({ key, labelKey, il, ib }) => {
                   // mobile 是单栏入口列表,无「当前选中」概念(那是桌面双栏的态);detail 全屏盖住后高亮也无人看见
                   const isActive = !mobile && activeSection === key
@@ -253,6 +251,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
                     />
                   )
                 })}
+                </div>
               </div>
             )
           })}

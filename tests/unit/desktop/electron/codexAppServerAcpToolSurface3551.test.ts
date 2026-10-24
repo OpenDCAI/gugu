@@ -105,7 +105,7 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   writeFileSync(recordPath, '')
   const child = spawn(process.execPath, [ADAPTER], {
     cwd: dir,
-    env: { ...process.env, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
+    env: { ...process.env, GUGU_CODEX_DIRECT_TOOL_NAMESPACES: undefined, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   adapter = child

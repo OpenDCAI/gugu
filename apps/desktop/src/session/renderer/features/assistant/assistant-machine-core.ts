@@ -6,7 +6,7 @@ import { WORKSPACE_WRITE_FORCE } from '@gugu/session-core/session-record/contrac
 import type { rpcOn } from '@renderer/lib/ipc';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
 import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy';
-import { assistantPaths, joinPath, parseMemoryNote, type AssistantPaths, type MemoryNote } from './assistant-files';
+import { assistantPaths, joinPath, memoryIndexHints, parseMemoryNote, type AssistantPaths, type MemoryNote } from './assistant-files';
 
 /** 问那台机器用的那张路由表:桌面经会话页的线(rpcOn),手机经手机壳的线(sessionpage-rpc 的 machineRpc),同一组动词。 */
 export type MachineRpc = Pick<ReturnType<typeof rpcOn>, 'projects' | 'files' | 'workspace' | 'app'>;
@@ -159,14 +159,17 @@ function entryTime(entry: DirectoryEntry): string | null {
 
 /** 它的记忆夹:每条一个 .md(新改的在前),外加索引 MEMORY.md;夹子还没有 = 空。 */
 export async function readMemoryNotes(machine: AssistantMachine): Promise<{ notes: MemoryEntry[]; index: string | null }> {
-  const entries = await listDirectory(machine, machine.paths.memoryDir);
-  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name) && e.name !== 'MEMORY.md');
+  const [entries, index] = await Promise.all([listDirectory(machine, machine.paths.memoryDir), readText(machine, machine.paths.memoryIndex)]);
+  const hints = memoryIndexHints(index ?? '');
+  // The recovery pointer belongs to the coordinator, not the person's memory cards.
+  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name)
+    && e.name !== 'MEMORY.md' && e.name !== 'working-context.md');
   const notes = await Promise.all(
     files.map(async (entry) => {
       const text = (await readText(machine, entry.path)) ?? '';
-      return { ...parseMemoryNote(entry.name, text), path: entry.path, modifiedAt: entryTime(entry) };
+      return { ...parseMemoryNote(entry.name, text, hints.get(entry.name)), path: entry.path, modifiedAt: entryTime(entry) };
     })
   );
   notes.sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''));
-  return { notes, index: await readText(machine, machine.paths.memoryIndex) };
+  return { notes, index };
 }

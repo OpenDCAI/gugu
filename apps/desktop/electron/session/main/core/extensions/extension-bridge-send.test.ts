@@ -48,6 +48,7 @@ vi.mock('@main/core/extensions/extension-agents', () => ({
 }));
 const roster = new Map<string, string>();
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ agentIdsBySession: async () => roster }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const { bindExtensionSurface, registerExtensionBridge, checkReadingsOf } = await import('./extension-bridge');

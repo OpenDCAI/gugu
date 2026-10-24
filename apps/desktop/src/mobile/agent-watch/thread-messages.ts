@@ -5,6 +5,8 @@ import { catalogCall, toolDisplayName, type ToolImage, type ToolNode, type Trans
 import { pendingTurnHeader, placeholderTurnHeader, planTurnFoldRuns, turnFoldView, type TurnProcessHeader } from '@gugu/session-chat-ui/turn-fold'
 import { splitAttachmentMentions } from '@gugu/session-chat-ui/markdown-attachment-mentions'
 import { collectOpenedOutputs, outputsOfRun } from '@gugu/session-chat-ui/opened-outputs'
+import { readQuestionAnswerDelivery } from '@gugu/session-core/session-record/question-answer'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 
 /**
  * 时间线（`TranscriptTurn[]`）→ assistant-ui 的消息模型（`ThreadMessageLike[]`）。
@@ -64,6 +66,14 @@ export const TOOL_RUNNING = { type: 'running' } as const
  * id 就是记录里那一行的 id —— 附件挂在同一条消息上,翻页钉位认的 id 不变。
  */
 export function userMessage(id: string, text: string): ThreadMessageLike {
+  // 宿主替主人交来的回答(`<gugu_question_answer>`,gugu-dev#181 ⑨)说成一句「你回答了：X」,与桌面会话页同一个读法;❌ 原样的 XML。
+  const answered = readQuestionAnswerDelivery(text)
+  if (answered) {
+    const line = answered.answer === null
+      ? translateSessionMessage('transcript.questionWithdrawn')
+      : translateSessionMessage('transcript.questionAnswered', { answer: answered.answer })
+    return { role: 'user', id, content: [{ type: 'text', text: line }] }
+  }
   const { text: body, attachments } = splitAttachmentMentions(text)
   return {
     role: 'user',

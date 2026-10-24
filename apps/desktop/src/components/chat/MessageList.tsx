@@ -86,6 +86,7 @@ export interface MessageListRowProps {
   onReaction: (messageId: string, emoji: string) => void
   // @@@1345 点击已读圆环 → 父层弹「谁已读/谁未读」名单(稳定回调，避免 reader 列表作对象 prop 破 memo)。
   onShowReadReceipt: ((messageId: string, anchor: HTMLElement) => void) | undefined
+  onShowMessage?: (id: string) => void
   onQuote: (msg: MessageItem) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
@@ -157,7 +158,7 @@ const MessageListRow = memo(function MessageListRow({
   memberProfiles,
   onReaction,
   onShowReadReceipt,
-  onQuote,
+  onQuote, onShowMessage,
   onForward,
   onDelete,
   onVisible,
@@ -239,7 +240,7 @@ const MessageListRow = memo(function MessageListRow({
       hideTime={showTimeDivider || mobile}
       onShowReadReceipt={onShowReadReceipt}
       highlight={highlight}
-      onQuote={onQuote}
+      onQuote={onQuote} onShowMessage={onShowMessage}
       onForward={onForward}
       onDelete={onDelete}
       isAgent={isAgentMessage}
@@ -344,7 +345,7 @@ export function MessageList({
   style?: CSSProperties
   /** 顶部让出多少 px:头栏上的悬浮小鸟探出头栏时,滚到最上面的第一条 / 日期分隔落在它脚下面,不被盖住(agent 单聊的桌面形态传)。 */
   topInset?: number
-  /** 这条消息流在哪一栏。副栏不当未读定位器的 main 表面(见 SCROLLER_TEST_ID)。 */
+  /** 这条消息流在哪一栏。只决定布局与自动化选择器;未读定位确认使用本视口 ref。 */
   surface?: 'main' | 'aside'
   /** @@@6530 这次打开时的第一条未读:在视口上方时右上角出「↑ N 条新消息」,点了跳过去。 */
   unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void } | null
@@ -372,6 +373,8 @@ export function MessageList({
         <div ref={contentRef}>
           {rows.slice(start, end).map((row, i) => <MessageListRow key={row.message.id} index={start + i} {...rowProps} />)}
           {end >= rows.length ? footer : null}
+          {/* 会话底部那一摞浮在消息流上时(ChatBottomDock 写的 --chat-dock-h),滚到底的最后一条落在它上面;没有它就是 0。 */}
+          <div aria-hidden className="h-[var(--chat-dock-h,0px)]" />
         </div>
       </div>
       {unreadAbove && showUnreadAbove && <Button variant="primary" size="sm" data-unread-above="" style={UNREAD_ABOVE_STYLE} onClick={unreadAbove.onJump}>{unreadAbove.label}</Button>}

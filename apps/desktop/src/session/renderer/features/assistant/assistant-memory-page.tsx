@@ -17,6 +17,8 @@ import { AssistantHealthPage } from './assistant-health';
 import { useVoiceNotes } from './voice-notes/voice-notes-data';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { AssistantPendingWork } from './assistant-pending-work';
 
 function useTimeFormat() {
   const { i18n } = useTranslation();
@@ -65,6 +67,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         error={context.machineError ?? notes.error}
         onRetry={() => (context.machineError ? context.retryMachine() : void notes.refetch())}
       >
+        <AssistantPendingWork context={context} />
         <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
           {aboutYou.length === 0 ? (
             <div className="flex flex-col items-start gap-3">
@@ -81,7 +84,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
           )}
         </AssistantSection>
         <AssistantSection title={t('library.workspace')}>
-          <AssistantLibraryCard machine={context.machine} kind="workspace" onOpen={() => context.go({ tab: 'memory', sub: 'library:workspace' })} />
+          <AssistantLibraryCard assistantId={context.assistant.id} machine={context.machine} kind="workspace" onOpen={() => context.go({ tab: 'memory', sub: 'library:workspace' })} />
         </AssistantSection>
         {others.length > 0 && <AssistantSection title={t('library.memory')} bare testId="assistant-memory-all">
           <div className="ta-grid">
@@ -120,6 +123,8 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
     const machine = context.machine!;
     try {
       await removePath(machine, entry.path);
+      await reportAssistantAppChange(machine, context.assistant.id, { resource: 'memory', operation: 'removed',
+        id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.title, path: entry.path } });
       // 索引里指向它的那一行一起拿掉(MEMORY.md 是助理每次开工读的目录)。
       const index = await readText(machine, machine.paths.memoryIndex);
       if (index !== null) {
@@ -207,6 +212,8 @@ function ResourceRow({
     if (name === entry.name) return;
     try {
       await renamePath(context.machine!, entry.path, name);
+      await reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'files', operation: 'edited',
+        id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path }, after: { name } });
       await invalidate('dir');
       toast({ title: t('files.renamed') });
     } catch {
@@ -216,6 +223,8 @@ function ResourceRow({
   const remove = async () => {
     try {
       await removePath(context.machine!, entry.path, folder);
+      await reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'files', operation: 'removed',
+        id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path } });
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
     } catch {
@@ -323,7 +332,9 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
     for (const file of accepted) {
       setUploading(file.name);
       try {
-        await uploadFile(context.machine, target, file);
+        const savedPath = await uploadFile(context.machine, target, file);
+        await reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'files', operation: 'saved',
+          id: savedPath, deviceId: context.homeDeviceId, after: { name: file.name, path: savedPath } });
         done.push(file.name);
       } catch (cause) {
         toast({ title: t('files.uploadFailed', { name: file.name, message: cause instanceof Error ? cause.message : String(cause) }), tier: 'error' });
@@ -345,7 +356,9 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
     }
     try {
       const target = await ensureDir();
-      await makeFolder(context.machine!, target, folderName.trim());
+      const savedPath = await makeFolder(context.machine!, target, folderName.trim());
+      await reportAssistantAppChange(context.machine, context.assistant.id, { resource: 'files', operation: 'saved',
+        id: savedPath, deviceId: context.homeDeviceId, after: { name: folderName.trim(), path: savedPath } });
       setCreating(false);
       setFolderName('');
       await invalidate('dir');
@@ -456,7 +469,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
 /** 记忆这一格:首页,或往下钻到的那一页(一条记忆 / 资料夹里某一层 / 语音笔记及其中一条)。 */
 export function AssistantMemoryPage({ context }: AssistantPageProps) {
   const sub = context.route.sub ?? '';
-  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} machine={context.machine} kind={'workspace'} askInChat={context.askInChat} />;
+  if (sub === 'library:workspace') return <AssistantLibraryVolume key={sub} assistantId={context.assistant.id} machine={context.machine} kind={'workspace'} askInChat={context.askInChat} />;
   if (sub.startsWith('note:')) return <MemoryNoteDetail context={context} file={sub.slice('note:'.length)} />;
   if (sub === VOICE_NOTE_SUB || sub.startsWith(`${VOICE_NOTE_SUB}:`)) return <VoiceNotesPage context={context} />;
   if (sub === 'health') return <AssistantHealthPage context={context} />;

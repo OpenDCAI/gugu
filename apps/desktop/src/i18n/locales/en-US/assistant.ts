@@ -8,6 +8,8 @@ export default {
     "entryGroup": "Group",
     "entryName": "Name",
     "add": "Add entry",
+    "edit": "Edit entry",
+    "savedNotificationFailed": "Saved; delivery of the update to your assistant is unconfirmed",
     "memory": "Memory", "workspace": "Projects", "capabilities": "Capabilities", "devices": "Devices",
     "loading": "Reading…", "failed": "Resources could not be read. Please retry.", "items": "{{count}} entries",
     "notConfigured": "Not configured yet", "setup": "Set up together", "organize": "Organize in chat", "backToIndex": "Back to index",
@@ -86,6 +88,8 @@ export default {
     "unavailable": "Gugu isn't available here yet."
   },
   "setup": {
+    "identityTitle": "Choose a name and look",
+    "customizeLook": "Customize appearance",
     "nameTitle": "Give your assistant a name",
     "membershipUnreadable": "Could not read your membership. Please retry.",
     "cloudNotOpen": "Cloud hosting is not enabled and cannot be selected yet.",
@@ -416,6 +420,7 @@ export default {
     },
     "unseen": "Has unseen results",
     "emptyTitle": "No tasks yet",
+    "loadFailed": "Couldn't load tasks",
     "empty": "Tasks {{name}} starts while working for you show up here.",
     "notRead": "{{name}}'s tasks can only be read while it's awake."
   },
@@ -426,6 +431,7 @@ export default {
     "active": "Active",
     "inactive": "Paused",
     "next": "Next {{time}}",
+    "nextUnavailable": "Couldn't read the next run time",
     "ended": "Ended",
     "enabled": "On",
     "everyDay": "Daily at {{time}}",
@@ -451,6 +457,22 @@ export default {
     "gone": "It may have been deleted."
   },
   "memory": {
+    "pending": {
+      "title": "Unfinished work",
+      "count": "{{count}} items",
+      "note": "Clearing removes recovery entries without cancelling tasks.",
+      "retry": "Could not read. Retry",
+      "loading": "Loading…",
+      "empty": "No pending entries",
+      "uncertain": "Delivery needs verification",
+      "needsSource": "Source missing; cannot recover automatically",
+      "blocked": "Waiting for the device task host",
+      "question": "Waiting for your answer",
+      "executor": "Waiting for task results",
+      "source": "Original request",
+      "clear": "Clear entries",
+      "clearFailed": "Could not clear. Try again."
+    },
     "loadFailed": "Couldn't load memories. Try again shortly.",
     "aboutUserTitle": "What I know about {{owner}}",
     "updated": "Updated {{time}}",
@@ -485,6 +507,7 @@ export default {
     "gone": "It may have been deleted or renamed."
   },
   "health": {
+    "desktopEmpty": "No health data yet",
     "title": "Health",
     "tileSub": "{{n}} metrics",
     "tileSubEmpty": "Sleep, activity, heart rate",
@@ -578,7 +601,7 @@ export default {
     "analysisTitle": "Your health analysis",
     "analysisEmpty": "Let {{name}} look at your recent data. Its take will be kept here.",
     "analyze": "Ask {{name}} to interpret",
-    "analyzePrompt": "[Health] Look at the last 7 days of health data on my phone (device_call the phone's health.summary) and tell me what stands out about my sleep, activity and heart rate. Save your conclusions to your memory in a file whose name starts with health_.",
+    "analyzePrompt": "[Health] Have an executor on the device holding my recent health data read the authorized records and explain any notable changes in sleep, activity and heart rate. Save the conclusions to your memory in a file whose name starts with health_.",
     "notes": "Health notes",
     "addData": "Add health data",
     "analyzeReport": "Analyze a health report",

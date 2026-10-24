@@ -3,6 +3,10 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/supabase', () => ({
+  dataClient: () => { throw new Error('Initial composer tests must not access the cloud'); },
+}));
 import {
   SESSIONPAGE_PLATFORM_CATALOG_CHANNEL,
   type PlatformModelCatalogResponse,
@@ -1730,6 +1734,34 @@ describe('InitialSessionField', () => {
     expect(text).not.toContain('net::');
     expect(text).toContain('harnessCatalog.retry');
     expect(latestState?.retryPlatformCatalog).toBeTypeOf('function');
+  });
+
+  // #137 owner 2026-10-23:「已经说了设备下线,这里有必要再说一个错误的提示吗」—— 目录是问那台机器要的,
+  // 机器没连上时问不到是机器的事,由右下角机器的提示说;这一格 ❌ 再报「模型列表尚未就绪」+「重试」。
+  it('says nothing about the platform catalog while the chosen machine is not connected', async () => {
+    // 机器停了之后要过一会儿这边才知道:那段时间里问的那一次已经落成了「尚未就绪」。
+    platformCatalog({ models: [], agentDefault: null, catalogError: 'gugu-models:host-not-ready' });
+    const renderOn = async (online: boolean) => {
+      await act(async () => {
+        root.render(
+          React.createElement(
+            LibraryHostProvider,
+            { value: machineLibraryHost({ deviceId: 'dev-off', deviceLabel: 'Mac 1', online, lastSeenAt: null }) },
+            React.createElement(FieldProbe, {})
+          )
+        );
+      });
+      await act(async () => {});
+    };
+    await renderOn(true);
+    expect(latestState?.platformNotice).toBe('guguCatalog.reason.host-not-ready');
+    // 这边知道它没连上了:那句是机器离线的结果,不再说
+    await renderOn(false);
+
+    expect(latestState?.platformNotice).toBeNull();
+    expect(latestState?.retryPlatformCatalog).toBeUndefined();
+    expect(toolbarText()).not.toContain('guguCatalog.reason');
+    expect(toolbarText()).not.toContain('harnessCatalog.retry');
   });
 
   it('never puts a raw server message on screen (#6264 d22: "model access server is not configured")', async () => {

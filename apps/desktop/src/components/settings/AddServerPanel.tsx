@@ -11,6 +11,8 @@ import {
 } from '../../lib/serverSshInstall'
 import { canOpenNewSessionOnDevice, openNewSessionOnDevice } from '../../lib/sessionpageNewSessionBridge'
 import { useDevicesStore } from '../../store/devicesContext'
+import { cachedDevicesAccount } from '../../store/devicesCache'
+import { reportAssistantAppChange } from '../assistant/assistant-app-client'
 import { Button } from '../ui/Button'
 import { Field } from '../ui/Field'
 import {
@@ -81,6 +83,7 @@ export function AddServerPanel({
   /** 这次要给新机器起的名字(从配置里挑的别名);填的是地址就不起,照默认的「Linux 1」这类名字。 */
   const nameRef = useRef<string | null>(null)
   const finishedRef = useRef(false)
+  const ownerRef = useRef(cachedDevicesAccount())
   // 展开时已有的机器:装好的那台不在其中 = 这次新加的(给它起别名);在其中 = 重新接上的老机器(名字不动)。
   const knownDeviceIds = useRef<Set<string> | null>(null)
   if (knownDeviceIds.current === null) knownDeviceIds.current = new Set(devices.map((d) => d.device_id))
@@ -137,6 +140,8 @@ export function AddServerPanel({
     runIdRef.current = null
     const deviceId = result.deviceId ?? landed?.device_id ?? null
     const fresh = Boolean(deviceId && !knownDeviceIds.current?.has(deviceId))
+    if (deviceId) void reportAssistantAppChange(null, undefined, { resource: 'devices', operation: fresh ? 'created' : 'saved',
+      id: deviceId, deviceId, after: { name: landed?.label ?? result.hostname } }, ownerRef.current)
     onAdded({ deviceId, name: fresh ? nameRef.current : null })
   }, [result, landed, onAdded])
 
@@ -227,7 +232,10 @@ export function AddServerPanel({
       </div>
       {method === 'tunnel' ? (
         <OneLineInstall
-          onAdded={(deviceId) => onAdded({ deviceId, name: null })}
+          onAdded={(deviceId) => {
+            if (deviceId) void reportAssistantAppChange(null, undefined, { resource: 'devices', operation: 'created', id: deviceId, deviceId }, ownerRef.current)
+            onAdded({ deviceId, name: null })
+          }}
           onUpgrade={onUpgrade}
           onRemoveMachine={onClose}
         />

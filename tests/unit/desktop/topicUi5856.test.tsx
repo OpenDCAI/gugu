@@ -5,7 +5,10 @@
 //   1. 「可见 / 参与 / 通知是三件事」在锚点卡上真的看得出来(is_participant=false ⇒ 「只看得见」);
 //      判据能判假 —— 同一份数据把 is_participant 翻成 true,那条断言必须反过来。
 //   2. useTopicsOfChat 的竞态守卫:切线之后,上一条线的慢响应 ❌ 不许落进新线的状态。
+import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
+import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
+import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -262,6 +265,7 @@ describe('TopicBreadcrumb:双向连接上行的那一半 + 来源消息被删的
 describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   const baseProps = {
     topic: { chatId: 'topic-1', name: '分片下载失败' },
+    sourceChatId: 'source-1',
     messages: [],
     loading: false,
     memberProfiles: {},
@@ -274,7 +278,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     onSendAttachments: vi.fn(async () => {}),
     onClose: vi.fn(),
     currentUserId: 'user-1',
-    onRevealOlder: vi.fn(),
+    history: topicHistoryStub(),
     mentionMembers: [],
   } satisfies Parameters<typeof TopicSplitPane>[0]
 
@@ -287,6 +291,30 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       unread: { id: 'unread', displayName: '话题未读成员', avatar: null, email: null, type: 'human' as const, role: 'member' as const },
       'source-only': { id: 'source-only', displayName: '仅来源群成员', avatar: null, email: null, type: 'human' as const, role: 'member' as const },
     },
+  }
+
+  for (const layout of ['desktop', 'phone', 'tab'] as const) {
+    it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
+      const tabs = document.body.appendChild(document.createElement('span'))
+      const requests: unknown[] = []
+      const receive = (event: Event) => requests.push((event as CustomEvent).detail)
+      window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+      try {
+        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', tabHost: layout === 'tab' ? tabs : undefined }))
+        if (layout === 'tab') {
+          await act(async () => { tabs.querySelector('[data-topic-tab] > div')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
+        } else {
+          await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
+        }
+        const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
+        expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
+        await clickElement(settings!)
+        expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
+      } finally {
+        window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+        tabs.remove()
+      }
+    })
   }
 
   // 2026-09-24 shuxue:「我在 topic 里面点不开你发的附件」。分栏复用 MessageList 却没接 onOpenFile ⇒
@@ -334,7 +362,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   // R A/B 10-06: a topic's App panel covers the topic's list, and its gugu.showMessage of a topic line moved nothing —
   // no scroll, no flash, no toast (both builds). Control (b22032f777): the panel stays and no row flashes.
-  it('gugu.showMessage of a line in this topic: the App panel gives the list back, and that line flashes', async () => {
+  it('gugu.showMessage keeps the topic address and flashes its line', async () => {
     const originalCheckVisibility = HTMLElement.prototype.checkVisibility
     const originalScrollTo = HTMLElement.prototype.scrollTo
     HTMLElement.prototype.checkVisibility = () => false // jsdom has none; an unseen slot claims no page
@@ -342,10 +370,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     try {
       const messages = ['t-1', 't-2', 't-3'].map((id, index) => message({ id, seq: index + 1, content: `line ${id}` }))
       await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, messages }))
-      await clickElement(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]') as HTMLElement)
-      expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the App panel is open').toBeTruthy()
+      expect(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]')).toBeNull()
       await act(async () => {
-        window.dispatchEvent(new CustomEvent('gugu:app-show-message', { detail: { chatId: 'topic-1', messageId: 't-1' } }))
+        askReveal('topic-1', 't-1', 'topic'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
       })
       expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the panel gave the list back').toBeNull()
       expect(harness.container.querySelector('[data-msg-id="t-1"]')?.className).toContain('msg-src-flash')
@@ -356,14 +383,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
   })
 
-  it('分栏的输入框**就是**主线那一份 InputArea,❌ 不是另造的一个', async () => {
+  it('分栏的输入框**就是**主线那一份 ChatMessageComposer,❌ 不是另造的一个', async () => {
     // @@@5856 owner 2026-09-19 实测:「输入框没有发送键参考一下左边输入框,应该是一致的,
     // 也是因为你造了一个额外的输入框,导致 @ 等功能失效了」。
     // 自造的那份症状不是「长得不一样」,是**功能悄悄少了一半**——发送键、@ 候选弹窗、草稿、附件,
     // 全是原件早就解决过的问题,重写一份把它们统统退回未解决态,而且不报任何错。
     // 所以这一格钉的是「用的是同一个组件」,而不是「自造的那份也有发送键」。
     const source = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')
-    expect(source).toContain("import { InputArea } from './InputArea'")
+    expect(source).toContain("import { ChatMessageComposer } from './ChatMessageComposer'")
     expect(source).not.toContain('function TopicComposer')
     expect(source).not.toContain('<textarea')
 
@@ -371,7 +398,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       ...baseProps,
       mentionMembers: [{ id: 'agent-9', name: '小柯', type: 'agent' as const }],
     }))
-    // 渲染出来的就是 InputArea 自己那个 textarea。
+    // 渲染出来的就是 ChatMessageComposer 的共享 PromptEditor。
     // —— 但它报的是**副栏**的 test id:同一扇窗里两个输入框共用一个 id,
     // 自动化拿到的是文档序第一个,到底是哪一栏看运气(找茵第九轮)。
     expect(harness.container.querySelector('[data-testid="chat-composer-aside"]')).not.toBeNull()
@@ -381,21 +408,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
-  it('分栏输入框的上下留白与主线那一份一致 —— ❌ 不许一个贴着窗底、一个悬在上面', async () => {
-    // owner 2026-09-19 实测(两栏并排的截图):「这个高度怎么不一致」。
-    // 两个输入框的胶囊本身都是 42px,差的是外面那一圈:主线有 `12px 22px 18px`,
-    // 分栏这一份原先什么都没有 ⇒ 胶囊直接压在窗底,并排看就是两个高度。
-    const chatArea = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
-    expect(chatArea, '主线 composer 的外边距变了 —— 分栏这一份要跟着改,否则两边又会漂开').toContain("'12px 22px 18px'")
-
+  it('uses the same ACP desktop frame as the main composer without a second padding layer', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps }))
-    const wrapper = harness.container
-      .querySelector('[data-testid="chat-composer-aside"]')
-      ?.closest('[data-topic-split-composer]') as HTMLElement
-    expect(wrapper, '分栏的输入框没有外层留白容器').toBeTruthy()
-    // 垂直方向必须与主线逐字相同;水平方向故意窄一档(这一栏比主栏窄,照抄 22 会把胶囊挤细)。
-    expect(wrapper.style.paddingTop).toBe('12px')
-    expect(wrapper.style.paddingBottom).toBe('18px')
+    const wrapper = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!
+    expect(wrapper.style.padding).toBe('0px')
+    const dock = wrapper.closest('[data-chat-bottom-dock]')!
+    expect(dock.classList.contains(composerSlotClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。
@@ -413,7 +433,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       scrollTop: { configurable: true, get(this: HTMLElement) { return tops.get(this) ?? 0 }, set(this: HTMLElement, v: number) { tops.set(this, Math.min(Math.max(0, v), aside(this) ? geometry.scrollHeight - 300 : 0)) } },
     })
     const observers: Array<() => void> = []
-    vi.stubGlobal('ResizeObserver', class { constructor(private readonly cb: () => void) {} observe() { observers.push(this.cb) } disconnect() {} unobserve() {} })
+    vi.stubGlobal('ResizeObserver', class { constructor(private readonly cb: (entries: ResizeObserverEntry[]) => void) {} observe(target: Element) { observers.push(() => this.cb([{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry])) } disconnect() {} unobserve() {} })
     try {
       await renderWithAppProviders(harness, createNode(TopicSplitPane, {
         ...baseProps,
@@ -449,13 +469,10 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 名单之外出现新的差异 = 红。
   const JUSTIFIED_OMISSIONS: Record<string, Record<string, string>> = {
     MessageList: {
-      scrollerRef: '主线用它读实测滚动几何(翻页门与钳底门);分栏用组件自带的那份缺省实现',
-      onTotalListHeightChanged: '不传 = 组件缺省的贴底钳位,与主线同形',
-      unreadAbove: '#6530 从会话列表点开主线时记下的第一条未读(「↑ N 条新消息」);话题从列表打开是分栏,不走这条路,分栏没有这枚标签',
       topInset: '给 agent 单聊头栏里探出头栏的那只小鸟让位(滚到最上时第一条不被它的脚压住);分栏没有 agent 头栏,也就没有探出的部分',
       footer: '#7199 只有「助理」App 那个聊天面在消息流末尾接一个「它在处理」的打字气泡(取代运行条);分栏不传 = 运行条照旧,与对话页同形',
     },
-    InputArea: {
+    ChatMessageComposer: {
       beforeSend: 'agent 私聊专用(任务页会话恢复前置),话题是场所型会话',
       disabled: 'agent 私聊专用(引擎不可用时禁用输入)',
       disabledReason: '同上',
@@ -505,10 +522,29 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
     return names
   }
+  // gugu-dev#181 第 ⑤ 步:块里的话题是页签条上和群对话并排的一枚页签,这一栏不再画自己那条头;不给 tabHost(对话页)头照旧。
+  it('在块里:话题画成页签条上的一枚页签(× = 收起分栏),这一栏没有自己的头', async () => {
+    const tabs = document.body.appendChild(document.createElement('span'))
+    const onClose = vi.fn()
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, onClose, tabHost: tabs }))
+    expect(harness.container.querySelector('[data-testid="topic-split-close"]'), 'the block tab strip is the header').toBeNull()
+    const tab = tabs.querySelector('[data-topic-tab="topic-1"]')
+    expect(tab?.textContent).toContain('分片下载失败')
+    await act(async () => { tab!.querySelector<HTMLElement>('button[aria-label]')!.click() })
+    expect(onClose).toHaveBeenCalledOnce()
+    tabs.remove()
+  })
+
+  it('不在块里(对话页):这一栏照旧有自己的头,也不画页签', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, baseProps))
+    expect(harness.container.querySelector('[data-testid="topic-split-close"]')).not.toBeNull()
+    expect(document.querySelector('[data-topic-tab]')).toBeNull()
+  })
+
   it('分栏与主线的入参差异只能是名单上那几条 —— 复用组件不等于接全它的契约', async () => {
     const panel = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
     const pane = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')
-    for (const tag of ['MessageList', 'InputArea']) {
+    for (const tag of ['MessageList', 'ChatMessageComposer']) {
       const main = new Set(jsxProps(panel, tag))
       const aside = new Set(jsxProps(pane, tag))
       expect(main.size, `${tag}: 主线那个调用点没解析出任何 prop,这一格就判不了事`).toBeGreaterThan(3)
@@ -522,13 +558,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   // 接完一页视口钉在原处:列表在头部插行的那次提交里把读者正看着的那一行放回原处(几何用例见 flowList.test.tsx)。
   it('分栏滚到顶附近就去要下一页', async () => {
-    const onRevealOlder = vi.fn()
+    const onRevealOlder = vi.fn(async () => {})
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps,
-      messages: [message({ id: 'm1', content: '第一句' })],
-      onRevealOlder,
+      messages: [message({ id: 'm1', seq: 2, content: '第一句' })],
+      history: { ...baseProps.history, loadOlderMessages: onRevealOlder },
     }))
     const scroller = harness.container.querySelector('[data-unread-stream-surface="aside"]') as HTMLElement
+    Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, value: 0, writable: true } })
     await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
     expect(onRevealOlder).toHaveBeenCalledTimes(1)
   })
@@ -553,7 +590,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         detail: { files: [new File(['x'], '不该进来.png', { type: 'image/png' })] },
       }))
     })
-    expect(harness.container.querySelector('[data-testid="pending-attachment-preview"]')).toBeNull()
+    expect(harness.container.querySelector('[data-slot="composer-attachment"]')).toBeNull()
   })
 
   it('分栏的回形针发得出去 —— ❌ 不允许「挂得上、发不出、一声不响」', async () => {
@@ -570,7 +607,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
     await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
     const send = harness.container.querySelector('[data-testid="chat-composer-send"]') as HTMLButtonElement
-      ?? harness.container.querySelector('button[aria-label="发送"]') as HTMLButtonElement
+      ?? harness.container.querySelector('button[aria-label="发送消息"]') as HTMLButtonElement
     expect(send, '找不到发送键').toBeTruthy()
     await clickElement(send)
     expect(onSendAttachments).toHaveBeenCalledTimes(1)
@@ -671,7 +708,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 170 10-19:页头 ⋯ 打开本机的 App(#7469)只在群和私聊的页头,话题的分栏与手机整页一直没有 —— 话题里要开 App 只能靠卡片。
   // 现在话题用同一份菜单项(OpenAppMenuItems):点一下 = openApp(它, 这个话题)。手机的 ⋯ 里先是附件、文件夹,再是 App。
   for (const mobile of [false, true]) {
-    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在这个话题的右栏打开`, async () => {
+    it(`${mobile ? '手机整页' : '桌面分栏'}:话题页头 ⋯ 列出本机能开的 App,点一下在来源的共享栏打开`, async () => {
       runInAction(() => {
         installedExtensionsStore.manifests = [parseExtensionManifest({ id: 'turtle-soup', name: '海龟汤', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '海龟汤' }] } })]
       })
@@ -682,9 +719,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['附件', '文件夹', '海龟汤'] : ['海龟汤'])
+        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '设置', '海龟汤'] : ['搜索消息', '设置', '海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
-        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'topic-1' })
+        expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'source-1' })
       } finally {
         window.removeEventListener(UI_EVENTS.openApp, listen)
         runInAction(() => { installedExtensionsStore.manifests = [] })
@@ -692,9 +729,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
   }
 
-  it('桌面分栏:本机没有能开的 App 就没有 ⋯', async () => {
+  it('desktop topic keeps search available when no App is installed', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null }))
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).not.toBeNull()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {
@@ -713,7 +750,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   })
 
   // @@@5856 '自带的输入框回车发送，发送期间禁用' 已删 —— 分栏不再自带输入框,
-  // 回车发送/发送期间禁用/失败提示全部归 InputArea 自己的判据(它本来就有)。
+  // 回车发送/发送期间禁用/失败提示全部归 ChatMessageComposer 自己的判据(它本来就有)。
   // ❌ 不在这里再抄一份:抄一份等于允许两份实现漂开,而那正是这次被 owner 点破的毛病。
 })
 

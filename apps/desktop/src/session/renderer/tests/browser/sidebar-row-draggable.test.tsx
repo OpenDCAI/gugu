@@ -10,6 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, test } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
+import { SidebarSessionLineRow } from '@/components/SidebarSessionLineRow'
 import { SidebarMenuAction, SidebarMenuRow } from '@renderer/features/sidebar/sidebar-primitives'
 import {
   clearDraggedSession,
@@ -133,4 +134,23 @@ test('拖起来的那张图里没有行尾那层 hover 动作(置顶 / 归档 / 
   } finally {
     spy.restore()
   }
+})
+
+
+test('the Chats task row uses the same native task payload', async () => {
+  host = document.body.appendChild(document.createElement('div'))
+  host.style.width = '320px'
+  const events: Array<{ trusted: boolean; types: string[]; payload: unknown }> = []
+  root = createRoot(host)
+  root.render(<>
+    <SidebarSessionLineRow line={{ sessionId: 'task-in-chats', projectId: 'project', title: 'Task title', time: Date.now(), group: null, agentUserId: null }} isActive={false} onClick={() => {}} />
+    <div data-testid="task-line-target" style={{height:80}} onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault()
+        events.push({ trusted: event.nativeEvent.isTrusted, types: [...event.dataTransfer.types], payload: getDraggedSession(event.dataTransfer) })
+      }}>drop task here</div>
+  </>)
+  await until('the actual Chats row is mounted', () => !!document.querySelector('[data-session-line="task-in-chats"]'))
+  await userEvent.dragAndDrop(page.getByRole('option', {name:/Task title/}), page.getByTestId('task-line-target'))
+  expect(events).toEqual([{ trusted: true, types: [SESSION_DRAG_TYPE], payload: { sessionId: 'task-in-chats', projectId: 'project', title: 'Task title' } }])
 })

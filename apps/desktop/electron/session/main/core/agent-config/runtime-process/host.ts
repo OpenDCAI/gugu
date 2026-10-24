@@ -27,6 +27,7 @@ import { loginShellEnv } from '@main/utils/userEnv';
 import { err, ok, type Result } from '@gugu/session-shared';
 import type { AgentConfigAuthError } from '@gugu/session-core/workspace-server';
 import { createHarnessConnection, listHarnessConnections, removeHarnessConnection, selectHarnessConnection, sessionHarnessConnectionId } from '@main/core/agents/harness-connections';
+import { connectionFailure } from '@main/core/sessions/subscription-sessions-busy';
 
 const AGENT_CONFIG_WIRE_CHANNEL = 'agent-config-wire';
 
@@ -187,10 +188,10 @@ function withHostResolvedCli(
       const status = await client.refreshAuthStatus({ ...input, runContext: await runContextFor(input) });
       if (!status.success) throw new Error('Cannot read the connection’s sign-in status');
       if (input.connectionId !== 'native' && status.data.kind !== 'authenticated') throw new Error('Sign in before using this connection');
-      if (input.providerId === 'codex') {
-        // Codex 的已有会话跟着默认订阅走:换凭据前要先停掉在跑的会话(#26)。
-        const { switchCodexSubscription } = await import('@main/core/sessions/codex-subscription-switch');
-        await switchCodexSubscription(input.connectionId, (await runContextFor({ providerId: input.providerId })).env);
+      if (input.providerId === 'codex' || input.providerId === 'claude') {
+        // 已有会话跟着默认订阅走:换凭据前要先停掉在跑的会话(#26)。
+        const { switchSubscription } = await import('@main/core/sessions/subscription-switch');
+        await switchSubscription(input.providerId, input.connectionId, (await runContextFor({ providerId: input.providerId })).env);
       } else {
         await selectHarnessConnection(input.providerId, input.connectionId);
       }
@@ -217,7 +218,7 @@ function withHostResolvedCli(
 
 async function connectionOperation<T>(operation: () => Promise<T>): Promise<Result<T, AgentConfigAuthError>> {
   try { return ok(await operation()); }
-  catch (error) { return err({ type: 'invalid-state', message: error instanceof Error ? error.message : String(error) }); }
+  catch (error) { return err(connectionFailure(error)); }
 }
 
 function subscriptionRunContext(providerId: string, connectionId?: string) {

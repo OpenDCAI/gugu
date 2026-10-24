@@ -38,14 +38,11 @@ import { LiveTail } from './live-tail'
 import { TurnProcessMessage, TurnProcessToggleProvider } from './turn-process-message'
 import { attachmentMentions, sessionAttachmentAdapter } from './composer-attachments'
 import { sessionAttachmentRpc } from './sessionpage-rpc'
+import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
 
 /**
- * 手机端会话时间线 —— 界面**整份用 assistant-ui 官方的** `Thread`
- *（`components/assistant-ui/` 下那批源码是从官方 registry 原样拷进来的）。
- *
- * 上一版我只装了它**不带样式的原语**，视觉自己照咕咕的 token 重画了一遍。
- * 官方那套的骨架、间距、动效（消息淡入、思考折叠、工具卡展开、回到底部）都在拷进来的源码里，
- * 颜色则经 tokens.css 早就铺好的 shadcn→咕咕 @theme 桥自动跟随咕咕主题。
+ * 手机任务时间线复用 assistant-ui Thread 的消息仓库、滚动、附件和发送行为。
+ * 手机阅读面和输入框在 phone-conversation.css 消费产品视觉规范的 token；触摸键盘的 Enter 保留换行。
  *
  * 这一层只剩两件咕咕特有的事：
  *   ① 数据：`useExternalStoreRuntime` 直接读现成的时间线（读侧只读，发送走已有的 send）。
@@ -202,6 +199,7 @@ export function AgentThread({
   timeline,
   deviceId,
   sessionId,
+  phoneHost = false,
   machineLabel,
   sessionRuntime,
   respondingItemId,
@@ -221,6 +219,7 @@ export function AgentThread({
   timeline: AgentWatchTimeline
   deviceId: string
   sessionId: string
+  phoneHost?: boolean
   /** That machine's name, for an App install asked there (D-31). */
   machineLabel?: string
   /** 这条会话的腿(协议 / 终端),决定审批/提问卡能不能在手机上答。 */
@@ -257,14 +256,14 @@ export function AgentThread({
   const attachments = useMemo(
     () =>
       sessionAttachmentAdapter({
-        rpc: sessionAttachmentRpc(deviceId),
+        rpc: sessionAttachmentRpc(deviceId, phoneHost),
         sessionId,
         describe: (reason) =>
           reason === 'too-large'
             ? t('agentWatch.composer.attachTooLarge', { limit: formatBytes(MAX_ATTACHMENT_BYTES) })
             : t(reason === 'server-too-old' ? 'agentWatch.composer.attachServerTooOld' : 'agentWatch.composer.attachFailed'),
       }),
-    [deviceId, sessionId, t],
+    [deviceId, sessionId, phoneHost, t],
   )
   const messages = useMemo(
     () => [
@@ -367,12 +366,13 @@ export function AgentThread({
             <SessionOptionsPill
               deviceId={deviceId}
               sessionId={sessionId}
+              phoneHost={phoneHost}
               // 改模型/权限档在跑的时候仍然锁:一轮跑到一半换模型,会和它自己的输出交错。
               busy={sending || agentWorking}
             />
           }
           stop={agentWorking ? { onStop, stopping } : null}
-          above={footerNotice ? <div className="gg-aw-thread-extras">{footerNotice}</div> : null}
+          above={footerNotice || phoneHost ? <div className="gg-aw-thread-extras">{footerNotice}{phoneHost && <PhoneTaskDraftRecovery deviceId={deviceId} sessionId={sessionId} composer={runtime.thread.composer} sending={sending} />}</div> : null}
           tail={
             pinned.length > 0 ? (
               <div className="gg-aw-thread-extras" data-testid="agent-watch-pinned-settlements">
@@ -406,6 +406,7 @@ export function AgentThread({
                   ...(emptyNote ? { Welcome: EmptyNoteWelcome } : {}),
                 }}
                 autoFocus={false}
+                submitOnEnter={false}
               />
               </LiveTail.Provider>
             </ToolItems.Provider>

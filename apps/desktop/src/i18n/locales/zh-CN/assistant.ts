@@ -8,6 +8,8 @@ export default {
     "entryGroup": "分组",
     "entryName": "名称",
     "add": "添加条目",
+    "edit": "编辑条目",
+    "savedNotificationFailed": "已保存，暂未确认助理收到变更",
     "memory": "记忆", "workspace": "项目", "capabilities": "能力", "devices": "设备",
     "loading": "正在读取…", "failed": "暂时读不到资源，请重试", "items": "{{count}} 条记录",
     "notConfigured": "还没有配置", "setup": "一起设置", "organize": "在对话中整理", "backToIndex": "返回目录",
@@ -86,6 +88,8 @@ export default {
     "unavailable": "这里还开通不了咕咕。"
   },
   "setup": {
+    "identityTitle": "给它一个名字和形象",
+    "customizeLook": "换形象",
     "nameTitle": "给它起个名字",
     "membershipUnreadable": "暂时读不到你的会员状态，请重试。",
     "cloudNotOpen": "云端服务尚未开放，当前无法选择。",
@@ -416,6 +420,7 @@ export default {
     },
     "unseen": "有没看过的结果",
     "emptyTitle": "还没有任务",
+    "loadFailed": "任务列表没读到",
     "empty": "{{name}}替你干活时开的任务会出现在这里。",
     "notRead": "{{name}}醒着时才读得到它开的任务。"
   },
@@ -426,6 +431,7 @@ export default {
     "active": "进行中",
     "inactive": "已停用",
     "next": "下次 {{time}}",
+    "nextUnavailable": "暂时读不到下次执行时间",
     "ended": "已结束",
     "enabled": "开启",
     "everyDay": "每天 {{time}}",
@@ -451,6 +457,22 @@ export default {
     "gone": "它可能已经被删掉了。"
   },
   "memory": {
+    "pending": {
+      "title": "没办完的事",
+      "count": "{{count}} 项",
+      "note": "清空只移除这里的恢复记录，不会取消任务。",
+      "retry": "暂时读不到，重试",
+      "loading": "正在读取…",
+      "empty": "没有待跟进记录",
+      "uncertain": "投递结果待核实",
+      "needsSource": "缺少来源，无法自动恢复",
+      "blocked": "等待设备开启任务宿主",
+      "question": "等你回答",
+      "executor": "等待任务回报",
+      "source": "原始需求",
+      "clear": "清空记录",
+      "clearFailed": "清空失败，请重试"
+    },
     "loadFailed": "记忆没读到，稍后再试。",
     "aboutUserTitle": "我对{{owner}}的了解",
     "updated": "更新于 {{time}}",
@@ -485,6 +507,7 @@ export default {
     "gone": "它可能已经被删掉或改了名字。"
   },
   "health": {
+    "desktopEmpty": "暂无健康数据",
     "title": "健康",
     "tileSub": "{{n}} 项数据",
     "tileSubEmpty": "睡眠、活动、心率",
@@ -578,7 +601,7 @@ export default {
     "analysisTitle": "你的健康分析",
     "analysisEmpty": "让{{name}}看看你最近的数据，它的解读会记在这里。",
     "analyze": "让{{name}}解读",
-    "analyzePrompt": "【健康】看看我手机里最近 7 天的健康数据（device_call 调手机的 health.summary），给我解读一下睡眠、活动和心率有什么值得注意的。把结论记进你的记忆，文件名以 health_ 开头。",
+    "analyzePrompt": "【健康】请通过数据所在设备的执行者读取已授权的近期健康数据，解读睡眠、活动和心率中值得注意的变化。把结论记进你的记忆，文件名以 health_ 开头。",
     "notes": "健康记录",
     "addData": "添加健康数据",
     "analyzeReport": "分析健康报告",
@@ -851,7 +874,6 @@ export default {
       "interface": "侧栏与会话页的外观",
       "model": "咕咕提供的模型与开关",
       "sessions": "会话的默认行为",
-      "repository": "项目仓库",
       "browser": "会话里的浏览器",
       "about": "版本与更新"
     },

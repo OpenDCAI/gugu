@@ -194,10 +194,9 @@
   padding-inline-start: max(var(--pane-pad-x), var(--list-toggle-lane));
 }
 
-/* 顶栏右上是「动作车道」:会话页的工作区面板开关常驻在那儿(TitlebarActions,top 6px + 28px 按钮;
-   分享与待办已归消息栏动作组,跟着聊天栏走,见 titlebar-actions.tsx)。
-   任何飘在右上的转瞬层(toast、分享浮层)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
-   那正是实机看到的「组件堆叠」:全局 toast 正好盖住会话页顶栏那排按钮。
+/* 顶栏右上是「动作车道」:会话内的动作在 40px 顶栏里居中(titlebar-actions.tsx)。
+   任何飘在右上的转瞬层(分享浮层等)都从这个 token 起算自己的 top —— 一个数说了算,❌ 各处拍坐标,
+   那正是实机看到的「组件堆叠」:浮层正好盖住会话页顶栏那排按钮。(提示条 #137 起在右下角,不走这里。)
    有标题栏行的平台(Windows)车道整体下移一行:main.tsx 按 window-chrome 的 titlebarActionsLane 写真值,
    这里的 40px 只是 JS 执行前与 web 的默认。 */
 :root {
@@ -238,13 +237,8 @@
 :root[data-window-titlebar='row'][data-window-material='opaque'] [data-emdash-slot='task'] {
   border-top-left-radius: calc(var(--radius-surface) - 1px);
 }
-/* 拖窗口只归标题栏:壳里其余的拖拽区一律退订 —— 标准 Windows 应用里,内容区的标题、侧栏都不拖窗口,
-   双击它们也不会最大化。三种写法全覆盖:主渲染层的 .window-drag-region、侧栏 rail、
-   会话页的 Tailwind 任意属性类(它与咕咕同在 light DOM,见 EmdashSessionFrame 的 @@@task-fusion)。
-   收窄到壳根 [data-gugu-shell-phase]:壳崩了之后的兜底页(ShellErrorBoundary)还靠自己那条拖拽带。 */
-:root[data-window-titlebar='row'] [data-gugu-shell-phase] :is(.window-drag-region, .gg-sidebar-rail, [class~='[-webkit-app-region:drag]']) {
-  -webkit-app-region: no-drag;
-}
+/* 拖窗口的区域与 mac 同一套:标题栏行是多出来的一条,壳里其余的拖拽带(页签行、列表头、rail)照样拖窗口
+   (owner 2026-10-23:页签行也该能拖)。❌ 再写一条「Windows 上内容区一律退订」—— 原先那条把页签行、侧栏头都关了。 */
 
 /* @@@window-layer (#6699) — 标题栏行属于窗口外框,不是应用内容:铺满窗口的层一律铺在它下面
    (没有这一行的平台 --window-titlebar-height 是 0,几何不变)。咕咕自己的全窗口层挂 `.gg-window-layer`
@@ -700,6 +694,7 @@
   --hover: color-mix(in oklab, var(--fg) 4%, transparent);
   /* @@@selected-neutral-7333 — 选中 = 前景 7.5% 的中性层(用户裁决);live 蓝只留给运行/连接/链接这类真实语义。 */
   --selected: color-mix(in oklab, var(--fg) 7.5%, transparent);
+  --rail-selected: color-mix(in oklab, var(--fg) 5%, transparent); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
   --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
   /* @@@state-ladder-mix (#2322) 上面三档的「实色配方」。--hover/--press/--selected 是半透明叠色,
@@ -854,6 +849,7 @@
   --border-strong: color-mix(in oklab, var(--fg) 12%, transparent);
   --hover: color-mix(in oklab, var(--fg) 4%, transparent);
   --selected: color-mix(in oklab, var(--fg) 7.5%, transparent); /* @@@selected-neutral-7333 */
+  --rail-selected: color-mix(in oklab, var(--fg) 5%, transparent); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   --press: color-mix(in oklab, var(--fg) 6%, transparent); /* @@@1787 按压反馈,比 hover 深一档才可感知 */
   --pinned: color-mix(in oklab, var(--fg) 2.5%, transparent); /* #2598 置顶行常驻底色(飞书式):静息态可辨,压在 hover/selected 之下 */
   /* @@@state-ladder-mix 浅色配方(说明见 :root),#7333 起与暗色侧同一组数。 */
@@ -1480,6 +1476,7 @@ body.barcode-scanner-active #root {
     /* 同一条阶梯的**实色**版:把叠色就地 mix 进它所在的面,而不是另拍两个 hex。 */
     --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
     --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+    --rail-selected: color-mix(in oklab, var(--fg) 5%, var(--bg)); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   }
 
   [data-theme='light'] {
@@ -1489,6 +1486,7 @@ body.barcode-scanner-active #root {
     --glass-bg: var(--card);
     --hover: color-mix(in oklab, var(--fg) 4%, var(--bg));
     --selected: color-mix(in oklab, var(--fg) 7.5%, var(--bg));
+    --rail-selected: color-mix(in oklab, var(--fg) 5%, var(--bg)); /* 最左栏选中:比列表里的选中行轻一档(gugu-dev#181 原型) */
   }
 }
 
@@ -1782,6 +1780,8 @@ body.barcode-scanner-active #root {
   inset: calc((var(--control-h-sm) - var(--control-h-touch)) / 2);
 }
 .gg-icon-btn[data-shape='pill'] { border-radius: var(--radius-capsule); }
+/* 图标后面跟一个数(块页签条上的成员按钮「👥 4」):宽度让给那个数,图标与数一行排开。 */
+.gg-icon-btn:has(> [data-member-count]) { width: auto; grid-auto-flow: column; gap: 4px; padding: 0 6px; font-size: var(--font-caption); }
 .gg-icon-btn > svg { display: block; width: var(--icon-md); height: var(--icon-md); }
 .gg-icon-btn[data-size='sm'] > svg { width: var(--icon-sm); height: var(--icon-sm); }
 .gg-icon-btn[data-size='lg'] > svg { width: var(--icon-lg); height: var(--icon-lg); }

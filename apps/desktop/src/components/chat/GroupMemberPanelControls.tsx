@@ -6,14 +6,15 @@ import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
-import { canInviteHumansToGroup, isGroupManagerRole } from '../../lib/groupMemberPermissions'
+import { canInviteHumansToGroup, isGroupManagerRole, isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import type { DisplayIdentity } from '../../lib/displayIdentity'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
 import { type ActiveMemberProfile, agentOwnerDisplayName, toAgentProfile, toHumanProfile } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
-import { MemberPickerModal } from './MemberPickerModal'
+import { AddGroupMembers } from './AddGroupMembers'
+import { useMobileShell } from '../../hooks/useMobileShell'
 import { settingsErrorStyle } from './groupSettingsStyles'
 
 // @@@6418 群成员面板里「和人有关的操作」:邀请、点开资料卡(角色 / 倾听模式 / 移出 / 发消息 / 悄悄话)、
@@ -140,20 +141,26 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
   }, [activeProfile, profileOf])
   const menuProfile = menu ? profileOf(menu.memberId) : null
 
-  const canInvite = enabled && canInviteHumansToGroup({ viewerRole, allowMemberInvite })
+  // 项目群不拉人类进来:「邀请」还在(加自己的 agent),人类那一页换成原因。
+  const projectGroup = isProjectGroupChat(chatId)
+  const canInvite = enabled && !projectGroup && canInviteHumansToGroup({ viewerRole, allowMemberInvite })
   // 普通成员在不许邀人的群里仍能加自己的 Agent(picker 的 Agent 页签);所以只要是群成员就给入口。
   const showInvite = enabled && Boolean(viewerRole)
 
   // 新建一个 Agent 直接进这个群:谁都能把自己的 Agent 加进群(同上),所以入口跟「邀请」一起给。
+  // 桌面上群输入框的「新任务」就是这件事(gugu-dev#181),这里只留给手机。
+  const mobile = useMobileShell()
   const createAgentInGroup = useCallback(() => {
     window.dispatchEvent(new CustomEvent(UI_EVENTS.createAgentInGroup, { detail: { chatId } }))
   }, [chatId])
 
   const headerActions: ReactNode = showInvite ? (
     <>
-      <IconButton size="sm" aria-label={t('group.memberList.createAgent')} title={t('group.memberList.createAgent')} data-testid="member-list-create-agent" onClick={createAgentInGroup}>
-        <Bot />
-      </IconButton>
+      {mobile && (
+        <IconButton size="sm" aria-label={t('group.memberList.createAgent')} title={t('group.memberList.createAgent')} data-testid="member-list-create-agent" onClick={createAgentInGroup}>
+          <Bot />
+        </IconButton>
+      )}
       <IconButton size="sm" aria-label={t('group.memberList.invite')} title={t('group.memberList.invite')} data-testid="member-list-invite" onClick={openPicker}>
         <UserPlus />
       </IconButton>
@@ -211,11 +218,11 @@ export function useGroupMemberPanelControls({ chatId, enabled, snapshot, identit
         />
       ) : null}
       {pickerOpen && snapshot ? (
-        <MemberPickerModal
+        <AddGroupMembers
           chatId={chatId}
           snapshot={snapshot}
-          currentUserId={currentUserId}
           canInviteHumans={canInvite}
+          humanDeniedHint={projectGroup ? t('group.projectGroupNoInvite') : undefined}
           onClose={() => setPickerOpen(false)}
           onReload={onReload}
         />

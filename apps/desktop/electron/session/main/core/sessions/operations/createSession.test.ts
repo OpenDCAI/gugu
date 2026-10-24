@@ -245,8 +245,8 @@ describe('createTask', () => {
           workspace: { kind: 'repository-instance' as const, workspaceId: 'ws-repo-1' },
         },
       };
-      await createSession({ ...params, birthChatId: 'chat-group-1' });
-      expect(takeBirthGroup('conv-1')).toBe('chat-group-1');
+      await createSession({ ...params, birthGroup: { chatId: 'chat-group-1', asTask: true } });
+      expect(takeBirthGroup('conv-1')).toEqual({ chatId: 'chat-group-1', asTask: true });
       await createSession(params);
       expect(takeBirthGroup('conv-1')).toBeNull();
     });

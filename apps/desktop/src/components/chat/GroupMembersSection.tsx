@@ -21,7 +21,7 @@ import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
 import { useGroupChatSettings } from './useGroupChatSettings'
-import { GroupInviteLinkBlock, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
+import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
   settingsBodyStyle,
   settingsErrorStyle,
@@ -139,7 +139,7 @@ export function GroupMembersSection({
   )
   // @@@445/#2470 海报 canvas 不走 React Avatar → 按同一口径预解析成员头像;小鸟的定格画好了会重渲染,这里跟着重读(海报按 URL 串判变)。
   useAgentLookPostersVersion()
-  const posterMemberUrls = groupAvatarMembers.map((m) => displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`))
+  const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
 
   // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
   const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
@@ -305,12 +305,7 @@ export function GroupMembersSection({
           <SettingsNavRow title={t('group.settings.rules')} testId="group-settings-rules" value={settings ? firstLine(settings.group_prompt) ?? t('group.settings.rulesUnset') : undefined} onClick={() => openTextPage('rules')} />
           <SettingsNavRow title={t('group.settings.description')} testId="group-settings-description" value={settings ? firstLine(settings.description) ?? t('group.settings.descriptionUnset') : undefined} onClick={() => openTextPage('description')} />
           {/* 邀请链接本身所有成员都能分享;管理者在「群管理」里看到同一块(连同开关)。 */}
-          {!viewerIsManager && settings?.invite_link_enabled && inviteLink ? (
-            <>
-              <div style={settingsSectionLabelStyle}>{t('group.settings.inviteLink')}</div>
-              <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={() => setShowSharePoster(true)} />
-            </>
-          ) : null}
+          <MemberInviteLink chatId={chatId} inviteLink={!viewerIsManager && settings?.invite_link_enabled ? inviteLink : null} onOpenPoster={() => setShowSharePoster(true)} />
           {viewerIsManager && settings ? (
             <SettingsNavRow title={t('group.settings.manage')} testId="group-settings-manage" onClick={() => push('manage')} />
           ) : null}

@@ -31,7 +31,7 @@ describe('no page dialogs in an App page (摩擦单 F96)', () => {
     expect(() => window.alert('saved')).toThrow(noPageDialog('alert'));
     expect(() => window.confirm('delete?')).toThrow(noPageDialog('confirm'));
     expect(() => window.prompt('name?')).toThrow(noPageDialog('prompt'));
-    expect(noPageDialog('confirm')).toMatch(/^confirm\(\) does not exist in an App page .* ask on the page .*\(guide: apps-page\)$/);
+    expect(noPageDialog('confirm')).toContain('use gugu.modal.open({ entry, title }) (guide: apps-page)');
   });
 
   it('called from a click, it is the App’s error: recorded, where it happened', async () => {
