@@ -1,5 +1,5 @@
 import { commandRegistry } from '@renderer/lib/commands/registry';
-import { dissolveScreenGroup, isScreenView, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
+import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -41,7 +41,8 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { showModal } from '@renderer/lib/modal/modal-provider';
-import type { RemoteSidebarSession, SidebarJoin } from './sidebar-store';
+import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
+import type { RemoteSidebarSession } from './sidebar-store';
 import { remoteAgentStatus } from './session-groups';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
@@ -180,7 +181,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const requestArchive = () => withMountedSession(projectId, sessionId, () => requestArchiveSession({ projectId, sessionId }));
 
   const isPinned = row.isPinned;
-  const grouped = isSessionGrouped(sessionId);
+  // 右键给不给「从这一组拿出来 / 拆开这一组」= 这一行在不在框里。
+  const grouped = join !== undefined;
   const setPinned = (pinned: boolean) => {
     withMountedSession(projectId, sessionId, (_session, manager) => void manager.setSessionPinned(sessionId, pinned));
   };

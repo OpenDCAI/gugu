@@ -51,7 +51,7 @@ import { ContactsHeaderActions } from './contacts/AddContactMenu'
 import { ActionButton, AgentContactStatusChip, FieldList, FieldRow, IconButton } from './contactsDetailControls'
 import { Avatar } from './Avatar'; import { AgentContactStatusMark } from './AgentContactStatusMark'
 import { CopyValue } from './CopyValue'
-import { CreateGroupChatForm } from './CreateGroupChatModal'
+import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { ContactsPersonSectionState, ContactsGroupSectionState } from './contacts/ContactsSectionState'
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
@@ -2014,7 +2014,7 @@ export function ContactsPanel({
     if (mobile) setMobilePane('detail')
   }, 'push')
 
-  const groupModal = <Sheet open={showGroupModal} onClose={() => setShowGroupModal(false)} desktopWidth="min(440px, 100%)" desktopMaxHeight="min(88vh, calc(100dvh - 32px))" testId="create-group-modal" ariaLabel={ct('createGroup.title')}>
+  const groupModal = <Sheet open={showGroupModal} onClose={() => setShowGroupModal(false)} {...MEMBER_PICKER_SHEET} testId="create-group-modal" ariaLabel={ct('createGroup.title')}>
     {showGroupModal ? <CreateGroupChatForm initialSelectedIds={[...selectedContactIds]} onClose={() => setShowGroupModal(false)} onCreated={() => { setShowGroupModal(false); finishContactSelectionMode(); void refreshChats() }} /> : null}
   </Sheet>
   const groupInviteJoinModal = groupInviteJoin ? (
