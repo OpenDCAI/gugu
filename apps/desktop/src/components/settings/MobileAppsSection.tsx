@@ -169,6 +169,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
                 locale={locale} translate={translate} api={phoneProductApi} onOpenExternal={(url) => { window.open(url, '_blank', 'noopener,noreferrer') }} justInstalled={justInstalled === detail.manifest.id}
                 onBack={() => setDetail(null)} onLifecycle={() => act(detail)} onInstallVersion={install}
                 backgroundSupported={false}
+                permissionRevocationSupported={false}
                 menu={installed && !store.isPreinstalled(installed.id) ? {
                   onToggleEnabled: (on) => void change(installed.id, undefined, () => phoneApps.setEnabled(installed.id, on)),
                   ...(store.autoUpdates(installed.id) !== null ? { autoUpdate: { on: store.autoUpdates(installed.id)!, onToggle: (on: boolean) => void change(installed.id, undefined, () => phoneApps.setAutoUpdate(installed.id, on)) } } : {}),

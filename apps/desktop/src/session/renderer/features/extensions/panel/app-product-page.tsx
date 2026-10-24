@@ -119,6 +119,7 @@ export function AppProductPage({
   onBrowseReplacement,
   onOpenExternal = confirmOpenExternalLink,
   backgroundSupported = true,
+  permissionRevocationSupported = true,
   similar = [],
   menu,
 }: {
@@ -159,6 +160,8 @@ export function AppProductPage({
   onOpenExternal?: (url: string) => void;
   /** The phone has no persistent App background-page host. */
   backgroundSupported?: boolean;
+  /** Whether this host lets people take back individual permissions after installation. */
+  permissionRevocationSupported?: boolean;
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
@@ -535,7 +538,7 @@ export function AppProductPage({
       <p className="mk-note">
         {installed && withdrawn > 0
           ? translate('extensions.permissionsWithdrawnNote', { count: permissions.length, revoked: withdrawn })
-          : translate(permissions.length > 0 ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteNone')}
+          : translate(permissions.length === 0 ? 'extensions.permissionsNoteNone' : permissionRevocationSupported ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteInstall')}
       </p>
       <fieldset disabled={readOnly} className="contents">
         <div className="mk-card">
