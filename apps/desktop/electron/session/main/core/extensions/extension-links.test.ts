@@ -8,6 +8,8 @@ import {
   type ExtensionLinkDeps,
 } from './extension-links';
 
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
+
 /**
  * #6387 Links into extensions. A link names an installed extension and one of its own
  * tabs, carries data only that extension reads, opens where it names (真源原则 13: a session,
