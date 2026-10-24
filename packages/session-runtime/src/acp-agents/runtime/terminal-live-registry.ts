@@ -57,7 +57,7 @@ export class TerminalLiveRegistry {
       record.state = { ...record.state, _meta: patchEntityMeta(record.state._meta, update._meta) };
     }
     session.set(terminalId, record);
-    this.onSessionChanged?.(sessionId);
+    if (event.kind !== 'terminal_chunk') this.onSessionChanged?.(sessionId);
   }
 
   private session(sessionId: string): Map<string, TerminalRecord> {

@@ -1789,7 +1789,7 @@ export class SessionManager implements InboundRouter {
       record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.trace });
     }
     const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
-    if (!scoped) return;
+    if (!scoped) return this.publishOnTick(record);
     event = scoped;
     // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
     // (`unregisterRoutes` 按 conversationId 清)。
@@ -2428,11 +2428,9 @@ export class SessionManager implements InboundRouter {
    * 会话通知来了(流式的一块、一行工具输出、用量 / 命令这类附带的):按显示节拍发,每拍最多一次。前一拍里什么都没发生
    * (流刚开始、停顿过后)时这一个改动当场发,首字不等;流持续着,改动攒到拍尾合成一次发出 —— 发的是那一刻的整份状态
    * 对上一次的差,攒多少块都只是一次推送(远程看的人每一次就是一条广播)。一拍过完没有新改动,节拍停下。
-   * 不在回合里(`activeTurn` 空了 = 回合刚结束)当场发:最后一段字 ❌ 等到下一拍。状态机的变化(待批、排队、开始 / 停下)
-   * 与草稿本来就当场发,顺带把攒着的一起带走。
+   * 终端原始输出沿用同一节拍,包括前台已空闲时的后台输出。状态机变化、草稿和关闭直接刷新尾巴。
    */
   private publishOnTick(record: SessionRecord): void {
-    if (!record.cell.transcript.activeTurn) return this.syncRecord(record);
     if (record.transcriptTick) {
       record.transcriptPending = true;
       return;
@@ -2597,8 +2595,8 @@ export class SessionManager implements InboundRouter {
   ): void {
     const record = this.cells.get(sessionId);
     if (!record) return;
-    if (record.transcriptTick) clearTimeout(record.transcriptTick);
     record.cell.dispose();
+    if (record.transcriptTick) clearTimeout(record.transcriptTick);
     this.emitCommittedTurns(record);
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
