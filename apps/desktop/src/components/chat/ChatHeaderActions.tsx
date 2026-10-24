@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { useChatStore } from '../../store/chatContext'
 import { useChatFolderName } from './chatFolderName'
-import { Bell, Folder, LayoutGrid, MoreHorizontal, Search, Settings, Users } from '@/lib/icons'
+import { Folder, LayoutGrid, MoreHorizontal, Search, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
@@ -14,6 +14,7 @@ import { RailAppIcon } from '../RailAppIcon'
 import { GroupAppsPicker } from './GroupAppsPicker'
 import { useChatAppPins } from './useChatAppPins'
 import { useHeaderAppCapacity } from './useHeaderAppCapacity'
+import { ChatDetailsMenuItems } from './ChatDetailsMenuItems'
 
 
 // #1234 消息头右上的 action icon。
@@ -36,8 +37,6 @@ interface ChatHeaderActionsProps {
   mobile?: boolean
   /** 画在会话页一块的页签条上时(没有标题后面的「(N)」):人数挂在成员按钮上。 */
   memberCount?: number
-  /** 画在会话页一块的页签条上时:⋯ 里那几样(公告、设置、在本群打开 App)在这一块页签的右键菜单里,这里不画 ⋯。 */
-  moreInTabMenu?: boolean
   moreButtonRef: RefObject<HTMLButtonElement | null>
   onEnterSearchMode: () => void
   onOpenWorkspacePanel: () => void
@@ -59,7 +58,6 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   showHeaderMenu,
   mobile,
   memberCount,
-  moreInTabMenu,
   moreButtonRef,
   onEnterSearchMode,
   onOpenWorkspacePanel,
@@ -83,7 +81,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const pins = useChatAppPins(groupId)
   const apps = installedExtensionsStore.openableApps
   const pinnedApps = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
-  const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId, Boolean(moreInTabMenu), moreButtonRef)
+  const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId)
   const overflow = pinnedApps.slice(capacity)
   const appsButton = useRef<HTMLButtonElement>(null)
   const [picker, setPicker] = useState({ chatId: activeChatId, open: false })
@@ -159,7 +157,6 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
           群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
           契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
-      {(!moreInTabMenu || overflow.length > 0) && (
       <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
@@ -195,49 +192,20 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
               <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />}>{t('header.searchConversation')}</MenuItem>
               <MenuItem onClick={openFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>
             </>)}
-            {!moreInTabMenu && (isGroupChat ? (
-              <>
-                <MenuItem
-                  render={<button type="button" />}
-                  nativeButton
-                  data-testid={AUTOMATION_TEST_IDS.groupMenuAnnouncement}
-                  onClick={onOpenAnnouncement}
-                  icon={<Bell size={16} />}
-                >{t('header.announcement')}</MenuItem>
-                <MenuItem
-                  render={<button type="button" />}
-                  nativeButton
-                  data-testid={AUTOMATION_TEST_IDS.groupMenuSettings}
-                  onClick={onOpenSettingsDrawer}
-                  icon={<Settings size={16} />}
-                >{t('common.settings')}</MenuItem>
-              </>
-            ) : (
-              <>
-                {/* #1323 模块2 — SSOT `.singlemenu`(L655):DM ⋯ 下拉首项「搜索聊天」(放大镜),开搜索模式。手机话题上面那组已有搜索,不再出第二个。 */}
-                {!compactRoom && <MenuItem
+            {!isGroupChat && !compactRoom && <MenuItem
                   render={<button type="button" />}
                   nativeButton
                   data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton}
                   onClick={onEnterSearchMode}
                   icon={<Search size={16} />}
                 >{t('header.searchChat')}</MenuItem>}
-                <MenuItem
-                  render={<button type="button" />}
-                  nativeButton
-                  data-testid={AUTOMATION_TEST_IDS.groupMenuSettings}
-                  onClick={onOpenSettingsDrawer}
-                  icon={<Settings size={16} />}
-                >{t('common.settings')}</MenuItem>
-              </>
-            ))}
+            <ChatDetailsMenuItems isGroupChat={isGroupChat} onOpenSettings={onOpenSettingsDrawer} onOpenAnnouncement={onOpenAnnouncement} />
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
             {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
           </DropdownMenu.Content>
         )}
       </DropdownMenu.Root>
-      )}
       {groupId && picker.open && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={compactRoom ? moreButtonRef : appsButton} onClose={() => setPicker({ chatId: activeChatId, open: false })} />}
     </>
   )

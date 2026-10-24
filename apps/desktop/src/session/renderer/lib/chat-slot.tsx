@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { chatPartSlotKey, chatSlotKey, readShellSlots, type ChatPart } from '@/lib/shellSlots';
 
 /**
@@ -14,4 +15,15 @@ export function ChatSlot({ chatId, className }: { chatId: string; className?: st
 export function ChatPartSlot({ chatId, part, className }: { chatId: string; part: ChatPart; className?: string }) {
   const ref = useCallback((element: HTMLSpanElement | null) => readShellSlots()?.setSlot(chatPartSlotKey(part, chatId), element), [chatId, part]);
   return <span ref={ref} className={className} data-chat-part={part} />;
+}
+
+/** Keep the project home in its renderer context, inside the empty conversation column. */
+export function ChatEmptyContent({ chatId, children }: { chatId: string; children: ReactNode }) {
+  const slots = readShellSlots();
+  const target = useSyncExternalStore(
+    (listener) => slots?.subscribeSlots(listener) ?? (() => {}),
+    () => slots?.getSlots().get(chatPartSlotKey('empty', chatId)) ?? null,
+    () => null,
+  );
+  return target ? createPortal(children, target) : null;
 }
