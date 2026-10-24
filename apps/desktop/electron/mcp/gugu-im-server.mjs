@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { groupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { conversationLink, groupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
@@ -2158,7 +2158,7 @@ async function handleFile(args, deps) {
     }
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
     return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName,
-      source_link: `gugu-chat://${chatId}/${String(message.id).replace(/^msg:/, '')}` })
+      source_link: conversationLink(chatId, String(message.id).replace(/^msg:/, '')) })
   }
   if (args.action === 'download-attachment') {
     if (args.source_attachment_id) {
