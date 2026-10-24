@@ -23,6 +23,7 @@ import { ChevronLeft, X } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { Pane, PaneHeader } from './ui/Pane'
 import { IconButton } from './ui/IconButton'
+import { useBackLayer } from './ui/sheetStack'
 import { platform } from '../platform'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { appState } from '../session/renderer/lib/stores/app-state'
@@ -100,6 +101,14 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
   const setMobilePane = onPaneChange ?? setInternalPane
+  const [parentSection, setParentSection] = useState<ActiveSection | null>(null)
+  const back = () => {
+    if (parentSection) {
+      setActiveSection(parentSection)
+      setParentSection(null)
+    } else setMobilePane('nav')
+  }
+  useBackLayer(back, mobile && mobilePane === 'detail')
 
   function renderSection() {
     switch (activeSection) {
@@ -140,6 +149,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors))
       return
     }
+    if (mobile) setParentSection(mobilePane === 'detail' ? activeSection : null)
     setActiveSection(section)
     if (mobile) setMobilePane('detail')
   }
@@ -169,12 +179,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
           <Pane paneRole="detail" mobile={mobile} className="gg-settings-detail">
             <PaneHeader
               mobile={mobile}
-              // 手机上同样写这一页自己的名字:「我的」是上一层,它已经由返回箭头(aria:返回我的)代表了;
-              // 标题再写一遍「我的」,每一个设置子页都长一个样,人分不清自己在哪一页。
               title={sectionTitle}
               titleLevel={mobile ? 'panel' : undefined}
               leading={mobile ? (
-                <IconButton size="lg" aria-label={t('settings.backToMy')} onClick={() => setMobilePane('nav')}>
+                <IconButton size="lg" aria-label={t(parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
                   <ChevronLeft />
                 </IconButton>
               ) : undefined}
