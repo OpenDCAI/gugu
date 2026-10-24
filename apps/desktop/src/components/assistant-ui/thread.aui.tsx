@@ -1,9 +1,14 @@
-import {
-  ComposerAddAttachment,
-  ComposerAttachments,
-  UserMessageAttachments,
-} from "./attachment.aui";
-import { File } from "./file";
+import { UserMessageAttachments } from "./attachment.aui";
+import { MAX_ATTACHMENT_BYTES } from "@gugu/session-core/session-record/contract";
+import { ChatComposer, MessageProvider, formatAttachmentSize, type ComposerAttachment, type PromptEditorRef } from "@gugu/session-ui/react/components";
+import { ThemeProvider } from "@gugu/session-ui/react/primitives";
+import { useLocale } from "@/i18n";
+import { useTheme } from "@/store/theme";
+import { useMobileShell } from "@/hooks/useMobileShell";
+import { createLocalSessionMentionProvider, useSessionAgentCreationTools } from "@/session/renderer/lib/chat/local-session-mention-provider";
+import { useSessionMentionDrop } from "@/session/renderer/lib/chat/use-session-mention-drop";
+import { translateSessionMessage } from "@/session/renderer/localization/locale-store";
+import { File as FilePart } from "./file";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
 import { Image } from "./image";
 import { MarkdownText } from "./markdown-text";
@@ -33,7 +38,6 @@ import {
   ActionBarPrimitive,
   AuiIf,
   type AssistantState,
-  ComposerPrimitive,
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
@@ -43,22 +47,21 @@ import {
   type ImageMessagePartComponent,
   type ToolCallMessagePartComponent,
   useAuiState,
+  useAui,
 } from "@assistant-ui/react";
 import {
   ArrowDown as ArrowDownIcon,
-  ArrowUp as ArrowUpIcon,
   Check as CheckIcon,
   Copy as CopyIcon,
   Download as DownloadIcon,
-  Mic as MicIcon,
   MoreHorizontal as MoreHorizontalIcon,
-  Square as SquareIcon,
 } from "@/lib/icons";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -201,10 +204,6 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; submitOnEnter: bool
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-bg" as string]: "var(--color-card)",
-        // @@@radius-thread (Refs #6105) — 官方默认 1.5rem(24px) 正是 design.md「a rounded-3xl composer」
-        // 点名禁的那个形状。composer 与用户气泡同属 thread 档(16px)。
-        ["--composer-radius" as string]: "var(--radius-thread)",
-        ["--composer-padding" as string]: "8px",
       }}
     >
       {/* 跟到底(官方默认锚)。❌ turnAnchor="top":它关掉跟底,改在 isRunning 期间把用户那句钉顶,
@@ -364,136 +363,68 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const Composer: FC<{ autoFocus: boolean; submitOnEnter: boolean; sendDisabled: boolean }> = ({ autoFocus, submitOnEnter, sendDisabled }) => {
+function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boolean; submitOnEnter: boolean; sendDisabled: boolean }) {
   const c = useAuiCopy();
-  // 咕咕加的:宿主可指定占位文字(新建页不是「回复」)。没给就是官方原样。
-  const placeholder = useComposerPlaceholder() ?? c.placeholder;
-  return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col" onSubmit={(event) => { if (sendDisabled) event.preventDefault(); }}>
-      <ComposerPrimitive.AttachmentDropzone asChild>
-        <div
-          data-slot="aui_composer-shell"
-          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full cursor-text flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) transition-[border-color] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))]"
-        >
-          <ComposerAttachments />
-          <ComposerPrimitive.Input
-            placeholder={placeholder}
-            className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
-            rows={1}
-            autoFocus={autoFocus}
-            submitOnEnter={submitOnEnter && !sendDisabled}
-            enterKeyHint={submitOnEnter ? "send" : "enter"}
-            aria-label={c.composerLabel}
-          />
-          <ComposerAction sendDisabled={sendDisabled} />
-        </div>
-      </ComposerPrimitive.AttachmentDropzone>
-    </ComposerPrimitive.Root>
-  );
-};
-
-const ComposerAction: FC<{ sendDisabled: boolean }> = ({ sendDisabled }) => {
-  const c = useAuiCopy();
+  const { resolvedLocale } = useLocale();
+  const { theme } = useTheme();
+  const mobile = useMobileShell();
+  const composer = useAui().composer;
+  const { text, attachments, isEmpty, canSend } = useAuiState((s) => s.composer);
+  const { isRunning, isDisabled, capabilities } = useAuiState((s) => s.thread);
   const hostStop = useComposerStop();
-  const sendButton = (
-    <ComposerPrimitive.Send asChild disabled={sendDisabled}>
-      <TooltipIconButton
-        tooltip={c.send}
-        side="bottom"
-        type="button"
-        variant="default"
-        size="icon"
-        className="aui-composer-send size-7 rounded-full"
-        aria-label={c.send}
-      >
-        <ArrowUpIcon className="aui-composer-send-icon size-4" />
-      </TooltipIconButton>
-    </ComposerPrimitive.Send>
-  );
+  const placeholder = useComposerPlaceholder() ?? c.placeholder;
+  const editor = useRef<PromptEditorRef | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const previews = useRef(new Map<File, string>());
+  const { byEngine, error, renderMentionIcon } = useSessionAgentCreationTools();
+  const mentionProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine, creationToolsError: error }), [byEngine, error]);
+  const { dataDropTypes, onDataDropped } = useSessionMentionDrop({ provider: mentionProvider, editorApiRef: editor });
+  useEffect(() => {
+    if (editor.current?.getText() !== text) editor.current?.setText(text);
+  }, [text]);
+  useEffect(() => { if (autoFocus) editor.current?.focus(); }, [autoFocus]);
+  useEffect(() => {
+    for (const [file, url] of previews.current) {
+      if (!attachments.some((attachment) => attachment.file === file)) {
+        URL.revokeObjectURL(url);
+        previews.current.delete(file);
+      }
+    }
+  }, [attachments]);
+  useEffect(() => {
+    const urls = previews.current;
+    return () => { for (const url of urls.values()) URL.revokeObjectURL(url); };
+  }, []);
+  const chips: ComposerAttachment[] = attachments.map(({ id, name, type, status, file }) => {
+    if (type === 'image' && file && !previews.current.has(file)) previews.current.set(file, URL.createObjectURL(file));
+    const failed = status.type === 'incomplete';
+    const progress = status.type === 'running' ? Math.floor(status.progress * 100) : undefined;
+    return { id, name, kind: type === 'image' ? 'image' : 'file',
+      previewUrl: file ? previews.current.get(file) : undefined,
+      state: failed ? 'error' : progress !== undefined ? 'uploading' : 'done', progress,
+      meta: failed ? status.message : progress !== undefined ? `${progress}%` : file ? formatAttachmentSize(file.size) : undefined,
+      cancelable: true, retryable: failed && !!file && file.size <= MAX_ATTACHMENT_BYTES };
+  });
+  const addFiles = (files: File[]) => { for (const file of files) void composer.addAttachment(file); };
   return (
-    <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      {/* 咕咕加的唯一一处结构改动:操作行左侧留给宿主(会话选项胶囊)。
-          位置照 orca —— 它的 MobileNativeChatComposer 就是把选项摆在这一行的左边。 */}
-      <div className="flex min-w-0 items-center gap-1.5">
-        <ComposerAddAttachment />
-        <ComposerExtras />
-      </div>
-      <div className="flex items-center gap-1.5">
-        <AuiIf condition={(s) => s.thread.capabilities.dictation}>
-          <AuiIf condition={(s) => s.composer.dictation == null}>
-            <ComposerPrimitive.Dictate asChild>
-              <TooltipIconButton
-                tooltip={c.dictate}
-                side="bottom"
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="aui-composer-dictate text-muted-foreground hover:text-foreground size-7 rounded-full"
-                aria-label={c.dictateStart}
-              >
-                <MicIcon className="aui-composer-dictate-icon size-4" />
-              </TooltipIconButton>
-            </ComposerPrimitive.Dictate>
-          </AuiIf>
-          <AuiIf condition={(s) => s.composer.dictation != null}>
-            <ComposerPrimitive.StopDictation asChild>
-              <TooltipIconButton
-                tooltip={c.dictateStop}
-                side="bottom"
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
-                aria-label={c.dictateStop}
-              >
-                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
-              </TooltipIconButton>
-            </ComposerPrimitive.StopDictation>
-          </AuiIf>
-        </AuiIf>
-        <AuiIf condition={(s) => !s.thread.isRunning || !s.thread.capabilities.cancel}>
-          {hostStop ? (
-            <>
-              {/* 咕咕加的:宿主的停止键(远端在跑)。空输入框 = 停止;打了字 = 发送(排队)。 */}
-              <AuiIf condition={(s) => s.composer.isEmpty}>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="icon"
-                  className="aui-composer-cancel size-7 rounded-full"
-                  aria-label={c.stop}
-                  aria-busy={hostStop.stopping}
-                  disabled={hostStop.stopping}
-                  onClick={hostStop.onStop}
-                  data-testid="agent-watch-stop"
-                >
-                  <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
-                </Button>
-              </AuiIf>
-              <AuiIf condition={(s) => !s.composer.isEmpty}>{sendButton}</AuiIf>
-            </>
-          ) : (
-            sendButton
-          )}
-        </AuiIf>
-        <AuiIf condition={(s) => s.thread.isRunning && s.thread.capabilities.cancel}>
-          <ComposerPrimitive.Cancel asChild>
-            <Button
-              type="button"
-              variant="default"
-              size="icon"
-              className="aui-composer-cancel size-7 rounded-full"
-              aria-label={c.stop}
-            >
-              <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
-            </Button>
-          </ComposerPrimitive.Cancel>
-        </AuiIf>
-      </div>
-    </div>
+    <ThemeProvider theme={theme} target="documentElement">
+      <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
+        {capabilities.attachments && <input ref={picker} type="file" multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />}
+        <ChatComposer editorApiRef={editor} mobile={mobile} placeholder={placeholder}
+          editorOptions={{ enterBehavior: submitOnEnter ? 'submit' : 'newline', clearOnSubmit: false }}
+          disabled={isDisabled} canSubmit={!sendDisabled && canSend && (!isRunning || capabilities.queue)}
+          isWorking={!!hostStop && isEmpty} stopDisabled={hostStop?.stopping}
+          onStop={hostStop?.onStop} onInputChange={(value) => composer.setText(value)} onSubmit={() => composer.send()}
+          onAttach={capabilities.attachments ? () => picker.current?.click() : undefined}
+          onFilesDropped={capabilities.attachments ? addFiles : undefined} onImageFilesDropped={capabilities.attachments ? addFiles : undefined}
+          attachments={chips} onAttachmentsChange={capabilities.attachments ? (next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove(); } : undefined}
+          onRetryAttachment={(id) => { const file = attachments.find((attachment) => attachment.id === id)?.file; if (file) void composer.attachment({ id }).remove().then(() => composer.addAttachment(file)); }}
+          toolbarExtra={<ComposerExtras />} mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon}
+          dataDropTypes={dataDropTypes} onDataDropped={onDataDropped} />
+      </MessageProvider>
+    </ThemeProvider>
   );
-};
-
+}
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
@@ -583,7 +514,7 @@ export const AssistantMessage: FC = () => {
               case "file":
                 return (
                   <div data-slot="aui_assistant-message-file" className="py-1">
-                    <File {...part} />
+                    <FilePart {...part} />
                   </div>
                 );
               case "image":
@@ -668,7 +599,7 @@ const AssistantActionBar: FC = () => {
 
 const UserFilePart: FileMessagePartComponent = (part) => (
   <div data-slot="aui_user-message-file" className="py-1">
-    <File {...part} />
+    <FilePart {...part} />
   </div>
 );
 

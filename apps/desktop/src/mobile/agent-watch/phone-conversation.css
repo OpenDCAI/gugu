@@ -58,56 +58,9 @@
   background: var(--bg);
 }
 
-.gg-aw .gg-aw-thread-host [data-slot='aui_composer-shell'] {
-  gap: 0;
-  padding: var(--spacing-sm);
-  border: 1px solid transparent;
-  border-radius: var(--radius-thread);
-  background: var(--muted);
-  box-shadow: none;
-}
-
-.gg-aw .gg-aw-thread-host [data-slot='aui_composer-shell'][data-dragging='true'] {
-  border-color: var(--live);
-  border-style: dashed;
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-input {
-  min-height: var(--control-h-touch);
-  max-height: min(30dvh, 192px);
-  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
-  font-size: var(--font-prose);
-  line-height: var(--lh-prose);
-  scroll-padding-block: var(--spacing-sm);
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper {
-  min-width: 0;
-  gap: var(--spacing-xs);
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper > div {
-  gap: 0;
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-action-wrapper button {
-  min-width: var(--control-h-touch);
-  min-height: var(--control-h-touch);
-  flex-shrink: 0;
-  touch-action: manipulation;
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-send,
-.gg-aw .gg-aw-thread-host .aui-composer-cancel {
-  width: var(--control-h-touch);
-  height: var(--control-h-touch);
-  border-radius: var(--radius-capsule);
-}
-
-.gg-aw .gg-aw-thread-host .aui-composer-send-icon,
-.gg-aw .gg-aw-thread-host .aui-composer-cancel-icon {
-  width: var(--icon-lg);
-  height: var(--icon-lg);
+.gg-aw .gg-aw-thread-host [data-slot='composer-attachments'] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .gg-aw .gg-aw-thread-host .gg-aw-pill {
