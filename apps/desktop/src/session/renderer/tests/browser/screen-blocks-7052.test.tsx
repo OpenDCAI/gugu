@@ -1,7 +1,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
-import { BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
+import { BlockDropPreviewLayer, BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
 import { blockDropPreview, resolveBlockDrop, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
 import { clearDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
@@ -55,7 +55,7 @@ describe('一屏几块的骨架 (#7052)', () => {
     ['left', 0.3, 0.4], ['right', 0.7, 0.4], ['top', 0.4, 0.3], ['bottom', 0.6, 0.7],
   ] as const)('previews and splits a task dropped in the chat centre nearest its %s edge', async (edge, x, y) => {
     screenLayout.show({ kind: 'chat', chatId: 'chat-centre' });
-    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /></WorkspaceLayoutContextProvider>);
+    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /><BlockDropPreviewLayer /></WorkspaceLayoutContextProvider>);
     await until('chat block rendered', () => blockWidths().length === 1);
     const blockId = screenLayout.order[0];
     const block = host!.querySelector<HTMLElement>('[data-screen-block]')!;
