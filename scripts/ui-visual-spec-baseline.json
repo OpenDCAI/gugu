@@ -2,7 +2,7 @@
   "halfStepSpacingUtilities": {
     "sessionRenderer": 214,
     "mainRenderer": 53,
-    "assistantUi": 28
+    "assistantUi": 25
   },
   "mainRendererGeometryDebt": {
     "inlineFontSizeLiterals": 16,
