@@ -795,7 +795,7 @@ describe('入群门:agent 只收在场之后的消息(#5258)', () => {
     cloud.members.get(`00000000-0000-4000-8000-00000000000b:${AGENT}`)!.joinedIngestSeq = 0
     const { deps, injections } = makeDeps(cloud)
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 3 })
-    expect(injections.map((entry) => entry.messageId)).toEqual(['old-1', 'old-2', 'old-3'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000003'])
   })
 })
 
