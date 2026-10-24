@@ -14,25 +14,25 @@ function CommandKey({ id }: { id: CommandId }) {
   return null;
 }
 
-/** xterm consumes Ctrl sequences on Windows/Linux before document bubbling. */
-function FindCommandKey() {
+/** Terminal widgets and modal roots can stop global entry keys before bubbling. */
+function CapturedCommandKey({ id }: { id: CommandId }) {
   const { value: keyboard } = useAppSettingsKey('keyboard');
-  const hotkey = getEffectiveHotkey('app.find', keyboard);
+  const hotkey = getEffectiveHotkey(id, keyboard);
   useEffect(() => {
     if (!hotkey) return;
     const platform = detectPlatform();
     const find = (event: KeyboardEvent) => {
       if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
       const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || active.closest('.monaco-editor, [cmdk-root], [role=menu]')) return;
+      if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, [cmdk-root], [role=menu]'))) return;
       commandRegistry.setContext(active);
-      if (!commandRegistry.dispatch('app.find')) return;
+      if (!commandRegistry.dispatch(id)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     };
     document.addEventListener('keydown', find, true);
     return () => document.removeEventListener('keydown', find, true);
-  }, [hotkey]);
+  }, [hotkey, id]);
   return null;
 }
 
@@ -50,5 +50,5 @@ export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
   }, []);
   const ids = [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
     .filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
-  return <>{ids.map((id) => id === 'app.find' ? <FindCommandKey key={id} /> : <CommandKey key={id} id={id} />)}</>;
+  return <>{ids.map((id) => COMMANDS[id].capture ? <CapturedCommandKey key={id} id={id} /> : <CommandKey key={id} id={id} />)}</>;
 });

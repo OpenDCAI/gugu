@@ -11,6 +11,8 @@ export interface CommandDef {
   defaultHotkey?: string | ((platform: ShortcutPlatform) => string);
   hideFromSettings?: boolean;
   ignoreInputs?: boolean;
+  /** Capture before terminal widgets and modal roots consume global entry keys. */
+  capture?: boolean;
   conflictBehavior?: 'prevent' | 'allow';
   ignoreWhenMonacoFocused?: boolean;
   ignoreWhenBrowserFocused?: boolean;
@@ -289,12 +291,14 @@ export const COMMANDS = defineCommands({
     ignoreWhenBrowserFocused: true,
   },
   'app.commandPalette': {
+    capture: true,
     defaultHotkey: 'Mod+P',
     label: 'Command Palette',
     description: 'Open the command palette to run an available command',
     category: 'Navigation',
   },
   'app.quickSwitcher': {
+    capture: true,
     defaultHotkey: 'Mod+O',
     label: 'Quick Switcher',
     description: 'Switch between tasks, groups, projects, and contacts',
@@ -466,6 +470,7 @@ export const COMMANDS = defineCommands({
     ignoreWhenBrowserFocused: true,
   },
   'app.find': {
+    capture: true,
     label: 'Find in Current View',
     description: 'Search the focused terminal or chat',
     category: 'Navigation',

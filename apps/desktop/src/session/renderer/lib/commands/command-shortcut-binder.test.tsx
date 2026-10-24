@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommandShortcutBinder } from './command-shortcut-binder';
 import { commandRegistry } from './registry';
 
-const settings = vi.hoisted(() => ({ platform: 'windows' as 'windows' | 'linux', keyboard: {} as Record<string, string | null> }));
+const settings = vi.hoisted(() => ({ platform: 'windows' as 'windows' | 'linux' | 'mac', keyboard: {} as Record<string, string | null> }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: settings.keyboard }) }));
 vi.mock('@tanstack/react-hotkeys', async (original) => ({
   ...await original<typeof import('@tanstack/react-hotkeys')>(), detectPlatform: () => settings.platform,
@@ -20,6 +20,7 @@ const widget = vi.fn((event: KeyboardEvent) => event.stopImmediatePropagation())
 beforeEach(async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   settings.keyboard = {};
+  settings.platform = 'windows';
   find.mockClear(); widget.mockClear();
   host = document.createElement('div'); document.body.append(host);
   input = document.createElement('textarea'); host.append(input);
@@ -37,10 +38,30 @@ afterEach(async () => {
   host.remove(); commandRegistry.setContext(document.body);
 });
 async function press(key: string) {
-  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true })); });
+  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: settings.platform !== 'mac', metaKey: settings.platform === 'mac', bubbles: true, cancelable: true })); });
 }
 
-describe('find before terminal key consumption', () => {
+describe('global commands before widget key consumption', () => {
+  it.each([
+    ['windows', 'app.quickSwitcher', 'o'], ['windows', 'app.commandPalette', 'p'],
+    ['linux', 'app.quickSwitcher', 'o'], ['linux', 'app.commandPalette', 'p'],
+    ['mac', 'app.quickSwitcher', 'o'], ['mac', 'app.commandPalette', 'p'],
+  ] as const)('%s %s works inside a palette that stops bubbling', async (platform, id, key) => {
+    settings.platform = platform;
+    const open = vi.fn();
+    host.setAttribute('cmdk-root', '');
+    let disposeEntry!: () => void;
+    await act(async () => {
+      disposeEntry = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id, execute: open }] });
+      root.render(<CommandShortcutBinder key={platform} />);
+    });
+    try {
+      await press(key);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(widget).not.toHaveBeenCalled();
+      expect(commandRegistry.contextElement).toBe(input);
+    } finally { await act(async () => disposeEntry()); }
+  });
   it.each(['windows', 'linux'] as const)('%s Ctrl+F reaches the command before a widget can swallow it', async (platform) => {
     settings.platform = platform;
     await act(async () => root.render(<CommandShortcutBinder key={platform} />));
