@@ -85,6 +85,12 @@ export interface DeviceActionsCapability {
   switched_off?: DeviceActionsSwitchedOff[]
 }
 
+/** Device-list transport omits the documentation needed only for agent calls. */
+export type DeviceActionSummary = Omit<DeviceActionManifestEntry, 'description' | 'input_schema'>
+export interface DeviceActionsSummary extends Omit<DeviceActionsCapability, 'actions'> {
+  actions: DeviceActionSummary[]
+}
+
 export interface DeviceActionsSwitchedOff {
   group: string
   /** 给 agent 看的一句话:哪个 App 没装或停用了、去哪打开。 */
@@ -246,10 +252,26 @@ export function readDeviceActionProgress(raw: unknown): DeviceActionProgress | n
   }
 }
 
-/** 读 `gugu_devices.capabilities.actions`;不是这个形状就回 null(老版本的设备不登记)。 */
+/** Read the full stored manifest for agent action details. */
 export function normalizeDeviceActionsCapability(raw: unknown): DeviceActionsCapability | null {
+  return normalizeDeviceActions(raw, (item, summary) => ({
+    ...summary,
+    description: typeof item.description === 'string' ? item.description : '',
+    input_schema: isRecord(item.input_schema) ? item.input_schema : { type: 'object' },
+  }))
+}
+
+/** Read list summaries without inventing descriptions or input schemas. */
+export function normalizeDeviceActionsSummary(raw: unknown): DeviceActionsSummary | null {
+  return normalizeDeviceActions(raw, (_item, summary) => summary)
+}
+
+function normalizeDeviceActions<T extends DeviceActionSummary>(
+  raw: unknown,
+  readAction: (item: Record<string, unknown>, summary: DeviceActionSummary) => T,
+): (Omit<DeviceActionsCapability, 'actions'> & { actions: T[] }) | null {
   if (!isRecord(raw) || !Array.isArray(raw.actions)) return null
-  const actions: DeviceActionManifestEntry[] = []
+  const actions: T[] = []
   for (const item of raw.actions) {
     if (!isRecord(item)) continue
     const name = typeof item.name === 'string' ? item.name : ''
@@ -259,18 +281,16 @@ export function normalizeDeviceActionsCapability(raw: unknown): DeviceActionsCap
     const reason = item.unavailable_reason === 'not_granted' || item.unavailable_reason === 'os_permission' || item.unavailable_reason === 'unsupported'
       ? item.unavailable_reason
       : undefined
-    actions.push({
+    actions.push(readAction(item, {
       name,
       group: typeof item.group === 'string' ? item.group : name.split('.')[0] ?? name,
       title: typeof item.title === 'string' ? item.title : name,
-      description: typeof item.description === 'string' ? item.description : '',
       risk,
       confirm,
-      input_schema: isRecord(item.input_schema) ? item.input_schema : { type: 'object' },
       available: item.available === true,
       ...(reason ? { unavailable_reason: reason } : {}),
       ...(typeof item.unavailable_detail === 'string' && item.unavailable_detail ? { unavailable_detail: item.unavailable_detail } : {}),
-    })
+    }))
   }
   return {
     v: typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION,

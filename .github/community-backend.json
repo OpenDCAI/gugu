@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "fb005740bc077d33db4f8191b45f5184ec7f874a",
-  "status": "Merged: topic source resources, participant-scoped session attachments and same-identity assistant provisioning recovery companions OpenDCAI/gugu-supabase#28, #29 and #31."
+  "ref": "93fc4854bf9a2b56ed05b7df2dadad03d68b85e4",
+  "status": "Companion for compact device-list capabilities: OpenDCAI/gugu-supabase#34. Merge and deploy the backend before this client change."
 }
