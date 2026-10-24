@@ -270,7 +270,7 @@ export function HistoryPanel(props: HistoryPanelProps) {
                 <div
                   key={topic.chatId}
                   data-testid="history-topic-card"
-                  className={historyClickableCardClass}
+                  className={cn(historyClickableCardClass, mobile && '!p-2 !mb-1')}
                   role="button"
                   tabIndex={0}
                   onClick={() => props.onOpenTopic(topic.chatId, topic.title)}

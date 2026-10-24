@@ -63,6 +63,10 @@
   touch-action: manipulation;
 }
 
+[data-phone-shell] .gg-list-row[data-topic-subrow] {
+  min-height: var(--control-h-touch);
+}
+
 [data-phone-shell] .gg-list-row-title {
   font-size: var(--font-prose);
   line-height: var(--lh-prose);
