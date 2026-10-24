@@ -358,6 +358,8 @@ import { connectedCliSkills } from './session/main/core/integrations/cli/cli-int
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import { assistantWorkBinding } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -797,11 +799,11 @@ function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
  * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
  * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
  */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string }): Promise<AcpMcpServer[]> {
+async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
   if (!authProvider || !loadEmdashBridge()) return []
   try {
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId)
+    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
   } catch (error) {
     createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
     return []
@@ -5226,7 +5228,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
-        const assistantResourceOwner = info.providerId === 'claude' ? (await getSessionpageAuth())?.userId : null
+        const assistantResourceOwner = (await getSessionpageAuth())?.userId ?? null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5243,9 +5245,7 @@ app.whenReady().then(async () => {
             provisioned.guguAgentUserId,
             provisioned.agentIdentityFacts,
           )),
-          timed('assistant-role', info.providerId === 'claude'
-            ? isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)
-            : Promise.resolve(false)),
+          timed('assistant-role', isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
         const readAssistantResources = assistantRole ? async () => {
@@ -5301,7 +5301,10 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
-            ...(assistantRole ? { personalAssistant: true as const } : {}),
+            ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
+              ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
+              currentInput: () => emdashBridge?.readCurrentActivityInput(persistedSessionId) ?? Promise.resolve(undefined),
+            } } : {}),
             ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
@@ -5318,7 +5321,7 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        const capabilities = assistantRole ? await preparePersonalAssistantContext(
+        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
           loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
             accountId: async () => {
               const owner = (await getSessionpageAuth())?.userId
@@ -5721,7 +5724,9 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain)
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+      scheduleDiscovery: (work) => startupDiscovery.schedule(work),
+    })
     // 认回重启前留在 tmux 里的平台会话(#7120):它读 tmux 名与平台票账本,两样都是 boot 里段 2 迁移改的
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。

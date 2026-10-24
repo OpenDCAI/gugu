@@ -37,7 +37,7 @@ export type FrameSocket = {
  * 对端连进来之后可以调什么。本机窗口与浏览器形态不设限;别的桌面连进来时,只给那些「在这台机器上做才有意义」的
  * (窗口、剪贴板、对话框、内置浏览器这类属于看界面的那台电脑,❌ 让别的电脑遥控这台机器的界面)。
  */
-export type FrameInvokePolicy = (channel: string) => boolean;
+export type FrameInvokePolicy = (channel: string, args?: readonly unknown[]) => boolean;
 
 const FIRST_SENDER_ID = 1_000_000;
 /**
@@ -228,7 +228,7 @@ export class FrameSessionHost implements HostIpc {
    * 它名下若记了东西(订阅),当场按「线断了」收掉:推送只走窗口,❌ 留一条没人收的订阅。
    */
   async invokeOnce(channel: string, args: unknown[], policy?: FrameInvokePolicy): Promise<unknown> {
-    const handler = policy && !policy(channel) ? undefined : (this.handlers.get(channel) ?? this.fallback?.(channel));
+    const handler = policy && !policy(channel, args) ? undefined : (this.handlers.get(channel) ?? this.fallback?.(channel));
     if (!handler) throw new Error(`No handler registered for '${channel}'`);
     const id = nextSenderId++;
     const sender: HostIpcInvokeEvent['sender'] = {
@@ -352,7 +352,7 @@ export class FrameSessionHost implements HostIpc {
     switch (message.t) {
       case 'invoke': {
         const handler =
-          policy && !policy(message.channel)
+          policy && !policy(message.channel, message.args)
             ? undefined
             : (this.handlers.get(message.channel) ?? this.fallback?.(message.channel));
         if (!handler) {

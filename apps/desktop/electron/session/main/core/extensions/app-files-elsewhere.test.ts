@@ -125,6 +125,7 @@ describe("another machine's session: the door is files:read:all-machines", () =>
       name: 'Board',
       version: '1.0.0',
       apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'index.html',
       permissions: { capabilities: ['files:read:all-machines'] },
       contributes: { tabs: [{ name: 'main', title: 'Board' }] },

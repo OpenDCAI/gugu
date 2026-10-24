@@ -102,10 +102,12 @@ function memoryDisk(initial: Record<string, string | Uint8Array | 'dir' | 'symli
 describe('助理搬家拷文件 (#7199)', () => {
   it('记忆夹整棵树原样拷过去:嵌套目录、二进制、空文件;旧家一个字节都不写', async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255, 128]);
+    const pending = JSON.stringify({ version: 1, items: [{ id: 'unfinished-work', source_link: 'original-source', state: 'waiting' }] });
     const old = memoryDisk({
       '/old/memory': 'dir',
       '/old/memory/MEMORY.md': '- [关于主人](owner-profile.md)\n',
       '/old/memory/owner-profile.md': '主人叫小满',
+      '/old/memory/pending-work.json': pending,
       '/old/memory/refs': 'dir',
       '/old/memory/refs/pic.png': png,
       '/old/memory/refs/empty.txt': '',
@@ -114,12 +116,13 @@ describe('助理搬家拷文件 (#7199)', () => {
 
     const plan = await planTree(old.fs, '/old/memory');
     expect(plan.dirs).toEqual(['refs']);
-    expect(plan.files.map((f) => f.rel).sort()).toEqual(['MEMORY.md', 'owner-profile.md', 'refs/empty.txt', 'refs/pic.png']);
+    expect(plan.files.map((f) => f.rel).sort()).toEqual(['MEMORY.md', 'owner-profile.md', 'pending-work.json', 'refs/empty.txt', 'refs/pic.png']);
 
     const copied = await copyTree({ from: old.fs, fromRoot: '/old/memory', to: fresh.fs, toBase: '/new', toRoot: '/new/.claude/projects/x/memory', plan });
 
-    expect(copied).toBe(4);
+    expect(copied).toBe(5);
     expect(fresh.text('/new/.claude/projects/x/memory/owner-profile.md')).toBe('主人叫小满');
+    expect(fresh.text('/new/.claude/projects/x/memory/pending-work.json')).toBe(pending);
     expect(fresh.text('/new/.claude/projects/x/memory/refs/empty.txt')).toBe('');
     const copiedPng = fresh.nodes.get('/new/.claude/projects/x/memory/refs/pic.png');
     expect(copiedPng?.kind === 'file' && Array.from(copiedPng.bytes)).toEqual(Array.from(png));

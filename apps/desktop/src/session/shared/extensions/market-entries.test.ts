@@ -34,7 +34,7 @@ describe('pinsAutoUpdate', () => {
 
 describe('marketUpdatesFrom: an App no longer in the market', () => {
   it('one installed from the market and absent from the index is gone; one from a folder or a chat never was in it', () => {
-    const host = { appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
+    const host = { platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
     const told = marketUpdatesFrom({ apps: [] }, host, [{ id: 'radar', version: '1.0.0', fromMarket: true }, { id: 'mine', version: '0.1.0', fromMarket: false }], '');
     expect(told.gone).toEqual(['radar']);
     expect(told.updates).toEqual({});

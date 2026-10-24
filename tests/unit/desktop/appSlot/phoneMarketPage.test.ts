@@ -6,7 +6,7 @@ import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shar
 function catalog() {
   const version = (version: string, publishedAt: string, readme: string | null) => ({
     version, publishedAt, readme,
-    manifest: { id: 'notes', name: 'Notes', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Notes' }] } },
+    manifest: { id: 'notes', name: 'Notes', version, apiVersion: EXTENSION_API_VERSION, platforms: ['phone'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Notes' }] } },
     apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.1.0', releaseNotes: '', sha256: 'a'.repeat(64), bytes: 10,
     bundle: `notes/${version}/app.guguext`, icon: `notes/${version}/icon.png`, source: { repo: 'owner/apps', path: 'notes', commit: 'a'.repeat(40) }, yanked: null,
   })
@@ -17,7 +17,7 @@ function market() {
   const read = vi.fn(async (path: string) => new TextEncoder().encode(path === 'index.json' ? JSON.stringify(catalog()) : '# Notes\n![Preview](https://example.org/preview.png)'))
   return {
     read,
-    market: phoneMarket(read, () => currentMarketHost('9.0.0'), { read: async () => null, write: async () => undefined }, undefined, (path) => `https://example.org/market/${path}`),
+    market: phoneMarket(read, () => currentMarketHost('9.0.0', 'phone'), { read: async () => null, write: async () => undefined }, undefined, (path) => `https://example.org/market/${path}`),
   }
 }
 

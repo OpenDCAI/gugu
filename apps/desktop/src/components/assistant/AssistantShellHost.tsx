@@ -20,7 +20,7 @@ import {
   type AssistantShellSlot,
 } from '../../lib/assistantShellBridge'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
-import { assistantIdentityState, useMyAssistantContact } from '../../lib/myAssistant'
+import { assistantIdentityState, reloadMyAssistant, useMyAssistantContact } from '../../lib/myAssistant'
 import { assistantHomePlace, canSetUpCloudAssistant } from '../../lib/assistantHome'
 import { readSetupStep, subscribeSetupStep, writeSetupStep } from '../../lib/assistantSetupState'
 import { pendingLocalAssistant, resumeLocalAssistant, setupStillStarting } from '../../lib/assistantSetup'
@@ -147,6 +147,12 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
   const dm = useAssistantDm(contact?.id ?? null)
   const [lookOpen, setLookOpen] = useState(false)
   const ownerUserId = user?.id ?? null
+  const readyCloudDeviceId = snapshot?.state === 'awake' ? snapshot.deviceId : null
+  useEffect(() => {
+    // A retry completes the same provision and identity: the contacts key can
+    // remain unchanged. Re-read its marker when the host reports completion.
+    if (ownerUserId && readyCloudDeviceId) reloadMyAssistant(ownerUserId)
+  }, [ownerUserId, readyCloudDeviceId])
   useEffect(() => {
     const bridge = readAssistantShellBridge()
     if (!bridge) return

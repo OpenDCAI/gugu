@@ -274,7 +274,7 @@ function bundleOf(
   if (taken.length > 0) {
     throw new Error(`app_create: template "${action.template}" writes ${taken.join(', ')}; put your code in files["app.js"], or leave out template`);
   }
-  let manifest = overlay(existing ?? {}, template ? { contributes: { tabs: template.tabs } } : {}) as Json;
+  let manifest = overlay(existing ?? {}, template ? { platforms: template.platforms, contributes: { tabs: template.tabs } } : {}) as Json;
   manifest = overlay(manifest, own) as Json;
   const contributes = (manifest.contributes ?? {}) as Json;
   const tabs = ((contributes.tabs ?? []) as Json[]).map((tab) => tab.hostPage ? tab : ({ entry: `${String(tab.name)}.html`, ...tab }));

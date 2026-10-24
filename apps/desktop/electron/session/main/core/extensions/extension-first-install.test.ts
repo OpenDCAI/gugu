@@ -19,7 +19,7 @@ function bundle(contributes: Record<string, unknown>, version = '1.0.0', id = 's
   writeFileSync(path.join(source, 'index.html'), '<p>settings</p>');
   writeFileSync(path.join(source, 'tools.js'), 'export const search = { description: "Search", inputSchema: { type: "object" }, run: () => "" };');
   writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({
-    id, name: 'Searcher', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id, name: 'Searcher', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: contributes.mcpServers ? ['agents:tools'] : [] },
     contributes,
   }));
