@@ -7,8 +7,8 @@ export type AppToOpen = { chatId: string; extensionId: string; request: number }
 
 /**
  * 「在本群打开」(app-redesign §5): the one way an App is opened from a chat — a card's 「打开」, and the chat header's ⋯
- * (ChatHeaderActions) once the card is gone. Asked with `openApp`, answered by the chat on screen (`useOpenApp`): a group, a topic or a private chat —
- * each has its own panel (主人 10-05:「私聊也是得有面板的」), on the desktop as on the phone.
+ * (ChatHeaderActions) once the card is gone. Asked with `openApp`, answered by the chat on screen (`useOpenApp`): a group or a private chat —
+ * topics use their source chat’s shared panel (主人 10-05:「私聊也是得有面板的」), on the desktop as on the phone.
  */
 export function openApp(extensionId: string, chatId?: string): void {
   window.dispatchEvent(new CustomEvent(UI_EVENTS.openApp, { detail: { extensionId, ...(chatId ? { chatId } : {}) } }))
@@ -19,12 +19,6 @@ export function useOpenApp(chatId: string | null, openPanel: () => void): AppToO
   const [appToOpen, setAppToOpen] = useState<AppToOpen | null>(null)
   useEffect(() => {
     if (!chatId) return undefined
-    const onOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ extensionId: string; chatId?: string }>).detail
-      if (detail.chatId && detail.chatId !== chatId) return
-      openPanel()
-      setAppToOpen({ chatId, extensionId: detail.extensionId, request: Date.now() })
-    }
     // Asked from outside the chat (a banner's or a link's click, MainLayout brought it up): taken now, or when it shows.
     const takeAsked = () => {
       const extensionId = groupSlotMemory.takeApp(chatId)
@@ -33,10 +27,8 @@ export function useOpenApp(chatId: string | null, openPanel: () => void): AppToO
       setAppToOpen({ chatId, extensionId, request: Date.now() })
     }
     takeAsked()
-    window.addEventListener(UI_EVENTS.openApp, onOpen)
     window.addEventListener(UI_EVENTS.chatAsked, takeAsked)
     return () => {
-      window.removeEventListener(UI_EVENTS.openApp, onOpen)
       window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
     }
   }, [chatId, openPanel])

@@ -173,7 +173,7 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 ## Where your page runs
 
 Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
-A session's tab has \`session\`; a chat's side panel (a group's, topic's or DM's; a phone's too) has \`chat\`;
+A session's tab has \`session\`; a chat's side panel (a group's or DM's; a phone's too) has \`chat\`;
 the dock and the background page have neither; opened for a file, \`file\` names it. Read the context first, then draw:
 where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capabilities\`).
 - \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
@@ -186,14 +186,14 @@ where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capab
   programs (a session's tab calls its computer's), \`linkTo\`, agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
 - \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
   entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
-- A chat's side panel opens 520 px wide, a topic's 340: lay out for narrow first, widen with a media or container query.
+- A chat's shared side panel opens 520 px wide: lay out for narrow first, widen with a media or container query.
 - No \`alert\` / \`confirm\` / \`prompt\`: a dialog would freeze the host — ask on the page.
 
 Free (they only concern your own tab):
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, operator, locale, themeMode, capabilities, layout? }\`.
-  \`chat\`: \`{ id, name, kind: 'group' | 'topic' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
-  chat and its topics). \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
+  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
+  chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
   \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
   never copy it into a file. \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
   (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
@@ -482,12 +482,12 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  */
 export const EXTENSION_GUIDE_FILES = `# gugu.files — an App's chat files, edited live by people and agents together
 
-An App's data is a file where it lives (a chat's workspace, a folder here). Data already there is
-that file: claim its name or suffix and open it — never a copy in your bundle (\`app_install\` data \`{ item_id }\`).
-Open it: a live copy — yours show at once, others' arrive on their own.
-Top-level \`await\` needs \`<script type="module">\`.
+Claim an existing data file's name or suffix and open it live; never copy it into your bundle
+(\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
 
 ## Which files you may open
+
+Topic file addresses resolve to their source chat; entries name that source. Messages keep their topic address.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
@@ -787,7 +787,7 @@ export const EXTENSION_GUIDE_UI = `# How an App page looks — gugu's look is th
 
 Every App page gets gugu's own look before its first line: a stylesheet, all of it in \`@layer gugu\` (the lowest, so
 anything you write wins — no \`!important\`), and four elements of the host. Plain semantic HTML looks like gugu, in
-light and dark, in a chat's side panel (520 px), a topic (340), on a phone (412, touch sizes) and full screen. The
+light and dark, in a chat's shared side panel (520 px), on a phone (412, touch sizes) and full screen. The
 picture below this text is every piece, each captioned with the markup that draws it.
 
 ## Four rules
@@ -795,7 +795,7 @@ picture below this text is every piece, each captioned with the markup that draw
 1. Write semantic HTML: it is styled already.
 2. Set no fonts, font sizes, colours or corner radii. Drawing something of your own (a board, a chart): only the tokens below.
 3. Icons are \`<gugu-icon name="…">\`, people are \`<gugu-avatar user="…">\` — never an emoji, an initial or a coloured box.
-4. Read \`gugu.getContext()\` first: \`chat\` is the chat (a group, topic or private chat) the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
+4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
 
 ## Elements — one line each
 

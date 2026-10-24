@@ -36,17 +36,19 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Every file of the chat, as it is now: one, claimed by the App just installed.
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId,
   changedGroupFiles: async (chatId: string, _reader: string | null, wanted: { all: boolean }) =>
     wanted.all ? { entries: [{ id: `${chatId}-board`, chat: chatId, name: 'x.board.json', claimedBy: { app: { id: 'board' } } }], gone: [] } : { entries: [], gone: [] },
 }));
 
-const { bindExtensionSurface, notifyInstalledAppsChanged, onInstalledAppsChanged, registerExtensionBridge } = await import('./extension-bridge');
+const { bindExtensionSurface, notifyInstalledAppsChanged, onInstalledAppsChanged, registerExtensionBridge, stopPageWatches } = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const watch = (id: number, place: unknown) =>
-  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { place, on: true } });
+  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { watchId: JSON.stringify(place), place, on: true } });
 
 beforeEach(async () => {
+  for (const id of [GROUP_ONE, GROUP_TWO, SESSION_TAB]) stopPageWatches(id);
   sent.length = 0;
   await bindExtensionSurface({ webContentsId: GROUP_ONE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT_ONE });
   await bindExtensionSurface({ webContentsId: GROUP_TWO, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', chatId: CHAT_TWO });

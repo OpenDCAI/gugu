@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
-import { ChevronLeft, LayoutGrid, MessageSquare, Paperclip, Search, Users, X } from '@/lib/icons'
+import { ChevronLeft, MessageSquare, Paperclip, Search, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -16,7 +16,6 @@ import { Menu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
-import { useTopicWorkspace } from '../appSlot/useTopicWorkspace'
 import { useBackLayer } from '../ui/sheetStack'
 import { InputArea } from './InputArea'
 import { RunningTokenBar, type RunningToken } from '../RunningTokenBar'
@@ -73,6 +72,7 @@ export type TopicSplitPaneProps = {
   navigationTarget?: boolean
   topic: { chatId: string; name: string }
   history: ChatConversation
+  sourceChatId: string
   messages: MessageItem[]
   loading: boolean
   memberProfiles: Record<string, MemberProfileCardModel>
@@ -214,6 +214,7 @@ const TOPIC_SPLIT_EMPTY_STYLE: React.CSSProperties = { textAlign: 'center', colo
 
 export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false,
   topic,
+  sourceChatId,
   messages,
   loading,
   memberProfiles,
@@ -296,33 +297,31 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 名册开着时换的是**这一栏的内容**,不是右边再开一栏 —— 分栏最宽 720,再挤一栏进去谁都读不了。
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
-  const workspace = useTopicWorkspace(topic.chatId, mobile, () => { setFilesForChatId(null); setMembersForChatId(null) }, { visible, onForward }) // 摩擦单 F23
-  const closeWorkspace = workspace.close
   const membersOpen = membersForChatId === topic.chatId
   const setMembersOpen = useCallback(
     (next: boolean | ((open: boolean) => boolean)) => {
       setMembersForChatId((current) => {
         const open = typeof next === 'function' ? next(current === topic.chatId) : next
-        if (open) { setFilesForChatId(null); closeWorkspace() }
+        if (open) setFilesForChatId(null)
         return open ? topic.chatId : null
       })
     },
-    [topic.chatId, closeWorkspace],
+    [topic.chatId],
   )
   const toggleFiles = useCallback(() => {
     setFilesForChatId((current) => {
       if (current === topic.chatId) return null
-      setMembersForChatId(null); closeWorkspace()
+      setMembersForChatId(null)
       return topic.chatId
     })
-  }, [topic.chatId, closeWorkspace])
+  }, [topic.chatId])
 
   // @@@5856 「自己贴底」那一整段已删 —— 滚动归 MessageList(lib/flowList.ts 的贴底 +
   // totalListHeightChanged)。手写的那份在 markdown/代码块异步撑高之后就钳不住,症状是新消息不滚。
 
   // 列表行与主线共用历史窗口和分页;分栏没有多选。
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
-  const search = useChatSearch(topic.chatId, visible !== false && !workspace.open && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
+  const search = useChatSearch(topic.chatId, visible !== false && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const rows = useMemo<ChatListRowItem[]>(
     () => displayedMessages.map((message) => ({ type: 'message' as const, message })),
@@ -334,14 +333,13 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toast } = useToast()
-  const workspaceOpen = workspace.open
   const chatResetKey = `${topic.chatId}#${messageWindow.viewVersion}`
   const { scrollerEl, scrollerRef, setScrollerRef, isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
-    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering, discardSaved: !!history.unreadEntry,
+    chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !isFiltering, discardSaved: !!history.unreadEntry,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const unreadNavigationPending = useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !workspaceOpen && !isFiltering,
+  const unreadNavigationPending = useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
     onNavigate: () => search.setSearchMode(false), rows, loadingAnchor: messageWindow.loading === 'anchor', listRef, scrollerRef,
     setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) },
     setFlashMessageId, flashTimerRef, hasMoreOlder: messageWindow.hasOlder, loadingOlder: history.loadingOlder,
@@ -349,14 +347,14 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     loadingNewer: messageWindow.loading === 'newer', loadNewerMessages: history.loadNewerMessages })
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
-  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending,
+  useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !isFiltering && !unreadNavigationPending,
     scroller: scrollerEl, atBottom: viewportAtBottom, loadOlder: history.loadOlderMessages, loadNewer: history.loadNewerMessages, window: messageWindow, onError: onHistoryError })
   const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey: chatResetKey, messages,
-    enabled: visible !== false && !workspaceOpen && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
+    enabled: visible !== false && !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: history.returnToLatestMessages, onError: onHistoryError })
   const showMessage = useSourceMessageReveal({
-    viewportKey, navigationTarget, enabled: visible !== false, ready: !workspaceOpen && !filesOpen && !membersOpen && !isFiltering,
-    activeChatId: topic.chatId, onNavigate: () => { closeWorkspace(); setFilesForChatId(null); setMembersForChatId(null); search.setSearchMode(false) },
+    viewportKey, navigationTarget, enabled: visible !== false, ready: !filesOpen && !membersOpen && !isFiltering,
+    activeChatId: topic.chatId, onNavigate: () => { setFilesForChatId(null); setMembersForChatId(null); search.setSearchMode(false) },
     rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage,
     onMissing: () => toast(t('chatArea.source.notVisible'), 'error'),
   })
@@ -384,7 +382,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     }),
     onForward: onForward ?? noop,
     onDelete: onDelete ?? noop,
-    onVisible: (message) => { if (visible !== false && !workspaceOpen) history.markMessageVisible(message) },
+    onVisible: (message) => { if (visible !== false) history.markMessageVisible(message) },
     // 右键发送者头像 → @ 他:插进**这一栏**的输入框,与上面运行中头像条同一个 setMentionToInsert。
     onMentionMember: setMentionToInsert,
     // 单层不嵌套:onOpenTopic 给 undefined —— 话题里的消息不给「开话题」入口,也就没有锚点卡
@@ -398,10 +396,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, workspaceOpen, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, topic.chatId, flashMessageId, history, visible, isFiltering, searchQuery])
 
   // 手机页只有左上返回一个出口:子视图(附件/成员)开着先退回话题,否则收起话题回来源线。
-  const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : workspace.open ? workspace.close : onClose
+  const goBack = filesOpen ? () => setFilesForChatId(null) : membersOpen ? () => setMembersOpen(false) : onClose
   // 手机整页:安卓返回键 = 左上返回(先退附件/成员子视图,再回群),❌ 越过群退到会话列表。
   useBackLayer(goBack, mobile)
   // 名册那条头自带「话题成员 + 改名框」,名字在那儿写着了 ⇒ 这里就不再写一遍。
@@ -427,11 +425,10 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const headerToggles = mobile ? (
     <>
       {membersToggle}
-      <TopicMoreMenu chatId={topic.chatId} mobile items={(
+      <TopicMoreMenu chatId={sourceChatId} mobile items={(
         <>
           {searchItem}
           <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
-          <MenuItem data-testid="topic-split-workspace-toggle" onClick={workspace.show} icon={<LayoutGrid size={16} />}>{workspace.folderName}</MenuItem>
         </>
       )} />
     </>
@@ -449,8 +446,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         <Paperclip size={16} />
       </IconButton>
       {membersToggle}
-      {workspace.toggle}
-      <TopicMoreMenu chatId={topic.chatId} mobile={false} items={searchItem} />
+      <TopicMoreMenu chatId={sourceChatId} mobile={false} items={searchItem} />
     </>
   )
   const page = (
@@ -531,7 +527,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               />
             </RightPanel>
           </div>
-        ) : workspace.open ? workspace.view : (
+        ) : (
         <>
         <div
           data-testid="topic-split-messages"
@@ -630,13 +626,13 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
       <TopicTab
         name={topic.name}
         chatId={topic.chatId}
+        sourceChatId={sourceChatId}
         onClose={onClose}
         items={(
           <>
             {searchItem}
             <MenuItem data-testid="topic-split-files-toggle" onClick={toggleFiles} icon={<Paperclip size={16} />}>{t('topic.pane.attachments')}</MenuItem>
             <MenuItem data-testid="topic-split-members-toggle" onClick={() => setMembersOpen((open) => !open)} icon={<Users size={16} />}>{t('topic.pane.members')}</MenuItem>
-            <MenuItem data-testid="topic-split-workspace-toggle" onClick={workspace.show} icon={<LayoutGrid size={16} />}>{workspace.folderName}</MenuItem>
           </>
         )}
       />,
@@ -671,7 +667,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
  * 右边换成了右栏里的东西时它还在,只是不亮;点一下分栏回来(`onPick`,GroupPanelTabs 画这一枚)。
  * 这一栏的附件、成员、群文件夹和能在话题里开的 App 在它的右键菜单里 —— 页签条右端那一排是这一块的。
  */
-export function TopicTab({ name, chatId, onClose, onPick, items }: { name: string; chatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
+export function TopicTab({ name, chatId, sourceChatId, onClose, onPick, items }: { name: string; chatId: string; sourceChatId: string; onClose?: () => void; onPick?: () => void; items?: React.ReactNode }) {
   const { t } = useTranslation('messaging')
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   return (
@@ -695,7 +691,7 @@ export function TopicTab({ name, chatId, onClose, onPick, items }: { name: strin
       {menuAt ? (
         <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
           {items}
-          <OpenAppMenuItems chatId={chatId} separated />
+          <OpenAppMenuItems chatId={sourceChatId} separated />
         </Menu>
       ) : null}
     </TabSlot>

@@ -163,6 +163,7 @@ describe('#6077 push 与 pull 对同一条消息给出同一个收件集', () =>
   it.each(['group', 'topic'] as const)('%s:无点名 / @一人 / @passive / @all', async (kind) => rollback(async () => {
     const room = await seed()
     const chat = room[kind]
+    if (kind === 'topic') await joinAll(room, room.group)
     await joinAll(room, chat)
 
     const open = await post(chat, room.peer)
@@ -186,6 +187,7 @@ describe('#6077 push 与 pull 对同一条消息给出同一个收件集', () =>
   it.each(['group', 'topic'] as const)('%s:回复 = 点名被回复的那一个', async (kind) => rollback(async () => {
     const room = await seed()
     const chat = room[kind]
+    if (kind === 'topic') await joinAll(room, room.group)
     await joinAll(room, chat)
     const fromAgent = await post(chat, room.a, { to: [room.peer] })
     const fromHuman = await post(chat, room.owner)
@@ -372,6 +374,7 @@ describe('#6077 场景(话题里两个 active agent,人只 @A)经真 reader', ()
 
   it('B 的下一次 pull 拿不到那条 @A;A 恰好拿到一次;精确读行只属于 A', async () => rollback(async () => {
     const room = await seed()
+    await joinAll(room, room.group)
     await joinAll(room, room.topic)
     const toA = await post(room.topic, room.peer, { to: [room.a] })
 

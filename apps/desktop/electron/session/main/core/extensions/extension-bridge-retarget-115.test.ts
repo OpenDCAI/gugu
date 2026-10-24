@@ -30,6 +30,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // A page in a group hears its context only with its chat (「在本群打开」): the chat is read before the first push.
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId,
   chatMembersOf: async () => [],
   surfaceChatOf: async () => ({ id: '0b000000-0000-4000-8000-000000000001', name: 'G', kind: 'group', groupId: '0b000000-0000-4000-8000-000000000001' }),
 }));

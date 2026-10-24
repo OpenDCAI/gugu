@@ -50,7 +50,7 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
   }, [chatId])
   return (
     <>
-      {topic && !topic.shown ? <TopicTab name={topic.name} chatId={topic.chatId} onPick={() => onShowTopic(topic)} /> : null}
+      {topic && !topic.shown ? <TopicTab name={topic.name} chatId={topic.chatId} sourceChatId={chatId} onPick={() => onShowTopic(topic)} /> : null}
       {tabs.map((item) => {
         const shown = form !== 'closed' && item === active
         return (
