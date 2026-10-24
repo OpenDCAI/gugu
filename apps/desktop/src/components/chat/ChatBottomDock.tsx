@@ -28,7 +28,7 @@ export function ChatBottomDock({ floating, reserve, children }: { floating: bool
   return (
     <>
       {reserve && <div aria-hidden className="h-[var(--chat-dock-h,0px)] shrink-0" />}
-      <div ref={ref} data-chat-bottom-dock="" className={composerSlotClass} style={{ position: 'absolute' }}>
+      <div ref={ref} data-chat-bottom-dock="" className={`${composerSlotClass} absolute!`}>
         <div className={`${composerSlotInnerClass} ${composerSlotInnerBottomClass}`}>{children}</div>
       </div>
     </>
