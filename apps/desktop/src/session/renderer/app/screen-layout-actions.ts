@@ -446,18 +446,11 @@ export function revealAppBlock(tabKind: string): boolean {
   const parkedWith = screenLayout.blockOfApp(tabKind) ? undefined : screenLayout.parkedSessionOfApp(tabKind);
   if (parkedWith) {
     screenLayout.show(parkedWith);
-    appState.navigation.navigate('session', parkedWith);
   }
   const blockId = screenLayout.blockOfApp(tabKind);
   if (!blockId) return false;
-  const navigation = appState.navigation;
-  if (navigation.currentViewId !== 'session') {
-    const session = screenLayout.sessions[0] ?? (navigation.viewParamsStore.session as ScreenSession | undefined);
-    if (!session) return false;
-    navigation.navigate('session', { projectId: session.projectId, sessionId: session.sessionId });
-  }
-  // 导航那一下会把它的会话块当成正看着的;App 那块在它之后接过来。
   screenLayout.focus(blockId);
+  returnToScreen();
   return true;
 }
 

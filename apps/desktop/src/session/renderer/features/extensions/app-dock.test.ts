@@ -150,6 +150,17 @@ describe('右键「App」列出来的 App (#7050)', () => {
 
 // #7052 behavior tab-extensions「点左栏它的图标 = 去它现在在的地方;哪都没摆着才整页打开」。
 describe('点左栏一个 App', () => {
+  it('an App block needs no old session to bring its workspace forward', () => {
+    install([app('clock')]);
+    screenLayout.show({ kind: 'app', tabKind: 'clock.main' });
+    const saved = screenLayout.snapshot;
+    appState.navigation.navigate('assistant');
+    openApp('clock');
+    expect(appState.navigation.currentViewId).toBe('screen');
+    expect(screenLayout.snapshot).toEqual(saved);
+    screenLayout.forgetApp('clock.main');
+  });
+
   it('哪都没摆着:整页打开', () => {
     install([app('clock')]);
     appPlacementStore.take('clock.main');
