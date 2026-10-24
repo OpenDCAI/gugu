@@ -74,8 +74,14 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
     return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
   }, [])
 
-  if (state.kind === 'done') return <PhoneAgentSetupGate key={user.id} ownerId={user.id}>{children}</PhoneAgentSetupGate>
-  if (state.kind === 'intro' && platform.kind === 'electron') return <>{children}<ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={() => setState({ kind: 'done' })} /></>
+  // The embedded task entry bootstraps once per document; finishing or reopening the tour must
+  // keep its product tree and mount element connected at the same position.
+  if (state.kind === 'done' || (state.kind === 'intro' && platform.kind === 'electron')) return (
+    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
+      {children}
+      {state.kind === 'intro' && <ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={() => setState({ kind: 'done' })} />}
+    </PhoneAgentSetupGate>
+  )
 
   if (state.kind === 'loading') return <FullScreenLoader />
   return (

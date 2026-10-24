@@ -13,6 +13,7 @@ const AGENT_PAGE = 8;
 const OTHER_PAGE = 9;
 const CHAT = '0b000000-0000-4000-8000-000000000001';
 const OTHER_CHAT = '0b000000-0000-4000-8000-000000000002';
+const TOPIC = '0b000000-0000-4000-8000-000000000003';
 const AGENT = '0a000000-0000-4000-8000-0000000000a1';
 const [A, B, C] = ['0f000000-0000-4000-8000-00000000000a', '0f000000-0000-4000-8000-00000000000b', '0f000000-0000-4000-8000-00000000000c'];
 const sent: { id: number; event: { type: string; change?: unknown } }[] = [];
@@ -44,6 +45,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId === TOPIC ? CHAT : chatId,
   changedGroupFiles: async (chatId: string, reader: string | null, wanted: { ids: readonly string[]; all: boolean }) => {
     reads.asked.push({ chatId, reader, ids: [...wanted.ids].sort(), all: wanted.all });
     if (reads.hold) await reads.hold;
@@ -59,15 +61,16 @@ vi.mock('@main/core/extensions/app-files', () => ({
   },
 }));
 
-const { bindExtensionSurface, notifyGroupWorkspaceChanged, notifyInstalledAppsChanged, registerExtensionBridge } = await import('./extension-bridge');
+const { bindExtensionSurface, notifyGroupWorkspaceChanged, notifyInstalledAppsChanged, registerExtensionBridge, stopPageWatches } = await import('./extension-bridge');
 const { MAX_HELD_IDS } = await import('@shared/extensions/coalesced-reads');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const watch = (id: number, place: unknown, on = true) =>
-  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { place, on } });
+  handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contentsOf(id) }, { method: 'filesWatch', args: { watchId: JSON.stringify(place), place, on } });
 const changesTo = (id: number) => sent.filter((s) => s.id === id && s.event.type === 'filesChanged').map((s) => s.event.change);
 
 beforeEach(async () => {
+  for (const id of [PERSON_PAGE, AGENT_PAGE, OTHER_PAGE]) stopPageWatches(id);
   sent.length = 0;
   reads.asked.length = 0;
   reads.hold = null;
@@ -85,6 +88,18 @@ beforeEach(async () => {
 });
 
 describe('a chat\'s files changed: its pages hear those files (#7257)', () => {
+  it('a topic and source subscription hear source revisions, each under the address the page subscribed to', async () => {
+    expect(await watch(PERSON_PAGE, { chat: TOPIC })).toMatchObject({ ok: true });
+    await notifyGroupWorkspaceChanged([{ chatId: CHAT, itemIds: [A] }]);
+    const places = sent.filter((s) => s.id === PERSON_PAGE && s.event.type === 'filesChanged').map((s) => (s.event as { place?: unknown }).place);
+    expect(places).toEqual([{ chat: CHAT }, { chat: TOPIC }]);
+    expect(reads.asked.filter((read) => read.reader === null)).toEqual([{ chatId: CHAT, reader: null, ids: [A], all: false }]);
+    expect(await watch(PERSON_PAGE, { chat: TOPIC }, false)).toMatchObject({ ok: true });
+    sent.length = 0;
+    await notifyGroupWorkspaceChanged([{ chatId: CHAT, itemIds: [B] }]);
+    expect(changesTo(PERSON_PAGE)).toHaveLength(1);
+  });
+
   it('each page hears the named files as its reader sees them — one read per reader, a page of another chat nothing', async () => {
     await notifyGroupWorkspaceChanged([{ chatId: CHAT, itemIds: [A, B] }]);
     expect(reads.asked).toEqual([

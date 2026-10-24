@@ -41,7 +41,7 @@ export interface AskedFile {
   at?: Record<string, string>
   opener?: AppOpenWithDetail
 }
-/** What a chat's or a topic's pane hands its panel to open: the asked file, in that chat, once per ask (`request`). */
+/** What a source chat hands its shared panel to open, once per ask (`request`). */
 export interface FileToOpen extends AskedFile {
   chatId: string
   request: number

@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e7e07b35666fefb59f8995e18efee8875f406d3d",
-  "status": "Merged: participant-scoped session attachments companion OpenDCAI/gugu-supabase#29."
+  "ref": "0b948f7d4269d9739e21fb438d54d64efff0ce1e",
+  "status": "Merged: topic source resources and participant-scoped session attachments companions OpenDCAI/gugu-supabase#28 and #29."
 }

@@ -14,9 +14,9 @@ import { useDevicesStore } from '../store/devicesContext'
 import { useMyAssistantContact } from '../lib/myAssistant'
 import '../i18n/registerAssistantCatalog'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
+import { AssistantDefaultAvatar } from './assistant/AssistantDefaultAvatar'
 import { Avatar } from './Avatar'
 import { DEFAULT_ASSISTANT_LOOK } from './agentAvatar/look'
-import { contactsService } from '../lib/contacts'
 import { RailAppIcon } from './RailAppIcon'
 import { UpdateBanner } from './UpdateBanner'
 import { LoadingIndicator } from '../lib/loading/LoadingIndicator'
@@ -360,7 +360,7 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
           <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined}>
             {assistant
               ? <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={40} isAgent harnessBadge={false} imageMatteColor="var(--nav-rail)" />
-              : <Avatar name={t('rail')} avatarUrl={contactsService.agentLookAvatarUrl(DEFAULT_ASSISTANT_LOOK)} size={40} isAgent harnessBadge={false} still imageMatteColor="var(--nav-rail)" />}
+              : <AssistantDefaultAvatar id="assistant-intro" name={t('rail')} look={DEFAULT_ASSISTANT_LOOK} size={40} still />}
           </span>
           {entry === 'none' ? <span className="gg-sidebar-assistant-mark" aria-hidden="true"><Plus size={10} /></span> : null}
           {entry === 'unreadable' ? <span className="gg-sidebar-assistant-mark" data-tone="warn" aria-hidden="true">!</span> : null}

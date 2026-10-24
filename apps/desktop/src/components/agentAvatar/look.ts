@@ -8,8 +8,7 @@
  *  · 新客户端认出这个地址 → 画会动的小鸟(颜色、休息表情按地址),不去加载那张图;
  *  · 老客户端 / 别的消费方只当它是一张普通头像图 → 那个颜色的小鸟定格图(存储里一色一张,所有 agent 共用);
  *  · 只认路径尾巴 `/agent-look/v1/<颜色>.webp`,不认主机:同一个形象在哪套环境都读得出来。
- * 头像是 null(没配过形象、也没传照片)= 按 id 推出来的样子(identity.ts agentIdentity);出生时主人的设备把它定下来存进库
- * (planBirthLooks),从此各端读的都是库里那一份。
+ * 普通 agent 的默认脸由 Boring Avatars 按 id 生成;这些形象地址只在助理路径继续解释成 3D。
  */
 import { rendererLogger } from '@/lib/log'
 import { BODY_COLORS, REST_FACES, agentIdentity, type AgentIdentity } from './engine/identity'
@@ -74,6 +73,17 @@ function parseWear(raw: string): WearItem[] {
 }
 
 const LOOK_TAIL = /\/agent-look\/v1\/([a-z]+)\.webp(?:\?([^#]*))?(?:#.*)?$/
+
+/** All built-in v1 looks, including older URLs without expression parameters. Custom images stay custom. */
+export function isBuiltinAgentAvatarUrl(avatar: string | null | undefined): boolean {
+  if (!avatar) return false
+  try {
+    const url = new URL(avatar)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && /\/agent-look\/v1\/[^/]+$/.test(url.pathname)
+  } catch {
+    return false
+  }
+}
 
 /** 头像地址 → 形象;不是形象地址(照片 / null / 认不出的颜色或表情)= null。 */
 export function parseAgentLook(avatar: string | null | undefined): AgentLook | null {
@@ -146,36 +156,4 @@ export function rollWear(color: number, taken: readonly AgentLook[], rng: Rng, m
   const pool = new Set(ROLL_RULES.pool.flatMap((g) => g.ids))
   const mains = taken.flatMap((t) => t.wear?.find((w) => pool.has(w.id))?.id ?? [])
   return pickWear(color, rng, ROLL_RULES, { taken: mains, month })
-}
-
-export interface BirthCandidate {
-  id: string
-  avatar: string | null
-  created_at?: string | null
-}
-
-/**
- * 主人名下还没有形象(头像 null)的 agent → 给它们定形象,按出生先后一只只来:
- *  · 先看按 id 推出来的那个样子(它一直就长这样,能不变就不变);
- *  · 那个颜色已经被兄弟占了 → 换成没人用(或用得最少)的颜色,表情也挑同色兄弟没用过的。
- * 传了照片的不算(头像位是照片,不画小鸟,也不占颜色)。
- */
-export function planBirthLooks(agents: readonly BirthCandidate[], rng: Rng): { id: string; look: AgentLook }[] {
-  const taken: AgentLook[] = []
-  for (const a of agents) {
-    const look = parseAgentLook(a.avatar)
-    if (look) taken.push(look)
-  }
-  const newborn = agents
-    .filter((a) => a.avatar == null)
-    .slice()
-    .sort((x, y) => (x.created_at ?? '').localeCompare(y.created_at ?? '') || x.id.localeCompare(y.id))
-  const plan: { id: string; look: AgentLook }[] = []
-  for (const a of newborn) {
-    const derived = agentIdentity(a.id)
-    const look = taken.some((t) => t.color === derived.color) ? pickDistinctLook(taken, null, rng) : derived
-    taken.push(look)
-    plan.push({ id: a.id, look })
-  }
-  return plan
 }

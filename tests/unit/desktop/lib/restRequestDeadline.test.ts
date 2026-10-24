@@ -59,6 +59,7 @@ describe('authBoundedFetch data-plane deadline', () => {
     const response = new Response('[{"id":"x"}]', { status: 206, statusText: 'Partial Content', headers: { 'Content-Range': '0-0/1' } })
     vi.stubGlobal('fetch', vi.fn(async () => response))
     const result = await authBoundedFetch('https://db.example.test/rest/v1/messages_view')
+    expect(result).toBe(response)
     expect(result.status).toBe(206)
     expect(result.statusText).toBe('Partial Content')
     expect(result.headers.get('Content-Range')).toBe('0-0/1')
@@ -142,6 +143,22 @@ describe('authBoundedFetch under the real PostgREST client', () => {
   function dataClient() {
     return createGuguSupabaseClient({ url: 'https://db.example.test', anonKey: 'anon', accessToken: async () => null, fetch: authBoundedFetch })
   }
+
+  it('accepts a 204 PATCH whose fetch response exposes an empty body stream', async () => {
+    controllableTimeouts()
+    // Chromium fetch can expose a stream for 204; the Response constructor cannot create that shape.
+    const response = new Response('', { statusText: 'No Content' })
+    Object.defineProperty(response, 'status', { value: 204 })
+    expect(response.body).not.toBeNull()
+    const fetch = vi.fn(async () => response)
+    vi.stubGlobal('fetch', fetch)
+    const result = await dataClient().from('users').update({ display_name: 'Updated name' }).eq('id', 'x')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: 'PATCH' }))
+    expect(result.error).toBeNull()
+    expect(result.status).toBe(204)
+    expect(result.data).toBeNull()
+  })
 
   it.each([false, true])('classifies a body deadline as TimeoutError without retrying (compatibility: %s)', async (compatibility) => {
     if (compatibility) restoreAbortSignalAny = withoutAbortSignalAny()

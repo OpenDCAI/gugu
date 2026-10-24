@@ -38,6 +38,7 @@ vi.mock('@main/core/extensions/extension-links', async (original) => ({
   currentLinkScheme: () => 'gugu-dev',
   openExtensionLink: async (url: string) => { opened.push(url); return outcome; },
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const { bindExtensionSurface, registerExtensionBridge } = await import('./extension-bridge');

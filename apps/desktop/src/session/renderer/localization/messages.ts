@@ -444,8 +444,6 @@ const enUSCoreMessages = {
   'tabs.enabling': 'Enabling…',
 
   'settings.extensions': 'Apps',
-  'settings.repository': 'Repository',
-  'settings.repositoryDescription': 'Configure how projects are stored on this machine.',
   'settings.interface': 'Interface',
   'settings.interfaceDescription': 'Customize the appearance and behavior of gugu.',
   'settings.browser': 'Browser',
@@ -1314,8 +1312,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'tabs.enabling': '启用中…',
 
   'settings.extensions': 'App',
-  'settings.repository': '仓库',
-  'settings.repositoryDescription': '配置项目的存放方式。',
   'settings.interface': '界面',
   'settings.interfaceDescription': '自定义咕咕的外观和行为。',
   'settings.browser': '浏览器',

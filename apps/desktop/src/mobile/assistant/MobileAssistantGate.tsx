@@ -2,7 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding'
 import { Button } from '@/components/ui/Button'
 import { PaneHeader } from '@/components/ui/Pane'
-import { Avatar } from '@/components/Avatar'
+import { AgentAvatar } from '@/components/agentAvatar/AgentAvatar'
+import { DEFAULT_ASSISTANT_LOOK } from '@/components/agentAvatar/look'
 import { refreshCloudComputer } from '@/lib/cloudComputerStore'
 import { canSetUpCloudAssistant } from '@/lib/assistantHome'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
@@ -43,7 +44,7 @@ export function MobileAssistantGate({ stage, name, ownerName }: { stage: Exclude
       case 'identity':
         return (
           <>
-            <Avatar name={who} seed="gugu-default" size={72} isAgent harnessBadge={false} />
+            <AgentAvatar name={who} id="gugu-default" look={DEFAULT_ASSISTANT_LOOK} size={72} />
             <h1 className="ta-intro-title">{t('identity.title')}</h1>
             <p className="ta-intro-body" role={stage.state === 'unreadable' ? 'alert' : 'status'}>{t(`identity.${stage.state}`)}</p>
             {stage.state === 'unreadable' ? (

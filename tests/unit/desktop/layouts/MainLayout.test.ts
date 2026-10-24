@@ -13,7 +13,7 @@ import type { SessionpageMessageHost } from '../../../../apps/desktop/src/sessio
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
@@ -24,6 +24,13 @@ vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (orig
   const actual = await original<typeof import('../../../../apps/desktop/src/hooks/useSourceMessageReveal')>()
   return { ...actual, askReveal: (chat: string, message: string, viewport?: string) => { revealRoute.asked(chat, message, viewport); actual.askReveal(chat, message, viewport) } }
 })
+const resourceChat = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', async (original) => ({
+  ...await original<object>(), resourceChatIdOf: resourceChat,
+}))
+vi.mock('../../../../apps/desktop/src/lib/sessionPublication', async (original) => ({
+  ...await original<object>(), getRendererAccessToken: () => 'layout-token',
+}))
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
 const activationProbe = vi.hoisted(() => ({
   calls: [] as Array<{ owner: string; accountId: string | null }>,
@@ -900,7 +907,7 @@ describe('MainLayout', () => {
 describe('MainLayout: files.openWith', () => {
   const detail = { chatId: 'g-open', itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } }
 
-  it.each([false, true])('a topic file opens its source and split before the request is taken (blocks=%s)', async (blocks) => {
+  it.each([false, true])('a topic file opens the shared source slot before the request is taken (blocks=%s)', async (blocks) => {
     platformMock.capabilities.sessionHost = blocks
     chatStoreMock.chats = [{ id: 'source', kind: 'group' }, { id: 'topic-file', kind: 'topic', source_chat_id: 'source', name: 'Topic' }] as never
     const restore = vi.fn()
@@ -908,9 +915,9 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'topic-file', itemId: 'F1', restore } })) })
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
-    expect(drainTopicSplitRequest('source')).toMatchObject({ chatId: 'topic-file', sourceChatId: 'source', name: 'Topic' })
-    expect(groupSlotMemory.takeFile('topic-file')).toEqual({ itemId: 'F1', restore })
-    expect(groupSlotMemory.takeFile('source')).toBeNull()
+    expect(drainTopicSplitRequest('source')).toBeNull()
+    expect(groupSlotMemory.takeFile('source')).toEqual({ itemId: 'F1', restore })
+    expect(groupSlotMemory.takeFile('topic-file')).toBeNull()
   })
 
   it('the file\'s chat comes up and its panel is asked for the file, with the host\'s answer', async () => {
@@ -990,8 +997,7 @@ describe('MainLayout: personal assistant destinations', () => {
   })
 })
 
-// Links and notifications use the chat door. A file request opens the source and split first,
-// so a temporary topic block cannot consume its file before normalizing to the source.
+// Links and notifications retain the topic address. Files open the shared source slot.
 
 describe('MainLayout: opening a topic on the desktop', () => {
   // 对话链接只认 UUID 形的对话 id(真对话就是这样)。
@@ -1010,7 +1016,25 @@ describe('MainLayout: opening a topic on the desktop', () => {
       for (let i = 0; i < 5; i += 1) await Promise.resolve()
     })
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
-    if (target === SRC) expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
+    if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
+    else expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+})
+
+
+describe('MainLayout: an App requested from a topic uses the shared source slot', () => {
+  it.each([UI_EVENTS.openApp, APP_OPEN_IN_CHAT_EVENT])('%s resolves a topic absent from the local list without opening a split', async (eventName) => {
+    chatStoreMock.chats = [{ id: 'source-app', kind: 'group' }] as never
+    resourceChat.mockResolvedValueOnce('source-app')
+    await renderMainLayoutWithToast()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(eventName, { detail: { chatId: 'topic-app', extensionId: 'board' } }))
+    })
+    expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
+    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
+    expect(groupSlotMemory.takeApp('source-app')).toBe('board')
+    expect(groupSlotMemory.takeApp('topic-app')).toBeNull()
+    expect(drainTopicSplitRequest('source-app')).toBeNull()
   })
 })
 

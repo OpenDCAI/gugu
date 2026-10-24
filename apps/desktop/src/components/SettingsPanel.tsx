@@ -75,7 +75,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   inline?: boolean
   onClose?: () => void
   initialSection?: ActiveSection
-  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「仓库」页机器选择器里的「添加一台机器」→ 设备),
+  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「任务」里机器选择器的「添加一台机器」→ 设备),
   // 要的就是换到那一格 —— 只在挂载时读一次 initialSection 会把这次请求吞掉。
   section?: ActiveSection
   onSectionChange?: (section: ActiveSection) => void
@@ -119,7 +119,6 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'sessions':
       case 'interface':
       case 'resource-monitor':
-      case 'repository':
       case 'browser':
       case 'subscriptions': return <SessionSettingsSection section={activeSection} />
       default:         return null

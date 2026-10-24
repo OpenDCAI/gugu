@@ -41,6 +41,7 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 const CHAT = '0b000000-0000-4000-8000-000000000069';
 const TODAY = { id: '0c000000-0000-4000-8000-000000000001', chat: CHAT, name: 'today.board.json', displayName: 'today', contentType: 'application/json', type: 'json' };
 const files = {
+  resourceChatOf: vi.fn(async (id: string) => id),
   listAppFiles: vi.fn(async () => [{ ...TODAY }]),
   openAppFile: vi.fn(async () => ({ entry: { ...TODAY }, docName: `${TODAY.id}@1`, access: 'rw', self: { userId: 'user:u', name: 'Ann' } })),
   closeAppFile: vi.fn(() => undefined),

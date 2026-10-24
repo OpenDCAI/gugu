@@ -35,6 +35,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     get: () => ({ manifest: { name: 'Calendar' } }),
   }),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // This computer has one session its task list shows (s-here) and one archived (s-archived: sessionHere answers null for it,
 // as for none — its own test reads the database).

@@ -61,17 +61,18 @@ async function asUser(id: string): Promise<void> {
 }
 
 interface World { owner: string; peer: string; agent: string; group: string }
-async function world(): Promise<World> {
+async function world(peerOwnsGroup = false): Promise<World> {
   const owner = await human('Owner')
   const peer = await human('Peer')
   const agent = randomUUID()
   await db.query(`INSERT INTO identity.users (id,type,display_name,owner_user_id,device_id)
     VALUES ($1,'agent','Workspace Agent',$2,$3)`, [agent, owner, `dev-${owner}`])
   const group = randomUUID()
-  await asUser(owner)
-  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', owner, '[]'])
+  const groupOwner = peerOwnsGroup ? peer : owner
+  await asUser(groupOwner)
+  await db.query('SELECT chat.create_gugu_group($1,$2,$3,$4::jsonb)', [group, 'Workspace group', groupOwner, '[]'])
   await db.query('RESET role')
-  await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [group,peer])
+  await db.query("INSERT INTO chat.chat_members(chat_id,user_id,role) VALUES ($1,$2,'member')", [group, peerOwnsGroup ? owner : peer])
   await db.query('RESET role')
   return { owner, peer, agent, group }
 }
@@ -123,6 +124,10 @@ const client = {
   },
 }
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => client }))
+vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => `h.${Buffer.from(JSON.stringify({ sub: current!.owner })).toString('base64url')}.s` }))
+vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {} }))
+vi.mock('@main/lib/logger', () => ({ log: { warn: () => undefined } }))
+const { handedChatsAs } = await import('../../../apps/desktop/electron/session/main/core/extensions/extension-program-surface')
 
 /** Staged uploads (the bytes the attachments function would read back from OSS), by staging key. */
 const staged = new Map<string, Uint8Array>()
@@ -185,6 +190,83 @@ function agentFiles(w: World) {
 async function join(w: World): Promise<void> {
   await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'member')", [w.group, w.agent])
 }
+
+async function topicOf(source: string, creator: string): Promise<string> {
+  await db.query('RESET role')
+  const topic = randomUUID()
+  const message = randomUUID()
+  await db.query(`INSERT INTO chat.messages (id,chat_id,sender_user_id,content,content_type)
+    VALUES ($1,$2,$3,'Topic source','text')`, [message, source, creator])
+  await db.query(`INSERT INTO chat.chats (id,kind,name,creator_user_id,source_chat_id,source_message_id)
+    VALUES ($1,'topic','Resource topic',$2,$3,$4)`, [topic, creator, source, message])
+  await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'owner')", [topic, creator])
+  return topic
+}
+
+describe('topic resources use the source container through the real App SDK and database', () => {
+  it.each([false, true])('normal agent invitation joins the source; leaving the topic keeps source access (legacy participant=%s)', async (legacyParticipant) => {
+    const w = await world()
+    const topic = await topicOf(w.group, w.owner)
+    if (legacyParticipant) await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'member')", [topic, w.agent])
+    const { files } = agentFiles(w)
+    const made = await files.create(w.group, { name: 'shared-with-invited-agent.md', content: 'Source membership' })
+    await expect(files.groupFiles(topic, { asAgent: w.agent })).rejects.toMatchObject({ code: 'denied' })
+    expect((await client.rpc('add_group_agent', { p_chat_id: topic, p_agent_user_id: w.agent, p_message: 'Join this topic', p_as_user_id: w.owner, p_as_task: false })).error).toBeNull()
+    const seats = async () => (await db.query<{ chat_id: string }>('SELECT chat_id FROM chat.chat_members WHERE user_id=$1 AND chat_id=ANY($2::text[]) ORDER BY chat_id', [w.agent, [w.group, topic]])).rows.map((row) => row.chat_id).sort()
+    expect(await seats()).toEqual([w.group, topic].sort())
+    expect((await files.groupFiles(topic, { asAgent: w.agent })).map((entry) => entry.id)).toContain(made.id)
+    expect((await client.rpc('remove_group_member_as', { p_chat_id: topic, p_member_user_id: w.agent, p_as_user_id: w.owner })).error).toBeNull()
+    expect(await seats()).toEqual([w.group])
+    expect((await files.groupFiles(w.group, { asAgent: w.agent })).map((entry) => entry.id)).toContain(made.id)
+  })
+
+  it.each(['group', 'dm', 'ai'] as const)('%s topics create/list/open the source file, and reject another source', async (kind) => {
+    const w = await world()
+    if (kind !== 'group') {
+      const dm = randomUUID()
+      await db.query('INSERT INTO chat.chats (id,kind,creator_user_id) VALUES ($1,$2,$3)', [dm, kind, w.owner])
+      await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'owner'),($1,$3,'member')", [dm, w.owner, w.peer])
+      w.group = dm
+    }
+    await join(w)
+    const topic = await topicOf(w.group, w.owner)
+    const other = await world()
+    const otherTopic = await topicOf(other.group, other.owner)
+    // The owner may see both sources, so a mismatched reference exercises container comparison, not invisibility.
+    await db.query("INSERT INTO chat.chat_members (chat_id,user_id,role) VALUES ($1,$2,'member')", [other.group, w.owner])
+    const { files, surface } = agentFiles(w)
+    const made = await files.create(topic, { name: 'topic-notes.md', content: 'One resource container' }, { asAgent: w.agent })
+    expect(made.chat).toBe(w.group)
+    expect(await files.resourceChat(w.group, { asAgent: w.agent })).toBe(w.group)
+    expect(await files.openTarget(surface, { ref: { chat: w.group, id: made.id } })).toMatchObject({ chatId: w.group, itemId: made.id })
+    expect((await files.groupFiles(topic, { asAgent: w.agent })).map((entry) => entry.id)).toContain(made.id)
+    expect(await files.openTarget(surface, { ref: { chat: topic, id: made.id } })).toMatchObject({ chatId: w.group, itemId: made.id })
+    const person = { ...surface, asAgent: null }
+    await expect(files.openTarget(person, { ref: { chat: otherTopic, id: made.id } })).rejects.toMatchObject({ code: 'invalid' })
+    expect(await files.groupEntries(topic, [made.id], { asAgent: w.agent })).toMatchObject({ entries: [{ id: made.id, chat: w.group }], gone: [] })
+    expect((await db.query('SELECT id FROM chat.workspace_items WHERE chat_id=$1', [topic])).rows).toEqual([])
+    expect((await db.query('SELECT user_id FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [topic, w.agent])).rows).toEqual([])
+  })
+
+  it('an agent in the source works with its owner outside; leaving the source removes file access', async () => {
+    const w = await world(true)
+    await join(w)
+    const topic = await topicOf(w.group, w.peer)
+    await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.owner])
+    const { files, surface } = agentFiles(w)
+    const made = await files.create(topic, { name: 'agent-source.md', content: 'Actor membership' }, { asAgent: w.agent })
+    expect(await files.resourceChat(topic, { asAgent: w.agent })).toBe(w.group)
+    const publicId = String((await db.query<{ public_id: number }>('SELECT public_id FROM chat.chats WHERE id=$1', [topic])).rows[0]!.public_id)
+    for (const named of [topic, publicId]) {
+      expect(await handedChatsAs(w.agent, [named])).toEqual([{ chatId: topic, resourceChatId: w.group, agentUserId: w.agent }])
+    }
+    expect(await files.openTarget(surface, { ref: { chat: topic, id: made.id } })).toMatchObject({ chatId: w.group })
+    await db.query('DELETE FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [w.group, w.agent])
+    await expect(files.groupFiles(topic, { asAgent: w.agent })).rejects.toMatchObject({ code: 'denied' })
+    await expect(files.openTarget(surface, { ref: { chat: topic, id: made.id } })).rejects.toMatchObject({ code: 'not-found' })
+    for (const named of [topic, publicId]) await expect(handedChatsAs(w.agent, [named])).rejects.toThrow('not a chat you are in')
+  })
+})
 
 describe('#6492 an App acting for an agent, against the migrated database', () => {
   it('主人在、agent 不在 ⇒ list / 按 id 找文件都拒;agent 入群后同一批读能读到', async () => {

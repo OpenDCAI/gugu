@@ -65,7 +65,7 @@ const programs: ExtensionPrograms = {
   handedChats: async (agentUserId, chatIds) => chatIds.map((named) => {
     const chatId = publicIds.get(named) ?? named
     if (!memberOf.get(agentUserId)?.has(chatId)) throw new Error(`${named}: not a chat you are in, so it was not handed over`)
-    return { chatId, agentUserId }
+    return { chatId, resourceChatId: chatId, agentUserId }
   }),
   killAllSync: () => {},
   setSource: () => {},
@@ -527,7 +527,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
       publicIds.set('207957', CHAT)
       await run({ boards: [`gugu-file://${ITEM}`, ITEM2], chats: [207957] })
       expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT }, { itemId: ITEM2, chatId: CHAT, agentUserId: AGENT }]])
-      expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }]])
+      expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
       expect(calls.map((call) => call.arguments)).toEqual([{ boards: [ITEM, ITEM2], chats: [CHAT] }])
     })
 
@@ -558,7 +558,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     publicIds.set('207957', CHAT)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: CHAT, rows: '20' }, extra)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: '207957' }, extra)
-    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }], [{ chatId: CHAT, agentUserId: AGENT }]])
+    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }], [{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
     expect(calls.map((call) => call.arguments)).toEqual([{ chat_id: CHAT, rows: '20' }, { chat_id: CHAT }])
   })
 
@@ -569,7 +569,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     memberOf.set(AGENT, new Set([CHAT]))
     publicIds.set('207957', CHAT)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: 207957 }, extra)
-    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }]])
+    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
     expect(calls.map((call) => call.arguments)).toEqual([{ chat_id: CHAT }])
     // Checked as the caller: the number of a chat the agent is not in is refused, the program never called.
     const notIn = await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: 208000 }, extra)
