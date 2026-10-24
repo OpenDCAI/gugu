@@ -17,6 +17,10 @@ const runtime = {
   env: { GUGU_HOME: '/tmp/gugu-assistant-role-test' },
 }
 
+it('keeps the contract appended on every dispatch within 300 characters', () => {
+  expect(ASSISTANT_TASK_EXECUTION.length).toBeLessThanOrEqual(300)
+})
+
 beforeEach(() => { host = createDesktopGuguMcpHost(); run.mockClear() })
 afterEach(async () => {
   await Promise.all(clients.splice(0).map(client => client.close()))

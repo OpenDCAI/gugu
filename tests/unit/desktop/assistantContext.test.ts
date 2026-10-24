@@ -9,6 +9,10 @@ import { boundedAssistantIndex } from '../../../apps/desktop/electron/sessionpag
 import type { Materialization } from '../../../apps/desktop/electron/capability-bundle'
 import { assistantHomeTaskContext, personalAssistantContext, preparePersonalAssistantContext, refreshAssistantContext } from '../../../apps/desktop/electron/sessionpage/assistant-context'
 
+it('keeps the resident coordination policy within 1300 characters', () => {
+  expect(ASSISTANT_CONTEXT_CORE.join('\n').length).toBeLessThanOrEqual(1_300)
+})
+
 function fixture(): Materialization {
   return {
     report: {} as Materialization['report'],
