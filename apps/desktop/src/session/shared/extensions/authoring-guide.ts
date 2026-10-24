@@ -828,10 +828,9 @@ md.render(element, f.text, { density: 'comfortable', frontmatter: true, file: f.
 \`density\`: \`'compact'\` (the default, a chat's rhythm) or \`'comfortable'\` (a document). \`frontmatter: true\` shows a
 file's leading \`---\` YAML block as code instead of reading it as text. \`sourceLines: true\` marks each block with the
 lines it was written on (\`data-line="3-5"\`), to find a line's block. \`trust: 'chat'\` (the default) is for others'
-words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links go the ways a page has:
-\`#…\` in place, http(s) a browser tab, a chat file or a relative link (beside \`file\`) \`gugu.files.openWith\`, which
-needs \`files:read\` — without it that click does nothing. There is no HTML string to put through \`innerHTML\` — never
-write others' text in as markup.
+words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links: \`#…\` in place,
+http(s) a browser tab, gugu resources through \`openLink\` (API 11, no capability), relative files beside \`file\`
+through \`gugu.files.openWith\` (needs \`files:read\`). Failures call \`reportError\`. Never put others' text through \`innerHTML\`.
 
 ## Drawing your own
 
