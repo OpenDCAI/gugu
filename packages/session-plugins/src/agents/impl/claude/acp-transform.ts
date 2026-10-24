@@ -29,7 +29,7 @@ export function createClaudeSessionDecoder(): (raw: unknown) => NormalizedEvent 
       } | undefined;
       const parentToolCallId = typeof claude?.parentToolUseId === 'string'
         ? claude.parentToolUseId : event.parentToolCallId ?? null;
-      if (event.kind === 'tool_call' && typeof event.toolName === 'string') toolNames.set(event.toolCallId, event.toolName);
+      if (typeof event.toolName === 'string') toolNames.set(event.toolCallId, event.toolName);
       const name = event.toolName ?? toolNames.get(event.toolCallId) ?? claude?.toolName;
       const result = claude?.toolResponse;
       if (name === 'Agent' || name === 'Task') {

@@ -37,6 +37,19 @@ describe('Claude vendor facts at ingress', () => {
     expect(parser.agents).toHaveLength(1);
     expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running', model: 'native-model', outputFile: '/work/child.output' });
   });
+  it.each(['Agent', 'Task'])('retains %s when its name is first reported on an update', name => {
+    const parser = new AcpTranscriptParser({ sessionId: 'parent' });
+    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'late-name',
+      title: 'Audit', kind: 'think', status: 'in_progress' }));
+    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'late-name', name }));
+    const result = decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'late-name', status: 'completed',
+      _meta: { claudeCode: { toolResponse: { agentId: 'native-child', isAsync: true, resolvedModel: 'native-model' } } } });
+    expect(result).toMatchObject({ kind: 'subagent', agentId: 'native-child', model: 'native-model' });
+    parser.pushEvent(result);
+    expect(parser.agents).toHaveLength(1);
+    expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running' });
+  });
+
   it.each([false, true])('does not infer a subagent from agentId in another tool result (reported=%s)', reported => {
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
     if (reported) parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'send',
