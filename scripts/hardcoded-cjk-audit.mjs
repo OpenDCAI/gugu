@@ -73,7 +73,7 @@ function isStructuralPropertyName(node) {
     && parent.name === node
 }
 
-function classify(node, value, sourceFile) {
+function classify(node, value) {
   if (ts.isRegularExpressionLiteral(node)) return { category: 'false-positive', reason: 'regular-expression' }
   if (isStructuralPropertyName(node) || ts.isLiteralTypeNode(node.parent)) {
     return { category: 'false-positive', reason: 'structural-literal' }
@@ -115,7 +115,7 @@ export function auditHardcodedCjk(root = process.cwd()) {
             column: position.character + 1,
             kind: ts.SyntaxKind[node.kind],
             text: value.replace(/\s+/g, ' ').trim(),
-            ...classify(node, value, sourceFile),
+            ...classify(node, value),
           })
         }
       }
