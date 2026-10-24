@@ -9,7 +9,7 @@ import { openLink, openLinkTarget } from '../../../../apps/desktop/src/lib/guguL
 
 vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://devdb.example.test', getSupabaseAnonKey: () => 'anon' }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'web' } }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: vi.fn() } }))
 // Only the phone transport is replaced: the codec, opening algorithm and shell receiver are real.
 vi.mock('../../../../apps/desktop/src/components/appSlot/phoneAppHost', () => ({
