@@ -8,16 +8,25 @@ inputs:
       jobs do not each compress the ~900 MB store and then race for the same cache key.
     required: false
     default: 'false'
+outputs:
+  node-version:
+    description: Exact Node version selected for the job.
+    value: ${{ steps.node.outputs.node-version }}
+  source-tree:
+    description: Content address of the checked-out source snapshot.
+    value: ${{ steps.cache-paths.outputs.source-tree }}
 runs:
   using: composite
   steps:
     - uses: pnpm/action-setup@v4
-    - uses: actions/setup-node@v4
+    - id: node
+      uses: actions/setup-node@v4
       with:
         node-version-file: .node-version
     - id: cache-paths
       shell: bash
       run: |
+        echo "source-tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
         echo "pnpm-store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
         if [ "$RUNNER_OS" = macOS ]; then
           echo "electron=$HOME/Library/Caches/electron" >> "$GITHUB_OUTPUT"

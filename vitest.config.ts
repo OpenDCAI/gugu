@@ -76,8 +76,8 @@ const maxWorkers = ((globalThis as typeof globalThis & { __guguVitestMaxWorkers?
 // 每隔一次漏判一次,换了依赖的 PR 会读到按旧锁文件转的模块、vi.mock 静默落空。详见 lockfileScopedModuleCacheDir。
 // mac1 实测(4 片 × 2 worker,同一窗口对照):transform 累计 18s → 5s,整片 CPU 400s → ~310s。
 // 只开给下面四个纯 node 的单测 project:浏览器那两个 project 走 vite 自己的中间件,没测过,不碰。
-// 只在声明过的 CI 槽里开:本地开发不需要为一个 experimental 选项背「缓存是不是旧了」的疑问。
-const unitModuleCache = process.env.GUGU_CI_SLOT_ID
+// Hosted CI opts in independently of slot worker allocation; local runs keep the default off.
+const unitModuleCache = process.env.GUGU_CI_SLOT_ID || process.env.GUGU_VITEST_MODULE_CACHE === '1'
   ? { experimental: { fsModuleCache: true, fsModuleCachePath: lockfileScopedModuleCacheDir(__dirname) } }
   : {}
 
