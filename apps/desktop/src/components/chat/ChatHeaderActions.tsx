@@ -91,10 +91,16 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const openApps = () => { onCloseHeaderMenu(); setPicker({ chatId: activeChatId, open: true }) }
   return (
     <>
+      {groupId && !compactRoom && <>
+        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
+        <span ref={pinsRef} className="flex items-center gap-[2px]">
+          {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
+        </span>
+      </>}
       {/* @@@1161 会话头右上 action icon 行(aria-label key 在 chatHeader 命名空间):
             searchMessages(在对话中搜索) · widgetList(工作区) · memberList(成员列表) · moreActions(更多操作)。
           全部走 Solar 图标族(@/lib/icons):
-            Search / Folder(文件夹) / LayoutGrid(群 Apps) / Users / MoreHorizontal。
+            LayoutGrid(群 Apps) / pins / Search / Folder(文件夹) / Users / MoreHorizontal。
           #1102 曾把搜索塞进 ⋯,搜索应是头栏顶层 icon,故恢复为顶层。 */}
       {/* 搜索 — #1323 模块2:顶栏搜索 icon 仅场所型会话保留,DM 的「搜索聊天」放在 ⋯ 下拉里。 */}
       {isRoomChat && !compactRoom && (
@@ -125,12 +131,6 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           <Folder />
         </IconButton>
       )}
-      {groupId && !compactRoom && <>
-        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
-        <span ref={pinsRef} className="flex items-center gap-[2px]">
-          {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
-        </span>
-      </>}
       {/* 成员列表 — memberList(Solar Users)。
           @@@5856 owner 2026-09-18:「我们现在的问题是把群成员按钮误认为群设置按钮了,而之前的设置按钮
           还是设置按钮,这导致群列表消失了,而我们补的就是这个消失。」

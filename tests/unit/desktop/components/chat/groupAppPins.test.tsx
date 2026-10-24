@@ -67,13 +67,16 @@ afterEach(() => {
 })
 
 async function header(chatId = 'g1', userId = 'user-1', mobile = true) {
-  await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
+  const actions = createNode(ChatHeaderActions, {
     isGroupChat: true, isRoomChat: true, mobile,
     searchMode: false, workspacePanelOpen: false, memberListOpen: false, showHeaderMenu: true,
     moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenWorkspacePanel: vi.fn(), onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(), onOpenMemberList: vi.fn(), onCloseRightSurfaces: vi.fn(),
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(), onOpenAnnouncement: vi.fn(),
-  }), { auth: { id: userId }, chat: { activeChatId: chatId, chats: [{ id: chatId, kind: 'group' }] as never } })
+  })
+  await renderWithAppProviders(harness, createNode('div', { 'data-chat-area-header': '' },
+    createNode('div', { 'data-tabbar-actions': '' }, actions)),
+  { auth: { id: userId }, chat: { activeChatId: chatId, chats: [{ id: chatId, kind: 'group' }] as never } })
 }
 async function picker() {
   const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === '群 Apps')!
@@ -82,6 +85,20 @@ async function picker() {
 }
 
 describe('personal group App shortcuts', () => {
+  it('places Group Apps and its pinned shortcuts before the other desktop actions', async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const width = this.hasAttribute('data-chat-area-header') ? 1200 : this.hasAttribute('data-tabbar-actions') ? 320 : 32
+      return new DOMRect(0, 0, width, 32)
+    })
+    try {
+      row('user-1', 'g1', ['board'])
+      await header('g1', 'user-1', false)
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-pinned-app"]')).not.toBeNull())
+      const actions = [...document.querySelectorAll('[data-tabbar-actions] button')].map((button) => button.getAttribute('aria-label'))
+      expect(actions).toEqual(['群 Apps', 'board', '在对话中搜索', '群文件夹', '成员列表', '更多操作'])
+    } finally { bounds.mockRestore() }
+  })
+
   it.each([false, true])('keeps group App access without History (mobile=%s)', async (mobile) => {
     row('user-1', 'g1', ['board'])
     await header('g1', 'user-1', mobile)
