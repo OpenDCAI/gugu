@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDesktopGuguMcpHost, type DesktopGuguMcpHost } from '../../../../apps/desktop/electron/acp-engine-utils'
 import { estimatePromptTokens } from '../../../../apps/desktop/electron/product-platform-prompt'
-import { GUGU_LISTED_TOOLS } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
+import { GUGU_ASSISTANT_LISTED_TOOLS, GUGU_LISTED_TOOLS } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import { setExtensionCheckAvailable } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
 import { GUGU_LISTED_TOOLS_TOKEN_BUDGET } from '../../../../apps/desktop/electron/mcp/mcp-tool-description-budget.mjs'
 
@@ -16,12 +16,13 @@ afterEach(async () => {
   host = undefined
 })
 
-async function listedTools() {
+async function listedTools(personalAssistant = false) {
   setExtensionCheckAvailable(true)
   host = createDesktopGuguMcpHost()
   await host.start()
   const grant = await host.grant('listed-budget', {
     kind: 'social',
+    ...(personalAssistant ? { personalAssistant: true as const } : {}),
     expectedOwnerUserId: 'owner-1',
     subjectId: 'agent-1',
     supabaseUrl: 'https://supabase.example',
@@ -45,6 +46,16 @@ async function listedTools() {
 const cost = (tools: Array<{ name: string }>) => tools.reduce((sum, tool) => sum + estimatePromptTokens(JSON.stringify(tool)), 0)
 
 describe('the listed gugu tools stay within their always-paid budget (#7335)', () => {
+  it('keeps personal assistant delegation, interruption and work history directly available within budget', async () => {
+    const tools = await listedTools(true)
+    const names = tools.map(tool => tool.name)
+    process.stdout.write(`[assistant-tools-budget] ${cost(tools)}/${GUGU_LISTED_TOOLS_TOKEN_BUDGET} ${JSON.stringify(tools.map(tool => ({ name: tool.name, tokens: cost([tool]) })))}\n`)
+    expect(names).toEqual(expect.arrayContaining(['session_spawn', 'session_message', 'session_stop', 'activity_list', 'activity_context']))
+    expect(new Set(names)).toEqual(GUGU_ASSISTANT_LISTED_TOOLS)
+    expect(names).not.toContain('device_call')
+    expect(cost(tools)).toBeLessThanOrEqual(GUGU_LISTED_TOOLS_TOKEN_BUDGET)
+  })
+
   it('tools/list as a session-page agent gets it fits GUGU_LISTED_TOOLS_TOKEN_BUDGET', async () => {
     const tools = await listedTools()
     // 阳控:读的是完整的那组,不是空清单(空清单 0 token 也「在预算内」)。
