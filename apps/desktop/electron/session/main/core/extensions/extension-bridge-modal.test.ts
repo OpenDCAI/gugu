@@ -27,7 +27,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () 
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id, chatMembersOf: async () => [], surfaceChatOf: async () => ({ id: 'chat-one', name: 'Group', kind: 'group', groupId: 'chat-one' }) }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-const { bindExtensionSurface, bindAppModalSurface, registerExtensionBridge, setExtensionBridgeHost, unbindExtensionSurfaces } = await import('./extension-bridge');
+const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost, unbindExtensionSurfaces } = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 registerExtensionBridge();
 const call = (page: number, method: string, args: Record<string, unknown> = {}) => handlers.get(EXTENSION_BRIDGE_CHANNEL)!({ sender: contents.get(page) }, { method, args });
@@ -69,8 +69,8 @@ describe('the App modal bridge', () => {
   it('refuses a different App or another window as the content surface', async () => {
     const result = open();
     await vi.waitFor(() => expect(actions[0]?.action.kind).toBe('openAppModal'));
-    await expect(bindAppModalSurface({ id: 'one', webContentsId: 4 })).rejects.toThrow('same window');
-    await expect(bindAppModalSurface({ id: 'one', webContentsId: 3 })).rejects.toThrow('not "board"');
+    expect(await call(42, 'modalHost', { type: 'bind', id: 'one', webContentsId: 4 })).toMatchObject({ ok: false, message: expect.stringContaining('same window') });
+    expect(await call(42, 'modalHost', { type: 'bind', id: 'one', webContentsId: 3 })).toMatchObject({ ok: false, message: expect.stringContaining('not "board"') });
     expect(await result).toMatchObject({ ok: false, code: 'failed' });
   });
 

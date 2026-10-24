@@ -125,54 +125,6 @@ const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
   });
 });
 
-/** Only the host binds a new guest; it inherits its opener's context, not renderer-supplied target fields. */
-export async function bindAppModalSurface(input: { id: string; webContentsId: number }): Promise<void> {
-  const modal = appModals.get(input.id);
-  const source = modal.binding;
-  const child = webContents.fromId(input.webContentsId);
-  if (!bindings.has(modal.opener) || !child || child.hostWebContents?.id !== source.embedderId) {
-    throw new Error('The App modal and its opener must be in the same window');
-  }
-  appModals.bind(input.id, input.webContentsId);
-  try {
-    await bindExtensionSurface({
-      webContentsId: input.webContentsId, extensionId: source.extensionId,
-      tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
-      ...(source.sessionId ? { sessionId: source.sessionId } : {}),
-      ...(source.chatId ? { chatId: source.chatId } : {}),
-      ...(source.itemId ? { itemId: source.itemId } : {}),
-      ...(source.filePath ? { filePath: source.filePath } : {}),
-      ...(source.projectId ? { projectId: source.projectId } : {}),
-      operator: source.operator, modal: { id: modal.id, data: modal.options.data },
-    });
-  } catch (error) {
-    await appModals.close(input.id, null, error instanceof Error ? error.message : String(error));
-    throw error;
-  }
-}
-
-/** The shell uses the same request/reply channel as its guests, restricted to the recorded owning window. */
-async function answerModalHost(senderId: number, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
-  try {
-    const modal = appModals.get(String(args.id ?? ''));
-    if (senderId !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
-    switch (args.type) {
-      case 'bind':
-        if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
-        await bindAppModalSurface({ id: modal.id, webContentsId: args.webContentsId });
-        break;
-      case 'dismiss':
-        await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
-        break;
-      case 'focus':
-        if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
-        if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
-        break;
-      default: throw new Error('Unknown modal host action');
-    }
-    return { ok: true, value: undefined };
-  } catch (error) { return failure('host', 'modalHost', error); }
-}
 const observedContents = new WeakSet<WebContents>();
 
 /** Pages and backgrounds share the same document boundary, even before a watch finishes registering. */
@@ -1982,7 +1934,49 @@ export function registerExtensionBridge(): void {
       const method = typeof request.method === 'string' ? request.method : '';
       const args = (request.args ?? {}) as Record<string, unknown>;
 
-      if (method === 'modalHost') return await answerModalHost(event.sender.id, args);
+      // Shell controls share the App request channel, restricted to the recorded owning window.
+      if (method === 'modalHost') {
+        try {
+          const modal = appModals.get(String(args.id ?? ''));
+          if (event.sender.id !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
+          switch (args.type) {
+            case 'bind': {
+              if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
+              const source = modal.binding;
+              const child = webContents.fromId(args.webContentsId);
+              if (!bindings.has(modal.opener) || !child || child.hostWebContents?.id !== source.embedderId) {
+                throw new Error('The App modal and its opener must be in the same window');
+              }
+              appModals.bind(modal.id, args.webContentsId);
+              try {
+                await bindExtensionSurface({
+                  webContentsId: args.webContentsId, extensionId: source.extensionId,
+                  tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
+                  ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+                  ...(source.chatId ? { chatId: source.chatId } : {}),
+                  ...(source.itemId ? { itemId: source.itemId } : {}),
+                  ...(source.filePath ? { filePath: source.filePath } : {}),
+                  ...(source.projectId ? { projectId: source.projectId } : {}),
+                  operator: source.operator, modal: { id: modal.id, data: modal.options.data },
+                });
+              } catch (error) {
+                await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+                throw error;
+              }
+              break;
+            }
+            case 'dismiss':
+              await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
+              break;
+            case 'focus':
+              if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
+              if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
+              break;
+            default: throw new Error('Unknown modal host action');
+          }
+          return { ok: true, value: undefined };
+        } catch (error) { return failure('host', 'modalHost', error); }
+      }
 
       // Identity from the session the call arrived on. Everything else in the
       // payload is data an untrusted page chose.
