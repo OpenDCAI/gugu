@@ -92,15 +92,15 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   return (
     <>
       {groupId && !compactRoom && <>
-        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
         <span ref={pinsRef} className="flex items-center gap-[2px]">
           {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
         </span>
+        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
       </>}
       {/* @@@1161 会话头右上 action icon 行(aria-label key 在 chatHeader 命名空间):
             searchMessages(在对话中搜索) · widgetList(工作区) · memberList(成员列表) · moreActions(更多操作)。
           全部走 Solar 图标族(@/lib/icons):
-            LayoutGrid(群 Apps) / pins / Search / Folder(文件夹) / Users / MoreHorizontal。
+            pins / LayoutGrid(群 Apps) / Search / Folder(文件夹) / Users / MoreHorizontal。
           #1102 曾把搜索塞进 ⋯,搜索应是头栏顶层 icon,故恢复为顶层。 */}
       {/* 搜索 — #1323 模块2:顶栏搜索 icon 仅场所型会话保留,DM 的「搜索聊天」放在 ⋯ 下拉里。 */}
       {isRoomChat && !compactRoom && (
@@ -195,7 +195,6 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
               <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />}>{t('header.searchConversation')}</MenuItem>
               <MenuItem onClick={openFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>
             </>)}
-            {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
             {!moreInTabMenu && (isGroupChat ? (
               <>
                 <MenuItem
@@ -234,6 +233,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
             ))}
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
             {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
+            {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
           </DropdownMenu.Content>
         )}
       </DropdownMenu.Root>
