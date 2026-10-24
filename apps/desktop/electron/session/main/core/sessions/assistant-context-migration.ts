@@ -15,6 +15,7 @@ import { assistantTranscriptState, createAssistantContextCandidate } from '../..
 type Registration = { sessionId: string; cwd: string; memoryDir: string; options: Record<string, unknown>; runContext: AgentRunContext; spawnEnv?: Record<string, string> };
 const registrations = new Map<string, Registration>();
 const attempts = new Set<string>();
+const worked = new Set<string>();
 let listening = false;
 
 function atRest(sessionId: string): boolean {
@@ -38,13 +39,18 @@ async function recoveryState(memoryDir: string): Promise<{ hash: string; referen
 export function registerAssistantContextMigration(registration: Registration): void {
   registrations.set(registration.sessionId, registration);
   attempts.delete(registration.sessionId);
+  worked.delete(registration.sessionId);
+  if (acpAgentStatusBridge.current().get(registration.sessionId)?.isGenerating) worked.add(registration.sessionId);
   if (!listening) {
     listening = true;
     agentStatusWriter.on('agent:status', ({ sessionId, reading }) => {
-      if (reading.status === 'idle') queueMicrotask(() => schedule(sessionId));
+      if (reading.status === 'working' && registrations.has(sessionId)) worked.add(sessionId);
+      if (reading.status === 'idle' && worked.has(sessionId)) queueMicrotask(() => schedule(sessionId));
     });
   }
-  queueMicrotask(() => schedule(registration.sessionId));
+  // An initial ready/idle snapshot can precede the inbox's first admission. Do
+  // not take its lease ahead of the very message which woke this conversation;
+  // maintenance starts only after an observed working -> idle transition.
 }
 
 function schedule(sessionId: string): void {
