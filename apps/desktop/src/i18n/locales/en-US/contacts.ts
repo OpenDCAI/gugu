@@ -88,18 +88,24 @@ export default {
     "invitesSent": "Group created; {{count}} invitations are awaiting acceptance.",
     "invitesFailed": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
     "create": "Create group chat",
-    "createWithCount": "Create group chat · {{count}} people",
-    "createWithCount_one": "Create group chat · {{count}} person",
-    "createWithCount_other": "Create group chat · {{count}} people",
+    "createWithCount": "Create group chat · {{count}} members",
+    "createWithCount_one": "Create group chat · {{count}} member",
+    "createWithCount_other": "Create group chat · {{count}} members",
     "creating": "Creating…",
     "emptyContacts": "No contacts",
     "failed": "Could not create the group chat",
     "fallbackName": "Group chat",
     "noResults": "No members found",
     "removeMember": "Remove {{name}}",
-    "searchPlaceholder": "Search contacts or Agents",
+    "searchPlaceholder": "Search names, tasks, projects or devices",
     "selectAtLeastOne": "Select at least one member",
     "title": "New group chat"
+  },
+  "memberPicker": {
+    "allProjects": "All",
+    "allResults": "All results",
+    "localDevice": "{{name}} · This device",
+    "recent": "Recent"
   },
   "errors": {
     "friendRequestFailed": "Could not send the contact request. Try again later.",

@@ -23,8 +23,8 @@ import { useBackLayer } from './ui/sheetStack'
 const joinRequestLog = rendererLogger('contacts/group-join-requests')
 
 
-// @@@2088 分段切换器收敛到 app 既有 tab 语言(下划线指示,对齐 MemberPickerModal「邀请人类/添加 Agent」的
-// --primary / --text-secondary / --border-subtle token),不再自成一套 pill 胶囊形状。
+// @@@2088 分段切换器收敛到 app 既有 tab 语言(下划线指示,--primary / --text-secondary / --border-subtle token),
+// 不再自成一套 pill 胶囊形状。
 // border-color 只在 active/inactive 各给一次(base 不带)——同元素上两个 border-color utility 会被 Tailwind
 // 生成序裁决、className 顺序不作数(#2103 真机审:base 的 border-transparent 曾盖掉 active 的 accent 下划线)。
 const requestTabsClass = 'nfp-reqtabs mx-3.5 mb-3'

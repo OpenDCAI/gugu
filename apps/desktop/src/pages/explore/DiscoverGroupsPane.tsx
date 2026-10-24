@@ -97,7 +97,9 @@ export function DiscoverGroupsPane({ active, panelId }: { active: boolean, panel
           <PaneEmptyState
             icon={<Users size={26} color="var(--text-tertiary)" />}
             caption={trimmed !== '' ? t('groups.noResults', { query: trimmed }) : t('groups.empty')}
-            hint={trimmed !== '' ? t('groups.searchHint') : undefined}
+            hint={trimmed !== ''
+              ? t('groups.searchHint')
+              : t('groups.emptyHint')}
           />
         </div>
       )}

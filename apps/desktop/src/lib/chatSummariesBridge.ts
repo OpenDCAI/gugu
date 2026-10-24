@@ -46,6 +46,9 @@ function read(): Summaries | null {
   return ((window as unknown as Record<string, unknown>)[KEY] as Summaries | undefined) ?? null
 }
 
+/** 会话页(不在渲染里):壳那份全部对话(属于我的每一个);壳还没读成过 = null。 */
+export const readChatSummaries = read
+
 /** 会话页:壳那边的对话变了(有了消息、改了名)。 */
 export function subscribeChatSummaries(listener: () => void): () => void {
   window.addEventListener(EVENT, listener)

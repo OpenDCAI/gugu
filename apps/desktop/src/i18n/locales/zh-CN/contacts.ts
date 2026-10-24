@@ -88,18 +88,24 @@ export default {
     "invitesSent": "群已创建，{{count}} 个邀请等待对方接受。",
     "invitesFailed": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
     "create": "创建群聊",
-    "createWithCount": "创建群聊 · {{count}} 人",
-    "createWithCount_one": "创建群聊 · {{count}} 人",
-    "createWithCount_other": "创建群聊 · {{count}} 人",
+    "createWithCount": "创建群聊 · {{count}} 位成员",
+    "createWithCount_one": "创建群聊 · {{count}} 位成员",
+    "createWithCount_other": "创建群聊 · {{count}} 位成员",
     "creating": "创建中…",
     "emptyContacts": "暂无联系人",
     "failed": "创建群聊失败",
     "fallbackName": "群聊",
     "noResults": "未找到成员",
     "removeMember": "移除 {{name}}",
-    "searchPlaceholder": "搜索联系人或 Agent",
+    "searchPlaceholder": "搜索名字、任务、项目或设备",
     "selectAtLeastOne": "请至少选择一个成员",
     "title": "新建群聊"
+  },
+  "memberPicker": {
+    "allProjects": "全部",
+    "allResults": "全部结果",
+    "localDevice": "{{name}} · 本机",
+    "recent": "最近"
   },
   "errors": {
     "friendRequestFailed": "发送好友申请失败，请稍后重试",
