@@ -25,7 +25,7 @@ import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
 import type { SidebarSessionLine } from '@/lib/sidebarChatsBridge';
-import { blockKey, joinedSlot, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
+import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -84,7 +84,7 @@ export function navNodesEqual(a: SidebarNavNode | null, b: SidebarNavNode | null
 
 /**
  * 一组在这边(「项目」「置顶」)成框的样子(spec session-page「拼在一屏的几块是一组」,#7097):组里这边有的会话,按屏上次序;
- * 框摆在 anchor 那条原来的位置(lib/sidebarJoinedGroups 的 joinedSlot),别的组员从原位置挪进来。
+ * 框摆在 anchor 那条原来的位置 —— 组员里不并组时最靠前、此刻看得见的那一条(同 lib/sidebarJoinedGroups),别的组员从原位置挪进来。
  */
 type ProjectJoinedGroup = { anchor: string; sessionIds: readonly string[]; onScreen: boolean };
 
@@ -154,6 +154,12 @@ export type RemoteSidebarSession = { summary: SessionpageSessionSummary; live: b
 
 function publicEntry({ group: _group, ...entry }: SidebarSessionRow): SessionEntry {
   return entry;
+}
+
+/** `a` 排在 `b` 前面(逐位比)。 */
+function rankBefore(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) if (a[i] !== b[i]) return a[i] < b[i];
+  return a.length < b.length;
 }
 
 function subtreeNeedsAttention(node: SessionTreeNode<SidebarSessionEntry>): boolean {
@@ -511,8 +517,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   /**
    * 此刻在这边成框的组:组里这边有的会话两条以上。住在「对话」里的会话(没有项目的,standaloneLines)不算 ——
    * 它们由壳那份对话列表并(ChatListPanel),❌ 拉进这边的框又在「对话」里再出现一次。
-   * 搜索时不成框(搜到的一条一条列,那是另一种看法);anchor 那一行此刻看不见(收起的项目 / 分区、
-   * 没展开的父会话下面)的组也不成框 —— 组员留在原处,❌ 摘走了却哪儿都看不见。
+   * 框摆在组员里不并组时最靠前、此刻看得见的那一条(rankOf);一条都看不见(收起的项目 / 分区、没展开的父会话下面)
+   * 的组不成框 —— 组员留在原处,❌ 摘走了却哪儿都看不见。搜索时不成框(搜到的一条一条列,那是另一种看法)。
    */
   private get activeJoinedGroups(): readonly ProjectJoinedGroup[] {
     const inChats = new Set(this.standaloneLines.map((line) => line.sessionId));
@@ -520,11 +526,36 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       [...this.placement.nodeById.keys()].filter((id) => !inChats.has(id)).map((id) => [blockKey.session(id), id])
     );
     return this.joinedGroups.flatMap((group) => {
-      const listed = group.members.filter((key) => idOf.has(key));
-      if (listed.length < 2) return [];
-      const anchor = idOf.get(joinedSlot(group, listed))!;
-      return this.anchorVisible(anchor) ? [{ anchor, sessionIds: listed.map((key) => idOf.get(key)!), onScreen: group.onScreen }] : [];
+      const sessionIds = group.members.flatMap((key) => idOf.get(key) ?? []);
+      const visible = sessionIds.filter((id) => this.anchorVisible(id));
+      if (sessionIds.length < 2 || visible.length === 0) return [];
+      const ranked = visible.map((id) => ({ id, rank: this.rankOf(id) }));
+      const anchor = ranked.reduce((a, b) => (rankBefore(b.rank, a.rank) ? b : a)).id;
+      return [{ anchor, sessionIds, onScreen: group.onScreen }];
     });
+  }
+
+  /**
+   * 一条会话不并组时在这边排在哪(逐位比,小的在上):置顶的在最上面;再按项目在侧栏的次序;项目里开着二级分类时先按状态分档,
+   * 再按时间新的在前;挂在下面的会话跟着它的根,同一个根里层级浅的在前。
+   */
+  private rankOf(sessionId: string): number[] {
+    const { nodeById, rowOfEntry } = this.placement;
+    let item = nodeById.get(sessionId)?.item;
+    let depth = 0;
+    let pinned = false;
+    while (item) {
+      pinned = pinned || item.isPinned;
+      const parent = item.parentSessionId ? nodeById.get(item.parentSessionId)?.item : undefined;
+      if (!parent) break;
+      item = parent;
+      depth += 1;
+    }
+    if (!item) return [Infinity];
+    if (pinned) return [0, -item.time, depth];
+    const project = this.sidebarProjects.findIndex((ref) => ref.id === rowOfEntry.get(item.id));
+    const bucket = this.stateGroupsEnabled ? [...SIDEBAR_STATE_GROUP_ORDER, null].indexOf(item.group) : 0;
+    return [1, project < 0 ? Infinity : project, bucket, -item.time, depth];
   }
 
   /** anchor 那一行此刻画不画得出来:往上每一级父会话都展开着,所在的分区 / 项目也展开着(置顶的就看置顶区)。 */

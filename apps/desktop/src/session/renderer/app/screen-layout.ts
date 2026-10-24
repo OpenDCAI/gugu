@@ -55,16 +55,11 @@ export function contentKey(content: ScreenBlockContent): string {
 /** 新的一块从旁边那块分走一半;那一半放不下(调用方量过)= 这一排一起均分(照 VS Code 的 splitSizing: auto)。 */
 export type InsertOptions = { even?: boolean };
 
-/**
- * 一组的摆法:形状和份额(不带切分的 id,读回时重新编)、每块装什么、正看着哪块;
- * `anchor` = 拼之前正看着的那块(contentKey)—— 左边列表把这组的几行并在它那一行的位置(spec session-page「拼在一屏的几块是一组」,
- * 定在 lib/sidebarJoinedGroups 的 joinedSlot)。
- */
+/** 一组的摆法:形状和份额(不带切分的 id,读回时重新编)、每块装什么、正看着哪块。 */
 export type ScreenGroupSnapshot = {
   layout: PaneLayoutSnapshotNode;
   blocks: Record<string, ScreenBlockContent>;
   focused: string | null;
-  anchor?: string | null;
 };
 
 /** 存下来的:这屏那一组,加上收起来的那些组(不在屏上,点到组里任一条整组回来)。 */
@@ -89,8 +84,6 @@ export class ScreenLayoutStore {
   focusedBlockId: string | null = null;
   /** 最近看过的会话块:正看着 App 那块时,「当前会话」指的是这一块。 */
   lastSessionBlockId: string | null = null;
-  /** 这屏这一组拼起来之前正看着的那块(contentKey;左边列表把这组并在它那一行的位置);只有一块时没有。 */
-  anchorKey: string | null = null;
   /** 收起来的组(不在屏上)。 */
   readonly parked = observable.array<ScreenGroupSnapshot>([], { deep: false });
 
@@ -99,7 +92,6 @@ export class ScreenLayoutStore {
       layout: observable.ref,
       focusedBlockId: observable,
       lastSessionBlockId: observable,
-      anchorKey: observable,
       order: computed,
       sessions: computed,
       focusedSession: computed,
@@ -149,13 +141,11 @@ export class ScreenLayoutStore {
     this.focusedBlockId = null;
     this.lastSessionBlockId = null;
     this.focus(current.focused);
-    this.anchorKey = current.entries.length > 1 ? current.anchor : null;
     this.parked.replace(
       parked.map((group) => ({
         layout: snapshotOf(group.layout),
         blocks: Object.fromEntries(group.entries),
         focused: group.focused,
-        anchor: group.anchor,
       }))
     );
   }
@@ -245,10 +235,9 @@ export class ScreenLayoutStore {
   get joinedGroups(): JoinedGroup[] {
     const groups: JoinedGroup[] = [];
     if (this.order.length > 1) {
-      const members = this.order.map((blockId) => contentKey(this.blocks.get(blockId)!));
-      groups.push({ members, anchor: this.anchorKey ?? members[0], onScreen: true });
+      groups.push({ members: this.order.map((blockId) => contentKey(this.blocks.get(blockId)!)), onScreen: true });
     }
-    for (const group of this.parked) groups.push({ members: keysOf(group), anchor: anchorOf(group), onScreen: false });
+    for (const group of this.parked) groups.push({ members: keysOf(group), onScreen: false });
     return groups;
   }
 
@@ -335,7 +324,6 @@ export class ScreenLayoutStore {
       const lastSession = this.lastSessionBlockId;
       this.focus(next && this.blocks.get(next)?.kind === 'session' ? next : (lastSession ?? next ?? this.order[0]));
     }
-    this.settleAnchor();
     return true;
   }
 
@@ -375,10 +363,7 @@ export class ScreenLayoutStore {
     return this.parked.flatMap((group) => Object.values(group.blocks));
   }
 
-  /**
-   * 它要去别处(拼进这屏、开成窗、没了):从收起来的那组里拿出来。那组只剩一块 = 散了,不再记着;
-   * 拿走的是那组的 anchor → anchor 改成剩下的第一块。
-   */
+  /** 它要去别处(拼进这屏、开成窗、没了):从收起来的那组里拿出来。那组只剩一块 = 散了,不再记着。 */
   release(content: ScreenBlockContent): void {
     const index = this.parked.findIndex((group) => Object.values(group.blocks).some((block) => sameContent(block, content)));
     if (index < 0) return;
@@ -390,14 +375,11 @@ export class ScreenLayoutStore {
       return;
     }
     const layout = removePane(layoutFor(Object.keys(group.blocks), group.layout), blockId);
-    const next: ScreenGroupSnapshot = {
+    this.parked.splice(index, 1, {
       layout: snapshotOf(layout),
       blocks: Object.fromEntries(rest),
       focused: group.focused === blockId ? paneOrder(layout)[0] : group.focused,
-      anchor: group.anchor,
-    };
-    next.anchor = anchorOf(next);
-    this.parked.splice(index, 1, next);
+    });
   }
 
   focus(blockId: string): void {
@@ -427,7 +409,6 @@ export class ScreenLayoutStore {
     this.blocks.clear();
     this.focusedBlockId = null;
     this.lastSessionBlockId = null;
-    this.anchorKey = null;
   }
 
   private currentGroup(): ScreenGroupSnapshot | null {
@@ -436,7 +417,6 @@ export class ScreenLayoutStore {
       layout: snapshotOf(this.layout),
       blocks: Object.fromEntries(this.blocks),
       focused: this.focusedBlockId,
-      anchor: this.anchorKey,
     };
   }
 
@@ -459,18 +439,7 @@ export class ScreenLayoutStore {
       entries.map(([id]) => id),
       group.layout
     );
-    this.anchorKey = anchorOf(group);
     this.focus(group.focused && this.blocks.has(group.focused) ? group.focused : this.order[0]);
-  }
-
-  /** 拼之前正看着的那块;它被拿走了 → 剩下的第一块;不到两块不是组。 */
-  private settleAnchor(): void {
-    if (this.order.length < 2) {
-      this.anchorKey = null;
-      return;
-    }
-    const keys = this.order.map((blockId) => contentKey(this.blocks.get(blockId)!));
-    if (!this.anchorKey || !keys.includes(this.anchorKey)) this.anchorKey = keys[0];
   }
 
   /** 「当前会话」那块:正看着的会话块;正看着 App 那块 → 最近看过的会话块;再没有 → 任一会话块。 */
@@ -482,14 +451,11 @@ export class ScreenLayoutStore {
   }
 
   private insert(content: ScreenBlockContent, targetId: string, edge: PaneEdge, { even = false }: InsertOptions = {}): void {
-    // 一块变两块 = 拼成一组:记下拼之前正看着的那块(左边列表把这组并在它那一行的位置)。
-    if (this.anchorKey === null && this.order.length === 1) this.anchorKey = contentKey(this.blocks.get(this.order[0])!);
     const blockId = newBlockId();
     this.blocks.set(blockId, content);
     this.layout = this.layout ? insertBeside(this.layout, targetId, blockId, edge) : paneLeaf(blockId);
     if (even) this.layout = equalizeAround(this.layout, blockId);
     this.focus(blockId);
-    this.settleAnchor();
   }
 }
 
@@ -499,7 +465,7 @@ export class ScreenLayoutStore {
 function readGroup(
   snapshot: ScreenGroupSnapshot,
   seen: Set<string>
-): { entries: Array<[string, ScreenBlockContent]>; layout: PaneLayoutNode; focused: string; anchor: string | null } | null {
+): { entries: Array<[string, ScreenBlockContent]>; layout: PaneLayoutNode; focused: string } | null {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const mine = new Set<string>();
   const entries = Object.entries(snapshot.blocks ?? {}).filter((entry): entry is [string, ScreenBlockContent] => {
@@ -525,8 +491,7 @@ function readGroup(
   for (const key of mine) seen.add(key);
   const ids = entries.map(([id]) => id);
   const focused = snapshot.focused && ids.includes(snapshot.focused) ? snapshot.focused : paneOrder(layout)[0];
-  const group = { layout: snapshotOf(layout), blocks: Object.fromEntries(entries), focused, anchor: snapshot.anchor ?? null };
-  return { entries, layout, focused, anchor: anchorOf(group) };
+  return { entries, layout, focused };
 }
 
 /** 一组里的每一块装的东西(contentKey),从左上到右下。 */
@@ -537,11 +502,6 @@ function keysOf(group: ScreenGroupSnapshot): string[] {
   });
 }
 
-/** 这组拼之前正看着的那块:记着的那块还在组里就是它,否则第一块。 */
-function anchorOf(group: ScreenGroupSnapshot): string {
-  const keys = keysOf(group);
-  return group.anchor && keys.includes(group.anchor) ? group.anchor : keys[0];
-}
 
 function isSession(block: ScreenBlockContent, sessionId: string): boolean {
   return block.kind === 'session' && block.sessionId === sessionId;
