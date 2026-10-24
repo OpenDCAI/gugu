@@ -183,7 +183,7 @@ export const groupSlotMemory = {
     remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { ...entry, form: 'closed', open: [], active: null })
     extensionSurfaceStore.forget(null, groupPageSlot(chatId, item))
     changed()
-    if (item?.restore || item?.fromChat || rest.length === 0) onClosePanel?.()
+    if (item?.restore || (item?.fromChat && sameItem(entry.active, item)) || rest.length === 0) onClosePanel?.()
     item?.restore?.()
   },
   subscribe(listener: () => void): () => void {
