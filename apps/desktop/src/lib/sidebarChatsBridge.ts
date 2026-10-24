@@ -2,10 +2,12 @@
 // 这里是两棵树之间剩下的两样东西,各一个 window 对象 + 一个 window 事件(谁先起来都接得上,形制同 chatSummariesBridge):
 //   · 壳 → 会话页:未读数。「对话」页签挂对话那边的未读总数,项目行与「项目」页签挂项目群的未读(含它的话题)。
 //     只读未读数,❌ 在这里清:数只在真读了才减,切页签不算读。
-//   · 会话页 → 壳:侧栏此刻在看什么 —— 搜索框里的字(一个框搜两边)、正看着的那块对话(那一行高亮)。
+//   · 会话页 → 壳:侧栏此刻在看什么 —— 搜索框里的字(一个框搜两边)、正看着的那块对话(那一行高亮)、拼在一屏的几组
+//     (同一组的几行并在一处,同「项目」那边,lib/sidebarJoinedGroups)。
 // 两边都只 import 这一个文件,❌ 各写一份键名。
 import { useSyncExternalStore } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
+import type { JoinedGroup } from './sidebarJoinedGroups'
 
 /** 会话页侧栏「对话」那一格在 lib/shellSlots 里的键:会话页登记,壳的 components/ChatListSlotHost.tsx 往里画。 */
 export const CHAT_LIST_SLOT_KEY = 'chat-list'
@@ -34,6 +36,8 @@ export type SidebarChatView = {
   readonly focusedChatId: string | null
   /** 正看着的那条会话(没有项目的会话排在「对话」里,那一行高亮)。 */
   readonly focusedSessionId: string | null
+  /** 拼在一屏的几组(这屏那一组和收起来的那些):「对话」里同一组的几行并在一处。 */
+  readonly groups: readonly JoinedGroup[]
 }
 
 const SIGNALS_KEY = '__GUGU_SIDEBAR_CHAT_SIGNALS__'
@@ -60,7 +64,7 @@ export function sidebarChatSignals(chats: readonly ChatItem[], projectGroupChats
   return { chatsUnread, groupUnread }
 }
 
-const NO_VIEW: SidebarChatView = { focusedChatId: null, focusedSessionId: null }
+const NO_VIEW: SidebarChatView = { focusedChatId: null, focusedSessionId: null, groups: [] }
 
 function read<T>(key: string): T | null {
   return ((window as unknown as Record<string, unknown>)[key] as T | undefined) ?? null
@@ -100,7 +104,12 @@ export function useSidebarChatSignals(): SidebarChatSignals | null {
 /** 会话页:侧栏在看什么;没变不通知。 */
 export function publishSidebarChatView(next: SidebarChatView): void {
   const current = read<SidebarChatView>(VIEW_KEY)
-  if (current && current.focusedChatId === next.focusedChatId && current.focusedSessionId === next.focusedSessionId) return
+  if (
+    current &&
+    current.focusedChatId === next.focusedChatId &&
+    current.focusedSessionId === next.focusedSessionId &&
+    JSON.stringify(current.groups) === JSON.stringify(next.groups)
+  ) return
   write(VIEW_KEY, VIEW_EVENT, next)
 }
 

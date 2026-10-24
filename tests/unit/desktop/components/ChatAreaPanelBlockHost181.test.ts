@@ -3,7 +3,7 @@
 // 对话的头像和名字画进页签那一格,人数挂在成员按钮上。不给 blockHost(对话页、手机、网页)时头栏照旧:每条带这个阳性对照。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
-import { sessionComposerDockBandClassName } from '../../../../apps/desktop/src/session/renderer/features/sessions/session-composer-styles'
+import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
@@ -148,15 +148,15 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(document.querySelector('[data-panel-tab]')).toBeNull()
   })
 
-  it('in a block the composer sits in the session composer\'s band (核对 21); the chat page keeps its own padding', async () => {
-    await renderPanel({ actions, title, tabs: null })
-    const band = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
-    expect(band.className.split(/\s+/)).toEqual(expect.arrayContaining(sessionComposerDockBandClassName.split(/\s+/)))
-    expect(band.style.padding).toBe('')
-    await renderPanel()
-    const page = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
-    expect(page.className).toBe('')
-    expect(page.style.padding).toBe('12px 22px 18px')
+  it.each([false, true])('uses one ACP desktop frame with no duplicate host padding (block=%s)', async (block) => {
+    await renderPanel(block ? { actions, title, tabs: null } : undefined)
+    const composer = harness.container.querySelector<HTMLElement>('[data-chat-composer]')!
+    expect(composer.className).toBe('')
+    expect(composer.style.padding).toBe('0px')
+    const dock = composer.closest('[data-chat-bottom-dock]')!
+    expect(dock.classList.contains(composerSlotClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
   })
 
   it('in a block the group tab gives the chat the room: the panel goes, its tab stays and brings it back (第 ⑥ 步)', async () => {
