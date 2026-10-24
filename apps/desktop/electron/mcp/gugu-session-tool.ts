@@ -80,7 +80,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'device_actions',
-    description: 'Inspect native capabilities. Computer Use (computer): macOS/Windows screen, mouse, keys; no scripts/bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: schema to read first. Other-device work: session_spawn there. available:false has unavailable_detail.',
+    description: 'Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer); no scripts/bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.',
     schema: z.object({
       device: deviceSchema.describe('Omit for all devices.').optional(),
       group: z.string().min(1).optional(),
@@ -121,7 +121,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_spawn',
-    description: 'Start a persistent Gugu agent; returns session_id and model. Omitted transport inherits your UI.',
+    description: 'Start a persistent Gugu agent; returns session_id and model. Omit transport to inherit your chat or terminal UI.',
     schema: z.object({
       prompt: z.string().min(1),
       source_link: sourceLinkSchema.optional(),

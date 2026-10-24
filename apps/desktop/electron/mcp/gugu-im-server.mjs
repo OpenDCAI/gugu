@@ -2235,7 +2235,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send',
     writer: true,
-    description: 'Set destination first; never infer chat_id or recipients from the trigger. Each call is independent. reply_to_message_id implies a DM peer; groups still require recipients. Sessions: session_message.',
+    description: 'Set destination first; never infer chat_id or recipients from the trigger. Independent, multiple distinct calls allowed. reply_to_message_id implies a DM peer; groups still require recipients. Sessions: session_message.',
     schema: z.object({
       chat_id: chatIdSchema.describe(CHAT_ID_DESCRIPTION),
       to_user_ids: chatRecipientsSchema,
@@ -2348,7 +2348,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'Attach a requested file/report (≤10 MiB) from this machine. Shared editable documents: catalog workspace__create.',
+    description: 'File delivery tool: attach a requested file/report (≤10 MiB) from this machine. Editable documents: workspace__create in the catalog.',
     schema: z.object({
       file_path: uploadFilePathSchema,
       file_name: uploadFileNameSchema,
