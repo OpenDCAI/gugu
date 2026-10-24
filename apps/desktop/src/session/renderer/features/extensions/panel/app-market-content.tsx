@@ -12,7 +12,6 @@ import { cn } from '@renderer/utils/utils';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { featuredBody, localizedManifestText, marketCategoryOf, type MarketCategory } from '@shared/extensions/catalog';
 import type { MarketListItem, MarketCompat } from '@shared/extensions/market';
-
 import type { MarketHome } from '@shared/extensions/market-home';
 
 type ShelfItem = MarketListItem;
@@ -31,7 +30,7 @@ export type AppMarketState =
       total: number;
       page: number;
       hasMore: boolean;
-      /** 首页精选那一排(只随不带搜索词的第一页;近期安装量排出来,不够用官方标的补齐)。 */
+      /** 界面侧共享编排返回的精选,按近期安装排名、官方标记补齐。 */
       featured: ShelfItem[];
       home: Omit<MarketHome<ShelfItem>, 'featured'>;
       /** 正在取下一页:底部画骨架、哨兵不再触发。 */
@@ -71,7 +70,7 @@ export function AppMarketContent({ shelf, query, hostKey, api, lifecycleOf, pend
   }
   const activeChip = chipKeys.includes(chip) ? chip : 'all';
   const fullListing = query !== '' || view === 'all' || (view === 'market' && activeChip !== 'all');
-  const browseRows = shelf.status !== 'ready' || fullListing ? marketRows : view === 'newest'
+  const browseRows = fullListing ? marketRows : view === 'newest'
     ? shelf.home.newest : view === 'popular' ? shelf.home.popular ?? [] : shelf.home.remaining;
   const shownRows = activeChip === 'all' ? browseRows : browseRows.filter((item) => marketCategoryOf(item.manifest) === activeChip);
   const chipLabel = (key: 'all' | MarketCategory) => translate(key === 'all' ? 'extensions.chipAll' : `extensions.category.${key}`);
