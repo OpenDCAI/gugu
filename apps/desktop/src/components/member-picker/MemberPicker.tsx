@@ -66,33 +66,18 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
   const [openedAt] = useState(() => Date.now())
 
   // 选成员要新鲜的候选:通讯录 revision 与弹窗开关可能同一帧到,打开时再取一次权威快照。
-  const refreshEpochRef = useRef(0)
   const [refreshing, setRefreshing] = useState(true)
-  const reload = useCallback(async () => {
-    const epoch = ++refreshEpochRef.current
+  const reload = useCallback(() => {
     setRefreshing(true)
-    try {
-      await refreshContacts()
-    } catch (error) {
-      log.error({ error: String(error) }, 'refresh contacts failed')
-    } finally {
-      if (epoch === refreshEpochRef.current) setRefreshing(false)
-    }
+    return refreshContacts().catch((error: unknown) => log.error({ error: String(error) }, 'refresh contacts failed')).finally(() => setRefreshing(false))
   }, [refreshContacts])
-  useEffect(() => {
-    void reload()
-    return () => { refreshEpochRef.current += 1 }
-  }, [reload])
+  useEffect(() => { void reload() }, [reload])
 
   const model = useMemo(
-    () => pickerModel({ contacts, currentUserId, devices, live, recentChats: recentChatActivity(chats), now: openedAt }),
-    [contacts, currentUserId, devices, live, chats, openedAt],
+    () => pickerModel({ contacts, currentUserId, devices, live, recentChats: recentChatActivity(chats), now: openedAt, withPeople: !peopleDenied }),
+    [contacts, currentUserId, devices, live, chats, openedAt, peopleDenied],
   )
-  const canPick = useCallback((contact: ContactUser) => contact.type === 'agent' || !peopleDenied, [peopleDenied])
-  const sources = useMemo(
-    () => model.sources.map((source) => (source.kind === 'recent' && peopleDenied ? { ...source, entries: source.entries.filter((entry) => canPick(entry.contact)) } : source)),
-    [model.sources, peopleDenied, canPick],
-  )
+  const { sources } = model
   const labelOf = (source: PickerSource): string => {
     if (source.kind === 'recent') return t('memberPicker.recent')
     if (source.kind === 'people') return t('panel.contactSectionTitle')
@@ -120,7 +105,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
   const sourceKey = sources.some((source) => source.key === chosenSource) ? chosenSource! : defaultSource
   const source = sources.find((s) => s.key === sourceKey)!
   const result = useMemo(() => searchContacts(deferredQuery, {
-    people: peopleDenied ? [] : model.people.map((entry) => entry.contact),
+    people: model.people.map((entry) => entry.contact),
     agents: model.agents.map((entry) => entry.contact),
     groups: [],
     recentAt: model.lastAt,
@@ -162,10 +147,6 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
     setQuery(value)
     setActive(0)
   }
-  const focusRow = (index: number) => {
-    setActive(index)
-    listRef.current?.querySelector<HTMLElement>(`[data-option-index="${index}"]`)?.focus()
-  }
   const activate = (index: number) => {
     const row = visibleRows[index]
     if (!row) return
@@ -185,30 +166,31 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
   }
   const onRowKeyDown = (index: number) => (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); activate(index) }
-    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); focusRow(Math.max(0, Math.min(visibleRows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))) }
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const next = Math.max(0, Math.min(visibleRows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+      setActive(next)
+      listRef.current?.querySelector<HTMLElement>(`[data-option-index="${next}"]`)?.focus()
+    }
   }
   const jump = (letter: string) => listRef.current?.querySelector(`[data-letter-section="${letter}"]`)?.scrollIntoView({ block: 'start' })
 
-  const sourceButton = (s: PickerSource) => {
-    const count = result ? scopeCounts.get(s.key) ?? 0 : s.entries.length
-    const picked = selected.filter((id) => model.sourcesOf(id).includes(s.key)).length
-    const current = result ? searchScope === s.key : sourceKey === s.key
+  // 左栏(手机:横滑分段)的一项;搜索时数的是命中数,另多一项「全部结果」。
+  const sourceButton = (key: string, label: string, count: number) => {
+    const picked = key === 'all' ? 0 : selected.filter((id) => model.sourcesOf(id).includes(key)).length
     return (
-      <Button key={s.key} variant="option" size="sm" role="radio" aria-checked={current} data-picker-source={s.key} onClick={() => pickSource(s.key)}
+      <Button key={key} variant="option" size="sm" role="radio" aria-checked={result ? searchScope === key : sourceKey === key} data-picker-source={key} onClick={() => pickSource(key)}
         className={cn('shrink-0 gap-2', mobile ? '!rounded-[var(--radius-capsule)]' : 'w-full justify-start !border-transparent', result && count === 0 && 'text-[var(--faint-fg)]')}>
-        <span className={cn(!mobile && 'min-w-0 flex-1 truncate text-left')}>{labelOf(s)}</span>
+        <span className={cn(!mobile && 'min-w-0 flex-1 truncate text-left')}>{label}</span>
         {picked > 0 ? <span className="text-[length:var(--font-caption)] text-[var(--primary)]">✓{picked}</span> : null}
         <span className="text-[length:var(--font-caption)] tabular-nums text-[var(--faint-fg)]">{count}</span>
       </Button>
     )
   }
-  const allResults = result ? (
-    <Button variant="option" size="sm" role="radio" aria-checked={searchScope === 'all'} data-picker-source="all" onClick={() => pickSource('all')}
-      className={cn('shrink-0 gap-2', mobile ? '!rounded-[var(--radius-capsule)]' : 'w-full justify-start !border-transparent')}>
-      <span className={cn(!mobile && 'min-w-0 flex-1 truncate text-left')}>{t('memberPicker.allResults')}</span>
-      <span className="text-[length:var(--font-caption)] tabular-nums text-[var(--faint-fg)]">{searchRows.length}</span>
-    </Button>
-  ) : null
+  const sourceButtons = [
+    ...(result ? [sourceButton('all', t('memberPicker.allResults'), searchRows.length)] : []),
+    ...sources.map((s) => sourceButton(s.key, labelOf(s), result ? scopeCounts.get(s.key) ?? 0 : s.entries.length)),
+  ]
   const confirmButton = (
     <Button variant="primary" size={mobile ? 'sm' : 'md'} disabled={busy || selected.length === 0} onClick={() => void confirm()}>
       {busy && busyLabel ? busyLabel : confirmLabel(selected.length)}
@@ -253,9 +235,9 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
           ) })}
         </div>
       ) : null}
-      {mobile ? <div role="radiogroup" className="flex shrink-0 gap-2 overflow-x-auto !px-3 !pb-2">{allResults}{sources.map(sourceButton)}</div> : null}
+      {mobile ? <div role="radiogroup" className="flex shrink-0 gap-2 overflow-x-auto !px-3 !pb-2">{sourceButtons}</div> : null}
       <div className="flex min-h-0 flex-1 border-t border-[var(--border-subtle)]">
-        {!mobile ? <nav role="radiogroup" className="flex w-[178px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border-subtle)] !p-2">{allResults}{sources.map(sourceButton)}</nav> : null}
+        {!mobile ? <nav role="radiogroup" className="flex w-[178px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border-subtle)] !p-2">{sourceButtons}</nav> : null}
         <div className="relative flex min-w-0 flex-1 flex-col">
           {projects.length > 0 ? (
             <div role="radiogroup" className="flex shrink-0 flex-wrap gap-2 !px-3 !pt-2">

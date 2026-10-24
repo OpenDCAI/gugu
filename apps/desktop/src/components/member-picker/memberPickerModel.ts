@@ -60,13 +60,15 @@ export function agentTasks(devices: readonly Device[], live: Readonly<Record<str
 const folderName = (path: string | null | undefined) => path?.split(/[\\/]/).filter(Boolean).pop() ?? null
 const byRecent = (a: PickerEntry, b: PickerEntry) => b.lastAt - a.lastAt
 
-export function pickerModel({ contacts, currentUserId, devices, live, recentChats, now }: {
+export function pickerModel({ contacts, currentUserId, devices, live, recentChats, now, withPeople = true }: {
   contacts: ContactUser[]
   currentUserId: string | null
   devices: Device[]
   live: Readonly<Record<string, DeviceSessions>>
   recentChats: ReadonlyMap<string, number>
   now: number
+  /** false = 这里不能拉人进来(项目群 / 没有邀请权限):人不进任何来源与搜索,「人」那一项由调用方说原因。 */
+  withPeople?: boolean
 }): PickerModel {
   const tasks = agentTasks(devices, live)
   const people: PickerEntry[] = []
@@ -74,7 +76,7 @@ export function pickerModel({ contacts, currentUserId, devices, live, recentChat
   for (const contact of contacts) {
     const chatAt = recentChats.get(contact.id) ?? 0
     if (contact.type !== 'agent') {
-      people.push({ contact, lastAt: chatAt, task: null, project: null })
+      if (withPeople) people.push({ contact, lastAt: chatAt, task: null, project: null })
       continue
     }
     // @@@1761 云 agent 不进群;别人的 agent 只有公开的能邀请(通讯录本来只给自己的)。
