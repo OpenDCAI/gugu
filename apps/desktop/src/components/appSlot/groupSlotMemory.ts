@@ -1,15 +1,14 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { PanelForm, SidePanelWidths } from '../../session/renderer/lib/layout/side-panel-split'
 import { extensionSurfaceStore } from '../../session/renderer/features/extensions/extension-surface-store'
-import { WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
 import type { AppOpenWithDetail, ChatPeekFile } from '../../session/shared/extensions/app-runtime-protocol'
 import { parseExtensionTabKind } from '../../session/shared/extensions/manifest'
 
 /** The group's panel beside the messages: 520 wide at first, never under 360 (the slot's INLINE_COMMANDS), as wide as last dragged. */
 export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPanel.width', min: 360, initial: 520 }
 
-/** The preinstalled workspace App's tab (apps/desktop/preinstalled-apps/workspace): with no file, the chat's folder. */
-export const WORKSPACE_APP_KIND = `${WORKSPACE_APP_ID}.main`
+/** The preinstalled workspace App's tab (apps/desktop/preinstalled-apps/workspace, `WORKSPACE_APP_ID`): with no file, the chat's folder. */
+export const WORKSPACE_APP_KIND = 'workspace.main'
 
 /**
  * One thing open in a chat's panel (owner 10-24: the panel has no floor under its tabs): an App's own page in this chat
