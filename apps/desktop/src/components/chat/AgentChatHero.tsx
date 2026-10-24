@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation'
 import { displayStatusOf } from '@gugu/core/shared/ui/agentConversationStatusModels'
 import { Button } from '../ui/Button'
+import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
 import { Avatar } from '../Avatar'
 import { AgentHarnessIcon } from '../AgentHarnessIdentity'
 import { AgentHeaderStatusLine } from './AgentHeaderStatusLine'
@@ -46,7 +47,8 @@ export function AgentChatHero({
 }) {
   const { t } = useTranslation('messaging')
   const statusText = status ? agentHeaderStatusText(status, t) : null
-  const bird = isAgentHeroBird(avatarUrl)
+  const assistant = useIsAssistantAvatar(agentId)
+  const bird = isAgentHeroBird(avatarUrl, assistant)
   const size = bird ? (mobile ? HERO_SIZE_MOBILE : HERO_SIZE) : mobile ? PHOTO_SIZE_MOBILE : PHOTO_SIZE
   return (
     <div className="gg-agent-hero" data-testid="agent-chat-hero">

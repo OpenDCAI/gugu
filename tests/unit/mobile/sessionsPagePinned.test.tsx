@@ -286,7 +286,7 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     expect(metaOf('phone-task')).toMatch(/手机 Agent|Phone Agent/)
     expect(metaOf('phone-task').toLowerCase()).not.toContain('pi')
     expect(metaOf('desktop-task')).toContain('codex')
-    expect(phoneRow.querySelector('canvas')?.getAttribute('aria-label')).toMatch(/运行中|Working/)
+    expect(phoneRow.querySelector('[data-agent-avatar-boring]')?.getAttribute('aria-label')).toMatch(/运行中|Working/)
     await act(async () => phoneRow.click())
     expect(onOpenSession).toHaveBeenCalledWith('phone', expect.objectContaining({ conversationId: 'phone-task' }))
     expect(harness.container.querySelector('[data-session-id="desktop-task"]')).not.toBeNull()
@@ -320,7 +320,7 @@ describe('ProjectsPage — 所有机器一页、个人助理一组', () => {
     await renderPage([], { onOpenSession })
     const phoneRow = harness.container.querySelector<HTMLButtonElement>('[data-session-id="phone-task"]')!
     expect(phoneRow.disabled).toBe(false)
-    expect(phoneRow.querySelector('canvas')?.getAttribute('aria-label')).not.toMatch(/运行中|Working/)
+    expect(phoneRow.querySelector('[data-agent-avatar-boring]')?.getAttribute('aria-label')).not.toMatch(/运行中|Working/)
     expect(phoneRow.closest('.gg-aw-item-wrap')?.querySelector('[data-testid="agent-watch-session-menu"]')).toBeNull()
     await act(async () => phoneRow.click())
     expect(onOpenSession).toHaveBeenCalledWith('phone', expect.objectContaining({ conversationId: 'phone-task' }))

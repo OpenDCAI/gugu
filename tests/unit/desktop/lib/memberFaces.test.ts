@@ -4,6 +4,8 @@
 // 换了上传(新 URL)就重画;④ 画不出来(上传加载失败)给 null,不拿默认脸盖掉,下次再问重画。
 // jsdom 没有图片解码和 canvas:Image 和 canvas 换成记账的替身,量的是画了什么、画了几次。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readIdentityDirectoryBridge, installIdentityDirectoryBridge, publishIdentityDirectory } from '../../../../apps/desktop/src/lib/identityDirectoryBridge'
+import type { DisplayIdentity } from '../../../../apps/desktop/src/lib/displayIdentity'
 import { dicebearAvatarDataUri } from '../../../../apps/desktop/src/lib/dicebearAvatar'
 
 const drawnFrom: string[] = []
@@ -22,6 +24,8 @@ const drawImage = vi.fn()
 const createElement = document.createElement.bind(document)
 
 beforeEach(() => {
+  installIdentityDirectoryBridge()
+  publishIdentityDirectory({ [ID]: { id: ID, type: 'human', avatar: null } as DisplayIdentity }, () => {})
   drawnFrom.length = 0
   broken = new Set()
   drawImage.mockClear()
@@ -33,6 +37,7 @@ beforeEach(() => {
   vi.resetModules()
 })
 afterEach(() => {
+  publishIdentityDirectory(null, null)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -66,4 +71,25 @@ describe('members[].avatar: the face the host draws, small', () => {
     await memberFaces([{ id: ID, avatar: UPLOAD }])
     expect(drawnFrom).toEqual([UPLOAD, UPLOAD])
   })
+  it('agent defaults remain the official SVG, including a pre-existing built-in URL', async () => {
+    publishIdentityDirectory({ [ID]: { id: ID, type: 'agent', avatar: null } as DisplayIdentity }, () => {})
+    const { memberFace } = await load()
+    const svg = await memberFace(ID, null)
+    expect(decodeURIComponent(svg!)).toContain(`data-agent-avatar-boring="${ID}"`)
+    expect(await memberFace(ID, 'https://db.example/avatars/agent-look/v1/cream.webp')).toBe(svg)
+    expect(drawImage).not.toHaveBeenCalled()
+  })
+
+  it('unknown type asks the existing directory and waits; a newly published identity supplies the face', async () => {
+    const ensure = vi.fn()
+    publishIdentityDirectory({}, ensure)
+    const { memberFace } = await load()
+    await expect(memberFace(ID, null)).resolves.toBeNull()
+    expect(ensure).toHaveBeenCalledWith([ID])
+    expect(readIdentityDirectoryBridge()?.getSnapshot()).toEqual({})
+    expect(drawImage).not.toHaveBeenCalled()
+    publishIdentityDirectory({ [ID]: { id: ID, type: 'agent', avatar: null } as DisplayIdentity }, ensure)
+    expect(await memberFace(ID, null)).toMatch(/^data:image\/svg\+xml/)
+  })
+
 })

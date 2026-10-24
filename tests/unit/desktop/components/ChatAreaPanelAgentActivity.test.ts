@@ -585,11 +585,11 @@ describe('agent DM 居中头像', () => {
 
     const hero = harness.container.querySelector('[data-testid="agent-chat-hero"]')
     expect(hero).not.toBeNull()
-    expect(hero?.querySelector('canvas[data-agent-avatar]')).not.toBeNull()
+    expect(hero?.querySelector('svg[data-agent-avatar-boring]')).not.toBeNull()
     const empty = harness.container.querySelector('[data-testid="agent-first-conversation-empty"]')
     expect(empty).not.toBeNull()
     expect(empty?.querySelector('canvas, img')).toBeNull()
-    expect(harness.container.querySelectorAll('canvas[data-agent-avatar]').length).toBe(1)
+    expect(harness.container.querySelectorAll('svg[data-agent-avatar-boring]').length).toBe(1)
   })
 
   // #7199 owner 10-17:Agent 没有休息这回事。自己的 agent 住的云端宿主闲时收回着(管家说 asleep)时读数是不在线,
@@ -606,9 +606,9 @@ describe('agent DM 居中头像', () => {
       [contact({ id: 'agent-1', type: 'agent', device_id: 'cloud-1' })],
     )
 
-    const bird = harness.container.querySelector('[data-testid="agent-chat-hero"] canvas[data-agent-avatar]')
-    expect(bird).not.toBeNull()
-    expect(bird?.getAttribute('data-agent-avatar-state')).toBe(state)
+    const face = harness.container.querySelector('[data-testid="agent-chat-hero"] [data-agent]')
+    expect(face).not.toBeNull()
+    expect(face?.querySelector('.av-status--offline') !== null).toBe(state === 'offline')
   })
 
   it('头栏就是头像 + 名字 + 状态:没有实线、没有左对齐标题,消息在列表顶边渐隐', async () => {
@@ -671,7 +671,7 @@ describe('agent DM 居中头像', () => {
     })
 
     expect(harness.container.querySelectorAll('[data-testid="agent-chat-hero"]').length).toBe(1)
-    expect(harness.container.querySelectorAll('canvas[data-agent-avatar]').length).toBe(1)
+    expect(harness.container.querySelectorAll('svg[data-agent-avatar-boring]').length).toBe(1)
   })
 
   it('agent 上传过头像:居中的就是那张图(不画小鸟)', async () => {
@@ -688,7 +688,7 @@ describe('agent DM 居中头像', () => {
 
     const hero = harness.container.querySelector('[data-testid="agent-chat-hero"]')
     expect(hero?.querySelector('img')?.getAttribute('src')).toBe('https://db.example/storage/v1/object/public/avatars/agent-1.png')
-    expect(hero?.querySelector('canvas[data-agent-avatar]')).toBeNull()
+    expect(hero?.querySelector('svg[data-agent-avatar-boring]')).toBeNull()
   })
 })
 

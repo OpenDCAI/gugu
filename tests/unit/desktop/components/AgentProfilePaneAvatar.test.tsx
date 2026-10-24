@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, contact, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import { installAssistantShellBridge, publishAssistantShell, type AssistantShellSnapshot } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { AgentProfilePane } from '../../../../apps/desktop/src/components/agentsettings/AgentProfilePane'
 import type { ContactsContextValue } from '../../../../apps/desktop/src/store/contactsContext'
 
@@ -13,13 +14,16 @@ const lookJustSaved = { ...opened, avatar: `${HOST}/agent-look/v1/sakura.webp?re
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  installAssistantShellBridge()
+  publishAssistantShell({ assistant: null } as AssistantShellSnapshot)
 })
 afterEach(() => {
   harness.cleanup()
+  publishAssistantShell({ assistant: null } as AssistantShellSnapshot)
 })
 
 async function show(agent: typeof opened, updateAgentProfile = vi.fn<ContactsContextValue['updateAgentProfile']>(async () => {})) {
-  await renderWithAppProviders(harness, createNode(AgentProfilePane, { agent }), {
+  await renderWithAppProviders(harness, createNode(AgentProfilePane, { agent, onOpenTab: vi.fn() }), {
     auth: { id: OWNER },
     contacts: { updateAgentProfile },
   })
@@ -35,9 +39,18 @@ describe('资料页保存不碰头像', () => {
     expect(updateAgentProfile.mock.calls[0][1]).toEqual({ name: '写周报', bio: '' })
   })
 
-  it('头像位跟着库里最新的那份走', async () => {
+  it('a legacy look change leaves the ordinary agent face keyed by the same id', async () => {
     const updateAgentProfile = await show(opened)
     await show(lookJustSaved, updateAgentProfile)
-    expect(harness.container.querySelector('[data-agent-avatar-color]')?.getAttribute('data-agent-avatar-color')).toBe('sakura')
+    expect(harness.container.querySelector('[data-agent-avatar-boring]')?.getAttribute('data-agent-avatar-boring')).toBe(opened.id)
+    expect(harness.container.querySelector('.gg-as-profile-look')).toBeNull()
   })
+  it('keeps the 3D workshop entry for the assistant', async () => {
+    publishAssistantShell({ assistant: { id: opened.id, display_name: opened.display_name, avatar: opened.avatar } } as AssistantShellSnapshot)
+    await show(opened)
+    expect(harness.container.querySelector('.gg-as-profile-look')).not.toBeNull()
+    expect(harness.container.querySelector('[data-agent-avatar-boring]')).toBeNull()
+    expect(harness.container.querySelector('canvas[data-agent-avatar]')).not.toBeNull()
+  })
+
 })
