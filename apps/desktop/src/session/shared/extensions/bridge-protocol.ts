@@ -50,10 +50,11 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * App's last version for 8 instead of a page whose calls are missing.
  * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
  * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
- * 11: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
+ * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
+ * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
  * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
  */
-export const EXTENSION_API_VERSION = 11;
+export const EXTENSION_API_VERSION = 12;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -142,6 +143,8 @@ export interface ExtensionHostContext {
    * instances apart. Absent on a page nobody draws — the background page, a program.
    */
   tabId?: string;
+  /** A host modal's initial data, under the opener's context and existing grants. */
+  modal?: { data?: unknown };
   /**
    * The chat this surface is drawn for (its panel, 「在本群打开」): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
@@ -443,6 +446,7 @@ export interface ExtensionAgentHistoryPage {
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
   | { type: 'context'; context: ExtensionHostContext }
+  | { type: 'modalFocus'; edge: 'first' | 'last' }
   /**
    * The user picked something the extension declared in its manifest.
    *
@@ -617,6 +621,11 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
+  modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
+  modalClose: { needs: null, only: 'page' },
+  /** Runtime keyboard traversal at the edge of a modal guest; not an App-facing member. */
+  modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
   /**

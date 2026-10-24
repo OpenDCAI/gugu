@@ -5,7 +5,7 @@
   "author": "咕咕",
   "categories": ["dev-tools"],
   "version": "1.0.0",
-  "apiVersion": 11,
+  "apiVersion": 12,
   "platforms": ["desktop"],
   "entry": "lens.html",
   "permissions": {

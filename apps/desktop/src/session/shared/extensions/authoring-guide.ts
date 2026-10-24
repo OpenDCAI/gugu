@@ -173,14 +173,10 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
 
-Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
-A session's tab has \`session\`; a chat's side panel (a group's or DM's; a phone's too) has \`chat\`;
-the dock and the background page have neither; opened for a file, \`file\` names it. Read the context first, then draw:
-where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capabilities\`).
-- \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
-  remove — the one way to open and edit a session's file. Each call names its file or place (\`apps-files\`).
-- \`setTabTitle\` / \`setTabBadge\`: your page's tab, or the side panel's title. \`reportError\`: there too, and
-  in the App's error log, which \`app_check\` reads back (a phone: its console).
+Location fills context, never changes authority: a task has \`session\`, a chat panel has \`chat\`, a file page has \`file\`;
+the dock/background have neither chat nor session. Read context before drawing.
+- \`gugu.files\`: open, list, create, rename, remove — the one way to open and edit a session's file. Name its target (\`apps-files\`).
+- \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
@@ -188,11 +184,19 @@ where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capab
 - \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
   entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
 - A chat's shared side panel opens 520 px wide: lay out for narrow first, widen with a media or container query.
-- No \`alert\` / \`confirm\` / \`prompt\`: a dialog would freeze the host — ask on the page.
+- No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
+
+## Custom modals (apiVersion 11)
+
+\`await gugu.modal.open({ entry: 'new.html', title: 'New card', size: 'md', data })\` opens your bundle's HTML in
+gugu's window-level dialog (phone: fullscreen). Sizes: xs/sm/md/lg/xl. No new consent.
+The page stays sandboxed with the opener's context/grants; \`(await gugu.getContext()).modal.data\` holds \`data\`.
+Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
+The host handles Escape, Tab traversal, Back and focus restoration.
 
 Free (they only concern your own tab):
 
-- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, operator, locale, themeMode, capabilities, layout? }\`.
+- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
   chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
   \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
@@ -262,14 +266,11 @@ Free:
 
 ## Every one of these can reject — let it show
 
-\`.catch(() => {})\` on a \`window.gugu.*\` call hides failures as empty states.
-Show the rejection inline, disable the control with its reason, or call \`reportError\`.
-Ignoring one on purpose: say why in a comment — ❌ never a bare \`.catch(() => {})\`. "Nothing here" and "the call
-failed" never render the same.
+Show failures inline, disable the control with its reason, or call \`reportError\`.
+Never hide failures as empty states with \`.catch(() => {})\`; an intentional ignore needs a comment explaining why.
 
-❌ \`const gugu = window.gugu\` at the top level of a script. \`gugu\` is a global the host
-defines and it cannot be redeclared: that one line is a SyntaxError and NOTHING in the file
-runs, no error drawn. Use \`window.gugu.x\` or another name.
+❌ Top-level \`const gugu = window.gugu\`: the host already defines that global; redeclaring it stops the whole script.
+Use \`window.gugu.x\` or another name.
 `;
 
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
@@ -883,7 +884,7 @@ export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
 
 ## Platform declarations
 
-Declare human UI hosts in \`platforms\` (API 11): desktop, phone, or both. A phone UI may declare agent
+Declare human UI hosts in \`platforms\` (API 12): desktop, phone, or both. A phone UI may declare agent
 capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
 
 ## Standing agent behavior

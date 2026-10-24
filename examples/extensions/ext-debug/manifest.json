@@ -7,7 +7,7 @@
     "dev-tools"
   ],
   "version": "2.0.0",
-  "apiVersion": 11,
+  "apiVersion": 12,
   "platforms": ["desktop"],
   "engines": {
     "gugu": ">=0.2.40"

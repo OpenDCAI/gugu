@@ -3,7 +3,7 @@ import type { ExtensionCapability } from './manifest';
 /** Platforms describe the App's human-facing interface, not where its agent programs run. */
 export const APP_PLATFORMS = ['desktop', 'phone'] as const;
 export type AppPlatform = (typeof APP_PLATFORMS)[number];
-export const APP_PLATFORMS_API_VERSION = 11;
+export const APP_PLATFORMS_API_VERSION = 12;
 
 /**
  * The phone's one capability table. Agent features do not run here; declaring them does not make an otherwise usable

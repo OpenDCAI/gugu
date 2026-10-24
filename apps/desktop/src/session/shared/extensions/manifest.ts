@@ -69,7 +69,7 @@ function isBundleRelativePath(value: string): boolean {
   return segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
-const bundlePathSchema = z
+export const bundlePathSchema = z
   .string()
   .min(1)
   .max(256)

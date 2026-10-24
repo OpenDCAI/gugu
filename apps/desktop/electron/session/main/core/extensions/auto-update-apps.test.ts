@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { EXTENSION_API_VERSION, EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
+import { APP_PLATFORMS_API_VERSION } from '@shared/extensions/app-platforms';
 import type { MarketIndexVersion } from '@shared/extensions/market';
 import { ExtensionsService } from './extensions-service';
 import { packExtensionArchive } from './extension-archive';
@@ -95,20 +96,20 @@ afterEach(() => {
 });
 
 describe('market Apps update by themselves (autoUpdateAppsOnce)', () => {
-  it('keeps an installed pre-platform App valid and updates it through the normal market path', async () => {
+  it.each([EXTENSION_API_VERSION_MIN_SUPPORTED, APP_PLATFORMS_API_VERSION - 1])('keeps an installed pre-platform API %i App valid and updates it through the normal market path', async (oldApiVersion) => {
     const previous = await version('1.0.0');
     await publish([previous]);
     await install('1.0.0');
     // A profile written by the previous client: runtime inventory must not require new publication metadata.
-    const old = { ...service.get('radar').manifest, apiVersion: 10 };
+    const old = { ...service.get('radar').manifest, apiVersion: oldApiVersion };
     delete old.platforms;
     writeFileSync(path.join(service.get('radar').rootDir, 'manifest.json'), JSON.stringify(old));
     expect(service.list().invalid).toEqual([]);
-    expect(service.get('radar').manifest.apiVersion).toBe(10);
+    expect(service.get('radar').manifest.apiVersion).toBe(oldApiVersion);
     await publish([previous, await version('1.1.0')]);
 
     await expect(autoUpdateAppsOnce({ ...quiet, market })).resolves.toEqual([{ id: 'radar', from: '1.0.0', version: '1.1.0' }]);
-    expect(service.get('radar').manifest).toMatchObject({ apiVersion: 11, platforms: ['desktop'] });
+    expect(service.get('radar').manifest).toMatchObject({ apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] });
   });
 
   it('puts in the newer version the market gives this machine, without asking, fetched once', async () => {
