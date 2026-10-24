@@ -66,7 +66,7 @@ import {
   type MemberProfileSide,
   toIdentityProfile,
 } from './memberProfileModels'
-import { InputArea, type ComposerAttachAction } from './chat/InputArea'
+import { ChatMessageComposer, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
@@ -195,10 +195,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
-  // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; InputArea
+  // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; ChatMessageComposer
   // consumes it (insert "@name " + register the mention target) then clears via onMentionInserted.
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
-  // @@@whisper (#820) — 悄悄话目标：设置后 InputArea 进入悄悄话模式，发送强制 isWhisper+toUserIds。
+  // @@@whisper (#820) — 悄悄话目标：设置后 ChatMessageComposer 进入悄悄话模式，发送强制 isWhisper+toUserIds。
   const [whisperTarget, setWhisperTarget] = useState<{ userId: string; displayName: string } | null>(null)
   const [groupCollabSnapshot, setGroupCollabSnapshot] = useState<GroupCollabSnapshot>(EMPTY_GROUP_COLLAB)
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
@@ -461,7 +461,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const handleCloseHistoryPanel = useCallback(() => setHistoryPanelOpen(false), [])
 
   const topicSurface = useTopicSurface({
-    chat: activeChat,
+    chat: activeChat, messages,
     userId: user?.id ?? null,
     closeRightSurfaces,
     subscribeAccountRevision,
@@ -1192,7 +1192,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
-        <InputArea
+        <ChatMessageComposer
           beforeSend={createSessionpageChatSendPreflight(isAgentChat, activeChat?.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
           onSend={async (content, opts) => {
             await sendMessage(content, opts)

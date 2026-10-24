@@ -2,7 +2,8 @@
 import { act, createElement, useCallback, useMemo, useState, type SetStateAction } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { InputArea } from '../../../../apps/desktop/src/components/chat/InputArea'
+import { readComposer, writeComposer } from '../../../support/composerEditor'
+import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { ChatStoreProvider, type DraftAttachment, type DraftMention, type DraftRef } from '../../../../apps/desktop/src/store/chatContext'
 import { chatStore } from '../../../support/testHarness'
@@ -15,7 +16,6 @@ import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automation
  */
 
 const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }))
-vi.mock('textarea-caret', () => ({ default: vi.fn(() => ({ left: 0, top: 5, height: 20 })) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: toastMock }) }))
 
 const DECK = 'gugu-file://0c000000-0000-4000-8000-0000000000a1?v=7#slide=3&shape=12'
@@ -44,7 +44,7 @@ function Host({ chatId, onSend }: { chatId: string; onSend: (content: string, op
     () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, draftRefs, setDraft, setDraftMentions, setDraftAttachments, setDraftRefs }),
     [drafts, draftMentions, draftAttachments, draftRefs, setDraft, setDraftMentions, setDraftAttachments, setDraftRefs],
   )
-  return createElement(ChatStoreProvider, { value }, createElement(InputArea, { onSend, chatId, isGroupChat: true, groupMembers: [] }))
+  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, isGroupChat: true, groupMembers: [] }))
 }
 
 async function flush() {
@@ -54,12 +54,11 @@ async function flush() {
   })
 }
 const pills = () => [...container.querySelectorAll<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.composerFilePill}"]`)]
-const textarea = () => container.querySelector('textarea') as HTMLTextAreaElement
-const sendButton = () => [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === '发送') as HTMLButtonElement
+const textarea = () => container.querySelector('[contenteditable]') as HTMLElement
+const sendButton = () => [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === '发送消息') as HTMLButtonElement
 async function type(value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea(), value)
-    textarea().dispatchEvent(new Event('input', { bubbles: true }))
+    writeComposer(textarea(), value)
   })
   await flush()
 }
@@ -98,7 +97,7 @@ describe('the group composer holds an App’s pills in the row above the input',
     expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label, sheetPill.label])
     // The version it was picked on, on hover — the bubble's words.
     expect(pills()[0]!.title).toBe(`${deckPill.label} · 第 7 版上选的`)
-    expect(textarea().value).toBe('')
+    expect(readComposer(textarea())).toBe('')
     // Pills alone can be sent.
     expect(sendButton().disabled).toBe(false)
   })
@@ -142,11 +141,11 @@ describe('the group composer holds an App’s pills in the row above the input',
     await mount(vi.fn(async () => {}))
     await act(async () => store.setRefs('group-1', [deckPill]))
     await type(`看 ${deckToken} 和 ${sheetToken} 这两处`)
-    expect(textarea().value).toBe('看 和 这两处')
+    expect(readComposer(textarea())).toBe('看 和 这两处')
     expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label, sheetPill.label])
     // Control: an @[…](…) that is no group file's stays in the words (the session page's own mentions).
     await type('问 @[Claude 1](aid:abc) 一下')
-    expect(textarea().value).toBe('问 @[Claude 1](aid:abc) 一下')
+    expect(readComposer(textarea())).toBe('问 @[Claude 1](aid:abc) 一下')
     expect(pills()).toHaveLength(2)
   })
 
@@ -159,7 +158,7 @@ describe('the group composer holds an App’s pills in the row above the input',
     await type('改一下')
     await send()
     expect(onSend).toHaveBeenCalledTimes(1)
-    expect(textarea().value).toBe('改一下')
+    expect(readComposer(textarea())).toBe('改一下')
     expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label])
     expect(toastMock).toHaveBeenCalledWith('发送失败：offline', 'error')
   })

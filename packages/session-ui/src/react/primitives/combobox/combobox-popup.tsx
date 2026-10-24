@@ -39,6 +39,7 @@ export interface ComboboxPopupItem {
   strong?: boolean;
   /** Primary display text. */
   label: string;
+  labelContent?: React.ReactNode;
   /** Secondary muted text shown on the right. */
   description?: string;
   /** Render this item's label and description as stacked rows. */
@@ -167,7 +168,11 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
       const kept = keepActiveRef.current
         ? items.findIndex((item) => item.id === activeIdRef.current && !item.disabled)
         : -1;
-      setSelectedIndex(kept >= 0 ? kept : firstEnabled);
+      setSelectedIndex((previous) => {
+        if (kept >= 0) return kept;
+        const clamped = Math.min(previous, items.length - 1);
+        return keepActiveRef.current && clamped >= 0 && !items[clamped].disabled ? clamped : firstEnabled;
+      });
       // oxlint-disable-next-line react/exhaustive-deps -- 只在内容签名变时归位,items 本身每次渲染都是新数组
     }, [itemsSignature, firstEnabled]);
     React.useEffect(() => {
@@ -298,7 +303,7 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
                       e.preventDefault();
                       if (!item.disabled) onSelect(item);
                     }}
-                    onMouseEnter={() => {
+                    onPointerMove={() => {
                       if (!item.disabled) setSelectedIndex(index);
                     }}
                     className={cx(
@@ -321,7 +326,7 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
                         <span
                           className={cx(styles.popupItemLabel, item.strong && styles.popupItemLabelStrong)}
                         >
-                          {item.label}
+                          {item.labelContent ?? item.label}
                         </span>
                         {item.description && (
                           <span className={descriptionClass}>
@@ -334,7 +339,7 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
                         <span
                         className={cx(styles.popupItemLabel, item.strong && styles.popupItemLabelStrong)}
                       >
-                        {item.label}
+                        {item.labelContent ?? item.label}
                         </span>
                         {item.description && (
                           <span className={descriptionClass}>
