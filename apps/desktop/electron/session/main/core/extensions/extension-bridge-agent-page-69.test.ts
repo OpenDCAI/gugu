@@ -111,6 +111,12 @@ describe('the check’s page works as its operator (摩擦单 F69, owner 10-14)'
     expect(clipboard.writeText).toHaveBeenCalledWith('hi');
   });
 
+  it('an App dialog requested by a check page is handed back to its agent', async () => {
+    const args = { id: 'new-card', entry: 'new.html', title: 'New card', data: { column: 'todo' } };
+    expect(await call(CHECK, 'modalOpen', args)).toEqual({ ok: true, value: null });
+    expect(checkReadingsOf(CHECK)?.shown).toEqual([{ verb: 'modalOpen', detail: JSON.stringify(args) }]);
+  });
+
   it('a file to save comes back as its link, for the agent to read itself; a picker is the person’s, bytes the App has are uploaded as the agent', async () => {
     expect(await call(CHECK, 'filesDownload', { ref: { chat: CHAT, id: TODAY.id } })).toEqual({ ok: true, value: true });
     // Named by its id alone, or by its name (review 83fad65916): the same link, the file found as the agent finds it.
