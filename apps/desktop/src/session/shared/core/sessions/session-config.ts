@@ -93,6 +93,18 @@ const pendingRestartSchema = z.object({
   error: z.string().min(1),
 });
 
+/** Host-only maintenance of a native branch; the Gugu conversation identity never changes. */
+const assistantContextMigrationSchema = z.object({
+  version: z.literal(1),
+  state: z.enum(['running', 'completed', 'abandoned']),
+  token: z.string().min(1),
+  expiresAt: z.number(),
+  previousProviderSessionId: z.string().min(1),
+  candidateProviderSessionId: z.string().optional(),
+  finishedAt: z.string().optional(),
+  reason: z.string().optional(),
+});
+
 export const sessionLibraryMcpFactSchema = z.object({
   delivered: z.array(z.string()),
   leftOut: z.array(
@@ -184,6 +196,9 @@ const ptyConfigV1 = z.object({
 });
 
 const acpConfigV1 = z.object({
+  assistantContextMigration: assistantContextMigrationSchema.optional(),
+  /** Maintenance branches are not product conversations, including abandoned candidates. */
+  assistantContextBranches: z.array(z.string().uuid()).optional(),
   subscriptionConnectionId: z.string().optional(),
   version: z.literal('1'),
   type: z.literal('acp'),

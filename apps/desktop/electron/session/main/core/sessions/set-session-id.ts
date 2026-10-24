@@ -4,6 +4,7 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
+import { assistantConversationVersion } from './assistant-context-version';
 
 export type SetProviderSessionIdError = BaseError<'empty-session-id' | 'session-not-found'>;
 
@@ -84,5 +85,33 @@ export async function clearProviderSessionId(
     // `null` 而不是 `undefined` —— 理由见 sessionChangedChannel 那侧的抬头(JSON 会吃掉 undefined)。
     changes: { providerSessionId: null },
   });
+  return true;
+}
+
+/** Atomically publish a verified maintenance branch, retaining the previous native id for rollback. */
+export function promoteAssistantContextCandidate(input: {
+  sessionId: string; token: string; previousProviderSessionId: string; candidateProviderSessionId: string;
+  expectedVersion: string;
+}, now = Date.now()): boolean {
+  if (!input.candidateProviderSessionId.trim() || input.candidateProviderSessionId === input.previousProviderSessionId) return false;
+  const promoted = db.transaction(tx => {
+    if (assistantConversationVersion(input.sessionId, tx) !== input.expectedVersion) return null;
+    const [row] = tx.select().from(sessions).where(eq(sessions.id, input.sessionId)).all();
+    if (!row || row.config?.type !== 'acp') return null;
+    const lease = row.config.assistantContextMigration;
+    if (row.providerSessionId !== input.previousProviderSessionId || lease?.state !== 'running'
+      || lease.token !== input.token || lease.candidateProviderSessionId !== input.candidateProviderSessionId
+      || lease.expiresAt <= now || row.agentStatus === 'working'
+      || row.config?.messageOutbox?.length) return null;
+    tx.update(sessions).set({ providerSessionId: input.candidateProviderSessionId,
+      updatedAt: new Date(now).toISOString(), config: { ...row.config, contextUsage: undefined,
+        assistantContextMigration: { ...lease, state: 'completed', candidateProviderSessionId: input.candidateProviderSessionId,
+          finishedAt: new Date(now).toISOString() } },
+    }).where(and(eq(sessions.id, input.sessionId), eq(sessions.providerSessionId, input.previousProviderSessionId))).run();
+    return row;
+  });
+  if (!promoted) return false;
+  events.emit(sessionChangedChannel, { sessionId: input.sessionId, projectId: promoted.projectId,
+    changes: { providerSessionId: input.candidateProviderSessionId } });
   return true;
 }

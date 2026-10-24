@@ -58,6 +58,7 @@ import { desktopWorkerPath } from '@main/worker-manifest';
 import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './session-meta';
 import { persistAcpStartResult } from './session-persistence-policy';
 import { notifySessionLive } from '@main/core/sessions/session-message-router';
+import { enableAssistantContextGate, withAssistantContextAdmission } from '@main/core/sessions/assistant-context-lease';
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
@@ -357,6 +358,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
   platformModel?: string;
   platformAccessSessionId?: string;
   extensionDelivery?: SessionExtensionDelivery;
+  assistantContextMaintenance?: { memoryDir: string };
 }> {
   const injector = getEmdashMcpInjector();
   // ⚠️ 档位必须在**调注入器之前**解析：会话包是在 spawn 那一刻物化的，晚一步递过去
@@ -403,6 +405,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     // 同一次 start 的两级注入必须看同一个值,❌ 不许一级读记录、另一级读渲染端。
     providerSessionId: facts.providerSessionId,
   });
+  if (injection.assistantContextMaintenance) enableAssistantContextGate(input.input.sessionId);
   if (process.env.GUGU_DEBUG_AUTONOMY === '1') {
     log.warn('autonomy-debug: ACP start input', {
       sessionId: input.input.sessionId,
@@ -430,6 +433,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     platformModel: injection.platformModel,
     platformAccessSessionId: injection.platformAccessSessionId,
     extensionDelivery: injection.extensionDelivery,
+    assistantContextMaintenance: injection.assistantContextMaintenance,
   };
 }
 
@@ -653,6 +657,8 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         ledger,
         mark,
         extensionDelivery: capabilityInjection.extensionDelivery,
+        assistantContextMaintenance: capabilityInjection.assistantContextMaintenance,
+        capabilitySpawnEnv: capabilityInjection.capabilitySpawnEnv,
       };
     } catch (error) {
       mark('preparation-failed', { error: error instanceof Error ? error.message : String(error) });
@@ -689,6 +695,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       recordRuntimeForkOwnership,
     });
     if (result.success) {
+      if (start.assistantContextMaintenance && injected.input.providerId === 'claude') {
+        registerAssistantMaintenance(injected.input, start.assistantContextMaintenance, start.capabilitySpawnEnv);
+      }
       // 运行时此刻登记了这条会话:ACP 腿真正可投递的边界(复用路径上身份更早就绪,那一脚被拒,靠这里补上)。
       notifySessionLive(injected.input.sessionId);
       // ⚠️ ❌ **不 await** —— 它是一份 best-effort 的记录,而这里是会话启动的**响应路径**。
@@ -765,7 +774,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       finish: (sessionId) => detachedClient.finishHistoryRevert({ sessionId }),
     }),
     adapterProvenance: (input) => detachedClient.adapterProvenance(input),
-    promptDetached: (input) => detachedClient.promptDetached(input),
+    promptDetached: (input) => withAssistantContextAdmission(input.sessionId, () => detachedClient.promptDetached(input)),
     waitPromptDetached: (input) => detachedClient.waitPromptDetached(input),
     announceSession: async (input) => {
       // #7103 取票被拒只对**进行中的那一轮**有意义(还在起的会话没有这一轮,cell 不收),而回绝取票在等它送到:
@@ -782,7 +791,8 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await inFlight.result.catch(() => undefined);
       return detachedClient.announceSession(input);
     },
-    queuePrompt: async (input, meta) => {
+    sendPrompt: (input, meta) => withAssistantContextAdmission(input.sessionId, () => client.sendPrompt(input, meta)),
+    queuePrompt: (input, meta) => withAssistantContextAdmission(input.sessionId, async () => {
       const { startInput: rendererStartInput, ...queued } = input;
       if (!rendererStartInput) return client.queuePrompt(queued, meta);
       const sessionId = rendererStartInput.sessionId;
@@ -804,7 +814,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
       }
       return client.queuePrompt({ ...queued, startInput: injected.input }, meta);
-    },
+    }),
     // #6552 会话还在起的时候用户选了模型 / 强度:worker 在启动的「设模型/强度」那一步采用它。
     // 这条会话的启动还在主进程准备(注入)的话,worker 那边还没有它 ⇒ 等到启动交给 worker 再递 ——
     // 与上面 announceSession 同一个等法;❌ 不等启动起完(那一步早过了,选择就成了第二次热切)。
@@ -861,6 +871,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       );
       if (result.success) {
         await persistReturnedProviderSessionId(injected.input.sessionId, result.data.providerSessionId);
+        if (capabilityInjection.assistantContextMaintenance && injected.input.providerId === 'claude') {
+          registerAssistantMaintenance(injected.input, capabilityInjection.assistantContextMaintenance, capabilityInjection.capabilitySpawnEnv);
+        }
         // 重开这条路**同样要写**:`/mcp` 的开关正是经重开生效的 ——
         // 只在 fresh 那条写,用户每关掉一台之后看到的都还是上一次的事实。
         // ⚠️ 同样❌不 await,理由见上面那一处。
@@ -877,6 +890,16 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       return result;
     },
   };
+}
+
+function registerAssistantMaintenance(
+  input: { sessionId: string; cwd: string; sessionMeta?: Record<string, unknown>; runContext: AgentRunContext },
+  maintenance: { memoryDir: string }, spawnEnv?: Record<string, string>,
+): void {
+  const registration = { sessionId: input.sessionId, cwd: input.cwd, memoryDir: maintenance.memoryDir,
+    runContext: input.runContext, options: (input.sessionMeta?.claudeCode as { options: Record<string, unknown> }).options, spawnEnv };
+  void import('@main/core/sessions/assistant-context-migration').then(({ registerAssistantContextMigration }) =>
+    registerAssistantContextMigration(registration)).catch(error => log.warn('assistant context maintenance registration failed', { sessionId: input.sessionId, error: String(error) }));
 }
 
 /**

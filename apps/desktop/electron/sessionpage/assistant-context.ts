@@ -42,9 +42,10 @@ export async function preparePersonalAssistantContext(
   ])
   const memoryDir = assistantHomePaths(home, cwd, kind).memoryDir
   await mkdir(memoryDir, { recursive: true, mode: 0o700 })
-  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
+  const prepared = personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
     instructions: [instructions?.brief, instructions?.custom].filter(Boolean).join('\n\n'),
     recoveryContext: assistantRecoveryContext(memoryDir), workingContextPath: join(memoryDir, 'working-context.md') })
+  return { ...prepared, assistantContextMaintenance: { memoryDir } }
 }
 
 /** Personal-assistant work uses Gugu's explicit capabilities, not the host's coding setup. */

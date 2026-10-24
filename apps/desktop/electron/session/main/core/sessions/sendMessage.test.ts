@@ -665,6 +665,18 @@ describe('session-direct live-only delivery', () => {
     setRow({ version: '1', type: 'acp' });
   });
 
+  it('persists executor replies during native maintenance without admitting them to the old session', async () => {
+    setRow({ version: '1', type: 'acp', assistantContextMigration: {
+      version: 1, state: 'running', token: 'migration-lease', expiresAt: Date.now() + 30_000,
+      previousProviderSessionId: 'native-original',
+    } });
+    const router = vi.fn(); setSessionMessageRouter(router);
+    await expect(sendMessage({ ...target, clientMessageId: 'during-migration', kind: 'session-direct', text: 'Executor result' }))
+      .resolves.toEqual({ id: 'during-migration', status: 'queued' });
+    expect(router).not.toHaveBeenCalled();
+    expect((state.row.config as SessionConfig).messageOutbox).toContainEqual(expect.objectContaining({ id: 'during-migration', text: 'Executor result' }));
+  });
+
   it('injects a live session synchronously and records only the recipient timeline row', async () => {
     const router = vi.fn(async (_sessionId: string, message: { id: string }) => ({
       status: 'accepted' as const,
