@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cdp } from 'vitest/browser';
 import { until } from '../../../../tests/support/awaitCondition';
 import { ShimmerText } from '../components/primitives/ShimmerText';
-import { textShimmerClip, textShimmerInk } from '../styles/effects.css';
+import { textShimmerBaseSweep, textShimmerClip, textShimmerInk } from '../styles/effects.css';
 import { measureSpill } from './contract';
 
 let dispose: (() => void) | undefined;
@@ -31,6 +31,17 @@ function mount(label = '正在工作 · Running a long command') {
     style={{ overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }}>{text()}</ShimmerText>, surface);
   const host = surface.firstElementChild as HTMLElement;
   return { host, setActive, setText };
+}
+
+function watchSweepEvent(sweep: HTMLElement, type: 'animationstart' | 'animationend') {
+  let seen = false;
+  const listener = (event: AnimationEvent) => {
+    if (event.target !== sweep) return;
+    sweep.removeEventListener(type, listener);
+    seen = true;
+  };
+  sweep.addEventListener(type, listener);
+  return (step: string) => until(step, () => seen);
 }
 
 it('keeps one semantic label, its geometry and live text while animating only transforms', async () => {
@@ -97,21 +108,23 @@ it('keeps reduced-motion labels flat and readable with no running sweep', async 
 // 真机 10-23:时间头扫完第一遍就再也不扫 —— 行的数据在停顿那 1 秒里换了一个对象(转录一更新就重建),
 // `active` 仍为真,可效果因此重跑、清掉了待重扫的计时器,扫完的动画再没有人倒回去。
 it('keeps replaying when the row data is rebuilt during the hold while it stays active', async () => {
-  surface = document.createElement('div');
-  surface.style.cssText = 'position:fixed;left:20px;top:20px;width:180px;display:flex;line-height:24px';
-  document.body.append(surface);
-  const [item, setItem] = createSignal({ status: 'running' });
-  dispose = render(() => <ShimmerText active={item().status === 'running'}>Worked for 19s</ShimmerText>, surface);
-  const host = surface.firstElementChild as HTMLElement;
-  await until('the shimmer animations are ready', () => ({
-    visible: host.dataset.shimmerVisible,
-    animations: host.getAnimations({ subtree: true }).length,
-  }), (state) => state.visible === 'true' && state.animations === 4);
-  const animations = host.getAnimations({ subtree: true });
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   try {
+    surface = document.createElement('div');
+    surface.style.cssText = 'position:fixed;left:20px;top:20px;width:180px;display:flex;line-height:24px';
+    document.body.append(surface);
+    const [item, setItem] = createSignal({ status: 'running' });
+    dispose = render(() => <ShimmerText active={item().status === 'running'}>Worked for 19s</ShimmerText>, surface);
+    const host = surface.firstElementChild as HTMLElement;
+    const ended = watchSweepEvent(host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!, 'animationend');
+    await until('the shimmer animations are ready', () => ({
+      visible: host.dataset.shimmerVisible,
+      animations: host.getAnimations({ subtree: true }).length,
+    }), (state) => state.visible === 'true' && state.animations === 4);
+    const animations = host.getAnimations({ subtree: true });
     for (const animation of animations) animation.finish();
-    await until('the finished sweep schedules its replay', () => vi.getTimerCount() === 1);
+    await ended('the finished sweep emits animationend');
+    expect(vi.getTimerCount()).toBe(1);
     setItem({ status: 'running' });
     expect(vi.getTimerCount(), 'a rebuilt row that is still running keeps its pending replay').toBe(1);
     vi.advanceTimersByTime(1000);
@@ -122,35 +135,40 @@ it('keeps replaying when the row data is rebuilt during the hold while it stays 
 });
 
 it('finishes each sweep, holds without running animations, and rewinds without overriding CSS pauses', async () => {
-  const { host, setActive } = mount();
-  await until('the shimmer animations are ready after motion emulation resets', () => ({
-    visible: host.dataset.shimmerVisible,
-    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-    animations: host.getAnimations({ subtree: true }).map((animation) => animation.playState),
-  }), (state) => state.visible === 'true' && !state.reducedMotion && state.animations.length === 4);
-  const animations = host.getAnimations({ subtree: true });
-  expect(animations).toHaveLength(4);
-  for (const animation of animations) {
-    expect(animation.effect!.getTiming()).toMatchObject({ duration: 1000, iterations: 1, fill: 'forwards' });
-  }
-  const renderedFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   try {
+    const { host, setActive } = mount();
+    const sweep = host.querySelector<HTMLElement>(`.${textShimmerBaseSweep}`)!;
+    const ended = watchSweepEvent(sweep, 'animationend');
+    await until('the shimmer animations are ready after motion emulation resets', () => ({
+      visible: host.dataset.shimmerVisible,
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      animations: host.getAnimations({ subtree: true }).map((animation) => animation.playState),
+    }), (state) => state.visible === 'true' && !state.reducedMotion && state.animations.length === 4);
+    const animations = host.getAnimations({ subtree: true });
+    expect(animations).toHaveLength(4);
+    for (const animation of animations) {
+      expect(animation.effect!.getTiming()).toMatchObject({ duration: 1000, iterations: 1, fill: 'forwards' });
+    }
     for (const animation of animations) animation.finish();
-    await until('the first finished sweep schedules its replay', () => vi.getTimerCount() === 1);
+    await ended('the first finished sweep emits animationend');
     expect(animations.every((animation) => animation.playState === 'finished')).toBe(true);
     expect(vi.getTimerCount()).toBe(1);
 
     window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }));
     expect(host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'paused')).toBe(true);
+    const restarted = watchSweepEvent(sweep, 'animationstart');
+    const endedAgain = watchSweepEvent(sweep, 'animationend');
     vi.advanceTimersByTime(1000);
     expect(animations.every((animation) => animation.currentTime === 0 && animation.playState === 'paused')).toBe(true);
     window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }));
-    await renderedFrame();
-    expect(host.getAnimations({ subtree: true }).every((animation) => animation.playState === 'running')).toBe(true);
+    // A rAF callback can precede CSS sampling the rewound sweep. Observe its
+    // actual start before finishing it again, or the second end event is lost.
+    expect(animations.every((animation) => getComputedStyle((animation.effect as KeyframeEffect).target as Element).animationPlayState === 'running')).toBe(true);
+    await restarted('the rewound sweep emits animationstart');
 
     for (const animation of animations) animation.finish();
-    await until('the next finished sweep schedules its replay', () => vi.getTimerCount() === 1);
+    await endedAgain('the next finished sweep emits animationend');
     expect(vi.getTimerCount()).toBe(1);
     setActive(false);
     expect(vi.getTimerCount()).toBe(0);
