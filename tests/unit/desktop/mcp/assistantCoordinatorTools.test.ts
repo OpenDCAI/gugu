@@ -7,6 +7,7 @@ import { AssistantWorkStore, type AssistantWorkBinding } from '../../../../apps/
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { startupDiscovery } from '../../../../apps/desktop/electron/sessionpage/startup-discovery'
 
 let host: DesktopGuguMcpHost
 const clients: Client[] = []
@@ -73,6 +74,19 @@ it('all assistants share one fixed tool prefix and a grant cannot flip roles', a
   const executor = await connect('executor', false)
   await expect(bridge('executor', true)).rejects.toThrow('cannot change subject or tool scope')
   expect((await executor.listTools()).tools.map(tool => tool.name)).toContain('device_call')
+})
+
+it('releases cloud background discovery after a coordinator tool, never on listing or executor calls', async () => {
+  const release = vi.spyOn(startupDiscovery, 'release')
+  try {
+    const assistant = await connect('startup-coordinator', true)
+    await assistant.listTools()
+    const executor = await connect('startup-executor', false)
+    await executor.callTool({ name: 'device_call', arguments: { device: 'device:phone', name: 'health.summary' } })
+    expect(release).not.toHaveBeenCalled()
+    await assistant.callTool({ name: 'device_actions', arguments: {} })
+    expect(release).toHaveBeenCalledOnce()
+  } finally { release.mockRestore() }
 })
 
 it('host adds the actual execution contract to spawn and reuse', async () => {

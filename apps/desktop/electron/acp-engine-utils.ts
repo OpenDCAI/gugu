@@ -28,6 +28,8 @@ import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, type CatalogTool } from '.
 import { registerGuguAppSearchTool, type AppSearchHit } from './mcp/gugu-app-search-tool'
 import { buildAgentIdentityBlock } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type { McpServerOwner } from '@gugu/session-core/mcp'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import type { GuguMcpRequestTracker } from './gugu-mcp-host'
 
 export type AcpMcpServer =
   | {
@@ -200,8 +202,15 @@ export type DesktopGuguMcpHost = GuguMcpHost<GuguMcpContext>
 
 export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): DesktopGuguMcpHost {
   return new GuguMcpHost<GuguMcpContext>(
-    (getContext, grantSignal, trackRequest) => {
+    (getContext, grantSignal, trackHostRequest) => {
       const initial = getContext()
+      const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
+        const tracked = trackHostRequest(work, toolName)
+        if (initial.personalAssistant && toolName) {
+          void tracked.then(() => startupDiscovery.release(), () => startupDiscovery.release())
+        }
+        return tracked
+      }
       const server = initial.kind === 'social'
         ? createGuguImServer(() => {
             const latest = getContext()

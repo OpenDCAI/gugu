@@ -502,7 +502,9 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
   let scanAfter: AgentInboxFetchInput['scanAfter']
   let scanFence: number | undefined
   for (;;) {
+    const readStartedAt = Date.now()
     const fetchedRows = await fetchUnread({ agentUserId, limit: PULL_LIMIT, scanAfter, scanFence })
+    log.debug({ agentUserId, elapsedMs: Date.now() - readStartedAt, rows: fetchedRows.length }, 'agent inbox cloud read completed')
     // Pagination follows cloud rows, not local outbox positions. Every cloud row is already one the
     // RPC decided to hand this agent (chat.message_wakes_agent); the reader adds no eligibility of its own.
     // This cursor is discarded on every exit (including failure); the next trigger starts

@@ -358,6 +358,7 @@ import { connectedCliSkills } from './session/main/core/integrations/cli/cli-int
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { startupDiscovery } from './sessionpage/startup-discovery'
 import { assistantWorkBinding } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -5711,7 +5712,9 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain)
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+      scheduleDiscovery: (work) => startupDiscovery.schedule(work),
+    })
     // 认回重启前留在 tmux 里的平台会话(#7120):它读 tmux 名与平台票账本,两样都是 boot 里段 2 迁移改的
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。

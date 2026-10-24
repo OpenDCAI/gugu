@@ -5,6 +5,7 @@ import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy'
 import { ASSISTANT_INDEX_LIMIT, boundedAssistantIndex } from './assistant-index-format'
 import { assistantStartupIndex, type AssistantStartupIndexDeps } from './assistant-startup-index'
 import { createLogger } from '../lib/logger'
+import { startupDiscovery } from './startup-discovery'
 
 type Snapshot = { account: string; cwd: string; kind: AssistantHomeKind; observedAt: string; index: string }
 const refreshing = new Map<string, Promise<void>>()
@@ -34,7 +35,7 @@ export async function openingAssistantIndex(
   }
   if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before opening')
   if (!refreshing.has(path)) {
-    const refresh = (async () => {
+    const refresh = startupDiscovery.schedule(async () => {
       const index = await assistantStartupIndex(deps)
       if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before saving')
       const value: Snapshot = { account, cwd: directory, kind, observedAt: (deps.now?.() ?? new Date()).toISOString(), index }
@@ -44,7 +45,7 @@ export async function openingAssistantIndex(
         await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 })
         await rename(temporary, path)
       } finally { await rm(temporary, { force: true }) }
-    })().catch(() => {
+    }).catch(() => {
       log.warn({}, 'Background discovery failed; opening snapshot remains unverified')
     }).finally(() => { if (refreshing.get(path) === refresh) refreshing.delete(path) })
     refreshing.set(path, refresh)
