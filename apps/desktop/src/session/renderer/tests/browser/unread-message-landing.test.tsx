@@ -98,6 +98,7 @@ async function renderConversation(target: number, width: number) {
   await page.getByRole('button', { name: 'Jump to first unread' }).click()
   await until('twelve animation frames after navigation are recorded', () => readings.length >= 12)
   cancelAnimationFrame(frame)
+  await until('unread navigation confirms the visible row or reports its failure', () => confirmed.mock.calls.length > 0 || rejected.mock.calls.length > 0)
   return { readings, confirmed, rejected, loadMessageAnchor, scroller }
 }
 
