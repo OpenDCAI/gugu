@@ -339,6 +339,7 @@ export default {
     "action": "Add to composer"
   },
   "composer": {
+    "notInGroup": "Not in this group",
     "agent": {
       "disabledReason": {
         "removed": "This Agent was removed and cannot receive more messages.",

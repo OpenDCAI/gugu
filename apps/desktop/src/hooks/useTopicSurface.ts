@@ -7,13 +7,14 @@
 // 与老 thread 面板的根本差别就在这:老面板是同一个 chat 里的一段过滤视图,新分栏是另一条线。
 // 线的实时与主区 activeChat 走同一份 subscribeChatLineRevisions(#6470),❌ 在这里另听线级事件。
 import { useCallback, useRef, useState } from 'react'
-import type { ChatItem, TopicSummary } from '@gugu/core/shared/types/chat'
+import type { ChatItem, MessageItem, TopicSummary } from '@gugu/core/shared/types/chat'
 import type { AccountRevisionEvent, AccountRevisionListener } from '@/lib/accountRevisionCoordinator'
 import { topicService } from '@/lib/topics'
 import { useChatStore } from '@/store/chatContext'
 import { topicsSourceChatId, useTopicsOfChat } from './useTopics'
 import { useChatConversation, type ChatConversation } from '@/store/useChatConversation'
 import { rendererLogger } from '@/lib/log'
+import { topicNameFromMessage } from '@/components/chat/topicAnchorModels'
 
 const topicSurfaceLog = rendererLogger('chat/topic-surface')
 
@@ -23,6 +24,7 @@ type UseTopicSurfaceArgs = {
   /** 当前打开的那条线。它自己是话题时,不再往下长话题(单层不嵌套,由 topicsSourceChatId 守)。 */
   chat: Pick<ChatItem, 'id' | 'kind'> | null | undefined
   userId: string | null
+  messages: readonly Pick<MessageItem, 'id' | 'content' | 'content_type'>[]
   /** 打开右侧槽位前先让别的右栏让位(ChatAreaPanel 的 closeRightSurfaces)。 */
   closeRightSurfaces: () => void
   /**
@@ -71,12 +73,15 @@ export type TopicSurface = {
 export function useTopicSurface({
   chat,
   userId,
+  messages,
   closeRightSurfaces,
   subscribeAccountRevision,
   onCreateFailed,
 }: UseTopicSurfaceArgs): TopicSurface {
   const { conversations } = useChatStore('conversations')
   const chatId = chat?.id ?? null
+  const sourceMessages = useRef(messages)
+  sourceMessages.current = messages
   // 调用方传的是内联箭头;直接进依赖会让 openTopicFromMessage 每次渲染换身份 ——
   // 它原样下传给每条消息气泡,于是任何一次面板重渲都打穿全部气泡的 memo。只在事件时刻取最新的那个。
   const onCreateFailedRef = useRef(onCreateFailed)
@@ -141,10 +146,12 @@ export function useTopicSurface({
     async (sourceMessageId: string) => {
       if (!chatId) return
       try {
-        // 名字交给服务端从来源消息截 —— 一处口径,客户端不再截第二遍。
+        const source = sourceMessages.current.find((message) => message.id === sourceMessageId)
+        if (!source) throw new Error('Topic source message is not in the current message window')
         const created = await topicService.createTopic({
           sourceChatId: chatId,
           sourceMessageId,
+          name: source.content_type === 'text' ? topicNameFromMessage(source.content) : null,
         })
         reloadTopics()
         openSplit({ chatId: created.chat_id, name: created.name })

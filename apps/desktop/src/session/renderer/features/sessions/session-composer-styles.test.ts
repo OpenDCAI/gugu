@@ -10,14 +10,14 @@ import {
 import { sessionComposerDockBandClassName, sessionComposerDockedWidthClassName } from './session-composer-styles';
 
 /** Tailwind v4 默认刻度(这棵树的 @theme 没有覆盖 --container-* / --breakpoint-* / --spacing)。 */
-const TAILWIND_CONTAINER_REM: Record<string, number> = { '2xl': 42, '3xl': 48 };
+const TAILWIND_CONTAINER_REM: Record<string, number> = { '3xl': 48, '4xl': 56 };
 const TAILWIND_BREAKPOINT_REM: Record<string, number> = { xl: 80 };
 const TAILWIND_SPACING_PX = 4;
 
 const classes = (value: string) => value.split(/\s+/).filter(Boolean);
 
 describe('project-home docked composer geometry', () => {
-  it('uses the chat column widths: 42rem, widening to 48rem at the wide breakpoint', () => {
+  it('uses the chat column widths: 48rem, widening to 56rem at the wide breakpoint', () => {
     const width = classes(sessionComposerDockedWidthClassName);
     const base = width.find((c) => /^max-w-/.test(c));
     const wide = width.find((c) => /^[a-z0-9]+:max-w-/.test(c));

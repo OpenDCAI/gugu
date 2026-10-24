@@ -2,7 +2,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
-import { ChatComposer } from '@gugu/session-ui/react/components'
+import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { sessionComposerBox, sessionComposerCardClassName, sessionComposerEmptyHeightPx } from '@renderer/features/sessions/session-composer-styles'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
@@ -38,6 +38,23 @@ afterEach(() => {
 })
 
 describe('the session composer\'s box', () => {
+  it.each([false, true])('grows from one line to its existing cap and then scrolls (mobile=%s)', async (mobile) => {
+    const editorApiRef: { current: PromptEditorRef | null } = { current: null }
+    root!.render(<SessionLocalizationProvider><ChatComposer mobile={mobile} editorApiRef={editorApiRef} onSubmit={() => {}} /></SessionLocalizationProvider>)
+    const area = () => container!.querySelector<HTMLElement>('[data-slot="composer-input"]')!
+    await until('one-line editor', () => !!editorApiRef.current && area()?.clientHeight === sessionComposerBox.editorMinHeightPx)
+    editorApiRef.current!.setText('One\nTwo\nThree\nFour')
+    await until('four lines grow the input', () => area().clientHeight > sessionComposerBox.editorMinHeightPx)
+    expect(area().clientHeight).toBeLessThan(sessionComposerBox.editorMaxHeightPx)
+    expect(area().scrollHeight).toBe(area().clientHeight)
+    editorApiRef.current!.setText(Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join('\n'))
+    await until('long text reaches the cap', () => area().clientHeight === sessionComposerBox.editorMaxHeightPx)
+    expect(area().scrollHeight).toBeGreaterThan(area().clientHeight)
+    expect(getComputedStyle(area()).overflowY).toBe('auto')
+    editorApiRef.current!.clear()
+    await until('clearing shrinks to one line', () => area().clientHeight === sessionComposerBox.editorMinHeightPx)
+  })
+
   it('is the box the group box in a block draws: its height, where the words start, where the bottom row sits', async () => {
     root!.render(
       <SessionLocalizationProvider>

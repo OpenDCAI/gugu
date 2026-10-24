@@ -1,7 +1,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
-import { InputArea } from '@/components/chat/InputArea'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { LocalizationProvider, i18n, getLocaleSnapshot, setLocalePreference } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import '@/i18n/registerMessagingCatalog'
@@ -29,47 +29,43 @@ it.each(['en-US', 'zh-CN'] as const)('a hidden empty group composer shows its re
   root = createRoot(host)
   const render = (hidden: boolean) => root!.render(
     <LocalizationProvider>
-      <InputArea onSend={vi.fn(async () => {})} isGroupChat hidden={hidden} />
+      <ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat hidden={hidden} />
     </LocalizationProvider>,
   )
   render(true)
-  // The same visibility signal as the mobile chat detail.
-  await until('the hidden composer has mounted', () => !!host?.querySelector('textarea'))
-  const textarea = host.querySelector('textarea')!
-  expect(textarea.scrollHeight, 'positive control: hidden layout has no height').toBe(0)
-  expect(textarea.getBoundingClientRect().height).toBe(0)
+  await until('the hidden composer has mounted', () => !!host?.querySelector('[contenteditable]'))
+  const editor = host.querySelector<HTMLElement>('[contenteditable]')!
+  const scroller = editor.closest<HTMLElement>('[data-slot="composer-input"]')!
+  expect(editor.getBoundingClientRect().height, 'positive control: hidden layout has no height').toBe(0)
 
   host.style.display = 'block'
   render(false)
-  await until('showing measures the real placeholder', () => textarea.style.height !== '' && textarea.scrollHeight <= textarea.clientHeight)
-  const style = getComputedStyle(textarea)
-  const oneLine = parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+  await until('showing lays out the shared editor', () => scroller.clientHeight > 0)
+  const oneLine = editor.getBoundingClientRect().height
   expect(oneLine).toBeGreaterThan(0)
-  expect(textarea.placeholder).toBe(i18n.t('composer.placeholder', { ns: 'messaging' }))
-  expect(textarea.value).toBe('')
-  expect(textarea.getBoundingClientRect().height).toBeGreaterThanOrEqual(oneLine)
-  expect(textarea.scrollHeight).toBeLessThanOrEqual(textarea.clientHeight)
+  expect(editor.getAttribute('data-placeholder')).toBe(i18n.t('composer.placeholder', { ns: 'messaging' }))
+  expect(editor.innerText.trim()).toBe('')
+  expect(scroller.scrollHeight).toBeLessThanOrEqual(scroller.clientHeight)
 
-  const input = page.getByRole('textbox')
+  const input = page.getByTestId('chat-composer')
   await input.fill('First line\nSecond line\nThird line')
-  await until('visible text expands the composer', () => textarea.getBoundingClientRect().height > oneLine)
-  expect(textarea.value).toContain('Third line')
+  await until('visible text expands the composer', () => editor.getBoundingClientRect().height > oneLine)
+  expect(editor.innerText).toContain('Third line')
 
   host.style.display = 'none'
   render(true)
-  await until('the multiline draft is hidden', () => textarea.scrollHeight === 0)
+  await until('the multiline draft is hidden', () => editor.getBoundingClientRect().height === 0)
   host.style.display = 'block'
   render(false)
-  await until('showing restores the multiline draft height', () => textarea.scrollHeight <= textarea.clientHeight)
-  expect(textarea.getBoundingClientRect().height).toBeGreaterThan(oneLine)
-  expect(textarea.value).toContain('Third line')
+  await until('showing restores the multiline draft', () => editor.getBoundingClientRect().height > oneLine)
+  expect(editor.innerText).toContain('Third line')
 
   await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n'))
-  await until('long text reaches the existing height cap', () => textarea.getBoundingClientRect().height === 110)
-  expect(textarea.scrollHeight).toBeGreaterThan(textarea.clientHeight)
+  await until('long text reaches the shared height cap', () => scroller.scrollHeight > scroller.clientHeight)
+  expect(scroller.clientHeight).toBe(Number.parseFloat(getComputedStyle(scroller).maxHeight))
 
   await input.fill('')
-  await until('clearing fits the real placeholder', () => textarea.value === '' && textarea.scrollHeight <= textarea.clientHeight)
-  expect(textarea.getBoundingClientRect().height).toBeGreaterThanOrEqual(oneLine)
-  expect(host.querySelector('textarea')).toBe(textarea)
+  await until('clearing fits the real placeholder', () => editor.innerText.trim() === '' && scroller.scrollHeight <= scroller.clientHeight)
+  expect(editor.getBoundingClientRect().height).toBe(oneLine)
+  expect(host.querySelector('[contenteditable]')).toBe(editor)
 })

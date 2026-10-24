@@ -69,7 +69,7 @@ type SessionpageSessionPeerBinding = EmdashAgentRegistration & { engine: string 
  */
 export async function resolveSessionpageSessionPeers(
   deps: SessionpageSessionPeersDeps,
-): Promise<LocalSessionPeer[]> {
+): Promise<(LocalSessionPeer & { engine: string })[]> {
   const roster = await deps.listRoster()
   const bindings: SessionpageSessionPeerBinding[] = roster
     .filter((agent) => agentMayBelongTo(agent, deps.ownerUserId))

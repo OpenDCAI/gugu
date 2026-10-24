@@ -339,6 +339,7 @@ export default {
     "action": "放入输入框"
   },
   "composer": {
+    "notInGroup": "不在本群",
     "agent": {
       "disabledReason": {
         "removed": "Agent 已移除，不能继续发送消息",

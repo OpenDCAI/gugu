@@ -64,6 +64,7 @@ let harness: ReturnType<typeof createReactHarness>
 let surface: Surface | null
 function Probe() {
   surface = useTopicSurface({
+    messages: [],
     chat: { id: 'chat-A', kind: 'group' },
     userId: 'user-1',
     closeRightSurfaces: () => {},

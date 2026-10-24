@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
+import { displayAgentReferences } from '@/lib/mentionMdast'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { ComposerCardHead } from './ComposerCardView'
 
@@ -37,7 +38,7 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
           : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
       </div>
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {quotedCard ? quotedCard.text : msg.reply_to_content ?? ''}
+        {displayAgentReferences(quotedCard?.text ?? msg.reply_to_content ?? '', (_id, label) => `@${label}`)}
       </div>
     </div>
   )

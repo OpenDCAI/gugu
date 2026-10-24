@@ -251,5 +251,5 @@ export function useChatDraft(chatId: string | null | undefined): ChatDraft {
     synced.current.chatId = null
   }, [flushTo])
 
-  return { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush }
+  return { text: key && synced.current.chatId !== key ? storeText : text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, refs, setRefs, clear, persistTo, flush }
 }
