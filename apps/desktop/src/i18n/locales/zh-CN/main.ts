@@ -429,8 +429,6 @@ export default {
       "work": "工作",
       "about": "关于"
     },
-    "page": {
-    },
     "nav": {
       "about": "关于",
       "assistant": "资料",

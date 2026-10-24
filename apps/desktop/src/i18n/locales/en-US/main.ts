@@ -435,8 +435,6 @@ export default {
       "work": "Work",
       "about": "About"
     },
-    "page": {
-    },
     "nav": {
       "assistant": "Profile",
       "connectors": "Connected apps",
