@@ -1,0 +1,63 @@
+import { coded, guguError, type GuguHost } from './host';
+
+/** Keyboard events stay in a guest document. The runtime hands only its unconsumed edges to the host. */
+export function createModalApi(host: GuguHost) {
+  const modal = host.modal!;
+  const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
+  let content = false;
+  const focusable = () => [...document.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[tabindex]')]
+    .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden],[inert]') && el.getClientRects().length > 0);
+  const report = (error: unknown) => void host.reportError(`App modal: ${error instanceof Error ? error.message : String(error)}`);
+
+  host.onModalClosed!(({ id, result, error }) => {
+    const waiting = pending.get(id);
+    if (!waiting) return;
+    pending.delete(id);
+    if (error) waiting.reject(guguError('failed', error));
+    else waiting.resolve(result);
+  });
+  host.onModalFocus!((edge) => {
+    content = true;
+    const focus = () => {
+      const candidates = focusable();
+      const target = edge === 'last' ? candidates.at(-1) : document.querySelector<HTMLElement>('[autofocus]') ?? candidates[0];
+      if (target) target.focus();
+      else { document.body.tabIndex = -1; document.body.focus(); }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', focus, { once: true });
+    else focus();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (!content || event.defaultPrevented || event.isComposing) return;
+    if (event.key === 'Escape' && !document.querySelector('dialog[open]')) {
+      event.preventDefault();
+      void modal.close().catch(report);
+    } else if (event.key === 'Tab') {
+      const candidates = focusable();
+      const boundary = event.shiftKey ? candidates[0] : candidates.at(-1);
+      if (!candidates.length || document.activeElement === boundary) {
+        event.preventDefault();
+        void modal.key('tab').catch(report);
+      }
+    }
+  });
+
+  return Object.freeze({
+    open(options: { entry: string; title: string; size?: string; data?: unknown }): Promise<unknown> {
+      const id = crypto.randomUUID();
+      const previous = document.activeElement;
+      const hadFocus = document.hasFocus();
+      const result = new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        void coded(modal.open)({ ...options, id }).catch((error: Error) => {
+          pending.delete(id);
+          reject(error);
+        });
+      });
+      return result.finally(() => {
+        if (hadFocus && previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      });
+    },
+    close: coded((result?: unknown) => modal.close(result)),
+  });
+}

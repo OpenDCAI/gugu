@@ -1,6 +1,7 @@
 import { folderOf, placeKey, placeOf, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { coded, guguError, refOf, type GuguHost } from './host';
+import { createModalApi } from './modal';
 
 /**
  * `gugu` itself, built on a host — the same object wherever an App runs (F16): a page (desktop webview or
@@ -127,10 +128,11 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalClosed', 'onModalFocus'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
+  if (raw.modal) api.modal = createModalApi(raw);
   // `gugu.compose(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
   if (typeof raw.compose === 'function') {
     const compose = raw.compose as (text: unknown, where?: Record<string, unknown>) => Promise<unknown>;

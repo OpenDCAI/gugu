@@ -17,6 +17,9 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  'modal.open': { verb: 'modalOpen' },
+  'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
+  'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
@@ -107,6 +110,8 @@ interface HostEvent {
 
 /** The events a host hands on, one row per `on…` member: which event, and what the handler gets of it. */
 export const HOST_EVENTS = {
+  onModalClosed: { event: 'modalClosed', only: 'page', pick: (event: Event<'modalClosed'>) => [event] },
+  onModalFocus: { event: 'modalFocus', only: 'page', pick: (event: Event<'modalFocus'>) => [event.edge] },
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
   onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.watchId, event.change] },

@@ -8,6 +8,13 @@ import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
 export interface GuguHost {
+  readonly modal?: {
+    open(options: Record<string, unknown>): Promise<void>;
+    close(result?: unknown): Promise<void>;
+    key(key: string): Promise<void>;
+  };
+  onModalClosed?(handler: (event: { id: string; result: unknown; error?: string }) => void): () => void;
+  onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */
   readonly framed?: boolean;

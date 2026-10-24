@@ -37,6 +37,8 @@ import { appState } from '@renderer/lib/stores/app-state';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
+import { openDesktopAppModal } from './desktop-app-modal';
+import { closeAppModal, focusAppModalClose } from '@/components/appModal/appModal';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -108,6 +110,15 @@ function openForClick(action: ExtensionHostAction): void {
 function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): void | Promise<void> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
+    case 'openAppModal':
+      openDesktopAppModal(action.page);
+      return;
+    case 'closeAppModal':
+      closeAppModal(action.id);
+      return;
+    case 'focusAppModalClose':
+      focusAppModalClose(action.id);
+      return;
     case 'setTabTitle':
       extensionSurfaceStore.say(sessionId, tabId, { title: action.title });
       return;
