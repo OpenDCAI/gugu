@@ -1279,7 +1279,6 @@ function InnerLayout({
 
   // 手机壳里盖在页面上的层与 Sheet 同一个返回栈(ui/sheetStack.ts);任务 tab 那一层在 AgentWatchPage 里。
   useBackLayer(() => setSettingsModalOpen(false), mobile && settingsModalOpen)
-  useBackLayer(() => navigateMobile(() => setSettingsPane('nav'), 'pop'), mobile && activeTab === 'settings' && settingsPane === 'detail')
   useBackLayer(() => setSessionCreateOpen(false), mobile && showSessionCreate)
 
   // 页面那一层:栈里没有层时,聊天详情退回列表。

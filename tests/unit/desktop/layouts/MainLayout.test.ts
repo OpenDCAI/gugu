@@ -190,14 +190,19 @@ vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
 })
 vi.mock('../../../../apps/desktop/src/components/SettingsPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
     // 有状态的替身,与真 SettingsPanel 同一个口径:给了 section 就受控(弹窗),否则是本地 state、只在挂载时读 initialSection(「我的」)。
-    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange }: {
+    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange, mobile, pane, onPaneChange }: {
       onClose?: () => void
       initialSection?: string
       section?: string
       onSectionChange?: (section: string) => void
+      mobile?: boolean
+      pane?: 'nav' | 'detail'
+      onPaneChange?: (pane: 'nav' | 'detail') => void
     }) => {
+      useBackLayer(() => onPaneChange?.('nav'), mobile && pane === 'detail')
       const [local, setLocal] = React.useState(initialSection)
       const section = controlled ?? local
       const setSection = onSectionChange ?? setLocal
