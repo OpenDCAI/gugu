@@ -13,7 +13,7 @@ concurrency:
 env:
   CI: true
   # Temporary label for isolated PR timing controls; all runner settings stay literal.
-  GUGU_CI_EXPERIMENT: heap4096
+  GUGU_CI_EXPERIMENT: baseline-v2
   GUGU_SUPABASE_URL: http://127.0.0.1:54321
   VITE_SUPABASE_URL: http://127.0.0.1:54321
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
@@ -227,7 +227,7 @@ jobs:
       - uses: ./.github/actions/setup-community
       - run: node scripts/ci-build-profile.mjs pnpm build:app:ci
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
           GUGU_BUILD_SERIAL: '0'
       - run: /usr/bin/time -l pnpm rebuild:native
   android-build:
