@@ -51,6 +51,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
  * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
  * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
+ * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
+ * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
  * 13: common resource linkTo/openLink on desktop, phone and programs (generation only).
  */
 export const EXTENSION_API_VERSION = 13;

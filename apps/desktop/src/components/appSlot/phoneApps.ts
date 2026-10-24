@@ -25,7 +25,8 @@ import {
 import { archiveRefusal, bundleProblems, unpackedTooMuch, type BundleEntry } from '../../session/shared/extensions/bundle-checks'
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS } from '../../session/shared/extensions/host-actions'
 import { agreeThenInstall, type InstallConsent } from '../../session/shared/extensions/install-consent-flow'
-import { extensionTabKind, safeParseExtensionManifest, type ExtensionCapability, type ExtensionManifest } from '../../session/shared/extensions/manifest'
+import { extensionTabKind, safeParseExtensionManifest, type ExtensionManifest } from '../../session/shared/extensions/manifest'
+import { PHONE_CAPABILITIES, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
 import { BUNDLE_SKIP_NAMES, currentMarketHost, type MarketCodeSource, type MarketUpdatesSummary } from '../../session/shared/extensions/market'
 import { autoUpdatesFrom, pinsAutoUpdate } from '../../session/shared/extensions/market-entries'
 import { installAsks } from '../../session/shared/extensions/upgrade'
@@ -37,9 +38,7 @@ declare const __APP_VERSION__: string
 
 const log = rendererLogger('app-slot/phone-apps')
 
-/** Only these capabilities mean anything on the phone (no agents, no working copy): what it asks about and gives a page. */
-// `files:read:all-machines` reads no more here than `files:read`: the phone has chats, no working copies.
-export const PHONE_CAPABILITIES: readonly ExtensionCapability[] = ['files:read', 'files:read:all-machines', 'files:write', 'chat:relay', 'chat:read']
+export { PHONE_CAPABILITIES } from '../../session/shared/extensions/app-platforms'
 
 /**
  * The phone's App store (L9, 摩擦单 F76): the Apps on this phone — the ones gugu ships in its bundle, and the ones the
@@ -406,6 +405,7 @@ async function readPackage(bytes: Uint8Array): Promise<ReadPackage> {
   const parsed = safeParseExtensionManifest(raw)
   if (!parsed.ok) throw new Error(`Invalid manifest:\n- ${parsed.issues.join('\n- ')}`)
   const manifest = parsed.manifest
+  requireAppPlatform(manifest, 'phone')
   if (manifest.contributes.tabs.some((tab) => tab.hostPage)) throw new Error('This App needs Gugu Desktop to configure and run its tools.')
   if (manifest.entry && !files.has(manifest.entry)) throw new Error(`The manifest's entry is not in the package: ${manifest.entry}`)
   for (const tab of manifest.contributes.tabs) {
@@ -507,7 +507,7 @@ const MARKET_INDEX_KEY = 'gugu.marketIndex'
 const market = phoneMarket(
   async (relativePath, maxBytes) =>
     Uint8Array.from(atob((await appStore.marketRead({ path: relativePath, ...(maxBytes ? { maxBytes } : {}) })).base64), (char) => char.charCodeAt(0)),
-  () => currentMarketHost(__APP_VERSION__),
+  () => currentMarketHost(__APP_VERSION__, 'phone'),
   {
     read: async () => localStorage.getItem(MARKET_INDEX_KEY),
     write: async (text) => {

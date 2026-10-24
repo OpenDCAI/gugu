@@ -40,7 +40,7 @@ card — the others install it from that card, or when they open one of its file
 It is a folder: \`manifest.json\` plus its files. HTML tabs open in tasks or, with \`opensFiles.chat\`,
 in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host settings page.
 
-More guides — \`guide_read\` each when you get there:
+More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
 - \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
 - \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
@@ -53,10 +53,11 @@ More guides — \`guide_read\` each when you get there:
 
 \`\`\`json
 {
-  "id": "csv-lens",              // lowercase, digits, dashes. NO dots.
+  "id": "csv-lens",              // [a-z0-9-]+; no dots
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
+  "platforms": ["desktop"],       // desktop, phone, or both
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
   "permissions": {
@@ -67,7 +68,7 @@ More guides — \`guide_read\` each when you get there:
     "tabs": [
       {
         "name": "main",          // stable machine name, lowercase
-        "title": "CSV",          // shown to the person, <= 48 chars
+        "title": "CSV",          // <= 48 chars
         "opensFiles": { "session": [".csv"] },  // claim: a session's .csv opens THIS tab
         "fileIcons": { ".csv": "csv.png" },  // icon per claim (else generic)
         "menu":    [{ "id": "reload",  "title": "Reload" }],   // <= 8
@@ -878,6 +879,11 @@ What the card, the detail sheet and the installed list show comes from manifest.
 `;
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
+
+## Platform declarations
+
+Declare human UI hosts in \`platforms\` (API 12): desktop, phone, or both. A phone UI may declare agent
+capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
 
 ## Standing agent behavior
 

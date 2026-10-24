@@ -50,7 +50,7 @@ async function publish(id: string, permissions?: { network: string[]; capabiliti
   const dir = path.join(work, 'src', id);
   mkdirSync(dir, { recursive: true });
   const manifest = {
-    id, name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id, name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     ...(permissions ? { permissions } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   };
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
@@ -65,7 +65,7 @@ async function publish(id: string, permissions?: { network: string[]; capabiliti
   const market = new CloudExtensionMarket(site, {
     stagingRoot: path.join(state.userData, 'extension-market', 'staging'),
     heldRoot: path.join(state.userData, 'extension-market', 'held'),
-    resolveHost: async () => ({ appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+    resolveHost: async () => ({ platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
     snapshotStore: { read: async () => null, write: async () => undefined },
   });
   return { site, market, sha256 };

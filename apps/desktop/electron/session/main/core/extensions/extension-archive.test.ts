@@ -21,6 +21,7 @@ afterEach(() => {
 
 const MANIFEST = {
   id: 'demo-ext', name: 'Demo', version: '1.2.0', apiVersion: EXTENSION_API_VERSION,
+  platforms: ['desktop'],
   entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
 };
 

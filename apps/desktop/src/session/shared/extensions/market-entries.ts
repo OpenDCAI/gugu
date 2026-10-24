@@ -1,4 +1,5 @@
 import { compareExtensionVersions, safeParseExtensionManifest, type ExtensionManifest } from './manifest';
+import { appPlatformDeclarationProblems } from './app-platforms';
 import {
   compatOf,
   isUpdateFor,
@@ -33,8 +34,14 @@ export function marketEntriesFrom(
   const extensions: CloudMarketEntry[] = [];
   const invalid: InvalidMarketRow[] = [];
   for (const app of apps) {
-    const picked = pickForHost(app.versions, host);
-    if (!picked.chosen) continue;
+    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host);
+    if (!picked.chosen) {
+      const live = app.versions.filter((version) => !version.yanked);
+      if (live.length && live.every((version) => appPlatformDeclarationProblems(version.manifest).length > 0)) {
+        invalid.push({ extensionId: app.id, reason: appPlatformDeclarationProblems(live[0]!.manifest).join('; ') });
+      }
+      continue;
+    }
     const entry = entryFrom(app, picked.chosen, picked.newerNeedsApp, urlOf);
     if ('reason' in entry) invalid.push(entry);
     else extensions.push(entry);
@@ -100,6 +107,7 @@ function placeholderManifest(id: string, version: MarketIndexVersion): Extension
     contributes: { tabs: [{ name: 'main', title: name }] },
     ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
     ...(typeof raw.author === 'string' ? { author: raw.author } : {}),
+    ...(Array.isArray(raw.platforms) ? { platforms: raw.platforms as NonNullable<ExtensionManifest['platforms']> } : {}),
   };
 }
 
@@ -155,6 +163,7 @@ export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost):
       minAppVersion: version.minAppVersion,
       yanked: version.yanked,
       compat: compatOf(version, host),
+      platformRefusal: appPlatformDeclarationProblems(version.manifest, host.platform).join('; ') || null,
     }));
 }
 

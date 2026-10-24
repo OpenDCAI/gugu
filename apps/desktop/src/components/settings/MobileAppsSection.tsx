@@ -19,6 +19,7 @@ import { installedExtensionsStore as store } from '@/session/renderer/features/e
 import { MARKET_PAGE_SIZE, type MarketListItem, type MarketSourceRef } from '@/session/shared/extensions/market'
 import { localizedManifestText, type MarketCategory } from '@/session/shared/extensions/catalog'
 import { grantableBy } from '@/session/shared/extensions/attachment-install'
+import { PHONE_CAPABILITY_SUPPORT } from '@/session/shared/extensions/app-platforms'
 import { PHONE_CAPABILITIES, phoneApps } from '../appSlot/phoneApps'
 import { phoneRuns } from '../appSlot/phoneAppHost'
 import { Button } from '../ui/Button'
@@ -166,6 +167,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
                 onBack={() => setDetail(null)} onLifecycle={() => act(detail)} onInstallVersion={install}
                 backgroundSupported={false}
                 permissionRevocationSupported={false}
+                phoneAgentFeaturesUnavailable={(installed ?? detail.manifest).permissions?.capabilities?.some((capability) => PHONE_CAPABILITY_SUPPORT[capability] === 'agent') ?? false}
                 menu={installed && !store.isPreinstalled(installed.id) ? {
                   onToggleEnabled: (on) => void change(installed.id, undefined, () => phoneApps.setEnabled(installed.id, on)),
                   ...(store.autoUpdates(installed.id) !== null ? { autoUpdate: { on: store.autoUpdates(installed.id)!, onToggle: (on: boolean) => void change(installed.id, undefined, () => phoneApps.setAutoUpdate(installed.id, on)) } } : {}),
