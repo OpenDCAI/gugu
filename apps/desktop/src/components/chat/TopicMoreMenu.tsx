@@ -9,11 +9,13 @@ import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { GroupAppsPicker } from './GroupAppsPicker'
 import { useChatAppPins } from './useChatAppPins'
 import { useChatStore } from '../../store/chatContext'
+import { ChatDetailsMenuItems } from './ChatDetailsMenuItems'
+import { UI_EVENTS, type ChatDetailsRequest } from '@/lib/uiEvents'
 
 /**
  * A topic's ⋯ (TopicSplitPane), the group header's menu over again (ChatHeaderActions): on the phone what its header has
  * no room for (`items`, as a group's compact header folds them in), then the Apps that open in the source chat's panel. With
- * neither, no ⋯.
+ * Settings and announcements belong to the source conversation.
  */
 export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, items }: {
   chatId: string
@@ -29,7 +31,7 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
   const anchor = useRef<HTMLButtonElement>(null)
   const apps = installedExtensionsStore.openableApps
   const pinned = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
-  if (!items && installedExtensionsStore.openableApps.length === 0) return null
+  const ask = (page: ChatDetailsRequest['page']) => window.dispatchEvent(new CustomEvent<ChatDetailsRequest>(UI_EVENTS.openChatDetailsDrawer, { detail: { chatId, page } }))
   return (
     <>
     <DropdownMenu.Root modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
@@ -46,6 +48,7 @@ export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, i
       />
       <DropdownMenu.Content side="bottom" align="end" sideOffset={4} className="min-w-[148px]">
         {items}
+        <ChatDetailsMenuItems isGroupChat={Boolean(groupId)} onOpenSettings={() => ask('settings')} onOpenAnnouncement={() => ask('announcement')} />
         {groupId ? <>
           <MenuItem icon={<LayoutGrid size={16} />} onClick={() => { setMenuOpen(false); setAppsOpen(true) }}>{t('header.groupApps')}</MenuItem>
           <OpenAppMenuItems chatId={groupId} apps={pinned} separated />
