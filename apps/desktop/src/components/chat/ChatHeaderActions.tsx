@@ -142,7 +142,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       )}
       {groupId && !compactRoom && <>
         <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
-        <span ref={pinsRef} className="flex items-center" style={{ gap: 2 }}>
+        <span ref={pinsRef} className="flex items-center gap-[2px]">
           {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
         </span>
       </>}
