@@ -1,50 +1,61 @@
-// gugu-dev#181 第 ⑥ 步:群右栏从「一个槽」变成「开着的一串 + 正看着的那一枚」。右栏(GroupAppSlot)照旧只画正看着的那一枚 ——
-// opened() 的意思没变,对话页、手机看起来和以前一样;块的页签条按 tabs() 列出开着的几枚。
+// gugu-dev#181 第 ⑥ 步:群右栏从「一个槽」变成「开着的一串 + 正看着的那一枚」。右栏(GroupAppSlot)只画正看着的那一枚,
+// 块的页签条按 tabs() 列出开着的几枚。owner 10-24:右栏没有「底」—— 群文件夹是普通的一枚,人打开它才有;一个 App 的一份
+// 资源只有一枚,怎么打开的只决定它的「上一页」(from)。
 import { describe, expect, it, vi } from 'vitest'
-import { groupSlotMemory, type OpenedWith } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
+import { folderTab, groupSlotMemory, isFolder, type OpenedWith } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 
 const board: OpenedWith = { kind: 'kanban.board', title: 'Board', opening: 1 }
 const deck: OpenedWith = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx', opening: 2 }
 
-describe('leaving an object tab', () => {
-  const file = (id: string): OpenedWith => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, opening: Number(id) })
+describe('leaving a tab', () => {
+  const file = (id: string, from?: OpenedWith): OpenedWith => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, opening: Number(id), ...(from ? { from } : {}) })
 
-  it('Back removes the file and returns to the folder in one notification', () => {
-    const item = file('101')
-    groupSlotMemory.setOpened('exit-folder', item)
+  it('Back on a file opened from the folder goes back to the folder, in one notification', () => {
+    const folder = folderTab()
+    groupSlotMemory.open('exit-folder', folder)
+    const item = file('101', folder)
+    groupSlotMemory.open('exit-folder', item)
     const changed = vi.fn()
     const off = groupSlotMemory.subscribe(changed)
     groupSlotMemory.close('exit-folder', item)
     off()
-    expect(groupSlotMemory.tabs('exit-folder')).toEqual([null])
-    expect(groupSlotMemory.opened('exit-folder')).toBeNull()
+    expect(groupSlotMemory.tabs('exit-folder')).toEqual([folder])
+    expect(groupSlotMemory.opened('exit-folder')).toBe(folder)
     expect(changed).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the App source after switching tabs and does not revive a source closed by the user', () => {
+  it('keeps its 上一页 after switching tabs, and does not revive one the person closed', () => {
     const app: OpenedWith = { kind: 'board.main', title: 'Board', opening: 102 }
-    const first = file('103')
-    const second = file('104')
-    groupSlotMemory.setOpened('exit-source', app)
-    groupSlotMemory.setOpened('exit-source', first)
-    groupSlotMemory.setOpened('exit-source', second)
+    groupSlotMemory.open('exit-source', app)
+    const first = file('103', app)
+    groupSlotMemory.open('exit-source', first)
+    const second = file('104', first)
+    groupSlotMemory.open('exit-source', second)
     groupSlotMemory.activate('exit-source', app)
     groupSlotMemory.activate('exit-source', second)
     groupSlotMemory.close('exit-source', second)
     expect(groupSlotMemory.opened('exit-source')).toBe(first)
     groupSlotMemory.close('exit-source', app)
     groupSlotMemory.close('exit-source', first)
-    expect(groupSlotMemory.tabs('exit-source')).toEqual([null])
+    expect(groupSlotMemory.tabs('exit-source'), 'nothing open: the panel has no floor').toEqual([])
+    expect(groupSlotMemory.opened('exit-source')).toBeNull()
+    expect(groupSlotMemory.form('exit-source')).toBe('closed')
   })
 
-  it('reopening the same file retains its source rather than adding itself to the trail', () => {
-    const first = file('105')
-    groupSlotMemory.setOpened('exit-reopen', first)
-    const again = { ...first, opening: 106 }
-    groupSlotMemory.setOpened('exit-reopen', again)
-    expect(again.trail).toEqual([])
-    groupSlotMemory.close('exit-reopen', again)
-    expect(groupSlotMemory.tabs('exit-reopen')).toEqual([null])
+  it('opened again from a page it gains that page as its 上一页; opened again straight from the chat it keeps it', () => {
+    const direct = file('105')
+    groupSlotMemory.open('exit-reopen', direct)
+    const folder = folderTab()
+    groupSlotMemory.open('exit-reopen', folder)
+    groupSlotMemory.open('exit-reopen', { ...direct, opening: 106, from: folder })
+    expect(groupSlotMemory.tabs('exit-reopen').map((item) => item.itemId ?? 'folder'), 'still one tab of 105').toEqual(['105', 'folder'])
+    const shown = groupSlotMemory.opened('exit-reopen')!
+    expect(shown.opening, 'its page kept').toBe(105)
+    expect(shown.from).toBe(folder)
+    groupSlotMemory.open('exit-reopen', { ...direct, opening: 107 })
+    expect(groupSlotMemory.opened('exit-reopen')?.from).toBe(folder)
+    groupSlotMemory.close('exit-reopen', direct)
+    expect(groupSlotMemory.opened('exit-reopen')).toBe(folder)
   })
 
   it('Close removes a message file before closing the panel and restoring the message', () => {
@@ -53,7 +64,7 @@ describe('leaving an object tab', () => {
       expect(groupSlotMemory.tabs('exit-message')).not.toContain(item)
       order.push('message')
     } }
-    groupSlotMemory.setOpened('exit-message', item)
+    groupSlotMemory.open('exit-message', item)
     groupSlotMemory.close('exit-message', item, () => order.push('panel'))
     expect(order).toEqual(['panel', 'message'])
   })
@@ -61,20 +72,20 @@ describe('leaving an object tab', () => {
   it('closing one preview leaves another item open and does not close the whole panel', () => {
     const preview = { ...file('108'), kind: null }
     const other = file('109')
-    groupSlotMemory.setOpened('exit-preview', other)
-    groupSlotMemory.setOpened('exit-preview', preview)
+    groupSlotMemory.open('exit-preview', other)
+    groupSlotMemory.open('exit-preview', preview)
     const closePanel = vi.fn()
     groupSlotMemory.close('exit-preview', preview, closePanel)
     expect(groupSlotMemory.opened('exit-preview')).toBe(other)
-    expect(groupSlotMemory.tabs('exit-preview')).toEqual([null, other])
+    expect(groupSlotMemory.tabs('exit-preview')).toEqual([other])
     expect(closePanel).not.toHaveBeenCalled()
   })
 
-  it('closing an inactive App opened over the chat keeps the current object visible', () => {
-    const source: OpenedWith = { kind: 'board.main', title: 'Board', opening: 110, fromChat: true }
-    const shown = file('111')
-    groupSlotMemory.setOpened('exit-inactive-source', source)
-    groupSlotMemory.setOpened('exit-inactive-source', shown)
+  it('closing a tab not shown keeps the one shown', () => {
+    const source: OpenedWith = { kind: 'board.main', title: 'Board', opening: 110 }
+    const shown = file('111', source)
+    groupSlotMemory.open('exit-inactive-source', source)
+    groupSlotMemory.open('exit-inactive-source', shown)
     const closePanel = vi.fn()
     groupSlotMemory.close('exit-inactive-source', source, closePanel)
     expect(groupSlotMemory.opened('exit-inactive-source')).toBe(shown)
@@ -83,46 +94,47 @@ describe('leaving an object tab', () => {
 })
 
 describe('the group panel keeps what is open and shows one of it', () => {
-  it('opening another keeps the one shown before as a tab; the panel shows only the newest', () => {
+  it('nothing opened is no tab; opening another keeps the one shown before as a tab', () => {
     groupSlotMemory.setForm('tabs-1', 'side')
-    expect(groupSlotMemory.tabs('tabs-1'), 'nothing opened yet: the folder alone').toEqual([null])
-    groupSlotMemory.setOpened('tabs-1', board)
-    groupSlotMemory.setOpened('tabs-1', deck)
+    expect(groupSlotMemory.tabs('tabs-1'), 'the folder is not a floor under the tabs').toEqual([])
+    groupSlotMemory.open('tabs-1', board)
+    groupSlotMemory.open('tabs-1', deck)
     expect(groupSlotMemory.opened('tabs-1')).toBe(deck)
-    expect(groupSlotMemory.tabs('tabs-1')).toEqual([null, board, deck])
-    // Back to the folder (the panel's 「返回」 at the end of its trail): what it shows is the folder, as before.
-    groupSlotMemory.setOpened('tabs-1', null)
-    expect(groupSlotMemory.opened('tabs-1')).toBeNull()
-    expect(groupSlotMemory.tabs('tabs-1')).toEqual([null, board, deck])
+    expect(groupSlotMemory.tabs('tabs-1')).toEqual([board, deck])
   })
 
-  it('the same App page opened again is the same tab, opened anew', () => {
+  it('the same App page opened again is the same tab, its page kept', () => {
     groupSlotMemory.setForm('tabs-2', 'side')
-    groupSlotMemory.setOpened('tabs-2', board)
-    const again = { ...board, opening: 9 }
-    groupSlotMemory.setOpened('tabs-2', again)
-    expect(groupSlotMemory.tabs('tabs-2')).toEqual([null, again])
-    expect(groupSlotMemory.opened('tabs-2')).toBe(again)
+    groupSlotMemory.open('tabs-2', board)
+    groupSlotMemory.open('tabs-2', deck)
+    groupSlotMemory.open('tabs-2', { ...board, opening: 9 })
+    expect(groupSlotMemory.tabs('tabs-2')).toEqual([board, deck])
+    expect(groupSlotMemory.opened('tabs-2')).toBe(board)
+  })
+
+  it("one App's one file is one tab through any of its tabs (owner 10-24); another App on it is another tab", () => {
+    const asApp: OpenedWith = { kind: 'kanban.file', itemId: 'B', title: '协作看板', opening: 21 }
+    groupSlotMemory.open('tabs-9', asApp)
+    groupSlotMemory.open('tabs-9', { kind: 'kanban.board', itemId: 'B', title: '协作看板', opening: 22 })
+    expect(groupSlotMemory.tabs('tabs-9')).toEqual([asApp])
+    groupSlotMemory.open('tabs-9', { kind: 'workspace.main', itemId: 'B', title: '协作看板.board', opening: 23 })
+    expect(groupSlotMemory.tabs('tabs-9').map((item) => item.kind)).toEqual(['kanban.file', 'workspace.main'])
   })
 
   it('a tab picked is what the panel shows', () => {
     groupSlotMemory.setForm('tabs-3', 'side')
-    groupSlotMemory.setOpened('tabs-3', board)
-    groupSlotMemory.setOpened('tabs-3', deck)
+    groupSlotMemory.open('tabs-3', board)
+    groupSlotMemory.open('tabs-3', deck)
     groupSlotMemory.activate('tabs-3', board)
     expect(groupSlotMemory.opened('tabs-3')).toBe(board)
-    groupSlotMemory.activate('tabs-3', null)
-    expect(groupSlotMemory.opened('tabs-3')).toBeNull()
   })
 
   it('closing the shown tab shows its neighbour; closing the last closes the panel', () => {
     groupSlotMemory.setForm('tabs-4', 'full')
-    groupSlotMemory.setOpened('tabs-4', board)
-    groupSlotMemory.setOpened('tabs-4', deck)
+    groupSlotMemory.open('tabs-4', board)
+    groupSlotMemory.open('tabs-4', deck)
     groupSlotMemory.close('tabs-4', deck)
     expect(groupSlotMemory.opened('tabs-4')).toBe(board)
-    groupSlotMemory.close('tabs-4', null)
-    expect(groupSlotMemory.tabs('tabs-4')).toEqual([board])
     expect(groupSlotMemory.form('tabs-4')).toBe('full')
     groupSlotMemory.close('tabs-4', board)
     expect(groupSlotMemory.tabs('tabs-4')).toEqual([])
@@ -130,43 +142,48 @@ describe('the group panel keeps what is open and shows one of it', () => {
     expect(groupSlotMemory.opened('tabs-4')).toBeNull()
   })
 
-  it('a panel that never came up lists no tabs; the folder picked from「+」opens it and stays a tab', () => {
+  it('the folder is a tab only once it is opened, opened again it is the same one, and its × lets it go', () => {
     expect(groupSlotMemory.tabs('tabs-5')).toEqual([])
-    groupSlotMemory.activate('tabs-5', null)
-    expect(groupSlotMemory.form('tabs-5')).toBe('side')
-    expect(groupSlotMemory.tabs('tabs-5')).toEqual([null])
-    groupSlotMemory.setForm('tabs-5', 'closed')
-    expect(groupSlotMemory.tabs('tabs-5')).toEqual([null])
-  })
-
-  it('a panel that came up on the folder alone keeps the folder as a tab when it gives way', () => {
-    groupSlotMemory.setForm('tabs-8', 'side')
-    groupSlotMemory.noteShown('tabs-8')
-    groupSlotMemory.setForm('tabs-8', 'closed')
-    expect(groupSlotMemory.tabs('tabs-8')).toEqual([null])
-    groupSlotMemory.close('tabs-8', null)
-    expect(groupSlotMemory.tabs('tabs-8'), 'its × lets it go').toEqual([])
+    const folder = folderTab()
+    groupSlotMemory.open('tabs-5', folder)
+    expect(groupSlotMemory.tabs('tabs-5')).toEqual([folder])
+    expect(isFolder(groupSlotMemory.opened('tabs-5'))).toBe(true)
+    groupSlotMemory.open('tabs-5', board)
+    groupSlotMemory.open('tabs-5', folderTab())
+    expect(groupSlotMemory.tabs('tabs-5')).toEqual([folder, board])
+    expect(groupSlotMemory.opened('tabs-5'), 'its page kept: the subfolder it is in stays').toBe(folder)
+    groupSlotMemory.close('tabs-5', folder)
+    expect(groupSlotMemory.tabs('tabs-5')).toEqual([board])
   })
 
   it('the right side giving way (#1312: a topic, the chat alone) keeps what the panel has open as tabs', () => {
     groupSlotMemory.setForm('tabs-6', 'side')
-    groupSlotMemory.setOpened('tabs-6', board)
+    groupSlotMemory.open('tabs-6', board)
     groupSlotMemory.setForm('tabs-6', 'closed')
-    expect(groupSlotMemory.tabs('tabs-6'), 'not shown, still open').toEqual([null, board])
+    expect(groupSlotMemory.tabs('tabs-6'), 'not shown, still open').toEqual([board])
     expect(groupSlotMemory.opened('tabs-6'), 'and it comes back on the one it showed').toBe(board)
   })
 
   it('the topic beside the group stays a tab while the panel has the right side; only its × lets it go', () => {
     groupSlotMemory.showTopic('tabs-7', { chatId: 'topic-a', name: 'A' })
     expect(groupSlotMemory.topic('tabs-7')).toEqual({ chatId: 'topic-a', name: 'A', shown: true })
-    groupSlotMemory.setOpened('tabs-7', board)
+    groupSlotMemory.open('tabs-7', board)
     groupSlotMemory.showTopic('tabs-7', null)
     expect(groupSlotMemory.topic('tabs-7'), 'the panel came up: the topic is a tab, not shown').toEqual({ chatId: 'topic-a', name: 'A', shown: false })
-    expect(groupSlotMemory.tabs('tabs-7'), 'its things too').toEqual([null, board])
+    expect(groupSlotMemory.tabs('tabs-7'), 'its things too').toEqual([board])
     groupSlotMemory.showTopic('tabs-7', { chatId: 'topic-b', name: 'B' })
     expect(groupSlotMemory.topic('tabs-7'), 'another topic opened beside the group takes its place').toEqual({ chatId: 'topic-b', name: 'B', shown: true })
     groupSlotMemory.closeTopic('topic-b')
     expect(groupSlotMemory.topic('tabs-7')).toBeNull()
-    expect(groupSlotMemory.tabs('tabs-7'), 'the panel\'s tabs stay').toEqual([null, board])
+    expect(groupSlotMemory.tabs('tabs-7'), 'the panel\'s tabs stay').toEqual([board])
+  })
+})
+
+describe('asking a chat\'s panel', () => {
+  it('one channel for Apps and files: the last ask is taken once', () => {
+    groupSlotMemory.ask('ask-1', { app: 'kanban' })
+    groupSlotMemory.ask('ask-1', { itemId: 'F1', at: { slide: '3' } })
+    expect(groupSlotMemory.take('ask-1')).toEqual({ itemId: 'F1', at: { slide: '3' } })
+    expect(groupSlotMemory.take('ask-1')).toBeNull()
   })
 })
