@@ -1,6 +1,7 @@
 div.phone-app-market {
   gap: var(--spacing-lg);
   padding-top: var(--spacing-lg);
+  background: transparent;
 }
 div.phone-app-product {
   flex: 1;
@@ -32,4 +33,22 @@ div.phone-app-product {
 }
 .phone-app-product .mk-primary-action {
   width: 100%;
+}
+.phone-app-product .mk-back,
+.phone-app-product .mk-primary-action,
+.phone-app-market [data-lifecycle],
+.phone-app-market .mk-chipbar [data-slot='toggle-group-item'] {
+  min-height: var(--control-h-touch);
+}
+.phone-app-product .mk-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  row-gap: var(--spacing-lg);
+}
+.phone-app-product .mk-facts > div {
+  padding: 0;
+  align-items: flex-start;
+}
+.phone-app-product .mk-facts > div + div::before {
+  display: none;
 }
