@@ -23,7 +23,9 @@ class ModalStore {
 
   // oxlint-disable-next-line typescript/no-explicit-any
   setModal(id: string, args: Record<string, any>) {
-    this.previousFocus = document.activeElement as HTMLElement | null;
+    if (this.activeModalId !== id) {
+      this.previousFocus = document.activeElement as HTMLElement | null;
+    }
     this.activeModalId = id;
     this.activeModalArgs = args;
   }

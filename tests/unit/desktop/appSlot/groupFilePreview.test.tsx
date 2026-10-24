@@ -195,14 +195,14 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(restore).toHaveBeenCalledTimes(1)
   })
 
-  it('expands and restores a group HTML preview without replacing its page or returning to the folder', async () => {
+  it.each([false, true])('expands and restores a group HTML preview without replacing its page (tabbed=%s)', async (tabbed) => {
     const file = detail('html')
     const fileToOpen = { chatId: file.chatId, itemId: file.itemId, request: ++request, opener: file }
     function Preview() {
       const [full, setFull] = useState(false)
       return createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
         chatId: file.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close,
-        fileToOpen, full, onToggleFull: () => setFull((value) => !value),
+        fileToOpen, full, tabbed, onToggleFull: () => setFull((value) => !value),
       }))
     }
     await harness.render(createElement(Preview))
@@ -216,7 +216,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await act(async () => restore!.click())
     expect(harness.container.querySelector('button[aria-label="面板全屏"]')?.getAttribute('aria-pressed')).toBe('false')
     expect(harness.container.querySelector('iframe')).toBe(page)
-    expect(harness.container.querySelectorAll('header')).toHaveLength(1)
+    expect(harness.container.querySelectorAll('header')).toHaveLength(tabbed ? 0 : 1)
     expect(groupSlotMemory.opened(file.chatId)?.itemId).toBe(file.itemId)
     expect(boundary.read).toHaveBeenCalledTimes(1)
     expect(boundary.close).not.toHaveBeenCalled()

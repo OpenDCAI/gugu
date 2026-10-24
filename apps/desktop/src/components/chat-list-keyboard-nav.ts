@@ -1,7 +1,6 @@
 export type ChatListNavigationDirection = 1 | -1
 
 export type ChatListShortcut =
-  | { kind: 'search' }
   | { kind: 'select'; index: number }
   | { kind: 'move'; direction: ChatListNavigationDirection }
 
@@ -12,8 +11,6 @@ type ChatShortcutEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'al
 export function chatListShortcutFor(event: ChatShortcutEvent): ChatListShortcut | null {
   if (event.isComposing) return null
   if (!(event.metaKey || event.ctrlKey) || event.altKey) return null
-
-  if (!event.shiftKey && event.key.toLowerCase() === 'k') return { kind: 'search' }
 
   if (!event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
     return { kind: 'move', direction: event.key === 'ArrowDown' ? 1 : -1 }

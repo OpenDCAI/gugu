@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@renderer/features/sidebar/session-keyboard-nav', () => ({ sessionKeyboardNav: { startRename: vi.fn() } }));
 vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {
     navigation: {

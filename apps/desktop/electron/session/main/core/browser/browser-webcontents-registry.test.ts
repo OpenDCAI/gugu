@@ -340,7 +340,7 @@ describe('BrowserWebContentsRegistry', () => {
         const ev = { preventDefault: vi.fn() };
         webContents.emitEvent('before-input-event', ev, {
           type: 'keyDown',
-          key: 'K',
+          key: 'P',
           shift: false,
           alt: false,
           ...mod,
@@ -351,7 +351,7 @@ describe('BrowserWebContentsRegistry', () => {
       expect(keyEvent.preventDefault, platform).toHaveBeenCalled();
       expect(events.emit).toHaveBeenCalledWith(browserAppShortcutChannel, {
         source: { kind: 'browser', browserId: 'browser-1' },
-        shortcutKey: 'commandPalette',
+        commandId: 'app.commandPalette',
       });
     }
   });
@@ -368,7 +368,7 @@ describe('BrowserWebContentsRegistry', () => {
           const ev = { preventDefault: vi.fn() };
           webContents.emitEvent('before-input-event', ev, {
             type: 'keyDown',
-            key: 'K',
+            key: 'P',
             shift: false,
             alt: false,
             ...mod,
@@ -383,7 +383,7 @@ describe('BrowserWebContentsRegistry', () => {
       // 下面那条 not.toHaveBeenCalledWith 会被对照留下的那一次判红。
       vi.mocked(events.emit).mockClear();
 
-      const keyEvent = press((r) => r.setKeyboardSettings({ commandPalette: null }));
+      const keyEvent = press((r) => r.setKeyboardSettings({ 'app.commandPalette': null }));
       expect(keyEvent.preventDefault, `${platform} 已禁用`).not.toHaveBeenCalled();
       expect(events.emit).not.toHaveBeenCalledWith(browserAppShortcutChannel, expect.anything());
     }

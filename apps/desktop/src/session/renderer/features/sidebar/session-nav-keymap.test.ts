@@ -1,6 +1,7 @@
 import type { Hotkey } from '@tanstack/react-hotkeys';
 import { describe, expect, it } from 'vitest';
-import { APP_SHORTCUTS, resolveDefaultHotkey } from '@shared/shortcuts';
+import { COMMANDS } from '@shared/commands';
+import { resolveDefaultHotkey } from '@shared/shortcuts';
 import {
   deferToDefaultPrevented,
   isTerminalExitChord,
@@ -10,8 +11,8 @@ import {
 } from './session-nav-keymap';
 
 const DEFAULTS: SessionNavHotkeys = {
-  sessionNext: 'Mod+ArrowDown',
-  sessionPrev: 'Mod+ArrowUp',
+  'session.next': 'Mod+ArrowDown',
+  'session.previous': 'Mod+ArrowUp',
 };
 
 function key(k: string, overrides: Partial<SessionNavKeyEvent> = {}): SessionNavKeyEvent {
@@ -35,8 +36,8 @@ describe('session navigation keymap', () => {
 
       expect(at(key('ArrowUp'))).toBeNull();
       expect(at(key('ArrowDown'))).toBeNull();
-      expect(at(key('ArrowUp', { metaKey: true }))).toBe('sessionPrev');
-      expect(at(key('ArrowDown', { metaKey: true }))).toBe('sessionNext');
+      expect(at(key('ArrowUp', { metaKey: true }))).toBe('session.previous');
+      expect(at(key('ArrowDown', { metaKey: true }))).toBe('session.next');
     }
   });
 
@@ -47,7 +48,7 @@ describe('session navigation keymap', () => {
       sessionNavShortcutFor({ ...composing, isComposing: false }, 'composer-empty', DEFAULTS, {
         platform: 'mac',
       }),
-    ).toBe('sessionNext');
+    ).toBe('session.next');
   });
 
   it('defers popup-owned arrows but keeps Escape available in a composer', () => {
@@ -59,7 +60,7 @@ describe('session navigation keymap', () => {
 });
 
 describe('terminal exit chord', () => {
-  const MAC_CHORD = resolveDefaultHotkey(APP_SHORTCUTS.terminalBackToList, 'mac') as Hotkey;
+  const MAC_CHORD = resolveDefaultHotkey(COMMANDS['session.leaveTerminal'], 'mac') as Hotkey;
 
   it('claims only its chord and stands down for modal, IME, or cleared ownership', () => {
     const pressed = key('ArrowLeft', { altKey: true });

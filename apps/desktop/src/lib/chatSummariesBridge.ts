@@ -69,3 +69,16 @@ export function useChatSummaries(): Summaries {
 }
 
 const NO_SUMMARIES: Summaries = new Map()
+
+export type ContactSummary = { id: string; name: string }
+const CONTACT_KEY = '__GUGU_CONTACT_SUMMARIES__'
+const NO_CONTACTS: readonly ContactSummary[] = []
+export function publishContactSummaries(contacts: readonly ContactSummary[]): void {
+  (window as unknown as Record<string, unknown>)[CONTACT_KEY] = contacts
+  window.dispatchEvent(new Event(EVENT))
+}
+export function useContactSummaries(): readonly ContactSummary[] {
+  return useSyncExternalStore(subscribeChatSummaries,
+    () => (window as unknown as Record<string, unknown>)[CONTACT_KEY] as readonly ContactSummary[] ?? NO_CONTACTS,
+    () => NO_CONTACTS)
+}
