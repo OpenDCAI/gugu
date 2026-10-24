@@ -156,7 +156,7 @@ function writeBundle(hosts: string[], tab: Record<string, unknown> = { name: 'de
       id: EXTENSION_ID,
       name: 'Demo',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
       entry: 'index.html',
       permissions: { network: hosts, ...(capabilities ? { capabilities } : {}) },
       contributes: { tabs: [tab] },
@@ -399,7 +399,7 @@ describe('extensions controller', () => {
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
         entry: 'index.html',
         permissions: { network: ['evil.example.com'] },
         contributes: { tabs: [{ name: 'demo', title: 'Demo' }] },
@@ -435,7 +435,7 @@ describe('extensions controller', () => {
       const dir = join(mkdtempSync(join(tmpdir(), 'gugu-ext-card-')), id);
       mkdirSync(dir);
       writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
         permissions: { network }, contributes: { tabs: [{ name: 'main', title: id }] },
       }));
       writeFileSync(join(dir, 'index.html'), '<!doctype html>');
@@ -475,7 +475,7 @@ describe('每个 tab 画自己那一页', () => {
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
         entry: 'left.html',
         contributes: {
           tabs: [
@@ -541,7 +541,7 @@ describe('a tab\'s icon: its own, else its App\'s (owner 10-17)', () => {
   it('a tab naming no icon gets the App\'s, at the tab\'s size; a tab naming one keeps its own', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tabicon-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', icon: 'app.png',
+      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', icon: 'app.png',
       contributes: { tabs: [{ name: 'plain', title: 'Plain' }, { name: 'own', title: 'Own', icon: 'tab.png' }] },
     }));
     for (const file of ['index.html', 'app.png', 'tab.png']) writeFileSync(join(dir, file), file);
@@ -559,7 +559,7 @@ describe('agent tools up front or on demand (W-08)', () => {
   async function installToolsBundle(): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tools-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['agents:tools'] },
       contributes: { tabs: [{ name: 'main', title: 'Tools' }], mcpServers: [{ name: 'rows', command: 'node', args: ['server.mjs'] }] },
     }));
