@@ -358,14 +358,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     }
   })
 
-  it('分栏的输入框**就是**主线那一份 InputArea,❌ 不是另造的一个', async () => {
+  it('分栏的输入框**就是**主线那一份 ChatMessageComposer,❌ 不是另造的一个', async () => {
     // @@@5856 owner 2026-09-19 实测:「输入框没有发送键参考一下左边输入框,应该是一致的,
     // 也是因为你造了一个额外的输入框,导致 @ 等功能失效了」。
     // 自造的那份症状不是「长得不一样」,是**功能悄悄少了一半**——发送键、@ 候选弹窗、草稿、附件,
     // 全是原件早就解决过的问题,重写一份把它们统统退回未解决态,而且不报任何错。
     // 所以这一格钉的是「用的是同一个组件」,而不是「自造的那份也有发送键」。
     const source = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')
-    expect(source).toContain("import { InputArea } from './InputArea'")
+    expect(source).toContain("import { ChatMessageComposer } from './ChatMessageComposer'")
     expect(source).not.toContain('function TopicComposer')
     expect(source).not.toContain('<textarea')
 
@@ -373,7 +373,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       ...baseProps,
       mentionMembers: [{ id: 'agent-9', name: '小柯', type: 'agent' as const }],
     }))
-    // 渲染出来的就是 InputArea 自己那个 textarea。
+    // 渲染出来的就是 ChatMessageComposer 的共享 PromptEditor。
     // —— 但它报的是**副栏**的 test id:同一扇窗里两个输入框共用一个 id,
     // 自动化拿到的是文档序第一个,到底是哪一栏看运气(找茵第九轮)。
     expect(harness.container.querySelector('[data-testid="chat-composer-aside"]')).not.toBeNull()
@@ -415,7 +415,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       scrollTop: { configurable: true, get(this: HTMLElement) { return tops.get(this) ?? 0 }, set(this: HTMLElement, v: number) { tops.set(this, Math.min(Math.max(0, v), aside(this) ? geometry.scrollHeight - 300 : 0)) } },
     })
     const observers: Array<() => void> = []
-    vi.stubGlobal('ResizeObserver', class { constructor(private readonly cb: () => void) {} observe() { observers.push(this.cb) } disconnect() {} unobserve() {} })
+    vi.stubGlobal('ResizeObserver', class { constructor(private readonly cb: (entries: ResizeObserverEntry[]) => void) {} observe(target: Element) { observers.push(() => this.cb([{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry])) } disconnect() {} unobserve() {} })
     try {
       await renderWithAppProviders(harness, createNode(TopicSplitPane, {
         ...baseProps,
@@ -454,7 +454,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       topInset: '给 agent 单聊头栏里探出头栏的那只小鸟让位(滚到最上时第一条不被它的脚压住);分栏没有 agent 头栏,也就没有探出的部分',
       footer: '#7199 只有「助理」App 那个聊天面在消息流末尾接一个「它在处理」的打字气泡(取代运行条);分栏不传 = 运行条照旧,与对话页同形',
     },
-    InputArea: {
+    ChatMessageComposer: {
       beforeSend: 'agent 私聊专用(任务页会话恢复前置),话题是场所型会话',
       disabled: 'agent 私聊专用(引擎不可用时禁用输入)',
       disabledReason: '同上',
@@ -526,7 +526,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   it('分栏与主线的入参差异只能是名单上那几条 —— 复用组件不等于接全它的契约', async () => {
     const panel = await readFile('apps/desktop/src/components/ChatAreaPanel.tsx', 'utf8')
     const pane = await readFile('apps/desktop/src/components/chat/TopicSplitPane.tsx', 'utf8')
-    for (const tag of ['MessageList', 'InputArea']) {
+    for (const tag of ['MessageList', 'ChatMessageComposer']) {
       const main = new Set(jsxProps(panel, tag))
       const aside = new Set(jsxProps(pane, tag))
       expect(main.size, `${tag}: 主线那个调用点没解析出任何 prop,这一格就判不了事`).toBeGreaterThan(3)
@@ -572,7 +572,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         detail: { files: [new File(['x'], '不该进来.png', { type: 'image/png' })] },
       }))
     })
-    expect(harness.container.querySelector('[data-testid="pending-attachment-preview"]')).toBeNull()
+    expect(harness.container.querySelector('[data-slot="composer-attachment"]')).toBeNull()
   })
 
   it('分栏的回形针发得出去 —— ❌ 不允许「挂得上、发不出、一声不响」', async () => {
@@ -589,7 +589,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
     await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
     const send = harness.container.querySelector('[data-testid="chat-composer-send"]') as HTMLButtonElement
-      ?? harness.container.querySelector('button[aria-label="发送"]') as HTMLButtonElement
+      ?? harness.container.querySelector('button[aria-label="发送消息"]') as HTMLButtonElement
     expect(send, '找不到发送键').toBeTruthy()
     await clickElement(send)
     expect(onSendAttachments).toHaveBeenCalledTimes(1)
@@ -732,7 +732,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   })
 
   // @@@5856 '自带的输入框回车发送，发送期间禁用' 已删 —— 分栏不再自带输入框,
-  // 回车发送/发送期间禁用/失败提示全部归 InputArea 自己的判据(它本来就有)。
+  // 回车发送/发送期间禁用/失败提示全部归 ChatMessageComposer 自己的判据(它本来就有)。
   // ❌ 不在这里再抄一份:抄一份等于允许两份实现漂开,而那正是这次被 owner 点破的毛病。
 })
 

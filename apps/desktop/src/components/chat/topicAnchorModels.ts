@@ -5,16 +5,13 @@
 // 同一句话在屏幕上连着出现两遍。名字本身没错,错的是**把它再念一遍**。
 // 所以:名字还是自动截出来的那一份时,锚点不写名字,只写「话题」;用户改过名才写名字。
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
+import { displayAgentReferences } from '@/lib/mentionMdast'
 
-/**
- * 服务端 `chat.topic_name_from_message` 的镜像(gugu-supabase 的 supabase/migrations/20260918211600…_topic_creation_rpc_5856.sql):
- * 取第一行、trim、超过 40 字截断并加省略号。
- * ❌ 两边不许各写各的规则 —— 这份只用来判「名字是不是还没被改过」,判错的代价也只是把名字照写一遍。
- */
+/** The chat UI passes this default to create_topic and uses it to recognize an unchanged automatic name. */
 export const TOPIC_NAME_CUT_LENGTH = 40
 
 export function topicNameFromMessage(content: string | null | undefined): string | null {
-  const firstLine = (content ?? '').split('\n')[0]?.trim() ?? ''
+  const firstLine = displayAgentReferences(content ?? '', (_id, label) => `@${label}`).split('\n')[0]?.trim() ?? ''
   if (firstLine.length === 0) return null
   return firstLine.length <= TOPIC_NAME_CUT_LENGTH
     ? firstLine

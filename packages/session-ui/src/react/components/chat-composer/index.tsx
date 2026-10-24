@@ -208,6 +208,8 @@ import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-se
 export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraftText: string; pending?: boolean };
 
 export interface ChatComposerProps {
+  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
+  mobile?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
   /** False while the session is still starting up. Blocks Send/Enter but keeps the editor typeable. */
@@ -396,9 +398,11 @@ export interface ChatComposerProps {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ChatComposer({
+  editorOptions,
+  mobile = false,
   disabled = false,
   isWorking = false,
-  canSubmit = true,
+  canSubmit: hostCanSubmit,
   showSubmitButton = true,
   placeholder,
   disabledPlaceholder,
@@ -532,10 +536,11 @@ export function ChatComposer({
     };
   }, []);
 
+  const canSubmit = hostCanSubmit ?? true;
   const handleSubmit = (text: string) => {
     if (queueEdit) { finishQueueEdit(text); return; }
     // Attachment-only sends are valid for both images and ordinary files.
-    if (!text.trim() && attachments.length === 0) return;
+    if (!text.trim() && attachments.length === 0 && hostCanSubmit !== true) return;
     // While the agent is actively working, route to the host's conflict handler
     // (e.g. queueing or a cancel-and-send confirmation) instead of submitting.
     if (isWorking) {
@@ -696,6 +701,12 @@ export function ChatComposer({
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
   const hasBand = !!(permissionRequest ?? notice);
+  const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
+    editorRef.current = handle;
+    if (typeof editorApiRef === 'function') editorApiRef(handle);
+    else if (editorApiRef) (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
+  }, [editorApiRef]);
+
   const shouldHandleSubmitAttempt = !disabled && !queueEdit?.pending && (queueEdit ? true : isWorking ? !!onSubmitWhileWorking : canSubmit);
   const resolvedPlaceholder = disabled
     ? (disabledPlaceholder ?? translate('composer.sessionClosed'))
@@ -705,21 +716,13 @@ export function ChatComposer({
 
   const promptEditor = (
     <PromptEditor
-      ref={(handle) => {
-        editorRef.current = handle;
-        if (editorApiRef) {
-          if (typeof editorApiRef === 'function') {
-            editorApiRef(handle);
-          } else {
-            (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
-          }
-        }
-      }}
+      {...editorOptions}
+      ref={receiveEditor}
       placeholder={resolvedPlaceholder}
       disabled={disabled || !!queueEdit?.pending}
       onChange={queueEdit ? changeQueueEdit : onInputChange}
       onPasteText={queueEdit ? undefined : handlePastedText}
-      clearOnSubmit={!queueEdit}
+      clearOnSubmit={queueEdit ? false : (editorOptions?.clearOnSubmit ?? true)}
       hostDropTypes={onDataDropped ? dataDropTypes : undefined}
       onSubmit={shouldHandleSubmitAttempt ? handleSubmit : undefined}
       onMentionInsert={onMentionInsert}
@@ -733,7 +736,7 @@ export function ChatComposer({
   );
 
   return (
-    <div data-slot="composer" className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
