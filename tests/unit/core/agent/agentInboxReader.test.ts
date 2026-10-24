@@ -1081,7 +1081,7 @@ describe('三态判决与失败面', () => {
     const recovered = makeDeps(cloud)
     await pullAgentInbox(AGENT, recovered.deps)
     await pullAgentInbox(AGENT, recovered.deps)
-    expect(recovered.injections.map(entry => entry.messageId)).toEqual(['m1'])
+    expect(recovered.injections.map(entry => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f'])
   })
 
   it('not-now(idle-only 忙):不唤醒、游标不动、等回合末', async () => {
