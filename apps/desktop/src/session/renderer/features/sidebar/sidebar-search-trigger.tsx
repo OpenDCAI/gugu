@@ -6,7 +6,7 @@ import { cn } from '@renderer/utils/utils';
 import { sidebarRowContentInsetX, sidebarRowShortcutClass } from './sidebar-primitives';
 
 /**
- * 侧栏顶上的「搜索…」:点它和按 ⌘K 一样,打开那一个面板(gugu-dev#181 ⑯:会话、项目、对话、话题和操作一次搜)。
+ * 侧栏顶上的「搜索…」:与 Mod+O 共用快速切换入口;命令由同一个面板的 > 前缀筛选。
  * 侧栏自己不再就地筛 —— 搜索只有一个地方。
  */
 export function SidebarSearchTrigger() {

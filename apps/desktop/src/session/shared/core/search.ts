@@ -11,7 +11,6 @@ export interface SearchItem {
 
 export interface CommandPaletteQuery {
   query: string;
-
 }
 
 export interface WorkspaceFileSearchQuery {

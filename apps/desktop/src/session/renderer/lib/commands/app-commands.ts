@@ -76,7 +76,7 @@ function createAppCommandProvider(): CommandProvider {
         },
       });
 
-      // gugu-dev#181 ⑯ 侧栏上那几个入口在 ⌘K 面板里也能到:执行的就是那几行点下去的同一件事。
+      // gugu-dev#181 ⑯ 侧栏上那几个入口在命令面板里也能到:执行的就是那几行点下去的同一件事。
       const scheduledDef = appDef('app.scheduled');
       const newGroupChatDef = appDef('app.newGroupChat');
       const addContactDef = appDef('app.addContact');
