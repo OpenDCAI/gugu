@@ -867,7 +867,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
-        moreInTabMenu={Boolean(blockHost)}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenWorkspacePanel={handleOpenWorkspacePanel}
