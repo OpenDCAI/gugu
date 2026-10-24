@@ -31,7 +31,7 @@ describe('an App written for apiVersion 1 or 2', () => {
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(11);
+    expect(EXTENSION_API_VERSION).toBe(13);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
@@ -48,7 +48,9 @@ describe('an App written for apiVersion 1 or 2', () => {
     expect(issues(app(9))).toBe('');
     expect(issues(app(10))).toBe('');
     expect(issues(app(11))).toBe('');
-    expect(issues(app(12))).toBe('apiVersion: apiVersion 12 needs a newer gugu (this build supports up to 11)');
+    expect(issues(app(12))).toBe('');
+    expect(issues(app(13))).toBe('');
+    expect(issues(app(14))).toBe('apiVersion: apiVersion 14 needs a newer gugu (this build supports up to 13)');
   });
 });
 

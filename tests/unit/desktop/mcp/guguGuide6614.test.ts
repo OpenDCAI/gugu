@@ -63,7 +63,7 @@ function preloadVerbs(): string[] {
   // Every host's members come from one table (host-calls.ts): a page's own and the background page's own (`VerbFacts.only`) too.
   // `appFiles.*` and `clipboard.*` are host halves internal to the platform runtime: pages call `gugu.files.*` and
   // `gugu.clipboard.writeText`, which the runtime builds on them (checked below); so is `onFilesChanged`.
-  const hostHalves = ['onFilesChanged', 'onForumChanged']
+  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalFocus']
   return [...Object.keys(HOST_CALLS), ...Object.keys(HOST_EVENTS)].filter((key) => !key.includes('.') && !hostHalves.includes(key))
 }
 
@@ -98,9 +98,10 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     const messageVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('messages.') || key.startsWith('chats.') || key.startsWith('projects.'))
     // `gugu.forum.*`: the page's own (create-gugu.ts); subscribe / unsubscribe are `forum.onChanged`'s host half.
     const forumVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('forum.') && key !== 'forum.subscribe' && key !== 'forum.unsubscribe').concat('forum.onChanged')
+    const modalVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('modal.') && key !== 'modal.key')
     expect(messageVerbs).toEqual(['messages.history', 'messages.search', 'chats.list', 'chats.members', 'projects.list'])
     const all = EXTENSION_GUIDE_TOPICS.map(({ text }) => text).join('\n')
-    const missing = [...verbs.map((verb) => `gugu.files.${verb}(`), ...messageVerbs.map((key) => `gugu.${key}(`), ...forumVerbs.map((key) => `gugu.${key}(`), 'gugu.bind.codemirror(', 'gugu.codemirror(', 'gugu.clipboard.writeText(']
+    const missing = [...verbs.map((verb) => `gugu.files.${verb}(`), ...messageVerbs.map((key) => `gugu.${key}(`), ...forumVerbs.map((key) => `gugu.${key}(`), ...modalVerbs.map((key) => `gugu.${key}(`), 'gugu.bind.codemirror(', 'gugu.codemirror(', 'gugu.clipboard.writeText(']
       .filter((call) => !all.includes(call))
     expect(missing).toEqual([])
   })

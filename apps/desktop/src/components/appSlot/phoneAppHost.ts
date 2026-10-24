@@ -63,6 +63,9 @@ import { callOnComputer } from './phoneProgramCall'
 import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
+import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
+import { closeAppModal, focusAppModalClose, showAppModal } from '../appModal/appModal'
+import { APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
 
 const log = rendererLogger('app-slot/phone-host')
 
@@ -86,6 +89,7 @@ export function phoneRuns(manifest: ExtensionManifest): boolean {
 }
 
 export interface PhoneAppBinding {
+  modal?: { id: string; data?: unknown }
   extensionId: string
   /** The slot drawing it. */
   tabId: string
@@ -113,6 +117,7 @@ interface HostedFrame {
 }
 
 const frames = new Map<number, HostedFrame>()
+const phoneModals = new AppModalSessions<PhoneAppBinding>((modal) => { closeAppModal(modal.id) })
 let nextPageId = 1
 
 /** A frame's binding as kept here: its granted words with the narrower ones they cover, so a check for those finds them. */
@@ -325,8 +330,9 @@ export function hostAppFrame(
     /** `setTabTitle` / `setTabBadge`: drawn on the header of the slot the App is in (摩擦单 F13). */
     chrome(detail: { title?: string | null; badge?: string | number | null; error?: string | null }): void
   },
-): { update(binding: PhoneAppBinding): void; filesChanged(changes: readonly { chatId: string; itemIds: readonly string[] }[]): Promise<void>; membersChanged(changes: readonly MemberChange[]): void; command(commandId: string): void; programNotified(notification: { server: string; method: string; params?: unknown }): void; dispose(): void } {
+): { pageId: number; update(binding: PhoneAppBinding): void; filesChanged(changes: readonly { chatId: string; itemIds: readonly string[] }[]): Promise<void>; membersChanged(changes: readonly MemberChange[]): void; command(commandId: string): void; programNotified(notification: { server: string; method: string; params?: unknown }): void; dispose(): void } {
   const pageId = nextPageId++
+  const modalHosts = new Map<ReturnType<typeof hostAppFrame>, PhoneAppBinding>()
   // Only ever the App's own document, both ways (appOrigin.ts).
   const channel = appFrameChannel(frame)
   // The sync port waits here until the frame's runtime says it listens ('sync-port'), in either
@@ -423,6 +429,7 @@ export function hostAppFrame(
   const contextOf = (): ExtensionHostContext => ({
     apiVersion: EXTENSION_API_VERSION,
     tabId: hosted.binding.tabId,
+    ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
     ...(chat ? { chat: { ...chat, members: members ?? [] } } : {}),
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
@@ -440,7 +447,7 @@ export function hostAppFrame(
     locale: hosted.binding.locale,
     themeMode: hosted.binding.themeMode,
     capabilities: hosted.binding.capabilities.filter((capability) => PHONE_CAPABILITIES.includes(capability)),
-    layout: { visible: true, fullscreen: false, width: frame.clientWidth, height: frame.clientHeight },
+    layout: { visible: true, fullscreen: Boolean(hosted.binding.modal), width: frame.clientWidth, height: frame.clientHeight },
   })
 
   /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
@@ -466,6 +473,49 @@ export function hostAppFrame(
       case 'openLink': {
         const result = await openPhoneLink(typeof args.url === 'string' ? args.url : '')
         if (result.kind !== 'opened') refused(result.kind === 'failed' ? 'failed' : 'invalid', result.kind === 'failed' ? result.detail ?? result.reason : 'Only gugu resource links open here')
+        return undefined
+      }
+      case 'modalOpen': {
+        const modal = phoneModals.open(pageId, { ...hosted.binding }, args)
+        try {
+          const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+          if (!manifest) refused('not-installed', 'This App is no longer installed')
+          const focus = (edge: AppModalFocus) => {
+            const child = modal.child === null ? undefined : frames.get(modal.child)
+            child?.frame.focus()
+            if (child) appFrameChannel(child.frame).post({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'modalFocus', edge } } satisfies HostToFrame)
+          }
+          showAppModal({
+            id: modal.id, title: modal.options.title, appName: localizedManifestText(manifest, hosted.binding.locale).name,
+            size: modal.options.size, url: phoneApps.pageUrl(hosted.binding.extensionId, modal.options.entry),
+            ...(modal.binding.session ? { frameName: APP_SESSION_FRAME_NAME } : {}),
+            opener: frame, focus, dismiss: (error) => phoneModals.close(modal.id, null, error),
+            attach(element) {
+              const childFrame = element as HTMLIFrameElement
+              const childBinding = { ...modal.binding, modal: { id: modal.id, data: modal.options.data } }
+              const childHost = hostAppFrame(childFrame, childBinding, {
+                ...hooks,
+                // The content page's initial hello must not clear its opener's title, badge or error.
+                chrome(detail) { if (detail.error) hooks.chrome({ error: detail.error }) },
+              })
+              modalHosts.set(childHost, childBinding)
+              phoneModals.bind(modal.id, childHost.pageId)
+              const ready = () => focus('first')
+              childFrame.addEventListener('load', ready)
+              return () => { childFrame.removeEventListener('load', ready); modalHosts.delete(childHost); childHost.dispose() }
+            },
+          })
+        } catch (error) {
+          await phoneModals.close(modal.id, null, error instanceof Error ? error.message : String(error))
+        }
+        return phoneModals.result(modal)
+      }
+      case 'modalClose':
+        return phoneModals.close(phoneModals.forPage(pageId).id, args.result ?? null)
+      case 'modalKey': {
+        const modal = phoneModals.forPage(pageId)
+        if (args.key !== 'tab') refused('invalid', 'Unknown modal keyboard action')
+        focusAppModalClose(modal.id)
         return undefined
       }
       case 'getContext':
@@ -659,6 +709,7 @@ export function hostAppFrame(
     }
   }
 
+  let documentStarted = false
   const onMessage = (messageEvent: MessageEvent) => {
     if (!channel.accepts(messageEvent)) return
     const message = messageEvent.data as FrameToHost | null
@@ -672,6 +723,8 @@ export function hostAppFrame(
     // What the old document said about itself (title, badge, error) goes with it: the new one starts from the manifest's
     // title, as main's `newDocument` on the desktop (extension-bridge.ts `sayAboutPage`).
     if (message.t === 'hello') {
+      if (documentStarted) void phoneModals.pageGone(pageId)
+      documentStarted = true
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()
       relay.pageGone(pageId)
@@ -702,11 +755,14 @@ export function hostAppFrame(
   window.addEventListener('message', onMessage)
 
   return {
+    pageId,
     update(binding) {
       const moved = binding.chatId !== hosted.binding.chatId || (binding.itemId ?? null) !== (hosted.binding.itemId ?? null)
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
+      for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
       const placed = () => { if (moved) for (const link of takeOpeningLinks(hosted.binding)) event(link) }
       // The theme is part of it: the page's ui.js picks its palette from context.themeMode.
@@ -719,11 +775,13 @@ export function hostAppFrame(
     },
     /** These chats' files changed (the account revision bus names them): the ones the page asked about are told how those files are now. */
     filesChanged(changes) {
-      if (!hosted.binding.capabilities.includes('files:read')) return Promise.resolve()
-      return Promise.all(changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
+      const children = [...modalHosts.keys()].map((childHost) => childHost.filesChanged(changes))
+      if (!hosted.binding.capabilities.includes('files:read')) return Promise.all(children).then(() => undefined)
+      return Promise.all([...children, ...changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))]).then(() => undefined)
     },
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {
+      for (const childHost of modalHosts.keys()) childHost.membersChanged(changes)
       if (!rosterMoved(members ?? null, changes)) return
       void readMembers().then(() => event({ type: 'context', context: contextOf() }), unread)
     },
@@ -733,9 +791,11 @@ export function hostAppFrame(
     },
     /** owner 10-16 The App's program on the session's computer sent a notification (`onProgramNotification`). */
     programNotified(notification) {
+      for (const childHost of modalHosts.keys()) childHost.programNotified(notification)
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      void phoneModals.pageGone(pageId)
       for (const { source } of watched.values()) readFiles.forget(source)
       watched = new Map()
       for (const stop of forumWatches.values()) stop()

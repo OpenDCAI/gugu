@@ -172,11 +172,10 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
 
-Location sets context, not permissions: a task tab has \`session\`; a group's or DM's panel has \`chat\` (phones too);
-dock/background pages have neither; file pages have \`file\`. Read context before drawing: place, \`chat.members\`, \`capabilities\`.
-- \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
-  remove — the one way to open and edit a session's file. Each call names its file or place (\`apps-files\`).
-- \`setTabTitle\` / \`setTabBadge\`: page tab/panel title. \`reportError\`: there and in the App log (\`app_check\`; phone: console).
+Location fills context, never changes authority: a task has \`session\`, a chat panel has \`chat\`, a file page has \`file\`;
+the dock/background have neither chat nor session. Read context before drawing.
+- \`gugu.files\`: open, list, create, rename, remove — the one way to open and edit a session's file. Name its target (\`apps-files\`).
+- \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
@@ -184,11 +183,19 @@ dock/background pages have neither; file pages have \`file\`. Read context befor
 - \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
   entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
 - Chat panels open at 520 px: design narrow first, widen with a media/container query.
-- No \`alert\` / \`confirm\` / \`prompt\`: a dialog would freeze the host — ask on the page.
+- No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
+
+## Custom modals (apiVersion 11)
+
+\`await gugu.modal.open({ entry: 'new.html', title: 'New card', size: 'md', data })\` opens your bundle's HTML in
+gugu's window-level dialog (phone: fullscreen). Sizes: xs/sm/md/lg/xl. No new consent.
+The page stays sandboxed with the opener's context/grants; \`(await gugu.getContext()).modal.data\` holds \`data\`.
+Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
+The host handles Escape, Tab traversal, Back and focus restoration.
 
 Free (they only concern your own tab):
 
-- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, operator, locale, themeMode, capabilities, layout? }\`.
+- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
   chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
   \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
@@ -250,12 +257,12 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo(target)\` (API 11), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
+- \`linkTo(target)\` (API 13), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
   \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
   \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
   App defaults: yourself, your first tab; at most one chat/session. Stored chat/file links are build-independent;
   \`external: true\` uses the build scheme for OS invocation (email/browser), as App/session/project links do. Never spell schemes.
-- \`openLink(url)\` (API 11), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
+- \`openLink(url)\` (API 13), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
   programs/background pages only generate links.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)
   a task chat's \`path#k=v\` link (\`file\`: path), also if it opens your page; phones too.
@@ -829,7 +836,7 @@ md.render(element, f.text, { density: 'comfortable', frontmatter: true, file: f.
 file's leading \`---\` YAML block as code instead of reading it as text. \`sourceLines: true\` marks each block with the
 lines it was written on (\`data-line="3-5"\`), to find a line's block. \`trust: 'chat'\` (the default) is for others'
 words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links: \`#…\` in place,
-http(s) a browser tab, gugu resources through \`openLink\` (API 11, no capability), relative files beside \`file\`
+http(s) a browser tab, gugu resources through \`openLink\` (API 13, no capability), relative files beside \`file\`
 through \`gugu.files.openWith\` (needs \`files:read\`). Failures call \`reportError\`. Never put others' text through \`innerHTML\`.
 
 ## Drawing your own

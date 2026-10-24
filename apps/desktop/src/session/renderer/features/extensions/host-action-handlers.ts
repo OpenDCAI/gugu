@@ -1,4 +1,10 @@
 import { openLinkTarget } from '@/lib/guguLinks';
+import { rpc } from '@renderer/lib/ipc';
+import { desktopIpc } from '@/platform/desktopIpc';
+import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
+import type { AppModalHostAction } from '@shared/extensions/app-modal';
+import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
+
 import { runInAction } from 'mobx';
 import type { RendererRpcHandlers } from '@/rpc-renderer/rendererRpc';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
@@ -36,6 +42,7 @@ import { appState } from '@renderer/lib/stores/app-state';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
+import { closeAppModal, focusAppModalClose, showAppModal } from '@/components/appModal/appModal';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -101,6 +108,65 @@ function openForClick(action: ExtensionHostAction): ExtensionHostActionResult | 
 function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
+    case 'openAppModal': {
+      let guest: BrowserWebviewElement | null = null;
+      let previous = document.activeElement;
+      while (previous?.shadowRoot?.activeElement) previous = previous.shadowRoot.activeElement;
+      const control = async (action: AppModalHostAction) => {
+        const response = await desktopIpc()!.invoke(EXTENSION_BRIDGE_CHANNEL, { method: 'modalHost', args: action }) as ExtensionBridgeResponse;
+        if (!response.ok) throw new Error(response.message);
+      };
+      const dismiss = (error?: string) => control({ type: 'dismiss', id: action.page.id, ...(error ? { error } : {}) });
+      const fail = (error: unknown) => dismiss(error instanceof Error ? error.message : String(error));
+      const focus = async (edge: 'first' | 'last') => {
+        guest?.focus();
+        await control({ type: 'focus', id: action.page.id, edge });
+      };
+      showAppModal({
+        id: action.page.id, title: action.page.title, appName: action.page.appName, size: action.page.size,
+        url: action.page.entryUrl, partition: action.page.partition,
+        opener: previous instanceof HTMLElement ? previous : document.body,
+        focus, dismiss,
+        attach(element) {
+          guest = element as BrowserWebviewElement;
+          let boundId: number | null = null;
+          const report = () => {
+            if (boundId !== null) void rpc.extensions.reportLayout({ webContentsId: boundId, visible: true, width: element.clientWidth, height: element.clientHeight }).catch(fail);
+          };
+          const observer = new ResizeObserver(report);
+          observer.observe(element);
+          const ready = () => {
+            const webContentsId = (element as BrowserWebviewElement).getWebContentsId();
+            void control({ type: 'bind', id: action.page.id, webContentsId }).then(() => {
+              if (guest !== element) return;
+              boundId = webContentsId; report(); return focus('first');
+            }).catch((error: unknown) => { if (guest === element) void fail(error); });
+          };
+          const gone = () => void fail(new Error('The App modal content process exited'));
+          const failed = (event: Event) => {
+            const failure = event as Event & { errorCode?: number; errorDescription?: string };
+            if (failure.errorCode !== -3) void fail(new Error(failure.errorDescription ?? 'The App modal page did not load'));
+          };
+          element.addEventListener('dom-ready', ready);
+          element.addEventListener('render-process-gone', gone);
+          element.addEventListener('did-fail-load', failed);
+          return () => {
+            observer.disconnect();
+            element.removeEventListener('dom-ready', ready);
+            element.removeEventListener('render-process-gone', gone);
+            element.removeEventListener('did-fail-load', failed);
+            guest = null;
+          };
+        },
+      });
+      return;
+    }
+    case 'closeAppModal':
+      closeAppModal(action.id);
+      return;
+    case 'focusAppModalClose':
+      focusAppModalClose(action.id);
+      return;
     case 'setTabTitle':
       extensionSurfaceStore.say(sessionId, tabId, { title: action.title });
       return;

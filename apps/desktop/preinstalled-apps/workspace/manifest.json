@@ -12,7 +12,7 @@
   },
   "author": "咕咕",
   "version": "0.2.54",
-  "apiVersion": 11,
+  "apiVersion": 13,
   "entry": "index.html",
   "icon": "icon.png",
   "permissions": {

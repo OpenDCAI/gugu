@@ -68,7 +68,7 @@ export const BUSY_SECONDS = 10;
 export const PAGE_DIALOGS = ['alert', 'confirm', 'prompt'] as const;
 export type PageDialog = (typeof PAGE_DIALOGS)[number];
 export function noPageDialog(name: PageDialog): string {
-  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host; a phone has none): ask on the page — an input, a button, a line of text (guide: apps-page)`;
+  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host): use gugu.modal.open({ entry, title }) (guide: apps-page)`;
 }
 
 /**
