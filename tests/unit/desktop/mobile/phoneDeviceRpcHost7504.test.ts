@@ -28,7 +28,7 @@ describe('current desktop RPC reaches the phone through an attached private topi
       openPipe: async (deviceId, handlers) => openAttachedDeviceRpcPipe({ ...handlers, deviceId, asker: 'desktopAsk123', userId: async () => 'owner', join }),
       onEvent: (deviceId, payload) => { caller.onEvent(deviceId, payload) },
     })
-    const caller = createDeviceActionCaller({ listDevices: async () => [{ device_id: 'phone-test', label: 'phone', online: true, last_seen_at: new Date().toISOString(), actions: { v: 1, updated_at: new Date().toISOString(), actions: [{ name: 'sms.get', group: 'sms', title: 'SMS', description: 'read SMS', risk: 'low', confirm: 'never', input_schema: { type: 'object' }, available: true }] } }], rpc: (id, type, payload, options) => requester.call(id, type, payload, options) })
+    const caller = createDeviceActionCaller({ listDevices: async () => [{ device_id: 'phone-test', label: 'phone', online: true, last_seen_at: new Date().toISOString(), actions: { v: 1, actions: [{ name: 'sms.get', group: 'sms', title: 'SMS', description: 'read SMS', risk: 'low', confirm: 'never', input_schema: { type: 'object' }, available: true }] } }], rpc: (id, type, payload, options) => requester.call(id, type, payload, options) })
     try {
       expect(await caller.call({ deviceId: 'phone-test', action: 'sms.get', args: { id: '1' } })).toMatchObject({ ok: false, code: 'device_scope_mismatch' })
       // Bypass the new caller (as an older client can): the phone still refuses.
