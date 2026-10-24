@@ -171,9 +171,7 @@ export type ChatSubagentToolCall = {
    * 不是它从哪个传输字段来的。
    *
    * 没有它的时候,并行派出去的 N 个子任务在界面上是 N 行一模一样的「Agent 已完成」——
-   * owner 真机验收时一次就摞了 8 行(2026-09-05)。链路上其实一直有这句话:
-   * claude 的 enrich 从 Task 工具的 `rawInput.description` 提出来,`upsertSpecialEvent`
-   * 也存进了条目的 `inputSummary`,**只有这一层没读**。
+   * 入口解码保留原生派活描述，领域条目通过 `inputSummary` 传到这里，按任务正文展示。
    */
   task?: string;
   background?: boolean;
