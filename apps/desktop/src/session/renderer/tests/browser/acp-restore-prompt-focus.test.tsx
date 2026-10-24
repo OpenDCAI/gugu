@@ -54,13 +54,20 @@ describe.each([1100, 390])('Restore prompt at viewport width %i', (width) => {
     const original = 'Review this file\nThen explain the result'
     store = new AcpChatStore('restore-focus', 'project')
     active.store = store
+    const current = store
+    const internals = current as unknown as { _bootstrapped: boolean }
     const submit = vi.spyOn(store, 'submitPrompt').mockImplementation(() => {})
     store.chatState.transcript.history.seed([{
       id: 'failed-turn', seq: 0, initiator: 'user',
       items: [{ kind: 'message', id: 'original-prompt', seq: 0, role: 'user', text: original }],
       outcome: { kind: 'error', reason: 'prompt_failed', detail: 'Test failure' },
     }])
-    runInAction(() => { store!.historyLoading = false; store!.messageCount = 1 })
+    runInAction(() => {
+      // A loaded, failed task may queue another prompt while its engine is detached.
+      internals._bootstrapped = true
+      current.historyLoading = false
+      current.messageCount = 1
+    })
     host = document.createElement('div')
     host.className = 'emlight gugu-skin'
     host.style.height = '700px'
@@ -81,6 +88,8 @@ describe.each([1100, 390])('Restore prompt at viewport width %i', (width) => {
       label: document.activeElement?.getAttribute('aria-label'),
       focused: document.activeElement === editor.element(),
     }), (reading) => reading.focused)
+    await restore.click()
+    await until('restoring the same text also returns focus', () => document.activeElement === editor.element())
     await userEvent.keyboard(' appended')
     await until('typing appends to the restored text', () => store?.draftText === `${original} appended`)
     await userEvent.keyboard('{Enter}')
