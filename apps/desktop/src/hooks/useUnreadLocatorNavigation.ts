@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import type { FlowListHandle } from '../lib/flowList'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { resolveSourceMessageScroll, type ScrollableRow } from '../lib/sourceMessageScroll'
+import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import type { UnreadMessageRevealRequest } from '../lib/chatUnreadLocator'
 
 function isVisibleWithinSurface(row: HTMLElement, surface: HTMLElement): boolean {
@@ -19,10 +20,9 @@ function isVisibleWithinSurface(row: HTMLElement, surface: HTMLElement): boolean
 }
 
 export function findVisibleUnreadMessageRow(
-  streamKind: 'main' | 'thread',
+  surface: HTMLElement | null,
   messageId: string,
 ): HTMLElement | null {
-  const surface = document.querySelector<HTMLElement>(`[data-unread-stream-surface="${streamKind}"]`)
   if (!surface) return null
   const row = Array.from(surface.querySelectorAll<HTMLElement>('[data-msg-id]'))
     .find((element) => element.dataset.msgId === messageId)
@@ -31,8 +31,12 @@ export function findVisibleUnreadMessageRow(
 
 export function useUnreadLocatorNavigation(input: {
   activeChatId: string | null
+  navigationTarget?: boolean
+  enabled?: boolean
+  onNavigate?: () => void
   rows: ReadonlyArray<ScrollableRow & { message?: { id: string; seq: number } }>
-  firstItemIndex: number
+  loadingAnchor?: boolean
+  scrollerRef: RefObject<HTMLElement | null>
   listRef: MutableRefObject<FlowListHandle | null>
   setFollowingTail: (following: boolean) => void
   setFlashMessageId: (id: string | null) => void
@@ -43,12 +47,13 @@ export function useUnreadLocatorNavigation(input: {
   hasMoreNewer?: boolean
   loadingNewer?: boolean
   loadNewerMessages?: () => Promise<void>
-}): void {
+  loadMessageAnchor?: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
+}): boolean {
   const {
-    activeChatId,
+    activeChatId, navigationTarget = false, enabled = true, onNavigate,
     rows,
-    firstItemIndex,
-    listRef,
+    loadingAnchor = false,
+    listRef, scrollerRef,
     setFollowingTail,
     setFlashMessageId,
     flashTimerRef,
@@ -57,7 +62,7 @@ export function useUnreadLocatorNavigation(input: {
     loadOlderMessages,
     hasMoreNewer = false,
     loadingNewer = false,
-    loadNewerMessages,
+    loadNewerMessages, loadMessageAnchor,
   } = input
   const [pending, setPending] = useState<UnreadMessageRevealRequest | null>(null)
   const openedThreadTokenRef = useRef<string | null>(null)
@@ -65,21 +70,30 @@ export function useUnreadLocatorNavigation(input: {
   useEffect(() => {
     const onUnreadMessage = (event: Event) => {
       const detail = (event as CustomEvent<Partial<UnreadMessageRevealRequest>>).detail
+      if (detail?.chatId !== activeChatId) return
+      const target = detail.viewport ?? 'primary'
+      if (target === 'primary' ? !navigationTarget : target !== scrollerRef.current) return
       if (!detail || typeof detail.chatId !== 'string' || typeof detail.streamId !== 'string'
         || (detail.streamKind !== 'main' && detail.streamKind !== 'thread')
         || typeof detail.messageId !== 'string' || typeof detail.messageSeq !== 'number'
         || typeof detail.token !== 'string' || typeof detail.confirm !== 'function' || typeof detail.reject !== 'function') return
-      setPending((previous) => {
+      onNavigate?.()
+      const activate = () => setPending((previous) => {
         if (previous && previous.token !== detail.token) previous.reject(new Error('Unread navigation was superseded'))
         return detail as UnreadMessageRevealRequest
+      })
+      activate()
+      if (detail.streamKind === 'main' && detail.commit && loadMessageAnchor) void loadMessageAnchor(detail.messageId, detail.commit).catch((error) => {
+        detail.reject?.(error)
+        setPending((current) => current?.token === detail.token ? null : current)
       })
     }
     window.addEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
     return () => window.removeEventListener(UI_EVENTS.openUnreadMessage, onUnreadMessage)
-  }, [])
+  }, [activeChatId, scrollerRef, navigationTarget, onNavigate, loadMessageAnchor])
 
   useEffect(() => {
-    if (!pending) return
+    if (!pending || !enabled || loadingAnchor) return
     const reject = (error: unknown) => {
       pending.reject(error)
       setPending((current) => current?.token === pending.token ? null : current)
@@ -131,7 +145,7 @@ export function useUnreadLocatorNavigation(input: {
         reject(new DOMException('Unread navigation was superseded', 'AbortError'))
         return true
       }
-      const row = findVisibleUnreadMessageRow(pending.streamKind, pending.messageId)
+      const row = findVisibleUnreadMessageRow(scrollerRef.current, pending.messageId)
       if (!row) return false
       if (pending.streamKind === 'thread') row.scrollIntoView({ block: 'center' })
       pending.confirm(pending.messageId)
@@ -151,6 +165,7 @@ export function useUnreadLocatorNavigation(input: {
     return () => {
       window.cancelAnimationFrame(frame)
     }
-  }, [activeChatId, firstItemIndex, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
-    pending, rows, setFlashMessageId, setFollowingTail, listRef])
+  }, [activeChatId, enabled, loadingAnchor, flashTimerRef, hasMoreOlder, loadOlderMessages, loadingOlder, hasMoreNewer, loadNewerMessages, loadingNewer,
+    pending, rows, setFlashMessageId, setFollowingTail, listRef, scrollerRef])
+  return pending !== null && pending.chatId === activeChatId
 }

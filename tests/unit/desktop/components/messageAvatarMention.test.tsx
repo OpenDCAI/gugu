@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // 右键群聊消息的发送者头像 → 输入框 @ 他。插入本身走 rowProps.onMentionMember(主线里就是点运行中头像
 // 用的那个 setMentionToInsert),这里判的是:哪一次右键会调它、调的时候带什么、什么时候不碰原生菜单。
+import { topicHistoryStub } from '../../../support/chatWindowStub'
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
@@ -100,7 +101,7 @@ describe('右键群聊消息头像 → @ 他', () => {
     await renderWithAppProviders(harness, createElement(TopicSplitPane, {
       topic: { chatId: 'topic-1', name: '分片下载失败' }, messages, loading: false, memberProfiles, memberReadSeqs: {}, visibleChats: [],
       sourceMessagePreview: 'pending', onOpenFile: noop, onDownloadFile: noop, onSend: async () => {}, onSendAttachments: async () => {},
-      onClose: noop, currentUserId: 'user-1', onRevealOlder: noop, mentionMembers: [], onOpenMemberProfile: noop,
+      onClose: noop, currentUserId: 'user-1', history: topicHistoryStub(), mentionMembers: [], onOpenMemberProfile: noop,
     }))
     expect(rightClick(avatarOf('m-claude'))).toBe(true)
     const composer = harness.container.querySelector('[data-topic-split-composer] textarea') as HTMLTextAreaElement

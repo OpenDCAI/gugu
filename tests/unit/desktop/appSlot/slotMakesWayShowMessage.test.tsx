@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
-import { APP_SHOW_MESSAGE_EVENT, type AppShowMessageDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 
 /**
  * `gugu.showMessage` from an App in a chat's slot: the chat's list goes to the message (useSourceMessageReveal), and the
@@ -18,7 +18,7 @@ function Probe({ slot, mobile }: { slot: Slot; mobile: boolean }) {
   useSlotMakesWay(slot, mobile)
   return null
 }
-const show = (detail: AppShowMessageDetail) => act(() => void window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail })))
+const show = (detail: { chatId: string; messageId: string }) => act(() => void window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail: { chatId: detail.chatId, text: 'draft' } })))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
@@ -26,7 +26,7 @@ beforeEach(() => {
 })
 afterEach(() => harness.cleanup())
 
-describe('the slot makes way for the message an App shows', () => {
+describe('the slot makes way for an App compose; reveals use their target viewport', () => {
   it('phone: the slot over the chat closes', async () => {
     const slot = { chatId: 'chat-1', full: false, onToggleFull: vi.fn(), onClose: vi.fn() }
     await harness.render(createElement(Probe, { slot, mobile: true }))

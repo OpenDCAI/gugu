@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { TaskChatScope } from '../../../../apps/desktop/src/components/assistant/TaskChatScope'
 import { act, createElement } from 'react'
 import { awaitPending } from '../../../support/awaitFact'
 import { chat, message, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
@@ -36,6 +37,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
     getMessages: vi.fn((chatId: string) => nextDeferred(chatId).promise),
     getThreadMessages: vi.fn(async () => []),
+    revalidateWindow: vi.fn(async (ids: string[]) => ({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) })),
     markRead: vi.fn(async () => {}),
     sendMessage: vi.fn(async () => {}),
     getMessageById: vi.fn(async () => null),
@@ -77,7 +79,12 @@ function Probe({ onStore }: { onStore: (s: ChatContextValue) => void }) {
   onStore(useChatStore())
   return null
 }
-async function mount() {
+function SurfaceProbe({ mode, onStore }: { mode: string; onStore: (store: ChatContextValue) => void }) {
+  const { activeChatId } = useChatStore('activeChatId')
+  const probe = createElement(Probe, { onStore })
+  return mode === 'block' && activeChatId ? createElement(TaskChatScope, { chatId: activeChatId, children: probe }) : probe
+}
+async function mount(mode = 'primary') {
   const harness = createReactHarness()
   let cur: ChatContextValue | null = null
   const waiters = new Set<{ ok: (store: ChatContextValue) => boolean; done: () => void }>()
@@ -89,7 +96,7 @@ async function mount() {
       waiter.done()
     }
   }
-  await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(Probe, { onStore })), { auth: { id: 'user1' } })
+  await renderWithAppProviders(harness, createElement(ChatProvider, null, createElement(SurfaceProbe, { mode, onStore })), { auth: { id: 'user1' } })
   const reaches = (step: string, ok: (store: ChatContextValue) => boolean): Promise<void> =>
     cur && ok(cur) ? Promise.resolve() : awaitPending(step, new Promise<void>((done) => { waiters.add({ ok, done }) }))
   await reaches('store ready', () => true)
@@ -105,7 +112,7 @@ async function request(chatId: string, index: number): Promise<Deferred> {
 
 const msgA = message({ id: 'msgA', chat_id: 'chatA', content: 'from A' })
 
-describe('#7199 message read failures are kept per conversation', () => {
+describe.each(['primary', 'block'])('#7199 %s read failures use the account conversation owner', (mode) => {
   beforeEach(async () => {
     pending.clear()
     projectionStub.reset()
@@ -116,7 +123,7 @@ describe('#7199 message read failures are kept per conversation', () => {
   })
 
   it('a late failure of chat A does not replace chat B’s own failure (B stays “couldn’t load”, not empty)', async () => {
-    const { getStore, reaches } = await mount()
+    const { getStore, reaches } = await mount(mode)
     await act(async () => { getStore().setActiveChatId('chatA') })
     ;(await request('chatA', 0)).reject(new Error('A open failed'))
     await reaches('A 的读失败交给了消息列表', (store) => store.messagesError?.message === 'A open failed')
@@ -137,7 +144,7 @@ describe('#7199 message read failures are kept per conversation', () => {
   })
 
   it('within one conversation an older retry failing after a newer retry succeeded does not bring the failure back', async () => {
-    const { getStore, reaches } = await mount()
+    const { getStore, reaches } = await mount(mode)
     await act(async () => { getStore().setActiveChatId('chatA') })
     ;(await request('chatA', 0)).reject(new Error('A open failed'))
     await reaches('A 的读失败交给了消息列表', (store) => store.messagesError?.message === 'A open failed')
@@ -160,7 +167,7 @@ describe('#7199 message read failures are kept per conversation', () => {
   })
 
   it('positive control: a failure of the conversation on screen is reported, and a successful retry clears it', async () => {
-    const { getStore, reaches } = await mount()
+    const { getStore, reaches } = await mount(mode)
     await act(async () => { getStore().setActiveChatId('chatA') })
     ;(await request('chatA', 0)).reject(new Error('A open failed'))
     await reaches('A 的读失败交给了消息列表', (store) => store.messagesError?.message === 'A open failed')

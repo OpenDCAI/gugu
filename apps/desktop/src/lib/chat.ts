@@ -365,12 +365,12 @@ export const chatService = {
     if (!msgs?.length) return []
 
     // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
-    // chronological; ascending newer pages are already chronological. Overlays (reactions /
-    // delivery) are applied by the shared helper so the window-revalidation path reuses it.
+    // chronological; ascending newer pages are already chronological. The window owner publishes
+    // these bodies before its bounded overlay revalidation completes.
     const items = (msgs as RawMessageRow[])
       .map((row) => messageItemFromRow(row, userId))
       .filter((m): m is MessageItem => m !== null)
-    return applyMessageOverlays(ascending ? items : items.reverse(), userId)
+    return ascending ? items : items.reverse()
   },
 
   /** @@@threads (#957/#2525) — 群话题 root + 回复，按 seq 正序；主线已过滤回复。 */

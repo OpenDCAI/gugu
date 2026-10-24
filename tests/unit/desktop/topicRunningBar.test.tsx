@@ -2,6 +2,7 @@
 //
 // 手机上话题整页盖住了来源群,群里那条运行条就看不见了。话题页挂上同一条:数据取来源群,
 // 短按 @ 进**话题自己的**输入框。桌面不挂:分栏旁边群里那条一直看得见。
+import { topicHistoryStub } from '../../support/chatWindowStub'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
 
@@ -29,7 +30,7 @@ const baseProps = {
   onSendAttachments: vi.fn(async () => {}),
   onClose: vi.fn(),
   currentUserId: 'user-1',
-  onRevealOlder: vi.fn(),
+  history: topicHistoryStub(),
   mentionMembers: [],
 } satisfies Parameters<typeof TopicSplitPane>[0]
 
