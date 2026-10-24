@@ -73,8 +73,6 @@ export interface DeviceActionManifestEntry {
 /** `gugu_devices.capabilities.actions` 整块。 */
 export interface DeviceActionsCapability {
   v: number
-  /** 清单生成时刻(ISO):授权一变就重新登记。 */
-  updated_at: string
   /** 这台设备的时区(IANA,如 Asia/Shanghai):agent 算「明天下午 3 点」要用设备的时区,❌ 用自己机器的。 */
   timezone?: string
   actions: DeviceActionManifestEntry[]
@@ -274,7 +272,6 @@ export function normalizeDeviceActionsCapability(raw: unknown): DeviceActionsCap
   }
   return {
     v: typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION,
-    updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : '',
     ...(typeof raw.timezone === 'string' && raw.timezone ? { timezone: raw.timezone } : {}),
     actions,
     ...withSwitchedOff(raw.switched_off),

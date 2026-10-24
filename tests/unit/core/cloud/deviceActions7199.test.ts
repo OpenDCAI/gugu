@@ -203,7 +203,6 @@ describe('被调用方(DeviceActionHost)', () => {
 
 const manifest: DeviceActionsCapability = {
   v: 1,
-  updated_at: new Date().toISOString(),
   timezone: 'Asia/Shanghai',
   actions: [{
     name: 'calendar.events.create', group: 'calendar', title: '建日程', description: '', risk: 'medium', confirm: 'on_conflict',

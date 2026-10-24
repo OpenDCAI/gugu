@@ -757,7 +757,7 @@ export function buildPhoneActionsCapability(grants: PhoneGroupGrants, os: PhoneO
     const met = requirementMet(action.requires, os)
     return met.ok ? { ...base, available: true } : { ...base, available: false, unavailable_reason: met.reason, unavailable_detail: met.detail }
   })
-  return { v: DEVICE_ACTION_PROTOCOL_VERSION, updated_at: now.toISOString(), timezone: ctx.timezone, actions }
+  return { v: DEVICE_ACTION_PROTOCOL_VERSION, timezone: ctx.timezone, actions }
 }
 
 /** 组名(给助理看的那份,和设置页上的组名一致)。 */
@@ -773,7 +773,7 @@ const GROUP_WIRE_NAMES: Record<PhoneActionGroup, string> = {
   photos: '相册',
 }
 
-/** 清单里决定「可用 / 为什么不可用」的那部分 —— 它变了才需要立刻重新登记(updated_at 每次都变,不算)。 */
+/** 清单里决定「可用 / 为什么不可用」的那部分 —— 它变了才需要立刻重新登记。 */
 export function capabilityFingerprint(capability: DeviceActionsCapability): string {
   return capability.actions.map((a) => `${a.name}:${a.available ? 1 : 0}:${a.unavailable_reason ?? ''}`).join('|') + `#${capability.actions[0]?.description ?? ''}`
 }

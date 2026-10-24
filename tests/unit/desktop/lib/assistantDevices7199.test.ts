@@ -26,7 +26,7 @@ const phone = (id: string, overrides: Omit<Partial<Device>, 'capabilities'> = {}
   device(id, {
     platform: 'android',
     ...overrides,
-    capabilities: { host_kind: 'phone', ...(actions ? { actions: { v: 1, updated_at: '', actions: actions.map((a, i) => ({ name: `${a.group}.${i}`, title: '', ...a })) } } : {}) },
+    capabilities: { host_kind: 'phone', ...(actions ? { actions: { v: 1, actions: actions.map((a, i) => ({ name: `${a.group}.${i}`, title: '', ...a })) } } : {}) },
   })
 
 describe('设备页:不列它住的那台;本机 → 在线 → 离线', () => {
