@@ -75,7 +75,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     const target = document.createElement('div');
     target.style.cssText = 'position:fixed;left:400px;top:100px;width:200px;height:100px';
     const drops: unknown[] = [];
-    target.addEventListener('dragover', (event) => event.preventDefault());
+    target.addEventListener('dragover', (event) => { event.preventDefault(); event.dataTransfer!.dropEffect = 'move'; });
     target.addEventListener('drop', (event) => {
       event.preventDefault();
       drops.push({ trusted: event.isTrusted, types: [...event.dataTransfer!.types], content: getDraggedScreenContent(event.dataTransfer!) });
@@ -83,7 +83,10 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     document.body.appendChild(target);
     try {
       await userEvent.dragAndDrop(root.querySelector<HTMLElement>(`[data-chat-row="${chatId}"]`)!, target);
-      expect(drops).toEqual([{ trusted: true, types: [SCREEN_CONTENT_DRAG_TYPE], content: { kind: 'chat', chatId, title: chatId === 'dm-1' ? '林知夏' : chats.find((chat) => chat.id === chatId)!.name } }]);
+      expect(drops).toEqual([{ trusted: true, types: [SCREEN_CONTENT_DRAG_TYPE], content: { kind: 'chat', chatId: chatId === 't-live' ? 'grp-1' : chatId, title: chatId === 'dm-1' ? '林知夏' : chats.find((chat) => chat.id === chatId)!.name } }]);
+      expect(drainTopicSplitRequest('grp-1')).toEqual(chatId === 't-live'
+        ? { chatId: 't-live', name: '去哪儿', sourceChatId: 'grp-1', focusComposer: true }
+        : null);
     } finally { target.remove(); }
   });
 

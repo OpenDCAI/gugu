@@ -231,6 +231,17 @@ const TOPIC_SUBROW_STYLE: React.CSSProperties = { paddingLeft: 40, paddingTop: 4
 const TOPIC_SUBROW_ICON_STYLE: React.CSSProperties = { color: 'var(--text-tertiary)' }
 const TOPIC_SUBROW_NAME_STYLE: React.CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }
 
+function startChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem, title: string) {
+  setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.kind === 'topic' ? chat.source_chat_id! : chat.id, title }, event.currentTarget)
+}
+
+function finishChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem) {
+  clearDraggedScreenContent()
+  if (chat.kind === 'topic' && chat.source_chat_id && event.dataTransfer.dropEffect === 'move') {
+    requestTopicSplit({ chatId: chat.id, name: chat.name ?? '', sourceChatId: chat.source_chat_id, focusComposer: true })
+  }
+}
+
 function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
   topic: ChatItem
   mobile: boolean
@@ -261,8 +272,8 @@ function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKe
       data-chat-row={topic.id}
       data-topic-subrow={topic.id}
       draggable={!mobile}
-      onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: topic.id, title: topic.name }, event.currentTarget)}
-      onDragEnd={clearDraggedScreenContent}
+      onDragStart={(event) => startChatDrag(event, topic, topic.name)}
+      onDragEnd={(event) => finishChatDrag(event, topic)}
       selected={isActive}
       emphasis={topic.unread_count > 0}
       role="option"
@@ -331,8 +342,8 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
         data-chat-id={chat.id}
         data-chat-row={chat.id}
         draggable={!mobile}
-        onDragStart={(event) => setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.id, title: displayName }, event.currentTarget)}
-        onDragEnd={clearDraggedScreenContent}
+        onDragStart={(event) => startChatDrag(event, chat, displayName)}
+        onDragEnd={(event) => finishChatDrag(event, chat)}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
