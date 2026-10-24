@@ -1,5 +1,5 @@
 import './phone-memory.css'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
@@ -19,6 +19,9 @@ import { deleteMemoryNote, filesTrail, readMemoryCounts } from './phoneMemoryDat
 import { machineKey, usePhoneRead, type PhoneRead } from './usePhoneRead'
 import { AssistantLibraryCard } from '@/components/assistant/AssistantLibraryVolume'
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client'
+import { watchAssistantMemory } from '@/session/renderer/features/assistant/assistant-memory-watch'
+import { fileChangesChannel } from '@/session/shared/core/fs/fsEvents'
+import { onMachineEvent } from '../agent-watch/sessionpage-rpc'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 type NotesRead = PhoneRead<{ notes: MemoryEntry[]; index: string | null }> & { reload: () => void }
@@ -46,7 +49,25 @@ export function PhoneMemory(props: PhonePageProps) {
   const { sub, readiness, machine } = props
   const ready = readiness === 'ready' && machine.state === 'ready' ? machine.machine : null
   // 记忆那一夹各页共用一份读数(首页、一条的全文、健康页里它记的 health_* 几条)。
-  const notes = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
+  const read = usePhoneRead(ready ? `memory|${machineKey(ready)}` : null, () => readMemoryNotes(ready!), 'read memory')
+  const refreshMemory = read.refresh
+  const reloadMemory = read.reload
+  const [watchAttempt, retryWatch] = useState(0)
+  const [watchFailure, setWatchFailure] = useState<{ machine: typeof ready; error: unknown } | null>(null)
+  useEffect(() => {
+    if (!ready) return
+    return watchAssistantMemory(ready, receive => onMachineEvent(ready.deviceId, fileChangesChannel, receive),
+      () => { void refreshMemory().then(() => setWatchFailure(null), error => { setWatchFailure({ machine: ready, error }) }) },
+      error => { setWatchFailure({ machine: ready, error }) })
+  }, [ready, refreshMemory, watchAttempt])
+  const reload = useCallback(() => {
+    setWatchFailure(null)
+    retryWatch(value => value + 1)
+    reloadMemory()
+  }, [reloadMemory])
+  const memoryRead = { ...read, reload }
+  const notes = watchFailure && watchFailure.machine === ready
+    ? { ...memoryRead, state: 'error' as const, error: watchFailure.error } : memoryRead
   if (sub === 'library:workspace') return <PhoneLibraryVolume key={sub} {...props} kind="workspace" />
   if (sub === 'health') return <PhoneHealth {...props} healthNotes={notes} />
   if (sub === 'voice' || sub?.startsWith('voice:')) return <PhoneVoiceNotes {...props} />

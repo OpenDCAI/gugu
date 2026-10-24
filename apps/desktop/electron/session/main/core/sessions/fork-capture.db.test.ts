@@ -301,6 +301,16 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     expect(rows.some((row) => row.id === GRANDCHILD)).toBe(true);
   });
 
+  it('does not register reserved native maintenance branches as product agents', async () => {
+    await fixture.db.update(sessions).set({ runtime: 'acp', config: {
+      version: '1', type: 'acp', assistantContextBranches: [PARENT, CHILD],
+    } }).where(eq(sessions.id, PARENT));
+    await captureExternalForks(projectId, PARENT);
+    const rows = await fixture.db.select().from(sessions);
+    expect(rows.some(row => row.id === CHILD)).toBe(false);
+    expect(rows.some(row => row.id === GRANDCHILD)).toBe(true);
+  });
+
   it('captures a Codex /fork rollout by its structured forked_from_id', async () => {
     const codexParentId = '44444444-4444-4444-8444-444444444444';
     const codexChildId = '55555555-5555-4555-8555-555555555555';

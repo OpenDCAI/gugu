@@ -82,6 +82,8 @@ export interface EmdashSessionStartInfo {
 
 /** Returns the MCP servers to inject for this session (empty = inject nothing). May throw (fail-loud). */
 export type EmdashSessionCapabilityInjection = {
+  /** Trusted assistant-only native maintenance; never accepted from a renderer start payload. */
+  assistantContextMaintenance?: { memoryDir: string };
   mcpServers: McpServer[];
   /**
    * #6387 What installed extensions put into this session (programs and skills, each with its

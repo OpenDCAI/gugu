@@ -17,6 +17,7 @@ import type { TerminalProvider } from '@main/core/terminals/terminal-provider';
 import type { Workspace } from '@main/core/workspaces/workspace';
 import { LifecycleScriptService } from '@main/core/workspaces/workspace-lifecycle-service';
 import { acquireWorkspaceRuntime } from './workspace-runtime';
+import { watchWorkspaceDirectory } from './workspace-directory-watch';
 import { type WorkspaceFactoryResult } from '@main/core/workspaces/workspace-registry';
 import { handleGitWorktreeUpdate } from '@main/core/workspaces/workspace-worktree-update';
 import { events } from '@main/lib/events';
@@ -158,8 +159,9 @@ export function createWorkspaceFactory(
 
     const watchedDirectories = new Set<() => void>();
     const workspace: Workspace = {
-      watchDirectory: (dirPath) => {
-        const watched = filesRuntime.watchDirectory(dirPath);
+      watchDirectory: async (dirPath) => {
+        const watched = await watchWorkspaceDirectory(filesRuntime, workDir, dirPath,
+          update => events.emit(fileChangesChannel, { projectId: context.projectId, workspaceId, update }));
         if (!watched.success) return watched;
         let released = false;
         const release = () => {

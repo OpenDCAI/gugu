@@ -522,6 +522,8 @@ export async function captureExternalForks(projectId: string, sessionId: string)
   for (const row of projectRows) {
     knownProviderSessionIds.add(row.id);
     if (row.providerSessionId) knownProviderSessionIds.add(row.providerSessionId);
+    // Reserved before copying begins: a maintenance branch is never an external task.
+    if (row.config?.type === 'acp') for (const branch of row.config.assistantContextBranches ?? []) knownProviderSessionIds.add(branch);
   }
   // spec session-graph:归档只问会话自己那一列。已归档的会话仍算「已知」—— 它的记录不许被当成新 fork
   // 再登记一遍 —— 但不再监测它派生出的 fork。

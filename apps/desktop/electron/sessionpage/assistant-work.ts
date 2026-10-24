@@ -162,7 +162,7 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
     typeof record.work_id === 'string' ? record.work_id : undefined)
   const dispatched = field ? { ...record, [field]: `${record[field]}\n\n<gugu_work>\n${JSON.stringify({ work_id: id,
-    coordinator: `session:${binding.sessionId}`, report: 'session_message work_result={work_id,status:progress|question|completed|cancelled}; only report completed after verifying the requested result.' })}\n</gugu_work>` } : action
+    coordinator: `session:${binding.sessionId}`, report: '将 work_id、status 填进 session_message 的 work_result 参数，不写正文。仅验证完成后报 completed；progress/question 不结束等待。' })}\n</gugu_work>` } : action
   try {
     const result = await run(dispatched)
     const out = result as { session_id?: string; recipients?: Array<{ to: string; session_id?: string; status: string; message_id?: string }>; state?: string; question_id?: string }

@@ -20,6 +20,7 @@ import {
 import { mapSessionRowToSession } from './utils';
 import { getSessionMessageRouter, setSessionMessageOutboxDrain } from './session-message-router';
 import { isNoLocalMessageEncodingError } from './impl/keystroke-injection';
+import { assistantContextMigrationHeld } from './assistant-context-lease';
 
 /**
  * 认领者声明「这条消息在任何字节到达 provider 之前就被拒了」(结构标记,❌ 不用 instanceof:会话页 bundle 与
@@ -543,6 +544,10 @@ export async function sendMessage(
   // Ordinary session-direct calls are a live handoff, except that a recovery gate may preserve the
   // exact message in the existing outbox until the coordinator's retry kicks the common reader.
   if (params.kind === 'session-direct' && !params.queuedStartupDelegation) {
+    if (assistantContextMigrationHeld(params.sessionId)) {
+      await enqueuePendingSessionDirectMessage(params, text);
+      return { id: clientMessageId, status: 'queued' };
+    }
     const row = await readSession(params);
     const surface = row.runtime === 'acp' ? 'acp' : 'tui';
     const integration = resolveSessionpageSessionIntegration(row.provider, surface);

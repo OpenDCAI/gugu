@@ -5364,6 +5364,7 @@ app.whenReady().then(async () => {
         console.log(`[sessionpage] injected the gugu MCP into session-page conv ${info.sessionId} (agent ${provisioned.guguAgentUserId}, chat ${provisionedChatId}) via ${capabilities.report.adapterId} session adapter`)
         return {
           mcpServers: mapped,
+          ...(capabilities.assistantContextMaintenance ? { assistantContextMaintenance: capabilities.assistantContextMaintenance } : {}),
           extensionDelivery: sessionExtensionDelivery(bundle),
           ...(startupQueue ? { initialQueue: startupQueue } : {}),
           spawnEnv: capabilities.spawnEnv,

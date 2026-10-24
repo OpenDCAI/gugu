@@ -183,6 +183,8 @@ export interface CapabilityLoadReport {
 
 /** Pure harness-specific actions. Callers only apply these values to their native channel. */
 export interface Materialization {
+  /** Host-only maintenance intent, consumed by the session backend after a trusted assistant start. */
+  assistantContextMaintenance?: { memoryDir: string }
   extraArgs?: string[]
   /** Native app-server thread config overrides, kept separate from process argv. */
   threadConfig?: Readonly<Record<string, unknown>>

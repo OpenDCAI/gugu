@@ -4,8 +4,11 @@
 // (remoteHostsStore.wakeCloudComputer)。
 // 读不到如实说是哪一步,❌ 显示一片空当成「什么都没有」。
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, onMachineEvent } from '@renderer/lib/ipc';
+import { fileChangesChannel } from '@shared/core/fs/fsEvents';
+import { watchAssistantMemory } from './assistant-memory-watch';
 import { appState } from '@renderer/lib/stores/app-state';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
 import {
@@ -104,11 +107,27 @@ export function useInstructions(machine: AssistantMachine | undefined) {
 
 
 export function useMemoryNotes(machine: AssistantMachine | undefined) {
-  return useQuery<{ notes: MemoryEntry[]; index: string | null }>({
+  const [watchAttempt, retryWatch] = useState(0);
+  const [watchFailure, setWatchFailure] = useState<{ machine: AssistantMachine; error: Error } | null>(null);
+  const query = useQuery<{ notes: MemoryEntry[]; index: string | null }>({
     queryKey: assistantQueryKey(machine?.deviceId ?? '', 'memory'),
     queryFn: () => readMemoryNotes(machine!),
     enabled: !!machine,
   });
+  useEffect(() => {
+    if (!machine) return;
+    return watchAssistantMemory(machine,
+      receive => onMachineEvent(machine.target ?? null, fileChangesChannel, receive),
+      () => { void query.refetch(); },
+      error => { setWatchFailure({ machine, error: error instanceof Error ? error : new Error(String(error)) }); });
+  }, [machine, query.refetch, watchAttempt]);
+  const refetch = useCallback((...args: Parameters<typeof query.refetch>) => {
+    setWatchFailure(null);
+    retryWatch(value => value + 1);
+    return query.refetch(...args);
+  }, [query.refetch]);
+  const error = watchFailure && watchFailure.machine === machine ? watchFailure.error : query.error;
+  return { ...query, refetch, error, isError: !!error };
 }
 
 export type SkillEntry = SkillInfo & { path: string; modifiedAt: string | null };

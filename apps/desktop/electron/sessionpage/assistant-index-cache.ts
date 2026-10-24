@@ -11,6 +11,16 @@ type Snapshot = { account: string; cwd: string; kind: AssistantHomeKind; observe
 const refreshing = new Map<string, Promise<void>>()
 const log = createLogger('assistant-index')
 
+/** Heartbeats and collection time do not make a different resource map. Keep the
+ * original observation time with unchanged data instead of churning the prompt. */
+export function assistantIndexContent(index: string): string {
+  return index.split('\n').map(line => {
+    if (!line.startsWith('{')) return line
+    const row = JSON.parse(line)
+    return JSON.stringify(row, (key, value) => ['collected_at', 'last_seen_at'].includes(key) ? undefined : value)
+  }).join('\n')
+}
+
 /** Discovery is data, not the tool surface. Never hold the first model request for remote inventories. */
 export async function openingAssistantIndex(
   guguHome: string, cwd: string, kind: AssistantHomeKind, deps: AssistantStartupIndexDeps,
@@ -38,6 +48,7 @@ export async function openingAssistantIndex(
     const refresh = startupDiscovery.schedule(async () => {
       const index = await assistantStartupIndex(deps)
       if (await deps.accountId() !== account) throw new Error('Assistant startup index: account changed before saving')
+      if (cached && assistantIndexContent(cached.index) === assistantIndexContent(index)) return
       const value: Snapshot = { account, cwd: directory, kind, observedAt: (deps.now?.() ?? new Date()).toISOString(), index }
       await mkdir(dirname(path), { recursive: true, mode: 0o700 })
       const temporary = `${path}.${randomUUID()}.tmp`

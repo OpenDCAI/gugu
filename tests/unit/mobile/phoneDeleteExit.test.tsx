@@ -7,10 +7,10 @@ import { PhoneRoutineDetail } from '../../../apps/desktop/src/mobile/assistant/P
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
 import { expectExit, frame, holdDialogExit } from '../../support/dialogExit'
 
-const m = vi.hoisted(() => ({ data: {} as Record<string, unknown>, remove: vi.fn(async () => undefined), reload: vi.fn() }))
+const m = vi.hoisted(() => ({ data: {} as Record<string, unknown>, remove: vi.fn(async () => undefined), reload: vi.fn(), refresh: vi.fn(async () => undefined) }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneRead', async (original) => ({
   ...await original<typeof import('../../../apps/desktop/src/mobile/assistant/usePhoneRead')>(),
-  usePhoneRead: (key: string | null) => ({ state: 'ok', data: m.data[key?.split('|')[0] ?? 'none'] ?? null, reload: m.reload }),
+  usePhoneRead: (key: string | null) => ({ state: 'ok', data: m.data[key?.split('|')[0] ?? 'none'] ?? null, reload: m.reload, refresh: m.refresh }),
 }))
 vi.mock('../../../apps/desktop/src/mobile/assistant/usePhoneRoutines', () => ({ usePhoneRoutines: () => ({
   routines: [{ id: 'routine-1', name: 'Routine', enabled: false, triggerConfig: { expr: '0 9 * * *' }, agentConfig: {} }],
@@ -27,7 +27,9 @@ vi.mock('../../../apps/desktop/src/mobile/assistant/phoneVoiceNotesData', async 
 vi.mock('../../../apps/desktop/src/session/renderer/features/assistant/assistant-machine-core', async (original) => ({
   ...await original<typeof import('../../../apps/desktop/src/session/renderer/features/assistant/assistant-machine-core')>(), removePath: m.remove,
 }))
-vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: () => ({ automations: { deleteAutomation: m.remove } }) }))
+vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
+  machineRpc: () => ({ automations: { deleteAutomation: m.remove } }), onMachineEvent: () => () => {},
+}))
 vi.mock('../../../apps/desktop/src/components/markdown/Markdown', () => ({ Markdown: () => null }))
 
 let h: ReturnType<typeof createReactHarness>
@@ -42,7 +44,11 @@ beforeEach(() => {
 })
 afterEach(() => { h.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
 
-const machine = { deviceId: 'device-1', projectId: 'project-1', workspaceId: 'workspace-1', home: '/home/test', paths: { memoryDir: '/memory' } }
+const machine = { deviceId: 'device-1', projectId: 'project-1', workspaceId: 'workspace-1', home: '/home/test', paths: { memoryDir: '/memory' },
+  rpc: { workspace: { files: {
+    watchDirectory: vi.fn(async () => ({ success: true, data: { leaseId: 'memory-view' } })),
+    releaseDirectoryWatch: vi.fn(async () => undefined),
+  } } } }
 const cases = [
   { label: 'memory', component: PhoneMemory, props: { sub: 'note:note.md' }, open: 'assistant-memory-delete', dialog: 'assistant-memory-delete-dialog' },
   { label: 'file', component: PhoneFiles, props: { sub: 'files:file.txt', trail: ['file.txt'] }, open: 'assistant-file-delete', dialog: 'assistant-file-delete-dialog' },

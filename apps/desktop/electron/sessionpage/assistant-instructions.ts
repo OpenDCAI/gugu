@@ -8,16 +8,17 @@ import {
 } from '@gugu/core/shared/assistantPolicy'
 
 const refreshes = new Map<string, Promise<void>>()
+export type AssistantInstructions = { brief: string; custom: string }
 
 /** Role was checked by the caller. Only managed instructions change; memory and custom text stay. */
-export async function refreshAssistantContext(cwd: string, guguHome: string, kind: AssistantHomeKind, home = homedir()): Promise<void> {
+export async function refreshAssistantContext(cwd: string, guguHome: string, kind: AssistantHomeKind, home = homedir()): Promise<AssistantInstructions | undefined> {
   if (kind === 'computer' && resolve(cwd) !== resolve(guguHome, ASSISTANT_COMPUTER_WORKDIR_NAME)) return
   const key = assistantHomePaths(home, cwd, kind).instructions
   const previous = refreshes.get(key)
   const gate = Promise.withResolvers<void>()
   refreshes.set(key, gate.promise)
   if (previous) await previous
-  try { await writeAssistantContext(cwd, kind, home) }
+  try { return await writeAssistantContext(cwd, kind, home) }
   finally {
     gate.resolve()
     if (refreshes.get(key) === gate.promise) refreshes.delete(key)
@@ -35,7 +36,7 @@ async function writeAssistantContext(cwd: string, kind: AssistantHomeKind, home:
     if (error.code === 'ENOENT') return ''
     throw error
   })
-  const settings = kind === 'computer' ? [[paths.settings, await localAssistantSettings(paths.settings, cwd)]] : []
+  const settings = [[paths.settings, await localAssistantSettings(paths.settings, cwd, instructions, kind)]]
   // Install the complete reference first, so the brief never points to an absent file.
   for (const [path, content] of [[reference, full], [instructions, upsertAssistantGuide(current, brief)], ...settings]) {
     const old = path === instructions ? current : await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -48,11 +49,12 @@ async function writeAssistantContext(cwd: string, kind: AssistantHomeKind, home:
     await writeFile(tmp, content, 'utf8')
     await rename(tmp, path)
   }
+  return { brief, custom: upsertAssistantGuide(current, '').trim() }
 }
 
 /** Project-only settings still load ancestor CLAUDE.md files (CLI 2.1.306).
  * Exclude that coding context while retaining this assistant's own instructions. */
-async function localAssistantSettings(path: string, cwd: string): Promise<string> {
+async function localAssistantSettings(path: string, cwd: string, instructions: string, kind: AssistantHomeKind): Promise<string> {
   const raw = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return '{}'
     throw error
@@ -61,8 +63,11 @@ async function localAssistantSettings(path: string, cwd: string): Promise<string
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Assistant settings must be an object')
   const existing = settings.claudeMdExcludes ?? []
   if (!Array.isArray(existing) || existing.some(value => typeof value !== 'string')) throw new Error('Assistant instruction exclusions must be strings')
-  const excluded: string[] = []
-  for (let parent = dirname(resolve(cwd)); ; parent = dirname(parent)) {
+  // The managed brief and owner text are carried once in the native custom system prompt.
+  // Exclude the same file from Claude's historical instruction attachments.
+  const literalPath = (value: string) => value.replaceAll('\\', '/').replace(/[?*[\]{}()!+@]/g, '\\$&')
+  const excluded: string[] = [literalPath(instructions)]
+  for (let parent = kind === 'computer' ? dirname(resolve(cwd)) : null; parent; parent = dirname(parent)) {
     const literal = parent.replaceAll('\\', '/').replace(/[?*[\]{}()!+@]/g, '\\$&')
     const prefix = literal.endsWith('/') ? literal : `${literal}/`
     excluded.push(...['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude/CLAUDE.md', '.claude/AGENTS.md', '.claude/rules/**'].map(name => `${prefix}${name}`))
