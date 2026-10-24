@@ -14,6 +14,7 @@ import '@/styles/tokens.css';
 import { until, untilStable } from '../../../../../../../tests/support/awaitCondition';
 import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
 import { clearDraggedScreenContent, getDraggedScreenContent, SCREEN_CONTENT_DRAG_TYPE } from '@renderer/lib/drag-screen-content';
+import { publishSidebarChatView } from '@/lib/sidebarChatsBridge';
 
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
 vi.mock('@/store/devicesContext', async (original) => ({ ...(await original<object>()), useDevicesStore: () => ({ devices: [] }) }));
@@ -54,14 +55,14 @@ let harness: ReturnType<typeof createReactHarness>;
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
 });
-afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); });
+afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); publishSidebarChatView({ focusedChatId: null, focusedSessionId: null, groups: [] }); });
 
-async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null) {
+async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null, placement: 'page' | 'sidebar' = 'page') {
   harness = createReactHarness();
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
-    createNode(ChatListPanel, { activeTab: 'chats', mobile, onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
+    createNode(ChatListPanel, { activeTab: 'chats', mobile, placement, onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
     { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏', avatar: peerAvatar }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);
@@ -69,9 +70,15 @@ async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobi
 }
 
 describe('the IM chat list in the master\'s roles (#7333)', () => {
-  it.each(['dm-1', 'grp-1', 't-live'])('drags %s with the shared workspace content identity', async (chatId) => {
+  it.each(['dm-1', 'grp-1', 't-live'])('drags grouped sidebar row %s with the shared workspace content identity', async (chatId) => {
     await page.viewport(1000, 800);
-    const root = await renderList();
+    publishSidebarChatView({ focusedChatId: 'grp-1', focusedSessionId: null, groups: [
+      { members: ['chat:grp-1', 'chat:dm-1'], anchor: 'chat:grp-1', onScreen: true },
+    ] });
+    const root = await renderList('grp-1', vi.fn(), false, null, 'sidebar');
+    expect(root.querySelector('[data-chat-row="grp-1"]')?.getAttribute('data-join')).toBe('first');
+    expect(root.querySelector('[data-chat-row="dm-1"]')?.getAttribute('data-join')).toBe('last');
+    expect(root.querySelector('[data-chat-row="dm-1"]')?.hasAttribute('data-join-on')).toBe(true);
     const target = document.createElement('div');
     target.style.cssText = 'position:fixed;left:400px;top:100px;width:200px;height:100px';
     const drops: unknown[] = [];
