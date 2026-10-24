@@ -196,7 +196,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       ),
       text: z.string().min(1),
       work_id: z.string().uuid().optional(),
-      work_result: workReportSchema.optional().describe('Delegated execution report. Fill this argument, not text. completed/cancelled closes only the matching executor wait; progress/question does not.'),
+      work_result: workReportSchema.optional().describe('Report here, not in text.'),
       files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
