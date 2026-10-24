@@ -488,7 +488,7 @@ Claim an existing data file's name or suffix and open it live; never copy it int
 
 ## Which files you may open
 
-Topic file addresses resolve to their source chat; entries name that source. Messages keep their topic address.
+Topic file addresses resolve to their source chat (entries name it); messages keep their topic address.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
@@ -497,6 +497,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - The file you were opened for (\`ctx.file\`) — the person clicked it and the host picked your App by its claim
   (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; the most specific wins), or they chose it under "open with".
   No capability; a session's claims go under \`"session"\`.
+- \`"chatFile": "x.board.json"\` on that tab (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
 - A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
   does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
   in a folder the search index skips hears the disk only when written.
@@ -514,7 +515,7 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
 - \`gugu.files.openWith(entry)\` (a click or key) uses its most specific App claim or "always use". \`{ ask: true }\`: they pick among all;
   \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
-  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: the file is gone or unreadable.
+  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
 - \`gugu.files.upload(place)\` (\`files:write\`) opens the file picker (a click or key) → the new entries (\`[]\`);
   given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` asks where to save (a click or
   key) → \`true\` saved.

@@ -23,11 +23,14 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
+  type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
   type LocalPlace,
   type SyncRevokeReason,
 } from './app-runtime-protocol';
+import { fileOpenersFor } from './file-openers';
+import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
 
 /**
@@ -767,6 +770,30 @@ export function createAppFiles(platform: FilesPlatform) {
       if (row && row.chat_id !== chatId) chatId = await resourceChatIdOf(token, chatId, userId);
       if (!row || row.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
       return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 } };
+    },
+
+    /**
+     * API 14 `chatFile`: the file an App names for a chat, as a file of it opened with that App — at the top of the chat's
+     * folder, made empty for the person the first time (`{}` for JSON, a JSON file holding an object; the App fills it).
+     * Two making it at once: the folder names the later one apart, which goes again, and both open the first.
+     */
+    async appChatFile(chatId: string, manifest: ExtensionManifest | undefined): Promise<AppOpenWithDetail> {
+      const tab = manifest?.contributes.tabs.find((candidate) => candidate.chatFile !== undefined);
+      const name = tab?.chatFile;
+      if (!manifest || !tab || !name) throw new AppFileError('not-found', `${manifest?.id ?? 'That App'} names no file of a chat (chatFile)`);
+      const candidate = fileOpenersFor(name, [manifest], 'chat').find((opener) => opener.tabKind === `${manifest.id}.${tab.name}`);
+      if (!candidate) throw new AppFileError('invalid', `${manifest.id}.${tab.name} does not open ${name} in a chat`);
+      const { token, userId } = await platform.account();
+      const first = async () => (await itemsByPath(token, chatId, name, userId)).find((row) => row.kind !== 'folder' && row.parent_id === null);
+      let row = await first();
+      if (!row) {
+        const contentType = contentTypeOf(name);
+        const made = await insertDocument(token, { chatId, name, contentType, content: /json/i.test(contentType) ? '{}' : '', sourceMessageIds: [], parentId: null }, userId);
+        if (made.filename !== name) await agentRows(token, 'workspace_delete_as', { p_item_id: made.id, p_as_user_id: userId });
+        row = made.filename === name ? made : await first();
+        if (!row) throw new AppFileError('failed', `${name} was made as ${made.filename}, and the one it gave way to is gone`);
+      }
+      return { ...(await this.groupFile(chatId, row.id)), choice: { kind: 'one', candidate } };
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */

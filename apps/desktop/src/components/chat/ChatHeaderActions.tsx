@@ -9,7 +9,7 @@ import { IconButton } from '../ui/IconButton'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { openApp } from '../appSlot/useOpenApp'
-import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
+import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { RailAppIcon } from '../RailAppIcon'
 import { GroupAppsPicker } from './GroupAppsPicker'
 import { useChatAppPins } from './useChatAppPins'
@@ -30,7 +30,8 @@ interface ChatHeaderActionsProps {
   // ⋯ 菜单里的群公告仍按 isGroupChat 分叉(话题没有公告)。
   isRoomChat: boolean
   searchMode: boolean
-  workspacePanelOpen: boolean
+  /** The panel is up and shows the folder (a tab like any other: owner 10-24) — not just「the panel is open」. */
+  folderShown: boolean
   memberListOpen: boolean
   showHeaderMenu: boolean
   mobile?: boolean
@@ -40,7 +41,8 @@ interface ChatHeaderActionsProps {
   moreInTabMenu?: boolean
   moreButtonRef: RefObject<HTMLButtonElement | null>
   onEnterSearchMode: () => void
-  onOpenWorkspacePanel: () => void
+  /** The folder opened, or brought forward when it is a tab already. */
+  onOpenFolder: () => void
   onCloseWorkspacePanel: () => void
   onOpenSettingsDrawer: () => void
   onOpenMemberList: () => void
@@ -54,7 +56,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   isGroupChat,
   isRoomChat,
   searchMode,
-  workspacePanelOpen,
+  folderShown,
   memberListOpen,
   showHeaderMenu,
   mobile,
@@ -62,7 +64,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   moreInTabMenu,
   moreButtonRef,
   onEnterSearchMode,
-  onOpenWorkspacePanel,
+  onOpenFolder,
   onCloseWorkspacePanel,
   onOpenSettingsDrawer,
   onOpenMemberList,
@@ -74,10 +76,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
   const { t } = useTranslation('messaging')
   const { activeChatId } = useChatStore('activeChatId')
   const folderName = useChatFolderName(activeChatId) // 群文件夹 / 文件夹 (chatFolderName.ts)
-  const openFolder = () => {
-    onOpenWorkspacePanel()
-    if (activeChatId) openApp(WORKSPACE_APP_ID, activeChatId)
-  }
+  const openFolder = onOpenFolder
   const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。
   const groupId = isGroupChat ? activeChatId : null
   const pins = useChatAppPins(groupId)
@@ -119,12 +118,12 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           每个对话都有自己的云端文件和右栏。手机群聊收进 ⋯(见 compactRoom),手机私聊图标少,留在页头。 */}
       {!compactRoom && (
         <IconButton
-          on={workspacePanelOpen || undefined}
+          on={folderShown || undefined}
           title={folderName}
           aria-label={folderName}
-          aria-pressed={workspacePanelOpen}
+          aria-pressed={folderShown}
           onClick={() => {
-            if (workspacePanelOpen) onCloseWorkspacePanel()
+            if (folderShown) onCloseWorkspacePanel()
             else openFolder()
           }}
         >

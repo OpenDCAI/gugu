@@ -5,7 +5,7 @@ import { createReactHarness } from '../../../support/testHarness'
 
 /**
  * 「在本群打开」(app-redesign §5, 统筹 10-05): one way to open an App from a chat. A card's 「打开」 asks it (`openApp`) and the
- * source chat on screen answers (`useOpenApp`): in the group or private chat's shared panel, also used by its topics.
+ * source chat on screen answers (`useOpenApp`, every ask of its panel): in the group or private chat's shared panel, also used by its topics.
  * This holds on the desktop as on the phone. Whether a device can use an App at all is the host's to say by what it
  * can do (`phoneRuns`), never by which files the App opens. Control (the parent commit): a private chat answered nothing
  * and its card said to open the App in a group.
@@ -39,7 +39,7 @@ const { ExtensionBundleCard } = await import('../../../../apps/desktop/src/compo
 const { ChatStoreProvider } = await import('../../../../apps/desktop/src/store/chatContext')
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { UI_EVENTS } = await import('../../../../apps/desktop/src/lib/uiEvents')
-const { groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
+const { folderTab, groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
 const { grantableBy } = await import('../../../../apps/desktop/src/session/shared/extensions/attachment-install')
 const { PHONE_CAPABILITIES } = await import('../../../../apps/desktop/src/components/appSlot/phoneApps')
 
@@ -94,22 +94,28 @@ describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => 
   it('a source chat opens its requested App in the shared panel', async () => {
     await harness.render(createElement(Chat, { id: 'source-1' }))
     openPanel.mockImplementationOnce(() => groupSlotMemory.setForm('source-1', 'side'))
-    act(() => { groupSlotMemory.askApp('source-1', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    act(() => { groupSlotMemory.ask('source-1', { app: 'board' }); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
     expect(openPanel).toHaveBeenCalledTimes(1)
-    expect(answered).toMatchObject({ chatId: 'source-1', extensionId: 'board', fromChat: true })
+    expect(answered).toMatchObject({ chatId: 'source-1', app: 'board' })
+    expect(answered?.from, 'an App opened from the chat has no 上一页').toBeUndefined()
   })
 
-  it('captures the source before opening the panel, while an App opened inside the panel keeps its source', async () => {
+  it('a page in the panel asked: the tab on screen is the 上一页 of what it opens; an App asked there has none (owner 10-24)', async () => {
     await harness.render(createElement(Chat, { id: 'source-panel' }))
+    const folder = folderTab()
+    groupSlotMemory.open('source-panel', folder)
     groupSlotMemory.setForm('source-panel', 'side')
-    act(() => { groupSlotMemory.askApp('source-panel', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
-    expect(answered).toMatchObject({ chatId: 'source-panel', extensionId: 'board' })
-    expect(answered?.fromChat).toBeUndefined()
+    act(() => { groupSlotMemory.ask('source-panel', { itemId: 'F1', fromPage: true }); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    expect(answered).toMatchObject({ chatId: 'source-panel', itemId: 'F1' })
+    expect(answered?.from).toBe(folder)
+    act(() => { groupSlotMemory.ask('source-panel', { app: 'board' }); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    expect(answered).toMatchObject({ chatId: 'source-panel', app: 'board' })
+    expect(answered?.from).toBeUndefined()
   })
 
   it('another chat than the one on screen is not answered here', async () => {
     await harness.render(createElement(Chat, { id: 'group-1' }))
-    act(() => { groupSlotMemory.askApp('group-2', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    act(() => { groupSlotMemory.ask('group-2', { app: 'board' }); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
     expect(openPanel).not.toHaveBeenCalled()
     expect(answered).toBeNull()
   })
@@ -120,10 +126,10 @@ describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => 
     try {
       install(app([OWN_PAGE]))
       await harness.render(createElement(Chat, { id: 'dm-1' }))
-      act(() => { groupSlotMemory.askApp('dm-1', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+      act(() => { groupSlotMemory.ask('dm-1', { app: 'board' }); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
       expect(openPanel).toHaveBeenCalledTimes(1)
       expect(revealed).not.toHaveBeenCalled()
-      expect(answered).toMatchObject({ chatId: 'dm-1', extensionId: 'board' })
+      expect(answered).toMatchObject({ chatId: 'dm-1', app: 'board' })
     } finally {
       window.removeEventListener(UI_EVENTS.sessionpageReveal, revealed)
     }

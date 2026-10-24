@@ -5,7 +5,6 @@
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
-import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
 vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
@@ -14,16 +13,16 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
-const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenWorkspacePanel = vi.fn()) =>
+const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: boolean }, onOpenFolder = vi.fn()) =>
   renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     ...props,
     searchMode: false,
-    workspacePanelOpen: false,
+    folderShown: false,
     memberListOpen: false,
     showHeaderMenu: false,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
-    onOpenWorkspacePanel,
+    onOpenFolder,
     onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(),
     onOpenMemberList: vi.fn(),
@@ -35,20 +34,12 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
 const workspaceButton = () => document.querySelector<HTMLElement>('button[aria-label="文件夹"], button[aria-label="群文件夹"]')
 
 describe('a private chat has the folder (workspace) button in its header', () => {
-  it.each([false, true])('mobile=%s: it is there, and opens the panel', async (mobile) => {
+  it.each([false, true])('mobile=%s: it is there, and opens the folder in the panel', async (mobile) => {
     const onOpen = vi.fn()
     await header({ isGroupChat: false, isRoomChat: false, mobile }, onOpen)
     expect(workspaceButton()).not.toBeNull()
     expect(workspaceButton()!.getAttribute('aria-label'), 'owner 10-11: a private chat\'s is 文件夹').toBe('文件夹')
-    const asks: unknown[] = []
-    const receive = (event: Event) => asks.push((event as CustomEvent).detail)
-    window.addEventListener(UI_EVENTS.openApp, receive)
-    try {
-      await clickElement(workspaceButton()!)
-    } finally {
-      window.removeEventListener(UI_EVENTS.openApp, receive)
-    }
-    expect(asks).toEqual([{ extensionId: 'workspace', chatId: 'c' }])
+    await clickElement(workspaceButton()!)
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 

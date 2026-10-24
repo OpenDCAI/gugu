@@ -937,8 +937,8 @@ describe('MainLayout: files.openWith', () => {
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
-    expect(groupSlotMemory.takeFile('source')).toEqual({ itemId: 'F1', restore })
-    expect(groupSlotMemory.takeFile('topic-file')).toBeNull()
+    expect(groupSlotMemory.take('source')).toEqual({ itemId: 'F1', restore })
+    expect(groupSlotMemory.take('topic-file')).toBeNull()
   })
 
   it('the file\'s chat comes up and its panel is asked for the file, with the host\'s answer', async () => {
@@ -947,7 +947,7 @@ describe('MainLayout: files.openWith', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail })) })
     // 桌面上对话是会话页这屏的一块:请会话页把它摆出来。
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('g-open', false)
-    expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', opener: detail })
+    expect(groupSlotMemory.take('g-open'), 'a page asked: what it opens has that page as its 上一页').toEqual({ itemId: 'F1', opener: detail, fromPage: true })
   })
 
   it('a message file request keeps its originating message for the native preview actions', async () => {
@@ -957,7 +957,7 @@ describe('MainLayout: files.openWith', () => {
     const restore = vi.fn()
     fileOwner.mockResolvedValue({ data: { chat_id: 'g-open' }, error: null })
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { message: message as never, restore }) })
-    expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message, restore })
+    expect(groupSlotMemory.take('g-open')).toEqual({ itemId: 'F1', message, restore })
   })
 
   it('a chat the person is not in: said, and nothing asked of any panel', async () => {
@@ -967,7 +967,7 @@ describe('MainLayout: files.openWith', () => {
     expect(toast).toHaveBeenCalledTimes(1)
     expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
     expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
-    expect(groupSlotMemory.takeFile('g-open')).toBeNull()
+    expect(groupSlotMemory.take('g-open')).toBeNull()
   })
 })
 
@@ -998,7 +998,7 @@ describe('MainLayout: personal assistant destinations', () => {
       })
       expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-      if ('itemId' in detail) expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('personal-file')
+      if ('itemId' in detail) expect((groupSlotMemory.take('personal-dm') as { itemId?: string } | null)?.itemId).toBe('personal-file')
       if ('text' in detail) expect(chatStoreMock.setDraft).toHaveBeenCalledWith('personal-dm', expect.any(Function))
     } finally { navigate.mockRestore() }
   })
@@ -1014,7 +1014,7 @@ describe('MainLayout: personal assistant destinations', () => {
     await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'phone-file' }) })
     expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
     expect(harness.container.querySelector('nav')).not.toBeNull()
-    expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('phone-file')
+    expect((groupSlotMemory.take('personal-dm') as { itemId?: string } | null)?.itemId).toBe('phone-file')
   })
 })
 
@@ -1053,8 +1053,8 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
-    expect(groupSlotMemory.takeApp('source-app')).toEqual({ extensionId: 'board' })
-    expect(groupSlotMemory.takeApp('topic-app')).toBeNull()
+    expect(groupSlotMemory.take('source-app')).toEqual({ app: 'board' })
+    expect(groupSlotMemory.take('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()
   })
 })
