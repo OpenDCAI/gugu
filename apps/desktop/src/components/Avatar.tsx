@@ -115,7 +115,7 @@ function CompositeTile({
   const boring = identity?.type === 'agent' && !assistant
     && (member.avatar == null || isBuiltinAgentAvatarUrl(memberUrl))
   const assistantDefault = identity?.type === 'agent' && assistant && (member.avatar == null || isBuiltinAgentAvatarUrl(memberUrl))
-  const customUrl = boring || assistantDefault || (!identity && isBuiltinAgentAvatarUrl(memberUrl)) ? null : memberLook ? agentLookPoster(memberLook, memberKey) : memberUrl
+  const customUrl = boring || assistantDefault || (!identity && isBuiltinAgentAvatarUrl(memberUrl)) ? null : memberLook ? agentLookPoster(memberLook) : memberUrl
   // 脏哨兵串（给了值但归一后为空）是上游 bug，与主 Avatar 同口径 fail loud —— 留空槽，
   // ❌ 不用生成脸盖掉（否则组合里显示一张正常的脸、本人自己的行却是错误态，必有一处在说谎）。
   const invalidExplicit = member.avatar != null && memberUrl == null
@@ -249,7 +249,7 @@ export function Avatar({
   // 按它说的颜色与表情;真人的头像位上万一出现形象地址,画那个颜色的定格(人的头像不会变成会动的小鸟)。
   const look = parseAgentLook(normalized)
   const url = agent !== false && isBuiltinAgentAvatarUrl(normalized) ? null
-    : look ? (agent ? null : agentLookPoster(look, identityKey)) : normalized
+    : look ? (agent ? null : agentLookPoster(look)) : normalized
   // @@@1482 url 变化时在 render 期重置加载失败态（React 官方「按 prop 变化调整 state」模式，非 useEffect）：
   // useEffect 在 render 之后才跑，下方 DEV throw 守卫会在同一帧用旧 imgFailed 对新有效 url 误抛。
   // render 期重置确保新 url 进来即 imgFailed=false，throw 守卫不会对有效新头像误触。

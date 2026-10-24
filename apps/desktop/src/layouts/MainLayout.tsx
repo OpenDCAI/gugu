@@ -7,6 +7,8 @@ import '@/mobile/phone-shell.css'
 import { usePhoneViewport } from '@/mobile/usePhoneViewport'
 import { ListChecks, MessageCircle, UserRound } from '@/lib/icons'
 import { Sidebar } from '../components/Sidebar'
+import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
+import { registeredViews } from '@/session/renderer/lib/layout/registered-views'
 import { UpdateBanner } from '../components/UpdateBanner'
 import { Avatar } from '../components/Avatar'
 import { WindowControls } from '../components/WindowControls'
@@ -1266,7 +1268,11 @@ function InnerLayout({
     const handleKey = (e: KeyboardEvent) => {
       if (e.metaKey) {
         // ⌘1 =「消息」(gugu-dev#181):会话页侧栏里的「项目 | 对话」;没有会话页的形态落在聊天页。
-        if (e.key === '1') { e.preventDefault(); selectTab(sessionHostAvailable && !mobile ? 'tasks' : 'chats') }
+        if (e.key === '1') {
+          e.preventDefault()
+          selectTab(sessionHostAvailable && !mobile ? 'tasks' : 'chats')
+          if (sessionHostAvailable && !mobile && registeredViews()[appState.navigation.currentViewId].withoutSessionSidebar) returnToScreen()
+        }
         else if (e.key === '2') { e.preventDefault(); selectTab('contacts') }
       }
     }

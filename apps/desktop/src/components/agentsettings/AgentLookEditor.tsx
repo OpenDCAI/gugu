@@ -154,8 +154,8 @@ export function AgentLookEditor({
     }
     setRolling(true)
     let at = 0
-    // 转动的那几跳只换颜色、表情,装扮固定成此刻穿的那身(默认装扮随颜色推导,不固定就会每跳换一身、等素材卡顿)
-    let prev: AgentLook = { ...draft, wear: wornOf(draft, id) }
+    // 转动的那几跳只换颜色、表情,装扮固定成此刻穿的那身
+    let prev: AgentLook = { ...draft, wear: wornOf(draft) }
     ROLL_STEPS.forEach((step, i) => {
       at += step
       const last = i === ROLL_STEPS.length - 1
@@ -338,7 +338,7 @@ export function AgentLookEditor({
                   hint={t('settings.look.facesDailyHint')}
                   faces={REST_FACES}
                   draft={draft}
-                  worn={wornOf(draft, id)}
+                  worn={wornOf(draft)}
                   isOwned={isOwned}
                   faceName={faceName}
                   pulse={facePulse}
@@ -350,7 +350,7 @@ export function AgentLookEditor({
                   hint={t('settings.look.facesBoldHint')}
                   faces={BOLD_REST_FACES}
                   draft={draft}
-                  worn={wornOf(draft, id)}
+                  worn={wornOf(draft)}
                   isOwned={isOwned}
                   faceName={faceName}
                   pulse={facePulse}
@@ -360,7 +360,7 @@ export function AgentLookEditor({
               </>
             ) : (
               <AgentLookOutfits
-                worn={wornOf(draft, id)}
+                worn={wornOf(draft)}
                 isDefault={draft.wear === undefined}
                 editable={editable}
                 onChange={(wear) => pick({ ...draft, wear })}
