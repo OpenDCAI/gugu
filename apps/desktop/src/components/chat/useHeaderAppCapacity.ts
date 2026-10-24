@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { resize } from 'framer-motion'
 
 /** Keep a readable chat title and the existing actions; only App shortcuts move into More. */
 export function useHeaderAppCapacity(count: number, compact: boolean, moreInTabMenu: boolean, moreButton: RefObject<HTMLButtonElement | null>) {
@@ -20,10 +21,7 @@ export function useHeaderAppCapacity(count: number, compact: boolean, moreInTabM
       setCapacity(Math.max(0, Math.min(count, Math.floor((width - Math.min(160, width / 3) - base - more - 32) / unit))))
     }
     measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(header)
-    observer.observe(actions)
-    return () => observer.disconnect()
+    return resize([header, actions], measure)
   }, [count, compact, moreInTabMenu, moreButton])
   return { ref, capacity: compact ? 0 : capacity }
 }
