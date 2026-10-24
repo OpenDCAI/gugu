@@ -13,11 +13,12 @@ import { TopicTab } from '../chat/TopicSplitPane'
 import { RailAppIcon } from '../RailAppIcon'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
-import { groupPageSlot, groupSlotMemory, type OpenedWith } from './groupSlotMemory'
+import { folderTab, groupPageSlot, groupSlotMemory, isFolder, type OpenedWith } from './groupSlotMemory'
 
 /**
- * 群右栏开着的东西在块页签条上的那几枚(gugu-dev#181 第 ⑥ 步):群文件夹、App 的页、在 App 里开的文件,按打开先后排,
- * 点哪枚右栏就是哪枚,× 把它从开着的里拿掉(拿掉的是正看着的就换到旁边那枚,一枚不剩右栏就关);后面一颗「+」只列
+ * 群右栏开着的东西在块页签条上的那几枚(gugu-dev#181 第 ⑥ 步):App 的页(群文件夹也是一枚,人打开它才有)、在 App 里开的文件,
+ * 按打开先后排;一个 App 的一份资源只有一枚(owner 10-24)。点哪枚右栏就是哪枚,× 把它从开着的里拿掉(拿掉的是正看着的
+ * 就回它的上一页,没有就换到旁边那枚,一枚不剩右栏就关);后面一颗「+」只列
  * 群文件夹和能在群里开的 App。右栏照旧只画正看着的那一枚(GroupAppSlot),这里只是把开着的列出来。
  * 右边一次只摆一样(#1312):话题分栏上来时右栏的这几枚还在、不亮,右栏上来时话题那一枚也一样(分栏开着时它由分栏画);
  * 点群那一枚右边让开,这几枚都还在。开着哪几枚、哪枚正显示,只读 groupSlotMemory。
@@ -55,7 +56,7 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
         const shown = form !== 'closed' && item === active
         return (
           <PanelTab
-            key={item ? `${item.kind ?? 'preview'}:${item.itemId ?? ''}` : 'folder'}
+            key={`${item.kind ?? 'preview'}:${item.itemId ?? ''}`}
             chatId={chatId}
             item={item}
             active={shown}
@@ -79,7 +80,7 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
           <MenuItem
             icon={<Folder size={16} />}
             onClick={() => {
-              groupSlotMemory.activate(chatId, null)
+              groupSlotMemory.open(chatId, folderTab())
               onShowPanel(form === 'full' ? 'full' : 'side')
             }}
           >
@@ -99,7 +100,7 @@ function FolderName({ chatId }: { chatId: string }) {
 /** 一枚右栏的页签;右键菜单里是「展开 / 还原」(格子里右栏自己不再有那一行页头)。 */
 const PanelTab = observer(function PanelTab({ chatId, item, active, full, onPick, onClose, closeLabel }: {
   chatId: string
-  item: OpenedWith | null
+  item: OpenedWith
   active: boolean
   full: boolean
   /** 点了(`as` 不给)或右键里选了展开 / 还原(`as` = 右栏要成的样子)。 */
@@ -110,22 +111,23 @@ const PanelTab = observer(function PanelTab({ chatId, item, active, full, onPick
   const { t } = useTranslation('messaging')
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const folderName = useChatFolderName(chatId)
-  const extensionId = item?.kind ? parseExtensionTabKind(item.kind)?.extensionId : undefined
+  const folder = isFolder(item)
+  const extensionId = item.kind ? parseExtensionTabKind(item.kind)?.extensionId : undefined
   const app = extensionId ? installedExtensionsStore.openableApps.find((candidate) => candidate.extensionId === extensionId) : undefined
   const presentation = extensionTabTitle(
     extensionSurfaceStore.said(null, groupPageSlot(chatId, item)),
-    item?.kind ? installedExtensionsStore.tabTitle(item.kind) ?? item.title : item?.title ?? folderName,
-    item?.itemId ? { name: item.title, path: item.fileName ?? item.title } : undefined,
+    folder ? folderName : item.kind ? installedExtensionsStore.tabTitle(item.kind) ?? item.title : item.title,
+    item.itemId ? { name: item.title, path: item.fileName ?? item.title } : undefined,
   )
   const { label, hint, tooltip } = presentation
   return (
-    <TabSlot data-panel-tab={item ? item.kind ?? 'preview' : 'folder'}>
+    <TabSlot data-panel-tab={folder ? 'folder' : item.kind ?? 'preview'}>
       <TabChip
         isActive={active}
         label={label}
         hint={hint}
         title={tooltip}
-        preSlot={item === null ? <Folder size={14} /> : app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />}
+        preSlot={folder ? <Folder size={14} /> : app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />}
         closeLabel={`${closeLabel} ${label}`}
         onClose={onClose}
         onClick={() => onPick()}

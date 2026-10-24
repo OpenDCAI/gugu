@@ -1,5 +1,5 @@
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -81,7 +81,7 @@ import {
 } from './chat/chatPresentation'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
 import { GroupPanelTabs } from './appSlot/GroupPanelTabs'
-import { GroupFolderSlot } from './appSlot/GroupFolderSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { GROUP_PANEL_WIDTHS, groupSlotMemory, type FileToOpen } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
+import { GroupAppSlot } from './appSlot/GroupAppSlot'; import { useOpenApp } from './appSlot/useOpenApp'; import { folderTab, GROUP_PANEL_WIDTHS, groupSlotMemory, isFolder } from './appSlot/groupSlotMemory'; import { SidePanelSplit, type PanelForm } from '../session/renderer/lib/layout/side-panel-split'
 import { HistoryPanel, type HistoryTopicItem, type HistoryFileItem } from './HistoryPanel'
 import { useTopicSurface, type TopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -386,32 +386,19 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     })
   }, [])
 
-  // A chat's workspace (a group's, a topic's, a private chat's) is an App (真源 §2.4, 主人 09-29): the panel is its slot; the App lists,
-  // opens and follows changes itself (gugu.files.*), so nothing about the files is held here.
+  // A chat's panel (a group's, a topic's, a private chat's — 主人 10-05) holds Apps' pages and files, the folder among them (真源 §2.4):
+  // the Apps list, open and follow changes themselves (gugu.files.*), so nothing about the files is held here.
   const handleOpenWorkspacePanel = useCallback(() => {
     if (!activeChatId) return
-    closeRightSurfaces(); groupSlotMemory.noteShown(activeChatId) // 同槽位互斥（#1312），含 群公告（#1485 review）;它让开时这一枚还在页签上
+    closeRightSurfaces() // 同槽位互斥（#1312），含 群公告（#1485 review）
     setWorkspaceForm(workspaceForm === 'closed' ? 'side' : workspaceForm) // full stays full (a link opening a file in it)
   }, [activeChatId, closeRightSurfaces, workspaceForm])
   const handleCloseWorkspacePanel = useCallback(() => setWorkspaceForm('closed'), [])
-  // 摩擦单 F10: a file of this chat asked for by a link (MainLayout brought the chat up): its panel opens on that file —
-  // now, or as soon as this chat is the one shown.
-  const [fileToOpen, setFileToOpen] = useState<FileToOpen | null>(null)
-  const takeAskedFile = useCallback(() => {
-    const asked = groupSlotMemory.takeFile(activeChatId)
-    if (!activeChatId || !asked) return
-    handleOpenWorkspacePanel()
-    setFileToOpen({ chatId: activeChatId, ...asked, request: Date.now() })
-  }, [activeChatId, handleOpenWorkspacePanel])
-  useEffect(() => {
-    takeAskedFile()
-    window.addEventListener(UI_EVENTS.chatAsked, takeAskedFile)
-    return () => window.removeEventListener(UI_EVENTS.chatAsked, takeAskedFile)
-  }, [takeAskedFile])
-
-  // 「在本群打开」(app-redesign §5): an App opened from this chat opens in its panel here — a private chat's too (主人 10-05).
-  const appToOpen = useOpenApp(activeChat?.id ?? null, handleOpenWorkspacePanel)
-  const workspaceSlot = activeChatId ? <GroupFolderSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} appToOpen={appToOpen} fileToOpen={fileToOpen} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
+  const handleOpenFolder = useCallback(() => { handleOpenWorkspacePanel(); if (activeChatId) groupSlotMemory.open(activeChatId, folderTab()) }, [activeChatId, handleOpenWorkspacePanel])
+  const shownInPanel = useSyncExternalStore(groupSlotMemory.subscribe, () => (activeChatId ? groupSlotMemory.opened(activeChatId) : null))
+  // What this chat's panel was asked to open, every way in — a link (摩擦单 F10), 「在本群打开」(app-redesign §5), a page's files.openWith.
+  const asked = useOpenApp(activeChatId, handleOpenWorkspacePanel)
+  const workspaceSlot = activeChatId ? <GroupAppSlot visible={surfaceVisible} onForward={handleForward} chatId={activeChatId} onClose={handleCloseWorkspacePanel} asked={asked} tabbed={Boolean(blockHost)} full={workspaceForm === 'full'} onToggleFull={() => setWorkspaceForm(workspaceForm === 'full' ? 'side' : 'full')} /> : null
 
   // @@@history (#957) — 历史面板：开启时加载消息附件；「线程」复用 store 的 threadSummaries。
   const loadHistoryFiles = useCallback(async (chatId: string) => {
@@ -862,7 +849,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         isGroupChat={isGroupChat}
         isRoomChat={isRoomChatSurface}
         searchMode={searchMode}
-        workspacePanelOpen={workspaceForm !== 'closed'}
+        folderShown={workspaceForm !== 'closed' && isFolder(shownInPanel)}
         memberListOpen={memberListOpen}
         showHeaderMenu={showHeaderMenu}
         mobile={mobile}
@@ -870,7 +857,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
-        onOpenWorkspacePanel={handleOpenWorkspacePanel}
+        onOpenFolder={handleOpenFolder}
         onCloseWorkspacePanel={handleCloseWorkspacePanel}
         onOpenSettingsDrawer={handleOpenSettingsDrawer}
         onOpenMemberList={handleOpenMemberList}

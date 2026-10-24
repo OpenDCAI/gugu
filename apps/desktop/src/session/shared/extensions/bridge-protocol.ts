@@ -54,8 +54,10 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
  * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
  * 13: common resource linkTo/openLink on desktop, phone and programs (generation only).
+ * 14 (10-24): a tab's `chatFile` names the file it shows when the App is opened in a chat, so that open and the file opened
+ * from the folder are one tab. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 13.
  */
-export const EXTENSION_API_VERSION = 13;
+export const EXTENSION_API_VERSION = 14;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
