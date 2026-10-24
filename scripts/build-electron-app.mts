@@ -18,7 +18,7 @@ const viteBin = join(dirname(require.resolve('vite/package.json')), 'bin', 'vite
 const t0 = performance.now()
 const elapsed = () => `${((performance.now() - t0) / 1000).toFixed(1)}s`
 
-const rendererStage = new Promise<void>((resolve, reject) => {
+const rendererStage = () => new Promise<void>((resolve, reject) => {
   const child = spawn(process.execPath, [viteBin, 'build'], {
     cwd: repoRoot,
     stdio: 'inherit',
@@ -41,6 +41,7 @@ async function mainStage() {
   const isWebTarget = (process.env.GUGU_TARGET ?? 'electron') === 'web'
   const stageTwoEntries = isWebTarget ? sessionHostBuildEntries : electronBuildEntries
   for (const entry of stageTwoEntries) {
+    const entryStarted = performance.now()
     const label = typeof entry.entry === 'string' ? entry.entry : Object.keys(entry.entry ?? {}).join(',')
     console.log(`[build-electron-app] main stage: ${label}`)
     await build({
@@ -52,11 +53,17 @@ async function mainStage() {
         envDir: entry.vite?.envDir ?? repoRoot,
       },
     })
+    console.log(`[build-electron-app] main entry done in ${((performance.now() - entryStarted) / 1000).toFixed(1)}s: ${label}`)
   }
   console.log(`[build-electron-app] main stage done at ${elapsed()}`)
 }
 
-const results = await Promise.allSettled([rendererStage, mainStage()])
+// Small hosted runners can serialize the independent heaps without changing their build entries.
+const serial = process.env.GUGU_BUILD_SERIAL === '1'
+console.log(`[build-electron-app] scheduling: ${serial ? 'serial' : 'parallel'}`)
+const results = serial
+  ? [...await Promise.allSettled([rendererStage()]), ...await Promise.allSettled([mainStage()])]
+  : await Promise.allSettled([rendererStage(), mainStage()])
 const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
 for (const failure of failures) console.error('[build-electron-app]', failure.reason)
 // exitCode 而非 exit():macOS 上 stdout 接管道时是异步写,exit() 会截掉尾部日志。
