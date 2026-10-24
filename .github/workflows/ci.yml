@@ -13,7 +13,7 @@ concurrency:
 env:
   CI: true
   # Temporary label for isolated PR timing controls; all runner settings stay literal.
-  GUGU_CI_EXPERIMENT: baseline-v3
+  GUGU_CI_EXPERIMENT: baseline-v4
   GUGU_SUPABASE_URL: http://127.0.0.1:54321
   VITE_SUPABASE_URL: http://127.0.0.1:54321
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
