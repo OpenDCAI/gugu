@@ -1,7 +1,7 @@
 import { compatOf, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from '../../session/shared/extensions/market-entries'
 import { marketSnapshotSource, type MarketRefreshed, type MarketSnapshotStore } from '../../session/shared/extensions/market-snapshot'
-import { appPlatformProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
+import { appPlatformDeclarationProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
 
 /**
  * The App market as the phone reads it (L9; 161 10-15: the phone installs market Apps). The same `market/index.json` the
@@ -67,7 +67,7 @@ export function phoneMarket(
       if (!app) throw new Error(`The market has no App "${extensionId}"`)
       const row: MarketIndexVersion | null = version
         ? (app.versions.find((entry) => entry.version === version) ?? null)
-        : pickForHost(app.versions.filter((entry) => appPlatformProblems(entry.manifest, 'phone').length === 0), host()).chosen
+        : pickForHost(app.versions.filter((entry) => appPlatformDeclarationProblems(entry.manifest, 'phone').length === 0), host()).chosen
       if (!row) throw new Error(`${extensionId}${version ? `@${version}` : ''} is no longer available in the market`)
       if (row.yanked) throw new Error(`${extensionId}@${row.version} was withdrawn: ${row.yanked.reason}`)
       requireAppPlatform(row.manifest, 'phone')

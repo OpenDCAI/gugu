@@ -1,5 +1,5 @@
 import { compareExtensionVersions, safeParseExtensionManifest, type ExtensionManifest } from './manifest';
-import { appPlatformProblems } from './app-platforms';
+import { appPlatformDeclarationProblems } from './app-platforms';
 import {
   compatOf,
   isUpdateFor,
@@ -34,11 +34,11 @@ export function marketEntriesFrom(
   const extensions: CloudMarketEntry[] = [];
   const invalid: InvalidMarketRow[] = [];
   for (const app of apps) {
-    const picked = pickForHost(app.versions.filter((version) => appPlatformProblems(version.manifest, host.platform).length === 0), host);
+    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host);
     if (!picked.chosen) {
       const live = app.versions.filter((version) => !version.yanked);
-      if (live.length && live.every((version) => appPlatformProblems(version.manifest).length > 0)) {
-        invalid.push({ extensionId: app.id, reason: appPlatformProblems(live[0]!.manifest).join('; ') });
+      if (live.length && live.every((version) => appPlatformDeclarationProblems(version.manifest).length > 0)) {
+        invalid.push({ extensionId: app.id, reason: appPlatformDeclarationProblems(live[0]!.manifest).join('; ') });
       }
       continue;
     }
@@ -162,7 +162,7 @@ export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost):
       minAppVersion: version.minAppVersion,
       yanked: version.yanked,
       compat: compatOf(version, host),
-      platformRefusal: appPlatformProblems(version.manifest, host.platform).join('; ') || null,
+      platformRefusal: appPlatformDeclarationProblems(version.manifest, host.platform).join('; ') || null,
     }));
 }
 

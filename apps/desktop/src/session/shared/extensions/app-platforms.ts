@@ -31,14 +31,10 @@ export const PHONE_CAPABILITY_SUPPORT = {
 export const PHONE_CAPABILITIES: readonly ExtensionCapability[] = (Object.keys(PHONE_CAPABILITY_SUPPORT) as ExtensionCapability[])
   .filter((capability) => PHONE_CAPABILITY_SUPPORT[capability] === 'available');
 
-/**
- * Publication, market selection and installation share this rule. Runtime inventory deliberately does not call it:
- * an installed older App stays runnable and eligible for the existing automatic updater.
- * No runtime dependencies: the market's Node 24 verifier imports this exact module from its pinned client commit.
- */
-export function appPlatformProblems(raw: unknown, target?: AppPlatform): string[] {
+/** Market selection reads declarations before the existing API compatibility picker examines a version. */
+export function appPlatformDeclarationProblems(raw: unknown, target?: AppPlatform): string[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ['platforms: an App manifest is required'];
-  const manifest = raw as { platforms?: unknown; apiVersion?: unknown; permissions?: { capabilities?: unknown } };
+  const manifest = raw as { platforms?: unknown; apiVersion?: unknown };
   const platforms = manifest.platforms;
   if (!Array.isArray(platforms) || platforms.length === 0) return ['platforms: declare desktop, phone, or both'];
   const problems: string[] = [];
@@ -47,7 +43,20 @@ export function appPlatformProblems(raw: unknown, target?: AppPlatform): string[
   if (typeof manifest.apiVersion !== 'number' || !Number.isInteger(manifest.apiVersion) || manifest.apiVersion < APP_PLATFORMS_API_VERSION) {
     problems.push(`platforms: requires apiVersion ${APP_PLATFORMS_API_VERSION}`);
   }
-  if (platforms.includes('phone') && Array.isArray(manifest.permissions?.capabilities)) {
+  if (target && !platforms.includes(target)) problems.push(`platforms: this App does not support ${target}`);
+  return problems;
+}
+
+/**
+ * Publication and installation also check phone capability support. Runtime inventory deliberately does not:
+ * an installed older App stays runnable and eligible for the existing automatic updater.
+ * No runtime dependencies: the market's Node 24 verifier imports this exact module from its pinned client commit.
+ */
+export function appPlatformProblems(raw: unknown, target?: AppPlatform): string[] {
+  const problems = appPlatformDeclarationProblems(raw, target);
+  if (!raw || typeof raw !== 'object') return problems;
+  const manifest = raw as { platforms?: unknown; permissions?: { capabilities?: unknown } };
+  if (Array.isArray(manifest.platforms) && manifest.platforms.includes('phone') && Array.isArray(manifest.permissions?.capabilities)) {
     for (const capability of manifest.permissions.capabilities) {
       if (typeof capability !== 'string' || !Object.hasOwn(PHONE_CAPABILITY_SUPPORT, capability)) {
         problems.push(`permissions.capabilities: unknown capability ${String(capability)}`);
@@ -56,7 +65,6 @@ export function appPlatformProblems(raw: unknown, target?: AppPlatform): string[
       }
     }
   }
-  if (target && !platforms.includes(target)) problems.push(`platforms: this App does not support ${target}`);
   return problems;
 }
 

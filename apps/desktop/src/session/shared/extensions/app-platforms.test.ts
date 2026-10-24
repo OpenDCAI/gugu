@@ -48,4 +48,16 @@ describe('App platform boundaries', () => {
     expect(marketHistoryFrom(index.apps[0]!, phone)[0]?.platformRefusal).toContain('does not support phone');
     expect(marketEntriesFrom([app([row('0.9.0')])], phone, (path) => path).extensions).toEqual([]);
   });
+
+  it('leaves an unknown future API capability to version compatibility when reading the market', () => {
+    const future = {
+      ...row('2.0.0', ['phone']), apiVersion: 12,
+      manifest: { ...manifest('2.0.0', ['phone']), apiVersion: 12, permissions: { capabilities: ['future:capability'] } },
+    };
+    const phone = currentMarketHost('0.2.58', 'phone');
+    expect(marketEntriesFrom([app([row('1.0.0', ['phone']), future])], phone, (path) => path).extensions[0])
+      .toMatchObject({ version: '1.0.0', newerNeedsApp: '2.0.0' });
+    expect(marketEntriesFrom([app([future])], phone, (path) => path).extensions[0])
+      .toMatchObject({ version: '2.0.0', compat: { reason: 'needs-newer-app' } });
+  });
 });
