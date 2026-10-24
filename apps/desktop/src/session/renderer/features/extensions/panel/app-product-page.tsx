@@ -118,6 +118,7 @@ export function AppProductPage({
   onAsk,
   onBrowseReplacement,
   onOpenExternal = confirmOpenExternalLink,
+  backgroundSupported = true,
   similar = [],
   menu,
 }: {
@@ -156,6 +157,8 @@ export function AppProductPage({
   onAsk?: (text: string) => void;
   /** Opens a web link on the viewing device. Desktop retains its confirmation dialog. */
   onOpenExternal?: (url: string) => void;
+  /** The phone has no persistent App background-page host. */
+  backgroundSupported?: boolean;
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
@@ -474,7 +477,7 @@ export function AppProductPage({
       </AddsEntry>
     );
   }
-  if (manifest.background) {
+  if (manifest.background && backgroundSupported) {
     adds.push(
       <AddsEntry key="background" icon={<Moon className="size-4" />} label={translate('extensions.addsBackground')}>
         <i>{translate('extensions.permissionsBackground')}</i>
