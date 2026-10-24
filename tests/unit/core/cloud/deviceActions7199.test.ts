@@ -45,6 +45,21 @@ function provider(over: Partial<DeviceActionProvider> & { granted?: () => boolea
 }
 
 describe('被调用方(DeviceActionHost)', () => {
+  it('preserves optional task metadata across the wire while keeping older calls compatible', async () => {
+    const callers: unknown[] = []
+    const host = createDeviceActionHost({
+      provider: provider({ run: async (_action, _args, ctx) => { callers.push(ctx.caller); return { ok: true, data: null } } }),
+      publishEvent: () => undefined,
+    })
+    try {
+      await host.handleCall(call({ caller: { agent_user_id: 'a1', name: 'Agent A', task_title: 'Task one' } }))
+      await host.handleCall(call({ call_id: 'c2', caller: { name: 'Agent B' } }))
+      await host.handleCall(call({ call_id: 'c3', caller: { name: 'Agent C', task_title: 42 } }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(callers).toEqual([{ agent_user_id: 'a1', name: 'Agent A', task_title: 'Task one' }, { name: 'Agent B' }, { name: 'Agent C' }])
+    } finally { host.dispose() }
+  })
+
   it('exposes the remaining execution budget independently of the ACK deadline', async () => {
     vi.useFakeTimers()
     let remaining: (() => number) | undefined

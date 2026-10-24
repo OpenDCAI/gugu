@@ -95,7 +95,7 @@ export function createDeviceActionsRuntime(input: {
   /** 咕咕自己(电脑控制不许 agent 操作它)。 */
   selfApp?(): SelfApp
   /** 电脑控制的「正在操作 · 停止」小条(main 里的置顶小窗);没有就不显示、也就没有接管。 */
-  computerControlView?: ComputerControlView
+  computerControlView?: (cua: () => CuaClient) => ComputerControlView
   /** 告诉 cua-driver 宿主是谁(只是它日志里的一个标签)。 */
   hostBundleId?: string
   /**
@@ -128,7 +128,7 @@ export function createDeviceActionsRuntime(input: {
     log: input.log,
   }))
   const computerControl: ComputerControl | null = input.computerControlView
-    ? createComputerControl({ view: input.computerControlView })
+    ? createComputerControl({ view: input.computerControlView(makeCua) })
     : null
   const deps: FamilyDeps = {
     ...input.deps,
@@ -339,7 +339,10 @@ export function createDeviceActionsRuntime(input: {
       const on = appSwitch.on()
       input.log.info({ group: appSwitch.group, app: appSwitch.app, on }, 'device action group switched by its App')
       // Off: nothing of it keeps running — cua-driver stops now, ❌ waits out its idle time.
-      if (!on) cua?.stop(`${appSwitch.app} 停用了,电脑控制已关闭`)
+      if (!on) {
+        computerControl?.dispose()
+        cua?.stop(`${appSwitch.app} 停用了,电脑控制已关闭`)
+      }
       for (const listener of [...switchListeners]) {
         try {
           listener()

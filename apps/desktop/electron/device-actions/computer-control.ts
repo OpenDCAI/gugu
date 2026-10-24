@@ -1,7 +1,7 @@
 /**
  * #7199 电脑控制的「正在操作 · 停止」小条与人接管 —— 按 App 算,不按整台电脑算(owner 10-15:「不接管电脑,只接管这个 App」):
  *
- * - agent 动某个 App(看也算:人该知道有人在看它),屏幕底部中间浮一枚小条「<谁> 正在操作「<App>」 · 停止」;
+ * - agent 动某个 App(看也算:人该知道有人在看它),在实际目标窗口内浮一枚小条「<谁> 正在操作「<App>」 · 停止」;
  *   没指定 App 的动作(列 App、读屏幕大小、整屏截图、挪 agent 自己的鼠标)是「<谁> 正在查看这台电脑」,
  *   它不盖掉已经亮着的条(正在操作的 App、或人刚停下的 App)。最后一个动作做完半分钟没有下一个,小条收起。
  * - 人照常用电脑 —— 包括点进、挪动 agent 正在操作的那个 App —— 都不打断它:cua-driver 在后台做事,不碰人的真鼠标和前台。
@@ -11,14 +11,16 @@
 
 /** 小条本身(main 用一个不抢焦点、不进截图的置顶小窗实现;测试换成记录器)。没有 app = 没指定 App(查看这台电脑);app 没 name = 认不出名字的 App。 */
 export interface ComputerControlView {
-  show(view: { state: 'driving' | 'paused'; callerName?: string; app?: { name?: string } }): void
+  show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void
   hide(): void
 }
 
 /** 一个动作:针对哪个 App(pid;不指定 App 的动作没有)。 */
 export interface ComputerCall {
   callerName?: string
+  taskTitle?: string
   pid?: number
+  windowId?: number
   appName?: string
 }
 
@@ -41,10 +43,10 @@ export interface ComputerControl {
 
 export function appStopped(appName: string | undefined): string {
   const app = appName ? `"${appName}"` : 'that app'
-  return `The person pressed Stop for ${app} on the bar at the bottom of their screen: they are taking ${app} over. Do not operate ${app} until they press "让它继续 / Let it continue" on that bar; other apps are not affected. Tell them what you did in ${app} and what is left.`
+  return `The person pressed Stop for ${app} on its window's control bar: they are taking ${app} over. Do not operate ${app} until they press "继续 / Continue" on that bar; other apps are not affected. Tell them what you did in ${app} and what is left.`
 }
 
-export const COMPUTER_STOPPED = 'The person pressed Stop on the bar at the bottom of their screen. Do not use computer.* until they press "让它继续 / Let it continue" on that bar. Tell them what you have done and what is left.'
+export const COMPUTER_STOPPED = 'The person pressed Stop on the bar at the bottom of their screen. Do not use computer.* until they press "继续 / Continue" on that bar. Tell them what you have done and what is left.'
 
 const LINGER_MS = 30_000
 const PAUSED_BAR_MS = 2 * 60_000
@@ -55,10 +57,9 @@ type Subject = number | 'computer'
 export function createComputerControl(input: { view: ComputerControlView; lingerMs?: number }): ComputerControl {
   const lingerMs = input.lingerMs ?? LINGER_MS
   /** 被人停了的:pid(或 'computer')→ 当时的 App 名(拒绝时说给 agent 听)。 */
-  const paused = new Map<Subject, string | undefined>()
+  const paused = new Map<Subject, { appName?: string; windowId?: number }>()
   const inFlight = new Map<Subject, Set<AbortController>>()
-  let callerName: string | undefined
-  let shown: { subject: Subject; appName?: string; state: 'driving' | 'paused' } | null = null
+  let shown: { subject: Subject; appName?: string; windowId?: number; callerName?: string; taskTitle?: string; state: 'driving' | 'paused' } | null = null
   let hideTimer: ReturnType<typeof setTimeout> | null = null
 
   const clearHide = () => {
@@ -78,21 +79,23 @@ export function createComputerControl(input: { view: ComputerControlView; linger
     clearHide()
     input.view.show({
       state: next.state,
-      ...(callerName ? { callerName } : {}),
-      ...(next.subject === 'computer' ? {} : { app: next.appName ? { name: next.appName } : {} }),
+      ...(next.callerName ? { callerName: next.callerName } : {}),
+      ...(next.taskTitle ? { taskTitle: next.taskTitle } : {}),
+      ...(next.subject === 'computer' ? {} : { app: { pid: next.subject, ...(next.appName ? { name: next.appName } : {}), ...(next.windowId !== undefined ? { windowId: next.windowId } : {}) } }),
     })
   }
   const busy = () => [...inFlight.values()].some((set) => set.size > 0)
 
   return {
     begin(call) {
-      if (call.callerName) callerName = call.callerName
+      const identity = { ...(call.callerName ? { callerName: call.callerName } : {}), ...(call.taskTitle ? { taskTitle: call.taskTitle } : {}) }
       const subject: Subject = call.pid ?? 'computer'
       const blockedBy = paused.has('computer') ? 'computer' : paused.has(subject) ? subject : null
       if (blockedBy !== null) {
         // agent 又来动停了的东西:把暂停的小条重新亮出来,让人看得到、点得到「让它继续」。
-        const appName = blockedBy === 'computer' ? undefined : (paused.get(blockedBy) ?? call.appName)
-        show({ subject: blockedBy, ...(appName ? { appName } : {}), state: 'paused' })
+        const appName = blockedBy === 'computer' ? undefined : (paused.get(blockedBy)?.appName ?? call.appName)
+        const windowId = blockedBy === 'computer' ? undefined : (call.windowId ?? paused.get(blockedBy)?.windowId)
+        show({ subject: blockedBy, ...identity, ...(appName ? { appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'paused' })
         hideAfter(PAUSED_BAR_MS)
         return { refused: blockedBy === 'computer' ? COMPUTER_STOPPED : appStopped(appName) }
       }
@@ -101,7 +104,10 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       set.add(controller)
       inFlight.set(subject, set)
       // 没指定 App 的动作不盖掉已经亮着的条:正在操作的 App 留着让人认得出、能停;暂停的留着让人点得到「让它继续」。
-      if (call.pid !== undefined || !shown) show({ subject, ...(call.appName ? { appName: call.appName } : {}), state: 'driving' })
+      if (call.pid !== undefined || !shown) {
+        const windowId = call.windowId ?? (shown?.subject === subject ? shown.windowId : undefined)
+        show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
+      }
       else if (shown.state === 'driving') clearHide()
       let ended = false
       return {
@@ -116,18 +122,19 @@ export function createComputerControl(input: { view: ComputerControlView; linger
     },
     stoppedFor(pid) {
       if (paused.has('computer')) return COMPUTER_STOPPED
-      return pid !== undefined && paused.has(pid) ? appStopped(paused.get(pid)) : null
+      return pid !== undefined && paused.has(pid) ? appStopped(paused.get(pid)?.appName) : null
     },
     stop() {
       if (!shown || shown.state !== 'driving') return
-      const { subject, appName } = shown
-      paused.set(subject, appName)
+      const prior = shown
+      const { subject, appName, windowId } = shown
+      paused.set(subject, { ...(appName ? { appName } : {}), ...(windowId !== undefined ? { windowId } : {}) })
       const reason = subject === 'computer' ? COMPUTER_STOPPED : appStopped(appName)
       for (const [s, set] of inFlight) {
         if (subject !== 'computer' && s !== subject) continue
         for (const controller of set) controller.abort(reason)
       }
-      show({ subject, ...(appName ? { appName } : {}), state: 'paused' })
+      show({ ...prior, state: 'paused' })
       hideAfter(PAUSED_BAR_MS)
     },
     resume() {
