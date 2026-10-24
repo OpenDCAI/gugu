@@ -34,7 +34,7 @@ export type DeviceActionPermit = { ok: true } | { ok: false; code: DeviceActionE
 export interface DeviceActionRunContext {
   callId: string
   /** 谁调的(调用方自报,只用来分开各自的操作现场、给人看是谁在动;❌ 当授权依据)。 */
-  caller?: { agent_user_id?: string; name?: string }
+  caller?: DeviceActionCallPayload['caller']
   signal: AbortSignal
   /** Host execution budget, independent of the transport's ACK deadline. */
   remainingMs?(): number
@@ -46,7 +46,7 @@ export interface DeviceActionRunContext {
 export interface DeviceActionCallRecord {
   callId: string
   action: string
-  caller?: { agent_user_id?: string; name?: string }
+  caller?: DeviceActionCallPayload['caller']
   startedAt: string
   finishedAt?: string
   ok?: boolean
