@@ -932,7 +932,8 @@ describe('MainLayout: files.openWith', () => {
     chatStoreMock.chats = [{ id: 'source', kind: 'group' }, { id: 'topic-file', kind: 'topic', source_chat_id: 'source', name: 'Topic' }] as never
     const restore = vi.fn()
     await renderMainLayoutWithToast()
-    await act(async () => { window.dispatchEvent(new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'topic-file', itemId: 'F1', restore } })) })
+    fileOwner.mockResolvedValue({ data: { chat_id: 'topic-file' }, error: null })
+    await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { restore }) })
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
@@ -954,9 +955,8 @@ describe('MainLayout: files.openWith', () => {
     const message = { id: 'message-origin', content: 'attachment', retracted_at: null }
     await renderMainLayoutWithToast()
     const restore = vi.fn()
-    const event = new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'g-open', itemId: 'F1', message, restore } })
-    await act(async () => { window.dispatchEvent(event) })
-    expect(event.defaultPrevented).toBe(true)
+    fileOwner.mockResolvedValue({ data: { chat_id: 'g-open' }, error: null })
+    await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { message: message as never, restore }) })
     expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message, restore })
   })
 
