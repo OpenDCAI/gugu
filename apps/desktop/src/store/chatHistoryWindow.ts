@@ -182,7 +182,7 @@ export class ChatHistoryWindow {
       this.followingTail = !hasNewer
       this.commit(boundRows(next, tailBound(this.state.messages)), { hasNewer, latestSeen: Math.max(this.state.latestSeen, maxMainlineSeq(next)), change: 'update' })
     } else {
-      this.commit(this.state.messages, { hasNewer: this.state.hasNewer || maxMainlineSeq(messages) > maxMainlineSeq(this.state.messages) })
+      if (maxMainlineSeq(this.state.messages) > 0) this.commit(this.state.messages, { hasNewer: this.state.hasNewer || maxMainlineSeq(messages) > maxMainlineSeq(this.state.messages) })
       this.update(mergeMessagesById(this.state.messages, messages, this.state.chatId!))
     }
   }

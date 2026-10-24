@@ -46,6 +46,30 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     expect(w.getSnapshot().newMessageCount).toBe(1)
   })
 
+  it.each([false, true])('seeds a cold viewport before its queued historical reveal (pending=%s)', async (pending) => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', pending ? [row(-1, { id: 'pending', is_mine: true, local_send_state: 'sending' })] : [])
+    w.setFollowingTail(false)
+    w.establishTail(range(156, 185))
+    expect(w.getSnapshot().messages.filter((message) => message.seq > 0).map((message) => message.seq))
+      .toEqual(range(156, 185).map((message) => message.seq))
+    expect(w.getSnapshot().hasNewer).toBe(false)
+    expect(w.isFollowingTail()).toBe(false)
+    expect(await w.restoreAnchor(async () => ({ messages: range(1, 20), hasNewer: true }))).toBe(true)
+    expect(w.getSnapshot().messages[0]).toMatchObject({ id: 'm-1', seq: 1 })
+    expect(w.getSnapshot().hasNewer).toBe(true)
+  })
+
+  it('does not join a disconnected tail to an established off-tail range', () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(61, 100))
+    w.setFollowingTail(false)
+    w.establishTail(range(156, 185))
+    expect(seqs(w)).toEqual(range(61, 100).map((message) => message.seq))
+    expect(w.getSnapshot().hasNewer).toBe(true)
+    expect(w.isFollowingTail()).toBe(false)
+  })
+
   it('snapshot and pending with the same UUID produce one confirmed row', () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 40))
