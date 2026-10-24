@@ -71,7 +71,7 @@ export function cloudExtensionMarket(): CloudExtensionMarket {
     market = new CloudExtensionMarket(new DownloadSiteMarketBackend(base), {
       stagingRoot: path.join(marketDir(), 'staging'),
       heldRoot: path.join(marketDir(), 'held'),
-      resolveHost: async () => currentMarketHost(await resolveAppVersion()),
+      resolveHost: async () => currentMarketHost(await resolveAppVersion(), 'desktop'),
       snapshotStore: snapshotFileStore(path.join(marketDir(), 'index-snapshot.json')),
       scope: base,
       onRefreshFailure: (error) => log.warn('App market index not refreshed; the one in hand stays:', error),

@@ -149,7 +149,7 @@ function jwt(sub: string): string {
 }
 
 function manifest(id: string, version: string, capabilities: string[] = []) {
-  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
+  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop', 'phone'], entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
 }
 
 /** A card carrying a package `uploader` published: two pages, a script, a data file. Its message id. */
@@ -280,7 +280,7 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
   // about agents:control too.
   it('asks only for what the phone can grant: an App asking only for agents installs without a sheet; with chat:relay, about that alone', async () => {
     const apps = await start()
-    const quiet = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['agents:read', 'notifications']) })
+    const quiet = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['agents:read']) })
     expect(quiet).toMatchObject({ success: true, data: { installed: true, outcome: 'confirmed' } })
     expect(shell.asked).toEqual([])
 
@@ -290,6 +290,14 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     // What is kept is the App as it was written: a computer reading the same package asks about all of it.
     const kept = index().installed.board as unknown as { manifest: { permissions: { capabilities: string[] } } }
     expect(kept.manifest.permissions.capabilities).toEqual(['agents:control', 'chat:relay'])
+  })
+
+  it('refuses a phone declaration requiring an unavailable human capability before consent', async () => {
+    const apps = await start()
+    const refused = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['notifications']) })
+    expect(refused).toMatchObject({ success: false, error: expect.stringContaining('phone does not support notifications') })
+    expect(shell.asked).toEqual([])
+    expect(index().installed.vote).toBeUndefined()
   })
 
   it('asks in full when another publisher sends the same id, however little it asks for', async () => {

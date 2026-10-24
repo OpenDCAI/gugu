@@ -57,6 +57,7 @@ More guides — \`guide_read\` each when you get there:
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
+  "platforms": ["desktop"],       // human UI: desktop, phone, or both (required to install)
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
   "permissions": {
@@ -81,6 +82,9 @@ More guides — \`guide_read\` each when you get there:
   }
 }
 \`\`\`
+
+\`platforms\` needs API 11. Phone UIs may declare agent capabilities; those features run only on computers.
+Phone cannot grant \`notifications\`. Declare phone only when the human page works there.
 
 1-8 tabs. \`menu\` and \`toolbar\` are DECLARED, drawn by the host; picking one fires
 \`onCommand\` with your id. No menu API.

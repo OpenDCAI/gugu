@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { searchApps, type AppSearchRecord } from './app-search';
 import { MARKET_CATEGORIES } from './catalog';
+import type { AppPlatform } from './app-platforms';
 import {
   compareExtensionVersions,
   EXTENSION_API_VERSION,
@@ -22,14 +23,16 @@ import {
 
 /** 宿主关于自己的三个数:市场用它们回答「这一版这台机器装不装得了」。 */
 export interface MarketHost {
+  platform: AppPlatform;
   /** 咕咕自己的版本(可带 `-beta.3` 之类后缀;比较只看 x.y.z)。 */
   appVersion: string;
   apiVersionMin: number;
   apiVersionMax: number;
 }
 
-export function currentMarketHost(appVersion: string): MarketHost {
+export function currentMarketHost(appVersion: string, platform: AppPlatform): MarketHost {
   return {
+    platform,
     appVersion,
     apiVersionMin: EXTENSION_API_VERSION_MIN_SUPPORTED,
     apiVersionMax: EXTENSION_API_VERSION,
@@ -206,6 +209,8 @@ export interface MarketVersionHistoryEntry {
   minAppVersion: string;
   yanked: { reason: string } | null;
   compat: MarketCompat;
+  /** A version may satisfy the host API while not declaring support for this device. */
+  platformRefusal?: string | null;
 }
 
 /** 启动时那一趟检查的结果:装着的这些扩展,各自有什么要告诉用户的。 */

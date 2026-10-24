@@ -228,6 +228,7 @@ describe('app_* 的动作分派', () => {
       name: 'Reader',
       version: '1.0.0',
       apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['files:read'] },
       contributes: { tabs: [{ name: 'main', title: 'Read', entry: 'main.html' }] },
@@ -267,6 +268,7 @@ describe('app_* 的动作分派', () => {
         name: 'Reader',
         version: '1.0.0',
         apiVersion: EXTENSION_API_VERSION,
+        platforms: ['desktop'],
         entry: 'main.html',
         permissions: { network: ['api.example.com'] },
         contributes: { tabs: [{ name: 'main', title: 'Read', entry: 'main.html' }] },
@@ -292,7 +294,7 @@ describe('app_* 的动作分派', () => {
 
 it('#6646 E-05: a folder install that would replace one from the market, a chat or from before origins were kept asks the person; one from a folder does not', async () => {
   const manifest = {
-    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
   inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -317,7 +319,7 @@ it('#6646 E-05: a folder install that would replace one from the market, a chat 
 
 describe('reinstalling its own folder extension (quiet upgrade)', () => {
   const v1 = {
-    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
@@ -502,6 +504,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       name: 'README Count',
       version: '1.0.0',
       apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
       contributes: {
@@ -542,6 +545,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       name: 'Searcher',
       version: '1.0.0',
       apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
       contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], toolsListed: true },
@@ -568,6 +572,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       name: 'Searcher',
       version: '1.0.0',
       apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
       contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }] },
@@ -597,6 +602,7 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     name: '坏签探针',
     version: '1.0.0',
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     entry: 'main.html',
     permissions: { capabilities: ['agents:tools'] },
     contributes: { tabs: [{ name: 'main', title: '坏签探针', entry: 'main.html' }], skills: 'skills' },
@@ -672,7 +678,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('install 照装:问过人、装上,回答先说这台没有窗口,❌ 叫它 app_check', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] },
       contributes: { tabs: [{ name: 'main', title: 'Notes', opensFiles: { chat: ['.notes.json'] } }] },
     };
@@ -693,7 +699,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('人没点头:没装,也就没有那句', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] }, contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -765,7 +771,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
 
   it('install:相对 source_dir 同样按工作副本', async () => {
     const manifest = {
-      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'main.html',
+      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Todo', entry: 'main.html' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-t' });
@@ -1338,7 +1344,7 @@ describe('app_install: what comes next', () => {
 // checked and unpacked (`materialize`), then the same install as the market's App, the sheet saying where its code is.
 describe('app_install { market }', () => {
   const reader = {
-    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, entry: 'main.html',
+    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Read', entry: 'main.html' }] },
   };
@@ -1441,7 +1447,7 @@ describe('app_install { market }', () => {
       const market = new CloudExtensionMarket(site, {
         stagingRoot: path.join(workDir, 'staging'),
         heldRoot: path.join(workDir, 'held'),
-        resolveHost: async () => ({ appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+        resolveHost: async () => ({ platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
         snapshotStore: { read: async () => null, write: async () => undefined },
       });
       index = { apps: [{ id: 'other', deprecated: null, versions: [versionOf(other)] }] };
@@ -1475,7 +1481,7 @@ describe('app_install { market }', () => {
     const market = new CloudExtensionMarket({ readText: async () => JSON.stringify(index), download, urlOf: (relativePath: string) => relativePath }, {
       stagingRoot: path.join(workDir, 'staging'),
       heldRoot: path.join(workDir, 'held'),
-      resolveHost: async () => ({ appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+      resolveHost: async () => ({ platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
       snapshotStore: { read: async () => null, write: async () => undefined },
     });
     await expect(runExtensionAgentAction({ action: 'install', market: 'reader' }, { ...quietly, market }))
@@ -1509,7 +1515,7 @@ describe('app_install { market }', () => {
 
   it('a group App from the market: the call that sends it into the chat names the market, never a folder', async () => {
     const vote = {
-      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'main.html',
+      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Vote', entry: 'main.html', opensFiles: { chat: ['.dinner-vote.json'] } }] },
     };
     inspectDirectory.mockReturnValue({ manifest: vote, manifestDigest: 'digest-v' });

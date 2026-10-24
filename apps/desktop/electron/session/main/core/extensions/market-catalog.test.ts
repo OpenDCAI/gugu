@@ -26,6 +26,7 @@ const COMMIT = '6f46446' + 'a'.repeat(33);
 function manifestOf(id: string, version = '1.0.0') {
   return {
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     id,
     name: `Extension ${id}`,
     version,
@@ -124,7 +125,7 @@ function marketOf(backend: MarketBackend, appVersion = '0.2.40', snapshotStore: 
   return new CloudExtensionMarket(backend, {
     stagingRoot: path.join(root, 'staging'),
     heldRoot: path.join(root, 'held'),
-    resolveHost: () => Promise.resolve({ appVersion, apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+    resolveHost: () => Promise.resolve({ platform: 'desktop' as const, appVersion, apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
     snapshotStore,
     scope: 'https://download.example/market/',
     now: () => clock,
