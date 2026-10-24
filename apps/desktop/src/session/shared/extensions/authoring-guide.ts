@@ -176,15 +176,14 @@ Location sets context, not permissions: a task tab has \`session\`; a group's or
 dock/background pages have neither; file pages have \`file\`. Read context before drawing: place, \`chat.members\`, \`capabilities\`.
 - \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
   remove — the one way to open and edit a session's file. Each call names its file or place (\`apps-files\`).
-- \`setTabTitle\` / \`setTabBadge\`: your page's tab, or the side panel's title. \`reportError\`: there too, and
-  in the App's error log, which \`app_check\` reads back (a phone: its console).
+- \`setTabTitle\` / \`setTabBadge\`: page tab/panel title. \`reportError\`: there and in the App log (\`app_check\`; phone: console).
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
   programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
 - \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
   entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
-- A chat's shared side panel opens 520 px wide: lay out for narrow first, widen with a media or container query.
+- Chat panels open at 520 px: design narrow first, widen with a media/container query.
 - No \`alert\` / \`confirm\` / \`prompt\`: a dialog would freeze the host — ask on the page.
 
 Free (they only concern your own tab):
