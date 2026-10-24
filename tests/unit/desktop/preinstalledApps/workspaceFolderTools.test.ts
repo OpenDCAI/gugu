@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { HANDED_CHAT_FORMAT, handedIds } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
 import { expectedVersionOf, replacedSinceError } from '../../../../apps/desktop/src/session/shared/extensions/app-files-core'
+import { guguLink, linkTargetOf } from '@gugu/core/shared/ui/guguLink'
 
 const appDir = resolve(__dirname, '../../../../apps/desktop/preinstalled-apps/workspace')
 type Tool = { description: string; inputSchema: { type: string; required?: string[]; properties: Record<string, Record<string, unknown>> }; run: (args: Record<string, unknown>, call?: { agent?: string }) => Promise<unknown> }
@@ -63,6 +64,7 @@ beforeEach(() => {
   calls.length = 0
   closed.length = 0
   vi.stubGlobal('gugu', {
+    linkTo: async (args: Record<string, unknown>) => guguLink(linkTargetOf(args, { id: 'workspace', contributes: { tabs: [{ name: 'main' }] } })),
     files: {
       list: async (place: unknown) => (calls.push(['list', place]), ENTRIES),
       open: async (ref: { id: string }, options?: unknown) => (calls.push(['open', ref, options ?? {}]), handle(ref.id)),

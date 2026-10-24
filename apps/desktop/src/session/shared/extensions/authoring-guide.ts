@@ -172,10 +172,8 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
 
-Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
-A session's tab has \`session\`; a chat's side panel (a group's or DM's; a phone's too) has \`chat\`;
-the dock and the background page have neither; opened for a file, \`file\` names it. Read the context first, then draw:
-where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capabilities\`).
+Location sets context, not permissions: a task tab has \`session\`; a group's or DM's panel has \`chat\` (phones too);
+dock/background pages have neither; file pages have \`file\`. Read context before drawing: place, \`chat.members\`, \`capabilities\`.
 - \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
   remove — the one way to open and edit a session's file. Each call names its file or place (\`apps-files\`).
 - \`setTabTitle\` / \`setTabBadge\`: your page's tab, or the side panel's title. \`reportError\`: there too, and
@@ -253,26 +251,23 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo(target)\` (API 11) → a resource link, on desktop, phone and App programs. \`{ kind: 'chat', chat, message? }\`;
+- \`linkTo(target)\` (API 11), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
   \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
   \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
-  App defaults: yourself, your first tab; name at most one of chat/session for its place. Chat/file references in stored text are build-independent. Add \`external: true\`
-  only for OS invocation (email/browser); never spell a scheme. App links and session/project invocation use the build scheme.
-- \`openLink(url)\` (API 11), from a click/key → opens that resource with the same target, desktop and phone; no capability.
-  Native \`<a>\` and \`gugu.markdown\` use it too. A program/background may generate links; only a page opens them with a gesture.
+  App defaults: yourself, your first tab; at most one chat/session. Stored chat/file links are build-independent;
+  \`external: true\` uses the build scheme for OS invocation (email/browser), as App/session/project links do. Never spell schemes.
+- \`openLink(url)\` (API 11), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
+  programs/background pages only generate links.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)
   a task chat's \`path#k=v\` link (\`file\`: path), also if it opens your page; phones too.
 
 ## Every one of these can reject — let it show
 
-\`.catch(() => {})\` on a \`window.gugu.*\` call hides failures as empty states.
-Show the rejection inline, disable the control with its reason, or call \`reportError\`.
-Ignoring one on purpose: say why in a comment — ❌ never a bare \`.catch(() => {})\`. "Nothing here" and "the call
-failed" never render the same.
+Show rejections inline, disable the control with its reason, or call \`reportError\`.
+❌ Bare \`.catch(() => {})\` hides failures as empty states; intentional ignores need a comment explaining why.
 
-❌ \`const gugu = window.gugu\` at the top level of a script. \`gugu\` is a global the host
-defines and it cannot be redeclared: that one line is a SyntaxError and NOTHING in the file
-runs, no error drawn. Use \`window.gugu.x\` or another name.
+❌ Top-level \`const gugu = window.gugu\` redeclares the host's global: SyntaxError, no script or error UI runs.
+Use \`window.gugu.x\` or another name.
 `;
 
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
