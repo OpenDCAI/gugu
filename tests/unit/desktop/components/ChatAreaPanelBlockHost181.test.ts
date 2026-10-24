@@ -67,7 +67,7 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'topic' | 'dm' | 'ai' = 'group', mobile = false) {
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false) {
   await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile }), {
     chat: {
       getImRepository: getImRepositoryMock,
@@ -99,10 +99,10 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(title.textContent).toContain('设计评审')
   })
 
-  for (const layout of ['header', 'block', 'project', 'phone'] as const) {
-    for (const kind of ['group', 'topic', 'dm', 'ai'] as const) {
+  for (const layout of ['header', 'block', 'phone'] as const) {
+    for (const kind of ['group', 'dm', 'ai'] as const) {
       it(`${layout} ${kind}: More opens this conversation's settings without installed or pinned Apps`, async () => {
-        const hosted = layout === 'block' || layout === 'project'
+        const hosted = layout === 'block'
         await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
         const more = (hosted ? actions : harness.container).querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
         expect(more, 'settings have a visible menu trigger in every layout').not.toBeNull()

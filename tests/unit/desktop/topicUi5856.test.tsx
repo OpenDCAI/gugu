@@ -292,6 +292,30 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     },
   }
 
+  for (const layout of ['desktop', 'phone', 'tab'] as const) {
+    it(`${layout}: topic settings request the source conversation, not a separate topic settings page`, async () => {
+      const tabs = document.body.appendChild(document.createElement('span'))
+      const requests: unknown[] = []
+      const receive = (event: Event) => requests.push((event as CustomEvent).detail)
+      window.addEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+      try {
+        await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, mobile: layout === 'phone', tabHost: layout === 'tab' ? tabs : undefined }))
+        if (layout === 'tab') {
+          await act(async () => { tabs.querySelector('[data-topic-tab] > div')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
+        } else {
+          await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="topic-split-more"]')!)
+        }
+        const settings = document.querySelector<HTMLElement>('[data-testid="group-menu-settings"]')
+        expect(settings, 'settings stay reachable from the real topic pane').not.toBeNull()
+        await clickElement(settings!)
+        expect(requests).toEqual([{ chatId: 'source-1', page: 'settings' }])
+      } finally {
+        window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, receive)
+        tabs.remove()
+      }
+    })
+  }
+
   // 2026-09-24 shuxue:「我在 topic 里面点不开你发的附件」。分栏复用 MessageList 却没接 onOpenFile ⇒
   // 文件卡的按钮点了什么都不发生(主线那边是接了的)。反例:不接时确实点不出任何调用 —— 证明这一格判得出缺失。
   // 用 pdf:png 按扩展名一律内联成图(不看 [Kind]),不画文件卡。

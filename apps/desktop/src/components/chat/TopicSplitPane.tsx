@@ -14,7 +14,7 @@ import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { IconButton } from '../ui/IconButton'
 import { Menu, MenuItem } from '../ui/Menu'
-import { OpenAppMenuItems } from './OpenAppMenuItems'
+import { ChatTabMenuItems } from '../../session/renderer/features/chats/chat-tab-menu-items'
 import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
@@ -692,7 +692,7 @@ export function TopicTab({ name, chatId, sourceChatId, onClose, onPick, items }:
       {menuAt ? (
         <Menu x={menuAt.x} y={menuAt.y} onClose={() => setMenuAt(null)}>
           {items}
-          <OpenAppMenuItems chatId={sourceChatId} separated />
+          <ChatTabMenuItems chatId={sourceChatId} />
         </Menu>
       ) : null}
     </TabSlot>
