@@ -41,8 +41,13 @@ type GateState =
  * 走完(或老账号)= 直接画 children;读不到进度 = 如实说 + 重试,❌ 当新账号重走,❌ 当走完放行。
  */
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
-  if (platform.kind !== 'electron') return <FirstRunFlow {...props} />
-  return <QueryClientProvider client={queryClient}><FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider></QueryClientProvider>
+  return (
+    <QueryClientProvider client={queryClient}>
+      {platform.kind === 'electron'
+        ? <FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider>
+        : <FirstRunFlow {...props} />}
+    </QueryClientProvider>
+  )
 }
 
 function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode }) {
