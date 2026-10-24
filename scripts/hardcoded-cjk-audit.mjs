@@ -9,11 +9,6 @@ const ts = require('typescript')
 const CJK = /[\u3400-\u9fff]/u
 const CJK_GLOBAL = /[\u3400-\u9fff]/gu
 const SOURCE_ROOT = 'apps/desktop/src'
-const AGENT_PROMPT_CHARTER_FILE = 'apps/desktop/src/lib/presetTeams.ts'
-const AGENT_PROMPT_CHARTER_KEYS = new Set([
-  'charterHeader', 'charterClaim', 'charterHandoff', 'charterWait', 'charterPushback',
-  'rosterHeader', 'rosterHint', 'rosterClosing',
-])
 
 function sourceFilesBelow(root, directory = root) {
   return readdirSync(directory, { withFileTypes: true })
@@ -78,23 +73,7 @@ function isStructuralPropertyName(node) {
     && parent.name === node
 }
 
-function isAgentPromptCharterCopy(node, sourceFile) {
-  if (sourceFile.fileName !== AGENT_PROMPT_CHARTER_FILE) return false
-  const property = node.parent
-  if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) return false
-  if (!AGENT_PROMPT_CHARTER_KEYS.has(property.name.text)) return false
-  for (let current = property.parent; current; current = current.parent) {
-    if (ts.isVariableDeclaration(current)) {
-      return current.name.getText(sourceFile) === 'TEAM_CHARTER_COPY'
-    }
-  }
-  return false
-}
-
 function classify(node, value, sourceFile) {
-  if (isAgentPromptCharterCopy(node, sourceFile)) {
-    return { category: 'false-positive', reason: 'agent-prompt-charter-copy' }
-  }
   if (ts.isRegularExpressionLiteral(node)) return { category: 'false-positive', reason: 'regular-expression' }
   if (isStructuralPropertyName(node) || ts.isLiteralTypeNode(node.parent)) {
     return { category: 'false-positive', reason: 'structural-literal' }
