@@ -116,7 +116,7 @@ export default defineConfig({
     // Always record video so multi-actor flows can be reviewed; slowMo makes fast
     // actions (e.g. the contacts remove-friend deletion) watchable on the recording.
     video: 'on',
-    launchOptions: { args: ['--no-sandbox'], slowMo: 400 }
+    launchOptions: { args: ['--no-sandbox'], slowMo: process.env.GUGU_E2E_FAST === '1' ? 0 : 400 }
   },
   // Auto-start the web renderer (against the local auth fixture) so the run is self-contained;
   // reuse an already-running dev server locally, always fresh in CI.
