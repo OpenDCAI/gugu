@@ -339,6 +339,7 @@ export default {
     "action": "Add to composer"
   },
   "composer": {
+    "notInGroup": "Not in this group",
     "agent": {
       "disabledReason": {
         "removed": "This Agent was removed and cannot receive more messages.",
@@ -611,7 +612,6 @@ export default {
   "header": {
     "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
-    "history": "History",
     "memberList": "Members",
     "more": "More actions",
     "searchChat": "Search chat",

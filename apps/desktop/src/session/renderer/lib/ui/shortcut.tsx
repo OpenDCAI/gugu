@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import {
   getEffectiveHotkey,
-  type ShortcutSettingsKey,
+  type CommandId,
 } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { cn } from '@renderer/utils/utils';
 import { Kbd } from './kbd';
@@ -99,15 +99,15 @@ function Shortcut({ hotkey, className, variant = 'text' }: ShortcutProps) {
 }
 
 interface BoundShortcutProps {
-  settingsKey: ShortcutSettingsKey;
+  commandId: CommandId;
   className?: string;
   variant?: ShortcutVariant;
 }
 
 /** Display a shortcut directly from an app shortcut settings key. */
-function BoundShortcut({ settingsKey, className, variant }: BoundShortcutProps) {
+function BoundShortcut({ commandId, className, variant }: BoundShortcutProps) {
   const { value: keyboard } = useAppSettingsKey('keyboard');
-  const hotkey = getEffectiveHotkey(settingsKey, keyboard);
+  const hotkey = getEffectiveHotkey(commandId, keyboard);
 
   return <Shortcut hotkey={hotkey} className={className} variant={variant} />;
 }

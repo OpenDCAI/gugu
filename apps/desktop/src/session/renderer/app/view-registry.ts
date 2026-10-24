@@ -24,6 +24,7 @@ export const views = {
   project: projectView,
   // gugu-dev#181 对话也是一块。
   chat: chatView,
+  screen: { MainPanel: () => null },
   'session-history': sessionHistoryView,
   session: sessionView,
   'new-session': { TitlebarSlot: ShellTitlebar, MainPanel: NewSessionPage },

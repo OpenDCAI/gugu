@@ -18,6 +18,7 @@ const { appPlacementStore } = await import('./app-placement-store');
 const { appState } = await import('@renderer/lib/stores/app-state');
 const { extensionViewStore } = await import('./extension-view-store');
 const { installedExtensionsStore } = await import('./installed-extensions-store');
+const { screenLayout } = await import('@renderer/app/screen-layout');
 
 const app = (id: string, more: Record<string, unknown> = {}, tab: Record<string, unknown> = {}) => ({
   id,
@@ -85,6 +86,18 @@ describe('左栏「退出」(#7050)', () => {
   // The renderer waits a frame for the places it closed to unmount; node has no frames.
   vi.stubGlobal('requestAnimationFrame', (cb: () => void) => setTimeout(cb, 0));
 
+  it.each(['chat', 'project'] as const)('quitting a whole-page App returns to the shared %s block', async (kind) => {
+    install([app('timer')]);
+    const content = kind === 'chat' ? { kind, chatId: 'c1' } : { kind, projectId: 'p1' };
+    screenLayout.show(content);
+    const saved = screenLayout.snapshot;
+    appState.navigation.navigate('app', { appId: 'timer' });
+    await quitApp('timer');
+    expect(appState.navigation.currentViewId).toBe(kind);
+    expect(screenLayout.snapshot).toEqual(saved);
+    screenLayout.forgetContent(content);
+  });
+
   it('退出了的 App,后台不算在跑;它的页再被要(主进程说它不再是退出的)就又算', () => {
     install([app('timer', { background: { entry: 'bg.html' } })]);
     installedExtensionsStore.applyQuit(['timer']);
@@ -137,6 +150,17 @@ describe('右键「App」列出来的 App (#7050)', () => {
 
 // #7052 behavior tab-extensions「点左栏它的图标 = 去它现在在的地方;哪都没摆着才整页打开」。
 describe('点左栏一个 App', () => {
+  it('an App block needs no old session to bring its workspace forward', () => {
+    install([app('clock')]);
+    screenLayout.show({ kind: 'app', tabKind: 'clock.main' });
+    const saved = screenLayout.snapshot;
+    appState.navigation.navigate('assistant');
+    openApp('clock');
+    expect(appState.navigation.currentViewId).toBe('screen');
+    expect(screenLayout.snapshot).toEqual(saved);
+    screenLayout.forgetApp('clock.main');
+  });
+
   it('哪都没摆着:整页打开', () => {
     install([app('clock')]);
     appPlacementStore.take('clock.main');

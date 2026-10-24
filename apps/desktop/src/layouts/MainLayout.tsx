@@ -7,6 +7,8 @@ import '@/mobile/phone-shell.css'
 import { usePhoneViewport } from '@/mobile/usePhoneViewport'
 import { ListChecks, MessageCircle, UserRound } from '@/lib/icons'
 import { Sidebar } from '../components/Sidebar'
+import { returnToScreen } from '@/session/renderer/app/screen-layout-actions'
+import { registeredViews } from '@/session/renderer/lib/layout/registered-views'
 import { UpdateBanner } from '../components/UpdateBanner'
 import { Avatar } from '../components/Avatar'
 import { WindowControls } from '../components/WindowControls'
@@ -319,6 +321,12 @@ function InnerLayout({
   // 那条 effect 本来就会把它拨回 'chats',但 effect 在**首帧绘制之后**才跑 → 冷启动会真闪一帧空白
   // 内容区,所以在初始值这一层就判掉,❌ 不留给 effect 补救。判据与 useMobileShell 同一份
   // (readMobileShell):桌面 Electron 永远不是手机 shell(#3566),❌ 别在这里再量一次 innerWidth。
+  const [externalContactId, setExternalContactId] = useState<string>()
+  useEffect(() => {
+    const open = (event: Event) => { setExternalContactId((event as CustomEvent<string>).detail); setActiveTab('contacts') }
+    window.addEventListener(UI_EVENTS.openContact, open)
+    return () => window.removeEventListener(UI_EVENTS.openContact, open)
+  }, [])
   const [activeTab, setActiveTab] = useState<SidebarTab>(
     !sessionHostAvailable || readMobileShell() ? 'chats' : 'tasks',
   )
@@ -1260,7 +1268,11 @@ function InnerLayout({
     const handleKey = (e: KeyboardEvent) => {
       if (e.metaKey) {
         // ⌘1 =「消息」(gugu-dev#181):会话页侧栏里的「项目 | 对话」;没有会话页的形态落在聊天页。
-        if (e.key === '1') { e.preventDefault(); selectTab(sessionHostAvailable && !mobile ? 'tasks' : 'chats') }
+        if (e.key === '1') {
+          e.preventDefault()
+          selectTab(sessionHostAvailable && !mobile ? 'tasks' : 'chats')
+          if (sessionHostAvailable && !mobile && registeredViews()[appState.navigation.currentViewId].withoutSessionSidebar) returnToScreen()
+        }
         else if (e.key === '2') { e.preventDefault(); selectTab('contacts') }
       }
     }
@@ -1270,7 +1282,6 @@ function InnerLayout({
 
   // 手机壳里盖在页面上的层与 Sheet 同一个返回栈(ui/sheetStack.ts);任务 tab 那一层在 AgentWatchPage 里。
   useBackLayer(() => setSettingsModalOpen(false), mobile && settingsModalOpen)
-  useBackLayer(() => navigateMobile(() => setSettingsPane('nav'), 'pop'), mobile && activeTab === 'settings' && settingsPane === 'detail')
   useBackLayer(() => setSessionCreateOpen(false), mobile && showSessionCreate)
 
   // 页面那一层:栈里没有层时,聊天详情退回列表。
@@ -1456,7 +1467,7 @@ function InnerLayout({
             contacts: (
               <div key="contacts" inert={activeTab !== 'contacts'} style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', ...(activeTab === 'contacts' || mobile ? undefined : RETAINED_SURFACE_HIDDEN_STYLE) }}>
                 <div data-shell-contacts={mobile ? undefined : ''} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                  <ContactsPanel activeTab={activeTab} mobile={mobile} scanSeed={scanSeed} onSwitchToChat={handleSwitchToChat} onOpenGroupChat={handleOpenGroupChat} onOpenAgentCreateDraft={openAgentCreateDraftFromContacts} />
+                  <ContactsPanel externalContactId={externalContactId} activeTab={activeTab} mobile={mobile} scanSeed={scanSeed} onSwitchToChat={handleSwitchToChat} onOpenGroupChat={handleOpenGroupChat} onOpenAgentCreateDraft={openAgentCreateDraftFromContacts} />
                 </div>
               </div>
             ),

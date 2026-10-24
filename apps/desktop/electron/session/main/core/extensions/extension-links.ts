@@ -141,6 +141,10 @@ export async function openExtensionLinkWith(deps: ExtensionLinkDeps, raw: string
     return { kind: 'failed', reason: 'no-such-tab', name, detail: link.tab };
   }
   try {
+    if (link.place && 'chat' in link.place) {
+      const { resourceChatOf } = await import('./app-files');
+      link.place = { chat: await resourceChatOf(link.place.chat) };
+    }
     if (link.place && 'session' in link.place) {
       const projectId = await deps.sessionProject(link.place.session);
       if (!projectId) return { kind: 'failed', reason: 'no-session', name };

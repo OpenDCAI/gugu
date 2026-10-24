@@ -45,6 +45,7 @@ export function buildMentionExtension(
         engine: { default: null },
         title: { default: null },
         pending: { default: false },
+        annotation: { default: null },
       };
     },
     addNodeView() {

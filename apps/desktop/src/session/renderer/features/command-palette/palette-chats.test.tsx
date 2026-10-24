@@ -3,12 +3,12 @@ import { Command } from 'cmdk';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UI_EVENTS } from '@/lib/uiEvents';
 import { conversationLink } from '@gugu/core/shared/ui/conversationLink';
-import { publishChatSummaries } from '@/lib/chatSummariesBridge';
+import { publishChatSummaries, publishContactSummaries } from '@/lib/chatSummariesBridge';
 import { PaletteChatGroups } from './palette-chats';
 
-// gugu-dev#181 ⑯ ⌘K 面板里的对话和话题:按名字、最后一句就地筛;选中一条 = 点它的对话链接(壳的 openChatBlock 那一处:
-// 话题 = 源对话 + 分栏,项目群开项目块)。项目群不在这里(它在「项目」里)。
+// Quick switching searches object names; message contents belong to in-chat find.
 const opened = vi.hoisted(() => ({ links: [] as string[] }));
 vi.mock('@/lib/conversationLinks', () => ({ openConversationLink: (href: string) => { opened.links.push(href); return true; } }));
 vi.mock('@renderer/localization/use-session-messages', () => ({
@@ -29,11 +29,12 @@ beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   opened.links = [];
   publishChatSummaries([
-    { id: 'g-src', kind: 'group', name: '咕咕内测群', last_message_at: '2026-10-23T00:00:00Z', last_message_preview: 'Windows 包装上了' },
+    { id: '0b1e7c1a-0000-4000-8000-000000000001', kind: 'group', name: '咕咕内测群', last_message_at: '2026-10-23T00:00:00Z', last_message_preview: 'Windows 包装上了' },
     { id: 'dm-1', kind: 'dm', name: '阿威', last_message_at: '2026-10-22T00:00:00Z', last_message_preview: '周四前对一下新手引导' },
-    { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: 'g-src', last_message_at: '2026-10-22T00:00:00Z' },
+    { id: TOPIC, kind: 'topic', name: '登录页白屏', source_chat_id: '0b1e7c1a-0000-4000-8000-000000000001', last_message_at: '2026-10-22T00:00:00Z' },
     { id: 'g-project', kind: 'group', name: '官网', last_message_at: '2026-10-23T00:00:00Z' },
   ]);
+  publishContactSummaries([{ id: 'person-1', name: '阿威' }]);
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -50,22 +51,39 @@ async function render(query: string) {
 }
 const rows = () => [...host.querySelectorAll('[cmdk-item]')].map((row) => row.textContent);
 
-describe('the ⌘K panel’s chats and topics', () => {
-  it('lists recent chats without project groups or topics when empty', async () => {
+describe('quick switcher groups and contacts', () => {
+  it('lists groups and contacts, with project groups represented by projects', async () => {
     await render('');
-    expect(rows()).toEqual(['咕咕内测群palette.groupChat', '阿威palette.directChat']);
+    expect(rows()).toEqual(['咕咕内测群', '阿威']);
   });
 
-  it('finds a chat by its last line and a topic by its name', async () => {
+  it('filters object names and leaves message contents and topics to their own searches', async () => {
+    await render('内测');
+    expect(rows()).toEqual(['咕咕内测群']);
+    await render('阿威');
+    expect(rows()).toEqual(['阿威']);
     await render('新手');
-    expect(rows()).toEqual(['阿威周四前对一下新手引导']);
+    expect(rows()).toEqual([]);
     await render('白屏');
-    expect(rows()).toEqual(['登录页白屏palette.topicIn:咕咕内测群']);
+    expect(rows()).toEqual([]);
   });
 
-  it('opens a topic the way its conversation link opens', async () => {
-    await render('白屏');
+  it('opens a group through the existing conversation link', async () => {
+    await render('内测');
     await act(async () => (host.querySelector('[cmdk-item]') as HTMLElement).click());
-    expect(opened.links).toEqual([conversationLink(TOPIC)]);
+    expect(opened.links).toEqual([conversationLink('0b1e7c1a-0000-4000-8000-000000000001')]);
+  });
+
+  it('selects the existing contact details without creating a conversation', async () => {
+    const openContact = vi.fn();
+    window.addEventListener(UI_EVENTS.openContact, openContact);
+    try {
+      await render('阿威');
+      await act(async () => (host.querySelector('[cmdk-item]') as HTMLElement).click());
+      expect(openContact.mock.calls[0][0].detail).toBe('person-1');
+      expect(opened.links).toEqual([]);
+    } finally {
+      window.removeEventListener(UI_EVENTS.openContact, openContact);
+    }
   });
 });

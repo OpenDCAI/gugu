@@ -1,3 +1,4 @@
+import { useContactsStore } from '../store/contactsContext'
 import { useSidebarChatView } from '../lib/sidebarChatsBridge'
 import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -5,7 +6,7 @@ import { CHAT_SLOT_PREFIX, InChatSlot, chatPartSlotKey, installShellSlots, readS
 import { ChatAreaPanel } from './ChatAreaPanel'
 import { TaskChatScope } from './assistant/TaskChatScope'
 import type { AssistantChatHandlers } from './assistant/AssistantChatSlot'
-import { publishChatSummaries } from '../lib/chatSummariesBridge'
+import { publishChatSummaries, publishContactSummaries } from '../lib/chatSummariesBridge'
 import { useChatStore } from '../store/chatContext'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
@@ -28,6 +29,8 @@ export function ChatSlotHost(handlers: AssistantChatHandlers) {
   useEffect(() => {
     if (chatsRead) publishChatSummaries(chats.map((chat) => ({ ...chat, name: chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name) })))
   }, [chats, chatsRead, identitiesById])
+  const { contacts } = useContactsStore()
+  useEffect(() => publishContactSummaries(contacts.map((contact) => ({ id: contact.id, name: contact.alias || contact.display_name || contact.id }))), [contacts])
   const projectGroupChats = useProjectGroupChats()
   const sidebarView = useSidebarChatView()
   const slots = readShellSlots()

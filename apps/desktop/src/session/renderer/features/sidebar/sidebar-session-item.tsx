@@ -1,3 +1,4 @@
+import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
@@ -441,13 +442,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
         会话页 ⋯ 菜单里仍然可见可点,不是只剩快捷键。 */}
     <ContextMenuItem
       onClick={() => {
-        // Pass the row explicitly: the modal must rename the row under the pointer even when
-        // the main view and keyboard cursor are on another conversation.
-        sessionKeyboardNav.startRename({
-          kind: 'conversation',
-          projectId,
-          sessionId,
-        });
+        commandRegistry.dispatch('session.rename', { projectId, sessionId });
       }}
     >
       <Pencil className="size-4" />

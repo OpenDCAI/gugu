@@ -5,12 +5,13 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { publishPanelToggle, useListHotkey } from '../lib/panelToggles'
 import { formatHotkeyText } from '../session/renderer/lib/ui/shortcut-format'
-import { APP_SHORTCUTS, resolveDefaultHotkey } from '../session/shared/shortcuts'
+import { COMMANDS } from '../session/shared/commands'
+import { resolveDefaultHotkey } from '../session/shared/shortcuts'
 import { PANEL_SPRING, usePanelMounted, usePanelProgress } from '../session/renderer/lib/layout/panel-motion'
 import { useSidebarPeek } from '../session/renderer/lib/layout/sidebar-peek'
 
 /** 键位表里 toggleLeftSidebar 的默认值 —— 只在会话页从没来过时用(网页装配 / 冷启动那一瞬);之后跟它键位设置里的实际绑定走。 */
-const DEFAULT_LIST_TOGGLE_HOTKEY = resolveDefaultHotkey(APP_SHORTCUTS.toggleLeftSidebar) ?? null
+const DEFAULT_LIST_TOGGLE_HOTKEY = resolveDefaultHotkey(COMMANDS['app.toggleLeftSidebar']) ?? null
 const HOTKEY_PLATFORM = detectPlatform()
 
 export interface ListColumnLayout {
