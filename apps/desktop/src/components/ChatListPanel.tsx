@@ -30,6 +30,7 @@ import { requestTopicSplit } from '../lib/topicSplitRequest'
 import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
 import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, useSidebarSessions, type ShellChatDialog, type SidebarSessionLine } from '../lib/sidebarChatsBridge'
 import { SidebarSessionLineRow } from './SidebarSessionLineRow'
+import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
 import { requestTopicsPanel } from '../lib/topicsPanelRequest'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
@@ -107,6 +108,7 @@ const LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, overflowY: 'auto', pad
 const MOBILE_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--spacing-xs) var(--pane-pad-x) max(var(--spacing-xl), env(safe-area-inset-bottom))' }
 // 侧栏那一份不自己滚:滚的是会话页侧栏那一个滚动容器(置顶 / 项目 / 对话共用)。左右与侧栏的行同一道留白。
 const SIDEBAR_LIST_STYLE: React.CSSProperties = { padding: '0 12px 8px' }
+const NO_JOINED_GROUPS: readonly JoinedGroup[] = []
 
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
 const EMPTY_STATE_WRAP_STYLE: React.CSSProperties = { padding: '40px 16px', display: 'flex', justifyContent: 'center' }
@@ -216,6 +218,8 @@ interface ChatRowProps {
   tabIndex: number
   onFocus: () => void
   onKeyDown: KeyboardEventHandler<HTMLDivElement>
+  /** 侧栏那一份:这一行是拼在一屏的某一组的框的哪一段(只有一行、或没有话题子行时框画在这一行上)。 */
+  join?: SidebarJoin
 }
 
 // @@@5856 会话列表里的话题子行。
@@ -293,7 +297,7 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
   )
 }
 
-function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
+function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown, join }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
   const [showMenu, setShowMenu] = useState(false)
@@ -325,6 +329,8 @@ function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, 
       <ListRow
         data-chat-id={chat.id}
         data-chat-row={chat.id}
+        data-join={join?.pos}
+        data-join-on={join?.onScreen || undefined}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
@@ -654,19 +660,34 @@ export function ChatListPanel({
   const isTopLevel = (c: ChatItem) => isTopLevelChatRow(c, topicNesting, isListed, matchesSearch)
   const pinnedChats = chats.filter((c) => c.is_pinned && isTopLevel(c)).sort(byTime)
   const normalChats = chats.filter((c) => !c.is_pinned && isTopLevel(c)).sort(byTime)
+  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排;拼在一屏的同一组的几行并在一处
+  // (spec session-page「拼在一屏的几块是一组」,同「项目」那边,lib/sidebarJoinedGroups)。置顶的只在置顶里并。
+  const sessionLines = inSidebar ? sidebarSessions : []
+  const joinedGroups = inSidebar ? sidebarView.groups : NO_JOINED_GROUPS
+  const pinnedRows = joinRows(pinnedChats, (chat) => blockKey.chat(chat.id), joinedGroups)
+  const normalLines = joinRows(
+    [
+      ...normalChats.map((chat) => ({ key: blockKey.chat(chat.id), at: new Date(chatActivityAt(chat)).getTime(), chat })),
+      ...sessionLines.map((line) => ({ key: blockKey.session(line.sessionId), at: line.time, line })),
+    ].sort((a, b) => b.at - a.at),
+    (entry) => entry.key,
+    joinedGroups,
+  )
   // @@@5856 顶层不再有「沉降」这一段:isSunkTopic 只对话题为真,而话题现在永不占顶层 ⇒ 那一段恒空。
   // 沉降下沉到**子行**这一层(每条来源线自己一行「更多」),见 renderChatRow。
   // 键盘上下走的是「看得见的那些行」,所以子行也要在里面 —— ❌ 不能让话题只能用鼠标点。
   // 没摊开的那些❌ 不在里面:它们不在这条侧边栏上,键盘也不该能走到看不见的行。
+  // 键盘上下走的次序与画出来的一致:并过组之后的次序。
+  const shownChats = pinnedRows.map(({ row }) => row).concat(normalLines.flatMap(({ row }) => ('chat' in row ? [row.chat] : [])))
   const visibleChats = useMemo(
-    () => [...pinnedChats, ...normalChats].flatMap((chat) => {
+    () => shownChats.flatMap((chat) => {
       if (collapsedTopicSources.has(chat.id)) return [chat]
       const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
       return [chat, ...live]
     }),
     // isSunk 每次渲染新建(它读 Date.now),输入已在下面列全。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pinnedChats, normalChats, topicNesting, activeTopicChatId, collapsedTopicSources],
+    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
@@ -677,7 +698,8 @@ export function ChatListPanel({
 
   // @@@5856 一条线 + 挂在它底下的话题子行。置顶段与常规段共用这一份 ——
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
-  const renderChatRow = (chat: ChatItem) => {
+  // 并在一组里的那一行:框画在它最外面那一层上 —— 有话题子行时是连同子行的那一层,框把子行一起圈住。
+  const renderChatRow = (chat: ChatItem, join?: SidebarJoin) => {
     const { live, sunk } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
     const hasTopics = live.length > 0 || sunk.length > 0
     const topicsExpanded = !collapsedTopicSources.has(chat.id)
@@ -685,6 +707,7 @@ export function ChatListPanel({
       <ChatRow
         key={chat.id}
         chat={chat}
+        join={hasTopics ? undefined : join}
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
         isActive={chat.id === selectedChatId}
         topicsExpanded={hasTopics ? topicsExpanded : undefined}
@@ -716,7 +739,7 @@ export function ChatListPanel({
       />
     )
     return (
-      <div key={chat.id}>
+      <div key={chat.id} data-join={join?.pos} data-join-on={join?.onScreen || undefined}>
         {row}
         {topicsExpanded && <div className="gg-topic-subrows">
           {live.map(subRow)}
@@ -742,27 +765,21 @@ export function ChatListPanel({
     )
   }
 
-  // gugu-dev#181 侧栏那一份:没有项目的会话(它就是和 agent 私聊)和对话一起按最近活动排。
-  const sessionLines = inSidebar ? sidebarSessions : []
   const openSessionLine = (line: SidebarSessionLine, beside: boolean) => {
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
     sessionPage.openSession({ projectId: line.projectId, sessionId: line.sessionId }, beside)
   }
-  const normalRows = [
-    ...normalChats.map((chat) => ({ at: new Date(chatActivityAt(chat)).getTime(), row: renderChatRow(chat) })),
-    ...sessionLines.map((line) => ({
-      at: line.time,
-      row: (
-        <SidebarSessionLineRow
-          key={`session:${line.sessionId}`}
-          line={line}
-          isActive={line.sessionId === sidebarView.focusedSessionId}
-          onClick={(event) => openSessionLine(line, event.metaKey || event.ctrlKey)}
-        />
-      ),
-    })),
-  ].sort((a, b) => b.at - a.at).map(({ row }) => row)
+  const normalRows = normalLines.map(({ row, join }) =>
+    'chat' in row ? renderChatRow(row.chat, join) : (
+      <SidebarSessionLineRow
+        key={row.key}
+        line={row.line}
+        join={join}
+        isActive={row.line.sessionId === sidebarView.focusedSessionId}
+        onClick={(event) => openSessionLine(row.line, event.metaKey || event.ctrlKey)}
+      />
+    ))
 
   const focusChatRow = (chatId: string | null) => {
     if (!chatId) return
@@ -946,7 +963,7 @@ export function ChatListPanel({
       {/* Pinned section */}
       {!loadingChats && pinnedChats.length > 0 && (
         <>
-          {pinnedChats.map(renderChatRow)}
+          {pinnedRows.map(({ row, join }) => renderChatRow(row, join))}
           {/* #1323 模块1 做减法(owner 授权):删除「折叠置顶聊天」分隔/折叠条——SSOT 列表无此元素,
               置顶会话恒常展示。连带移除 pinnedExpanded 状态。 */}
         </>
