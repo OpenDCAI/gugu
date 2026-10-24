@@ -369,6 +369,7 @@ export default {
     "mentionMembers": "@ 提及成员",
     "mentionNoMatch": "没有匹配的成员",
     "placeholder": "发送消息… 输入 / 唤起命令",
+    "mobilePlaceholder": "消息",
     "projectGroupPlaceholder": "发消息给 {{name}}… @ 某个 agent 叫它",
     "removeAttachment": "移除 {{fileName}}",
     "removeFilePill": "移除 {{label}}",
