@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQueryClient } from '@tanstack/react-query'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { attachmentResolver, cachedAttachmentCopy } from '../../lib/attachmentBytes'
+import { attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { chatService } from '../../lib/chat'
 import { useAuth } from '../../store/auth'
 import { useChatStore } from '../../store/chatContext'
@@ -18,7 +18,6 @@ export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: Parse
   const { user } = useAuth()
   const { appendMessage } = useChatStore('appendMessage')
   const { toast } = useToast()
-  const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [needsOriginal, setNeedsOriginal] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
@@ -38,7 +37,7 @@ export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: Parse
         chatId: original.chat_id, senderId: user.id, toUserIds: original.to_user_ids, isWhisper: original.is_whisper,
         threadRootId: original.thread_root_id ?? (original.is_thread_root ? original.id : null), appendMessage })
       attachmentResolver.forget(attachment.source)
-      await queryClient.invalidateQueries({ queryKey: ['attachment-state', user.id] })
+      await attachmentQueryClient.invalidateQueries({ queryKey: ['attachment-state', user.id] })
     } catch (error) {
       toast(error instanceof Error ? error.message : t('attachmentView.fileUnavailable'), 'error')
     } finally { setBusy(false) }
