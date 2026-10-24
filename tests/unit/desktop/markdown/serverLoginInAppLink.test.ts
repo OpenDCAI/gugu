@@ -1,20 +1,33 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { serverLoginCode, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { openLinkWith } from '../../../../apps/desktop/src/session/shared/extensions/open-link'
+import { useLinkNavigation } from '../../../../apps/desktop/src/hooks/useLinkNavigation'
+import { openLink, openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 
 vi.mock('@gugu/core/cloud/config', () => ({ getSupabaseUrl: () => 'https://devdb.example.test', getSupabaseAnonKey: () => 'anon' }))
-vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: { from: () => { throw new Error('not a file link') } } }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'web' } }))
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: vi.fn() } }))
+// Only the phone transport is replaced: the codec, opening algorithm and shell receiver are real.
+vi.mock('../../../../apps/desktop/src/components/appSlot/phoneAppHost', () => ({
+  openPhoneLink: (target: GuguLinkTarget) => openLinkWith({
+    installed: () => [], isEnabled: () => false, locale: () => 'en', sessionProject: async () => null,
+    reveal: async () => {}, openApp: async () => 'own', resourceChat: async (id) => id,
+    openResource: async (resource) => { await openLinkTarget(resource) }, deliver: () => {},
+  }, target),
+}))
 
-import { chatLinks } from '../../../../apps/desktop/src/components/markdown/fileLinks'
 import {
-  openAppLink,
   SERVER_LOGIN_APPROVE_EVENT,
-  serverLoginCode,
   type ServerLoginApproveDetail,
 } from '../../../../apps/desktop/src/lib/inAppLinks'
 
 /**
- * `gugu-server login` 打出的确认链接在手机上直接进 App 批准。聊天里点的(chatLinks)与系统交给 App 的(appUrlOpen)
- * 走同一个 openAppLink:认出本库的 server-login 链接、且有页面接(手机壳)才在 App 里开,否则照旧去浏览器。
+ * `gugu-server login` 打出的确认链接在手机上直接进 App 批准。聊天里点的与系统交给 App 的(appUrlOpen)
+ * 走同一个 openLink:认出本库的 server-login 链接、且有页面接(手机壳)才在 App 里开,否则照旧去浏览器。
  */
 
 const LINK = 'https://devdb.example.test/functions/v1/server-login?code=ABCD-EFGH'
@@ -37,32 +50,52 @@ describe('serverLoginCode', () => {
   })
 })
 
-describe('openAppLink / chatLinks', () => {
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+const noop = () => undefined
+function Shell() {
+  useLinkNavigation({ ownerId: 'owner', chats: [], contacts: [], openChat: noop, openFile: noop, openApp: noop, openProject: noop, openOwnApp: noop, openAssistant: noop })
+  return null
+}
+
+describe('server login uses the common parser, opener and shell', () => {
   const seen: string[] = []
   const take = (event: Event) => {
     seen.push((event as CustomEvent<ServerLoginApproveDetail>).detail.code)
     event.preventDefault()
   }
-  afterEach(() => {
+  let root: Root, container: HTMLDivElement, width: number
+  beforeEach(async () => {
+    width = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container)
+    await act(async () => root.render(createElement(Shell)))
+  })
+  afterEach(async () => {
+    await act(async () => root.unmount()); container.remove()
+    Object.defineProperty(window, 'innerWidth', { value: width, configurable: true })
     window.removeEventListener(SERVER_LOGIN_APPROVE_EVENT, take)
     seen.length = 0
   })
 
-  it('没有页面接(桌面)⇒ 不认领,链接去浏览器', () => {
-    expect(openAppLink(LINK)).toBe(false)
-    expect(chatLinks(undefined)(LINK)).toBe(false)
+  it('leaves the HTTPS login page to the browser in the desktop shell', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true })
+    expect(openLink(LINK)).toBeNull()
   })
 
-  it('手机壳挂着批准页 ⇒ 聊天里点与系统交来的都交给它', () => {
+  it('hands the same target to the mobile approval page from a click or system URL', async () => {
     window.addEventListener(SERVER_LOGIN_APPROVE_EVENT, take)
-    expect(chatLinks(undefined)(LINK)).toBe(true)
-    expect(openAppLink(LINK)).toBe(true)
+    await expect(openLink(LINK)).resolves.toBe(true)
+    await expect(openLink(LINK)).resolves.toBe(true)
     expect(seen).toEqual(['ABCD-EFGH', 'ABCD-EFGH'])
   })
 
-  it('别的链接不进批准页', () => {
+  it('returns a failure when this mobile shell has no approval page', async () => {
+    await expect(openLink(LINK)).rejects.toThrow('links.unavailable')
+  })
+
+  it('leaves other web pages alone', () => {
     window.addEventListener(SERVER_LOGIN_APPROVE_EVENT, take)
-    expect(chatLinks(undefined)('https://example.com/x')).toBe(false)
+    expect(openLink('https://example.com/x')).toBeNull()
     expect(seen).toEqual([])
   })
 })
