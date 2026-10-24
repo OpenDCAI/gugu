@@ -93,9 +93,18 @@ describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => 
 
   it('a source chat opens its requested App in the shared panel', async () => {
     await harness.render(createElement(Chat, { id: 'source-1' }))
+    openPanel.mockImplementationOnce(() => groupSlotMemory.setForm('source-1', 'side'))
     act(() => { groupSlotMemory.askApp('source-1', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
     expect(openPanel).toHaveBeenCalledTimes(1)
-    expect(answered).toMatchObject({ chatId: 'source-1', extensionId: 'board' })
+    expect(answered).toMatchObject({ chatId: 'source-1', extensionId: 'board', fromChat: true })
+  })
+
+  it('captures the source before opening the panel, while an App opened inside the panel keeps its source', async () => {
+    await harness.render(createElement(Chat, { id: 'source-panel' }))
+    groupSlotMemory.setForm('source-panel', 'side')
+    act(() => { groupSlotMemory.askApp('source-panel', 'board'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+    expect(answered).toMatchObject({ chatId: 'source-panel', extensionId: 'board' })
+    expect(answered?.fromChat).toBeUndefined()
   })
 
   it('another chat than the one on screen is not answered here', async () => {
