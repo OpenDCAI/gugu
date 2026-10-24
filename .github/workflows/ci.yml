@@ -218,6 +218,7 @@ jobs:
       VITE_GUGU_PLATFORM_MODELS_ENABLED: 'false'
       # The renderer bundle peaks around 4 GB of V8 heap; Node's default cap on 7 GB hosted runners is ~2 GB.
       NODE_OPTIONS: --max-old-space-size=6144
+      GUGU_BUILD_SERIAL: '1'
     steps:
       - uses: actions/checkout@v4
       - run: command -v tmux || brew install tmux
