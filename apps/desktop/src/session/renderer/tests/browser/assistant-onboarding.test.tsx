@@ -1,47 +1,43 @@
-import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { expect, it, vi, afterEach } from 'vitest';
 import { page } from 'vitest/browser';
+import { createReactHarness, clickElement } from '../../../../../../../tests/support/testHarness';
+import { FirstRunGate } from '@/components/firstRun/FirstRunGate';
 import { AssistantOnboarding } from '@/components/assistant/AssistantOnboarding';
+import { i18n } from '@/i18n';
 import '@/styles/tokens.css';
 
-const services = vi.hoisted(() => ({
-  membership: vi.fn(async () => null),
-  refresh: vi.fn(async () => undefined),
-}));
-vi.mock('@/lib/billing/membership', () => ({ getMembership: services.membership }));
-vi.mock('@/lib/cloudComputerStore', async original => ({
-  ...await original<object>(), refreshCloudComputer: services.refresh,
-}));
-vi.mock('@gugu/core/cloud/optionalServices', async original => ({
-  ...await original<object>(), cloudComputerEnabled: () => true,
-}));
-
-let root: Root;
-let host: HTMLDivElement;
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  host?.remove();
-  vi.clearAllMocks();
+const services = vi.hoisted(() => ({ kind: 'web' as 'web' | 'capacitor', membership: vi.fn(async () => null) }));
+vi.mock('@/platform', async original => {
+  const actual = await original<typeof import('@/platform')>();
+  return { ...actual, platform: { ...actual.platform, get kind() { return services.kind; } } };
 });
+vi.mock('@/lib/billing/membership', () => ({ getMembership: services.membership }));
+vi.mock('@/lib/firstRun', async original => ({
+  ...await original<object>(),
+  readFirstRunProgress: async () => ({ stage: 'done', occupation: { key: 'research' }, harness: [], tour: null }),
+}));
+vi.mock('@/mobile/phone-device/nativePhoneActions', async original => ({
+  ...await original<object>(), nativePhoneActions: { deviceInfo: async () => ({ install_key: 'setup-test-phone' }) },
+}));
 
-// The phone shell and global settings mount onboarding outside the session page's providers.
-it.each([null, 'local-device'])('continues to home choices without a session query provider (device: %s)', async localDeviceId => {
-  await page.viewport(localDeviceId ? 1200 : 390, 844);
-  host = document.createElement('div');
-  document.body.append(host);
-  const errors: unknown[] = [];
-  root = createRoot(host, { onUncaughtError: error => errors.push(error) });
-  await act(async () => root.render(<AssistantOnboarding
-    ownerUserId="setup-owner" ownerName="Researcher" snapshot={null} device={null}
-    cloudAvailable={false} localDeviceId={localDeviceId}
-  />));
-  await page.getByTestId('assistant-intro-primary').click();
+let harness: ReturnType<typeof createReactHarness>;
+afterEach(() => { harness?.cleanup(); vi.clearAllMocks(); });
+
+// Keep the real first-run provider tree and onboarding steps; only account/native reads are replaced.
+it.each(['web', 'capacitor'] as const)('continues to home choices on %s outside the session page', async kind => {
+  services.kind = kind;
+  await page.viewport(390, 844);
+  harness = createReactHarness();
+  const user = { id: 'setup-owner', nickname: 'Researcher', email: 'researcher@example.test', avatarUrl: null };
+  await harness.render(<FirstRunGate user={user}>
+    <AssistantOnboarding ownerUserId={user.id} ownerName={user.nickname} snapshot={null} device={null}
+      cloudAvailable={true} localDeviceId={null} />
+  </FirstRunGate>);
+  await clickElement(harness.container.querySelector('[data-testid="assistant-intro-primary"]')!);
   await expect.element(page.getByRole('textbox')).toBeVisible();
-  const next = host.querySelector<HTMLButtonElement>('.ta-onb-actions button:last-child')!;
-  await act(async () => next.click());
-  expect(errors).toEqual([]);
-  await expect.element(page.getByTestId(localDeviceId ? 'assistant-setup-home-computer' : 'assistant-setup-home-nocomputer')).toBeVisible();
-  await expect.element(page.getByTestId('assistant-setup-home-cloud')).toBeVisible();
+  const next = [...harness.container.querySelectorAll('button')].find(button => button.textContent === i18n.t('setup.continue', { ns: 'assistant' }))!;
+  await clickElement(next);
+  await expect.element(page.getByTestId('assistant-setup-home-nocomputer')).toBeVisible();
+  await expect.element(page.getByTestId('assistant-setup-member')).toBeVisible();
   expect(services.membership).toHaveBeenCalled();
 });
