@@ -15,12 +15,13 @@ describe('App modal lifetime', () => {
   it('binds a distinct child and returns a submitted result once', async () => {
     const finished = vi.fn();
     const modals = new AppModalSessions(finished);
-    modals.open(1, { chat: 'a' }, options());
+    const session = modals.open(1, { chat: 'a' }, options());
     expect(() => modals.bind('one', 1)).toThrow();
     modals.bind('one', 2);
     expect(() => modals.bind('one', 3)).toThrow();
     expect(() => modals.forPage(1)).toThrow();
     await modals.close(modals.forPage(2).id, { card: 'created' });
+    await expect(modals.result(session)).resolves.toEqual({ card: 'created' });
     await modals.close('one', 'again');
     expect(finished).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ opener: 1, child: 2 }), { card: 'created' }, undefined);
   });
@@ -33,7 +34,10 @@ describe('App modal lifetime', () => {
     modals.open(2, {}, options('two'));
     modals.bind('two', 3);
     await modals.pageGone(1);
-    expect(finished.mock.calls.map(([session, result]) => [session.id, result])).toEqual([['two', null], ['one', null]]);
+    const failed = modals.open(4, {}, options('failed'));
+    await modals.close('failed', null, 'The page did not load');
+    await expect(modals.result(failed)).rejects.toThrow('The page did not load');
+    expect(finished.mock.calls.slice(0, 2).map(([session, result]) => [session.id, result])).toEqual([['two', null], ['one', null]]);
     expect(() => modals.get('one')).toThrow();
     expect(() => modals.get('two')).toThrow();
   });

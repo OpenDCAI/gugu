@@ -43,7 +43,8 @@ afterEach(async () => { await presentation?.dismiss(); detach?.(); host.dispose(
 
 describe('App modals in the phone host', () => {
   it('uses the same sandbox origin, receives initial data and returns the form result without another gesture', async () => {
-    expect(await call(frame, 'modalOpen', { id: 'phone-one', entry: 'new.html', title: 'New', data: { column: 'todo' } })).toMatchObject({ ok: true });
+    const result = call(frame, 'modalOpen', { id: 'phone-one', entry: 'new.html', title: 'New', data: { column: 'todo' } });
+    await vi.waitFor(() => expect(presentation).toBeDefined());
     expect(presentation?.url).toBe('https://board.apps.gugu.invalid/new.html');
     child = document.createElement('iframe'); child.src = presentation!.url; document.body.append(child); watch(child);
     detach = presentation!.attach(child);
@@ -56,12 +57,13 @@ describe('App modals in the phone host', () => {
     expect(posted.get(child)!.mock.calls.map(([message]) => message.event)).toContainEqual({ type: 'programNotification', server: 'tools', method: 'changed' });
     expect(await call(frame, 'modalClose', { result: 'forged' })).toMatchObject({ ok: false, code: 'invalid' });
     expect(await call(child, 'modalClose', { result: { cardId: 'created' } })).toMatchObject({ ok: true });
-    expect(posted.get(frame)!.mock.calls.map(([message]) => message).filter((message) => message.event?.type === 'modalClosed')).toEqual([{ m: APP_FRAME_MARKER, t: 'event', event: { type: 'modalClosed', id: 'phone-one', result: { cardId: 'created' } } }]);
+    expect(await result).toMatchObject({ ok: true, value: { cardId: 'created' } });
   });
 
   it('cancels a modal when its opener navigates to another document', async () => {
-    await call(frame, 'modalOpen', { id: 'phone-two', entry: 'new.html', title: 'New' });
+    const result = call(frame, 'modalOpen', { id: 'phone-two', entry: 'new.html', title: 'New' });
+    await vi.waitFor(() => expect(presentation).toBeDefined());
     from(frame, { t: 'hello' });
-    await vi.waitFor(() => expect(posted.get(frame)!.mock.calls.map(([message]) => message).some((message) => message.event?.type === 'modalClosed' && message.event.result === null)).toBe(true));
+    expect(await result).toMatchObject({ ok: true, value: null });
   });
 });

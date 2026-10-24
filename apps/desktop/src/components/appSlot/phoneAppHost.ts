@@ -109,11 +109,7 @@ interface HostedFrame {
 }
 
 const frames = new Map<number, HostedFrame>()
-const phoneModals = new AppModalSessions<PhoneAppBinding>((modal, result, error) => {
-  const opener = frames.get(modal.opener)
-  if (opener) appFrameChannel(opener.frame).post({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'modalClosed', id: modal.id, result, ...(error ? { error } : {}) } } satisfies HostToFrame)
-  closeAppModal(modal.id)
-})
+const phoneModals = new AppModalSessions<PhoneAppBinding>((modal) => { closeAppModal(modal.id) })
 let nextPageId = 1
 
 /** A frame's binding as kept here: its granted words with the narrower ones they cover, so a check for those finds them. */
@@ -489,9 +485,8 @@ export function hostAppFrame(
           })
         } catch (error) {
           await phoneModals.close(modal.id, null, error instanceof Error ? error.message : String(error))
-          throw error
         }
-        return undefined
+        return phoneModals.result(modal)
       }
       case 'modalClose':
         return phoneModals.close(phoneModals.forPage(pageId).id, args.result ?? null)

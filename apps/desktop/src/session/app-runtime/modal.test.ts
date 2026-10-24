@@ -4,40 +4,37 @@ import { createModalApi } from './modal';
 import type { GuguHost } from './host';
 
 function setup() {
-  let closed: (event: { id: string; result: unknown; error?: string }) => void = () => undefined;
   let focus: (edge: 'first' | 'last') => void = () => undefined;
   const raw = {
-    modal: { open: vi.fn(async (_args: Record<string, unknown>) => undefined), close: vi.fn(async () => undefined), key: vi.fn(async () => undefined) },
-    onModalClosed: (fn: typeof closed) => { closed = fn; return () => undefined; },
+    modal: { open: vi.fn(async (_args: Record<string, unknown>): Promise<unknown> => undefined), close: vi.fn(async () => undefined), key: vi.fn(async () => undefined) },
     onModalFocus: (fn: typeof focus) => { focus = fn; return () => undefined; },
     reportError: vi.fn(async () => undefined),
   };
-  return { api: createModalApi(raw as unknown as GuguHost), raw, closed: (event: Parameters<typeof closed>[0]) => closed(event), focus: (edge: 'first' | 'last') => focus(edge) };
+  return { api: createModalApi(raw as unknown as GuguHost), raw, focus: (edge: 'first' | 'last') => focus(edge) };
 }
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 describe('App modal runtime', () => {
   it('waits for the modal result and restores the opener control', async () => {
-    const { api, raw, closed } = setup();
+    const { api, raw } = setup();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const input = document.createElement('input');
     document.body.append(input); input.focus();
+    raw.modal.open.mockResolvedValueOnce({ card: 'a' });
     const result = api.open({ entry: 'new.html', title: 'New', data: { column: 'todo' } });
     const button = document.createElement('button'); document.body.append(button); button.focus();
     const request = raw.modal.open.mock.calls[0]![0];
     expect(request.data).toEqual({ column: 'todo' });
-    closed({ id: 'another', result: 'wrong' });
-    closed({ id: request.id as string, result: { card: 'a' } });
     await expect(result).resolves.toEqual({ card: 'a' });
     expect(document.activeElement).toBe(input);
     expect('key' in api).toBe(false);
   });
 
   it('returns null for cancellation and rejects an opening failure', async () => {
-    const { api, raw, closed } = setup();
+    const { api, raw } = setup();
+    raw.modal.open.mockResolvedValueOnce(null);
     const result = api.open({ entry: 'new.html', title: 'New' });
-    closed({ id: raw.modal.open.mock.calls[0]![0].id as string, result: null });
     await expect(result).resolves.toBeNull();
     raw.modal.open.mockRejectedValueOnce(Object.assign(new Error('Missing page'), { code: 'not-found' }));
     await expect(api.open({ entry: 'missing.html', title: 'New' })).rejects.toThrow('Missing page');

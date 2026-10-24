@@ -19,7 +19,7 @@ const PROJECTS = ['projects.list']
 // 论坛 (9): a page's, on the desktop and the phone alike; never a background page's or a program's.
 const FORUM = ['list', 'read', 'post', 'reply', 'react', 'remove', 'block', 'assign', 'award', 'subscribe', 'unsubscribe'].map((verb) => `forum.${verb}`).concat('onForumChanged')
 const EVERYONE = ['getContext', 'onContextChanged', 'onFilesChanged', 'getAppState', 'onAppStateChanged', 'onAgentsChanged', 'openBrowserTab', 'reportError', 'listAgents', 'readAgentHistory', 'spawnAgent', 'stopAgent', 'send', 'messageAgent', ...MESSAGES, ...PROJECTS, 'readData', 'writeData', 'listData', 'callProgram', 'onProgramNotification', 'notify', 'onNotificationClicked', 'linkTo', 'onLink', ...FILES]
-const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalClosed', 'onModalFocus']
+const MODAL = ['modal.open', 'modal.close', 'modal.key', 'onModalFocus']
 const PAGE_ONLY = [...MODAL, ...FORUM, 'onCommand', 'setTabTitle', 'setTabBadge', 'sendToBackground', 'onBackgroundMessage', 'compose', 'showMessage', 'showSession', 'clipboard.writeText', 'appFiles.openWith', 'appFiles.download']
 const PHONE = [...MODAL, 'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'send', ...MESSAGES, ...FORUM, 'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'compose', 'clipboard.writeText', 'readData', 'writeData', 'listData', ...FILES, 'appFiles.openWith', 'appFiles.download']
 

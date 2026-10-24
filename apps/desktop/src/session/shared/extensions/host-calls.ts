@@ -110,7 +110,6 @@ interface HostEvent {
 
 /** The events a host hands on, one row per `on…` member: which event, and what the handler gets of it. */
 export const HOST_EVENTS = {
-  onModalClosed: { event: 'modalClosed', only: 'page', pick: (event: Event<'modalClosed'>) => [event] },
   onModalFocus: { event: 'modalFocus', only: 'page', pick: (event: Event<'modalFocus'>) => [event.edge] },
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */

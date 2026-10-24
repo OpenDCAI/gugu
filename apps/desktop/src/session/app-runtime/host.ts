@@ -9,11 +9,10 @@ import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts
  */
 export interface GuguHost {
   readonly modal?: {
-    open(options: Record<string, unknown>): Promise<void>;
+    open(options: Record<string, unknown>): Promise<unknown>;
     close(result?: unknown): Promise<void>;
     key(key: string): Promise<void>;
   };
-  onModalClosed?(handler: (event: { id: string; result: unknown; error?: string }) => void): () => void;
   onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */

@@ -119,8 +119,7 @@ interface SurfaceBinding {
 }
 
 const bindings = new Map<number, SurfaceBinding>();
-const appModals = new AppModalSessions<SurfaceBinding>(async (modal, result, error) => {
-  hearOn(modal.opener)({ type: 'modalClosed', id: modal.id, result, ...(error ? { error } : {}) });
+const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
   await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
     log.warn('An App modal closed after its window went away', { reason: String(reason) });
   });
@@ -1523,9 +1522,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         } });
       } catch (error) {
         await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
-        throw error;
       }
-      return undefined;
+      return await appModals.result(modal);
     }
     case 'modalClose':
       return await appModals.close(appModals.forPage(caller.pageId).id, args.result ?? null);

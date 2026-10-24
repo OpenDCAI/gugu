@@ -444,7 +444,6 @@ export interface ExtensionAgentHistoryPage {
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
   | { type: 'context'; context: ExtensionHostContext }
-  | { type: 'modalClosed'; id: string; result: unknown; error?: string }
   | { type: 'modalFocus'; edge: 'first' | 'last' }
   /**
    * The user picked something the extension declared in its manifest.

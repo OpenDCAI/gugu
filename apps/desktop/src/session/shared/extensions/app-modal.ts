@@ -28,12 +28,15 @@ export type AppModalHostAction = { id: string } & (
   | { type: 'focus'; edge: AppModalFocus }
 );
 
+interface AppModalOutcome { result: unknown; error?: string }
 export interface AppModalSession<T> {
   id: string;
   opener: number;
   child: number | null;
   binding: T;
   options: AppModalOptions;
+  outcome: Promise<AppModalOutcome>;
+  settle(outcome: AppModalOutcome): void;
 }
 
 /** Shared lifetime of modal pages on desktop and phone; the adapters own transport and presentation. */
@@ -46,7 +49,9 @@ export class AppModalSessions<T> {
     const parsed = appModalOptionsSchema.safeParse(args);
     if (!parsed.success) throw Object.assign(new Error(parsed.error.message), { code: 'invalid' });
     if (this.sessions.has(parsed.data.id)) throw Object.assign(new Error('This modal is already open'), { code: 'invalid' });
-    const session = { id: parsed.data.id, opener, binding, options: parsed.data, child: null };
+    let settle!: (outcome: AppModalOutcome) => void;
+    const outcome = new Promise<AppModalOutcome>((resolve) => { settle = resolve; });
+    const session = { id: parsed.data.id, opener, binding, options: parsed.data, child: null, outcome, settle };
     this.sessions.set(session.id, session);
     return session;
   }
@@ -76,7 +81,14 @@ export class AppModalSessions<T> {
     if (!session) return;
     this.sessions.delete(id);
     if (session.child !== null) await this.pageGone(session.child);
-    await this.finished(session, result, error);
+    try { await this.finished(session, result, error); }
+    finally { session.settle({ result, ...(error ? { error } : {}) }); }
+  }
+
+  async result(session: AppModalSession<T>): Promise<unknown> {
+    const outcome = await session.outcome;
+    if (outcome.error) throw Object.assign(new Error(outcome.error), { code: 'failed' });
+    return outcome.result;
   }
 
   async pageGone(page: number): Promise<void> {

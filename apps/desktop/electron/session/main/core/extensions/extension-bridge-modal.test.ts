@@ -44,30 +44,34 @@ afterAll(() => { unlinkSync(join(root, 'new.html')); rmdirSync(root); });
 
 describe('the App modal bridge', () => {
   it('opens on its own window without capabilities and inherits the handed file and initial data', async () => {
-    expect(await open()).toEqual({ ok: true, value: undefined });
+    const result = open();
+    await vi.waitFor(() => expect(actions[0]?.action.kind).toBe('openAppModal'));
     expect(actions[0]).toMatchObject({ window: 42, action: { kind: 'openAppModal', page: { extensionId: 'board', partition: 'persist:gugu-extension-board', entryUrl: 'gugu-ext://board/new.html' } } });
     expect(await call(42, 'modalHost', { type: 'bind', id: 'one', webContentsId: 2 })).toEqual({ ok: true, value: undefined });
     expect(await call(42, 'modalHost', { type: 'focus', id: 'one', edge: 'last' })).toEqual({ ok: true, value: undefined });
     expect(received).toContainEqual({ page: 2, event: { type: 'modalFocus', edge: 'last' } });
     expect(await call(2, 'getContext')).toMatchObject({ ok: true, value: { file: { chat: 'chat-one', id: 'board-file' }, modal: { data: { column: 'todo' } }, capabilities: [] } });
     expect(await call(2, 'modalClose', { result: { cardId: 'created' } })).toEqual({ ok: true, value: undefined });
-    expect(received.filter(({ event }) => event.type === 'modalClosed')).toEqual([{ page: 1, event: { type: 'modalClosed', id: 'one', result: { cardId: 'created' } } }]);
+    expect(await result).toEqual({ ok: true, value: { cardId: 'created' } });
   });
 
   it('cannot be closed by its opener or another App; the host can cancel it', async () => {
-    await open();
+    const result = open();
+    await vi.waitFor(() => expect(actions[0]?.action.kind).toBe('openAppModal'));
     expect(await call(1, 'modalClose')).toMatchObject({ ok: false, code: 'invalid' });
     expect(await call(3, 'modalClose')).toMatchObject({ ok: false, code: 'invalid' });
     expect(await call(1, 'modalHost', { type: 'dismiss', id: 'one' })).toMatchObject({ ok: false, code: 'denied' });
     expect(await call(43, 'modalHost', { type: 'dismiss', id: 'one' })).toMatchObject({ ok: false, code: 'denied' });
     await call(42, 'modalHost', { type: 'dismiss', id: 'one' });
-    expect(received.filter(({ event }) => event.type === 'modalClosed')).toEqual([{ page: 1, event: { type: 'modalClosed', id: 'one', result: null } }]);
+    expect(await result).toEqual({ ok: true, value: null });
   });
 
   it('refuses a different App or another window as the content surface', async () => {
-    await open();
+    const result = open();
+    await vi.waitFor(() => expect(actions[0]?.action.kind).toBe('openAppModal'));
     await expect(bindAppModalSurface({ id: 'one', webContentsId: 4 })).rejects.toThrow('same window');
     await expect(bindAppModalSurface({ id: 'one', webContentsId: 3 })).rejects.toThrow('not "board"');
+    expect(await result).toMatchObject({ ok: false, code: 'failed' });
   });
 
   it('rejects outside entries without showing a dialog', async () => {

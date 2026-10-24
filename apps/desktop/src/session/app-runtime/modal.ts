@@ -1,22 +1,14 @@
-import { coded, guguError, type GuguHost } from './host';
+import { coded, type GuguHost } from './host';
 
 /** Keyboard events stay in a guest document. The runtime hands only its unconsumed edges to the host. */
 export function createModalApi(host: GuguHost) {
   const modal = host.modal!;
-  const pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
   let content = false;
   const focusable = () => [...document.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[contenteditable]:not([contenteditable=false]),[tabindex]')]
     .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[hidden],[inert]') && el.getClientRects().length > 0)
     .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
   const report = (error: unknown) => void host.reportError(`App modal: ${error instanceof Error ? error.message : String(error)}`);
 
-  host.onModalClosed!(({ id, result, error }) => {
-    const waiting = pending.get(id);
-    if (!waiting) return;
-    pending.delete(id);
-    if (error) waiting.reject(guguError('failed', error));
-    else waiting.resolve(result);
-  });
   host.onModalFocus!((edge) => {
     content = true;
     const focus = () => {
@@ -45,16 +37,9 @@ export function createModalApi(host: GuguHost) {
 
   return Object.freeze({
     open(options: { entry: string; title: string; size?: string; data?: unknown }): Promise<unknown> {
-      const id = crypto.randomUUID();
       const previous = document.activeElement;
       const hadFocus = document.hasFocus();
-      const result = new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        void coded(modal.open)({ ...options, id }).catch((error: Error) => {
-          pending.delete(id);
-          reject(error);
-        });
-      });
+      const result = coded(modal.open)({ ...options, id: crypto.randomUUID() });
       return result.finally(() => {
         if (hadFocus && previous instanceof HTMLElement && previous.isConnected) previous.focus();
       });

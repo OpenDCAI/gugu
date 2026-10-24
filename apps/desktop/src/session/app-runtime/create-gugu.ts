@@ -128,7 +128,7 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalClosed', 'onModalFocus'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;

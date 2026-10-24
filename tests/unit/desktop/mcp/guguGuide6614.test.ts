@@ -63,7 +63,7 @@ function preloadVerbs(): string[] {
   // Every host's members come from one table (host-calls.ts): a page's own and the background page's own (`VerbFacts.only`) too.
   // `appFiles.*` and `clipboard.*` are host halves internal to the platform runtime: pages call `gugu.files.*` and
   // `gugu.clipboard.writeText`, which the runtime builds on them (checked below); so is `onFilesChanged`.
-  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalClosed', 'onModalFocus']
+  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalFocus']
   return [...Object.keys(HOST_CALLS), ...Object.keys(HOST_EVENTS)].filter((key) => !key.includes('.') && !hostHalves.includes(key))
 }
 
