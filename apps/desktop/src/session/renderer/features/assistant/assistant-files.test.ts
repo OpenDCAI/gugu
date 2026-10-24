@@ -91,6 +91,12 @@ describe('路径', () => {
 });
 
 describe('记忆', () => {
+  it.each([
+    ['2.1.300-compatible', '---\nname: 读报偏好\ndescription: 主人确认的格式\ntype: user\n---\n\n报告正文', 'user'],
+    ['2.1.308-compatible', '\uFEFF---\r\nname: report_style\r\ntitle: 读报偏好\r\nmetadata:\r\n  category: 反馈\r\n---\r\n\r\n报告正文', 'feedback'],
+  ])('reads the display title and category from %s headers without checking the CLI version', (_format, content, kind) => {
+    expect(parseMemoryNote('report_style.md', content)).toMatchObject({ title: '读报偏好', kind, body: '报告正文' });
+  });
   it('读 frontmatter 的名字、说明与种类(metadata 下缩进的 type 也认)', () => {
     const note = parseMemoryNote(
       'likes-tea.md',

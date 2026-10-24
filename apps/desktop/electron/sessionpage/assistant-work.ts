@@ -38,7 +38,7 @@ export class AssistantWorkStore {
     const existing = data.items.find(row => row.kind === 'executor' && row.state === 'waiting'
       && targets.length > 0 && targets.every(target => row.recipients.includes(target))
       && (workId ? row.id === workId : input.source_link && row.source_link === input.source_link))
-    if (workId && !existing) throw new Error('work_id does not identify waiting work for these executors')
+    if (workId && !existing) throw new Error('work_id does not identify waiting work for these executors; use the original full session: task address')
     if (existing) return existing.id
     const id = randomUUID()
     data.items.push({ ...input, id, recipients: [], receipt_ids: [], state: 'dispatching', created_at: new Date().toISOString() })
@@ -50,7 +50,7 @@ export class AssistantWorkStore {
     const row = data.items.find(item => item.id === id)
     if (!row) return
     const completed = new Set(row.early?.filter(item => terminal(item.report)).map(item => item.sender) ?? [])
-    row.recipients = recipients.filter(recipient => !completed.has(recipient))
+    row.recipients = [...new Set([...(row.state === 'waiting' ? row.recipients : []), ...recipients])].filter(recipient => !completed.has(recipient))
     row.receipt_ids = questionId ? [questionId] : [...new Set([...row.receipt_ids, ...receipts])]
     row.state = 'waiting'
     if (row.kind === 'executor' && recipients.length > 0 && row.recipients.length === 0) data.items = data.items.filter(item => item.id !== id)

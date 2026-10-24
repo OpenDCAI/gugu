@@ -74,7 +74,7 @@ export function assistantPaths(home: string, projectPath: string, kind: Assistan
 
 /** 文件开头 `---` 之间那几行里的简单键值(name / description / type,也认 metadata 下缩进的 type)。 */
 export function readFrontmatter(text: string): { fields: Record<string, string>; body: string } {
-  const normalized = text.replace(/\r\n/g, '\n');
+  const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---\n')) return { fields: {}, body: normalized.trim() };
   const close = normalized.indexOf('\n---', 4);
   if (close < 0) return { fields: {}, body: normalized.trim() };
@@ -128,7 +128,7 @@ export function parseMemoryNote(file: string, text: string, hint?: { title: stri
   const filename = file.replace(/\.md$/i, '');
   return {
     file,
-    title: fields.name || fields.title || heading || hint?.title || (/\p{Script=Han}/u.test(filename) ? filename : '记忆'),
+    title: fields.title || fields.name || heading || hint?.title || (/\p{Script=Han}/u.test(filename) ? filename : '记忆'),
     description: fields.description ?? '',
     kind,
     body,

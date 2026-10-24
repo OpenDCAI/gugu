@@ -49,6 +49,17 @@ it('does not lose a fast result racing the spawn acknowledgement or close other 
   expect(store.list()).toEqual([])
 })
 
+it('continuing one recipient preserves other unfinished recipients of the same work', () => {
+  const store = new AssistantWorkStore(root)
+  const id = store.begin({ kind: 'executor' })
+  store.confirm(id, ['session:first', 'session:second'], ['initial'])
+  expect(store.begin({ kind: 'executor' }, ['session:first'], id)).toBe(id)
+  store.confirm(id, ['session:first'], ['follow-up'])
+  store.report('session:first', { work_id: id, status: 'completed' }, 'final-first')
+  expect(store.list()[0].recipients).toEqual(['session:second'])
+  expect(store.list()[0].receipt_ids).toEqual(['initial', 'follow-up'])
+})
+
 it('keeps unknown outcomes explicit and does not turn them into a successful dispatch', async () => {
   const binding = { sessionId: 'parent', memoryDir: root }
   await expect(coordinateAssistantAction(binding, { action: 'spawn', prompt: 'request' }, async () => { throw new Error('RPC timeout') })).rejects.toThrow('RPC timeout')

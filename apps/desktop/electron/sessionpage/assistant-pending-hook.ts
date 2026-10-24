@@ -19,8 +19,15 @@ async function main() {
       const actual = await handle.stat();
       if (actual.dev !== stat.dev || actual.ino !== stat.ino) throw new Error('changed-before-read');
       const bytes = Buffer.alloc(64001);
-      const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+      let bytesRead = 0;
+      for (;;) {
+        const part = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
+        bytesRead += part.bytesRead;
+        if (!part.bytesRead || bytesRead === bytes.length) break;
+      }
       if (bytesRead > 64000) throw new Error('changed-during-read');
+      const after = await handle.stat();
+      if (bytesRead !== actual.size || after.size !== actual.size || after.mtimeMs !== actual.mtimeMs) throw new Error('changed-during-read');
       const state = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytesRead)));
       if (state.version !== 1 || !Array.isArray(state.items)) throw new Error('invalid-state');
       const items = state.items.filter(row => row.state !== 'dispatching').map(({ early, ...row }) => row);
