@@ -66,6 +66,19 @@ it('keeps unknown outcomes explicit and does not turn them into a successful dis
   expect(new AssistantWorkStore(root).list()[0].state).toBe('uncertain')
 })
 
+it('persists the host-observed original input when dispatch is refused, independently of model source fields', async () => {
+  const source = { source_link: 'gugu-chat://127ec4f0-30b1-4583-b469-706756153bdd/ee1a78d8-55f3-42ac-b437-4cf4e81a4741',
+    source_message_id: 'ee1a78d8-55f3-42ac-b437-4cf4e81a4741', source_summary: 'Read the latest record on my device.' }
+  const binding = { sessionId: 'parent', memoryDir: root, currentInput: async () => source }
+  await expect(coordinateAssistantAction(binding,
+    { action: 'spawn', prompt: 'executor instructions', device: 'phone', source_link: 'incorrect model address' },
+    async () => { throw Object.assign(new Error('Enable the device task host'), { code: 'device_no_task_runtime' }) },
+  )).rejects.toThrow('Enable the device task host')
+  const [pending] = new AssistantWorkStore(root).list()
+  expect(pending).toMatchObject({ ...source, state: 'blocked', blocked_reason: 'device_no_task_runtime', device: 'phone' })
+  expect(await readFile(join(root, 'pending-work.json'), 'utf8')).not.toContain('executor instructions')
+})
+
 it('tracks each question separately and its explicit settlement never completes an executor', () => {
   const binding = assistantWorkBinding('parent', join(root, 'assistant'), 'computer')
   const store = new AssistantWorkStore(binding.memoryDir)

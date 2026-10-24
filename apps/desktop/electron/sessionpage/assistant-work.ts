@@ -9,7 +9,8 @@ import { resolveGuguHome } from '@gugu/core/local/state/paths'
 export { workReportSchema } from '../../src/session/shared/assistant-work'
 import { pendingAssistantWorkSchema, workReportSchema, type WorkReport, type PendingAssistantWork } from '../../src/session/shared/assistant-work'
 export type { WorkReport, PendingAssistantWork } from '../../src/session/shared/assistant-work'
-export type AssistantWorkBinding = { sessionId: string; memoryDir: string; agentId?: string }
+type WorkSource = Pick<PendingAssistantWork, 'source_link' | 'source_message_id' | 'source_summary'>
+export type AssistantWorkBinding = { sessionId: string; memoryDir: string; agentId?: string; currentInput?: () => Promise<WorkSource | undefined> }
 const listeners = new Set<() => void>()
 export function onAssistantWorkChanged(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } }
 const empty = () => ({ version: 1 as const, items: [] as PendingAssistantWork[] })
@@ -28,12 +29,12 @@ function atomic(path: string, data: unknown): void {
   if (path.endsWith('/pending-work.json') || path.endsWith('\\pending-work.json')) for (const listener of listeners) listener()
 }
 
-/** Only references and host-observed receipts; never prompts, result text, answers or device data. */
+/** References, bounded original requirement excerpts and host receipts; never executor prompts or results. */
 export class AssistantWorkStore {
   readonly path: string
   constructor(memoryDir: string) { this.path = join(memoryDir, 'pending-work.json') }
   list(): PendingAssistantWork[] { return read(this.path).items.filter(row => row.state !== 'dispatching') }
-  begin(input: Pick<PendingAssistantWork, 'kind' | 'source_link' | 'device'>, targets: string[] = [], workId?: string): string {
+  begin(input: Pick<PendingAssistantWork, 'kind' | 'device'> & WorkSource, targets: string[] = [], workId?: string): string {
     const data = read(this.path)
     const existing = data.items.find(row => row.kind === 'executor' && row.state === 'waiting'
       && targets.length > 0 && targets.every(target => row.recipients.includes(target))
@@ -61,6 +62,12 @@ export class AssistantWorkStore {
     const data = read(this.path)
     const row = data.items.find(item => item.id === id)
     if (row) row.state = 'uncertain'
+    atomic(this.path, data)
+  }
+  blocked(id: string): void {
+    const data = read(this.path)
+    const row = data.items.find(item => item.id === id)
+    if (row) { row.state = 'blocked'; row.blocked_reason = 'device_no_task_runtime' }
     atomic(this.path, data)
   }
   remove(id: string): void {
@@ -133,8 +140,10 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
   const field = record.action === 'spawn' ? 'prompt' : record.action === 'message' ? 'text' : null
   if (!field) return run(action)
   const store = new AssistantWorkStore(binding.memoryDir)
+  const source = await binding.currentInput?.()
   const id = store.begin({ kind: 'executor',
     ...(typeof record.source_link === 'string' ? { source_link: record.source_link } : {}),
+    ...source,
     ...(typeof record.device === 'string' ? { device: record.device } : {}) },
     Array.isArray(record.to) ? record.to.filter((value): value is string => typeof value === 'string') : [],
     typeof record.work_id === 'string' ? record.work_id : undefined)
@@ -152,7 +161,8 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     return result && typeof result === 'object' ? { ...result, work_id: id } : result
   } catch (error) {
     // A failed RPC can have committed at the recipient. Preserve the gap without claiming successful dispatch.
-    store.uncertain(id)
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'device_no_task_runtime') store.blocked(id)
+    else store.uncertain(id)
     throw error
   }
 }

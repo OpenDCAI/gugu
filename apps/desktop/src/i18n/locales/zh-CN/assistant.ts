@@ -465,6 +465,7 @@ export default {
       "loading": "正在读取…",
       "empty": "没有待跟进记录",
       "uncertain": "投递结果待核实",
+      "blocked": "等待设备开启任务宿主",
       "question": "等你回答",
       "executor": "等待任务回报",
       "source": "原始需求",

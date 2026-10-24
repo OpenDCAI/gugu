@@ -27,6 +27,7 @@ import {
   unreadRowFromRpc,
   combineCoalescedPulls,
   isSaidInChat,
+  postDeliveryDisclosureRow,
 } from '@gugu/core/local/agent/agentInboxReader'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
@@ -1062,6 +1063,25 @@ describe('三态判决与失败面', () => {
     expect(result.verdict).toBe('not-live')
     expect(wakes).toEqual([AGENT])
     expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
+    const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', post)
+    try {
+      await postDeliveryDisclosureRow({ agentUserId: AGENT, chatId: 'chat-a', key: 'notice', threadRootId: null, reason: 'notAdmitted' }, 'test-token')
+      const body = JSON.parse(post.mock.calls[0]![1]!.body as string)
+      expect(body.content).toContain('消息暂未送达，已保留')
+      expect(body.content).not.toMatch(/failed|could not hand|失败/)
+    } finally { vi.unstubAllGlobals() }
+    const cloud = seed()
+    const { deps } = makeDeps(cloud, { inject: async () => { throw new Error('runtime not ready') }, postDisclosure: async () => {} })
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('runtime not ready')
+    expect(cloud.markReadCalls).toEqual([])
+    const recovered = makeDeps(cloud)
+    await pullAgentInbox(AGENT, recovered.deps)
+    await pullAgentInbox(AGENT, recovered.deps)
+    expect(recovered.injections.map(entry => entry.messageId)).toEqual(['m1'])
   })
 
   it('not-now(idle-only 忙):不唤醒、游标不动、等回合末', async () => {

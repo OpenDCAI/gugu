@@ -52,3 +52,13 @@ it('does not display a fabricated zero while the recovery state is unreadable', 
   expect(container.querySelector('summary')?.textContent).toBe('memory.pending.retry');
   expect(container.textContent).not.toContain('memory.pending.count:0');
 });
+it('shows a refused device task with its original requirement and source instead of an executor wait', async () => {
+  state.items = [{ id: 'blocked', kind: 'executor', state: 'blocked', blocked_reason: 'device_no_task_runtime',
+    source_link: 'gugu-chat://request/message', source_message_id: 'message', source_summary: 'Read my device record.',
+    recipients: [], receipt_ids: [], created_at: '2026-10-24T00:00:00Z' }];
+  await open();
+  expect(container.textContent).toContain('memory.pending.blocked');
+  expect(container.textContent).toContain('Read my device record.');
+  expect(container.textContent).toContain('gugu-chat://request/message');
+  expect(container.textContent).not.toContain('memory.pending.executor');
+});

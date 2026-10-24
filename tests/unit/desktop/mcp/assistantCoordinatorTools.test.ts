@@ -89,6 +89,22 @@ it('releases cloud background discovery after a coordinator tool, never on listi
   } finally { release.mockRestore() }
 })
 
+it('a first tool requesting all runtimes awaits complete discovery rather than returning only the selected runtime', async () => {
+  const client = await connect('first-tool-inventory', true)
+  const ready = Promise.withResolvers<void>()
+  run.mockImplementationOnce(async () => { await ready.promise; return { harnesses: ['selected-runtime', 'another-runtime'] } })
+  let finished = false
+  const call = client.callTool({ name: 'catalog_call', arguments: { tool: 'session_list_harnesses', args: {} } })
+    .then(result => { finished = true; return result })
+  try {
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+    expect(finished).toBe(false)
+  } finally { ready.resolve() }
+  const result = await call
+  expect(JSON.stringify(result)).toContain('selected-runtime')
+  expect(JSON.stringify(result)).toContain('another-runtime')
+})
+
 it('host adds the actual execution contract to spawn and reuse', async () => {
   const client = await connect('coordinator', true)
   const source = 'gugu-chat://3be752cb-0925-447e-8bbc-70de8a867bd1/bfb72f98-986e-4314-b242-d9b95a0c8083'

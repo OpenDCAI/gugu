@@ -363,7 +363,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   rateLimited: 'Too many requests to this model. Please try again shortly.',
   modelUnavailable: 'The current model is not available or is at capacity. Resend later, or switch models and resend.',
   generic: 'This reply could not be completed. Please try again later.',
-  notAdmitted: 'Gugu could not hand these messages to the agent. Please try again later.',
+  notAdmitted: '消息暂未送达，已保留；咕咕就绪后会继续处理。',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
 }
 
