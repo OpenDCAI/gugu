@@ -72,7 +72,9 @@ async function renderConversation(target: number, width: number) {
     }
     const rowProps: MessageListRowProps = { rows, messages, isFiltering: false, mobile: width < 720, memberReadSeqs: {}, memberProfiles: {}, isAgentChat: false,
       isGroupChat: true, onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, selectMode: false,
-      selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId }
+      selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId, highlight: undefined, threeParty: undefined,
+      onShowReadReceipt: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+      agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined, onMentionMember: undefined }
     return <div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
       <MessageList rows={rows} rowProps={rowProps} resetKey={resetKey} listRef={listRef} scrollerRef={memory.setScrollerRef}
         initialTopMostItemIndex={memory.openLocation()} followTail={!pending && !window.hasNewer} onAtBottomChange={onAtBottomChange}
