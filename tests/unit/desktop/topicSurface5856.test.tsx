@@ -22,11 +22,13 @@ const sendScopedMessage = vi.fn()
 const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
 function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
 const onCreateFailed = vi.fn()
+const createTopic = vi.fn()
+let sourceMessages: MessageItem[]
 
 vi.mock('../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
     listTopicsOfChat: (sourceChatId: string) => listTopicsOfChat(sourceChatId),
-    createTopic: vi.fn(),
+    createTopic: (...args: unknown[]) => createTopic(...args),
   },
 }))
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
@@ -74,6 +76,7 @@ let harness: ReturnType<typeof createReactHarness>
 let surface: Surface | null
 function Probe({ chatKind = 'group' }: { chatKind?: 'group' | 'topic' }) {
   surface = useTopicSurface({
+    messages: sourceMessages,
     chat: { id: 'chat-A', kind: chatKind },
     userId: 'user-1',
     closeRightSurfaces: () => {},
@@ -91,6 +94,8 @@ function OpenSplit({ chatId, name }: { chatId: string; name: string }) {
 
 beforeEach(() => {
   listeners = new Map()
+  sourceMessages = []
+  createTopic.mockReset().mockResolvedValue({ chat_id: 'topic-1', name: 'Projected default' })
   surface = null
   listTopicsOfChat.mockReset().mockResolvedValue([topic()])
   getMessages.mockReset().mockResolvedValue([])
@@ -199,4 +204,23 @@ describe('分栏里 @ 到的人写进 to_user_ids', () => {
     sendScopedMessage.mockRejectedValueOnce(new Error('queue unavailable'))
     await expect(surface?.sendInSplit('keep my draft')).rejects.toThrow('queue unavailable')
   })
+})
+
+it('projects agent references before naming a topic and still recognizes the supplied name as automatic', async () => {
+  const { isTopicNameCutFromSource } = await import('../../../apps/desktop/src/components/chat/topicAnchorModels')
+  const source = message({ id: 'ref-source', content_type: 'text', content: '@[Claude 17](aid:11111111-1111-4111-8111-111111111111) Reply with a task reference and enough text to exceed the title limit.\nSecond line' })
+  sourceMessages = [source]
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  const input = createTopic.mock.calls[0]?.[0]
+  expect(input).toMatchObject({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: '@Claude 17 Reply with a task reference a…' })
+  expect(isTopicNameCutFromSource(input.name, source.content)).toBe(true)
+})
+
+it.each(['system', 'attachment'] as const)('keeps server naming for a %s source', async (content_type) => {
+  const source = message({ id: 'non-text-source', content_type, content: 'Non-text payload' })
+  sourceMessages = [source]
+  await mount()
+  await act(async () => { await surface!.openTopicFromMessage(source.id) })
+  expect(createTopic).toHaveBeenCalledWith({ sourceChatId: 'chat-A', sourceMessageId: source.id, name: null })
 })

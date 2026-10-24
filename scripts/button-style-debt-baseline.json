@@ -18,7 +18,6 @@
   "apps/desktop/src/components/agentsettings/AgentSettingsModal.tsx",
   "apps/desktop/src/components/chat/AnnouncementDrawer.tsx",
   "apps/desktop/src/components/chat/ForwardMessageDialog.tsx",
-  "apps/desktop/src/components/chat/InputArea.tsx",
   "apps/desktop/src/components/chat/MemberPickerModal.tsx",
   "apps/desktop/src/components/chat/MessageBubble.tsx",
   "apps/desktop/src/components/chat/WidgetCard.tsx",

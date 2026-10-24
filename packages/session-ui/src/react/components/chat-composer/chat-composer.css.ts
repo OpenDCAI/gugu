@@ -1730,3 +1730,6 @@ globalStyle(
   `[data-slot="composer-toolbar"][data-disclosure="6"] [data-testid="composer-model-trigger"]:has(${modelTriggerIcon}) :is(${modelTriggerLabel}, ${modelTriggerEffort})`,
   { display: 'none' },
 )
+
+// Touch targets belong to the shared composer, including its chat hosts.
+globalStyle(`${composerRoot}[data-mobile] [data-slot="composer-toolbar"] button`, { minHeight: 44, minWidth: 44 });

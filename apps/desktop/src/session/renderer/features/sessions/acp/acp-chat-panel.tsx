@@ -46,6 +46,7 @@ import {
   getSessionPageStore,
 } from '@renderer/features/sessions/stores/session-selectors';
 import {
+  chatMentionProvider,
   clearLocalSessionMentions,
   issueMentionToken,
   parseIssueMentionToken,
@@ -797,11 +798,7 @@ const ComposerForStore = observer(function ComposerForStore({
     };
   });
   const { connectedProviders, isProviderUsable } = useConnectedIssueProviders(issueProviderContext);
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
-  const agentCreationToolsByEngine = useMemo(
-    () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
-    [agentCreationTools]
-  );
+  const { byEngine: agentCreationToolsByEngine, error: agentCreationToolsError, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const issueProvider = useMemo(() => {
     const selected = issueProviderContext.selectedIssueProvider;
     if (selected && isProviderUsable(selected)) return selected;
@@ -876,6 +873,12 @@ const ComposerForStore = observer(function ComposerForStore({
     const wsId = workspaceId;
     const resultsChanged = new Set<() => void>();
     return {
+      resolve(target, label) {
+        const meta = chatMentionProvider.resolve(target, store.chatState.uri ?? store.sessionId);
+        return meta ? { id: meta.id, label: target, name: label, kind: meta.kind,
+          role: target.startsWith('aid:') ? 'agent' : undefined, engine: meta.engine,
+          description: meta.title } : null;
+      },
       onResultsChanged(listener: () => void) {
         resultsChanged.add(listener);
         return () => resultsChanged.delete(listener);
@@ -1514,17 +1517,14 @@ const ComposerForStore = observer(function ComposerForStore({
     ? (harnessCatalog.state.selectedEffort ?? undefined)
     : undefined;
   const renderMentionIcon = useCallback(
-    ({ id, kind, engine }: { id: string; kind: string; engine?: string | null }) => {
-      if (kind === 'custom' && engine) {
-        const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-        return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-      }
+    ({ id, label, kind, engine }: { id: string; label: string; kind: string; engine?: string | null }) => {
+      if (kind === 'custom' && engine) return renderAgentMentionIcon({ id, label, kind, engine });
       if (kind !== 'issue') return null;
       const target = parseIssueMentionToken(id);
       if (!target) return null;
       return <IntegrationIcon provider={target.provider} size={12} />;
     },
-    [agentCreationToolsByEngine]
+    [renderAgentMentionIcon]
   );
 
   const querySlashItems = useCallback(

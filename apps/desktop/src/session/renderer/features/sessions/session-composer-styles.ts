@@ -1,13 +1,13 @@
-// The new-session page caps its centered composer at 42rem (672px), including on wide screens.
-export const sessionComposerWidthClassName = 'w-full max-w-2xl';
+// The new-session page caps its centered composer at 48rem (768px), including on wide screens.
+export const sessionComposerWidthClassName = 'w-full max-w-3xl';
 
 // 新建会话页、项目首页和对话页创建的输入框贴在底部,与会话页聊天的输入框同一个位置、同样宽(owner 2026-10-17:
 // 「和正常 chatui 界面的输入框一样的位置……质感上也统一了」),从首页进到会话里输入框不跳。
-// 数值同 packages/session-chat-ui:宽度档 = layout-geometry.ts 的 CHAT_CONTENT_*(42rem,≥80rem 时 48rem),
+// 数值同 packages/session-chat-ui:宽度档 = layout-geometry.ts 的 CHAT_CONTENT_*(48rem,≥80rem 时 56rem),
 // 左右 16px(CHAT_CONTENT_GUTTER_PX)、离底边 8px(chat-root.css.ts 的 composerSlotInner)。
 // 两边一致由 session-composer-styles.test.ts 钉住。
 export const sessionComposerDockBandClassName = 'w-full shrink-0 px-4 pb-2';
-export const sessionComposerDockedWidthClassName = 'mx-auto w-full max-w-2xl xl:max-w-3xl';
+export const sessionComposerDockedWidthClassName = 'mx-auto w-full max-w-3xl xl:max-w-4xl';
 // 框里的几何:会话页、新建会话页、新任务框用的是同一个输入框(packages/session-ui 的 chat-composer),格子里的群框照它画
 // (gugu-dev#181:原型里三处是同一个框)—— 文字离框内缘左右 22、上 14、下 8,编辑区空着 46 高(一行,含内距)、最多 200;
 // 底排的按钮 32 见方,离框内缘 10,彼此隔 6。这几个数由 tests/browser/composer-empty-height.test.tsx 量真组件钉住。

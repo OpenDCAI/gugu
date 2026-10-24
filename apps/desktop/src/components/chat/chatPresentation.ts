@@ -1,4 +1,3 @@
-import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { agentLocationText } from '../../lib/agentRunningStatusModels'
 import type { CSSProperties } from 'react'
 import type { TFunction } from 'i18next'
@@ -31,19 +30,6 @@ export const ICON_BTN: CSSProperties = {
   border: 'none',
   cursor: 'pointer',
   borderRadius: 'var(--radius-document)',
-}
-
-export function insertTextAtRange(value: string, insert: string, start: number, end: number): string {
-  return value.slice(0, start) + insert + value.slice(end)
-}
-
-/**
- * 插入表情/提及后回到插入点。聚焦本身走 [[composer]] 的唯一契约（含它的门控与跨渲染边界重试），
- * 这里只负责「落在哪个框、光标放哪」——❌ 不再自带一份 `setTimeout` + `.focus()`（#4315）。
- */
-export function focusTextareaAt(textarea: HTMLTextAreaElement | null, cursor: number): void {
-  if (!textarea) return
-  scheduleComposerFocus('caret-move', { caret: cursor, target: () => textarea })
 }
 
 /**

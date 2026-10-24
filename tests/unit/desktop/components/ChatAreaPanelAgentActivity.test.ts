@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
+import { readComposer } from '../../../support/composerEditor'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import type { Device, MessageItem } from '@gugu/core/shared/types/chat'
@@ -259,7 +260,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     expect(Array.from(runningBar.querySelectorAll('.rtb-nm'), (node) => node.textContent)).toEqual(['mine-1', 'mine-2', 'mine-3', 'mine-4', 'other-1', 'other-2'])
     expect(runningBar.querySelector('.rtb-more')).toBeNull()
     await clickElement(runningBar.querySelector<HTMLButtonElement>('[data-message-preview-trigger="mine-4"]')!)
-    expect(harness.container.querySelector<HTMLTextAreaElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)?.value).toContain('@mine-4')
+    expect(readComposer(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`))).toContain('@mine-4')
   })
 
   it.each([
@@ -325,9 +326,9 @@ describe('ChatAreaPanel agent activity placement', () => {
     const headerStatus = harness.container.querySelector('[data-agent-status-surface="chat-header"]')
     expect(headerStatus?.textContent?.trim()).toBe('运行中 · 本机 · Claude Code')
 
-    const composer = harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLTextAreaElement | null
+    const composer = harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLElement | null
     expect(composer).not.toBeNull()
-    expect(composer?.disabled).toBe(false)
+    expect(composer?.getAttribute('aria-disabled')).toBe('false')
   })
 
   it('#1099: keeps the agent composer usable when offline — no wake gate, no wake button, no host-stale ⚠ in header (ACP)', async () => {
@@ -344,10 +345,10 @@ describe('ChatAreaPanel agent activity placement', () => {
       messages: [mineMessage({})],
     })
 
-    const composer = harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLTextAreaElement | null
+    const composer = harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`) as HTMLElement | null
     expect(composer).not.toBeNull()
     // 最关键: ACP 下设备在线即可触达,offline 绝不挡发送 —— 输入框始终可用、发消息自动启动 agent。
-    expect(composer?.disabled).toBe(false)
+    expect(composer?.getAttribute('aria-disabled')).toBe('false')
     // 无「唤醒」动作(头栏按钮 + 输入区状态栏按钮均删)、无「Agent 离线…唤醒后再发送」门控提示。
     expect(harness.container.textContent).not.toContain('唤醒')
     expect(harness.container.textContent).not.toContain('Agent 离线，唤醒后再发送消息')

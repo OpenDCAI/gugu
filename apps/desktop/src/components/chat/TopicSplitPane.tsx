@@ -17,7 +17,7 @@ import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { TabChip, TabSlot } from '../../session/renderer/features/tabs/tab-bar/tab-chip'
 import { PaneHeader } from '../ui/Pane'
 import { useBackLayer } from '../ui/sheetStack'
-import { InputArea } from './InputArea'
+import { ChatMessageComposer } from './ChatMessageComposer'
 import { RunningTokenBar, type RunningToken } from '../RunningTokenBar'
 import { GROUP_AGENT_BAR_MAX } from '@/lib/groupRunningTokenModels'
 import { TopicBreadcrumb } from './TopicBreadcrumb'
@@ -103,7 +103,7 @@ export type TopicSplitPaneProps = {
    */
   memberReadSeqs: Record<string, number>
   onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null) => Promise<void>
-  /** 发附件。回形针在 InputArea 里是无条件画的,不接这一口 = 挂得上发不出去。 */
+  /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
   onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
    * 能在这一栏里 @ 到的人 = **来源线**的名册。spec:「招 agent 同理——建完之后 @ 它,它就进来了」,
@@ -121,7 +121,7 @@ export type TopicSplitPaneProps = {
   /** 运行条详情卡读哪条会话(来源群)。 */
   runningPreviewChatId?: string | null
   onClose: () => void
-  /** 发言人的 id —— InputArea 的 @ 候选与自指要用它。 */
+  /** 发言人的 id —— ChatMessageComposer 的 @ 候选与自指要用它。 */
   currentUserId: string | null
   /** 移动壳:整页盖住来源线、出口是左上返回,且不抢焦点(不弹软键盘)。 */
   mobile?: boolean
@@ -563,7 +563,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
         </div>
         <ChatTailNotice window={messageWindow} hidden={searchMode} onClick={pinToBottom} />
 
-        {/* @@@5856 用主线那一份 InputArea,❌ 不再自造一个轻量输入框。
+        {/* @@@5856 用主线那一份 ChatMessageComposer,❌ 不再自造一个轻量输入框。
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
@@ -581,7 +581,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           />
         ) : null}
         <div data-topic-split-composer="" style={mobile ? TOPIC_SPLIT_COMPOSER_MOBILE_STYLE : TOPIC_SPLIT_COMPOSER_STYLE}>
-        <InputArea
+        <ChatMessageComposer
           mentionToInsert={mentionToInsert}
           onMentionInserted={() => setMentionToInsert(null)}
           onSend={async (content, opts) => {

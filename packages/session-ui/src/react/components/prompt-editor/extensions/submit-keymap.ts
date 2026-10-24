@@ -8,12 +8,13 @@
 
 import { Extension } from '@tiptap/core';
 
-export function buildSubmitKeymap(onSubmit: () => void) {
+export function buildSubmitKeymap(onSubmit: () => void, enterBehavior: () => 'submit' | 'newline' = () => 'submit') {
   return Extension.create({
     name: 'submitKeymap',
     addKeyboardShortcuts() {
       return {
-        Enter: () => {
+        Enter: ({ editor }) => {
+          if (enterBehavior() === 'newline') return editor.commands.setHardBreak();
           onSubmit();
           return true;
         },
