@@ -62,6 +62,7 @@ describe('assistant native context lease', () => {
     const admitted = vi.fn(async () => 'reply');
     const waiting = withAssistantContextAdmission('assistant', admitted);
     expect(admitted).not.toHaveBeenCalled();
+    expect(claimAssistantContextMigration('assistant', source, Date.now() + ASSISTANT_CONTEXT_LEASE_MS + 1)).toBeNull();
     await vi.advanceTimersByTimeAsync(ASSISTANT_CONTEXT_LEASE_MS + 50);
     await expect(waiting).resolves.toBe('reply');
     expect(assistantContextMigrationHeld('assistant')).toBe(false);

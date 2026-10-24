@@ -24,9 +24,13 @@ export function assistantContextMigrationHeld(sessionId: string, now = Date.now(
 
 /** All native turn admissions share this gate, including the renderer and detached inbox. */
 export async function withAssistantContextAdmission<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
-  while (enabled.has(sessionId) && assistantContextMigrationHeld(sessionId)) await new Promise(resolve => setTimeout(resolve, 50));
   admissions.set(sessionId, (admissions.get(sessionId) ?? 0) + 1);
-  try { return await run(); }
+  try {
+    // A waiter is already queued input. Reserve its place before waiting so a
+    // retrying maintenance task cannot reacquire the expired lease ahead of it.
+    while (enabled.has(sessionId) && assistantContextMigrationHeld(sessionId)) await new Promise(resolve => setTimeout(resolve, 50));
+    return await run();
+  }
   finally {
     const count = (admissions.get(sessionId) ?? 1) - 1;
     if (count) admissions.set(sessionId, count); else admissions.delete(sessionId);
