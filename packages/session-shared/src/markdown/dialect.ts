@@ -109,6 +109,35 @@ export function parseMarkdown(text: string): Root {
   return parser.parse(text);
 }
 
+/** Explicit @[label](target) references, using the same AST as message rendering. */
+export function markdownMentionReferences(text: string): Array<{ start: number; end: number; label: string; target: string }> {
+  if (!text.includes('@[')) return [];
+  const references: Array<{ start: number; end: number; label: string; target: string }> = [];
+  const labelOf = (node: Nodes): string =>
+    'value' in node ? node.value : 'children' in node ? node.children.map(labelOf).join('') : '';
+  const walk = (parent: Nodes) => {
+    if (!('children' in parent)) return;
+    const children = parent.children;
+    children.forEach((node, index) => {
+      if (node.type === 'link') {
+        const previous = children[index - 1];
+        const start = node.position?.start.offset;
+        const end = node.position?.end.offset;
+        if (previous?.type !== 'text' || !previous.value.endsWith('@') || start == null || end == null) return;
+        let slashes = 0;
+        for (let at = start - 2; at >= 0 && text[at] === '\\'; at--) slashes++;
+        if (text[start - 1] === '@' && slashes % 2 === 0) {
+          references.push({ start: start - 1, end, label: labelOf(node), target: node.url });
+        }
+      } else if ('children' in node) {
+        walk(node);
+      }
+    });
+  };
+  walk(parseMarkdown(text));
+  return references;
+}
+
 function imageLiteral(node: Nodes): string {
   if (node.type === 'image') return `![${node.alt ?? ''}](${node.url}${node.title ? ` "${node.title}"` : ''})`;
   if (node.type !== 'imageReference') return '';

@@ -379,9 +379,7 @@ export default defineConfig({
             // CI 冷缓存上它跑到一半才被发现 ⇒ 预构建 + 整页重载 ⇒ 两份 React,5818 整个文件 Invalid hook call、行永远挂不上。
             '@dicebear/core',
             '@dicebear/collection',
-            // #6722 主聊天框的 @ 候选真浏览器判据首次把 InputArea 带进 session-browser；它的
-            // caret 落点与拼音匹配分别依赖这两项。不预构建会在用例中途 reload 整页。
-            'textarea-caret',
+            // Group mention matching uses pinyin; prebundle it before mounting the shared composer.
             'pinyin-pro',
             // #6544 确认框几何判据挂真 Dialog + Checkbox(ConfirmActionDialog 的页脚)。
             '@base-ui/react/dialog',
@@ -408,6 +406,7 @@ export default defineConfig({
         },
         test: {
           name: 'session-browser',
+          env: guguTestEnv,
           testTimeout: BROWSER_CASE_CAP_MS,
           hookTimeout: BROWSER_CASE_CAP_MS,
           // 串行跑。默认并行时多个测试文件共用同一个浏览器同时跑,终端那几个文件测的是

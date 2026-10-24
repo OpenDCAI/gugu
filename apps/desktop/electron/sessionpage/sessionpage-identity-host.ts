@@ -14,6 +14,7 @@ import type {
   SessionShellAgentCard,
   SessionShellAgentName,
   SessionShellRenameAgentInput,
+  SessionShellPeer,
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { listAgents, provisionSessionpageAgentOneTrip } from '@gugu/core'
@@ -74,6 +75,7 @@ export interface SessionpageIdentityHost {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
+  sessionPeers(): Promise<SessionShellPeer[]>
   /**
    * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
    * 本地元数据，云端认了才跟上。
@@ -96,6 +98,12 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
+  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot) => resolveSessionpageSessionPeers({
+    listRoster: () => listAgents(env, { includeGuests: true }),
+    ownerUserId: auth.userId,
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
+    listSessionFacts: deps.listSessionFacts,
+  })
   const provisionDeps: SessionpageProvisionDeps = {
     getAuth: deps.getAuth,
     resolveDeviceId: deps.resolveDeviceId,
@@ -141,12 +149,12 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       // 同上:名字表也按当下登录的账号过一遍,❌ 别把别家账号的 agent 名字画到侧栏上。
       const auth = await deps.getAuth()
       if (!auth) return []
-      return agentNamesFromPeers(await resolveSessionpageSessionPeers({
-        listRoster: () => listAgents(env, { includeGuests: true }),
-        ownerUserId: auth.userId,
-        lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
-        listSessionFacts: deps.listSessionFacts,
-      }))
+      return agentNamesFromPeers(await peersForAuth(auth))
+    },
+    async sessionPeers() {
+      const auth = await deps.getAuth()
+      if (!auth) throw new Error('Session-page peer directory: owner not authenticated')
+      return peersForAuth(auth)
     },
     async renameAgent(input) {
       const row = input as Partial<SessionShellRenameAgentInput> | null

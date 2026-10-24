@@ -10,6 +10,7 @@ import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { agentStreamKey } from './agentStreamState'
 import { i18n } from '@/i18n'
+import { displayAgentReferences } from './mentionMdast'
 
 export interface AgentTurnFailure {
   agentUserId: string
@@ -34,7 +35,8 @@ export function agentFailureText(reason: AgentFailureReason): string {
 
 /** The chat list's last-message line: a failure row says its reason, anything else its stored preview. */
 export function chatPreviewText(chat: Pick<ChatItem, 'last_message_preview' | 'last_message_failure'>): string {
-  return chat.last_message_failure ? agentFailureText(chat.last_message_failure) : (chat.last_message_preview ?? '')
+  return chat.last_message_failure ? agentFailureText(chat.last_message_failure)
+    : displayAgentReferences(chat.last_message_preview ?? '', (_id, label) => `@${label}`)
 }
 
 export function agentTurnFailureNeedsModelChoice(raw: string | null | undefined): boolean {
