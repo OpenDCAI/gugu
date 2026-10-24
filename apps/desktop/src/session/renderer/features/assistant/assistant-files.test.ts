@@ -5,6 +5,7 @@ import {
   composeInstructions,
   folderNameProblem,
   parseMemoryNote,
+  memoryIndexHints,
   parseSkill,
   removeIndexEntry,
   resourceRejection,
@@ -98,12 +99,19 @@ describe('记忆', () => {
     expect(note).toEqual({ file: 'likes-tea.md', title: '爱喝茶', description: '主人只喝绿茶', kind: 'user', body: '主人只喝绿茶,不加糖。' });
   });
 
-  it('没有 frontmatter:文件名当标题,种类算其它', () => {
-    expect(parseMemoryNote('red-fox.md', '暗号是赤狐九号')).toMatchObject({ title: 'red-fox', kind: 'other', body: '暗号是赤狐九号' });
+  it('missing YAML does not expose an English filename or invent a personal category', () => {
+    expect(parseMemoryNote('red-fox.md', '暗号是赤狐九号')).toMatchObject({ title: '记忆', kind: 'reference', body: '暗号是赤狐九号' });
   });
 
   it('不认得的 type 不冒充四种之一', () => {
-    expect(parseMemoryNote('x.md', '---\ntype: diary\n---\nx').kind).toBe('other');
+    expect(parseMemoryNote('x.md', '---\ntype: diary\n---\nx').kind).toBe('reference');
+  });
+
+  it('falls back through a note heading and the actual memory index metadata', () => {
+    const hints = memoryIndexHints('# 关于主人\n- [喜欢清淡](likes-tea.md) — 稳定偏好\n# 反馈\n- [少问一次](less-asking.md)\n');
+    expect(parseMemoryNote('likes-tea.md', '正文', hints.get('likes-tea.md'))).toMatchObject({ title: '喜欢清淡', kind: 'user' });
+    expect(parseMemoryNote('less-asking.md', '# 自主推进\n正文', hints.get('less-asking.md'))).toMatchObject({ title: '自主推进', kind: 'feedback' });
+    expect(parseMemoryNote('english.md', '---\ntitle: 中文标题\ncategory: 项目\n---\n正文')).toMatchObject({ title: '中文标题', kind: 'project' });
   });
 
   it('删记忆时索引里指向它的那一行一起拿掉,别的行不动', () => {
@@ -150,4 +158,3 @@ describe('personality', () => {
     expect(joinPersona(null, '  只写描述 ')).toBe('只写描述');
   });
 });
-

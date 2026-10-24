@@ -3,10 +3,14 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { buildSocialBridge, createDesktopGuguMcpHost, type DesktopGuguMcpHost } from '../../../../apps/desktop/electron/acp-engine-utils'
 import { ASSISTANT_TASK_EXECUTION, assistantExecutionAction } from '../../../../packages/core/src/shared/assistantWorkflow'
+import { AssistantWorkStore, type AssistantWorkBinding } from '../../../../apps/desktop/electron/sessionpage/assistant-work'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 let host: DesktopGuguMcpHost
 const clients: Client[] = []
-const run = vi.fn(async (..._args: unknown[]) => ({ ok: true, data: 'actual dispatcher' }))
+const run = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({ ok: true, data: 'actual dispatcher' }))
 const runtime = {
   authProvider: { getAuth: async () => ({ accessToken: 'test-token', userId: 'owner' }) },
   // Same home for the assistant and its executor: location cannot confer the role.
@@ -19,14 +23,14 @@ afterEach(async () => {
   await host.dispose()
 })
 
-const bridge = (key: string, personalAssistant: boolean) => buildSocialBridge(runtime, key, null, {
+const bridge = (key: string, personalAssistant: boolean, assistantWork?: AssistantWorkBinding) => buildSocialBridge(runtime, key, null, {
   host, grantKey: key, ...(personalAssistant ? { personalAssistant: true as const } : {}),
   getSupabaseUrl: () => 'https://supabase.example', getSupabaseAnonKey: () => 'anon',
-  runSessionAction: run,
+  runSessionAction: run, assistantWork,
 })
 
-async function connect(key: string, personalAssistant: boolean) {
-  const [server] = await bridge(key, personalAssistant)
+async function connect(key: string, personalAssistant: boolean, assistantWork?: AssistantWorkBinding) {
+  const [server] = await bridge(key, personalAssistant, assistantWork)
   if (!('url' in server)) throw new Error('Expected HTTP Gugu grant')
   const client = new Client({ name: 'assistant-role-test', version: '1' })
   clients.push(client)
@@ -92,4 +96,20 @@ it('an ordinary executor message is unchanged, and non-work actions are not rewr
   for (const value of [null, [], 'invalid', { action: 'get' }, { action: 'spawn', prompt: 3 }]) {
     expect(assistantExecutionAction(value)).toBe(value)
   }
+})
+
+it('returns a host work reference from the real MCP grant and reuses it for a later constraint', async () => {
+  const memoryDir = await mkdtemp(join(tmpdir(), 'assistant-grant-work-'))
+  try {
+    const client = await connect('tracked-assistant', true, { sessionId: 'parent', memoryDir })
+    run.mockResolvedValueOnce({ session_id: 'child' })
+    const response = await client.callTool({ name: 'session_spawn', arguments: { prompt: 'Produce the artifact.' } })
+    const [work] = new AssistantWorkStore(memoryDir).list()
+    expect(JSON.stringify(response)).toContain(work.id)
+    expect(run.mock.calls.at(-1)![0]).toMatchObject({ prompt: expect.stringContaining(ASSISTANT_TASK_EXECUTION) })
+    run.mockResolvedValueOnce({ recipients: [{ to: 'session:child', status: 'delivered', message_id: 'constraint-receipt' }] })
+    await client.callTool({ name: 'session_message', arguments: { to: ['session:child'], text: 'Wait for the owner’s approval.', work_id: work.id } })
+    expect(new AssistantWorkStore(memoryDir).list()).toHaveLength(1)
+    expect(new AssistantWorkStore(memoryDir).list()[0].receipt_ids).toContain('constraint-receipt')
+  } finally { await rm(memoryDir, { recursive: true, force: true }) }
 })

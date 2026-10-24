@@ -7,6 +7,7 @@ import { registerGuguActivityTools } from './mcp/gugu-activity-tool'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { requireRuntimeAuth, resolveGuguHome, type RuntimeAuth, type RuntimeAuthProvider } from '@gugu/core'
 import { assistantExecutionAction } from '@gugu/core/shared/assistantWorkflow'
+import { coordinateAssistantAction, type AssistantWorkBinding } from './sessionpage/assistant-work'
 import { makeIdentityClient } from './supabase'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
@@ -145,6 +146,7 @@ interface GuguMcpContextBase {
   subjectId: string
   /** Explicit provision role, never inferred from workspace or inherited by executors. */
   personalAssistant?: true
+  assistantWork?: AssistantWorkBinding
   runSessionAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
   readAssistantResources?: () => Promise<AssistantLocalSource[]>
   /** @@@2374 `gugu_session` 的 app_* 动作:写一个会话页 tab 扩展并装上。不需要 owner 令牌。 */
@@ -216,7 +218,9 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
           ? (action, requestSignal) => {
               const run = getContext().runSessionAction
               if (!run) throw new Error('session_* tools are unavailable for this grant')
-              return run(initial.personalAssistant ? assistantExecutionAction(action) : action, AbortSignal.any([grantSignal, requestSignal]))
+              const dispatch = (input: unknown) => run(input, AbortSignal.any([grantSignal, requestSignal]))
+              const work = initial.personalAssistant ? assistantExecutionAction(action) : action
+              return initial.personalAssistant && initial.assistantWork ? coordinateAssistantAction(initial.assistantWork, work, dispatch) : dispatch(work)
             }
           : undefined
         registerGuguSessionTools(server, sessionDispatcher, trackRequest, initial.personalAssistant === true)
@@ -301,6 +305,7 @@ export interface BuildSocialBridgeDeps {
   host: DesktopGuguMcpHost
   grantKey: string
   personalAssistant?: true
+  assistantWork?: AssistantWorkBinding
   runHostAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   runSessionAction?: (action: unknown, auth: RuntimeAuth, signal: AbortSignal) => Promise<unknown>
   readAssistantResources?: () => Promise<AssistantLocalSource[]>
@@ -344,6 +349,7 @@ export async function buildSocialBridge(
       guguHome: resolveGuguHome(context.env),
       grantKey: deps.grantKey,
       ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
+      ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
       ...(deps.readAssistantResources ? { readAssistantResources: async () => {

@@ -358,6 +358,7 @@ import { connectedCliSkills } from './session/main/core/integrations/cli/cli-int
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { assistantWorkBinding } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -5217,7 +5218,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
-        const assistantResourceOwner = info.providerId === 'claude' ? (await getSessionpageAuth())?.userId : null
+        const assistantResourceOwner = (await getSessionpageAuth())?.userId ?? null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5234,9 +5235,7 @@ app.whenReady().then(async () => {
             provisioned.guguAgentUserId,
             provisioned.agentIdentityFacts,
           )),
-          timed('assistant-role', info.providerId === 'claude'
-            ? isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)
-            : Promise.resolve(false)),
+          timed('assistant-role', isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
         const readAssistantResources = assistantRole ? async () => {
@@ -5292,7 +5291,7 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
-            ...(assistantRole ? { personalAssistant: true as const } : {}),
+            ...(assistantRole ? { personalAssistant: true as const, assistantWork: assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId) } : {}),
             ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
@@ -5309,7 +5308,7 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        const capabilities = assistantRole ? await preparePersonalAssistantContext(
+        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
           loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
             accountId: async () => {
               const owner = (await getSessionpageAuth())?.userId

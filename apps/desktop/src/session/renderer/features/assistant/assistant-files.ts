@@ -102,13 +102,33 @@ export type MemoryNote = {
 };
 
 const MEMORY_KINDS: readonly MemoryKind[] = ['user', 'feedback', 'project', 'reference'];
+const memoryKind = (value: string | undefined): MemoryKind | undefined => {
+  const aliases: Record<string, MemoryKind> = { 用户: 'user', 关于主人: 'user', 偏好: 'user', 反馈: 'feedback', 关于助理: 'feedback', 项目: 'project', 参考: 'reference', 资料: 'reference' };
+  return MEMORY_KINDS.find(kind => kind === value?.toLowerCase()) ?? aliases[value ?? ''];
+};
 
-export function parseMemoryNote(file: string, text: string): MemoryNote {
+/** Legacy memories often put their readable name/category in the index instead of YAML. */
+export function memoryIndexHints(index: string): Map<string, { title: string; kind?: MemoryKind }> {
+  const result = new Map<string, { title: string; kind?: MemoryKind }>();
+  let kind: MemoryKind | undefined;
+  for (const line of index.split('\n')) {
+    const heading = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (heading) kind = memoryKind(heading[1].trim());
+    const link = /\[([^\]]+)\]\((?:\.\/)?([^\s)]+\.md)\)/.exec(line);
+    if (link && !link[2].includes('/')) result.set(link[2], { title: link[1], ...(kind ? { kind } : {}) });
+  }
+  return result;
+}
+
+export function parseMemoryNote(file: string, text: string, hint?: { title: string; kind?: MemoryKind }): MemoryNote {
   const { fields, body } = readFrontmatter(text);
-  const kind = MEMORY_KINDS.find((candidate) => candidate === fields.type) ?? 'other';
+  // Missing metadata is a reference, not an invented claim about the person.
+  const kind = memoryKind(fields.type) ?? memoryKind(fields.category) ?? hint?.kind ?? 'reference';
+  const heading = /^#{1,6}\s+(.+?)\s*$/m.exec(body)?.[1];
+  const filename = file.replace(/\.md$/i, '');
   return {
     file,
-    title: fields.name || file.replace(/\.md$/i, ''),
+    title: fields.name || fields.title || heading || hint?.title || (/\p{Script=Han}/u.test(filename) ? filename : '记忆'),
     description: fields.description ?? '',
     kind,
     body,

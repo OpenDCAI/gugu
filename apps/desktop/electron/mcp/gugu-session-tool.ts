@@ -11,6 +11,7 @@ import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
 import type { GuguMcpRequestTracker } from '../gugu-mcp-host'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { workReportSchema } from '../../src/session/shared/assistant-work'
 import { SESSION_MESSAGE_REPLY_TO, SESSION_MESSAGE_THEN } from '@gugu/core/local/agent/deliveryEnvelope'
 import {
   registerSessionpageTools,
@@ -194,6 +195,8 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       // 地址写法顶层描述已列,拒绝时 refine 的原话再说一遍 —— 字段上不重复(#7335 预算)。
       ),
       text: z.string().min(1),
+      work_id: z.string().uuid().describe('Existing work_id from an assistant dispatch receipt, when continuing that work.').optional(),
+      work_result: workReportSchema.describe('Report the host-issued work_id: progress/question keep the wait open; completed/cancelled settle only this work.').optional(),
       files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).describe('Local originals; recipients use message_download_file.').optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。

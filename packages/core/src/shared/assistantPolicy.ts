@@ -48,7 +48,7 @@ export function assistantRecoveryContext(memoryDir: string): string {
   return [
     '<gugu_assistant_recovery>',
     '上下文已建立或重建。继续或汇报已有工作前，以最新原始记录为准：已知任务引用可直接核对原任务，同时核对便笺或来源中的未决约束与等待对象；快照或定位不全时用 Read 读取下面的工作便笺。任务用完整 session: 地址查 session_get；只有已知 chat_id 才查聊天，不能从任务 ID 或缩写拼地址。摘要和便笺不代表当前完成、取消或授权状态，不按旧交代重启；无法核全就明说缺口，不猜来源。此通知不代表新任务，不单独回复。',
-    `工作便笺：${join(memoryDir, 'working-context.md')}`,
+    `工作便笺：${join(memoryDir, 'working-context.md')}；宿主登记：${join(memoryDir, 'pending-work.json')}`,
     `个人记忆索引（按需）：${join(memoryDir, 'MEMORY.md')}`,
     '</gugu_assistant_recovery>',
   ].join('\n')

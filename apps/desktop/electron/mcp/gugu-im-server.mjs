@@ -705,8 +705,8 @@ export async function sendExtensionCardOf(context, { chatId, filePath, fileName,
   }
   // No mime_type: the .guguext name gives the extension archive type, which is what makes the chat draw a card.
   const out = await handleFile({ action: 'send-file', chat_id: chat, file_path: filePath, file_name: fileName }, deps)
-  const id = /\(id=([0-9a-f-]{36})[,)]/i.exec(String(out))?.[1]
-  if (!id) throw new Error(`the card was not sent (${out})`)
+  const id = String(JSON.parse(out).message_id ?? '').replace(/^msg:/, '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`the card was not sent (${out})`)
   return { messageId: id, alreadyThere: false, differs: false }
 }
 
@@ -2155,7 +2155,8 @@ async function handleFile(args, deps) {
       thread_root_id: deps.context.threadRootId ?? null,
     }
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
-    return `file sent (id=${message.id})`
+    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName,
+      source_link: `gugu-chat://${chatId}/${String(message.id).replace(/^msg:/, '')}` })
   }
   if (args.action === 'download-attachment') {
     if (args.source_attachment_id) {
