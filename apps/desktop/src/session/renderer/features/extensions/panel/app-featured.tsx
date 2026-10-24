@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
+import { cn } from '@/lib/cn';
 import { Button } from '@renderer/lib/ui/button';
 import type { SessionTranslate } from '../extension-consent';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
@@ -76,11 +77,11 @@ export function AppFeaturedCard({
   return (
     <div
       role="listitem"
-      className={`${card ? 'mk-hero-card is-card' : 'mk-hero-card'}${artwork ? ' has-shot' : ''}`}
+      className={cn('mk-hero-card', card && 'is-card', artwork && 'has-shot')}
       data-testid={card ? `extension-card-${id}` : `app-featured-${id}`}
       onClick={onOpen}
     >
-      <div className={artwork ? 'mk-hero-art is-shot' : 'mk-hero-art is-icon'} aria-hidden={artwork ? undefined : true}>
+      <div className={cn('mk-hero-art', artwork ? 'is-shot' : 'is-icon')} aria-hidden={artwork ? undefined : true}>
         {isPending ? (
           <Skeleton className="absolute inset-0 rounded-none" role="status" aria-label={translate('extensions.loading')} aria-busy="true" />
         ) : isError ? (

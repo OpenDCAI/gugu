@@ -435,10 +435,12 @@ describe('市场页 (#7059)', () => {
     expect(art()?.querySelector('.mk-hero-big')).toBeNull();
   });
 
-  it('shows an artwork failure and retries without substituting an icon design', async () => {
-    const readme = vi.fn().mockResolvedValueOnce({ success: false, error: 'unreadable' })
+  it.each(['README', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
+    const readme = vi.fn().mockResolvedValueOnce(failure === 'README' ? { success: false, error: 'unreadable' }
+      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/shot.png)' } })
       .mockResolvedValueOnce({ success: true, data: { readme: null } });
     (h.api as Record<string, unknown>).marketReadme = readme;
+    if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValueOnce(new Error('image unreadable'));
     await render(false);
     const card = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"]');
     expect(card()?.querySelector('[role="alert"]')?.textContent).toContain(translateSessionMessage('extensions.loadFailed'));
