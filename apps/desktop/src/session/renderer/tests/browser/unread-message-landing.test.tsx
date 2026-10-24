@@ -44,6 +44,7 @@ async function renderConversation(target: number, width: number, portal = false)
   const confirmed = vi.fn(), rejected = vi.fn()
   const readings: Reading[] = []
   let clicked = false
+  const returnToLatest = async () => { await history.load('latest', async () => rowsBetween(301, 340)) }
   const setFollowingTail = (following: boolean | undefined) => { if (following !== undefined) history.setFollowingTail(following) }
   let slot: HTMLElement | null = null
   const subscribers = new Set<() => void>()
@@ -72,9 +73,9 @@ async function renderConversation(target: number, width: number, portal = false)
     const pending = useUnreadLocatorNavigation(input)
     const { onAtBottomChange } = useFollowingTail({ resetKey, unreadNavigationPending: pending, hasNewer: window.hasNewer,
       loading: !!window.loading, isPreservingPosition: memory.isPreservingPosition, isAtBottomRef, setFollowingTail })
-    const { onTotalListHeightChanged } = useTailPinning({ resetKey, messages, enabled: !pending, messageWindow: window, scrollerEl: memory.scrollerEl, scrollerRef: memory.scrollerRef,
+    const { pinToBottom, onTotalListHeightChanged } = useTailPinning({ resetKey, messages, enabled: !pending, messageWindow: window, scrollerEl: memory.scrollerEl, scrollerRef: memory.scrollerRef,
       listRef, isAtBottomRef, isPreservingPosition: memory.isPreservingPosition, prepareForSavedPosition: memory.prepareForSavedPosition,
-      forgetSavedPosition: memory.forgetSavedPosition, returnToLatest: vi.fn(async () => {}), onError: rejected })
+      forgetSavedPosition: memory.forgetSavedPosition, returnToLatest, onError: rejected })
     const jump = () => {
       clicked = true
       const request: UnreadMessageRevealRequest = { token: `jump-${target}`, chatId: 'long-chat', streamId: 'main:long-chat', streamKind: 'main',
@@ -86,12 +87,12 @@ async function renderConversation(target: number, width: number, portal = false)
       selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId, highlight: undefined, threeParty: undefined,
       onShowReadReceipt: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
       agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined, onMentionMember: undefined }
-    return <div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
+    return <><button onClick={pinToBottom}>Return to latest</button><div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
       <MessageList rows={rows} rowProps={rowProps} resetKey={resetKey} listRef={listRef} scrollerRef={memory.setScrollerRef}
         initialTopMostItemIndex={memory.openLocation()} followTail={!pending && !window.hasNewer} onAtBottomChange={onAtBottomChange}
         onTotalListHeightChanged={onTotalListHeightChanged}
         unreadAbove={{ messageId: `m${target}`, messageSeq: target, label: 'Jump to first unread', onJump: jump }} />
-    </div>
+    </div></>
   }
   if (portal) {
     slotHarness = createReactHarness()
@@ -151,7 +152,9 @@ describe('first unread navigation paints its final landing', () => {
   })
 
   it('keeps the saved reading position when a desktop slot is removed and reopened by another React root', async () => {
-    const view = await renderConversation(310, 1100, true)
+    const view = await renderConversation(120, 1100, true)
+    await page.getByRole('button', { name: 'Return to latest' }).click()
+    await until('the latest page has replaced the unread window and filled its rows', () => !view.history.getSnapshot().hasNewer && view.scroller().querySelectorAll('[data-msg-id]').length === 40)
     const visible = () => {
       const surface = view.scroller(), bounds = surface.getBoundingClientRect()
       const row = Array.from(surface.querySelectorAll<HTMLElement>('[data-msg-id]')).find((row) => {
