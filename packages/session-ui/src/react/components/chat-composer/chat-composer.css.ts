@@ -430,7 +430,7 @@ export const editorArea = style({
   //    写 44 的话它比现状(52)还小 —— 一条不起作用的声明,静默无效。
   //
   // ⚠️ 这个数是**含内距**的(border-box):一行文字(行高 24)+ 上下内距(14+8) = 46px —— 再低就是文字自己撑着,写了不起作用。
-  // owner 2026-10-23「平时这个输入框是不是太高了一点」:空着时的编辑区从 66 降到一行,框空着 90 高。
+  // Phones keep the compact one-line editor; desktop restores its earlier empty height below.
   minHeight: '2.875rem',
   selectors: {
     [`${composerRoot}:not([data-mobile]):not([data-phone-shell] *) &`]: {

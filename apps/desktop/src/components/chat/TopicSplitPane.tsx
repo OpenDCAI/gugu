@@ -200,13 +200,9 @@ const TOPIC_SPLIT_MESSAGES_STYLE: React.CSSProperties = {
   gap: 14,
   padding: '14px 12px',
 }
-// @@@5856 输入框的外边距与主线那一份对齐(ChatAreaPanel 的 `12px 22px 18px`)。
-// **垂直方向必须一模一样**:主线那份上 12 下 18,而这一栏原先什么都没有 ⇒ 输入框直接贴着窗底,
-// 同屏并排看就是两个高度(owner 2026-09-19 实测:「这个高度怎么不一致」)。
-// 水平方向用 14 与这一栏自己的头对齐 —— 它比主栏窄,照抄 22 会把输入框挤细。
-// 桌面上它坐在 ChatBottomDock 那层半透明底上(与主线同一层),自己不再垫实色。
+// Desktop framing is shared with the main composer through ChatBottomDock.
 const TOPIC_SPLIT_COMPOSER_STYLE: React.CSSProperties = {
-  padding: '12px 14px 18px', flexShrink: 0,
+  padding: 0, flexShrink: 0,
 }
 const TOPIC_SPLIT_COMPOSER_MOBILE_STYLE: React.CSSProperties = {
   background: 'var(--bg-primary)', padding: '8px 10px max(10px, env(safe-area-inset-bottom))', flexShrink: 0,
