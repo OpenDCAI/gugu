@@ -11,6 +11,12 @@ const USER_SCOPE = 'user'
 
 export type FirstRunProgress = { stage: FirstRunStage; occupation: Occupation | null; harness: FirstRunHarness[] | null; tour: ProductTourPosition | null }
 
+// 走完是单向的(onboarded_at 只会从空变成有):这台设备读到过一次「走完」(或在这里走完)就按账号记下,以后门口直接放行,
+// ❌ 每次再联网核(断网 / 网慢时老用户被挡在门口)。没记过的照旧读,读不到照旧如实说。存不下(隐私模式)= 下次照旧读。
+const doneKey = (userId: string) => `gugu.firstRun.done:${userId}`
+export function firstRunDoneHere(userId: string): boolean { try { return localStorage.getItem(doneKey(userId)) !== null } catch { return false } }
+export function rememberFirstRunDone(userId: string): void { try { localStorage.setItem(doneKey(userId), '1') } catch { /* 见上 */ } }
+
 /** 读不到(网络 / 权限 / 行不对)就 throw —— 门口如实说读不到,❌ 当新账号重走,❌ 当走完放行。 */
 export async function readFirstRunProgress(userId: string): Promise<FirstRunProgress> {
   const [onboardedAt, config] = await Promise.all([

@@ -9,7 +9,7 @@ import { FullScreenLoader } from '../FullScreenLoader'
 import { AssistantIntro } from '../assistant/AssistantIntro'
 import { Pencil } from '@/lib/icons'
 import { authService } from '../../lib/auth'
-import { finishFirstRun, readFirstRunProgress, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
+import { finishFirstRun, firstRunDoneHere, readFirstRunProgress, rememberFirstRunDone, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
 import { useAuth, type AuthUser } from '../../store/auth'
 import { rendererLogger } from '../../lib/log'
 import '../../i18n/registerMainCatalog'
@@ -52,15 +52,17 @@ export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
 
 function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode }) {
   const { t } = useTranslation('main')
-  const [state, setState] = useState<GateState>({ kind: 'loading' })
+  const [state, setState] = useState<GateState>(() => firstRunDoneHere(user.id) ? { kind: 'done' } : { kind: 'loading' })
+  const done = useCallback(() => { rememberFirstRunDone(user.id); setState({ kind: 'done' }) }, [user.id])
 
   // ❌ 等 identityPending 落定再读:身份行在注册那一刻就在(auth.users 的插入触发器),pending 只是「客户端还没补全」;
   // 补全一直落不了地时,等它 = 门口永远转圈,而主界面本来照样能用。补全晚到的称呼 / 头像由 FirstRunProfile 跟上。
   const load = useCallback(() => {
+    if (firstRunDoneHere(user.id)) return
     setState({ kind: 'loading' })
     readFirstRunProgress(user.id)
       .then((progress) => {
-        if (progress.stage === 'done') setState({ kind: 'done' })
+        if (progress.stage === 'done') done()
         else if (progress.stage === 'intro') setState(platform.kind === 'electron' && !progress.harness ? { kind: 'harness' } : { kind: 'intro', tour: progress.tour })
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
@@ -68,7 +70,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
         log.warn({ error: String(e) }, 'read first-run progress failed')
         setState({ kind: 'unreadable' })
       })
-  }, [user.id])
+  }, [user.id, done])
 
   useEffect(load, [load])
 
@@ -84,7 +86,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
   if (state.kind === 'done' || (state.kind === 'intro' && platform.kind === 'electron')) return (
     <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
       {children}
-      {state.kind === 'intro' && <ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={() => setState({ kind: 'done' })} />}
+      {state.kind === 'intro' && <ProductTour key={user.id} userId={user.id} initial={state.tour} onDone={done} />}
     </PhoneAgentSetupGate>
   )
 
@@ -107,7 +109,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
         ) : state.kind === 'harness' ? (
           <FirstRunHarness userId={user.id} onDone={() => setState({ kind: 'intro' })} />
         ) : (
-          <FirstRunIntro userId={user.id} onDone={() => setState({ kind: 'done' })} />
+          <FirstRunIntro userId={user.id} onDone={done} />
         )}
       </div>
     </div>
