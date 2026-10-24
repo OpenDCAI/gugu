@@ -1,3 +1,4 @@
+import { decodePermissionRequest, decodeSessionUpdate } from '@gugu/session-core/acp';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { IAcpBehavior } from '@gugu/session-core/agents/plugins';
 import { err, isOk } from '@gugu/session-shared';
@@ -998,24 +999,24 @@ describe('AcpRuntime session manager', () => {
 
     const prompt = rt.sendPrompt('conv-live', { text: 'hello' });
     updates.length = 0;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: providerSessionId,
         messageId: 'msg-1',
         content: { type: 'text', text: 'hel' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
     updates.length = 0;
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: providerSessionId,
         messageId: 'msg-1',
         content: { type: 'text', text: 'lo' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
 
     // 同一拍里的第二块在拍尾才发出(显示节拍,见 publishOnTick)。
@@ -1035,15 +1036,15 @@ describe('AcpRuntime session manager', () => {
     const updates: unknown[] = [];
     const unsubscribe = live.states.usage.subscribe((update) => updates.push(update));
 
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: providerSessionId,
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'usage_update',
         sessionId: providerSessionId,
         used: 42_000,
         size: 200_000,
         cost: { amount: 0.25, currency: 'USD' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
 
     expect(live.states.usage.snapshot().data).toEqual({
@@ -1407,12 +1408,13 @@ describe('AcpRuntime session manager', () => {
       configOptions: modelOptions,
     });
     h.agent.setSessionConfigOption = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        trace: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'deep-research', description: 'probe', input: null }] },
+        event: decodeSessionUpdate({
           sessionUpdate: 'available_commands_update',
           availableCommands: [{ name: 'deep-research', description: 'probe', input: null }],
-        } as unknown as SessionUpdate,
+        } as unknown as SessionUpdate),
       });
       return { configOptions: modelOptions };
     });
@@ -1435,12 +1437,12 @@ describe('AcpRuntime session manager', () => {
    */
   it('#5143 still drops an update whose session belongs to nobody', async () => {
     const { h, rt } = await startHarness('conv-known');
-    await h.client().sessionUpdate({
+    await h.client().sessionEvent({
       sessionId: 'session-from-nowhere',
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'available_commands_update',
         availableCommands: [{ name: 'ghost-command', description: 'x', input: null }],
-      } as unknown as SessionUpdate,
+      } as unknown as SessionUpdate),
     });
 
     const exported = rt.exportRawAcpLog('conv-known');
@@ -1453,14 +1455,14 @@ describe('AcpRuntime session manager', () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-old',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-old',
           messageId: 'msg-1',
           content: { type: 'text', text: 'from history' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -1498,14 +1500,14 @@ describe('AcpRuntime session manager', () => {
     });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-old',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-old',
           messageId: 'msg-history',
           content: { type: 'text', text: '压缩前说过的' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -1529,14 +1531,14 @@ describe('AcpRuntime session manager', () => {
         })
     );
     const prompt = rt.sendPrompt('conv-turn-source', { text: '重启之后说的' });
-    await h.client().sessionUpdate({
+    await h.client().sessionEvent({
       sessionId: 'session-old',
-      update: {
+      event: decodeSessionUpdate({
         sessionUpdate: 'agent_message_chunk',
         sessionId: 'session-old',
         messageId: 'msg-live',
         content: { type: 'text', text: '刚说的' },
-      } as SessionUpdate,
+      } as SessionUpdate),
     });
     resolvePrompt({ stopReason: 'end_turn' });
     await prompt;
@@ -1557,14 +1559,14 @@ describe('AcpRuntime session manager', () => {
     });
     const rt = new AcpRuntime(h.deps);
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-main',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-main',
           messageId: 'msg-side',
           content: { type: 'text', text: '侧边这条说的' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });
@@ -2224,14 +2226,14 @@ describe('AcpRuntime session manager', () => {
         permissionMode,
       });
       expect(isOk(started)).toBe(true);
-      const response = h.client().requestPermission({
+      const response = h.client().requestPermission(decodePermissionRequest({
         sessionId: 'session-4808',
         toolCall: { toolCallId: 'tool-pwd', title: 'Print working directory', kind: 'execute' },
         options: [
           { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
           { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
         ],
-      });
+      }));
       const pending = rt.sessionLiveModels(sessionId)?.states.state.snapshot().data
         .pendingPermissions ?? [];
       return { response, pending };
@@ -2987,12 +2989,12 @@ describe('AcpRuntime session manager', () => {
     await untilSessionSummary(rt, 'replacement', 'adapter exited', summary => summary?.lifecycle === 'lost');
     await rt.startSession(makeStartInput({ sessionId: 'replacement', providerSessionId: 'session-1' }));
     const client = h.client();
-    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } as never });
-    await oldClient.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never });
-    await oldClient.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old connection' } } });
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'running' } as never) });
+    await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never) });
+    await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old connection' } }) });
     expect(rt.getSessionState('replacement').lifecycle).toBe('working');
-    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'new connection' } } });
-    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never });
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'new connection' } }) });
+    await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never) });
     expect(rt.getSessionState('replacement').lifecycle).toBe('ready');
     expect(JSON.stringify(rt.getChatHistory('replacement'))).toContain('new connection');
     expect(JSON.stringify(rt.getChatHistory('replacement'))).not.toContain('old connection');
@@ -3085,14 +3087,14 @@ describe('AcpRuntime session manager', () => {
     await inFlight;
 
     h.agent.loadSession = vi.fn(async () => {
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: 'session-1',
-        update: {
+        event: decodeSessionUpdate({
           sessionUpdate: 'agent_message_chunk',
           sessionId: 'session-1',
           messageId: 'replayed-active-turn',
           content: { type: 'text', text: 'partial before adapter exit' },
-        } as SessionUpdate,
+        } as SessionUpdate),
       });
       return {};
     });

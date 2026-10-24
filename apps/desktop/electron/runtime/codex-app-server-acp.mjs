@@ -944,8 +944,8 @@ function throwIfInsertionCancelled(entry) {
 }
 
 
-function sessionUpdate(update) {
-  notify('session/update', { sessionId, update })
+function sessionUpdate(update, targetSessionId = sessionId) {
+  notify('session/update', { sessionId: targetSessionId, update })
 }
 
 const subagents = createCodexSubagents({ rootId: () => sessionId, emit: sessionUpdate, request: appRequest, itemTool, reasoningText: codexReasoningText })
@@ -1490,7 +1490,7 @@ function onAppNotification(message) {
       if (command.turnId !== params.turn?.id) continue
       command.turnId = null
       sessionUpdate({
-        sessionUpdate: 'async_task_spawned', asyncTaskId: command.processId, toolCallId,
+        sessionUpdate: '_async_task_spawned', asyncTaskId: command.processId, toolCallId,
         name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
       })
     }
@@ -1513,7 +1513,7 @@ function trackRunningCommand(params, edge) {
     const command = runningCommands.get(toolCallId)
     runningCommands.delete(toolCallId)
     if (command?.turnId === null) sessionUpdate({
-      sessionUpdate: 'async_task_state_update', asyncTaskId: command.processId, toolCallId,
+      sessionUpdate: '_async_task_state_update', asyncTaskId: command.processId, toolCallId,
       state: acpToolStatus(item.status, 'completed'),
     })
   }

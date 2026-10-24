@@ -15,7 +15,6 @@ import { createManagedSource, type ManagedSource, type Scope } from '@gugu/sessi
 import {
   createAcpAgentConnection,
   type AcpConnectionError,
-  type AcpSessionUpdateNormalizer,
 } from './acp-agent-connection';
 
 type AcpConnectionProcessHost = Pick<AcpProcessHost, 'spawn' | 'spawnTerminal'>;
@@ -25,7 +24,7 @@ export interface AcpConnectionContext {
   providerId: string;
   workspaceId: string;
   cwd: string;
-  normalize: AcpSessionUpdateNormalizer;
+  process: Pick<import('@gugu/session-core/acp/node').AcpProcessHandle, 'pid'>;
 }
 
 export interface AcpConnectionEntry extends AcpConnectionContext {
@@ -185,13 +184,13 @@ async function provisionAcpConnection(
       connectionKey: key,
       spawn: spawn.data,
       scope,
-      buildClient: (agent, normalize) =>
+      buildClient: (agent, process) =>
         input.buildClient(agent, {
           key,
           providerId: input.providerId,
           workspaceId: input.workspaceId,
           cwd: input.cwd,
-          normalize,
+          process,
         }),
       onClosed: (exit) => deps.onClosed(key, exit),
       ...(input.onStderrLine ? { onStderrLine: input.onStderrLine } : {}),
@@ -205,7 +204,7 @@ async function provisionAcpConnection(
     workspaceId: input.workspaceId,
     cwd: input.cwd,
     agent: connection.data.agent,
-    normalize: connection.data.normalize,
+    process: connection.data.process,
     supportsLoadSession: connection.data.supportsLoadSession,
     supportsForkSession: connection.data.supportsForkSession,
     supportsImagePrompt: connection.data.supportsImagePrompt,

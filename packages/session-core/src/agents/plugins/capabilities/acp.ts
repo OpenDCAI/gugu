@@ -16,7 +16,6 @@ import type {
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
   SetSessionConfigOptionRequest,
@@ -28,7 +27,6 @@ import { definePluginCapability } from '@gugu/session-shared/plugins';
 import type { SerializedError } from '@gugu/session-shared';
 import z from 'zod';
 import type { AcpPlatformInjection } from '../../../acp/api/runtime-contract';
-import type { EnrichHook } from '../../../acp/reducer/normalized-event';
 import type { NormalizedEvent } from '../../../acp/reducer/normalized-event';
 import type { SessionPromptReceipt } from '../../../acp/session-protocol';
 import type { PermissionSubject, AcpPermissionOption } from '../../../acp/models/permissions';
@@ -252,18 +250,21 @@ export interface AcpAgentApi {
   closeSession?(params: CloseSessionRequest): Promise<CloseSessionResponse | void>;
 }
 
-/** The manager supplies this factory; the plugin forwards it into ClientSideConnection. */
-export type AcpPermissionParams = Omit<RequestPermissionRequest, 'toolCall' | 'options'> & {
-  toolCall?: RequestPermissionRequest['toolCall'];
+/** Permission facts decoded once at transport ingress; subject retains the complete native context. */
+export type AcpPermissionParams = {
+  sessionId: string;
+  toolCall?: Extract<NormalizedEvent, { kind: 'tool_update' }>;
   options: AcpPermissionOption[];
   title?: string;
   description?: string | null;
   subject?: PermissionSubject | null;
+  _meta?: Record<string, unknown> | null;
 };
 
-export type AcpClient = Omit<Client, 'requestPermission'> & {
+export type AcpClient = Omit<Client, 'requestPermission' | 'sessionUpdate'> & {
   /** Domain facts synthesized by a transport; never wrapped in a wire tool notification. */
-  sessionEvent(params: { sessionId: string; event: NormalizedEvent }): void;
+  /** trace is opaque diagnostic data; it is never used to project session state. */
+  sessionEvent(params: { sessionId: string; event: NormalizedEvent; trace?: unknown }): void;
   requestPermission(params: AcpPermissionParams): RequestPermissionResponse | Promise<RequestPermissionResponse>;
 };
 
@@ -460,16 +461,6 @@ export interface IAcpBehavior {
    */
   connect(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi;
 
-  /**
-   * Optional enrichment hook run in the main process after baseline ACP
-   * SessionUpdate decoding. Receives the already-decoded NormalizedEvent and
-   * the original raw SessionUpdate so implementations can promote vendor-specific
-   * `_meta` fields (e.g. `_meta.claudeCode.parentToolUseId`) into first-class
-   * normalized fields such as `parentToolCallId`.
-   *
-   * Omit for standard-ACP passthrough — the core reducer handles baseline decoding.
-   */
-  enrich?: EnrichHook;
 }
 
 /**

@@ -1,49 +1,15 @@
 import { findEntityOwner } from './entity-owner';
-/**
- * AcpTranscriptParser — stateful wrapper around the pure composite reducer.
- *
- * A single push() call folds one raw ACP SessionUpdate into all slices:
- *   - transcript (committed turns + active turn)
- *   - config     (modelOptions / efforts / modeOptions / availableCommands)
- *   - usage      (contextUsed / contextSize / cost)
- *   - title      (session info title)
- *
- * Two usage modes:
- *
- *   Live streaming (push / endTurn):
- *     const parser = new AcpTranscriptParser({ conversationId, enrich });
- *     parser.push(sessionUpdate);
- *     parser.endTurn();             // called when prompt() resolves
- *     parser.history;               // committed turns
- *     parser.activeTurn;            // in-flight turn, or null
- *     parser.config;                // latest config state
- *     parser.usage;                 // latest usage, or null
- *     parser.title;                 // latest title, or null
- *
- *   Bounded replay (static):
- *     const result = AcpTranscriptParser.replay(updates, { conversationId, enrich });
- *     result.committed;             // finalized turns
- *     result.active;                // null after bounded replay
- *     result.config;                // SessionConfigState
- *     result.usage;                 // SessionUsage | null
- *     result.title;                 // string | null
- *
- * Provider enrichment:
- *   Pass an optional EnrichHook; raw updates are normalized at this facade before reduction.
- */
+/** Stateful projection of domain events. Protocol decoding belongs to transport/history ingress. */
 
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentState } from '../models/agents';
 import type { SessionConfigState, SessionUsage } from '../models/config';
 import type { SessionPlans } from '../models/plan';
 import type { TranscriptTurn, TranscriptTurnOutcome } from '../models/turns';
-import type { EnrichHook, NormalizedEvent } from './normalized-event';
+import type { NormalizedEvent } from './normalized-event';
 import { initialState, reduce, type ParserState } from './reducer';
-import { decodeSessionUpdate } from '../transport/decode';
 
 export interface AcpTranscriptParserDeps {
   sessionId: string;
-  enrich?: EnrichHook;
 }
 
 export type ReplayResult = {
@@ -56,7 +22,7 @@ export type ReplayResult = {
   plan: SessionPlans | null;
 };
 
-export type ReplayEntry = SessionUpdate | { update: SessionUpdate; ts?: number; at?: number };
+export type ReplayEntry = NormalizedEvent | { event: NormalizedEvent; ts?: number; at?: number };
 
 export class AcpTranscriptParser {
   private state: ParserState;
@@ -65,21 +31,6 @@ export class AcpTranscriptParser {
   constructor(deps: AcpTranscriptParserDeps) {
     this.state = initialState();
     this.deps = { ...deps };
-  }
-
-  /**
-   * Feed one raw ACP SessionUpdate into the parser.
-   * Routes to the appropriate slice (transcript or config/usage/title).
-   * For transcript-affecting variants, may open or close a turn.
-   */
-  push(update: SessionUpdate, at = Date.now()): void {
-    this.state = reduce(this.state, {
-      kind: 'event',
-      event: this.deps.enrich
-        ? this.deps.enrich(decodeSessionUpdate(update), update)
-        : decodeSessionUpdate(update),
-      at,
-    }, this.deps);
   }
 
   pushEvent(event: NormalizedEvent, at = Date.now()): void {
@@ -232,14 +183,14 @@ export class AcpTranscriptParser {
   }
 
   /**
-   * Fold a finite iterable of SessionUpdates and return all four slices.
+   * Fold a finite iterable of domain events and return all four slices.
    *
    * The trailing active transcript turn (if any) is closed at EOF — there is
    * no stopReason available during replay. Config / usage / title are returned
    * as-of the last update seen.
    *
-   * @param updates  An iterable of raw ACP SessionUpdate notifications.
-   * @param deps     conversationId + optional EnrichHook.
+   * @param updates  Domain deltas with optional source timestamps.
+   * @param deps     The projection identity.
    * @returns        { committed, active, config, usage, title }
    */
   static replay(updates: Iterable<ReplayEntry>, deps: AcpTranscriptParserDeps): ReplayResult {
@@ -248,9 +199,9 @@ export class AcpTranscriptParser {
 
     parser.beginReplay(at);
     for (const entry of updates) {
-      const update = 'sessionUpdate' in entry ? entry : entry.update;
-      at = 'sessionUpdate' in entry ? at : (entry.at ?? entry.ts ?? at);
-      parser.push(update, at);
+      const event = 'kind' in entry ? entry : entry.event;
+      at = 'kind' in entry ? at : (entry.at ?? entry.ts ?? at);
+      parser.pushEvent(event, at);
       at += 1;
     }
     parser.endReplay(at);

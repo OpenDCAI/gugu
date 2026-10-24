@@ -6,12 +6,12 @@
  * - 桥接标成「猜的」那种读数,上限一律当「未知」,composer 不画。
  */
 import { join } from 'node:path';
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { SessionUpdate } from '@agentclientprotocol/sdk/experimental/v2';
 import type { NormalizedEvent } from '@gugu/session-core/acp';
 import type { SessionMaterialization } from '@gugu/session-core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_GUGU_CAPABILITY_PACKAGE, pluginRegistry } from '../../registry';
-import { enrichClaudeUpdate } from './acp-transform';
+import { decodeClaudeSessionUpdate } from './acp-transform';
 import { CLAUDE_ACP_BRIDGE_STATE_DIR_ENV } from './session-bundle';
 
 const GUGU_HOME = '/gugu-home-under-test';
@@ -92,17 +92,17 @@ describe('context window the bridge only guessed (#6552)', () => {
     kind: 'usage',
     usage: { contextUsed: 58_000, contextSize: size, cost: null },
   });
-  const raw = (meta: Record<string, unknown> | undefined): SessionUpdate =>
-    ({ sessionUpdate: 'usage_update', used: 58_000, size: 200_000, ...(meta ? { _meta: meta } : {}) }) as never;
+  const raw = (meta: Record<string, unknown> | undefined, size = 200_000): SessionUpdate =>
+    ({ sessionUpdate: 'usage_update', used: 58_000, size, ...(meta ? { _meta: meta } : {}) }) as never;
 
   it('is read as an unknown limit', () => {
-    const out = enrichClaudeUpdate(usage(200_000), raw({ '_claude/contextWindowEstimated': true }));
+    const out = decodeClaudeSessionUpdate(raw({ '_claude/contextWindowEstimated': true }));
     expect(out).toEqual({ kind: 'usage', usage: { contextUsed: 58_000, contextSize: 0, cost: null } });
   });
 
   it('leaves a confirmed limit as reported', () => {
     const event = usage(1_000_000);
-    expect(enrichClaudeUpdate(event, raw({ '_claude/model': 'claude-opus-5-5' }))).toBe(event);
-    expect(enrichClaudeUpdate(event, raw(undefined))).toBe(event);
+    expect(decodeClaudeSessionUpdate(raw({ '_claude/model': 'claude-opus-5-5' }, 1_000_000))).toEqual(event);
+    expect(decodeClaudeSessionUpdate(raw(undefined, 1_000_000))).toEqual(event);
   });
 });

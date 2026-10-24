@@ -1,26 +1,4 @@
-/**
- * Pure parser state reducer.
- *
- * State is now composite — it holds the transcript slice (committed turns +
- * active turn) and the session slices (config, usage, title) side by side.
- * A single reduce() call routes each NormalizedEvent to the appropriate slice:
- *
- *   transcript kinds (message / thinking / tool_call / tool_update / plan)
- *     → turn boundary logic + item fold (unchanged from before).
- *
- *   session kinds (config / mode_selected / commands / usage / title)
- *     → slice update, no turn boundary side-effect.
- *
- *   ignored → no-op on all slices.
- *
- *   turn_end / replay_end → finalize + commit the active transcript turn.
- *
- * Turn boundary rules (transcript only):
- *   OPEN (implicit):  a new user message (new item id) → close active + open.
- *   OPEN (lazy):      agent content with no active turn → open.
- *   CLOSE (explicit): 'turn_end' / 'replay_end' input → closeActive.
- *   CLOSE (implicit): next new user message while a turn is active → closeActive + open.
- */
+/** Pure domain-event reducer for transcript, configuration and session entities. */
 
 import type { AgentState, AgentStatus } from '../models/agents';
 import type { SessionCommand, SessionConfigState, SessionUsage } from '../models/config';
@@ -445,24 +423,7 @@ function resolveAsyncTask(
   };
 }
 
-/**
- * 会话号是子智能体的**唯一身份**;派它出去的那次 Agent 调用只是别名(#5117)。
- *
- * 真机 2026-09-06 原始 ACP 日志(谈成 `clientCapabilities.subagents` 之后):
- *   ① `subagent_spawned{subagentSessionId:a0fc…, name:回传口令}`
- *   ② 1ms 后 Agent 那次调用的 `tool_call_update{toolCallId:call_01a0…, toolResponse.agentId:a0fc…}`
- *   ③ `subagent_state_update{subagentSessionId:a0fc…, state:completed}`
- * ②的 `agentId` 与①的会话号是**同一个值**(0.75.1 `nextChildSessionId` 首代直接用 taskId)。
- * 不认亲时①②各立一行、登记册按 agentId 合成一条但 toolCallId 被②改写,③于是配给了②那行,
- * ①那行永远挂着 ——「派出了 2 个、1 个跑完了」。
- *
- * 这里做两件事,都只查登记册,❌ 不猜:
- *   · `subagent` 事件的 `agentId` 是某个已知会话号 ⇒ 它说的就是那一行,把 toolCallId 归一到
- *     会话号,原来的 toolCallId 记成别名;
- *   · 任何事件的 `parentToolCallId` 是某个别名 ⇒ 归一到会话号(子会话上的工具调用带的是
- *     `_meta.claudeCode.parentToolUseId` = Agent 的 tool_use id)。
- * 没谈成能力时登记册里没有会话号,这里恒等 —— 老形态一个字节不变。
- */
+/** Join native launch-result identities to registered child entities; never infer from prose. */
 function canonicalizeSubagentIdentity(
   event: NormalizedEvent,
   agents: readonly AgentState[]
@@ -499,6 +460,31 @@ function reduceSubagentStream(
   const launch = active && findToolCallNode(active.items, owner.toolCallId) ? active
     : s.transcript.committed.find((turn) => findToolCallNode(turn.items, owner.toolCallId));
 
+  if (inner.kind === 'agent_state') {
+    const ids = { toolCallId: owner.toolCallId, agentId: owner.agentId, subagentSessionId: stream.subagentSessionId };
+    const event: NormalizedEvent = inner.state === 'running' || inner.state === 'requires_action'
+      ? { kind: 'subagent_update', ...ids, status: 'in_progress' }
+      : { kind: 'subagent_done', ...ids,
+          status: inner.state === 'unknown' ? 'disconnected' : inner.state === 'idle' && inner.stopReason === 'cancelled' ? 'stopped'
+            : inner.state === 'idle' && inner.stopReason === 'error' ? 'failed' : 'completed',
+          ...(inner.state === 'idle' && typeof inner._meta?.summary === 'string' ? { summary: inner._meta.summary } : {}) };
+    return reduce(s, { kind: 'event', event, at }, deps);
+  }
+  if (inner.kind === 'config') {
+    const model = inner.options.find(option => option.category === 'model')?.currentValue;
+    return typeof model === 'string' ? { ...s,
+      agents: s.agents.map(agent => agent === owner ? { ...agent, model } : agent) } : s;
+  }
+  if (inner.kind === 'message' && inner.role === 'user') {
+    if (!launch) return s;
+    const previous = findToolCallNode(launch.items, owner.toolCallId);
+    const rawInput = inner.contentMode === 'append' ? (previous && 'rawInput' in previous && typeof previous.rawInput === 'string' ? previous.rawInput : '') + inner.text : inner.text;
+    const items = foldItem(launch.items, { kind: 'subagent', toolCallId: owner.toolCallId,
+      status: null, parentToolCallId: null, rawInput }, launch.id, at, s.replaying ? undefined : at);
+    const updated = { ...launch, items };
+    return { ...s, transcript: { active: launch === active ? updated : active,
+      committed: launch === active ? s.transcript.committed : s.transcript.committed.map(turn => turn === launch ? updated : turn) } };
+  }
   if (inner.kind === 'message' || inner.kind === 'thinking') {
     if (inner.kind === 'message' && inner.role !== 'assistant') return s;
     const field = inner.kind === 'thinking' ? 'reasoning' : 'output';
@@ -679,13 +665,14 @@ function updateAgentSlice(
     return agents;
   }
 
-  const agentId = notified?.agentId ?? ('agentId' in event ? event.agentId : undefined) ?? ('toolCallId' in event ? event.toolCallId : undefined);
+  let agentId = notified?.agentId ?? ('agentId' in event ? event.agentId : undefined) ?? ('toolCallId' in event ? event.toolCallId : undefined);
   if (!agentId) return agents;
 
   const toolCallId = notified?.toolCallId ?? ('toolCallId' in event ? event.toolCallId : undefined) ?? agentId;
   const idx = agents.findIndex(
     (agent) => agent.agentId === agentId || agent.toolCallId === toolCallId
   );
+  if (!('agentId' in event) && idx >= 0) agentId = agents[idx].agentId;
   const status = toAgentStatus(notified?.status ?? ('status' in event ? (event.status ?? null) : null));
   const completedAt =
     status === 'completed' || status === 'failed' || status === 'stopped'
@@ -705,7 +692,7 @@ function updateAgentSlice(
     // 面板上一张卡都留不住。⇒ 后台派发一律先记成 running,等真信号(完成通知 /
     // SessionOutput 收割)把它推到 completed/failed。
     // 同步的那种没有这个分裂:调用完成就是它干完了。
-    const launchStatus = event.background === true ? 'running' : status;
+    const launchStatus = (event.background ?? (idx >= 0 ? agents[idx].background : false)) === true ? 'running' : status;
     const launchCompletedAt = launchStatus === 'running' ? {} : completedAt;
     const next: AgentState = {
       ...(idx >= 0 ? agents[idx] : {}),

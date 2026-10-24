@@ -1,4 +1,5 @@
-import { subagentUpdate } from '@gugu/core/shared/subagentUpdates.mjs';
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
+
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { expect, it, vi } from 'vitest';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
@@ -18,28 +19,28 @@ it('stores complete replayed child history after later user messages, without fr
   });
   await h.agent.called('loadSession');
   const client = h.client();
-  const user = (messageId: string, text: string) => client.sessionUpdate({
+  const user = (messageId: string, text: string) => client.sessionEvent({
     sessionId: 'native-parent',
-    update: { sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text } },
+    event: decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text } }),
   });
 
   try {
     await user('first', 'Delegate the audit');
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: 'native-parent',
-      update: subagentUpdate({ sessionUpdate: 'subagent_spawned',
+      event: decodeSessionUpdate({ sessionUpdate: 'subagent_spawned',
         subagentSessionId: 'native-child', name: 'Audit', background: true }),
     });
     await user('second', 'The next historical input');
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: 'native-parent',
-      update: subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'native-child',
+      event: decodeSessionUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: 'native-child',
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'child-answer',
           content: { type: 'text', text: 'CHILD_ALREADY_COMPLETED' } } }),
     });
-    await client.sessionUpdate({
+    await client.sessionEvent({
       sessionId: 'native-parent',
-      update: subagentUpdate({ sessionUpdate: 'subagent_state_update',
+      event: decodeSessionUpdate({ sessionUpdate: 'subagent_state_update',
         subagentSessionId: 'native-child', state: 'completed' }),
     });
     // A provider can replay child records only after it has sent all parent turns.

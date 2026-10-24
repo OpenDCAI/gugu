@@ -2,7 +2,7 @@ import { textFilePatch } from '../../lib/text-diff';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import { describe, expect, it } from 'vitest';
 import type { NormalizedEvent } from '../reducer/normalized-event';
-import { decodeSessionUpdate } from './decode';
+import { decodeSessionUpdate, decodeV2SessionUpdate } from './decode';
 
 // The boundary retains canonical content and distinguishes absent fields from explicit null.
 const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
@@ -63,10 +63,8 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
     event: { kind: 'subagent_done', toolCallId: 'child', agentId: 'child', subagentSessionId: 'child', status: 'stopped' },
   },
   {
-    name: 'the draft envelope is decoded before the tool-call branch',
-    update: { sessionUpdate: 'tool_call_update', toolCallId: 'notice', _meta: { 'gugu.draftSessionUpdate': {
-      sessionUpdate: 'notice', title: 'Background task stopped', description: 'Stopped by user',
-    } } },
+    name: 'a native notice enters without a tool envelope',
+    update: { sessionUpdate: 'notice', title: 'Background task stopped', description: 'Stopped by user' },
     event: { kind: 'session_notice', code: 'provider-notice', title: 'Background task stopped', detail: 'Stopped by user' },
   },
   {
@@ -96,6 +94,6 @@ for (const sessionUpdate of ['async_task_spawned', '_async_task_spawned']) {
 
 describe('transport boundary decodes domain entities', () => {
   it.each(fixtures)('$name', ({ update, event }) => {
-    expect(decodeSessionUpdate(update as SessionUpdate)).toStrictEqual(event);
+    expect((String((update as { sessionUpdate: string }).sessionUpdate).startsWith('_async_task_') ? decodeV2SessionUpdate : decodeSessionUpdate)(update as SessionUpdate)).toStrictEqual(event);
   });
 });

@@ -44,7 +44,7 @@ export interface BaseToolCallItem {
   _meta?: EntityMeta;
   /**
    * 供应商报的工具名,标题是给人看的显示名时靠它认工具(Claude ACP 适配器每条调用都在 `_meta.claudeCode.toolName`
-   * 报,EnrichHook 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
+   * 报,transport decoder 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
    */
   toolName?: string;
   status: ToolStatus;

@@ -3,10 +3,10 @@
  * 这里把它收进中性的 `usage.rateLimit`(App 的 listAgents 从那里读),别的字段留在原处。
  * 对照组(父提交 9951620de):这一层不读这个键,usage 只有 contextUsed / contextSize / cost。
  */
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { SessionUpdate } from '@agentclientprotocol/sdk/experimental/v2';
 import { AcpTranscriptParser, type NormalizedEvent } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { enrichClaudeUpdate } from './acp-transform';
+import { decodeClaudeSessionUpdate } from './acp-transform';
 
 const usage: NormalizedEvent = { kind: 'usage', usage: { contextUsed: 58_000, contextSize: 1_000_000, cost: null } };
 const raw = (meta: Record<string, unknown> | undefined): SessionUpdate =>
@@ -15,7 +15,7 @@ const warning = { status: 'allowed_warning', resetsAt: 1_790_000_000, rateLimitT
 
 describe('the account limit the Claude bridge reports (G3)', () => {
   it('is taken into usage.rateLimit — resetsAt from Unix seconds to epoch ms; the rest of it stays behind', () => {
-    expect(enrichClaudeUpdate(usage, raw({ '_claude/rateLimit': warning }))).toEqual({
+    expect(decodeClaudeSessionUpdate(raw({ '_claude/rateLimit': warning }))).toEqual({
       kind: 'usage',
       usage: {
         contextUsed: 58_000,
@@ -27,7 +27,7 @@ describe('the account limit the Claude bridge reports (G3)', () => {
   });
 
   it('with a guessed context window too: both apply (#6552)', () => {
-    const out = enrichClaudeUpdate(usage, raw({ '_claude/rateLimit': { status: 'rejected' }, '_claude/contextWindowEstimated': true }));
+    const out = decodeClaudeSessionUpdate(raw({ '_claude/rateLimit': { status: 'rejected' }, '_claude/contextWindowEstimated': true }));
     expect(out).toEqual({
       kind: 'usage',
       usage: { contextUsed: 58_000, contextSize: 0, cost: null, rateLimit: { status: 'rejected', resetsAt: null, window: null, utilization: null } },
@@ -35,16 +35,16 @@ describe('the account limit the Claude bridge reports (G3)', () => {
   });
 
   it('counter-cell: no limit, or one it cannot read, leaves the update as it was', () => {
-    expect(enrichClaudeUpdate(usage, raw(undefined))).toBe(usage);
-    expect(enrichClaudeUpdate(usage, raw({ '_claude/rateLimit': { status: 'mystery' } }))).toBe(usage);
+    expect(decodeClaudeSessionUpdate(raw(undefined))).toEqual(usage);
+    expect(decodeClaudeSessionUpdate(raw({ '_claude/rateLimit': { status: 'mystery' } }))).toEqual(usage);
   });
 
   it('the engine says it only when it changes: a later usage without one keeps the last; another replaces it', () => {
     const parser = new AcpTranscriptParser({ sessionId: 'c' });
-    parser.pushEvent(enrichClaudeUpdate(usage, raw({ '_claude/rateLimit': warning })));
+    parser.pushEvent(decodeClaudeSessionUpdate(raw({ '_claude/rateLimit': warning })));
     parser.pushEvent({ kind: 'usage', usage: { contextUsed: 61_000, contextSize: 1_000_000, cost: null } });
     expect(parser.usage).toMatchObject({ contextUsed: 61_000, rateLimit: { status: 'allowed_warning' } });
-    parser.pushEvent(enrichClaudeUpdate(usage, raw({ '_claude/rateLimit': { ...warning, status: 'allowed' } })));
+    parser.pushEvent(decodeClaudeSessionUpdate(raw({ '_claude/rateLimit': { ...warning, status: 'allowed' } })));
     expect(parser.usage?.rateLimit?.status).toBe('allowed');
     // Control: a session that never had one has none.
     const other = new AcpTranscriptParser({ sessionId: 'd' });

@@ -152,11 +152,10 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
         cwd,
       },
       scope,
-      buildClient: (_agent, normalize) => ({ ...client,
-        sessionEvent: ({ event }) => observe(event),
-        sessionUpdate: notification => {
-          observe(normalize(notification.update));
-          return client.sessionUpdate(notification);
+      buildClient: () => ({ ...client,
+        sessionEvent: ({ sessionId, event, trace }) => {
+          observe(event);
+          if (trace !== undefined) return client.sessionUpdate({ sessionId, update: trace as never });
         },
       }),
       onClosed: (exitCode) => {

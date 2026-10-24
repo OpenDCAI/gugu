@@ -31,7 +31,6 @@ export type {
 } from '../models/plan';
 
 export type {
-  EnrichHook,
   NormalizedEvent,
   NormalizedToolStatus,
 } from './normalized-event';

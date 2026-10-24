@@ -1,21 +1,13 @@
 /**
- * Baseline ACP SessionUpdate decoder.
- *
- * Converts raw ACP SDK SessionUpdate notifications into the parser's internal
- * NormalizedEvent vocabulary. This is the parser-owned equivalent of the
- * legacy toAgentUpdate in agent-update.ts — it is stateless, pure, and
- * handles all ACP-specific decoding:
- *
- *   - Extracts text from content blocks for message and thinking variants.
- *   - Extracts diff blocks from ToolCallContent arrays.
- *   - Passes status and kind through unchanged (no UI-level remapping here).
- *   - Preserves missing message ids for the stateful reducer to segment.
- *   - Sets parentToolCallId to null (providers enrich via EnrichHook).
- *   - Returns { kind: 'ignored' } for variants not yet rendered.
+ * Pure ACP transport decoding into the host's domain vocabulary.
+ * Wire versions, negotiated extensions, permission bodies and vendor fields are
+ * interpreted here; the parser consumes domain events and never wire notifications.
+ * Missing IDs, replacement/null semantics and opaque content remain intact.
  */
 
-import type { SessionUpdate, ToolCallContent, ToolCallLocation } from '@agentclientprotocol/sdk';
-import { DRAFT_UPDATE_META_KEY } from '@gugu/core/shared/subagentUpdates.mjs';
+import type { SessionUpdate, SessionConfigOption, ToolCallContent, ToolCallLocation, RequestPermissionRequest } from '@agentclientprotocol/sdk';
+import type { AcpPermissionParams } from '../../agents/plugins/capabilities/acp';
+import type { PermissionSubject } from '../models/permissions';
 import { normalizeToolContent } from './file-patch';
 import { serializePayload, projectToolContent } from '../models/tool-payload';
 import { messageContentText, type EntityContent, type EntityMeta } from '../models/entity-content';
@@ -26,6 +18,20 @@ import type {
   NormalizedToolLocation,
   NormalizedToolStatus,
 } from '../reducer/normalized-event';
+
+/** Decode protocol option/group identities into the host's config vocabulary. */
+export function decodeConfigOptions(options: readonly unknown[]): SessionConfigOption[] {
+  return options.map((value) => {
+    const option = value as Record<string, unknown>;
+    if (typeof option.configId !== 'string') return option as SessionConfigOption;
+    const { configId, ...rest } = option;
+    return { ...rest, id: configId,
+      ...(Array.isArray(rest.options) ? { options: rest.options.map((entry) => {
+        const { groupId, ...group } = entry as Record<string, unknown>;
+        return groupId === undefined ? entry : { ...group, group: groupId };
+      }) } : {}) } as SessionConfigOption;
+  });
+}
 
 function normalizeLocations(
   locations: ReadonlyArray<ToolCallLocation> | null | undefined
@@ -67,7 +73,7 @@ function extractImages(content: ReadonlyArray<ToolCallContent> | null | undefine
  * finishes with — unreachable in the product. Reading the protocol's own location
  * is what connects that channel; there is no second location to fall back to.
  */
-function extractTerminalId(update: SessionUpdate): string | undefined {
+function extractTerminalId(update: unknown): string | undefined {
   const content = (update as unknown as { content?: unknown }).content;
   if (!Array.isArray(content)) return undefined;
   for (const block of content) {
@@ -87,7 +93,7 @@ function extractRawInput(update: SessionUpdate): string | undefined {
  * （Claude `claudeCode`、qoder `qoder`）—— 两种都读，❌ 按家写键。几个嵌套键报的名字不一样，就不知道哪个是这次调用的，
  * 不取（❌ 按键的先后挑一个）。
  */
-function extractVendorToolName(update: SessionUpdate): string | undefined {
+function extractVendorToolName(update: unknown): string | undefined {
   const meta = (update as unknown as { _meta?: unknown })._meta;
   if (!meta || typeof meta !== 'object') return undefined;
   const direct = (meta as { toolName?: unknown }).toolName;
@@ -116,46 +122,10 @@ function extractInputSummary(update: SessionUpdate): string | undefined {
   return undefined;
 }
 
-/**
- * 子智能体与后台任务的会话形态(#5117),独立于主 switch。
- *
- * ⚠️ 为什么不直接写进 `decodeSessionUpdate` 的 switch:那里的判别式是 SDK 的
- * `SessionUpdate` 联合,而这五种是草案字段(agent-client-protocol#1992)还没进已发布的
- * SDK 类型 ⇒ 写成 `case` 会被 TS2678 顶掉("not comparable to type")。把判别式在这里
- * 加宽成 string,主 switch 对其余分支的窄化就不受影响 —— ❌ 别为了少一个函数去把主
- * switch 的判别式整个 `as string`,那会让上面每一条都失去窄化。
- *
- * 返回 `null` = 「这条不归我管」,交回主 switch;❌ 别在这里返回 `{kind:'ignored'}`,
- * 那会把所有普通事件当场吞掉。
- */
-/**
- * 草案 update 的信封键。写者是 `acp-stdio.ts` 的 `rewriteDraftSessionUpdates` —— 那里必须在
- * 进 SDK 之前改写,否则 `ClientSideConnection` 的运行时校验会以 `-32602 Invalid params` 把
- * 它们整条扔掉(SDK 1.3.0 的联合里没有草案变体)。
- *
- * ⚠️ 常量定在这里而不是写者那边:依赖方向是 session-plugins → session-core,两处各写一份必然漂移,
- * 而漂移的症状是「事件静默消失」——最难查的那一种。
- */
-export { DRAFT_UPDATE_META_KEY };
-
-/** 从信封里取回原始的草案 update;不是信封就返回它自己。 */
-function unwrapDraftUpdate(update: SessionUpdate): SessionUpdate {
-  const meta = (update as unknown as { _meta?: Record<string, unknown> })._meta;
-  const inner = meta?.[DRAFT_UPDATE_META_KEY];
-  return inner && typeof inner === 'object' ? (inner as SessionUpdate) : update;
-}
-
-function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = unwrapDraftUpdate(wrapped);
+/** Legacy negotiated child facts, consumed only by the v1 transport entry. */
+function decodeLegacyChildUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
+  const update = wrapped;
   switch ((update as unknown as { sessionUpdate?: string }).sessionUpdate) {
-    /**
-     * 子智能体与后台任务的会话形态(#5117)。这五种只在 `initialize` 谈成
-     * `clientCapabilities.subagents` + AIR `asyncTasks` 之后才会来 —— 没谈成时协议按老形态
-     * 走,子智能体的一切留在根会话上当普通 tool call,这里一条都收不到。
-     *
-     * ⚠️ 都走 `as unknown as`:草案字段(agent-client-protocol#1992)还没进已发布的 SDK
-     * 类型,`SessionUpdate` 的联合里没有它们。SDK 发布后这些 cast 可以撤掉。
-     */
     case 'subagent_spawned': {
       const raw = update as unknown as {
         subagentSessionId?: string;
@@ -223,11 +193,13 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
-    /**
-     * 子智能体的 RFD 形态(agent-client-protocol#1992;ACP v2 的家都是这一种):子智能体是一个会话,
-     * 父会话上的 `subagent_update` 报它。带名字/能力的那一条宣布它,只带 `state` 的报它的状态。
-     * RFD 的 `idle` 不是终态(同一个子智能体还能再被叫醒),再来 `running` 就再回到在跑。
-     */
+    default: return null;
+  }
+}
+
+/** Standard child association, independent of the child's own event stream. */
+function decodeChildUpdate(update: SessionUpdate): NormalizedEvent | null {
+  switch ((update as unknown as { sessionUpdate?: string }).sessionUpdate) {
     case 'subagent_update': {
       const raw = update as unknown as {
         sessionId?: string;
@@ -265,9 +237,16 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
-    // v2 的扩展更新名带前导 `_`(`_async_task_*`),v1 的 AIR 不带;同一份内容。
-    case '_async_task_spawned':
-    case 'async_task_spawned': {
+    default: return null;
+  }
+}
+
+/** The negotiated transport selects its namespace; both produce one task vocabulary. */
+function decodeAsyncTaskUpdate(update: SessionUpdate, prefix: 'async_task_' | '_async_task_'): NormalizedEvent | null {
+  const name = (update as unknown as { sessionUpdate?: string }).sessionUpdate;
+  if (!name?.startsWith(prefix)) return null;
+  switch (name.slice(prefix.length)) {
+    case 'spawned': {
       const raw = update as unknown as {
         asyncTaskId?: string;
         name?: string;
@@ -294,8 +273,7 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
-    case '_async_task_progress':
-    case 'async_task_progress': {
+    case 'progress': {
       const raw = update as unknown as {
         asyncTaskId?: string;
         description?: string;
@@ -327,8 +305,7 @@ function decodeSubagentSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | 
       };
     }
 
-    case '_async_task_state_update':
-    case 'async_task_state_update': {
+    case 'state_update': {
       const raw = update as unknown as {
         asyncTaskId?: string;
         state?: 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
@@ -419,7 +396,7 @@ function compactionStatusFromTool(status: unknown): 'in_progress' | 'completed' 
  * ⚠️ 返回 `null` = 「这条不归我管」,交回主 switch（普通工具调用就是走这条路出去的）。
  */
 function decodeCompactionSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = unwrapDraftUpdate(wrapped);
+  const update = wrapped;
   switch ((update as unknown as { sessionUpdate?: string }).sessionUpdate) {
     case 'tool_call':
     case 'tool_call_update': {
@@ -478,10 +455,9 @@ function decodeCompactionSessionUpdate(wrapped: SessionUpdate): NormalizedEvent 
 
 /**
  * 供应商提示(ACP `notice`)是会话里发生的一件事,❌ 不是 agent 说的话 ⇒ `session_notice`。
- * ⚠️ 是 notice 就**绝不**返回 null:信封的 toolCallId 只是填位,交回主 switch 会长出一条工具行。
  */
 function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = unwrapDraftUpdate(wrapped) as unknown as {
+  const update = wrapped as unknown as {
     sessionUpdate?: string;
     title?: unknown;
     description?: unknown;
@@ -494,10 +470,9 @@ function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nu
 
 /**
  * agent 自己报的状态(ACP v2 的 `state_update`)。
- * ⚠️ 是 state_update 就**绝不**返回 null:信封的 toolCallId 只是填位,交回主 switch 会长出一条工具行。
  */
 function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = unwrapDraftUpdate(wrapped) as unknown as { sessionUpdate?: string; state?: unknown };
+  const update = wrapped as unknown as { sessionUpdate?: string; state?: unknown };
   if (update.sessionUpdate !== 'state_update') return null;
   const { sessionUpdate: _, ...fields } = update;
   return update.state === 'running' || update.state === 'requires_action' || update.state === 'idle' || update.state === 'unknown'
@@ -546,11 +521,69 @@ function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | nul
   return null;
 }
 
-export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
+/** v1 standard notifications and explicitly negotiated AIR facts enter here. */
+export function decodeSessionUpdate(raw: unknown): NormalizedEvent {
+  const update = raw as SessionUpdate;
+  return decodeLegacyChildUpdate(update) ?? decodeAsyncTaskUpdate(update, 'async_task_') ?? decodeStandardSessionUpdate(update);
+}
+
+/** v1's toolCall and v2's subject enter the host as one permission vocabulary. */
+export function decodePermissionRequest(value: unknown): AcpPermissionParams {
+  const { toolCall, ...request } = value as Omit<RequestPermissionRequest, 'toolCall'> & {
+    toolCall?: RequestPermissionRequest['toolCall'];
+    title?: string;
+    description?: string | null;
+    subject?: PermissionSubject | null;
+  };
+  const subject = request.subject !== undefined ? request.subject
+    : toolCall ? { type: 'tool_call', toolCall } : undefined;
+  const tool = subject?.type === 'tool_call' ? subject.toolCall : undefined;
+  return {
+    ...request,
+    ...(subject !== undefined ? { subject } : {}),
+    ...(tool ? { toolCall: decodeToolUpdate(tool) } : {}),
+  };
+}
+
+/** v2 notifications are decoded directly, never translated to v1 wire shapes. */
+export function decodeV2SessionUpdate(raw: unknown): NormalizedEvent {
+  const update = raw as SessionUpdate;
+  return decodeAsyncTaskUpdate(update, '_async_task_') ?? decodeStandardSessionUpdate(update);
+}
+
+/** Shared tool-body decoding for updates and permission subjects; no synthetic notification. */
+function decodeToolUpdate(update: unknown): Extract<NormalizedEvent, { kind: 'tool_update' }> {
+  const raw = update as Extract<SessionUpdate, { sessionUpdate: 'tool_call_update' }> & { name?: string | null };
+  const payload = (value: unknown) => value === null ? null : typeof value === 'string' ? value : serializePayload(value);
+  const content = raw.content;
+  const outputText = extractTextOutput(content ?? undefined);
+  const images = extractImages(content);
+  const terminalId = extractTerminalId(update);
+  const locations = normalizeLocations(raw.locations);
+  const name = raw.name !== undefined ? raw.name : extractVendorToolName(update);
+  return {
+    kind: 'tool_update', toolCallId: raw.toolCallId,
+    ...(raw.title !== undefined ? { title: raw.title } : {}),
+    ...(name !== undefined ? { toolName: name } : {}),
+    ...(raw.kind !== undefined ? { toolKind: raw.kind } : {}),
+    ...(raw.status !== undefined ? { status: raw.status as NormalizedToolStatus | null } : {}),
+    ...(content !== undefined ? { contentBlocks: normalizeToolContent(content as EntityContent[] | null, raw.kind), contentMode: 'replace' } : {}),
+    ...(locations !== undefined ? { locations } : {}),
+    ...(outputText !== undefined ? { outputText } : {}),
+    ...(images !== undefined ? { images } : {}),
+    ...(raw.rawInput !== undefined ? { rawInput: payload(raw.rawInput) } : {}),
+    ...(raw.rawOutput !== undefined ? { rawOutput: payload(raw.rawOutput) } : {}),
+    ...(terminalId !== undefined ? { terminalId } : {}),
+    ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
+  };
+}
+
+function decodeStandardSessionUpdate(raw: unknown): NormalizedEvent {
+  const update = raw as SessionUpdate;
   const contentUpdate = decodeEntityContentUpdate(update);
   if (contentUpdate) return contentUpdate;
   // 先问会话形态那五种(#5117);不归它管才走下面的老分支。
-  const subagentSession = decodeSubagentSessionUpdate(update);
+  const subagentSession = decodeChildUpdate(update);
   if (subagentSession) return subagentSession;
 
   const compaction = decodeCompactionSessionUpdate(update);
@@ -624,31 +657,8 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
       };
     }
 
-    case 'tool_call_update': {
-      const raw = update as typeof update & { name?: string | null };
-      const payload = (value: unknown) => value === null ? null : typeof value === 'string' ? value : serializePayload(value);
-      const content = raw.content;
-      const outputText = extractTextOutput(content ?? undefined);
-      const images = extractImages(content);
-      const terminalId = extractTerminalId(update);
-      const locations = normalizeLocations(raw.locations);
-      const name = raw.name !== undefined ? raw.name : extractVendorToolName(update);
-      return {
-        kind: 'tool_update', toolCallId: raw.toolCallId,
-        ...(raw.title !== undefined ? { title: raw.title } : {}),
-        ...(name !== undefined ? { toolName: name } : {}),
-        ...(raw.kind !== undefined ? { toolKind: raw.kind } : {}),
-        ...(raw.status !== undefined ? { status: raw.status as NormalizedToolStatus | null } : {}),
-        ...(content !== undefined ? { contentBlocks: normalizeToolContent(content as EntityContent[] | null, raw.kind), contentMode: 'replace' } : {}),
-        ...(locations !== undefined ? { locations } : {}),
-        ...(outputText !== undefined ? { outputText } : {}),
-        ...(images !== undefined ? { images } : {}),
-        ...(raw.rawInput !== undefined ? { rawInput: payload(raw.rawInput) } : {}),
-        ...(raw.rawOutput !== undefined ? { rawOutput: payload(raw.rawOutput) } : {}),
-        ...(terminalId !== undefined ? { terminalId } : {}),
-        ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
-      };
-    }
+    case 'tool_call_update':
+      return decodeToolUpdate(update);
 
     case 'plan': {
       return {
@@ -663,7 +673,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
 
     case 'config_option_update': {
       const raw = update as unknown as { configOptions?: unknown };
-      const options = Array.isArray(raw.configOptions) ? raw.configOptions : [];
+      const options = decodeConfigOptions(Array.isArray(raw.configOptions) ? raw.configOptions : []);
       return { kind: 'config', options };
     }
 

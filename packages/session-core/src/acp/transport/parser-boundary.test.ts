@@ -1,33 +1,26 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { NormalizedEvent } from '../reducer/normalized-event';
-import { AcpTranscriptParser } from '../reducer/parser';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { AcpTranscriptParser, type AcpTranscriptParserDeps } from '../reducer/parser';
+import { decodeSessionUpdate } from './decode';
 
 describe('parser transport boundary', () => {
-  it('enriches a raw update once while already normalized events bypass the hook', () => {
-    const enrich = vi.fn((event: NormalizedEvent) => event.kind === 'message' ? { ...event, text: `provider: ${event.text}`, content: [{ type: 'text', text: `provider: ${event.text}` }] } : event);
-    const parser = new AcpTranscriptParser({ sessionId: 'boundary', enrich });
-    const raw = { sessionUpdate: 'agent_message_chunk' as const, messageId: 'raw', content: { type: 'text' as const, text: 'raw' } };
-    parser.push(raw, 10);
-    parser.pushEvent({ kind: 'message', role: 'assistant', messageId: 'normalized', text: 'normalized' }, 11);
-    expect(enrich).toHaveBeenCalledExactlyOnceWith({ kind: 'message', role: 'assistant', messageId: 'raw', text: 'raw', content: [raw.content], contentMode: 'append' }, raw);
-    expect(parser.activeTurn?.items.map((item) => item.kind === 'message' ? item.text : null))
-      .toEqual(['provider: raw', 'normalized']);
+  it('accepts domain events from ingress and replays the same domain vocabulary', () => {
+    const event = decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'raw', content: { type: 'text', text: 'decoded once' } });
+    const parser = new AcpTranscriptParser({ sessionId: 'boundary' });
+    parser.pushEvent(event, 10);
+    parser.endTurn(11);
+    expect(AcpTranscriptParser.replay([{ event, at: 10 }], { sessionId: 'boundary' }).committed)
+      .toMatchObject([{ items: [{ text: 'decoded once' }] }]);
+    expect(parser.history[0]?.items).toMatchObject([{ text: 'decoded once' }]);
+    expectTypeOf(parser).not.toHaveProperty('push');
+    expectTypeOf<AcpTranscriptParserDeps>().not.toHaveProperty('enrich');
   });
 
-  it('does not change state when raw decoding fails', () => {
+  it('does not change state when ingress decoding fails', () => {
     const parser = new AcpTranscriptParser({ sessionId: 'boundary' });
     parser.pushEvent({ kind: 'message', role: 'assistant', messageId: 'prior', text: 'kept' }, 10);
     const prior = parser.snapshotState();
-    expect(() => parser.push({ sessionUpdate: 'tool_call_update', toolCallId: 'broken', locations: [{ path: '' }] }, 11))
+    expect(() => parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'broken', locations: [{ path: '' }] }), 11))
       .toThrow('ACP tool location path must not be empty');
-    expect(parser.snapshotState()).toBe(prior);
-  });
-
-  it('does not change state when provider enrichment fails', () => {
-    const parser = new AcpTranscriptParser({ sessionId: 'boundary', enrich: () => { throw new Error('provider failed'); } });
-    const prior = parser.snapshotState();
-    expect(() => parser.push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'raw' } }, 11))
-      .toThrow('provider failed');
     expect(parser.snapshotState()).toBe(prior);
   });
 });

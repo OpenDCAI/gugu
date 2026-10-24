@@ -1,12 +1,11 @@
 import type { AcpClient } from '@gugu/session-core/agents/plugins';
-import type { InitializeResponse, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { InitializeResponse } from '@agentclientprotocol/sdk';
 import type {
   AdapterExit,
   InitializeFailedError,
-  NormalizedEvent,
   SpawnFailedError,
 } from '@gugu/session-core/acp';
-import { acpErr, decodeSessionUpdate } from '@gugu/session-core/acp';
+import { acpErr } from '@gugu/session-core/acp';
 import type { AcpProcessHandle, AcpProcessHost } from '@gugu/session-core/acp/node';
 import type { AcpAgentApi, AgentHostAcpSpawn, IAcpBehavior } from '@gugu/session-core/agents/plugins';
 import type { Result } from '@gugu/session-shared';
@@ -30,12 +29,12 @@ type ProcessClosed =
     };
 
 export type AcpConnectionError = SpawnFailedError | InitializeFailedError;
-export type AcpSessionUpdateNormalizer = (raw: SessionUpdate) => NormalizedEvent;
 
 /** Live connection to one spawned agent process. */
 export interface AcpAgentConnection {
   agent: AcpAgentApi;
-  normalize: AcpSessionUpdateNormalizer;
+  /** Identity of the actual spawned resource, including when its PID is unavailable. */
+  process: Pick<AcpProcessHandle, 'pid'>;
   supportsLoadSession: boolean;
   supportsForkSession: boolean;
   /** agent 在 initialize 里声明它收 image 块;没声明按协议默认 false。 */
@@ -68,7 +67,7 @@ export async function createAcpAgentConnection(
     spawn: AgentHostAcpSpawn;
     scope: Scope;
     /** Factory called once; the runtime passes its buildAgentClient result here. */
-    buildClient: (agent: AcpAgentApi, normalize: AcpSessionUpdateNormalizer) => AcpClient;
+    buildClient: (agent: AcpAgentApi, process: Pick<AcpProcessHandle, 'pid'>) => AcpClient;
     /** Pool key this connection was provisioned under; carries the conversation id when the
      *  session is platform-isolated, so the logged binding is addressable. */
     connectionKey: string;
@@ -157,15 +156,10 @@ export async function createAcpAgentConnection(
     handle.onExit(resolve);
   });
 
-  const normalize = (raw: SessionUpdate): NormalizedEvent => {
-    const base = decodeSessionUpdate(raw);
-    return behavior.enrich ? behavior.enrich(base, raw) : base;
-  };
-
   let connection: AcpAgentApi;
   try {
     connection = behavior.connect({ stdin: handle.stdin, stdout: handle.stdout }, (agent) =>
-      buildClient(agent, normalize)
+      buildClient(agent, handle)
     );
   } catch (e) {
     await connectionScope.dispose();
@@ -239,7 +233,7 @@ export async function createAcpAgentConnection(
     });
     return ok({
       agent: connection,
-      normalize,
+      process: handle,
       supportsLoadSession,
       supportsForkSession,
       supportsImagePrompt,

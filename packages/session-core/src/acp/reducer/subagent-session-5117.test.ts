@@ -9,7 +9,7 @@
  * 那条凭空多出来的行就是 owner 说的「子智能体的事泄露到主 agent 这儿」。
  */
 import { describe, expect, it } from 'vitest';
-import { decodeSessionUpdate } from '../transport/decode';
+import { decodeSessionUpdate, decodeV2SessionUpdate } from '../transport/decode';
 import { AcpTranscriptParser } from './parser';
 import type { TranscriptItem, TranscriptTurn } from '../models/turns';
 
@@ -401,11 +401,11 @@ describe('子智能体的 RFD 形态与 v2 的扩展更新名', () => {
 
   it('v2 的 `_async_task_*` 与 v1 的 `async_task_*` 解成同一件事', () => {
     const spawned = { asyncTaskId: 'bash_1', name: 'sleep', taskType: 'local_bash', description: 'sleep 100', showInTranscript: true, canStop: true, toolCallId: 'toolu_bg' };
-    expect(decode({ sessionUpdate: '_async_task_spawned', ...spawned }))
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_spawned', ...spawned }))
       .toEqual(decode({ sessionUpdate: 'async_task_spawned', ...spawned }));
-    expect(decode({ sessionUpdate: '_async_task_state_update', asyncTaskId: 'bash_1', state: 'stopped' }))
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_state_update', asyncTaskId: 'bash_1', state: 'stopped' }))
       .toMatchObject({ kind: 'async_task_state', asyncTaskId: 'bash_1', state: 'stopped' });
-    expect(decode({ sessionUpdate: '_async_task_progress', asyncTaskId: 'bash_1', summary: 'still' }))
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_progress', asyncTaskId: 'bash_1', summary: 'still' }))
       .toMatchObject({ kind: 'async_task_progress', asyncTaskId: 'bash_1', summary: 'still' });
   });
 });

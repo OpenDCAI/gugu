@@ -34,7 +34,6 @@ import {
 import { icon } from './icon';
 import { CODEX_EFFORT_OPTIONS } from './efforts';
 import { codexPlatformModelFacts, GUGU_PLATFORM_MODELS_ENV } from './platform-models';
-import { enrichCodexUpdate } from './acp-transform';
 import { codexPlatformProviderConfigArgs } from './platform-provider-args';
 import { CODEX_PERMISSION_MODES } from './permission-modes';
 import { codexCredentialInfo } from './auth';
@@ -416,7 +415,6 @@ export const provider = registerPluginBehavior(plugin, {
     connect: (io, toClient) => {
       return connectStdioAcpV2(io, toClient);
     },
-    enrich: enrichCodexUpdate,
   },
   subscription: codexSubscriptionBehavior(),
   auth: {

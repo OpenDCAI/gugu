@@ -9,7 +9,6 @@ import type {
   LoadSessionRequest,
   NewSessionRequest,
   RequestPermissionResponse,
-  SessionUpdate,
 } from '@agentclientprotocol/sdk';
 import type {
   AcpCancelTurnError,
@@ -1751,7 +1750,7 @@ export class SessionManager implements InboundRouter {
 
   onSessionUpdate(
     connection: AcpConnectionContext,
-    params: { sessionId: string; update?: SessionUpdate },
+    params: { sessionId: string; trace?: unknown },
     event: NormalizedEvent
   ): void {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
@@ -1764,24 +1763,24 @@ export class SessionManager implements InboundRouter {
       this.deps.logger.error('SessionManager: dropped a session update with no known session', {
         providerSessionId: params.sessionId,
         processKey: connection.key,
-        sessionUpdate: (params.update as { sessionUpdate?: string } | undefined)?.sessionUpdate,
+        eventKind: event.kind,
       });
       return;
     }
 
     const record = this.cells.get(sessionId);
     if (!record) return;
-    // A route key may already belong to a replacement connection. The normalizer is allocated
-    // per connection, so its existing identity distinguishes late events without another epoch.
-    if (record.connectionLease && record.connectionLease.value.normalize !== connection.normalize) return;
+    // A route key may already belong to a replacement connection. Compare the actual spawned
+    // resource, including handles without a PID, so late events cannot enter its replacement.
+    if (record.connectionLease && record.connectionLease.value.process !== connection.process) return;
     const fromChildSession = record.childProviderSessionIds.has(params.sessionId);
     if (!fromChildSession && record.cell.acpSessionId !== params.sessionId) {
       record.cell.setAcpSessionId(params.sessionId);
       this.registerRoute(connection.key, params.sessionId, sessionId);
     }
-    if (params.update) {
-      record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.update });
-      this.applyRawMeta(record.cell, params.update);
+    if (params.trace !== undefined) {
+      // Opaque diagnostics only. Projection and config changes consume the domain event below.
+      record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.trace });
     }
     const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
     if (!scoped) return;
@@ -2665,23 +2664,6 @@ export class SessionManager implements InboundRouter {
     if (loading.size === 0) this.loadingSessions.delete(processKey);
   }
 
-  private applyRawMeta(cell: SessionCell, update: SessionUpdate): void {
-    switch (update.sessionUpdate) {
-      case 'current_mode_update':
-        cell.applySessionMeta({
-          modes: {
-            currentModeId: update.currentModeId,
-            availableModes: cell.config.modeOptions?.available ?? [],
-          },
-        });
-        break;
-      case 'config_option_update':
-        cell.applySessionMeta({ configOptions: update.configOptions });
-        break;
-      default:
-        break;
-    }
-  }
 
   // @@@sessionpage TASKPAGE-FUSION — honor host-injected session MCP servers (previously hardcoded []).
   // The gugu host sets input.mcpServers at the main-process ACP interceptor so a session-page session gets

@@ -1,3 +1,4 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +16,7 @@ it.each([false, true])('#6020 Claude history preserves image results (with text:
   ];
   const entries = decodeClaudeRecord({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'image', content }] } }, 'record');
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
-  parser.push({ sessionUpdate: 'tool_call', toolCallId: 'image', title: 'screenshot', rawInput: { tab: 1 } });
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'image', title: 'screenshot', rawInput: { tab: 1 } }));
   for (const entry of entries) if (entry.event) parser.pushEvent(entry.event);
   const item = parser.activeTurn?.items[0];
   // 148 10-14: the picture has its own channel now — an image block the card draws (`images`), as the live ACP stream
@@ -34,7 +35,7 @@ it('#6020 a Claude result with a block that is neither text nor a picture stays 
   ];
   const entries = decodeClaudeRecord({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'doc', content }] } }, 'record');
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
-  parser.push({ sessionUpdate: 'tool_call', toolCallId: 'doc', title: 'read', rawInput: {} });
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'doc', title: 'read', rawInput: {} }));
   for (const entry of entries) if (entry.event) parser.pushEvent(entry.event);
   expect(parser.activeTurn?.items[0]).toMatchObject({
     rawOutput: JSON.stringify(content, null, 2),

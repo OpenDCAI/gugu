@@ -11,7 +11,6 @@
 import type {
   AvailableCommand,
   SessionConfigOption,
-  SessionUpdate,
   ToolCallLocation,
 } from '@agentclientprotocol/sdk';
 import type { AttachmentRef } from '../models/attachments';
@@ -66,14 +65,14 @@ export type NormalizedEvent =
       _meta?: EntityMeta | null;
       toolCallId: string;
       title: string;
-      /** 供应商自己的工具名,标题是显示名时由 EnrichHook 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
+      /** 供应商自己的工具名,标题是显示名时由 transport decoding 从 vendor `_meta` 提上来(见 BaseToolCallItem)。 */
       toolName?: string;
       /** ACP ToolKind passthrough ('edit', 'execute', 'read', 'think', ...). */
       toolKind: string | null;
       status: NormalizedToolStatus | null;
       /**
        * Parent tool call id for nested subagent invocations.
-       * Null in the baseline; providers promote vendor _meta via EnrichHook.
+       * Null in the baseline; providers promote vendor _meta via transport decoding.
        */
       parentToolCallId: string | null;
       locations: NormalizedToolLocation[];
@@ -103,7 +102,7 @@ export type NormalizedEvent =
        * Absent in the baseline: ACP has no field for it on a tool call — the
        * protocol's own route is a client-owned terminal, which an agent has to
        * ask for. Agents that instead run the command themselves report the exit
-       * in vendor `_meta`, and promote it here through EnrichHook, exactly the
+       * in vendor `_meta`, and promote it here through transport decoding, exactly the
        * way `parentToolCallId` is promoted.
        */
       exitStatus?: TerminalExit;
@@ -371,7 +370,7 @@ export type NormalizedEvent =
        * Absent in the baseline: ACP has no field for it on a tool call — the
        * protocol's own route is a client-owned terminal, which an agent has to
        * ask for. Agents that instead run the command themselves report the exit
-       * in vendor `_meta`, and promote it here through EnrichHook, exactly the
+       * in vendor `_meta`, and promote it here through transport decoding, exactly the
        * way `parentToolCallId` is promoted.
        */
       /**
@@ -500,11 +499,3 @@ export type NormalizedEvent =
       kind: 'agent_state';
     } & import('../session-protocol').SessionForegroundState
   | { kind: 'ignored' };
-
-/**
- * An optional enrichment hook that runs after baseline decoding.
- * Receives the decoded NormalizedEvent and the original raw SessionUpdate so
- * it can promote vendor _meta fields (e.g. parentToolCallId) into first-class
- * fields. Return the event unchanged if no enrichment is needed.
- */
-export type EnrichHook = (event: NormalizedEvent, raw: SessionUpdate) => NormalizedEvent;

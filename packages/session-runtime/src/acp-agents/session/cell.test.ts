@@ -3,7 +3,7 @@ import type { LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
 import { isOk } from '@gugu/session-shared';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { createRequestActivity, permissionWaitKind } from '@gugu/session-core/acp';
+import { decodePermissionRequest, createRequestActivity, permissionWaitKind } from '@gugu/session-core/acp';
 import { FakeAcpAgent } from '../acp-test-support';
 import { SessionCell } from './cell';
 
@@ -1297,11 +1297,11 @@ describe('SessionCell prompts', () => {
 describe('SessionCell permissions', () => {
   it('brokers permission requests through the per-cell broker', async () => {
     const { cell } = makeCell();
-    const permission = cell.requestPermission({
+    const permission = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-1', title: 'Read a file', kind: 'read' },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' as PermissionOptionKind }],
-    });
+    }));
 
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     expect(cell.sessionState.pendingPermissions[0].toolCall).toMatchObject({
@@ -1327,11 +1327,11 @@ describe('SessionCell permissions', () => {
     undefined,
   ])('keeps non-tool permission subjects without inventing transcript tools: %j', async (subject) => {
     const { cell } = makeCell();
-    const response = cell.requestPermission({
+    const response = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1', title: 'Approval title', description: 'Approval details',
       ...(subject === undefined ? {} : { subject }), _meta: { requestContext: 1 },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-    });
+    }));
     const pending = cell.sessionState.pendingPermissions[0];
     expect(pending).toMatchObject({ title: 'Approval title', description: 'Approval details', _meta: { requestContext: 1 } });
     if (subject !== undefined) expect(pending.subject).toEqual(subject);
@@ -1345,10 +1345,10 @@ describe('SessionCell permissions', () => {
   it('keeps the approval title separate from the subject tool title', async () => {
     const { cell } = makeCell();
     const subject = { type: 'tool_call', toolCall: { toolCallId: 't', name: 'Bash', title: 'Tool title', kind: 'execute', rawInput: { command: 'ls' }, _meta: { vendor: 1 } } };
-    const response = cell.requestPermission({
+    const response = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1', title: 'Approval title', subject,
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-    });
+    }));
     const pending = cell.sessionState.pendingPermissions[0];
     expect(pending).toMatchObject({ title: 'Approval title', subject, toolCall: { title: 'Tool title', toolName: 'Bash' } });
     cell.resolvePermission(pending.requestId, 'allow');
@@ -1358,11 +1358,11 @@ describe('SessionCell permissions', () => {
 
   it('keeps the rawInput of a request that names no call in the turn (a Codex MCP approval, #6900)', () => {
     const { cell } = makeCell();
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'item-9:ask:mcp-elicitation:4', title: 'mcp__l3dice__roll', rawInput: { sides: 20 } },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' as PermissionOptionKind }],
-    });
+    }));
 
     expect(cell.sessionState.pendingPermissions[0].toolCall).toMatchObject({
       kind: 'mcp-tool-call',
@@ -1375,13 +1375,13 @@ describe('SessionCell permissions', () => {
 
   it('drains pending permissions on dispose', async () => {
     const { cell } = makeCell();
-    const permission = cell.requestPermission({
+    const permission = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-2', title: 'Write a file', kind: 'edit' },
       options: [
         { optionId: 'reject', name: 'Reject', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
 
     cell.dispose();
 
@@ -1401,7 +1401,7 @@ describe('SessionCell permissions', () => {
   it('answers a full-access session by standard kind without leaving a pending request', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     const permission = cell.requestPermission(
-      shellRequest('tool-auto', ['allow_always', 'allow_once', 'reject_once'])
+      decodePermissionRequest(shellRequest('tool-auto', ['allow_always', 'allow_once', 'reject_once']))
     );
 
     await expect(permission).resolves.toEqual({
@@ -1413,20 +1413,20 @@ describe('SessionCell permissions', () => {
   it('falls to allow_always only when the request offers no allow_once', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     await expect(
-      cell.requestPermission(shellRequest('tool-always', ['allow_always', 'reject_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-always', ['allow_always', 'reject_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-always' } });
   });
 
   it('never answers a question or plan approval on the user\'s behalf, even in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-plan', title: 'ExitPlanMode', kind: 'switch_mode' },
       options: [
         { optionId: 'default', name: 'Yes', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'plan', name: 'Keep planning', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
@@ -1434,27 +1434,27 @@ describe('SessionCell permissions', () => {
   // `choice-0` 替用户答了这道题。判据是请求的结构(一个选项都拒绝不了 = 让人挑一个,不是批准),❌ 看标题文案。
   it('never answers a choose-one request (no refusal option) for the user, even in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'pi-ui-7', title: 'Pick a deployment target', kind: 'other' },
       options: [
         { optionId: 'choice-0', name: 'staging', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'choice-1', name: 'production', kind: 'allow_once' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
   it('never fails a question whose options carry no standard kind (codex requestUserInput) in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    const answer = cell.requestPermission({
+    const answer = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'item-1:ask:q1', title: 'Which approach?' },
       options: [
         { optionId: '0', name: 'A', kind: 'other' as PermissionOptionKind },
         { optionId: '1', name: 'B', kind: 'other' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     cell.resolvePermission(cell.sessionState.pendingPermissions[0].requestId, '1');
     await expect(answer).resolves.toEqual({ outcome: { outcome: 'selected', optionId: '1' } });
@@ -1463,7 +1463,7 @@ describe('SessionCell permissions', () => {
   it('fails loudly when a full-access session gets no standard allow option', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     await expect(
-      cell.requestPermission(shellRequest('tool-none', ['reject_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-none', ['reject_once'])))
     ).rejects.toMatchObject({ name: 'AcpPermissionResolutionError' });
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
   });
@@ -1491,20 +1491,20 @@ describe('SessionCell permissions', () => {
     cell.applySessionMeta(modeConfig('agent'));
 
     // 受限档:进待决,等人点(阳性对照 —— 同一个 cell、同一种请求)。
-    void cell.requestPermission(shellRequest('tool-before', ['allow_once']));
+    void cell.requestPermission(decodePermissionRequest(shellRequest('tool-before', ['allow_once'])));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     cell.resolvePermission(cell.sessionState.pendingPermissions[0].requestId, 'allow-once');
 
     agent.setSessionConfigOption = vi.fn().mockResolvedValue(modeConfig('agent-full-access'));
     expect(isOk(await cell.setMode('agent-full-access'))).toBe(true);
     await expect(
-      cell.requestPermission(shellRequest('tool-up', ['allow_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-up', ['allow_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
 
     agent.setSessionConfigOption = vi.fn().mockResolvedValue(modeConfig('agent'));
     expect(isOk(await cell.setMode('agent'))).toBe(true);
-    void cell.requestPermission(shellRequest('tool-down', ['allow_once']));
+    void cell.requestPermission(decodePermissionRequest(shellRequest('tool-down', ['allow_once'])));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
@@ -1545,7 +1545,7 @@ describe('SessionCell permissions', () => {
     });
     expect(isOk(await cell.setMode('agent', { startupOnly: true }))).toBe(true);
     await expect(
-      cell.requestPermission(shellRequest('tool-startup', ['allow_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-startup', ['allow_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
   });
 
@@ -1580,7 +1580,7 @@ describe('SessionCell permissions', () => {
       status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',
     });
 
-    void cell.requestPermission(qwenPlanRequest);
+    void cell.requestPermission(decodePermissionRequest(qwenPlanRequest));
     const pending = cell.sessionState.pendingPermissions[0];
     expect(JSON.parse(pending.toolCall!.rawInput ?? 'null')).toEqual({ plan: PLAN });
     expect(permissionWaitKind(pending)).toBe('plan');
@@ -1606,7 +1606,7 @@ describe('SessionCell permissions', () => {
       status: 'pending', parentToolCallId: null, locations: [], rawInput: '{"plan":"from the stream"}', outputText: 'stream text',
     });
 
-    void cell.requestPermission(qwenPlanRequest);
+    void cell.requestPermission(decodePermissionRequest(qwenPlanRequest));
     const row = cell.sessionState.pendingPermissions[0].toolCall!;
     expect(row.rawInput).toBe('{"plan":"from the stream"}');
     expect(row.outputText).toBe('stream text');
@@ -1618,7 +1618,7 @@ describe('SessionCell permissions', () => {
   // 完全访问档就不替人批。
   it('names a request that arrives before its row from the vendor _meta, so full access leaves the plan to the user', () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: {
         toolCallId: 'qoder-plan', title: 'Ready to start implementation?', kind: 'other',
@@ -1629,7 +1629,7 @@ describe('SessionCell permissions', () => {
         { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
     const pending = cell.sessionState.pendingPermissions;
     expect(pending).toHaveLength(1);
     expect(pending[0].toolCall!.toolName).toBe('ExitPlanMode');
@@ -1644,7 +1644,7 @@ describe('SessionCell permissions', () => {
     agent.prompt = vi.fn(() => new Promise(() => {}));
     void cell.prompt({ text: 'plan it' });
     await flushDrains();
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: {
         toolCallId: 'qoder-plan', title: 'Ready to start implementation?', kind: 'other',
@@ -1652,7 +1652,7 @@ describe('SessionCell permissions', () => {
         _meta: { qoder: { toolName: 'ExitPlanMode' } },
       },
       options: [{ optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' as PermissionOptionKind }],
-    });
+    }));
     cell.push({
       kind: 'tool_call', toolCallId: 'qoder-plan', title: 'Ready to start implementation?', toolKind: 'other',
       status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',

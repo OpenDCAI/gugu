@@ -1,5 +1,6 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /**
- * #7139 别家的计划审批：工具名在 `_meta` 里，基线解码就提上来（不靠某一家的 EnrichHook），认「等的是计划」的
+ * #7139 别家的计划审批：工具名在 `_meta` 里，基线解码就提上来（不靠某一家的 transport decoder），认「等的是计划」的
  * 那一处读同一份名单。形状取自读源码：qwen-code 0.22.3（准备帧 `_meta.toolName`）、qoder 1.1.71（`_meta.qoder.toolName`）。
  */
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
@@ -10,8 +11,8 @@ import { AcpTranscriptParser } from './parser';
 
 function itemFrom(update: Record<string, unknown>): ToolCallItem {
   const parser = new AcpTranscriptParser({ sessionId: 's' });
-  parser.push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'plan it' } } as never, 1);
-  parser.push({ sessionUpdate: 'tool_call', toolCallId: 'call-plan', status: 'pending', ...update } as SessionUpdate, 2);
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'plan it' } } as never), 1);
+  parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call-plan', status: 'pending', ...update } as SessionUpdate), 2);
   const item = parser.activeTurn?.items.find((one) => 'toolCallId' in one && one.toolCallId === 'call-plan');
   if (!item) throw new Error('no tool item');
   return item as ToolCallItem;

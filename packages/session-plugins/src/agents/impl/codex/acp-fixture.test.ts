@@ -1,11 +1,4 @@
-/**
- * Fixture-driven snapshot tests for Codex ACP transcript parsing.
- *
- * The fixture stores raw ACP output. This test applies Codex enrichment while
- * parsing, so the exit status the adapter reports in `rawOutput.exit_code` /
- * `_meta.terminal_exit` is materialized onto the execute rows — driving the
- * parser without the hook would exercise a path the product does not use.
- */
+/** Historical codex ACP wire audit; native history has its own record-source fixtures. */
 
 import {
   agentStateSchema,
@@ -17,12 +10,11 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { driveParser, loadFixture } from '../../../../tooling/fixtures/acp/drive-parser';
 import { entitySnapshot } from '../../../../tooling/fixtures/acp/entity-snapshot';
-import { enrichCodexUpdate } from './acp-transform';
 
 const fixture = loadFixture(new URL('./fixtures/acp-transcript.json', import.meta.url));
 
 function createParser() {
-  return driveParser(fixture, { enrich: enrichCodexUpdate });
+  return driveParser(fixture);
 }
 
 beforeAll(() => {

@@ -3,7 +3,6 @@ import type {
   RequestPermissionResponse,
   SessionConfigOption,
   SessionModeState,
-  SessionUpdate,
   SetSessionConfigOptionRequest,
   SetSessionModeRequest,
 } from '@agentclientprotocol/sdk';
@@ -43,11 +42,9 @@ import {
   acpErr,
   classifyProviderPermissionMode,
   createToolCallItem,
-  decodeSessionUpdate,
   makeToolId,
   permissionWaitKind,
   runningBackgroundCommands,
-  serializePayload,
   SESSION_PLAN_ID,
 } from '@gugu/session-core/acp';
 import type { Result } from '@gugu/session-shared';
@@ -836,20 +833,18 @@ export class SessionCell {
 
   requestPermission(params: AcpPermissionParams): Promise<RequestPermissionResponse> {
     const requestId = crypto.randomUUID();
-    const subject = params.subject !== undefined ? params.subject : params.toolCall ? { type: 'tool_call', toolCall: params.toolCall } : undefined;
-    const rawToolCall = subject?.type === 'tool_call' ? subject.toolCall as AcpPermissionParams['toolCall'] : undefined;
-    const fromRequest = requestToolUpdate(rawToolCall);
+    const { subject, toolCall: fromRequest } = params;
     this.fillToolCall(fromRequest ? {
       ...fromRequest, rawInput: fromRequest.rawInput ?? undefined,
       outputText: fromRequest.outputText ?? undefined, toolName: fromRequest.toolName ?? undefined,
     } : null);
     const request: AcpPermissionRequest = {
       requestId,
-      title: params.title ?? rawToolCall?.title ?? '',
+      title: params.title ?? fromRequest?.title ?? '',
       ...(params.description !== undefined ? { description: params.description } : {}),
       ...(subject !== undefined ? { subject: structuredClone(subject) } : {}),
       ...(params._meta !== undefined ? { _meta: structuredClone(params._meta) } : {}),
-      ...(rawToolCall ? { toolCall: this.buildPermissionToolCall(requestId, rawToolCall, fromRequest) } : {}),
+      ...(fromRequest ? { toolCall: this.buildPermissionToolCall(requestId, fromRequest) } : {}),
       options: params.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
     };
     this.rawLog.record({
@@ -2104,11 +2099,10 @@ export class SessionCell {
 
   private buildPermissionToolCall(
     requestId: string,
-    rawToolCall: AcpPermissionParams['toolCall'] | undefined,
-    fromRequest: ToolUpdateEvent | null
+    fromRequest: ToolUpdateEvent
   ): ToolCallItem {
     const activeTurn = this.transcript.activeTurn;
-    const toolCallId = rawToolCall?.toolCallId ?? requestId;
+    const toolCallId = fromRequest.toolCallId ?? requestId;
     if (activeTurn) {
       const id = makeToolId(activeTurn.id, toolCallId);
       const existing = findToolCall(activeTurn.items, id, toolCallId);
@@ -2119,16 +2113,16 @@ export class SessionCell {
       id: activeTurn ? makeToolId(activeTurn.id, toolCallId) : `permission:${toolCallId}`,
       seq: 0,
       toolCallId,
-      title: rawToolCall?.title ?? 'Permission request',
+      title: fromRequest.title ?? 'Permission request',
       ...(fromRequest?.toolName != null ? { toolName: fromRequest.toolName } : {}),
       ...(fromRequest?.outputText != null ? { outputText: fromRequest.outputText } : {}),
       ...(fromRequest?.contentBlocks != null ? { contentBlocks: fromRequest.contentBlocks } : {}),
-      toolKind: rawToolCall?.kind ?? null,
+      toolKind: fromRequest.toolKind ?? null,
       status: 'pending',
       parentToolCallId: undefined,
       // A request naming no call the turn has (a Codex MCP approval) brings what it wants to do as its own rawInput.
-      rawInput: serializePayload(rawToolCall?.rawInput),
-      locations: rawToolCall?.locations ?? [],
+      rawInput: fromRequest.rawInput ?? undefined,
+      locations: fromRequest.locations ?? [],
     });
   }
 
@@ -2152,13 +2146,6 @@ function isInvalidToken(error: { message?: string; cause?: { message?: string } 
 type ToolUpdateEvent = Extract<NormalizedEvent, { kind: 'tool_update' }>;
 /** 补流里那一行的来源:请求解码出的那条更新，或待批请求里的那一行。 */
 type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'> & { contentBlocks?: ToolUpdateEvent['contentBlocks'] };
-
-/** 请求自带的 toolCall 按流里同一种 `tool_call_update` 解码:rawInput、正文、供应商工具名取法与流里一致。 */
-function requestToolUpdate(rawToolCall: AcpPermissionParams['toolCall'] | undefined): ToolUpdateEvent | null {
-  if (!rawToolCall) return null;
-  const event = decodeSessionUpdate({ sessionUpdate: 'tool_call_update', ...rawToolCall } as SessionUpdate);
-  return event.kind === 'tool_update' ? event : null;
-}
 
 /** 流里那一行的 rawInput 没有内容:缺席、空串,或空对象(qwen 的准备帧就是 `{}`)。 */
 function isEmptyPayload(value: string | undefined): boolean {

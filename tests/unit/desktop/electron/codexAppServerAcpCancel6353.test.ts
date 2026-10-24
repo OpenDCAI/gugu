@@ -1,3 +1,4 @@
+import { decodeV2SessionUpdate } from '@gugu/session-core/acp';
 import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -110,7 +111,7 @@ function start() {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
     if (prompts.delete(m.id)) parser.endTurn()
-    if (m.method === 'session/update') { updates.push(m.params.update); parser.push(m.params.update) }
+    if (m.method === 'session/update') { updates.push(m.params.update); parser.pushEvent(decodeV2SessionUpdate(m.params.update)) }
     if (m.method === 'session/update' && m.params?.update?.sessionUpdate === 'tool_call_update') toolCalls.add(String(m.params.update.toolCallId))
   }))
   // 桥发出 tool_call = 它已经处理了那条 item/started(记账在同一处)—— 取消要等到这之后才有意义。
@@ -121,7 +122,7 @@ function start() {
     const id = nextId++
     if (method === 'session/prompt') {
       prompts.add(id)
-      parser.push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `prompt-${id}` } })
+      parser.pushEvent(decodeV2SessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `prompt-${id}` } }))
     }
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     return id
@@ -153,7 +154,7 @@ describe('Codex ACP command ownership across turn completion and cancellation', 
       .toEqual({ stopReason: 'end_turn' })
     expect(rig.backgroundTasks()).toEqual(['proc-keep'])
     expect(rig.updates).toContainEqual(expect.objectContaining({
-      sessionUpdate: 'async_task_spawned', asyncTaskId: 'proc-keep', toolCallId: 'item-1', canStop: true,
+      sessionUpdate: '_async_task_spawned', asyncTaskId: 'proc-keep', toolCallId: 'item-1', canStop: true,
     }))
     expect(rig.requests().some((request) => request.method === 'thread/backgroundTerminals/terminate')).toBe(false)
 
@@ -178,7 +179,7 @@ describe('Codex ACP command ownership across turn completion and cancellation', 
     await rig.reply(rig.send('session/prompt', { sessionId, prompt: prompt('FINISH') }), 'next turn ends')
     expect(rig.backgroundTasks()).toEqual([])
     expect(rig.updates).toContainEqual(expect.objectContaining({
-      sessionUpdate: 'async_task_state_update', asyncTaskId: 'proc-keep', toolCallId: 'item-1', state: 'completed',
+      sessionUpdate: '_async_task_state_update', asyncTaskId: 'proc-keep', toolCallId: 'item-1', state: 'completed',
     }))
     expect(rig.requests().some((request) => request.method === 'thread/backgroundTerminals/terminate')).toBe(false)
   })
@@ -216,6 +217,6 @@ describe('Codex ACP command ownership across turn completion and cancellation', 
     expect(rig.requests().some((r) => r.method === 'turn/interrupt')).toBe(true)
     expect(rig.requests().some((r) => r.method === 'thread/backgroundTerminals/terminate')).toBe(false)
     expect(rig.backgroundTasks()).toEqual([])
-    expect(rig.updates.some((update) => update.sessionUpdate === 'async_task_spawned')).toBe(false)
+    expect(rig.updates.some((update) => update.sessionUpdate === '_async_task_spawned')).toBe(false)
   })
 })

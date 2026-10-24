@@ -3,12 +3,12 @@
  * (AIR 的 `subagent_spawned` 带 `launchToolCallId`)。认亲靠的是那次调用的结果里的 `agentId`(登记册按会话号归一),
  * 所以两种形态立出同样的行,❌ 不需要别名。
  */
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { enrichClaudeUpdate } from './acp-transform';
+import { decodeClaudeSessionUpdate } from './acp-transform';
 
-const decode = (raw: Record<string, unknown>) => enrichClaudeUpdate(decodeSessionUpdate(raw as never), raw as never as SessionUpdate);
+const decode = (raw: Record<string, unknown>) => raw.sessionUpdate === 'subagent_spawned'
+  ? decodeSessionUpdate(raw) : decodeClaudeSessionUpdate(raw);
 
 const launch = {
   sessionUpdate: 'tool_call',

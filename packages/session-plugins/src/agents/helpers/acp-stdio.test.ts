@@ -37,6 +37,36 @@ it('v1 stdio returns a dispatch receipt and keeps activity until the real RPC re
   stdout.end(); stdin.end();
 });
 
+it('decodes permission tool facts before they cross the v1 transport boundary', async () => {
+  const stdin = new PassThrough(), stdout = new PassThrough();
+  const permissions: unknown[] = [];
+  let buffered = '';
+  stdin.on('data', bytes => {
+    buffered += bytes.toString();
+    const lines = buffered.split('\n'); buffered = lines.pop()!;
+    for (const line of lines) {
+      const request = JSON.parse(line);
+      if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        result: { protocolVersion: 1, agentCapabilities: {} } }) + '\n');
+    }
+  });
+  const api = connectStdioAcp({ stdin, stdout }, () => ({
+    sessionEvent: () => {},
+    requestPermission: async request => { permissions.push(request); return { outcome: { outcome: 'selected', optionId: 'allow' } }; },
+  }));
+  await api.initialize({ protocolVersion: 1 });
+  const tool = { toolCallId: 'read', title: 'Read file', kind: 'read', rawInput: { path: '/work/a' },
+    content: [{ type: 'content', content: { type: 'text', text: 'Approval body' } }], _meta: { toolName: 'Read' } };
+  stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 91, method: 'session/request_permission', params: {
+    sessionId: 's', toolCall: tool, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+  } }) + '\n');
+  await vi.waitFor(() => expect(permissions).toHaveLength(1));
+  expect(permissions[0]).toMatchObject({ subject: { type: 'tool_call', toolCall: tool },
+    toolCall: { kind: 'tool_update', toolCallId: 'read', toolName: 'Read', toolKind: 'read',
+      rawInput: JSON.stringify({ path: '/work/a' }, null, 2), outputText: 'Approval body' } });
+  stdout.end(); stdin.end();
+});
+
 describe('nodeReadableToWeb', () => {
   it('drives delayed Node stdout without relying on Readable.toWeb flowing mode', async () => {
     const source = new PassThrough();

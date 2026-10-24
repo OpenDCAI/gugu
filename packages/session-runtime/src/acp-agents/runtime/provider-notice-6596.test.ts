@@ -1,6 +1,6 @@
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { TranscriptSessionNotice, TranscriptTurn } from '@gugu/session-core/acp';
-import { DRAFT_UPDATE_META_KEY } from '@gugu/session-core/acp';
 import { describe, expect, it, vi } from 'vitest';
 import { until } from '../../../../../tests/support/awaitCondition';
 import { makeAcpHarness, makeStartInput } from '../acp-test-support';
@@ -78,7 +78,7 @@ describe('#6596 供应商提示(notice)', () => {
       await runtime.sendPrompt('c', { text: 'hi', origin: 'typed' });
       await committedCount(runtime, 'c', 1);
       for (const [i, n] of PROVIDER_NOTICES.entries()) {
-        await h.client().sessionUpdate({ sessionId: SESSION, update: notice(n) });
+        await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(n)) });
         const history = runtime.getChatHistory('c');
         expect(history.active, n.title).toBeNull();
         expect(history.committed).toHaveLength(2 + i);
@@ -103,28 +103,28 @@ describe('#6596 供应商提示(notice)', () => {
       const sent = runtime.sendPrompt('c', { text: 'sleep 711 in the background', origin: 'typed' });
       await h.agent.called('prompt');
       expect(h.agent.prompt).toHaveBeenCalledOnce();
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: SESSION,
-        update: { sessionUpdate: 'tool_call', toolCallId: 'call_bg', title: 'sleep 711', kind: 'execute', status: 'completed' } as SessionUpdate,
+        event: decodeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'call_bg', title: 'sleep 711', kind: 'execute', status: 'completed' } as SessionUpdate),
       });
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: SESSION,
-        update: { sessionUpdate: 'async_task_progress', asyncTaskId: 'bg-1', toolCallId: 'call_bg' } as unknown as SessionUpdate,
+        event: decodeSessionUpdate({ sessionUpdate: 'async_task_progress', asyncTaskId: 'bg-1', toolCallId: 'call_bg' } as unknown as SessionUpdate),
       });
       release();
       await sent;
       await committedCount(runtime, 'c', 1);
 
       // 桥接 stopAsyncTask 的顺序:先发终态,再发 notice(async-tasks.js taskStopped)。
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: SESSION,
-        update: { sessionUpdate: 'async_task_state_update', asyncTaskId: 'bg-1', state: 'stopped' } as unknown as SessionUpdate,
+        event: decodeSessionUpdate({ sessionUpdate: 'async_task_state_update', asyncTaskId: 'bg-1', state: 'stopped' } as unknown as SessionUpdate),
       });
       const lazy = runtime.getChatHistory('c').active;
       expect(lazy?.items.map((item) => item.kind), '前提:「跑完了」那一行懒开了一组').toEqual(['background-command-done-tool-call']);
       expect(runtime.getSessionState('c').lifecycle).toBe('ready');
 
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice(PROVIDER_NOTICES[0]!) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(PROVIDER_NOTICES[0]!)) });
       const { committed, active } = runtime.getChatHistory('c');
       expect(active, '那一轮当场落定').toBeNull();
       expect(committed).toHaveLength(2);
@@ -141,7 +141,7 @@ describe('#6596 供应商提示(notice)', () => {
     try {
       await runtime.sendPrompt('c', { text: 'hi', origin: 'typed' });
       await committedCount(runtime, 'c', 1);
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice(PROVIDER_NOTICES[0]!) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(PROVIDER_NOTICES[0]!)) });
       const { committed, active } = runtime.getChatHistory('c');
       expect(active).toBeNull();
       expect(committed).toHaveLength(2);
@@ -158,7 +158,7 @@ describe('#6596 供应商提示(notice)', () => {
       const sent = runtime.sendPrompt('c', { text: 'sleep 25', origin: 'typed' });
       await h.agent.called('prompt');
       expect(h.agent.prompt).toHaveBeenCalledOnce();
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice(PROVIDER_NOTICES[0]!) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(PROVIDER_NOTICES[0]!)) });
       expect(runtime.getChatHistory('c').committed, '回合中不单独落一轮').toHaveLength(0);
       expect(noticesIn(runtime.getChatHistory('c').active)).toHaveLength(1);
       release();
@@ -175,22 +175,22 @@ describe('#6596 供应商提示(notice)', () => {
   it('agent 自己开工时来:归那一组,agent 报 idle 时一起落定', async () => {
     const { h, runtime } = await started();
     try {
-      await h.client().sessionUpdate({ sessionId: SESSION, update: agentState('running') });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('running')) });
       expect(runtime.getSessionState('c').lifecycle).toBe('working');
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: SESSION,
-        update: { sessionUpdate: 'agent_message_chunk', messageId: 'resp_1', content: { type: 'text', text: '子任务跑完了' } } as SessionUpdate,
+        event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'resp_1', content: { type: 'text', text: '子任务跑完了' } } as SessionUpdate),
       });
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice(PROVIDER_NOTICES[3]!) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(PROVIDER_NOTICES[3]!)) });
       expect(runtime.getChatHistory('c').committed).toHaveLength(0);
       expect(noticesIn(runtime.getChatHistory('c').active)).toHaveLength(1);
       // 带 cost 的 usage 不再是「停了」:只有 agent 报的 idle 是。
-      await h.client().sessionUpdate({
+      await h.client().sessionEvent({
         sessionId: SESSION,
-        update: { sessionUpdate: 'usage_update', used: 1, size: 200_000, cost: { amount: 0.01, currency: 'USD' } } as unknown as SessionUpdate,
+        event: decodeSessionUpdate({ sessionUpdate: 'usage_update', used: 1, size: 200_000, cost: { amount: 0.01, currency: 'USD' } } as unknown as SessionUpdate),
       });
       expect(runtime.getSessionState('c').lifecycle).toBe('working');
-      await h.client().sessionUpdate({ sessionId: SESSION, update: agentState('idle') });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(agentState('idle')) });
       const { committed } = runtime.getChatHistory('c');
       expect(committed).toHaveLength(1);
       expect(committed[0]!.initiator).toBe('agent');
@@ -206,8 +206,8 @@ describe('#6596 供应商提示(notice)', () => {
       const sent = runtime.sendPrompt('c', { text: 'stop both', origin: 'typed' });
       await h.agent.called('prompt');
       expect(h.agent.prompt).toHaveBeenCalledOnce();
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice(PROVIDER_NOTICES[0]!) });
-      await h.client().sessionUpdate({ sessionId: SESSION, update: notice({ ...PROVIDER_NOTICES[0]!, description: 'sleep 614.' }) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice(PROVIDER_NOTICES[0]!)) });
+      await h.client().sessionEvent({ sessionId: SESSION, event: decodeSessionUpdate(notice({ ...PROVIDER_NOTICES[0]!, description: 'sleep 614.' })) });
       release();
       await sent;
       await committedCount(runtime, 'c', 1);
@@ -217,23 +217,16 @@ describe('#6596 供应商提示(notice)', () => {
     } finally { await runtime.dispose(); }
   });
 
-  it('进门信封里的 notice(acp-stdio 改写后的形状)与原件同一个结果,❌ 长出工具行', async () => {
+  it('a domain notice enters directly without creating a tool row', async () => {
     const { h, runtime } = await started();
     try {
-      await h.client().sessionUpdate({
-        sessionId: SESSION,
-        update: {
-          sessionUpdate: 'tool_call_update',
-          toolCallId: 'notice',
-          _meta: { [DRAFT_UPDATE_META_KEY]: { sessionUpdate: 'notice', ...PROVIDER_NOTICES[0]! } },
-        } as unknown as SessionUpdate,
-      });
-      const items = runtime.getChatHistory('c').committed.flatMap((turn) => turn.items);
-      expect(items.map((item) => item.kind)).toEqual(['session-notice']);
+      await h.client().sessionEvent({ sessionId: SESSION,
+        event: decodeSessionUpdate({ sessionUpdate: 'notice', ...PROVIDER_NOTICES[0]! }) });
+      expect(runtime.getChatHistory('c').committed.flatMap(turn => turn.items).map(item => item.kind))
+        .toEqual(['session-notice']);
       expect(runtime.getSessionState('c').lifecycle).toBe('ready');
     } finally { await runtime.dispose(); }
-  });
-});
+  });});
 
 /**
  * 我们自己合成的 notice(改名、启动时的模型/推理档回退)走的是同一条规则 —— 这次**没改**那条规则,

@@ -7,7 +7,6 @@
 
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { Client } from '@agentclientprotocol/sdk';
 import { createRequestActivity } from '@gugu/session-core/acp';
 import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { ProviderPermissionModeMap, QueuedPrompt, SessionSummary } from '@gugu/session-core/acp';
@@ -597,7 +596,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     },
     agent,
     ptySpawner,
-    client(): Client {
+    client(): AcpClient {
       if (!agent.capturedClient) {
         throw new Error('capturedClient is null — has startSession() been called?');
       }
