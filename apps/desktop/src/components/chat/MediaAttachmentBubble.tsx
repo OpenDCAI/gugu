@@ -30,10 +30,11 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   const { t } = useTranslation('messaging')
   const { user } = useAuth()
   const box = useRef<HTMLDivElement>(null)
-  const near = useNearViewport(box)
+  const managedFile = (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType)
+  const near = useNearViewport(box, managedFile)
   const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
     queryFn: () => attachmentResolver.metadata(meta.source),
-    enabled: near && !!user && (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType),
+    enabled: near && !!user && managedFile,
   }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
@@ -109,16 +110,16 @@ function fitInline(width: number, height: number): { width: number; height: numb
 }
 
 /** 滚到眼前(含上下 400px)才去取:一屏一批,往回翻历史时不把整段都下了。 */
-function useNearViewport(ref: RefObject<Element | null>): boolean {
+function useNearViewport(ref: RefObject<Element | null>, enabled = true): boolean {
   const [near, setNear] = useState(false)
   useEffect(() => {
     const el = ref.current
-    if (near || !el) return
+    if (!enabled || near || !el) return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) setNear(true)
     }, { rootMargin: '400px 0px' })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [ref, near])
+  }, [ref, near, enabled])
   return near
 }
