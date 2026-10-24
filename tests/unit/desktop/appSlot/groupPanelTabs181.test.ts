@@ -69,6 +69,17 @@ describe('leaving an object tab', () => {
     expect(groupSlotMemory.tabs('exit-preview')).toEqual([null, other])
     expect(closePanel).not.toHaveBeenCalled()
   })
+
+  it('closing an inactive App opened over the chat keeps the current object visible', () => {
+    const source: OpenedWith = { kind: 'board.main', title: 'Board', opening: 110, fromChat: true }
+    const shown = file('111')
+    groupSlotMemory.setOpened('exit-inactive-source', source)
+    groupSlotMemory.setOpened('exit-inactive-source', shown)
+    const closePanel = vi.fn()
+    groupSlotMemory.close('exit-inactive-source', source, closePanel)
+    expect(groupSlotMemory.opened('exit-inactive-source')).toBe(shown)
+    expect(closePanel).not.toHaveBeenCalled()
+  })
 })
 
 describe('the group panel keeps what is open and shows one of it', () => {

@@ -109,7 +109,7 @@ interface HostEvent {
 export const HOST_EVENTS = {
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
-  onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.place, event.change] },
+  onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.watchId, event.change] },
   onAppStateChanged: { event: 'appState', pick: (event: Event<'appState'>) => [event.state] },
   onAgentsChanged: { event: 'agentsChanged', pick: (event: Event<'agentsChanged'>) => [event.agentIds] },
   onForumChanged: { event: 'forumChanged', only: 'page', pick: (event: Event<'forumChanged'>) => [event.target, event.change] },

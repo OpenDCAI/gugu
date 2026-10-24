@@ -32,6 +32,10 @@ export type SessionTransport = 'acp' | 'pty'
 // 参数从哪来只在一处写(上下文工程第一批 P5):session_id 在 session_get 上,device 在 session_spawn 上。
 const SESSION_ID_DESCRIPTION = 'session:<id>.'
 const sessionIdSchema = z.string().min(1)
+const arrayArgument = (value: unknown) => {
+  if (typeof value !== 'string' || !value.trim().startsWith('[')) return value
+  try { return JSON.parse(value) as unknown } catch { return value }
+}
 
 /** agent 的 session_* 跨机器(owner 2026-09-30 拍板):「在哪台机器上做」—— 只给还没有地址的动作;有地址的会话自己带路。 */
 const DEVICE_DESCRIPTION = 'device:<id> from session_devices; omit for this machine.'
@@ -75,17 +79,17 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'device_actions',
-    description: 'Computer Use: control macOS/Windows desktop apps (open, view, click, type, mouse, keys; group computer). Also calendar, reminders, contacts, notes, mail, messages, files, clipboard, location, screen, notifications, Shortcuts, phone SMS/recordings/photos/health. Use device_actions then device_call; never scripts or deny access. No device: devices/status/timezone/groups; device: actions; group/name: full schema to read first. available:false: unavailable_detail says where to enable.',
+    description: 'Inspect native capabilities; Computer Use controls macOS/Windows desktop apps (screen, mouse, keys; group computer); no scripts or access bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: full schema, read before calling. Other-device work: session_spawn there. unavailable_detail explains available:false.',
     schema: z.object({
       device: deviceSchema.describe('Omit for all devices.').optional(),
-      group: z.string().min(1).describe('e.g. calendar').optional(),
-      name: z.string().min(1).describe('e.g. calendar.events.create').optional(),
+      group: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
     }).strict(),
     action: 'device_actions',
   },
   {
     name: 'device_call',
-    description: 'Run one action from device_actions and wait: {ok:true, data} or {ok:false, code, message}. device_offline / no_answer: it may not have run. not_granted / os_permission: tell the person where to turn it on. needs_confirmation: ask the person confirm.question; only if they agree, call again with confirmed:true — never set it yourself. Times without an offset are in the device\'s timezone.',
+    description: 'Run one listed action on your host; elsewhere session_spawn (enable its host first). Returns ok/data or ok:false/code/message. no_answer may have run. not_granted/os_permission: explain enablement. needs_confirmation: ask confirm.question; only after agreement retry confirmed:true. Unzoned times use device timezone.',
     schema: z.object({
       device: deviceSchema,
       name: z.string().min(1).describe('As device_actions lists it.'),
@@ -160,7 +164,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_message',
-    description: 'Message your sessions on any machine: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed. Assistant ↔ task agent exchanges are shown in that task chat. Chat members and agents of your project (@ them in its group): message_send.',
+    description: 'Message your sessions across devices: session:<id>, aid:<Agent ID>, gugu:<number> from session_peers. Resumes stopped recipients; reports per-recipient delivery. Owner sees exchanges in task chat. Project/chat members: message_send.',
     schema: z.strictObject({
       // ACP XML/JSON bridges sometimes serialize array parameters as JSON strings。协议边界兼容是
       // im-mcp spec 的既有合同(「合法的 JSON 序列化数组继续在协议边界兼容,裸字符串或非法 JSON
@@ -190,6 +194,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       // 地址写法顶层描述已列,拒绝时 refine 的原话再说一遍 —— 字段上不重复(#7335 预算)。
       ),
       text: z.string().min(1),
+      files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).describe('Local originals; recipients use message_download_file.').optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
       then: z.enum(SESSION_MESSAGE_THEN).describe('What you do next: continue, wait (on what: say) or stop.').optional(),

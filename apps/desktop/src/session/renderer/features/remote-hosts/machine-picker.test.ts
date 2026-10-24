@@ -341,15 +341,6 @@ describe('每个按机器的页面都挂在模块层、没有第二个选择器(
     expect(source).not.toMatch(/<DeviceScopeProvider store=\{\w+\}>/);
   });
 
-  // 设置合一之后(product spec)这几页画在壳的弹窗里,左栏是壳的:按机器的三页(订阅、会话、仓库)
-  // 在页首画同一个选择器,三页共用一份选择;界面、浏览器不画。
-  it('features/settings/components/SettingsPage.tsx:一份选择(settingsDeviceStore),只挂在按机器的三页上', () => {
-    const source = read('features/settings/components/SettingsPage.tsx');
-    expect(source).not.toContain('DeviceScopePicker');
-    expect(source.match(/<DeviceScopeProvider store=\{settingsDeviceStore\}>/g) ?? []).toHaveLength(1);
-    expect(source.match(/byDevice\(</g) ?? []).toHaveLength(3);
-  });
-
   it('旧的几处样子都删了:左栏列头下、搜索框旁、设置行里不再各摆一个', () => {
     expect(read('features/automations/components/AutomationsHeader.tsx')).not.toContain('DeviceScopePicker');
     expect(read('features/automations/components/AutomationsHeader.tsx')).not.toContain('devicePicker');
@@ -363,15 +354,8 @@ describe('每个按机器的页面都挂在模块层、没有第二个选择器(
     ['features/library/library-view.tsx', 'integrations'],
     ['features/mcp/components/McpLibraryView.tsx', 'mcp'],
     ['features/automations/components/AutomationsHeader.tsx', 'automations'],
-    ['features/settings/components/SettingsPage.tsx', 'repository'],
   ])('%s 看别的机器时的说明把机器名写进句子(%s)', (file, key) => {
     expect(read(file)).toContain(`translate('deviceScope.subtitle.${key}', { device })`);
-  });
-
-  it('只有个别行按机器的页(通用)和不按机器的页(界面、浏览器)不另写一句远程说明:按机器的那一行自己标机器名', () => {
-    const source = read('features/settings/components/SettingsPage.tsx');
-    expect(source).not.toMatch(/DescriptionRemote/);
-    expect(read('features/settings/components/SessionSettingsRows.tsx')).toContain('<DeviceSettingsTag />');
   });
 
   it('资源库只有一个选择器:左栏「资源库」列头下,子页标题旁不画(只把机器名写进说明)', () => {

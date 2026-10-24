@@ -9,7 +9,7 @@ import { OpenAppMenuItems } from './OpenAppMenuItems'
 
 /**
  * A topic's ⋯ (TopicSplitPane), the group header's menu over again (ChatHeaderActions): on the phone what its header has
- * no room for (`items`, as a group's compact header folds them in), then the Apps that open in this topic's panel. With
+ * no room for (`items`, as a group's compact header folds them in), then the Apps that open in the source chat's panel. With
  * neither, no ⋯.
  */
 export const TopicMoreMenu = observer(function TopicMoreMenu({ chatId, mobile, items }: {

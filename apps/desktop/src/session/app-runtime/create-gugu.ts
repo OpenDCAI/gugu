@@ -34,35 +34,26 @@ export function createGugu(
   let editorLoading: Promise<CodemirrorModule['codemirror']> | null = null;
 
   /**
-   * `files.onChanged(place, fn)`: one watch per place with the host (`appFiles.watch`), however many handlers; the event
-   * says which place it is about. A watch the host refuses (no `files:read`, a session not here) is reported as the
+   * Each `files.onChanged(place, fn)` keeps its own host watch and caller, even at the same place. A watch the host
+   * refuses (no `files:read`, a session not here) is reported as the
    * App's error — the call itself cannot reject, it returns the unsubscribe.
    */
-  const watchers = new Map<string, Set<(change: ExtensionFileChangeBatch) => void>>();
+  const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
+  let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (place: AppPlace, on: boolean) =>
-    host.appFiles.watch({ place, on }).catch((error: unknown) => {
+  const watch = (watchId: string, place: AppPlace, on: boolean) =>
+    host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
     const where = placeOf(place);
-    const key = placeKey(where);
+    const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
-    hearing ??= host.onFilesChanged((changed, change) => {
-      for (const fn of watchers.get(placeKey(changed)) ?? []) fn(change);
-    });
-    let handlers = watchers.get(key);
-    if (!handlers) {
-      handlers = new Set();
-      watchers.set(key, handlers);
-      void watch(where, true);
-    }
-    handlers.add(handler);
+    hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
+    watchers.set(watchId, handler);
+    const registered = watch(watchId, where, true);
     return () => {
-      const current = watchers.get(key);
-      if (!current?.delete(handler) || current.size > 0) return;
-      watchers.delete(key);
-      void watch(where, false);
+      if (watchers.delete(watchId)) void registered.then(() => watch(watchId, where, false));
     };
   }
 

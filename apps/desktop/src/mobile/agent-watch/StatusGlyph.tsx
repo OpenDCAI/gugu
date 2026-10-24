@@ -1,7 +1,8 @@
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation'
+import { displayStatusOf } from '@gugu/core/shared/ui/agentConversationStatusModels'
 import { agentStatusText } from '@/lib/agentStatusText'
-import { AgentAvatar } from '@/components/agentAvatar/AgentAvatar'
-import { agentIdentity } from '@/components/agentAvatar/engine/identity'
+import { Avatar } from '@/components/Avatar'
+import { useAvatarIdentity } from '@/lib/avatarIdentity'
 
 /**
  * 会话状态的那一小格。形制照抄 orca 手机端(`mobile/src/components/AgentSpinner.tsx`):
@@ -29,13 +30,7 @@ export function StatusGlyph({ presentation }: { presentation: AgentStatusPresent
   )
 }
 
-/**
- * 会话那一格的**小鸟**:状态靠身体自己变形说(缩成三颗点、拉成「!」、塌成一滩……),不再是 8px 的点。
- * 画什么由 presentation 决定(与会话页、聊天同一张表);`null` = 这一格不说状态(离线机器上的「在跑」快照),
- * 画「状态不可用」那一格的样子 —— ❌ 不替联系不上的机器说「在跑」,也不说「空闲」。
- * `agentId` = 这条会话背后 agent 的 user id:小鸟按它的形象画(与聊天、会话页同一只);还没有咕咕身份的会话
- * 不给,按 `sessionId` 推一个样子 —— 不同会话各不相同,❌ 全长成同一只。
- */
+/** Session rows share the canonical agent avatar; sessions without an identity use their stable session id. */
 export function SessionAvatar({
   agentId,
   sessionId,
@@ -47,14 +42,11 @@ export function SessionAvatar({
   presentation: AgentStatusPresentation | null
   size?: number
 }) {
+  const identity = useAvatarIdentity(agentId ?? '')
   return (
-    <AgentAvatar
-      id={agentId || sessionId}
-      look={agentId ? undefined : agentIdentity(sessionId)}
-      name={presentation ? agentStatusText(presentation.label) : agentStatusText('none')}
-      size={size}
-      state={presentation?.label ?? 'none'}
-    />
+    <Avatar seed={agentId || sessionId} avatarUrl={identity?.avatar} isAgent harnessBadge={false} size={size}
+        name={identity?.display_name ?? (presentation ? agentStatusText(presentation.label) : agentStatusText('none'))}
+        statusLabel={presentation?.label ?? 'none'} agentStatus={presentation ? displayStatusOf(presentation.tone) : undefined} />
   )
 }
 

@@ -56,6 +56,7 @@ export const UI_EVENTS = {
   // 手机的全局设置与资料页打开同一份连接应用流程。
   openAssistantConnectors: '__open_assistant_connectors',
   // #7199「助理」App 顶上那一排的「搜索」:摆在眼前的那块聊天面进入搜索(与 Alt+F 同一个动作)。
+  openContact: '__open_contact',
   openChatSearch: '__open_chat_search',
   sessionpageShareAgentUnavailable: '__sessionpage_share_agent_unavailable',
   // #6646 会话页要人当场决定一件事(装扩展的同意框就画在它里面):不在任务 tab 上就切过去。

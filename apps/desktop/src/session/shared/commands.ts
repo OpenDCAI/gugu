@@ -1,376 +1,548 @@
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import { sessionActionDefault, type ShortcutPlatform } from './shortcuts';
 
+/** The single catalog for built-in command labels and key bindings. */
 export interface CommandDef {
   id: string;
   label: string;
-  /**
-   * 命令面板里写什么:和这件事在侧栏 / 壳里那个入口同一个文案键(会话页的键,或 `main:` 打头的壳的键),
-   * 跟着界面语言走;给了就不用 `label`(那是英文的内部名字)。
-   */
   labelKey?: string;
-  description?: string;
-  group?: string;
-  scope: 'app' | 'project' | 'task' | 'session-sub';
-  shortcutKey?: ShortcutSettingsKey;
-  /** Token resolved to a LucideIcon by the renderer's COMMAND_ICONS map. */
+  description: string;
   iconKey?: string;
+  category: string;
+  defaultHotkey?: string | ((platform: ShortcutPlatform) => string);
+  hideFromSettings?: boolean;
+  ignoreInputs?: boolean;
+  /** Capture before terminal widgets and modal roots consume global entry keys. */
+  capture?: boolean;
+  conflictBehavior?: 'prevent' | 'allow';
+  ignoreWhenMonacoFocused?: boolean;
+  ignoreWhenBrowserFocused?: boolean;
 }
 
-/**
- * Preserves literal tuple types for exhaustive ID unions while widening each
- * value to the full CommandDef interface.
- */
-function defineCommandDefs<const T extends readonly CommandDef[]>(defs: T): T {
-  return defs;
+function defineCommands<const T extends Record<string, Omit<CommandDef, 'id'>>>(defs: T) {
+  return Object.fromEntries(Object.entries(defs).map(([id, def]) => [id, { ...def, id }])) as {
+    [K in keyof T]: CommandDef & { id: K };
+  };
 }
 
-export const APP_COMMAND_DEFS = defineCommandDefs([
-  {
-    id: 'app.settings',
+export const COMMANDS = defineCommands({
+  'app.settings': {
     label: 'Open Settings',
     labelKey: 'appSettings.settings',
     description: 'Open application settings',
-    scope: 'app',
-    shortcutKey: 'settings',
-    group: 'App',
     iconKey: 'settings',
+    defaultHotkey: 'Mod+,',
+    category: 'Navigation',
   },
-  {
-    id: 'app.library',
+  'app.library': {
     label: 'Open Library',
     labelKey: 'sidebar.library',
     description: 'Open the Library',
-    scope: 'app',
-    shortcutKey: 'library',
-    group: 'App',
     iconKey: 'library',
+    defaultHotkey: 'Mod+L',
+    category: 'Navigation',
   },
-  {
-    id: 'app.newProject',
+  'app.newProject': {
     label: 'New Project',
     labelKey: 'sidebar.addProject',
     description: 'Add a new local or SSH project',
-    scope: 'app',
-    shortcutKey: 'newProject',
-    group: 'App',
     iconKey: 'folder-plus',
+    defaultHotkey: 'Mod+Shift+N',
+    category: 'Navigation',
   },
-  {
-    id: 'app.newSession',
+  'app.newSession': {
     label: 'New Task',
     labelKey: 'sidebar.newTask',
     description: 'Create a new task in this project',
-    scope: 'app',
-    shortcutKey: 'newSession',
-    group: 'App',
     iconKey: 'square-plus',
+    defaultHotkey: 'Mod+N',
+    category: 'Navigation',
   },
-  {
-    // spec session-page「会话历史」(#6083):取代从前的「导入会话」弹窗。
-    id: 'app.sessionHistory',
+  'app.sessionHistory': {
     label: 'Task history',
     labelKey: 'sidebar.sessionHistory',
     description: '咕咕会话与本机 Claude Code / Codex 会话同处一表:打开、恢复已归档的、导入还没导入的',
-    scope: 'app',
-    group: 'App',
     iconKey: 'history',
+    category: 'Navigation',
   },
-  {
-    // gugu-dev#181 ⑯ ⌘K 面板的建议操作:和侧栏「对话」那两行同一个入口、同一个文案键。
-    id: 'app.newGroupChat',
+  'app.newGroupChat': {
     label: 'New group chat',
     labelKey: 'sidebar.newGroupChat',
     description: 'Create a group chat',
-    scope: 'app',
-    group: 'App',
     iconKey: 'users',
+    category: 'Navigation',
   },
-  {
-    id: 'app.addContact',
+  'app.addContact': {
     label: 'Add contact',
     labelKey: 'sidebar.addContact',
     description: 'Add a contact',
-    scope: 'app',
-    group: 'App',
     iconKey: 'user-plus',
+    category: 'Navigation',
   },
-  {
-    id: 'app.scheduled',
+  'app.scheduled': {
     label: 'Scheduled',
     labelKey: 'sidebar.scheduled',
     description: 'Open the scheduled tasks',
-    scope: 'app',
-    group: 'App',
     iconKey: 'clock',
+    category: 'Navigation',
   },
-  {
-    id: 'app.giveFeedback',
+  'app.giveFeedback': {
     label: 'Give Feedback',
     labelKey: 'main:shell.feedback',
     description: '把问题反馈给咕咕团队',
-    scope: 'app',
-    group: 'App',
     iconKey: 'message-square-share',
+    category: 'Navigation',
   },
-  {
-    id: 'app.toggleTheme',
+  'app.toggleTheme': {
     label: 'Toggle Theme',
     description: 'Switch between light and dark themes',
-    scope: 'app',
-    group: 'View',
     iconKey: 'palette',
+    category: 'Navigation',
   },
-  {
-    id: 'app.navigateBack',
+  'app.navigateBack': {
     label: 'Go Back',
     description: 'Navigate to the previous location',
-    scope: 'app',
-    shortcutKey: 'navigateBack',
-    group: 'Navigation',
     iconKey: 'arrow-left',
+    defaultHotkey: 'Mod+[',
+    category: 'Navigation',
   },
-  {
-    id: 'app.navigateForward',
+  'app.navigateForward': {
     label: 'Go Forward',
     description: 'Navigate to the next location',
-    scope: 'app',
-    shortcutKey: 'navigateForward',
-    group: 'Navigation',
     iconKey: 'arrow-right',
+    defaultHotkey: 'Mod+]',
+    category: 'Navigation',
   },
-  {
-    id: 'app.showKeyboardShortcuts',
+  'app.showKeyboardShortcuts': {
     label: 'Keyboard Shortcuts',
     description: 'Show the keyboard shortcuts cheat sheet',
-    scope: 'app',
-    shortcutKey: 'showKeyboardShortcuts',
-    group: 'App',
     iconKey: 'keyboard',
+    defaultHotkey: 'Mod+/',
+    category: 'Navigation',
   },
-] as const);
-
-export const SESSION_COMMAND_DEFS = defineCommandDefs([
-  {
-    // spec session-resume 临时会话视图:任务里「再来一个 agent」= 从当前会话分一支侧边聊天。
-    // ❌ 这里不再有「新建会话」——新建必须带首轮,而任务内那个只填标题的弹窗给不出首轮
-    // (它建出来的正是重开时谁也救不回来的空壳)。真正的新建走 app.newSession。
-    id: 'session.sideSession',
+  'session.sideSession': {
     label: 'Side Chat',
     description: 'Fork the current task into a temporary side chat',
-    scope: 'task',
-    shortcutKey: 'sideSession',
-    group: 'Conversations',
     iconKey: 'message-square-plus',
+    category: 'Task View',
   },
-  {
-    id: 'session.sidebarChanges',
+  'session.sidebarChanges': {
     label: 'View Changes',
     description: 'Open the Review tab in the file panel',
-    scope: 'task',
-    shortcutKey: 'sidebarChanges',
-    group: 'View',
     iconKey: 'file-diff',
+    defaultHotkey: 'Mod+Shift+1',
+    category: 'Task View',
   },
-  {
-    id: 'session.sidebarFiles',
+  'session.sidebarFiles': {
     label: 'View Files',
     description: 'Open the Files tab in the file panel',
-    scope: 'task',
-    shortcutKey: 'sidebarFiles',
-    group: 'View',
     iconKey: 'folder-open',
+    defaultHotkey: 'Mod+Shift+2',
+    category: 'Task View',
   },
-  {
-    id: 'session.viewTerminals',
+  'session.viewTerminals': {
     label: 'View Terminals',
     description: 'Open the terminal drawer',
-    scope: 'task',
-    group: 'View',
     iconKey: 'terminal',
+    category: 'Task View',
   },
-  {
-    id: 'session.toggleTerminalDrawer',
+  'session.toggleTerminalDrawer': {
     label: 'Toggle Terminal Drawer',
     description: 'Show or hide the terminal drawer',
-    scope: 'task',
-    shortcutKey: 'toggleTerminalDrawer',
-    group: 'Panel',
     iconKey: 'terminal',
+    defaultHotkey: 'Mod+J',
+    category: 'Task View',
   },
-  {
-    id: 'session.newTerminal',
+  'session.newTerminal': {
     label: 'New Terminal',
     description: 'Create a new terminal session',
-    scope: 'task',
-    shortcutKey: 'newTerminal',
-    group: 'Terminals',
     iconKey: 'square-terminal',
+    defaultHotkey: 'Mod+Shift+`',
+    category: 'Task View',
   },
-  {
-    id: 'session.openBrowser',
+  'session.openBrowser': {
     label: 'Open Browser',
     description: 'Open an in-app browser for this task',
-    scope: 'task',
-    shortcutKey: 'openBrowser',
-    group: 'Browser',
     iconKey: 'globe',
+    defaultHotkey: 'Mod+Shift+B',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserGoBack',
+  'session.browserGoBack': {
     label: 'Browser Back',
     description: 'Go back in the active browser tab',
-    scope: 'task',
-    group: 'Browser',
     iconKey: 'arrow-left',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserGoForward',
+  'session.browserGoForward': {
     label: 'Browser Forward',
     description: 'Go forward in the active browser tab',
-    scope: 'task',
-    group: 'Browser',
     iconKey: 'arrow-right',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserReload',
+  'session.browserReload': {
     label: 'Reload Browser',
     description: 'Reload the active browser tab',
-    scope: 'task',
-    group: 'Browser',
     iconKey: 'refresh-cw',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserFocusUrl',
+  'session.browserFocusUrl': {
     label: 'Focus Browser URL',
     description: 'Focus the URL field in the active browser tab',
-    scope: 'task',
-    group: 'Browser',
     iconKey: 'text-cursor-input',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserOpenExternal',
+  'session.browserOpenExternal': {
     label: 'Open Browser URL Externally',
     description: 'Open the active browser URL in the system browser',
-    scope: 'task',
-    group: 'Browser',
     iconKey: 'external-link',
+    category: 'Task View',
   },
-  {
-    id: 'session.browserCopyUrl',
+  'session.browserCopyUrl': {
     label: 'Copy Browser URL',
     description: 'Copy the active browser URL',
-    scope: 'task',
-    shortcutKey: 'browserCopyUrl',
-    group: 'Browser',
     iconKey: 'copy',
+    defaultHotkey: 'Mod+Shift+C',
+    category: 'Task View',
   },
-  {
-    id: 'session.gitFetch',
+  'session.gitFetch': {
     label: 'Git Fetch',
     description: 'Fetch latest changes from remote',
-    scope: 'task',
-    group: 'Git',
     iconKey: 'git-pull-request',
+    category: 'Task View',
   },
-  {
-    id: 'session.gitPull',
+  'session.gitPull': {
     label: 'Git Pull',
     description: 'Pull latest changes from remote',
-    scope: 'task',
-    group: 'Git',
     iconKey: 'arrow-down-to-line',
+    category: 'Task View',
   },
-  {
-    id: 'session.gitPush',
+  'session.gitPush': {
     label: 'Git Push',
     description: 'Push commits to remote',
-    scope: 'task',
-    group: 'Git',
     iconKey: 'arrow-up-to-line',
+    category: 'Task View',
   },
-  {
-    id: 'task.pin',
+  'task.pin': {
     label: 'Pin Task',
     description: 'Pin this task to keep it at the top',
-    scope: 'task',
-    group: 'Task',
     iconKey: 'pin',
+    category: 'Task View',
   },
-  {
-    id: 'task.archive',
+  'task.archive': {
     label: 'Archive Task',
     description: 'Archive the current task',
-    scope: 'task',
-    shortcutKey: 'archiveSession',
-    group: 'Task',
     iconKey: 'archive',
+    defaultHotkey: 'Mod+Shift+E',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
   },
-  {
-    id: 'session.convertAutomation',
+  'session.convertAutomation': {
     label: 'Convert to Regular Task',
     description: 'Detach this task from its automation run',
-    scope: 'task',
-    group: 'Task',
     iconKey: 'message-square',
+    category: 'Task View',
   },
-  {
-    id: 'session.focusSidebar',
+  'session.focusSidebar': {
     label: 'Focus Sidebar',
     description: 'Move focus to the left sidebar',
-    scope: 'task',
-    shortcutKey: 'focusSidebar',
-    group: 'Navigation',
     iconKey: 'panel-left',
+    defaultHotkey: 'Mod+0',
+    category: 'Navigation',
   },
-  {
-    id: 'session.focusComposer',
+  'session.focusComposer': {
     label: 'Focus Composer',
     description: 'Focus the message composer input',
-    scope: 'task',
-    shortcutKey: 'focusComposer',
-    group: 'Navigation',
     iconKey: 'text-cursor-input',
+    defaultHotkey: 'Shift+Escape',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
   },
-  {
-    id: 'session.addContext',
+  'session.addContext': {
     label: 'Add Context',
     description: 'Open the context picker for the active task',
-    scope: 'session-sub',
-    shortcutKey: 'addContext',
-    group: 'Conversations',
     iconKey: 'list-plus',
+    defaultHotkey: 'Mod+Shift+A',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
   },
-  {
-    id: 'session.stageAll',
+  'session.stageAll': {
     label: 'Stage All Files',
     description: 'Stage all unstaged files',
-    scope: 'task',
-    shortcutKey: 'stageAll',
-    group: 'Git',
     iconKey: 'git-commit',
+    defaultHotkey: 'Mod+Shift+G',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
   },
-  {
-    id: 'session.timelineNext',
+  'session.timelineNext': {
     label: 'Next Timeline Entry',
     description: 'Jump to the next timeline entry',
-    scope: 'task',
-    shortcutKey: 'timelineNext',
-    group: 'Navigation',
     iconKey: 'chevron-down',
+    defaultHotkey: 'Alt+]',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
   },
-  {
-    id: 'session.timelinePrev',
+  'session.timelinePrev': {
     label: 'Previous Timeline Entry',
     description: 'Jump to the previous timeline entry',
-    scope: 'task',
-    shortcutKey: 'timelinePrev',
-    group: 'Navigation',
     iconKey: 'chevron-up',
+    defaultHotkey: 'Alt+[',
+    category: 'Task View',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
   },
-] as const);
+  'app.commandPalette': {
+    capture: true,
+    defaultHotkey: 'Mod+P',
+    label: 'Command Palette',
+    description: 'Open the command palette to run an available command',
+    category: 'Navigation',
+  },
+  'app.quickSwitcher': {
+    capture: true,
+    defaultHotkey: 'Mod+O',
+    label: 'Quick Switcher',
+    description: 'Switch between tasks, groups, projects, and contacts',
+    category: 'Navigation',
+  },
+  'app.toggleLeftSidebar': {
+    defaultHotkey: 'Mod+Shift+S',
+    label: 'Toggle Left Sidebar',
+    description: 'Show or hide the left sidebar',
+    category: 'View',
+  },
+  'app.zenMode': {
+    defaultHotkey: 'Control+Z',
+    label: 'Zen Mode',
+    description: 'Hide both sidebars',
+    category: 'View',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+    ignoreInputs: true,
+  },
+  'app.closeModal': {
+    defaultHotkey: 'Escape',
+    label: 'Close Modal',
+    description: 'Close the current modal or dialog',
+    category: 'Navigation',
+    hideFromSettings: true,
+  },
+  'project.openInEditor': {
+    label: 'Open in Editor',
+    description: 'Open the project in the default editor',
+    category: 'Navigation',
+  },
+  'session.tabNext': {
+    defaultHotkey: 'Mod+Alt+ArrowRight',
+    label: 'Next Tab',
+    description: 'Switch to the next tab',
+    category: 'Tab Navigation',
+  },
+  'session.tabPrev': {
+    defaultHotkey: 'Mod+Alt+ArrowLeft',
+    label: 'Previous Tab',
+    description: 'Switch to the previous tab',
+    category: 'Tab Navigation',
+  },
+  'session.tabClose': {
+    defaultHotkey: 'Mod+W',
+    label: 'Close Tab',
+    description: 'Close the active tab',
+    category: 'Tab Navigation',
+  },
+  'session.tabReopen': {
+    defaultHotkey: 'Mod+Shift+T',
+    label: 'Reopen Closed Tab',
+    description: 'Reopen the most recently closed tab',
+    category: 'Tab Navigation',
+  },
+  'session.tabRename': {
+    defaultHotkey: 'Mod+Shift+R',
+    label: 'Rename Tab',
+    description: 'Rename the active tab (when supported)',
+    category: 'Tab Navigation',
+  },
+  'session.openAddMenu': {
+    defaultHotkey: 'Mod+T',
+    label: 'New Tab',
+    description: 'Open the + menu of the focused pane',
+    category: 'Tab Navigation',
+  },
+  'app.confirm': {
+    defaultHotkey: 'Mod+Enter',
+    label: 'Confirm',
+    description: 'Confirm the current dialog action',
+    category: 'Navigation',
+  },
+  'session.splitPane': {
+    defaultHotkey: 'Mod+\\',
+    label: 'Split Pane',
+    description: 'Show the active tab side by side with the last one, or separate the pair',
+    category: 'Tab Navigation',
+  },
+  'session.next': {
+    defaultHotkey: 'Mod+ArrowDown',
+    label: 'Next Task',
+    description: 'Move to the next task in the sidebar and show it',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.previous': {
+    defaultHotkey: 'Mod+ArrowUp',
+    label: 'Previous Task',
+    description: 'Move to the previous task in the sidebar and show it',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.focusComposerFromSidebar': {
+    defaultHotkey: 'ArrowRight',
+    label: 'Focus Composer From Sidebar',
+    description: 'Hand the keyboard back to the composer',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.projectHome': {
+    defaultHotkey: 'ArrowLeft',
+    label: 'Project Home',
+    description: "Jump to the parent project's home, where a new task is started",
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.backToList': {
+    defaultHotkey: 'ArrowLeft',
+    label: 'Back To Task List',
+    description: 'Leave the composer for the sidebar when the caret is at the start',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.leaveTerminal': {
+    defaultHotkey: 'Alt+ArrowLeft',
+    label: 'Leave Terminal For Task List',
+    description: 'Hand the keyboard from a terminal task back to the sidebar',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.leaveComposer': {
+    defaultHotkey: 'Escape',
+    label: 'Leave Composer',
+    description: 'Return from the composer to sidebar navigation, keeping the draft',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.rename': {
+    defaultHotkey: (platform) => sessionActionDefault('R', platform),
+    label: 'Rename Task',
+    description: 'Rename the highlighted task in place',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.pinHighlighted': {
+    defaultHotkey: (platform) => sessionActionDefault('P', platform),
+    label: 'Pin Task',
+    description: 'Pin or unpin the highlighted task',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'session.archiveHighlighted': {
+    defaultHotkey: (platform) => sessionActionDefault('X', platform),
+    label: 'Archive Highlighted Task',
+    description: 'Archive the highlighted task (press twice to confirm)',
+    category: 'Navigation',
+    conflictBehavior: 'allow',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'app.find': {
+    capture: true,
+    label: 'Find in Current View',
+    description: 'Search the focused terminal or chat',
+    category: 'Navigation',
+    defaultHotkey: 'Mod+F',
+    ignoreWhenMonacoFocused: true,
+    ignoreWhenBrowserFocused: true,
+  },
+  'chat.rename': {
+    label: 'Rename Group',
+    description: 'Rename the focused group',
+    category: 'Navigation',
+  },
+  'app.resourceMonitor': {
+    label: 'Resource Monitor',
+    labelKey: 'palette.resourceMonitor',
+    description: 'View application resource usage',
+    category: 'Navigation',
+  },
+  'session.tab1': {
+    label: 'Go to Tab 1',
+    description: 'Switch to tab 1',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+1',
+  },
+  'session.tab2': {
+    label: 'Go to Tab 2',
+    description: 'Switch to tab 2',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+2',
+  },
+  'session.tab3': {
+    label: 'Go to Tab 3',
+    description: 'Switch to tab 3',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+3',
+  },
+  'session.tab4': {
+    label: 'Go to Tab 4',
+    description: 'Switch to tab 4',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+4',
+  },
+  'session.tab5': {
+    label: 'Go to Tab 5',
+    description: 'Switch to tab 5',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+5',
+  },
+  'session.tab6': {
+    label: 'Go to Tab 6',
+    description: 'Switch to tab 6',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+6',
+  },
+  'session.tab7': {
+    label: 'Go to Tab 7',
+    description: 'Switch to tab 7',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+7',
+  },
+  'session.tab8': {
+    label: 'Go to Tab 8',
+    description: 'Switch to tab 8',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+8',
+  },
+  'session.tab9': {
+    label: 'Go to Tab 9',
+    description: 'Switch to tab 9',
+    category: 'Tab Navigation',
+    defaultHotkey: 'Mod+9',
+  },
+});
 
-export const ALL_COMMAND_DEFS = [...APP_COMMAND_DEFS, ...SESSION_COMMAND_DEFS] as const;
-
-export type AppCommandId = (typeof APP_COMMAND_DEFS)[number]['id'];
-export type SessionCommandId = (typeof SESSION_COMMAND_DEFS)[number]['id'];
-export type CommandId = (typeof ALL_COMMAND_DEFS)[number]['id'];
+export type CommandId = keyof typeof COMMANDS;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join as joinPath, resolve as resolvePath } from 'node:path'
@@ -11,6 +12,7 @@ import { tokenizeMarkdownMath } from '../../../../packages/core/src/shared/markd
 import { findRosterNameHits } from '../../../../packages/core/src/shared/rosterNameMatching.mjs'
 import { findMentionSpans } from '../../../../packages/core/src/shared/mentionToken.mjs'
 import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
+import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
@@ -612,7 +614,7 @@ async function currentAuthUserId(deps) {
   throw new Error('workspace write requires an authenticated owner token with a JWT sub')
 }
 
-// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是这个群/话题的成员判,
+// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是来源群/私聊的成员判,
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
@@ -769,7 +771,8 @@ export async function extensionCheckScopeOf(context, { chatId, itemId }, injecte
   const deps = createDeps(context, injected)
   // L5 S1 rerun: an agent passed the group's public_id ("208920") and was told the file is in some other chat. chat_id
   // reads here the way every other tool reads it — one resolver — so either spelling of the same group is that group.
-  const chat = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const addressed = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const chat = addressed ? (await topicSourceChatIdOf(deps, addressed)) ?? addressed : null
   if (itemId) {
     const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: String(itemId) }, 'app_check')
     const itemChat = String(item.chat_id)
@@ -2125,12 +2128,12 @@ async function downloadAttachment(messageId, deps) {
   const bytes = await deps.fetchBytes(link.url)
   const home = typeof deps.context.guguHome === 'string' ? deps.context.guguHome.trim() : ''
   if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
-  const safeName = attachment.fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
-  const dir = joinPath(home, 'chat-media')
-  const path = joinPath(dir, `${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}-${safeName}`)
-  await mkdir(dir, { recursive: true })
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  const dir = joinPath(home, 'chat-media', sha256)
+  const path = joinPath(dir, attachmentDownloadName(attachment.fileName))
+  await mkdir(dir, { recursive: true, mode: 0o700 })
   await writeFile(path, bytes, { mode: 0o600 })
-  return `saved ${attachment.fileName} (${bytes.length} bytes) to ${path}`
+  return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256 })
 }
 
 async function handleFile(args, deps) {
@@ -2155,7 +2158,14 @@ async function handleFile(args, deps) {
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
     return `file sent (id=${message.id})`
   }
-  if (args.action === 'download-attachment') return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  if (args.action === 'download-attachment') {
+    if (args.source_attachment_id) {
+      const home = deps.context.guguHome
+      if (!home) throw new Error('Gugu home is unavailable')
+      return JSON.stringify(await downloadSessionFile(await deps.attachmentsEndpoint(), String(args.source_attachment_id), deps.context.agentId, joinPath(home, 'session-media')))
+    }
+    return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  }
   throw new Error(`gugu_file: unknown action ${args.action}`)
 }
 
@@ -2362,8 +2372,8 @@ export const TOOL_DEFS = [
   },
   {
     name: 'message_download_file',
-    description: 'Save a chat attachment to this machine by its message (source_message_id); returns the local file path.',
-    schema: z.object({ source_message_id: z.string() }),
+    description: 'Download original bytes from a visible chat message (source_message_id) or a session-message attachment reference (source_attachment_id). Returns file_path, actual size_bytes and full sha256; session files are verified against their reference.',
+    schema: z.object({ source_message_id: z.string().optional(), source_attachment_id: z.string().uuid().optional() }).refine(args => Boolean(args.source_message_id) !== Boolean(args.source_attachment_id), 'Give exactly one attachment source'),
     handler: (args, deps) => handleFile({ ...args, action: 'download-attachment' }, deps),
   },
   // ── topic_ ── 话题:从一条已有消息长出来的独立工作线。它本身就是一条 chat,所以收发/读历史仍走
@@ -2371,7 +2381,7 @@ export const TOOL_DEFS = [
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from one existing message, to take a question out of a busy chat: only its members are notified. It is an ordinary chat: message_send / message_history on the returned chat_id. Only a person can delete it.',
+    description: 'Open a topic from a message. Only participants are notified. Use its chat_id for messages; files and Apps use the source chat. Only a person can delete it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),

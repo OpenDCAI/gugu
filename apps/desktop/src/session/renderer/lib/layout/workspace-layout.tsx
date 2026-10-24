@@ -4,7 +4,7 @@ import { ShellSidebarToggle } from '@renderer/lib/components/titlebar/shell-titl
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { SIDEBAR_MIN_WIDTH_PX } from '@renderer/lib/layout/layout-provider';
 import { panelContentLayout, usePanelMounted, usePanelProgress } from '@renderer/lib/layout/panel-motion';
-import { PanelResizeHandle } from '@renderer/lib/layout/panel-resize-handle';
+import { PanelResizeDragGuard, PanelResizeHandle } from '@renderer/lib/layout/panel-resize-handle';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
 import './workspace-surface.css';
@@ -161,6 +161,7 @@ export function WorkspaceLayout({ leftSidebar, mainContent, sidebarHidden = fals
         />
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-workspace-content-surface="">{mainContent}</div>
+      {isLeftOpen && !sidebarHidden ? <PanelResizeDragGuard edge="end" offset={leftAnimatedWidth} /> : null}
       {/* 左侧栏开关:整个会话页**唯一**一枚,永远钉在会话页左缘同一个坐标 ——
           侧栏是从它下面滑过去的,不是把它顶走。❌ 别再在侧栏内部另放一枚。 */}
       {sidebarHidden ? null : <ShellSidebarToggle />}

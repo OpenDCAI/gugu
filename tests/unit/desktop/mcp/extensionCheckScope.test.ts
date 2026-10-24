@@ -9,6 +9,7 @@ const BOB = '22222222-2222-4222-8222-222222222222'
 const CHAT = '33333333-3333-4333-8333-333333333333'
 const OTHER = '44444444-4444-4444-8444-444444444444'
 const ITEM = '55555555-5555-4555-8555-555555555555'
+const TOPIC = '66666666-6666-4666-8666-666666666666'
 const context = { agentId: AGENT, supabaseUrl: '', anonKey: '', getAccessToken: async () => 'token' }
 
 function injected({ members = [AGENT, BOB], visibleItem = true } = {}) {
@@ -30,6 +31,7 @@ function injected({ members = [AGENT, BOB], visibleItem = true } = {}) {
           if (!visibleItem) throw new Error(`command RPC HTTP 400: workspace item not found: ${String(body.p_item_id)}`)
           return [{ id: ITEM, chat_id: CHAT, filename: 'friday.vote.json' }]
         }
+        if (name === 'chat_facts') return [{ id: body.p_chat_id, kind: body.p_chat_id === TOPIC ? 'topic' : 'group', source_chat_id: body.p_chat_id === TOPIC ? CHAT : null }]
         if (name === 'list_member_ids') return members.map((user_id) => ({ user_id }))
         throw new Error(`unexpected rpc ${name}`)
       },
@@ -38,6 +40,10 @@ function injected({ members = [AGENT, BOB], visibleItem = true } = {}) {
 }
 
 describe('app_check: which group and file the hidden page may run in', () => {
+  test('a topic opens the source slot, with or without an explicit file', async () => {
+    await expect(extensionCheckScopeOf(context, { chatId: TOPIC, itemId: ITEM }, injected().deps)).resolves.toEqual({ chatId: CHAT, itemId: ITEM })
+    await expect(extensionCheckScopeOf(context, { chatId: TOPIC }, injected().deps)).resolves.toEqual({ chatId: CHAT })
+  })
   test('a file names its group; it is read as the agent itself', async () => {
     const { calls, deps } = injected()
     await expect(extensionCheckScopeOf(context, { itemId: ITEM }, deps)).resolves.toEqual({ chatId: CHAT, itemId: ITEM })

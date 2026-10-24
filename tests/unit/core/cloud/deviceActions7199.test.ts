@@ -212,7 +212,7 @@ const manifest: DeviceActionsCapability = {
 }
 
 function target(over: Partial<DeviceActionTarget> = {}): DeviceActionTarget {
-  return { device_id: 'mac', label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: manifest, ...over }
+  return { this_machine: true, device_id: 'mac', label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: manifest, ...over }
 }
 
 describe('调用方(DeviceActionCaller)', () => {

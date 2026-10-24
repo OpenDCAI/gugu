@@ -15,6 +15,16 @@ function deadConnection({ ignoresAbortReason = false } = {}) {
   }))
 }
 
+// Chromium can reject a body read as AbortError even when the signal's reason is TimeoutError.
+function headersWithoutBody() {
+  return vi.fn((_input: RequestInfo | URL, init?: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('['))
+      init?.signal?.addEventListener('abort', () => controller.error(new DOMException('The user aborted a request.', 'AbortError')), { once: true })
+    },
+  }), { headers: { 'Content-Type': 'application/json' } })))
+}
+
 function controllableTimeouts() {
   const timers: Array<{ ms: number; fire: () => void }> = []
   vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
@@ -44,6 +54,33 @@ afterEach(() => {
 })
 
 describe('authBoundedFetch data-plane deadline', () => {
+  it('returns a completed REST body with its status and headers intact', async () => {
+    controllableTimeouts()
+    const response = new Response('[{"id":"x"}]', { status: 206, statusText: 'Partial Content', headers: { 'Content-Range': '0-0/1' } })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    const result = await authBoundedFetch('https://db.example.test/rest/v1/messages_view')
+    expect(result).toBe(response)
+    expect(result.status).toBe(206)
+    expect(result.statusText).toBe('Partial Content')
+    expect(result.headers.get('Content-Range')).toBe('0-0/1')
+    expect(await result.json()).toEqual([{ id: 'x' }])
+  })
+
+  it('keeps a bodyless REST response bodyless', async () => {
+    controllableTimeouts()
+    const response = new Response(null, { status: 204 })
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    expect(await authBoundedFetch('https://db.example.test/rest/v1/messages_view')).toBe(response)
+  })
+
+  it('returns storage streams without consuming their body', async () => {
+    controllableTimeouts()
+    const response = new Response(new ReadableStream())
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    expect(await authBoundedFetch('https://db.example.test/storage/v1/object/chat-media/a.png')).toBe(response)
+    expect(response.bodyUsed).toBe(false)
+  })
+
   it('fails a hung /rest/v1 request loudly once the REST deadline passes', async () => {
     const timers = controllableTimeouts()
     vi.stubGlobal('fetch', deadConnection())
@@ -106,6 +143,57 @@ describe('authBoundedFetch under the real PostgREST client', () => {
   function dataClient() {
     return createGuguSupabaseClient({ url: 'https://db.example.test', anonKey: 'anon', accessToken: async () => null, fetch: authBoundedFetch })
   }
+
+  it('accepts a 204 PATCH whose fetch response exposes an empty body stream', async () => {
+    controllableTimeouts()
+    // Chromium fetch can expose a stream for 204; the Response constructor cannot create that shape.
+    const response = new Response('', { statusText: 'No Content' })
+    Object.defineProperty(response, 'status', { value: 204 })
+    expect(response.body).not.toBeNull()
+    const fetch = vi.fn(async () => response)
+    vi.stubGlobal('fetch', fetch)
+    const result = await dataClient().from('users').update({ display_name: 'Updated name' }).eq('id', 'x')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: 'PATCH' }))
+    expect(result.error).toBeNull()
+    expect(result.status).toBe(204)
+    expect(result.data).toBeNull()
+  })
+
+  it.each([false, true])('classifies a body deadline as TimeoutError without retrying (compatibility: %s)', async (compatibility) => {
+    if (compatibility) restoreAbortSignalAny = withoutAbortSignalAny()
+    vi.useFakeTimers()
+    const timers = controllableTimeouts()
+    const fetch = headersWithoutBody()
+    vi.stubGlobal('fetch', fetch)
+    const read = dataClient().from('messages_view').select('*').then((result) => result)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    timers[0]!.fire()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const { error } = await read
+    expect(error?.message).toMatch(/^TimeoutError: /)
+    expect(isLifecycleCancellation(new Error(error!.message))).toBe(false)
+  })
+
+  it.each(['session', 'caller'] as const)('keeps a genuine %s cancellation during body reading quiet', async (source) => {
+    restoreAbortSignalAny = withoutAbortSignalAny()
+    vi.useFakeTimers()
+    controllableTimeouts()
+    const caller = new AbortController()
+    const fetch = headersWithoutBody()
+    vi.stubGlobal('fetch', fetch)
+    const read = dataClient().from('messages_view').select('*').abortSignal(caller.signal).then((result) => result)
+    await vi.advanceTimersByTimeAsync(0)
+    if (source === 'session') abortAuthSessionBoundary()
+    else caller.abort()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const { error } = await read
+    expect(error?.message).toMatch(/^AbortError: /)
+    expect(isLifecycleCancellation(new Error(error!.message))).toBe(true)
+  })
 
   it('fails a hung read once, as TimeoutError, without postgrest stacking more 30 s attempts', async () => {
     vi.useFakeTimers()

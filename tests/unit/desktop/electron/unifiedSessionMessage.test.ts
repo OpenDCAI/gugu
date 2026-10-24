@@ -278,3 +278,14 @@ describe('session_message reaches your sessions on your other machines', () => {
     expect(deliver).not.toHaveBeenCalled()
   })
 })
+
+
+it('preflights every recipient before uploading files, then passes only immutable references to delivery', async () => {
+  const prepareFiles = vi.fn(async () => [{ attachment_id: '11111111-1111-4111-8111-111111111111', file_name: 'original.bin', sha256: 'ab'.repeat(32), size_bytes: 4, content_type: 'application/octet-stream' }])
+  const { deps, graphMessage } = makeDeps({ prepareFiles })
+  await expect(handleUnifiedSessionMessage({to:[`session:${OTHER_SESSION}`,'bare-invalid'],text:'report',files:[{file_path:'/original'}]},deps)).rejects.toThrow()
+  expect(prepareFiles).not.toHaveBeenCalled()
+  await handleUnifiedSessionMessage({to:[`session:${OTHER_SESSION}`],text:'report',files:[{file_path:'/original'}]},deps)
+  expect(prepareFiles).toHaveBeenCalledWith([{file_path:'/original'}],[{sessionId:OTHER_SESSION}])
+  expect(graphMessage).toHaveBeenCalledWith([OTHER_SESSION],'report',expect.objectContaining({attachments:await prepareFiles.mock.results[0].value}))
+})

@@ -87,7 +87,7 @@ describe('agent identity layer (身份层:身体颜色 + 休息表情)', () => {
     const seen = new Map<number, string>()
     for (let i = 0; i < 400; i++) {
       const id = uuid(i)
-      const url = agentLookPoster(agentIdentity(id), id)
+      const url = agentLookPoster(agentIdentity(id))
       const color = agentIdentity(id).color
       if (seen.has(color)) expect(seen.get(color)).toBe(url)
       else seen.set(color, url)

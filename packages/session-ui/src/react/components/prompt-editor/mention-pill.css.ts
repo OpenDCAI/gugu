@@ -138,3 +138,5 @@ export const pillName = style({
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 });
+
+export const pillAnnotation = style({ marginInlineStart: '0.375rem', fontSize: tokenVars.textTiny, color: vars.foregroundMuted });

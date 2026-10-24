@@ -158,6 +158,10 @@ describe('#6016 system delivery follows event-time listening state; #6860 unaddr
   it.each(['group', 'topic'] as const)('an unaddressed system event wakes no agent in %s; a named one reaches its target in any mode', async (kind) => rollback(async () => {
     const room = await seed()
     const chat = room[kind]
+    if (kind === 'topic') {
+      await join(room.group, room.agents[0]!)
+      await join(room.group, room.agents[1]!, 'passive')
+    }
     await join(chat, room.agents[0]!)
     await join(chat, room.agents[1]!, 'passive')
     // #6860: nobody is named on it, so it is not a request — not even for the active agent.

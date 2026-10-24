@@ -4,6 +4,20 @@ import { wrapArgs } from './modal-provider';
 import { modalStore } from './modal-store';
 
 describe('弹窗的收尾动作都先把弹窗收起', () => {
+  it('changing an open palette mode preserves the original return focus', () => {
+    modalStore.closeModal();
+    const task = document.createElement('textarea');
+    const palette = document.createElement('input');
+    document.body.append(task, palette);
+    try {
+      task.focus();
+      modalStore.setModal('commandPaletteModal', { initialQuery: '' });
+      palette.focus();
+      modalStore.setModal('commandPaletteModal', { initialQuery: '> ' });
+      expect(modalStore.previousFocus).toBe(task);
+      expect(modalStore.activeModalArgs?.initialQuery).toBe('> ');
+    } finally { modalStore.closeModal(); task.remove(); palette.remove(); }
+  });
   it('取消键另有说法(onCancel,如「只关会话」):弹窗收起,调用方收到这一句;❌ 遮罩一直挡着', () => {
     const onCancel = vi.fn();
     const onClose = vi.fn();

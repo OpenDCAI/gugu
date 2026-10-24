@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e31f90f5a67852badece7bcafb171247f99e39f8",
-  "status": "Merged: activity metadata companion OpenDCAI/gugu-supabase#15, including the account snapshot bootstrap from #26."
+  "ref": "0b948f7d4269d9739e21fb438d54d64efff0ce1e",
+  "status": "Merged: topic source resources and participant-scoped session attachments companions OpenDCAI/gugu-supabase#28 and #29."
 }

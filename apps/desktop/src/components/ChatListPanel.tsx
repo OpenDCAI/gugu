@@ -723,7 +723,7 @@ export function ChatListPanel({
           {/* @@@5856 「更多 · N」—— 沉下去的 + 摊不下的那些话题。只留一行告诉你它们还在,
               发一句就浮回上面(spec:「没有开关,只有沉降」)。
               ❌ 它不就地展开:一个老群能攒出两百条,展开等于把整条侧边栏灌满
-              (owner 2026-09-20)。点它跳到这条线顶栏的「历史 → 话题」——那才是全部话题的主场,
+              (owner 2026-09-20)。点它跳到这条线的完整话题清单,
               带搜索、能翻。 */}
           {sunk.length > 0 && (
             <Button
@@ -779,6 +779,9 @@ export function ChatListPanel({
       if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
       const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
       sessionPage.openChat(topic?.source_chat_id ?? chat.id, beside)
+      if (chat.unread_locator && !topic) void openUnreadChat(chat.id, selectedChatId === chat.id).catch((error) => {
+        chatListLog.error({ error: String(error) }, 'unread locator open failed')
+      })
       if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id!, focusComposer: focusTarget === 'composer' })
       return
     }
@@ -808,7 +811,7 @@ export function ChatListPanel({
       setActiveChatId(chat.id)
     }
     onChatSelected?.(focusTarget)
-  }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId])
+  }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId, selectedChatId])
 
   const toggleTopics = (chatId: string) => {
     setCollapsedTopicSources((previous) => {
@@ -821,7 +824,7 @@ export function ChatListPanel({
 
   // 手机整行只导航;桌面重复激活当前来源行才收起/展开,⌘ 点照常拼到右边。
   const activateChatRow = (chat: ChatItem, beside = false) => {
-    if (mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
+    if (chat.unread_locator || mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
       selectChat(chat, 'composer', beside)
       return
     }
@@ -859,14 +862,9 @@ export function ChatListPanel({
           (node.matches('input, textarea, [contenteditable="true"], [role="textbox"]') ||
             node.closest('input, textarea, [contenteditable="true"], [role="textbox"]')),
       )
-      if (insideOtherTextControl && !insideChatComposer && shortcut.kind !== 'search') return
+      if (insideOtherTextControl && !insideChatComposer) return
 
       event.preventDefault()
-      if (shortcut.kind === 'search') {
-        searchInputRef.current?.focus()
-        searchInputRef.current?.select()
-        return
-      }
 
       const targetId =
         shortcut.kind === 'select'

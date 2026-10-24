@@ -87,7 +87,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/ChatAreaPanel.tsx",
-    "count": 5
+    "count": 4
   },
   {
     "rule": "console-member",

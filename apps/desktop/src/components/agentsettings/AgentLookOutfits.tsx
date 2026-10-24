@@ -10,7 +10,7 @@ function swatchVars(swatch: string): CSSProperties {
 
 /**
  * 形象工坊的「装扮」页签(玩家 DIY):按位置一排排列出全部装扮,点一件就穿上(同位置的、和它打架的自动摘下,并说一句摘了什么),
- * 穿着的那件下面出它的配色圆点;「全部摘掉」= 明确不戴,「恢复默认」= 回到按编号推导的那一身(形象地址里去掉 wear)。
+ * 穿着的那件下面出它的配色圆点;「全部摘掉」= 明确不戴,「恢复默认」= 回到不戴装扮(形象地址里去掉 wear)。
  * 墨镜、披风、背包、滑板、雨伞这些不进随机的,只在这里能搭。
  */
 export function AgentLookOutfits({
@@ -22,7 +22,7 @@ export function AgentLookOutfits({
 }: {
   /** 舞台上那只此刻穿的那一身(look.ts wornOf) */
   worn: readonly WearItem[]
-  /** 草稿里没有 wear:穿的是按编号推导的默认装扮 */
+  /** 草稿里没有 wear:使用不戴装扮的默认形象 */
   isDefault: boolean
   editable: boolean
   onChange: (wear: WearItem[]) => void

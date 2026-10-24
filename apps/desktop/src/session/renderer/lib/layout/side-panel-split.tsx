@@ -7,7 +7,7 @@ import {
   usePanelMounted,
   usePanelProgress,
 } from '@renderer/lib/layout/panel-motion';
-import { PanelResizeHandle } from '@renderer/lib/layout/panel-resize-handle';
+import { PanelResizeDragGuard, PanelResizeHandle } from '@renderer/lib/layout/panel-resize-handle';
 import { cn } from '@renderer/utils/utils';
 
 /** 右栏的形态:关着 / 和左栏并排 / 全屏(右栏盖住左栏)。会话页右栏和群右栏是同一个三态。 */
@@ -245,6 +245,7 @@ export function SidePanelSplit({
           aria-hidden="true"
         />
       </motion.aside>
+      {showHandle ? <PanelResizeDragGuard edge="start" offset={animatedWidth} /> : null}
     </motion.div>
   );
 }

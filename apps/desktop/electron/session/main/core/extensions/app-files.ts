@@ -404,6 +404,7 @@ export const messageToShow = files.messageToShow;
 export const chatMembersOf = files.members;
 export const chatsOf = files.chats;
 export const surfaceChatOf = files.chat;
+export const resourceChatOf = files.resourceChat;
 export const chatOfItem = files.chatOf;
 export const groupFiles = files.groupFiles;
 export const groupFile = files.groupFile;

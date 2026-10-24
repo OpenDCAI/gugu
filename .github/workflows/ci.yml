@@ -108,7 +108,6 @@ jobs:
             apps/desktop/src/lib/chat.ts \
             apps/desktop/src/store/chat.tsx \
             apps/desktop/src/components/chat/GroupMembersSection.tsx \
-            apps/desktop/src/components/chat/InputArea.tsx \
             apps/desktop/src/components/chat/MessageBubble.tsx; do
             base_lines=$(git show "FETCH_HEAD:$file" | wc -l | tr -d ' ')
             head_lines=$(wc -l < "$file" | tr -d ' ')

@@ -14,6 +14,7 @@ import {
   DEVICE_ACTION_RESULT_EVENT,
   DEVICE_ACTION_RPC_TYPE,
   clampDeviceActionTimeout,
+  deviceScopeError,
   isDeviceActionAccepted,
   normalizeDeviceActionsCapability,
   readDeviceActionResult,
@@ -206,6 +207,11 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
       const devices = await deps.listDevices()
       const device = devices.find((d) => d.device_id === input.deviceId)
       if (!device) return fail(callId, 'unknown_device', `你的账号下没有设备 ${input.deviceId}(用 device_actions 列出你的设备)`)
+      // this_machine is computed by the host's device directory, not by model input.
+      if (device.this_machine !== true) {
+        const error = deviceScopeError(device.device_id)
+        return fail(callId, error.code, error.message)
+      }
       if (!device.online) {
         return fail(callId, 'device_offline', `「${device.label}」现在离线(最后在线:${minutesAgo(device.last_seen_at, now())}),这次没有发出去;那台设备上的咕咕开着、联网后再试`)
       }
@@ -267,7 +273,7 @@ export function createDeviceActionCaller(deps: DeviceActionCallerDeps): DeviceAc
           if (reply.error.code === 'unknown_method') {
             return fail(callId, 'unsupported', `「${device.label}」上的咕咕不认识这个调用,更新那台设备上的咕咕后再试`)
           }
-          return fail(callId, 'execution_failed', `「${device.label}」回了错误:${reply.error.message}`)
+          return fail(callId, reply.error.code === 'device_scope_mismatch' ? reply.error.code : 'execution_failed', `「${device.label}」回了错误:${reply.error.message}`)
         }
         if (!isDeviceActionAccepted(reply.result)) {
           const final = readDeviceActionResult(reply.result)

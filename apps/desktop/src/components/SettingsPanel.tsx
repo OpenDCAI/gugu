@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
@@ -15,7 +15,6 @@ import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
 import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
-import { AppsSection } from './settings/AppsSection'
 import { ChannelsSection } from './settings/channels/ChannelsSection'
 import { PhoneDeviceActionsPage } from '../mobile/phone-device/PhoneDeviceActionsPage'
 import { SettingsNav } from './settings/SettingsNav'
@@ -24,6 +23,7 @@ import { ChevronLeft, X } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { Pane, PaneHeader } from './ui/Pane'
 import { IconButton } from './ui/IconButton'
+import { useBackLayer } from './ui/sheetStack'
 import { platform } from '../platform'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { appState } from '../session/renderer/lib/stores/app-state'
@@ -59,6 +59,7 @@ const DESKTOP_SECTIONS_FOR_PLATFORM = sectionsFor(false)
 const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant', 'connectors']
 /** 内页自己没有一句话说明的几页:由这里补在最上面(其余各页自己有,❌ 重复)。 */
 const PAGE_LEDE_SECTIONS: readonly ActiveSection[] = ['general', 'activity']
+const MobileAppsSection = lazy(() => import('./settings/MobileAppsSection').then((module) => ({ default: module.MobileAppsSection })))
 
 /**
  * 会话页那几格的浮层(下拉、提示、确认框)落在 SessionSettingsSection 的浮层层里,不在壳的层栈(sheetStack)上:
@@ -75,7 +76,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   inline?: boolean
   onClose?: () => void
   initialSection?: ActiveSection
-  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「仓库」页机器选择器里的「添加一台机器」→ 设备),
+  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「任务」里机器选择器的「添加一台机器」→ 设备),
   // 要的就是换到那一格 —— 只在挂载时读一次 initialSection 会把这次请求吞掉。
   section?: ActiveSection
   onSectionChange?: (section: ActiveSection) => void
@@ -100,6 +101,14 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
   const setMobilePane = onPaneChange ?? setInternalPane
+  const [parentSection, setParentSection] = useState<ActiveSection | null>(null)
+  const back = () => {
+    if (parentSection) {
+      setActiveSection(parentSection)
+      setParentSection(null)
+    } else setMobilePane('nav')
+  }
+  useBackLayer(back, mobile && mobilePane === 'detail')
 
   function renderSection() {
     switch (activeSection) {
@@ -113,13 +122,12 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
-      case 'apps':     return <AppsSection />
+      case 'apps':     return <Suspense fallback={null}><MobileAppsSection /></Suspense>
       case 'channels': return <ChannelsSection />
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':
       case 'interface':
       case 'resource-monitor':
-      case 'repository':
       case 'browser':
       case 'subscriptions': return <SessionSettingsSection section={activeSection} />
       default:         return null
@@ -141,6 +149,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors))
       return
     }
+    if (mobile) setParentSection(mobilePane === 'detail' ? activeSection : null)
     setActiveSection(section)
     if (mobile) setMobilePane('detail')
   }
@@ -170,12 +179,10 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
           <Pane paneRole="detail" mobile={mobile} className="gg-settings-detail">
             <PaneHeader
               mobile={mobile}
-              // 手机上同样写这一页自己的名字:「我的」是上一层,它已经由返回箭头(aria:返回我的)代表了;
-              // 标题再写一遍「我的」,每一个设置子页都长一个样,人分不清自己在哪一页。
               title={sectionTitle}
               titleLevel={mobile ? 'panel' : undefined}
               leading={mobile ? (
-                <IconButton size="lg" aria-label={t('settings.backToMy')} onClick={() => setMobilePane('nav')}>
+                <IconButton size="lg" aria-label={t(parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
                   <ChevronLeft />
                 </IconButton>
               ) : undefined}

@@ -1,4 +1,3 @@
-import { scheduleComposerFocus } from '@/lib/focusComposer'
 import { agentLocationText } from '../../lib/agentRunningStatusModels'
 import type { CSSProperties } from 'react'
 import type { TFunction } from 'i18next'
@@ -33,19 +32,6 @@ export const ICON_BTN: CSSProperties = {
   borderRadius: 'var(--radius-document)',
 }
 
-export function insertTextAtRange(value: string, insert: string, start: number, end: number): string {
-  return value.slice(0, start) + insert + value.slice(end)
-}
-
-/**
- * 插入表情/提及后回到插入点。聚焦本身走 [[composer]] 的唯一契约（含它的门控与跨渲染边界重试），
- * 这里只负责「落在哪个框、光标放哪」——❌ 不再自带一份 `setTimeout` + `.focus()`（#4315）。
- */
-export function focusTextareaAt(textarea: HTMLTextAreaElement | null, cursor: number): void {
-  if (!textarea) return
-  scheduleComposerFocus('caret-move', { caret: cursor, target: () => textarea })
-}
-
 /**
  * agent 单聊桌面头栏上的悬浮小鸟(AgentChatHero,画布 80、上沿贴窗格顶边)探出头栏的高度:身体底边在画布 95% 处
  * ≈ 76px,头栏 52px,再留一点落地的压扁 ⇒ 24。消息列表顶部据此让位,滚到最上面时第一条 / 日期分隔不被它的脚盖住。
@@ -58,8 +44,8 @@ export const AGENT_HERO_OVERHANG_PX = 24
  * 没有小鸟头顶那圈留白 —— 放大、上移、探出都会把脸顶出窗格被裁,所以它保持原来的尺寸、居中。
  * 与 Avatar 的判法一致:显式给了一个不是形象的地址(哪怕是坏的)就不是小鸟。
  */
-export function isAgentHeroBird(avatarUrl: string | null | undefined): boolean {
-  return avatarUrl == null || isLookAvatar(avatarUrl)
+export function isAgentHeroBird(avatarUrl: string | null | undefined, assistant: boolean): boolean {
+  return assistant && (avatarUrl == null || isLookAvatar(avatarUrl))
 }
 
 /**

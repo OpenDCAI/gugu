@@ -30,6 +30,7 @@
 /* ── 「市场 / 已安装」+ 装本地文件夹 ─────────────────────────────────── */
 .mk-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1315,4 +1316,38 @@ button.mk-name:focus-visible {
   .mk-shot img {
     height: 200px;
   }
+}
+
+/* A README image is complete artwork; keep its words and controls apart. */
+.mk-hero-card.has-shot:not(.is-card) {
+  height: auto;
+}
+.mk-hero-card.has-shot:not(.is-card) .mk-hero-art {
+  position: relative;
+  inset: auto;
+  z-index: 0;
+  aspect-ratio: 16 / 9;
+}
+.mk-hero-card.has-shot:not(.is-card) .mk-hero-art::before,
+.mk-hero-card.has-shot:not(.is-card) .mk-hero-art::after {
+  display: none;
+}
+.mk-hero-card.has-shot:not(.is-card) .mk-hero-art img {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mk-hero-card.has-shot:not(.is-card) .mk-hero-foot {
+  position: static;
+}
+.mk-hero-open {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: none;
+}
+.mk-hero-open:focus-visible {
+  outline: 2px solid white;
+  outline-offset: -4px;
 }

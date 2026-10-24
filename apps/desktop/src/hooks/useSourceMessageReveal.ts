@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { FlowListHandle } from '../lib/flowList'
 import { resolveSourceMessageScroll, type ScrollableRow } from '../lib/sourceMessageScroll'
-import { APP_SHOW_MESSAGE_EVENT, type AppShowMessageDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { UI_EVENTS } from '../lib/uiEvents'
 
 /** `gugu.showMessage` in a chat not on screen (MainLayout brings it up): the message its list goes to when it shows it. */
 const askedReveals = new Map<string, string>()
-export function askReveal(chatId: string, messageId: string): void {
-  askedReveals.set(chatId, messageId)
+export function askReveal(chatId: string, messageId: string, viewportKey = 'primary'): void {
+  askedReveals.set(JSON.stringify([viewportKey, chatId]), messageId)
 }
 
 /**
@@ -21,6 +20,10 @@ export function askReveal(chatId: string, messageId: string): void {
  */
 export function useSourceMessageReveal(input: {
   activeChatId: string | null
+  navigationTarget?: boolean
+  viewportKey?: string
+  enabled?: boolean
+  ready?: boolean
   rows: ReadonlyArray<ScrollableRow>
   listRef: MutableRefObject<FlowListHandle | null>
   isAtBottomRef: MutableRefObject<boolean>
@@ -29,8 +32,11 @@ export function useSourceMessageReveal(input: {
   flashTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>
   revealMessage: (messageId: string) => Promise<void>
   onMissing: () => void
-}): void {
-  const { activeChatId, rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing } = input
+  onNavigate?: () => void
+}): (messageId: string) => void {
+  const { activeChatId, viewportKey, navigationTarget = false, enabled = true, ready = true, rows, listRef, isAtBottomRef, setFollowingTail, setFlashMessageId, flashTimerRef, revealMessage, onMissing } = input
+  const onNavigateRef = useRef(input.onNavigate)
+  onNavigateRef.current = input.onNavigate
   const tokenRef = useRef(0)
   const onMissingRef = useRef(onMissing)
   onMissingRef.current = onMissing
@@ -44,9 +50,10 @@ export function useSourceMessageReveal(input: {
   }, [flashTimerRef, setFlashMessageId])
 
   const reveal = useCallback((messageId: string) => {
+    onNavigateRef.current?.()
     const token = ++tokenRef.current
     const index = resolveSourceMessageScroll(rows, messageId)
-    if (index != null) {
+    if (index != null && listRef.current) {
       // #1980 先解钉:回钉路径(track effect/totalListHeightChanged/RO/clamp)均门控 isAtBottomRef,钉底时不同步置 false
       // 则 scrollToIndex 上滚被当场拽回底(#1708 跳转在这条路从没真可用)。
       isAtBottomRef.current = false
@@ -68,22 +75,28 @@ export function useSourceMessageReveal(input: {
   }, [flashTimerRef])
 
   useEffect(() => {
-    const onShow = (event: Event) => {
-      const detail = (event as CustomEvent<AppShowMessageDetail>).detail
-      if (activeChatId && detail?.chatId === activeChatId) reveal(detail.messageId)
-    }
     const takeAsked = () => {
-      const messageId = activeChatId ? askedReveals.get(activeChatId) : undefined
-      if (!activeChatId || !messageId) return
-      askedReveals.delete(activeChatId)
+      if (!activeChatId || !enabled) return
+      const own = JSON.stringify([viewportKey, activeChatId]), primary = JSON.stringify(['primary', activeChatId])
+      const key = askedReveals.has(own) ? own : navigationTarget ? primary : null
+      const messageId = key ? askedReveals.get(key) : undefined
+      if (!key || !messageId) return
+      if (!ready) { onNavigateRef.current?.(); return }
+      askedReveals.delete(key)
       reveal(messageId)
     }
     takeAsked()
-    window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
     window.addEventListener(UI_EVENTS.chatAsked, takeAsked)
     return () => {
-      window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShow)
       window.removeEventListener(UI_EVENTS.chatAsked, takeAsked)
     }
-  }, [activeChatId, reveal])
+  }, [activeChatId, enabled, ready, navigationTarget, viewportKey, reveal])
+  const currentTarget = useRef(input)
+  currentTarget.current = input
+  return useCallback((messageId: string) => {
+    const { activeChatId, viewportKey } = currentTarget.current
+    if (!activeChatId) return
+    askReveal(activeChatId, messageId, viewportKey)
+    window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
+  }, [])
 }
