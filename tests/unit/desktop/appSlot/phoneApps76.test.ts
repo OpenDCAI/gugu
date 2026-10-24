@@ -648,10 +648,24 @@ describe('the phone installs Apps from the market', () => {
   }
 
   // owner 10-19: market Apps update by themselves on the phone too (phoneApps `autoUpdate`), as on the desktop.
-  it('updates a market App by itself when the index comes in changed; one asking for more waits', async () => {
+  it('keeps an installed API 10 App without platforms readable and updates it; one asking for more waits', async () => {
     await listAll('notes', [{ version: '1.0.0' }])
-    const apps = await start()
+    let apps = await start()
     await apps.installFromMarket({ ref: { extensionId: 'notes' } })
+    // A phone profile kept by the old client: runtime must not apply the new installation rule to it.
+    const kept = JSON.parse(shell.index!)
+    const record = kept.installed.notes
+    record.manifest.apiVersion = 10
+    delete record.manifest.platforms
+    const oldManifest = JSON.stringify(record.manifest)
+    record.manifestDigest = createHash('sha256').update(oldManifest).digest('hex')
+    shell.versions.get(record.dir)!.set('manifest.json', new TextEncoder().encode(oldManifest))
+    shell.index = JSON.stringify(kept)
+    apps = await start()
+    await apps.ready()
+    expect(lastList().extensions.find((entry) => entry.id === 'notes')).toMatchObject({ apiVersion: 10, version: '1.0.0' })
+    expect(apps.installedFromChats().find((entry) => entry.id === 'notes')?.platforms).toBeUndefined()
+
     await listAll('notes', [{ version: '1.0.0' }, { version: '1.1.0' }])
     expect(await apps.market.refresh()).toMatchObject({ outcome: 'changed' })
     expect(await settle(() => installedDir('notes') === 'notes@1.1.0')).toBe(true)
