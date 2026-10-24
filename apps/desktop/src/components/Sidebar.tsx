@@ -9,6 +9,7 @@ import { installedExtensionsStore, type RailApp } from '../session/renderer/feat
 import { extensionSurfaceStore } from '../session/renderer/features/extensions/extension-surface-store'
 import { appIsRunning, openApp, openAppInWindow, quitApp, setDock, unpinFromDock } from '../session/renderer/features/extensions/app-dock'
 import { appState } from '../session/renderer/lib/stores/app-state'
+import { returnToScreen } from '../session/renderer/app/screen-layout-actions'
 import { useContactsStore } from '../store/contactsContext'
 import { useDevicesStore } from '../store/devicesContext'
 import { useMyAssistantContact } from '../lib/myAssistant'
@@ -405,11 +406,8 @@ export const Sidebar = observer(function Sidebar({ activeTab, onTabChange, setti
             active={messagesActive}
             onClick={() => {
               onTabChange('tasks')
-              // From 「App」, the dock or a chat, 消息 is back to the session page: the last task looked at, or the home of them.
               if (sessionPagePlace() === 'tasks') return
-              const last = appState.navigation.viewParamsStore.session
-              if (last) appState.navigation.navigate('session', last)
-              else appState.navigation.navigate('home')
+              returnToScreen()
             }}
             title={t('shell.messages')}
             testId={AUTOMATION_TEST_IDS.sidebarMessagesNav}

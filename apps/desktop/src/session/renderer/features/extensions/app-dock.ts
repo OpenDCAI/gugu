@@ -4,7 +4,7 @@ import { log } from '@renderer/utils/logger';
 import { extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { extensionViewStore } from './extension-view-store';
 import { installedExtensionsStore } from './installed-extensions-store';
-import { openInWindow, revealAppBlock, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
+import { openInWindow, returnToScreen, revealAppBlock, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
 import { appPlacementStore } from './app-placement-store';
 
 /**
@@ -89,13 +89,11 @@ export function openAppInWindow(extensionId: string): void {
   openInWindow({ kind: 'app', tabKind: main.kind });
 }
 
-/** 正看着这个 App 的整页:回到它后面那一页 —— 上次看的任务,没有就任务的首页(和点「任务」一样)。 */
+/** 正看着这个 App 的整页:回到消息工作区,与消息栏同一个恢复动作。 */
 function leaveAppPage(extensionId: string): void {
   const navigation = appState.navigation;
   if (navigation.currentViewId !== 'app' || navigation.viewParamsStore.app?.appId !== extensionId) return;
-  const last = navigation.viewParamsStore.session;
-  if (last) navigation.navigate('session', last);
-  else navigation.navigate('home');
+  returnToScreen();
 }
 
 /**
