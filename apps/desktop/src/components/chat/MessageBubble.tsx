@@ -189,7 +189,7 @@ interface BubbleProps {
   // @@@1313 点开已读名单（谁读谁没读）：稳定回调，父层（持 roster+profiles）弹名单，避免把 reader 列表作对象 prop 传进破 memo。
   onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
   highlight?: string
-  onQuote: (msg: MessageItem) => void
+  onQuote: (msg: MessageItem) => void; onShowMessage?: (id: string) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   isAgent?: boolean; hideAvatar?: boolean; streaming?: boolean // Live IM text shares the settled bubble's layout.
@@ -229,7 +229,7 @@ export const MessageBubble = memo(function MessageBubble({
   readReceiptTotal,
   onShowReadReceipt,
   highlight,
-  onQuote,
+  onQuote, onShowMessage,
   onForward,
   onDelete,
   isAgent = false, hideAvatar = false, streaming = false,
@@ -494,7 +494,7 @@ export const MessageBubble = memo(function MessageBubble({
                 alignItems: 'center',
                 cursor: onShowReadReceipt ? 'pointer' : 'default',
                 flexShrink: 0,
-                ...(compactMobile ? { position: 'absolute', right: '100%', bottom: -14, marginRight: -8, justifyContent: 'center', zIndex: 1 } : {}), // 44px 浮层不占气泡宽;锚在下层收成气泡宽的那一行上贴气泡左侧(原 left:-14px 锚整列,环离短气泡半屏)
+                position: 'absolute', right: '100%', bottom: compactMobile ? -14 : 0, marginRight: compactMobile ? -8 : 4, justifyContent: 'center', zIndex: 1, // 回执晚到不挤窄正文;仍锚在气泡左侧,手机保留44px点击区。
               }}
             >
               <ReadReceiptRing read={readReceiptRead} total={readReceiptTotal} />
@@ -520,7 +520,7 @@ export const MessageBubble = memo(function MessageBubble({
               <span style={{ color: 'var(--muted-fg)', fontStyle: 'italic' }}>{t('message.retracted')}</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                {msg.reply_to_message_id && <MessageQuote msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
+                {msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
                 ) : card ? (

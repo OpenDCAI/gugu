@@ -28,7 +28,7 @@ import {
   type RealtimeMessageMutators,
 } from '../store/chatRealtimeMutations'
 
-/** 一条线的「对端读到哪了」水位表(per-OTHER-member last_read_seq)。容器见 hooks/useMemberReadSeqs。 */
+/** 一条线的「对端读到哪了」水位表(per-OTHER-member last_read_seq)。容器见 hooks/the conversation owner。 */
 export type MemberReadSeqsStore = {
   /** 表现在属于哪条 chat(#1529:同会话单调 merge,换会话整体替换)。 */
   memberReadSeqsChatRef: { current: string | null }

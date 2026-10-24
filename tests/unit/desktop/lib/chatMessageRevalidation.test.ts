@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { message } from '../../../support/testHarness'
+import { deferred, message } from '../../../support/testHarness'
 type QueryResult = { data: unknown[] | null; error: { message: string } | null }
 const { queryResults, queryCalls, chatDbMock } = vi.hoisted(() => {
   type HoistedQueryResult = { data: unknown[] | null; error: { message: string } | null }
@@ -9,9 +9,9 @@ const { queryResults, queryCalls, chatDbMock } = vi.hoisted(() => {
     columns: string | null
     filters: Array<{ op: 'in' | 'is' | 'eq' | 'not'; field: string; value: unknown; operator?: string }>
   }
-  const queryResults = new Map<string, HoistedQueryResult[]>()
+  const queryResults = new Map<string, (HoistedQueryResult | Promise<HoistedQueryResult>)[]>()
   const queryCalls: HoistedQueryCall[] = []
-  function nextResult(table: string): HoistedQueryResult {
+  function nextResult(table: string): HoistedQueryResult | Promise<HoistedQueryResult> {
     const queue = queryResults.get(table) ?? []
     return queue.shift() ?? { data: [], error: null }
   }
@@ -71,6 +71,15 @@ describe('chatMessageRevalidation', () => {
     queryResults.clear()
     queryCalls.length = 0
     vi.clearAllMocks()
+  })
+  it('starts deliveries while reactions are still pending', async () => {
+    const reactions = deferred<QueryResult>()
+    queryResults.set('message_reactions', [reactions.promise])
+    const reading = loadMessageOverlays(['m1'], 'viewer')
+    await Promise.resolve()
+    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries'])
+    reactions.resolve({ data: [], error: null })
+    await reading
   })
   it('loads reaction and delivery overlays with the same per-message read semantics', async () => {
     setResults('message_reactions', {

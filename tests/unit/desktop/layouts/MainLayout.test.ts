@@ -14,9 +14,16 @@ import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 import { APP_OPEN_WITH_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { SIDEBAR_TABS, mobileTabs } from '@gugu/core/shared/enums/sidebarTabModels'
+const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[] }))
+const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/hooks/useSourceMessageReveal')>()
+  return { ...actual, askReveal: (chat: string, message: string, viewport?: string) => { revealRoute.asked(chat, message, viewport); actual.askReveal(chat, message, viewport) } }
+})
 const MESSAGE_ID = '11111111-1111-4111-8111-111111111111'
 const activationProbe = vi.hoisted(() => ({
   calls: [] as Array<{ owner: string; accountId: string | null }>,
@@ -105,10 +112,10 @@ const chatAreaProbe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    ChatAreaPanel: ({ activeTab, hidden = false }: { activeTab: string; hidden?: boolean }) => {
+    ChatAreaPanel: ({ activeTab, hidden = false, navigationTarget }: { activeTab: string; hidden?: boolean; navigationTarget?: boolean }) => {
       const [bumps, setBumps] = React.useState(0)
       React.useEffect(() => { chatAreaProbe.mounts += 1 }, [])
-      return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden) },
+      return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden), 'data-navigation-target': String(navigationTarget) },
         React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-area-bump', onClick: () => setBumps((n) => n + 1) }, 'bump'),
         'chat-area-panel')
     },
@@ -133,8 +140,8 @@ vi.mock('../../../../apps/desktop/src/mobile/assistant/usePhoneAssistant', () =>
 vi.mock('../../../../apps/desktop/src/mobile/assistant/MobileAssistantTab', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
-    MobileAssistantTab: ({ visible, chatRequest }: { visible: boolean; chatRequest: number }) =>
-      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest) }),
+    MobileAssistantTab: ({ visible, chatRequest, navigationTarget }: { visible: boolean; chatRequest: number; navigationTarget?: boolean }) =>
+      React.createElement('div', { 'data-testid': 'mock-assistant-tab', 'data-visible': String(visible), 'data-chat-request': String(chatRequest), 'data-navigation-target': String(navigationTarget) }),
   }
 })
 // 看管订阅的根:挂载/卸载计数量「切 tab 会不会把它拆掉」。
@@ -208,7 +215,7 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
   return {
     ...actual,
     ContactsProvider: ({ children }: { children: unknown }) => children,
-    useContactsStore: () => ({ contacts: [], pendingRequests: [] })
+    useContactsStore: () => ({ contacts: taskRoute.contacts, pendingRequests: [] })
   }
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
@@ -231,7 +238,7 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
     // The shell hears App packages sent in any chat (摩擦单 F66, ExtensionForwardHost).
     subscribeAccountRevision: vi.fn(() => () => undefined),
   },
-  chatServiceMock: { getOrCreateDM: vi.fn() },
+  chatServiceMock: { getOrCreateDM: vi.fn(), getMessageById: vi.fn() },
   draftValues: new Map<string, string>(),
 }))
 vi.mock('../../../../apps/desktop/src/store/chatContext', async (importOriginal) => ({
@@ -267,6 +274,7 @@ beforeEach(() => {
       this.dispatchEvent(new Event('scroll'))
     },
   })
+  taskRoute.contacts = []
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
   agentWatchProbe.rootMounts = 0
@@ -788,6 +796,18 @@ describe('MainLayout', () => {
     expect(live()).toEqual(['assistant'])
     expect(request(), 'the cell is told to land on its chat segment').toBeGreaterThan(before)
     expect(chatOnScreen(), 'the chat page does not also claim the chat as seen').toBeNull()
+    const target = (id: string) => harness.container.querySelector(`[data-testid="${id}"]`)?.getAttribute('data-navigation-target')
+    expect(target('mock-assistant-tab')).toBe('true')
+    expect(target('mock-chat-area')).toBe('false')
+    // A remains the main selection while its list is shown; an unread arrival then reopens A via this same route.
+    await clickElement(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileMessagesNav}"]`) as HTMLElement)
+    expect(live()).toEqual(['chats'])
+    const previousRequest = request()
+    await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
+    expect(live()).toEqual(['assistant'])
+    expect(request()).toBeGreaterThan(previousRequest)
+    expect(target('mock-assistant-tab')).toBe('true')
+    expect(target('mock-chat-area')).toBe('false')
   })
   it('switches tab only once the pager settles on a whole page, and aligns the pager when a tab is tapped', async () => {
     platformMock.kind = 'capacitor'
@@ -978,7 +998,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
   const TOPIC = '0b1e7c1a-0000-4000-8000-000000000002'
   const ways: Array<[string, () => void, string]> = [
-    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }, TOPIC],
+    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
@@ -992,4 +1012,33 @@ describe('MainLayout: opening a topic on the desktop', () => {
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
     if (target === SRC) expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
   })
+})
+
+// The returned route must name the mounted topic/task viewport, including phone presentation.
+describe('MainLayout: message link presentation identity', () => {
+  it.each([false, true])('routes a topic message directly to its source split (phone=%s)', async (phone) => {
+    if (phone) { platformMock.kind = 'capacitor'; platformMock.capabilities.sessionHost = false }
+    const source = '0b1e7c1a-0000-4000-8000-000000000001', topic = '0b1e7c1a-0000-4000-8000-000000000002'
+    chatServiceMock.getMessageById.mockResolvedValue({ id: MESSAGE_ID, chat_id: topic })
+    chatStoreMock.chats = [{ id: source, kind: 'group' }, { id: topic, kind: 'topic', source_chat_id: source }] as never
+    await renderMainLayoutWithToast()
+    await act(async () => { openConversationLink(conversationLink(topic, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
+    expect(revealRoute.asked).toHaveBeenLastCalledWith(topic, MESSAGE_ID, phone ? 'chats:topic' : `chat:${source}:topic`)
+    expect(drainTopicSplitRequest(source)).toMatchObject({ chatId: topic, sourceChatId: source })
+  })
+  it('routes a phone task message to the real task-chat slot', async () => {
+    platformMock.kind = 'capacitor'; platformMock.capabilities.sessionHost = false
+    const taskChat = '0b1e7c1a-0000-4000-8000-000000000003'
+    const assistant = { id: 'phone-assistant', display_name: 'Assistant', avatar: null, created_at: null }
+    phoneAssistantMock.state.available = true; phoneAssistantMock.state.assistant = assistant; phoneAssistantMock.state.chatId = 'own-dm'
+    installAssistantShellBridge(); publishAssistantShell({ assistant, chatId: 'own-dm' } as never)
+    taskRoute.contacts = [{ id: 'task-agent', type: 'agent', owner_user_id: 'user-1' }]
+    rememberAssistantTaskChat('user-1', { assistantId: assistant.id, taskAgentId: 'task-agent', task: { deviceId: 'd', sessionId: 's' }, assistants: [] })
+    chatStoreMock.chats = [{ id: taskChat, kind: 'dm', peer_user_id: 'task-agent' }] as never
+    chatServiceMock.getMessageById.mockResolvedValue({ id: MESSAGE_ID, chat_id: taskChat })
+    await renderMainLayoutWithToast()
+    await act(async () => { openConversationLink(conversationLink(taskChat, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
+    expect(revealRoute.asked).toHaveBeenLastCalledWith(taskChat, MESSAGE_ID, 'assistant:task-chat')
+  })
+
 })

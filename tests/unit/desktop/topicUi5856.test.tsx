@@ -5,6 +5,8 @@
 //   1. 「可见 / 参与 / 通知是三件事」在锚点卡上真的看得出来(is_participant=false ⇒ 「只看得见」);
 //      判据能判假 —— 同一份数据把 is_participant 翻成 true,那条断言必须反过来。
 //   2. useTopicsOfChat 的竞态守卫:切线之后,上一条线的慢响应 ❌ 不许落进新线的状态。
+import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
+import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
@@ -274,7 +276,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     onSendAttachments: vi.fn(async () => {}),
     onClose: vi.fn(),
     currentUserId: 'user-1',
-    onRevealOlder: vi.fn(),
+    history: topicHistoryStub(),
     mentionMembers: [],
   } satisfies Parameters<typeof TopicSplitPane>[0]
 
@@ -345,7 +347,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
       await clickElement(harness.container.querySelector('[data-testid="topic-split-workspace-toggle"]') as HTMLElement)
       expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the App panel is open').toBeTruthy()
       await act(async () => {
-        window.dispatchEvent(new CustomEvent('gugu:app-show-message', { detail: { chatId: 'topic-1', messageId: 't-1' } }))
+        askReveal('topic-1', 't-1', 'topic'); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked))
       })
       expect(harness.container.querySelector('[data-testid="topic-split-workspace"]'), 'the panel gave the list back').toBeNull()
       expect(harness.container.querySelector('[data-msg-id="t-1"]')?.className).toContain('msg-src-flash')
@@ -449,9 +451,6 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
   // 名单之外出现新的差异 = 红。
   const JUSTIFIED_OMISSIONS: Record<string, Record<string, string>> = {
     MessageList: {
-      scrollerRef: '主线用它读实测滚动几何(翻页门与钳底门);分栏用组件自带的那份缺省实现',
-      onTotalListHeightChanged: '不传 = 组件缺省的贴底钳位,与主线同形',
-      unreadAbove: '#6530 从会话列表点开主线时记下的第一条未读(「↑ N 条新消息」);话题从列表打开是分栏,不走这条路,分栏没有这枚标签',
       topInset: '给 agent 单聊头栏里探出头栏的那只小鸟让位(滚到最上时第一条不被它的脚压住);分栏没有 agent 头栏,也就没有探出的部分',
       footer: '#7199 只有「助理」App 那个聊天面在消息流末尾接一个「它在处理」的打字气泡(取代运行条);分栏不传 = 运行条照旧,与对话页同形',
     },
@@ -541,13 +540,14 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
   // 接完一页视口钉在原处:列表在头部插行的那次提交里把读者正看着的那一行放回原处(几何用例见 flowList.test.tsx)。
   it('分栏滚到顶附近就去要下一页', async () => {
-    const onRevealOlder = vi.fn()
+    const onRevealOlder = vi.fn(async () => {})
     await renderWithAppProviders(harness, createNode(TopicSplitPane, {
       ...baseProps,
-      messages: [message({ id: 'm1', content: '第一句' })],
-      onRevealOlder,
+      messages: [message({ id: 'm1', seq: 2, content: '第一句' })],
+      history: { ...baseProps.history, loadOlderMessages: onRevealOlder },
     }))
     const scroller = harness.container.querySelector('[data-unread-stream-surface="aside"]') as HTMLElement
+    Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, value: 0, writable: true } })
     await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
     expect(onRevealOlder).toHaveBeenCalledTimes(1)
   })
@@ -701,7 +701,7 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
         await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null, mobile }))
         await clickElement(harness.container.querySelector('[data-testid="topic-split-more"]') as HTMLElement)
         const rows = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].map((row) => row.querySelector('.gg-menu-item-label')?.textContent)
-        expect(rows).toEqual(mobile ? ['附件', '文件夹', '海龟汤'] : ['海龟汤'])
+        expect(rows).toEqual(mobile ? ['搜索消息', '附件', '文件夹', '海龟汤'] : ['搜索消息', '海龟汤'])
         await clickElement(document.querySelector('[data-testid="chat-header-menu-app"]') as HTMLElement)
         expect(asked).toHaveBeenCalledWith({ extensionId: 'turtle-soup', chatId: 'topic-1' })
       } finally {
@@ -711,9 +711,9 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     })
   }
 
-  it('桌面分栏:本机没有能开的 App 就没有 ⋯', async () => {
+  it('desktop topic keeps search available when no App is installed', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, currentUserId: null }))
-    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="topic-split-more"]')).not.toBeNull()
   })
 
   it('消息走 MessageRow + MessageBubble 渲染（接住 MessageBubble 的 props 漂移）', async () => {

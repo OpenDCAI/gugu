@@ -14,7 +14,8 @@ describe('classifyFeedChange', () => {
     it.each([
       ['at bottom received', prev, feed, true, true],
       ['scrolled-up received', prev, feed, false, false],
-      ['own message', prev, [m('a'), m('b'), m('c', true)], false, true],
+      ['own row from another device or cache while reading history', prev, [m('a'), m('b'), m('c', true)], false, false],
+      ['own row while at bottom', prev, [m('a'), m('b'), m('c', true)], true, true],
       ['multiple received', prev, [m('a'), m('b'), m('c'), m('d')], false, false],
       ['first newest message', { firstId: null, lastId: null }, [m('x')], false, false],
       ['no new newest message', { firstId: 'a', lastId: 'c' }, feed, false, false],

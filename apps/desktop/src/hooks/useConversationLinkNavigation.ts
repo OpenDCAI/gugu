@@ -16,8 +16,8 @@ export function useConversationLinkNavigation(input: {
   ownerId: string
   chats: readonly ChatItem[]
   contacts: readonly ContactUser[]
-  openChat: (chatId: string) => void
-  openAssistant: (tasks: boolean) => void
+  openChat: (chatId: string) => string | void
+  openAssistant: (tasks: boolean) => string | void
 }) {
   const current = useRef(input)
   current.current = input
@@ -66,12 +66,13 @@ export function useConversationLinkNavigation(input: {
         }
       }
       if (asked !== generation || current.current.ownerId !== state.ownerId) return
-      if (target.messageId) askReveal(chat.id, target.messageId)
-      if (chat.id === assistant?.chatId) state.openAssistant(false)
+      let viewportKey: string | void
+      if (chat.id === assistant?.chatId) viewportKey = state.openAssistant(false)
       else if (task) {
-        state.openAssistant(true)
+        viewportKey = state.openAssistant(true)
         window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT, { detail: task }))
-      } else state.openChat(chat.id)
+      } else viewportKey = state.openChat(chat.id)
+      if (target.messageId) askReveal(chat.id, target.messageId, viewportKey || undefined)
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
     }
     const receive = (event: Event) => {

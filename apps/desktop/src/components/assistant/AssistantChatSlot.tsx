@@ -16,7 +16,7 @@ import '../../i18n/registerVoiceNotesCatalog'
 import { scheduleComposerFocus } from '../../lib/focusComposer'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
-import { useChatLineClaim } from '../../store/chatLine'
+import { ChatLineScope } from '@/store/chatLineScope'
 import type { AssistantDm } from './useAssistantDm'
 import { AssistantConversationProgress } from './AssistantConversationProgress'
 import { useAssistantTyping } from './useAssistantTyping'
@@ -109,7 +109,7 @@ function useIdeasAction(): ComposerAttachAction {
 
 /**
  * #7199 「助理」App 的「聊天」:就是和它的那条私聊,整套聊天面画在 App 里(owner:「这是这个 App 的核心，不能跳去私聊」)。
- * 摆在眼前时把那条活的线借过来(store/chatLine.ts),离开就还给对话页原来选中的那条。
+ * 按 chatId 订阅账户已有的聊天管线,不改变对话页的选中。
  */
 function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...handlers }: { dm: AssistantDm; assistantId: string; assistantName: string; visible: boolean } & AssistantChatHandlers) {
   const bridge = readAssistantShellBridge()
@@ -125,7 +125,6 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   const voice = useVoiceNoteAction()
   const healthReport = useHealthReportAction()
   const attachMenu = useMemo(() => [ideas, ...(voice ?? []), healthReport.action], [ideas, voice, healthReport.action])
-  useChatLineClaim(chatId, visible)
   useReportChatOnScreen(visible ? chatId : null)
   useAssistantDraft(chatId)
   const typing = useAssistantTyping(chatId, assistantId, assistantName)
@@ -153,7 +152,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   return (
     <>
       <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel
-        chatId={chatId}
+        viewportKey={assistantSlotKey('chat')}
         activeTab="chats"
         hidden={!visible}
         chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}
@@ -165,7 +164,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
 }
 
 export function AssistantChatSlot(props: Parameters<typeof AssistantChatSlotContent>[0]) {
-  return <AssistantConversationProgress assistantId={props.assistantId} chatId={props.dm.chatId} visible={props.visible}>
+  return <ChatLineScope chatId={props.dm.chatId}><AssistantConversationProgress assistantId={props.assistantId} chatId={props.dm.chatId} visible={props.visible}>
     <AssistantChatSlotContent {...props} />
-  </AssistantConversationProgress>
+  </AssistantConversationProgress></ChatLineScope>
 }

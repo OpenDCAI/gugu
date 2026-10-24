@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { scheduleComposerFocus } from '../../lib/focusComposer'
 import { useChatStore } from '../../store/chatContext'
-import { APP_COMPOSE_EVENT, APP_SHOW_MESSAGE_EVENT, type AppComposeDetail, type AppShowMessageDetail } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../session/shared/extensions/app-runtime-protocol'
 
 /**
  * An App took the person to this slot's chat (desktop or phone) — `gugu.compose` (the chat shell put the text after the
- * chat's draft, MainLayout) or `gugu.showMessage` (the chat's list goes to the message, useSourceMessageReveal): the slot
+ * chat's draft, MainLayout): the slot
  * gets out from over the chat, so what the App pointed at is seen. After a compose the composer is focused — the chat's
  * own or a topic pane's. Nothing here sends.
  */
@@ -34,14 +34,9 @@ export function useSlotMakesWay(
       const aside = `[data-testid="${AUTOMATION_TEST_IDS.chatComposerAside}"]`
       scheduleComposerFocus('quote-attached', chatId === latest.current.activeChatId ? {} : { target: () => document.querySelector<HTMLTextAreaElement>(aside) })
     }
-    const onShowMessage = (event: Event) => {
-      if ((event as CustomEvent<AppShowMessageDetail>).detail?.chatId === chatId) makeWay()
-    }
     window.addEventListener(APP_COMPOSE_EVENT, onCompose)
-    window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
     return () => {
       window.removeEventListener(APP_COMPOSE_EVENT, onCompose)
-      window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
     }
   }, [chatId])
 }
