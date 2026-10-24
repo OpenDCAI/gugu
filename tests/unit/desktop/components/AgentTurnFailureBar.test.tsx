@@ -142,7 +142,9 @@ describe('durable provider failure notice', () => {
   })
   it('renders retained delivery as a short pending status even when the stored fallback is an old English failure', async () => {
     await harness.render(createNode(SystemMessageNotice, { senderName: '咕咕', message: failureRow('notAdmitted', 'Gugu could not hand these messages to the agent. Please try again later.') }))
-    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('咕咕: 消息已保留，助理就绪后回复。')
+    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('消息已保留，助理就绪后回复。')
+    expect(harness.container.querySelector('[data-pending-delivery]')).not.toBeNull()
+    expect(harness.container.innerHTML).not.toContain('text-[var(--warn)]')
     expect(harness.container.textContent).not.toMatch(/could not hand|出错|重试/)
     expect(harness.container.querySelector('button')).toBeNull()
   })
