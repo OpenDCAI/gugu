@@ -428,11 +428,11 @@ export function setSessionIntegrationBridge(
  * 宿主装上;没装(咕咕 server、测试)= 不带。只给本机会话:参数里的会话编号从卡上认出来,认不出就不带。
  */
 let sessionBrowserBridge:
-  | ((session: { grantKey: string; sessionId: string; subjectId: string }) => Promise<AcpMcpServer[]>)
+  | ((session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }) => Promise<AcpMcpServer[]>)
   | null = null
 
 export function setSessionBrowserBridge(
-  bridge: ((session: { grantKey: string; sessionId: string; subjectId: string }) => Promise<AcpMcpServer[]>) | null,
+  bridge: ((session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }) => Promise<AcpMcpServer[]>) | null,
 ): void {
   sessionBrowserBridge = bridge
 }
@@ -496,7 +496,7 @@ export async function buildSessionBundle(
   const integrationSkills = sessionIntegrationSkillBridge ? await sessionIntegrationSkillBridge() : []
   const browserSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
   const browser = sessionBrowserBridge && browserSessionId
-    ? await sessionBrowserBridge({ grantKey: deps.socialBridgeDeps.grantKey, sessionId: browserSessionId, subjectId: deps.agentUserId })
+    ? await sessionBrowserBridge({ grantKey: deps.socialBridgeDeps.grantKey, sessionId: browserSessionId, subjectId: deps.agentUserId, ...(deps.socialBridgeDeps.personalAssistant ? { personalAssistant: true } : {}) })
     : []
   const bootstrap = buildSessionBootstrapBundle(deps)
   const taken = [...bootstrap.mcpServers, ...socialBridge, ...integrations, ...browser, ...extensions.servers]

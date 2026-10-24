@@ -6,12 +6,12 @@ import {
   type SessionHostClient,
   type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
-import { broadcastDeviceSessionHostEvent, installDeviceSessionHost } from './device-session-host';
-import { FrameSessionHost, type FrameSocket } from './frame-host';
+import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
+import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
 import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
-function memoryLink(host: FrameSessionHost, policy?: (channel: string) => boolean) {
+function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
   const serverSockets: Array<{ drop(): void }> = [];
   const open: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
     let serverFrame: ((frame: string | Uint8Array) => void) | null = null;
@@ -223,6 +223,18 @@ describe('FrameSessionHost over a device-shaped link', () => {
     client = createSessionHostClient(link.open);
     await expect(client.api.invoke('tasks.getTasks')).resolves.toEqual(['t1']);
     await expect(client.api.invoke('app.quit')).rejects.toThrow(/No handler registered for 'app.quit'/);
+  });
+
+  it('checks App operation arguments on a persistent frame connection as well as one-shot calls', async () => {
+    const host = new FrameSessionHost();
+    const run = vi.fn((_event, _verb, input) => input.name);
+    host.ipcMain.handle('app.assistantAppCall', run);
+    client = createSessionHostClient(memoryLink(host, remoteInvokePolicyForCaller('owner')).open);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_list' }, 'owner')).resolves.toBe('assistant_work_list');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'owner')).resolves.toBe('assistant_work_clear');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'other')).rejects.toThrow(/No handler/);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'library_write' }, 'owner')).rejects.toThrow(/No handler/);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('opens a wire transport that carries messages both ways and reports the drop', async () => {

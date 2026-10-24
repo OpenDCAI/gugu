@@ -1092,13 +1092,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
 
   async probeAll(options: DependencyProbeOptions = {}): Promise<void> {
     await this.refreshShellEnvIfRequested(options);
-    await Promise.all(
-      this._dependencies.map((d) =>
-        this.probe(d.id).catch((probErr) => {
-          this.logger.warn(`[HostDependencyManager] Failed to probe ${d.id}:`, probErr);
-        }),
-      ),
-    );
+    await this.probeMany(this._dependencies);
   }
 
   async probeCategory(
@@ -1107,13 +1101,21 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
   ): Promise<void> {
     await this.refreshShellEnvIfRequested(options);
     const targets = this._dependencies.filter((d) => d.category === cat);
-    await Promise.all(
-      targets.map((d) =>
-        this.probe(d.id).catch((probErr) => {
-          this.logger.warn(`[HostDependencyManager] Failed to probe ${d.id}:`, probErr);
-        }),
-      ),
-    );
+    await this.probeMany(targets);
+  }
+
+  /** A low-vCPU host cannot run every CLI version probe concurrently without starving its agent. */
+  private async probeMany(targets: readonly DependencyDescriptor[]): Promise<void> {
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, async () => {
+      while (next < targets.length) {
+        const dependency = targets[next++]!;
+        try { await this.probe(dependency.id, { waitForInstallations: true }); }
+        catch (probErr) {
+          this.logger.warn(`[HostDependencyManager] Failed to probe ${dependency.id}:`, probErr);
+        }
+      }
+    }));
   }
 
   /**

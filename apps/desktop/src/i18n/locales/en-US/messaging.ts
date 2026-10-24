@@ -72,7 +72,7 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
-      "notAdmitted": "Gugu ran into an error and could not hand these messages to the Agent. Please try again later.",
+      "notAdmitted": "Messages retained. Your assistant will reply when ready.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
       "offline": "The device disconnected before the reply completed",
       "retry": "Retry",

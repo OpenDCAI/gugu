@@ -1692,9 +1692,15 @@ export async function registerExistingSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
   options: { ownerUserId?: string | null } = {},
 ): Promise<number> {
+  const log = createLogger('sessionpage/boot')
+  const startedAt = Date.now()
+  log.info({}, 'persisted binding roster read started')
+  const roster = await listAgents(env, { includeGuests: true })
+  const readMs = Date.now() - startedAt
+  log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
   const incompleteCapabilityRows: string[] = []
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of roster) {
     // #4277 别家账号的行不注册:它在这个账号的进程里既收不到投递也拉不到收件箱,挂着只会每次
     // 开机扫出一行 400。没记 owner 的老行照旧;不知道当前是谁(未登录)也照旧。
     if (!agentMayBelongTo(agent, options.ownerUserId)) continue
@@ -1733,6 +1739,7 @@ export async function registerExistingSessionpageAgents(
       `session-page capability cache is incomplete or invalid for agent record(s): ${incompleteCapabilityRows.join(', ')}`,
     )
   }
+  log.info({ readMs, registerMs: Date.now() - startedAt - readMs, bindings: count }, 'persisted binding reconstruction finished')
   return count
 }
 
