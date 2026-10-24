@@ -44,7 +44,7 @@ describe('the market hands a host that knows only 5 the last version for 5', () 
     { version: '0.1.1', apiVersion: 5, minAppVersion: '0.2.57' },
     { version: '0.2.0', apiVersion: 6, minAppVersion: '0.2.57' },
   ];
-  const host = (apiVersionMax: number): MarketHost => ({ appVersion: '0.2.57-beta.103.1', apiVersionMin: 3, apiVersionMax });
+  const host = (apiVersionMax: number): MarketHost => ({ platform: 'desktop' as const, appVersion: '0.2.57-beta.103.1', apiVersionMin: 3, apiVersionMax });
 
   it('api 5: stays on 0.1.1 and is told a newer one needs a newer gugu', () => {
     const { chosen, newerNeedsApp } = pickForHost(rows, host(5));

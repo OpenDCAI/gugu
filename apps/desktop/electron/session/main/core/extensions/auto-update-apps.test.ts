@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { EXTENSION_API_VERSION, EXTENSION_API_VERSION_MIN_SUPPORTED } from '@shared/extensions/manifest';
+import { APP_PLATFORMS_API_VERSION } from '@shared/extensions/app-platforms';
 import type { MarketIndexVersion } from '@shared/extensions/market';
 import { ExtensionsService } from './extensions-service';
 import { packExtensionArchive } from './extension-archive';
@@ -52,7 +53,7 @@ async function version(v: string, options: { network?: string[]; yanked?: string
   const dir = path.join(work, 'src', `radar-${v}`);
   mkdirSync(dir, { recursive: true });
   const manifest = {
-    id: 'radar', name: 'Radar', version: v, apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'radar', name: 'Radar', version: v, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     ...(options.network ? { permissions: { network: options.network } } : {}), contributes: { tabs: [{ name: 'main', title: 'Radar' }] },
   };
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
@@ -85,7 +86,7 @@ beforeEach(() => {
   market = new CloudExtensionMarket(site, {
     stagingRoot: path.join(state.userData, 'extension-market', 'staging'),
     heldRoot: path.join(state.userData, 'extension-market', 'held'),
-    resolveHost: async () => ({ appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+    resolveHost: async () => ({ platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
     snapshotStore: { read: async () => null, write: async () => undefined },
   });
 });
@@ -95,6 +96,22 @@ afterEach(() => {
 });
 
 describe('market Apps update by themselves (autoUpdateAppsOnce)', () => {
+  it.each([EXTENSION_API_VERSION_MIN_SUPPORTED, APP_PLATFORMS_API_VERSION - 1])('keeps an installed pre-platform API %i App valid and updates it through the normal market path', async (oldApiVersion) => {
+    const previous = await version('1.0.0');
+    await publish([previous]);
+    await install('1.0.0');
+    // A profile written by the previous client: runtime inventory must not require new publication metadata.
+    const old = { ...service.get('radar').manifest, apiVersion: oldApiVersion };
+    delete old.platforms;
+    writeFileSync(path.join(service.get('radar').rootDir, 'manifest.json'), JSON.stringify(old));
+    expect(service.list().invalid).toEqual([]);
+    expect(service.get('radar').manifest.apiVersion).toBe(oldApiVersion);
+    await publish([previous, await version('1.1.0')]);
+
+    await expect(autoUpdateAppsOnce({ ...quiet, market })).resolves.toEqual([{ id: 'radar', from: '1.0.0', version: '1.1.0' }]);
+    expect(service.get('radar').manifest).toMatchObject({ apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] });
+  });
+
   it('puts in the newer version the market gives this machine, without asking, fetched once', async () => {
     const v1 = await version('1.0.0');
     await publish([v1]);
