@@ -56,6 +56,7 @@ import { ContactsPersonSectionState, ContactsGroupSectionState } from './contact
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
 import { ContactsListDock } from './contacts/ContactsListDock'
+import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { Button } from './ui/Button'
 import { useToast } from './toastContext'
 import type { ContactGroup, ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
@@ -1064,8 +1065,6 @@ function AgentDetail({
   getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
 }) {
   const { user } = useAuth()
-  const { renameAgent } = useContactsStore()
-  const [renaming, setRenaming] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [visibilitySaving, setVisibilitySaving] = useState(false)
   const { status, presence, opening, openRuntime: handleOpenRuntime } = useAgentDisplayStatus(contact.id)
@@ -1083,7 +1082,6 @@ function AgentDetail({
   const canOpenCommonGroup = Boolean(!isOwned && commonGroup && onOpenGroupChat)
   useEffect(() => {
     if (allowsLiveActions) return
-    setRenaming(false)
     setShowShareModal(false)
   }, [allowsLiveActions])
   const togglePublic = async () => {
@@ -1110,27 +1108,13 @@ function AgentDetail({
       <div className="flex items-start gap-4">
         <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
         <div className="min-w-0 flex-1">
-          {renaming ? (
-            <div className="max-w-[280px]">
-              <GroupNameEditor
-                value={contact.display_name}
-                placeholder={ct('panel.agentSectionTitle')}
-                onSave={async (name) => { await renameAgent(contact.id, name); setRenaming(false) }}
-                onCancel={() => setRenaming(false)}
-              />
-            </div>
-          ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className={detailTitleClass}>{contact.display_name}</h2>
+            <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={detailTitleClass}>
+              <h2>{contact.display_name}</h2>
+            </OwnedAgentNameEditor>
             <Chip>{ct('common.agent')}</Chip>
             <AgentContactStatusChip agentId={contact.id} tone={statusTone} label={statusLabel} />
-            {isOwned && allowsLiveActions ? (
-              <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
-                {ct('common.edit')}
-              </Button>
-            ) : null}
           </div>
-          )}
           {contact.bio ? (
             <p className="!mt-2 max-w-[620px] text-sm text-[var(--muted-fg)]">
               {contact.bio}

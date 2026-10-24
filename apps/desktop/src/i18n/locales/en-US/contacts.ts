@@ -24,10 +24,9 @@ export default {
     "full": "This group is full. Ask the group owner to increase the member limit."
 },
   "agentName": {
-    "edit": "Rename agent",
+    "edit": "Rename",
     "label": "Agent name",
-    "failed": "Could not save. Try again.",
-    "saving": "Saving…"
+    "failed": "Could not save. Try again."
   },
   "common": {
     "agent": "Agent",
@@ -37,7 +36,6 @@ export default {
     "contacts": "Contacts",
     "copiedGuguNumber": "Gugu ID copied",
     "done": "Done",
-    "edit": "Edit",
     "groupChat": "Group chat",
     "groups": "Groups",
     "guguNumber": "Gugu ID",

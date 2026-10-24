@@ -24,10 +24,9 @@ export default {
     "full": "群人数已满，请联系群主增加人数上限。"
 },
   "agentName": {
-    "edit": "修改名称",
+    "edit": "重命名",
     "label": "Agent 名称",
-    "failed": "保存失败，请重试",
-    "saving": "保存中…"
+    "failed": "保存失败，请重试"
   },
   "common": {
     "agent": "Agent",
@@ -37,7 +36,6 @@ export default {
     "contacts": "联系人",
     "copiedGuguNumber": "已复制咕咕号",
     "done": "完成",
-    "edit": "修改",
     "groupChat": "群聊",
     "groups": "群组",
     "guguNumber": "咕咕号",
