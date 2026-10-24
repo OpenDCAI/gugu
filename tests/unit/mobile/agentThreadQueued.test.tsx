@@ -54,7 +54,7 @@ afterEach(() => {
   Element.prototype.scrollTo = scrollTo
 })
 
-async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[], onSend = async (_text: string) => undefined, onStop = () => undefined, stopping = false) {
+async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[], onSend: (text: string) => Promise<void> = async () => undefined, onStop: () => void = () => undefined, stopping = false) {
   await harness.render(
     <AgentThread
       timeline={{ ...emptyAgentWatchTimeline(), turns, queuedPrompts }}
