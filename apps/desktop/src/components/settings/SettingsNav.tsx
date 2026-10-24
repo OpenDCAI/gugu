@@ -15,8 +15,6 @@ import {
   PlugFilled,
   ChevronLeft,
   ChevronRight,
-  Folder,
-  FolderFilled,
   Globe,
   GlobeFilled,
   Palette,
@@ -157,7 +155,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'sessions', labelKey: 'settings.nav.sessions', il: <Bot size={15} />, ib: <BotFilled size={15} /> },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
   { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
-  { key: 'repository', labelKey: 'settings.nav.repository', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
 ]
 

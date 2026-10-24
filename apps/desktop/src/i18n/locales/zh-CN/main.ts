@@ -453,7 +453,6 @@ export default {
       "model": "模型",
       "phone": "这台手机",
       "permissions": "权限",
-      "repository": "仓库",
       "sessions": "项目",
       "subscriptions": "订阅",
       "usage": "用量"

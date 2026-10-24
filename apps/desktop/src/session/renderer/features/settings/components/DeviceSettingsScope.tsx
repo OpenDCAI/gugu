@@ -1,5 +1,4 @@
-// #6264 设置里跟机器走的那几组(通用 → 默认 tmux、仓库):选哪台机器、那一块读写哪台机器。
-// 选择器就是各处那一个(`MachinePicker`),画在设置左栏列头下,整个设置共用一份选择(`settingsDeviceStore`)。
+// 任务里的机器组:选哪台机器,项目目录、git 行为与 tmux 就读写哪台机器。
 import { observer } from 'mobx-react-lite';
 import { useMemo, type ReactNode } from 'react';
 import { DeviceScopeNoticeLine, useSelectedRemoteDevice } from '@renderer/features/remote-hosts/device-scope-picker';
@@ -50,18 +49,4 @@ export function DeviceSettingsNotice({
   const { remote } = useSettingsHost();
   const notice = deviceScopeNotice({ remote, error, hasData, now: Date.now(), cloud: remoteHostsStore.cloudScope(remote?.deviceId) }, translate);
   return notice ? <DeviceScopeNoticeLine notice={notice} onRetry={onRetry} /> : null;
-}
-
-/**
- * 页里只有个别行按机器时(通用 → 默认 tmux),那一行标题旁标出它跟着的机器名;看本机时不画。
- * 与侧栏项目行旁的机器名同一种次要文字。
- */
-export function DeviceSettingsTag() {
-  const { remote } = useSettingsHost();
-  if (!remote) return null;
-  return (
-    <span data-slot="device-settings-tag" className="text-foreground-tertiary-passive ml-1.5 text-xs">
-      {remote.deviceLabel}
-    </span>
-  );
 }
