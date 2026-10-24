@@ -29,7 +29,7 @@ function cacheKey(link: AttachmentLink, variant: AttachmentVariant): string {
   return link.sha256 ? `${CACHE_ORIGIN}/sha256/${link.sha256}${thumb}` : `${CACHE_ORIGIN}/url/${encodeURIComponent(link.url)}${thumb}`
 }
 
-export type AttachmentBytes = { status: 'ready'; blob: Blob; link: AttachmentLink } | { status: 'gone' | 'expired' }
+export type AttachmentBytes = { status: 'ready'; blob: Blob; link: AttachmentLink } | { status: 'gone' } | { status: 'expired' }
 
 /** 取一个附件的字节:先看本机缓存,没有就按签名链接下,存进缓存。取不到就抛(调用方显示「暂时打不开 · 重试」)。 */
 export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: AttachmentLink) => void): Promise<AttachmentBytes> {
@@ -51,7 +51,8 @@ export type AttachmentView =
   /** link:签好了、字节还在路上(气泡按宽高先留位置)。 */
   | { status: 'loading'; link?: AttachmentLink }
   | { status: 'ready'; objectUrl: string; link: AttachmentLink }
-  | { status: 'gone' | 'expired' }
+  | { status: 'gone' }
+  | { status: 'expired' }
   | { status: 'failed' }
 
 /**

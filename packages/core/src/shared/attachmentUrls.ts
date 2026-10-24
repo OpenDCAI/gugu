@@ -21,7 +21,7 @@ export interface AttachmentLink {
   width: number | null
   height: number | null
 }
-export type AttachmentResolution = AttachmentLink | { status: 'gone' | 'expired' }
+export type AttachmentResolution = AttachmentLink | { status: 'gone' } | { status: 'expired' }
 export interface AttachmentMetadata { status: 'ready' | 'gone' | 'expired'; sha256: string | null }
 
 /** /urls 回答里的一行(只读用到的):条目的回 item_id + version,悄悄话的回 message_id。 */
