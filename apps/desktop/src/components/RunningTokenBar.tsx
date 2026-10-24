@@ -40,6 +40,7 @@ export interface RunningTokenBarProps {
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
 .rtb-bar{display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.rtb-bar[data-mobile=false]{padding:var(--spacing-sm) 0}
 .rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
 .rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}

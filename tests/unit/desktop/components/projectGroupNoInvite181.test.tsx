@@ -15,7 +15,7 @@ vi.mock('../../../../apps/desktop/src/components/chat/GroupAgentFloodSettings', 
 
 const { isProjectGroupChat } = await import('../../../../apps/desktop/src/lib/groupMemberPermissions')
 const { GroupSettingsManagePage } = await import('../../../../apps/desktop/src/components/chat/GroupSettingsManagePage')
-const { MemberPickerModal } = await import('../../../../apps/desktop/src/components/chat/MemberPickerModal')
+const { AddGroupMembers } = await import('../../../../apps/desktop/src/components/chat/AddGroupMembers')
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness(); projectGroups.clear() })
@@ -52,13 +52,13 @@ describe('a project group offers no way to bring people in', () => {
   })
 
   it('the member picker says why its people page is empty', async () => {
-    await renderWithAppProviders(harness, createNode(MemberPickerModal, {
-      chatId: 'pg', snapshot: { humans: [], agents: [] } as never, currentUserId: null, canInviteHumans: false, humanDeniedHint: REASON,
+    await renderWithAppProviders(harness, createNode(AddGroupMembers, {
+      chatId: 'pg', snapshot: { humans: [], agents: [] } as never, canInviteHumans: false, humanDeniedHint: REASON,
       onClose: vi.fn(), onReload: vi.fn(async () => {}),
     }))
-    // It opens on the Agent page (your own agents still join); the people page says why it is empty.
+    // It does not open on people (your own agents still join); the people source says why it is empty.
     expect(document.body.textContent).not.toContain(REASON)
-    await act(async () => { document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMembersPickerHumanTab}"]`)!.click() })
-    expect(document.body.textContent).toContain(REASON)
+    await act(async () => { document.querySelector<HTMLElement>('[data-picker-source="people"]')!.click() })
+    expect(document.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.groupMembersPickerHumanDenied}"]`)?.textContent).toBe(REASON)
   })
 })

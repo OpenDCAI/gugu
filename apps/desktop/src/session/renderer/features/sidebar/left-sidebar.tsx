@@ -146,9 +146,11 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
     appState.navigation.currentViewId === 'session'
       ? ((appState.navigation.viewParamsStore.session as { sessionId?: string } | undefined)?.sessionId ?? null)
       : null;
+  // 拼在一屏的几组:壳画的「对话」也把同一组的几行并在一处(同「项目」这边)。
+  const joinedGroups = sidebarStore.joinedGroups;
   React.useEffect(
-    () => publishSidebarChatView({ focusedChatId, focusedSessionId }),
-    [focusedChatId, focusedSessionId]
+    () => publishSidebarChatView({ focusedChatId, focusedSessionId, groups: joinedGroups }),
+    [focusedChatId, focusedSessionId, joinedGroups]
   );
   // 没有项目的会话就是和它的 agent 私聊(gugu-dev#181):不在这边单列一个分区,交给壳和对话一起排进「对话」。
   const standaloneLines = sidebarStore.standaloneLines;

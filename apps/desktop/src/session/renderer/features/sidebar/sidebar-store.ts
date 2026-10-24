@@ -25,6 +25,7 @@ import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
 import type { SidebarSessionLine } from '@/lib/sidebarChatsBridge';
+import { blockKey, joinedSlot, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
@@ -82,13 +83,10 @@ export function navNodesEqual(a: SidebarNavNode | null, b: SidebarNavNode | null
 }
 
 /**
- * 拼在一屏的几条会话(spec session-page「拼在一屏的几块是一组」,#7097):组员按屏上从左上到右下的次序;
- * 框摆在 anchor 那条原来的位置,别的组员从原位置挪进来。由这屏那边注入(screen-layout-actions)。
+ * 一组在这边(「项目」「置顶」)成框的样子(spec session-page「拼在一屏的几块是一组」,#7097):组里这边有的会话,按屏上次序;
+ * 框摆在 anchor 那条原来的位置(lib/sidebarJoinedGroups 的 joinedSlot),别的组员从原位置挪进来。
  */
-export type SidebarJoinedGroup = { anchor: string; sessionIds: readonly string[]; onScreen: boolean };
-
-/** 这一行是框的哪一段(上沿 / 中间 / 下沿),框此刻在不在屏上(在 = 浅灰底,不在 = 一道细框)。 */
-export type SidebarJoin = { pos: 'first' | 'middle' | 'last'; onScreen: boolean };
+type ProjectJoinedGroup = { anchor: string; sessionIds: readonly string[]; onScreen: boolean };
 
 export type SessionEntry = {
   projectId: string;
@@ -202,8 +200,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * 排版逻辑因此能脱离桥单测。搜索时机器名也算项目名的一部分。
    */
   machines: SidebarMachines | null = null;
-  /** 拼成一组的几条(这屏那边注入;不注入 = 没有组,单测默认如此)。 */
-  joinedGroups: readonly SidebarJoinedGroup[] = [];
+  /** 拼在一屏的几组(这屏那边注入,screen-layout-actions;不注入 = 没有组,单测默认如此)。 */
+  joinedGroups: readonly JoinedGroup[] = [];
   /**
    * #7199 个人助理是谁(它的 agent id,壳按库里的标记认出来、由 left-sidebar 同步进来;没有 = null)。
    * owner:「它不应该生活在任务区」—— 它自己的会话不进这里的任何列表;它派出来的照常在,行上标「助理发起」。
@@ -506,16 +504,27 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return { entries, rowOfSession, nodeById, rowOfEntry, home };
   }
 
-  setJoinedGroups(groups: readonly SidebarJoinedGroup[]): void {
+  setJoinedGroups(groups: readonly JoinedGroup[]): void {
     this.joinedGroups = groups;
   }
 
   /**
-   * 此刻成框的组。搜索时不成框(搜到的一条一条列,那是另一种看法);anchor 那一行此刻看不见(收起的项目 / 分区、
+   * 此刻在这边成框的组:组里这边有的会话两条以上。住在「对话」里的会话(没有项目的,standaloneLines)不算 ——
+   * 它们由壳那份对话列表并(ChatListPanel),❌ 拉进这边的框又在「对话」里再出现一次。
+   * 搜索时不成框(搜到的一条一条列,那是另一种看法);anchor 那一行此刻看不见(收起的项目 / 分区、
    * 没展开的父会话下面)的组也不成框 —— 组员留在原处,❌ 摘走了却哪儿都看不见。
    */
-  private get activeJoinedGroups(): readonly SidebarJoinedGroup[] {
-    return this.joinedGroups.filter((group) => group.sessionIds.length > 1 && this.anchorVisible(group.anchor));
+  private get activeJoinedGroups(): readonly ProjectJoinedGroup[] {
+    const inChats = new Set(this.standaloneLines.map((line) => line.sessionId));
+    const idOf = new Map(
+      [...this.placement.nodeById.keys()].filter((id) => !inChats.has(id)).map((id) => [blockKey.session(id), id])
+    );
+    return this.joinedGroups.flatMap((group) => {
+      const listed = group.members.filter((key) => idOf.has(key));
+      if (listed.length < 2) return [];
+      const anchor = idOf.get(joinedSlot(group, listed))!;
+      return this.anchorVisible(anchor) ? [{ anchor, sessionIds: listed.map((key) => idOf.get(key)!), onScreen: group.onScreen }] : [];
+    });
   }
 
   /** anchor 那一行此刻画不画得出来:往上每一级父会话都展开着,所在的分区 / 项目也展开着(置顶的就看置顶区)。 */
