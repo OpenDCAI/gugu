@@ -21,7 +21,7 @@ export function AssistantDefaultAvatar({ id, avatar, look, name, size, still = f
 
 function AssistantStill({ id, avatar, look, name, size }: { id: string; avatar?: string | null; look?: AgentLook; name: string; size: number }) {
   const resolved = useAgentLook(id, look, avatar)
-  const poster = useAgentLookPoster(resolved, id)
+  const poster = useAgentLookPoster(resolved)
   return <img src={poster} alt={name} aria-label={name} draggable={false} data-agent-avatar-still={colorSlug(resolved.color)}
     width={size} height={size} className="block shrink-0 object-contain" />
 }

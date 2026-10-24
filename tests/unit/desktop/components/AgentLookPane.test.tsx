@@ -125,18 +125,16 @@ describe('形象工坊', () => {
       return r
     }
 
-    it('没存过装扮:穿的是按编号推导的默认装扮,页签上写明;一个位置一排,每排都有「不戴」', async () => {
+    it('没存过装扮:默认不戴,页签上写明;一个位置一排,每排都有「不戴」', async () => {
       await openOutfits()
-      expect(stageWear()).not.toBe('')
-      expect(q('.gg-look-outfit-note')?.textContent).not.toBe('')
+      expect(stageWear()).toBe('')
+      expect(q('.gg-look-outfit-note')?.textContent).toMatch(/默认形象不戴装扮|The default look has no outfit/)
       expect(qa('.gg-look-outfit-group').length).toBe(8)
       for (const g of qa('.gg-look-outfit-group')) expect(g.querySelector('[data-outfit=""]')).not.toBeNull()
     })
 
     it('穿一件、换配色、和它打架的自动摘掉并说一声;「就它了」写进去的是这一身', async () => {
       const { setAgentLook } = await openOutfits()
-      // 先把默认那一身每个位置都摘干净,从空的开始搭
-      for (const g of qa('.gg-look-outfit-group')) await clickElement(g.querySelector<HTMLElement>('[data-outfit=""]')!)
       expect(stageWear()).toBe('')
       await clickElement(q('[data-outfit="crown"]')!)
       expect(stageWear()).toBe('crown.0')
@@ -152,16 +150,19 @@ describe('形象工坊', () => {
       expect(setAgentLook).toHaveBeenCalledWith('agent-1', { color: BODY_COLORS.findIndex((c) => c.en === 'Lagoon'), rest: 'surprised', wear: [{ id: 'glasses', cw: 0 }, { id: 'headphones', cw: 0 }] })
     })
 
-    it('「全部摘掉」= 明确不戴(存成 wear=);「恢复默认」= 去掉 wear、回到推导的那一身', async () => {
+    it('「全部摘掉」= 明确不戴(存成 wear=);「恢复默认」= 去掉 wear、回到素装', async () => {
       const { setAgentLook } = await openOutfits()
-      const derived = stageWear()
+      expect(stageWear()).toBe('')
+      await clickElement(q('[data-outfit="crown"]')!)
+      expect(stageWear()).toBe('crown.0')
       const clear = qa('.gg-look-outfit-actions button')[0]
       await clickElement(clear)
       expect(stageWear()).toBe('')
       await clickElement(q('.gg-look-save')!)
       expect(setAgentLook).toHaveBeenLastCalledWith('agent-1', expect.objectContaining({ wear: [] }))
+      await clickElement(q('[data-outfit="crown"]')!)
       await clickElement(qa('.gg-look-outfit-actions button')[1])
-      expect(stageWear()).toBe(derived)
+      expect(stageWear()).toBe('')
     })
 
     it('装扮页签里的骰子只换装扮:颜色、表情不动', async () => {

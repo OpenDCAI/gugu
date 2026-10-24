@@ -67,7 +67,7 @@ export function displayAvatarUrl(
   if (kind === 'agent' && key && !isAssistantAvatar(key)
     && (avatar == null || isBuiltinAgentAvatarUrl(avatar))) return boringAgentAvatarDataUri(key)
   const look = parseAgentLook(normalizeAvatarUrl(avatar))
-  if (look) return agentLookPoster(look, (identityKey ?? '').trim())
+  if (look) return agentLookPoster(look)
   const custom = customAvatarUrl(avatar, surface)
   if (custom) return custom
   // 脏哨兵串已在 customAvatarUrl 里诊断过；这里必须同样拒绝生成脸，不能用一张正常的脸盖掉上游 bug。
@@ -76,5 +76,5 @@ export function displayAvatarUrl(
     console.error(`[Avatar] missing identity key at ${surface} — a generated default face needs a stable id; display name must never seed it`)
     return null
   }
-  return kind === 'agent' ? agentLookPoster(agentIdentity(key), key) : dicebearAvatarDataUri(key)
+  return kind === 'agent' ? agentLookPoster(agentIdentity(key)) : dicebearAvatarDataUri(key)
 }

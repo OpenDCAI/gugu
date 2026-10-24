@@ -34,7 +34,7 @@ export function memberFace(id: string, avatar: string | null): Promise<string | 
   // 形象地址:等引擎把这个形象的定格画好再缩(❌ 缩那张还没画好时顶着的同色图,这里画一次就缓存住了)
   const look = parseAgentLook(normalizeAvatarUrl(avatar))
   const face = look
-    ? settledAgentLookPoster(look, id).then(draw, () => null)
+    ? settledAgentLookPoster(look).then(draw, () => null)
     : draw(displayAvatarUrl(avatar, id, 'App member face', identity.type))
   drawn.set(key, face)
   void face.then((url) => url === null && drawn.delete(key))
