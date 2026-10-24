@@ -1,4 +1,4 @@
-import { revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
+import { forgetProjectOnScreen, revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
@@ -30,6 +30,9 @@ import type {
   StartProjectCreationResult,
 } from './project-creation-types';
 import { ProjectPathConflictError } from './project-creation-error';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { cachedDevicesAccount } from '@/store/devicesCache';
+import { libraryDeviceId } from '@/components/assistant/assistant-library-client';
 
 export class ProjectManagerStore {
   projects = observable.map<string, ProjectStore>();
@@ -215,6 +218,7 @@ export class ProjectManagerStore {
     projectId: string,
     targetPath: string
   ): Promise<ProjectCreationCompletion> {
+    const ownerId = cachedDevicesAccount();
     const rpc = rpcOn(projectType.machine ?? null);
 
     let result: ProjectCreationCompletion;
@@ -320,6 +324,8 @@ export class ProjectManagerStore {
     }
 
     if (!result.success) this._markCreationError(projectId, result.error);
+    else void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'created', id: projectId,
+      deviceId: projectType.machine ?? libraryDeviceId(null), after: { name: data.name, path: targetPath } }, ownerId);
     return result;
   }
 
@@ -470,6 +476,8 @@ export class ProjectManagerStore {
         this.projects.delete(id);
       }
     });
+    // 那台机器的清单(连上读到的 / 账号上那份)并进来了:停在它的某个项目 / 会话上「还不知道」的那一页按此刻的重判。
+    appState.navigation.revalidate();
   }
 
   /** 那台机器又连上了:已挂着的项目重读任务列表(断开那段时间的推送收不到)。 */
@@ -497,13 +505,17 @@ export class ProjectManagerStore {
   }
 
   async deleteProject(projectId: string): Promise<void> {
+    const ownerId = cachedDevicesAccount();
+    const deviceId = machineRegistry.machineOf(projectId) ?? libraryDeviceId(null);
     const snapshot = this.projects.get(projectId);
     runInAction(() => {
       this.projects.delete(projectId);
     });
+    forgetProjectOnScreen(projectId);
     appState.navigation.revalidate();
     try {
       await rpc.projects.deleteProject(projectId);
+      void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'removed', id: projectId, deviceId }, ownerId);
     } catch (err) {
       runInAction(() => {
         if (snapshot) this.projects.set(projectId, snapshot);

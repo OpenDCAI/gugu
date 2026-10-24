@@ -1,61 +1,60 @@
-// #7199 个人助理住在这台电脑上时(非会员,owner 10-16),它自己那条会话、它派的子 agent 都是本机会话。
-// 别的机器的会话目录由 remoteHostsStore 同步;本机这一份不在那里(那里只放别的机器),这里按同一张路由表现问本机
-// (`sessionTimeline.sessionsList`,手机、别的电脑读的就是这一份,行上带 agent id)—— 只在助理 App / 录音机用着时问,❌ 一直问。
+// 本机任务列表与远程列表使用同一份宿主推送协议；只在助理或任务选择器使用时订阅。
 import { makeAutoObservable, runInAction } from 'mobx';
-import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
-import { rpcOn } from '@renderer/lib/ipc';
+import type { SessionpageSessionSummary, SessionpageSessionsListResult } from '@gugu/session-core/session-record/contract';
+import { applySessionListEvent } from '@gugu/session-core/session-record/session-list-delta';
+import { events, rpcOn } from '@renderer/lib/ipc';
+import { sessionpageSessionListChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
 import { log } from '@renderer/utils/logger';
 import type { AssistantHomePlace } from '@/lib/assistantHome';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
-const POLL_MS = 5_000;
-
 class LocalHomeSessions {
   sessions: readonly SessionpageSessionSummary[] = [];
-  /** 读到过一次了(没读到 ≠ 本机没有会话)。 */
   loaded = false;
   error: string | null = null;
   private users = 0;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private stop: (() => void) | null = null;
 
-  constructor() {
-    makeAutoObservable<LocalHomeSessions, 'users' | 'timer'>(this, { users: false, timer: false });
-  }
-
-  /** 用着就问(引用计数):返回停用的那一下。 */
   use(): () => void {
-    this.users += 1;
-    if (this.users === 1) {
-      void this.refresh();
-      this.timer = setInterval(() => void this.refresh(), POLL_MS);
+    if (this.users++ === 0) {
+      const subscriptionId = crypto.randomUUID();
+      let current: SessionpageSessionsListResult | null = null;
+      let stopped = false;
+      const fail = (error: unknown) => {
+        if (stopped) return;
+        log.warn('[assistant] 读本机任务列表失败', { error: String(error) });
+        runInAction(() => { this.error = error instanceof Error ? error.message : String(error); });
+      };
+      const off = events.on(sessionpageSessionListChannel, (event) => {
+        if (stopped) return;
+        try {
+          const result = current = applySessionListEvent(current, event);
+          runInAction(() => {
+            this.sessions = result.sessions;
+            this.loaded = true;
+            this.error = null;
+          });
+        } catch (error) { fail(error); }
+      }, subscriptionId);
+      const pending = Promise.resolve().then(() => rpcOn(null).sessionTimeline.sessionsSubscribe({ subscriptionId })).then((result) => {
+        if (!result.ok) fail(new Error(result.error.message));
+      }, fail);
+      this.stop = () => {
+        stopped = true;
+        current = null;
+        off();
+        // 等订阅建好再退订：最后一个使用者可能在首份列表读完之前离开。
+        void pending.then(() => rpcOn(null).sessionTimeline.sessionsUnsubscribe({ subscriptionId }))
+          .catch((error) => log.warn('[assistant] 退订本机任务列表失败', { error: String(error) }));
+      };
     }
-    return () => {
-      this.users -= 1;
-      if (this.users === 0 && this.timer) {
-        clearInterval(this.timer);
-        this.timer = null;
-      }
-    };
-  }
-
-  async refresh(): Promise<void> {
-    try {
-      const result = await rpcOn(null).sessionTimeline.sessionsList();
-      runInAction(() => {
-        this.sessions = result.sessions;
-        this.loaded = true;
-        this.error = null;
-      });
-    } catch (error) {
-      log.warn('[assistant] 读本机会话列表失败', { error: String(error) });
-      runInAction(() => {
-        this.error = error instanceof Error ? error.message : String(error);
-      });
-    }
+    return () => { if (--this.users === 0) this.stop?.(); };
   }
 }
 
-export const localHomeSessions = new LocalHomeSessions();
+export const localHomeSessions = makeAutoObservable<LocalHomeSessions, 'users' | 'stop'>(
+  new LocalHomeSessions(), { users: false, stop: false },
+);
 
 /** 读它家那台走哪条线:就是眼前这台 = null(本机,❌ 绕远程连自己);别的机器 = 它的 id。 */
 export function homeTarget(home: AssistantHomePlace): string | null {

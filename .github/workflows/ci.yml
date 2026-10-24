@@ -16,6 +16,8 @@ env:
   VITE_SUPABASE_URL: http://127.0.0.1:54321
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
   VITE_SUPABASE_ANON_KEY: community-build-placeholder
+  # Match pnpm-lock.yaml; update the version and digest together when Playwright changes.
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
 jobs:
   # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
   # every event (scripts/ci-spec-coverage.mjs rejects conditions on any job that runs a test runner).
@@ -92,9 +94,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The one Linux job that saves the dependency cache when the lockfile changed.
-      - uses: ./.github/actions/setup-community
+      - id: setup
+        uses: ./.github/actions/setup-community
         with:
           save-cache: 'true'
+      # One writer. Compatible snapshots seed new source trees; ESLint validates file content.
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/eslint
+          key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', '.eslintignore', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-
       - name: Check frozen source file growth
         if: github.event_name == 'pull_request'
         env:
@@ -108,7 +117,6 @@ jobs:
             apps/desktop/src/lib/chat.ts \
             apps/desktop/src/store/chat.tsx \
             apps/desktop/src/components/chat/GroupMembersSection.tsx \
-            apps/desktop/src/components/chat/InputArea.tsx \
             apps/desktop/src/components/chat/MessageBubble.tsx; do
             base_lines=$(git show "FETCH_HEAD:$file" | wc -l | tr -d ' ')
             head_lines=$(wc -l < "$file" | tr -d ' ')
@@ -133,13 +141,22 @@ jobs:
     name: Unit tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      GUGU_VITEST_MODULE_CACHE: '1'
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-community
+      - id: setup
+        uses: ./.github/actions/setup-community
+      # Each shard is the sole writer of its own content-addressed module snapshot.
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.experimental-vitest-cache
+          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
       - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
   renderer-build:
     name: Renderer build (web target)
@@ -240,6 +257,10 @@ jobs:
       # (darwin-only cases, JXA/osacompile, keychain, FSEvents subscription semantics); they were
       # found by diffing per-file run/skip/fail counts of the Linux shards against the macOS shards.
       - run: pnpm exec vitest run --project gugu --project session-main --project session-packages tests/unit/desktop/electron/deviceActions tests/unit/desktop/electron/loginShellProbe apps/desktop/electron/session/main/core/browser/browser-cookie-import packages/session-plugins/src/agents/impl/copilot/subscription packages/session-core/src/services/fs-watch/
+      - name: Browser UA handoff in real Electron
+        env:
+          GUGU_BROWSER_REAL_ELECTRON: ./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron
+        run: pnpm exec vitest run --project session-main apps/desktop/electron/session/main/core/browser/browser-user-agent.real-electron.test.ts
       # chat-ui measurement contracts are calibrated on macOS text layout (one plan-review case is
       # off by a line on Linux), so this browser project stays here.
       - uses: ./.github/actions/setup-playwright
@@ -258,9 +279,9 @@ jobs:
       - uses: ./.github/actions/setup-community
       - uses: ./.github/actions/setup-playwright
         with:
-          with-deps: 'true'
-          save-cache: 'true'
+          container-image: ${{ env.PLAYWRIGHT_IMAGE }}
       - run: pnpm exec vitest run --project session-browser
+        shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
   web-smoke:
     name: Web E2E (${{ matrix.id }})
     runs-on: ubuntu-24.04
@@ -287,9 +308,10 @@ jobs:
         run: echo "GUGU_E2E_RUN_ID=community-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-playwright
         with:
-          with-deps: 'true'
+          container-image: ${{ env.PLAYWRIGHT_IMAGE }}
       - name: Run automatically discovered CI web specs
         run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
+        shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
       - name: Verify local Playwright artifacts exist
         if: ${{ always() }}
         run: test -d playwright-report && test -d test-results
@@ -311,9 +333,11 @@ jobs:
     env:
       GUGU_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
       GUGU_INSTALL_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres?sslmode=disable
-      # Supabase CLI default registry public.ecr.aws runs out of anonymous quota on hosted runners;
-      # the same images are mirrored to GHCR.
-      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+      # Neither Supabase mirror holds up from hosted runners: public.ecr.aws runs out of the anonymous
+      # quota those runner IPs share, and GHCR caps pulls per publishing organization, so every pull
+      # of a Supabase image anywhere draws on one budget ("allowed: 44000/minute"). Take the Docker
+      # Hub originals through Google's Docker Hub cache; the daemon falls back to Docker Hub.
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: docker.io
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-community
@@ -343,6 +367,13 @@ jobs:
           path: .gugu-supabase
           persist-credentials: false
       - run: pnpm --dir .gugu-supabase install --frozen-lockfile
+      - name: Pull Docker Hub images through mirror.gcr.io
+        run: |
+          config=/etc/docker/daemon.json
+          current=$(sudo cat "$config" 2>/dev/null || echo '{}')
+          echo "$current" | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee "$config"
+          sudo systemctl restart docker
+          docker info --format '{{.RegistryConfig.Mirrors}}'
       - run: pnpm --dir .gugu-supabase test:db:start
       - run: pnpm --dir .gugu-supabase test:installation
       - run: pnpm exec vitest run --project supabase-contract

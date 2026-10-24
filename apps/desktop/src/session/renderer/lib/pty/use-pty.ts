@@ -688,7 +688,20 @@ export function usePty(
   // 放在挂载那一段之后:同一次提交里先挂上,再按页露没露着决定用不用 WebGL(见 FrontendPty.setShown)。
   useEffect(() => {
     pty.setShown(pageShown);
-  }, [pty, pageShown]);
+    if (!pageShown) return;
+
+    // The host grid can change while this page is retained or its window is unfocused.
+    // Recalibrate even when the pane pixels stayed the same; the host drops unchanged sizes.
+    scheduleLayoutMeasure();
+    const view = pty.ownedContainer.ownerDocument.defaultView;
+    pty.ownedContainer.addEventListener('focusin', scheduleLayoutMeasure);
+    view?.addEventListener('focus', scheduleLayoutMeasure);
+    return () => {
+      pty.ownedContainer.removeEventListener('focusin', scheduleLayoutMeasure);
+      view?.removeEventListener('focus', scheduleLayoutMeasure);
+      cancelScheduledLayoutMeasure();
+    };
+  }, [pty, pageShown, scheduleLayoutMeasure, cancelScheduledLayoutMeasure]);
 
   return { focus, sendInput };
 }

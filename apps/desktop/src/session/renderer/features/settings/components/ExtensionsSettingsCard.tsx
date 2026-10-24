@@ -24,11 +24,11 @@ import { ConsentBody } from '@/components/extensionBundle/ConsentDetails';
 import { askInShell, installConsentPrompt, type InstallConsentAsk } from '@renderer/features/extensions/install-consent';
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS, type EnablePlace, type InstallAlsoOnMachine } from '@shared/extensions/host-actions';
 import { findRemoteHostsBridge } from '@shared/remote-hosts';
-import { AppFeaturedCard } from '@renderer/features/extensions/panel/app-featured';
-import { AppShelfRow } from '@renderer/features/extensions/panel/app-shelf';
+import { AppMarketContent, type AppMarketState } from '@renderer/features/extensions/panel/app-market-content';
+import { appLifecycle } from '@renderer/features/extensions/panel/app-lifecycle';
 import type { AppLifecycle } from '@renderer/features/extensions/panel/app-lifecycle-button';
 import { AppProductPage, listOf, type ExtensionDetailSubject } from '@renderer/features/extensions/panel/app-product-page';
-import { InstalledAppRow, MarketAppRow } from '@renderer/features/extensions/panel/app-rows';
+import { InstalledAppRow } from '@renderer/features/extensions/panel/app-rows';
 import {
   InstalledRowNoticeLine,
   programFailureText,
@@ -38,36 +38,33 @@ import type { ExtensionPendingAction } from '@renderer/features/extensions/panel
 import { ExtensionMonogram } from '@renderer/features/extensions/panel/extension-monogram';
 import {
   InstalledRowsSkeleton,
-  ShelfMoreSkeleton,
   ShelfSkeleton,
 } from '@renderer/features/extensions/panel/extension-skeletons';
 import '@renderer/features/extensions/panel/extensions-panel.css';
 import '@renderer/features/extensions/panel/app-store.css';
 import { Button } from '@renderer/lib/ui/button';
-import { cn } from '@renderer/utils/utils';
 import { SearchInput } from '@renderer/lib/ui/search-input';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import {
   declaredPermissions,
-  featuredBody,
   INSTALLED_GROUP_ORDER,
   installedGroupOf,
   localizedManifestText,
   marketCategoryOf,
   matchesExtensionQuery,
-  shelfRelation,
   type InstalledGroup,
   type InstalledUpdateFlag,
   type MarketCategory,
 } from '@shared/extensions/catalog';
 import type {
-  MarketCompat,
   MarketListItem,
   MarketSourceRef,
 } from '@shared/extensions/market';
 import { marketDownloadProgressChannel, marketRefreshedChannel } from '@shared/extensions/marketEvents';
 import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
+import { marketHome } from '@shared/extensions/market-home';
+import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
@@ -86,28 +83,7 @@ type ShelfItem = MarketListItem;
  * The shelf, as this screen has read it so far. 一页一页取(#5410):`items` 是已经取到的
  * 那几页拼起来的,`total` 是服务端说的总数,`hasMore` 决定底部要不要再取;换搜索词从第 0 页重来。
  */
-type ShelfState =
-  | { status: 'loading' }
-  | {
-      status: 'ready';
-      /** 这是哪个搜索词的结果(空串 = 不搜):同一个词再读一遍时,画着的这份留着,读回来原地换上。 */
-      query: string;
-      /** 云端连不上时,用户该做什么这一类。原话只进日志,❌ 不进文案。 */
-      errorKind: 'unreachable' | null;
-      items: ShelfItem[];
-      invalid: { dirName: string; reason: string }[];
-      total: number;
-      page: number;
-      hasMore: boolean;
-      /** 首页精选那一排(只随不带搜索词的第一页;近期安装量排出来,不够用官方标的补齐)。 */
-      featured: ShelfItem[];
-      /** 精选下面那几排:「最新」、「热门」(近期安装分数够数才有)和够数的类别各一排(同精选,只随不带搜索词的第一页)。 */
-      // `popular` 可选:看的是另一台咕咕、它还是旧版时不带这一排。
-      home: { newest: ShelfItem[]; popular?: ShelfItem[]; shelves: { category: MarketCategory; items: ShelfItem[] }[] };
-      /** 正在取下一页:底部画骨架、哨兵不再触发。 */
-      loadingMore: boolean;
-    }
-  | { status: 'error' };
+type ShelfState = AppMarketState;
 
 /** The inventory (what is installed), as this screen has read it so far. */
 type InventoryState = 'loading' | 'ready' | 'error';
@@ -138,10 +114,7 @@ const GROUP_LABEL = {
   disabled: 'extensions.groupDisabled',
 } as const satisfies Record<InstalledGroup, string>;
 
-type StoreTab = 'market' | 'installed';
-
-/** 首页一个类别那一排最多放几个(两行);多了出「查看全部」,点了 = 选上那一类。 */
-const HOME_SHELF_ROWS = 6;
+type StoreTab = 'market' | 'newest' | 'popular' | 'all' | 'installed';
 
 export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard() {
   const { translate, locale } = useSessionMessages();
@@ -167,7 +140,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
   const { navigate } = useNavigate();
   // 进来先是市场(原型 S.store.tab = 'market');有更新时「已安装」上一个红点。
   const [tab, setTab] = useState<StoreTab>('market');
-  // 市场顶上那排类别(照 Google Play「手机 / 平板电脑…」那排):选一个只看那一类。
   const [chip, setChip] = useState<'all' | MarketCategory>('all');
   // 刚在产品页里装好的那一个:那一页头下面说一句「装好了」和去哪找它。
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
@@ -314,7 +286,16 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       current.status === 'ready' && current.query === search && !current.errorKind ? current : { status: 'loading' }
     );
     try {
-      const result = await api.market({ page: 0, query: search });
+      const ranking = search === ''
+        ? Promise.resolve(chatDb.rpc('market_install_ranking')).then(({ data, error }) => {
+            if (error) throw error;
+            return new Map(((data ?? []) as { app_id: string; score: number }[]).map((row) => [row.app_id, row.score]));
+          }).catch((error: unknown) => {
+            log.warn('market install ranking unreadable:', error);
+            return null;
+          })
+        : Promise.resolve(new Map<string, number>());
+      const [result, scores] = await Promise.all([api.market({ page: 0, query: search }), ranking]);
       if (ticket !== shelfRequest.current) return;
       // The market answers every call (unreachable is `errorKind`); only a call that did not get there lands here.
       if (!result.success || !result.data) throw new Error('market unreadable');
@@ -329,15 +310,19 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       }
       let items = result.data.extensions;
       let last = result.data;
-      for (let page = 1; page < pages && last.hasMore; page += 1) {
+      for (let page = 1; last.hasMore && (search === '' || page < pages); page += 1) {
         const next = await api.market({ page, query: search });
         if (ticket !== shelfRequest.current) return;
-        // 后面那几页没读到:前面的照样换上,底部的「加载更多」还在。
-        if (!next.success || !next.data || next.data.errorKind) break;
+        // 推荐与完整排序页必须读齐;搜索保留分页重试。
+        if (!next.success || !next.data || next.data.errorKind) {
+          if (search === '') throw new Error('The complete market catalog could not be read');
+          break;
+        }
         const seen = new Set(items.map((item) => item.manifest.id));
         items = [...items, ...next.data.extensions.filter((item) => !seen.has(item.manifest.id))];
         last = next.data;
       }
+      const { featured, ...home } = marketHome(items.map((item) => ({ ...item, ...item.cloud })), scores);
       shelfFetchedAt.current = result.data.fetchedAt;
       const ready: Extract<ShelfState, { status: 'ready' }> = {
         status: 'ready',
@@ -348,14 +333,14 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         total: last.total,
         page: last.page,
         hasMore: last.hasMore,
-        featured: result.data.featured,
-        home: result.data.home,
+        featured,
+        home,
         loadingMore: false,
       };
       setShelf(ready);
-      // 下次打开先画的那份:第 0 页(翻到的那几页下次再翻)。
+      // 下次打开先画这份完整目录与编排。
       if (search === '' && !ready.errorKind) {
-        lastShelf.set(host.key, { ...ready, page: 0, items: result.data.extensions, hasMore: result.data.hasMore });
+        lastShelf.set(host.key, ready);
       }
     } catch (error) {
       if (ticket !== shelfRequest.current) return;
@@ -927,36 +912,20 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     return undefined;
   };
 
-  const compatText = (compat: NonNullable<MarketCompat>) =>
-    compat.reason === 'needs-newer-app'
-      ? translate('extensions.needsNewerApp', { version: compat.minAppVersion })
-      : translate('extensions.needsAuthorUpdate');
-
   /**
    * 这一个 App 此刻那颗按钮(一个按钮走完一生):没装 = 安装(装不了就说为什么);装着停用了 = 启用;
    * 有能装的新版 = 更新;能打开 = 打开;都不是 = 只说「已安装」。`item` 是它在市场上的那一版(没有就只看装着的)。
    */
   const lifecycleOf = (extensionId: string, item?: Pick<ShelfItem, 'manifest' | 'cloud'>): AppLifecycle => {
     const installed = installedById.get(extensionId);
-    if (!installed) {
-      if (!item) return null;
-      if (item.cloud.compat) {
-        return { kind: 'word', text: compatText(item.cloud.compat), title: translate('extensions.compatExplain') };
-      }
-      return { kind: 'get' };
-    }
-    if (!store.isEnabled(installed.id)) return { kind: 'enable' };
-    // 「自动更新」关着的照样给「更新」(owner 10-19 对齐 VS Code:`UpdateAction` 不看 pinned,按了之后仍是钉住的,
-    // https://github.com/microsoft/vscode/blob/af18ca5130bd7164867b2784b3aba68b4de38116/src/vs/workbench/contrib/extensions/browser/extensionsActions.ts#L975-L998 )。
-    const update = store.updates?.updates[installed.id];
-    if (update) return { kind: 'update', version: update.version };
-    // A preinstalled App is updated with gugu: a newer version on the shelf is not an update for it (installing one over it
-    // is refused) — main does not ask the market about it either (controller `marketUpdates`).
-    if (item && !item.cloud.compat && !store.isPreinstalled(installed.id) && shelfRelation(item.manifest, installed) === 'installed-older') {
-      return { kind: 'update', version: item.manifest.version };
-    }
-    if (onRail(installed)) return { kind: 'open' };
-    return { kind: 'word', text: translate('extensions.installedMark') };
+    return appLifecycle({
+      installed,
+      enabled: installed ? store.isEnabled(installed.id) : false,
+      updateVersion: store.updates?.updates[extensionId]?.version,
+      offered: item,
+      preinstalled: store.isPreinstalled(extensionId),
+      canOpen: installed ? onRail(installed) : false,
+    }, translate);
   };
 
   const runLifecycle = (extensionId: string, item?: Pick<ShelfItem, 'manifest' | 'cloud' | 'ref'>) => {
@@ -1029,83 +998,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           entry.dirName.toLowerCase().includes(query.trim().toLowerCase())
         );
 
-  // 市场那一侧的筛选在服务端,这里拿到的已经是结果;次序也是那边排好的(先按类别,再按名字)。
   const marketRows = shelf.status === 'ready' ? shelf.items : [];
-  // 类别那一排只列取到的清单里有的类(次序同清单:先按类别再按名字);选中的那类没了(搜别的了)就当「全部」。
-  const chipKeys: ('all' | MarketCategory)[] = ['all'];
-  for (const item of marketRows) {
-    const category = marketCategoryOf(item.manifest);
-    if (!chipKeys.includes(category)) chipKeys.push(category);
-  }
-  const activeChip = chipKeys.includes(chip) ? chip : 'all';
-  const shownRows = activeChip === 'all' ? marketRows : marketRows.filter((item) => marketCategoryOf(item.manifest) === activeChip);
-  const chipLabel = (key: 'all' | MarketCategory) => translate(key === 'all' ? 'extensions.chipAll' : `extensions.category.${key}`);
-  const gridTitle =
-    debouncedQuery !== '' ? translate('extensions.searchResults') : activeChip === 'all' ? translate('extensions.allApps') : chipLabel(activeChip);
-
-  /** 精选大卡 / 「最新」小卡:同一个组件,同一张底图(README 第一张截图,没有就用图标)。 */
-  const featuredCardOf = (item: ShelfItem, variant: 'hero' | 'card') => {
-    const text = localizedManifestText(item.manifest, locale);
-    return (
-      <AppFeaturedCard
-        key={item.manifest.id}
-        variant={variant}
-        hostKey={host.key}
-        id={item.manifest.id}
-        version={item.manifest.version}
-        name={text.name}
-        subtitle={text.subtitle}
-        body={featuredBody(text.description ?? '', text.subtitle)}
-        meta={variant === 'card' ? text.subtitle : `${translate(`extensions.category.${marketCategoryOf(item.manifest)}`)} · ${translate('extensions.official')}`}
-        iconUrl={item.cloud.iconUrl}
-        lifecycle={lifecycleOf(item.manifest.id, item)}
-        pending={pending[item.manifest.id]}
-        pendingPercent={downloadPercent[item.manifest.id]}
-        api={api}
-        translate={translate}
-        onOpen={() => openShelfDetail(item)}
-        onAction={() => runLifecycle(item.manifest.id, item)}
-      />
-    );
-  };
-
-  /**
-   * 市场里的一行。状态只在按钮那一格(❌ 写进副标题):没装的里,停止维护了的写「已停止维护」,这台咕咕装不了的写短的
-   * 那一句(行上放不下版本号,整句在悬停提示里;产品页照旧写整句)。
-   */
-  const marketRowOf = (item: ShelfItem) => {
-    const id = item.manifest.id;
-    const text = localizedManifestText(item.manifest, locale);
-    const here = installedById.has(id);
-    const compat = item.cloud.compat;
-    const word: AppLifecycle | undefined = here
-      ? undefined
-      : item.cloud.deprecated
-        ? { kind: 'word', text: translate('extensions.deprecated') }
-        : compat
-          ? {
-              kind: 'word',
-              text: translate(compat.reason === 'needs-newer-app' ? 'extensions.tileNeedsApp' : 'extensions.needsAuthorUpdate'),
-              title: compatText(compat),
-            }
-          : undefined;
-    return (
-      <MarketAppRow
-        key={id}
-        id={id}
-        name={text.name}
-        subtitle={text.subtitle}
-        iconUrl={item.cloud.iconUrl}
-        deprecated={Boolean(item.cloud.deprecated)}
-        lifecycle={word ?? lifecycleOf(id, item)}
-        pending={pending[id]}
-        pendingPercent={downloadPercent[id]}
-        translate={translate}
-        onOpen={() => openShelfDetail(item)}
-        onAction={() => runLifecycle(id, item)}
-      />
-    );
-  };
 
   const rememberListScroll = () => {
     listScroll.current = scroller()?.scrollTop ?? 0;
@@ -1295,12 +1188,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             aria-label={translate('extensions.title')}
             value={[tab]}
             onValueChange={([value]) => {
-              if (value === 'market' || value === 'installed') setTab(value);
+              if (value === 'market' || value === 'newest' || value === 'popular' || value === 'all' || value === 'installed') setTab(value);
             }}
           >
             {(
               [
-                ['market', translate('extensions.tabMarket'), undefined],
+                ['market', translate('extensions.recommended'), undefined],
+                ['newest', translate('extensions.newest'), undefined],
+                ['popular', translate('extensions.popular'), undefined],
+                ['all', translate('extensions.allApps'), undefined],
                 ['installed', translate('extensions.tabInstalled'), installedCount],
               ] as const
             ).map(([value, label, count]) => (
@@ -1316,7 +1212,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           </Button>
         </div>
 
-        {tab === 'market' && (
+        {tab !== 'installed' && (
           <div className="pb-14" data-testid="extensions-market-panel">
             {/* 那台机器此刻连不上:清单问不了(问了只会挂满超时),照实说,❌ 一直转骨架。 */}
             {/* 那台机器连不上时只有这一句:下面读清单的几种结果(转圈、出错、连不上下载站)都不画,❌ 两条「连不上」叠在一起。 */}
@@ -1353,123 +1249,23 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                   </Button>
                 </div>
               ) : (
-                <>
-                  {chipKeys.length > 2 ? (
-                    <ToggleGroup
-                      size="sm"
-                      spacing={2}
-                      variant="outline"
-                      className="mk-chipbar"
-                      aria-label={translate('extensions.infoCategory')}
-                      value={[activeChip]}
-                      onValueChange={([value]) => {
-                        if (value) setChip(value as 'all' | MarketCategory);
-                      }}
-                    >
-                      {chipKeys.map((key) => (
-                        <ToggleGroupItem key={key} value={key} data-testid={`extensions-market-chip-${key}`}>
-                          {chipLabel(key)}
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                  ) : null}
-                  {shelf.featured.length > 0 && debouncedQuery === '' && activeChip === 'all' ? (
-                    // 精选那一排(App Store 首页顶上那排大卡):几张就横着翻几张、下面一排页码点,一张时铺满。
-                    <AppShelfRow
-                      label={translate('extensions.featured')}
-                      prevLabel={translate('extensions.shelfPrev')}
-                      nextLabel={translate('extensions.shelfNext')}
-                      className={cn('mk-hero', shelf.featured.length > 1 && 'is-multi')}
-                      dots
-                    >
-                      {shelf.featured.map((item) => featuredCardOf(item, 'hero'))}
-                    </AppShelfRow>
-                  ) : null}
-
-                  {/* 精选下面那几排(App Store 发现页那几排):「最新」是截图小卡,「热门」和够数的类别是 App 行;
-                      每排都横着滑、露出下一列,窄窗也一样;搜索或选了一类时不画。 */}
-                  {debouncedQuery === '' && activeChip === 'all' && shelf.home.newest.length > 0 ? (
-                    <section className="mk-sec" data-testid="extensions-market-newest">
-                      <div className="mk-sec-bar">
-                        <h3>{translate('extensions.newest')}</h3>
-                      </div>
-                      <AppShelfRow label={translate('extensions.newest')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')} className="mk-card-shelf">
-                        {shelf.home.newest.map((item) => featuredCardOf(item, 'card'))}
-                      </AppShelfRow>
-                    </section>
-                  ) : null}
-                  {debouncedQuery === '' && activeChip === 'all'
-                    ? [
-                        ...(shelf.home.popular?.length ? [{ key: 'popular', title: translate('extensions.popular'), items: shelf.home.popular, chip: null }] : []),
-                        ...shelf.home.shelves.map(({ category, items }) => ({ key: `shelf-${category}`, title: chipLabel(category), items, chip: category })),
-                      ].map(({ key, title, items, chip }) => (
-                        <section className="mk-sec" key={key} data-testid={`extensions-market-${key}`}>
-                          <div className="mk-sec-bar">
-                            <h3>{title}</h3>
-                            {chip && items.length > HOME_SHELF_ROWS ? (
-                              <Button type="button" variant="ghost" size="sm" data-testid={`extensions-market-see-all-${chip}`} onClick={() => setChip(chip)}>
-                                {translate('extensions.seeAll')}
-                              </Button>
-                            ) : null}
-                          </div>
-                          {/* App Store 的列表分区:按列排,每列最多三行,一屏三列。 */}
-                          <AppShelfRow
-                            label={title}
-                            prevLabel={translate('extensions.shelfPrev')}
-                            nextLabel={translate('extensions.shelfNext')}
-                            className={`mk-lockup-shelf is-rows-${Math.min(3, Math.ceil(Math.min(items.length, HOME_SHELF_ROWS) / 3))}`}
-                          >
-                            {items.slice(0, HOME_SHELF_ROWS).map(marketRowOf)}
-                          </AppShelfRow>
-                        </section>
-                      ))
-                    : null}
-
-                  {marketRows.length === 0 ? (
-                    <div className="mk-empty">
-                      {debouncedQuery === ''
-                        ? translate('extensions.marketEmpty')
-                        : translate('extensions.noMatch', { query: debouncedQuery })}
-                    </div>
-                  ) : (
-                    // 一行一个 App(App Store 的 App 行),桌面三列、窄了两列、再窄一列(app-store.css 的容器查询)。
-                    <section className="mk-sec" data-testid={`extensions-market-section-${debouncedQuery !== '' ? 'results' : activeChip}`}>
-                      <h3>
-                        {gridTitle}
-                        <span className="mk-count">{shownRows.length}</span>
-                        {/* 后台那趟没取到:画的是手上那份,安静说它是几点的;❌ 弹错、❌ 错误面板。写在标题这一行里,出现、消失都不挪格子。 */}
-                        {marketStale ? (
-                          <span className="mk-stale" data-testid="extension-market-stale">
-                            {translate('extensions.marketStale', { time: marketStaleTime(marketStale, locale) })}
-                          </span>
-                        ) : null}
-                      </h3>
-                      <div className="mk-lockups" role="list" aria-label={gridTitle}>
-                        {shownRows.map(marketRowOf)}
-                      </div>
-                    </section>
-                  )}
-
-                  {/* 翻页:滚到这一行就自动取下一页。还有下一页时写着取到第几条,取的时候换成骨架,取完接在最后一区后面,
-                      ❌ 不整页重画 —— 翻页要看得见,但不要他动手。全取完了这一行就不在:❌ 页脚再报一遍「共几个」。 */}
-                  {marketRows.length > 0 && shelf.hasMore ? (
-                    <div className="mk-foot" ref={sentinelRef} data-testid="extension-market-more">
-                      {shelf.loadingMore ? (
-                        <ShelfMoreSkeleton label={translate('extensions.loading')} />
-                      ) : (
-                        translate('extensions.marketShown', { shown: shelf.items.length, total: shelf.total })
-                      )}
-                    </div>
-                  ) : null}
-
-                  {shelf.invalid.length > 0 && (
-                    <ul className="xp-note-list">
-                      {shelf.invalid.map((entry) => (
-                        <li key={entry.dirName}>{translate('extensions.marketInvalid', { name: entry.dirName })}</li>
-                      ))}
-                    </ul>
-                  )}
-                </>
+                <AppMarketContent
+                    view={tab} onRetry={() => void readShelf(debouncedQuery)}
+                  shelf={shelf}
+                  chip={chip}
+                  onChipChange={setChip}
+                  query={debouncedQuery}
+                  hostKey={host.key}
+                  api={api}
+                  lifecycleOf={lifecycleOf}
+                  installedIds={new Set(installedById.keys())}
+                  pending={pending}
+                  downloadPercent={downloadPercent}
+                  onOpen={openShelfDetail}
+                  onAction={(item) => runLifecycle(item.manifest.id, item)}
+                  sentinelRef={sentinelRef}
+                  marketStale={marketStale ? translate('extensions.marketStale', { time: marketStaleTime(marketStale, locale) }) : null}
+                />
               ))}
           </div>
         )}

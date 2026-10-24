@@ -56,6 +56,19 @@ import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow, Toggle } from './SettingsPrimitives'
 import { useDeviceActionGroupText } from './deviceActionGroupText'
+import { reportAssistantAppChange } from '../assistant/assistant-app-client'
+import { libraryDeviceId } from '../assistant/assistant-library-client'
+import { cachedDevicesAccount } from '../../store/devicesCache'
+
+async function saveDevicePermission(channel: string, args: unknown, change: { action: string; enabled?: boolean; group?: string }): Promise<void> {
+  const ipc = desktopIpc()
+  if (!ipc) return
+  const ownerId = cachedDevicesAccount()
+  await ipc.invoke(channel, args)
+  const deviceId = libraryDeviceId(null)
+  await reportAssistantAppChange(null, undefined, { resource: 'devices', operation: 'edited', section: 'permissions',
+    id: deviceId ?? 'permission-settings', deviceId, after: change }, ownerId)
+}
 
 const FALLBACK_ICONS: Record<string, IconComponent> = {
   calendar: CalendarClock,
@@ -197,7 +210,7 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
             <Toggle
               checked={state.denyAll}
               ariaLabel={t('devices.deviceActions.denyAll')}
-              onChange={(on) => { void desktopIpc()?.invoke(DEVICE_ACTIONS_CHANNELS.setDenyAll, on).then(reload) }}
+              onChange={(on) => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.setDenyAll, on, { action: 'deny-all', enabled: on }).then(reload) }}
             />
           )}
           data-testid="settings-device-actions-deny-all"
@@ -259,11 +272,17 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
   const connect = useCallback(async () => {
     const ipc = desktopIpc()
     if (!ipc) return
+    const ownerId = cachedDevicesAccount()
     setBusy(true)
     setFailure(null)
     try {
       const result = (await ipc.invoke(DEVICE_ACTIONS_CHANNELS.connect, group.id)) as DeviceActionsConnectResult
       if (!result.ok) setFailure({ message: result.message, ...(result.settingsUrl ? { settingsUrl: result.settingsUrl } : {}), ...(result.restart ? { restart: true } : {}) })
+      else {
+        const deviceId = libraryDeviceId(null)
+        await reportAssistantAppChange(null, undefined, { resource: 'devices', operation: 'edited', section: 'permissions',
+          id: deviceId ?? 'permission-settings', deviceId, after: { group: group.id, enabled: true } }, ownerId)
+      }
     } finally {
       setBusy(false)
       reload()
@@ -271,7 +290,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
   }, [group.id, reload])
 
   const disconnect = useCallback(async () => {
-    await desktopIpc()?.invoke(DEVICE_ACTIONS_CHANNELS.disconnect, group.id)
+    await saveDevicePermission(DEVICE_ACTIONS_CHANNELS.disconnect, group.id, { action: 'disconnect', group: group.id, enabled: false })
     setFailure(null)
     reload()
   }, [group.id, reload])
@@ -359,7 +378,7 @@ function GroupDetail({ group, denyAll, onBack, reload, backLabel }: { group: Dev
           note={t('devices.deviceActions.actionsNote')}
           footer={overrides > 0
             ? (
-                <Button variant="ghost" size="sm" onClick={() => { void desktopIpc()?.invoke(DEVICE_ACTIONS_CHANNELS.resetOverrides).then(reload) }} data-testid="settings-device-action-reset-overrides">
+                <Button variant="ghost" size="sm" onClick={() => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.resetOverrides, undefined, { action: 'reset-overrides' }).then(reload) }} data-testid="settings-device-action-reset-overrides">
                   {t('devices.deviceActions.resetOverrides')}
                 </Button>
               )
@@ -397,7 +416,7 @@ function ActionRow({ action, english, disabled, reload }: { action: DeviceAction
           <Toggle
             checked={action.enabled}
             ariaLabel={english ? action.titleEn : action.title}
-            onChange={(enabled) => { void desktopIpc()?.invoke(DEVICE_ACTIONS_CHANNELS.setActionEnabled, { action: action.name, enabled }).then(reload) }}
+            onChange={(enabled) => { void saveDevicePermission(DEVICE_ACTIONS_CHANNELS.setActionEnabled, { action: action.name, enabled }, { action: action.name, enabled }).then(reload) }}
           />
         </span>
       )}

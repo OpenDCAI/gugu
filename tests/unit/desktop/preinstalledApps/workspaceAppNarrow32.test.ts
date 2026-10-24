@@ -38,7 +38,7 @@ const gugu = {
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
-const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-pressed') === 'true')
+const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-selected') === 'true')
 // What is on screen, read from the DOM (审计 C4).
 const shown = () => document.body.classList.contains('show-doc') && !$('download').hidden ? $('doc-title').textContent : null
 
@@ -85,6 +85,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
     changed({ ...context, file: { chat: 'chat-1', id: 'big' } })
     await vi.waitFor(() => expect(shown()).toBe('large.json'))
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('large.json')
     expect($('more').hidden).toBe(false)
     expect($('more').getAttribute('aria-label')).toBe('More')
     expect($('menu').hidden).toBe(true)
@@ -116,11 +117,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     changed({ ...context })
     await vi.waitFor(() => expect(shown()).toBe(null))
     expect(document.body.classList.contains('show-doc')).toBe(false)
-  })
-
-  test('the slot\'s title is the App\'s name in the person\'s language, said once', () => {
-    expect(gugu.setTabTitle).toHaveBeenCalledTimes(1)
-    expect(gugu.setTabTitle).toHaveBeenCalledWith('Group folder')
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('Group folder')
   })
 
   test('the list is the only pane until a file is shown: no "pick a file" beside it, the empty note at the top', () => {
@@ -128,7 +125,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     expect($('doc-message').textContent).not.toMatch(/pick a file/i)
     const files = document.querySelector('.files')!
     // 子文件夹: the crumbs sit between the head and the list (hidden at the top), then the list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.className).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
   })
 
   // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.

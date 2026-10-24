@@ -1,6 +1,7 @@
 import type { AppIdentity } from '@shared/extensions/app-identity';
 import type { ExtensionInstallConsentRequest, ExtensionInstallConsentResult } from '@shared/extensions/host-actions';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import type { ExtensionOrigin } from '@shared/extensions/upgrade';
 import { agreeThenInstall, type InstallConsent } from '@shared/extensions/install-consent-flow';
 import type { ExtensionPublisher, InstalledExtension } from './extensions-service';
@@ -57,6 +58,7 @@ export type PreparedOutcome =
  */
 export async function installPrepared(prepared: PreparedInstall, consent: InstallConsent, dependencies: InstallDependencies = {}): Promise<PreparedOutcome> {
   const { manifest, manifestDigest } = prepared;
+  requireAppPlatform(manifest, 'desktop');
   const given = await import('./app-given');
   const asked = await given.installAsk(manifest, prepared.places.first, prepared.places.chatId, prepared.places.identity, prepared.places.fromCard);
   const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(asked ? { places: asked.places } : {}) };

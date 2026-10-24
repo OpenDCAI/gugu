@@ -1,0 +1,16 @@
+[data-slot='icon-button'].gg-phone-sheet-drag-handle {
+  flex: none;
+  align-self: center;
+  width: 72px;
+  height: var(--control-h-touch);
+  min-height: var(--control-h-touch);
+  padding: 0;
+  touch-action: none;
+  user-select: none;
+}
+.gg-phone-sheet-drag-handle > span {
+  width: 32px;
+  height: 4px;
+  border-radius: var(--radius-capsule);
+  background: var(--border-strong);
+}

@@ -9,6 +9,8 @@ import { useLiveDeviceSessions, type DeviceSessions } from '../../../apps/deskto
 import { useDevicesStore } from '../../../apps/desktop/src/store/devicesContext'
 import { createNode, createReactHarness } from '../../support/testHarness'
 
+vi.mock('../../../apps/desktop/src/mobile/local-agent/usePhoneAgentDirectory', () => ({ usePhoneAgentDirectory: vi.fn() }))
+
 const deviceStore = vi.hoisted(() => ({ devices: [] as Device[] }))
 const session = {
   conversationId: 'conversation-1',
@@ -102,7 +104,7 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/CreateSessionPage', async 
       'div',
       { 'data-testid': 'create', 'data-device-id': device.device_id },
       React.createElement('button', { type: 'button', 'data-testid': 'create-back', onClick: onBack }, 'back'),
-      React.createElement('button', { type: 'button', 'data-testid': 'create-done', onClick: () => onCreated({ ...session, conversationId: 'made' }, 'hello') }, 'done'),
+      React.createElement('button', { type: 'button', 'data-testid': 'create-done', onClick: () => onCreated(device.capabilities.host_kind === 'phone' ? { ...session, conversationId: 'made', supported: true, agent: { userId: 'phone-agent' } } : { ...session, conversationId: 'made' }, 'hello') }, 'done'),
     ),
   }
 })
@@ -134,6 +136,22 @@ function nativeBack(): boolean {
 }
 
 describe('AgentWatchPage native back routing', () => {
+  it('restores root navigation and watch focus when the opened device is removed', async () => {
+    const onExit = vi.fn()
+    const onRouteChange = vi.fn()
+    const props = { active: true, onExit, onRouteChange }
+    await harness.render(createNode(AgentWatchPage, props))
+    await act(async () => { (harness.container.querySelector('[data-testid="open-session"]') as HTMLButtonElement).click() })
+    expect(onRouteChange).toHaveBeenLastCalledWith('timeline')
+    deviceStore.devices = []
+    await harness.render(createNode(AgentWatchPage, props))
+    expect(harness.container.querySelector('[data-testid="projects"]')).toBeTruthy()
+    expect(onRouteChange).toHaveBeenLastCalledWith('projects')
+    expect(vi.mocked(useAgentWatchFocus).mock.calls.at(-1)?.[0]).toBeNull()
+    await act(async () => { expect(nativeBack()).toBe(true) })
+    expect(onExit).toHaveBeenCalledOnce()
+  })
+
   it('walks timeline and the new-session steps back before exiting the Projects tab', async () => {
     const onExit = vi.fn()
     await harness.render(createNode(AgentWatchPage, {
@@ -327,6 +345,28 @@ describe('AgentWatchPage native back routing', () => {
     expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeNull()
     // Control: the same row, reported by a host that can open it (recordState), opens its timeline.
     await harness.render(createNode(AgentWatchPage, { active: true, onExit: vi.fn(), openRequest: { ...offline, session: { ...offline.session, recordState: 'not-started' as const } } }))
+    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
+  })
+})
+
+describe('phone creation reuses the existing route', () => {
+  it('uses the same create screen and opens the phone task timeline without a DM binding', async () => {
+    deviceStore.devices = [{ ...deviceStore.devices[0]!, capabilities: { terminals: [], runtimes: ['pi'], host_kind: 'phone', host_runtime_capability: 1 } as Device['capabilities'] }]
+    const props = { active: true, onExit: vi.fn() }
+    await harness.render(createNode(AgentWatchPage, { ...props, createRequest: 0 }))
+    await harness.render(createNode(AgentWatchPage, { ...props, createRequest: 1 }))
+    await act(async () => { (harness.container.querySelector('[data-testid="open-device"]') as HTMLButtonElement).click() })
+    expect(harness.container.querySelector('[data-testid="create"]')?.getAttribute('data-device-id')).toBe('device-1')
+    expect(harness.container.querySelector('[data-testid="phone-agent-page"]')).toBeNull()
+    await act(async () => { (harness.container.querySelector('[data-testid="create-done"]') as HTMLButtonElement).click() })
+    expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
+  })
+
+  it('an App opening a supported phone task uses its timeline without a DM binding', async () => {
+    deviceStore.devices = [{ ...deviceStore.devices[0]!, capabilities: { terminals: [], runtimes: [], host_kind: 'phone' } as Device['capabilities'] }]
+    const props = { active: true, onExit: vi.fn() }
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: null }))
+    await harness.render(createNode(AgentWatchPage, { ...props, openRequest: { deviceId: 'device-1', session: { ...session, agent: { userId: 'phone-agent' }, supported: true } } }))
     expect(harness.container.querySelector('[data-testid="timeline-back"]')).toBeTruthy()
   })
 })

@@ -362,6 +362,22 @@ div.gg-settings-identity {
   font-size: var(--font-body);
   line-height: var(--lh-body);
 }
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-group-items {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {
+  border-radius: 0;
+  min-height: var(--control-h-touch);
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-item + .gg-settings-nav-item {
+  border-top: 1px solid var(--border);
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-item .gg-list-row-leading svg {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
 
 /* 页名与内页正文共用一条左缘。只移动标题车道,右上关闭钮仍在弹窗边缘。 */
 .gg-settings-detail:not([data-mobile]) > .gg-pane-header {

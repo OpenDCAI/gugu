@@ -2,6 +2,8 @@ import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
+import { randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -122,7 +124,7 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
   // 之后的一段，直接拿来当键必然与库里已有的行撞号。
   const next = await nextSeq(input.sessionId);
   const turn = renumberStoredTurn(input.turn, input.sessionId, next);
-  await db
+  const inserted = await db
     .insert(sessionTurns)
     .values({
       id: `${input.sessionId}:${next}`,
@@ -133,7 +135,15 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
       turnId: input.turn.id,
       data: JSON.stringify(turn),
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ seq: sessionTurns.seq });
+  // The activity index names a turn by this stored sequence, assigned here and nowhere else: the runtime's own turn
+  // ids restart at 0 with every run, and the provider record numbers its turns from a different stream. A replayed
+  // turn is history arriving late, not something that happened now.
+  if (input.source === 'live' && inserted.length > 0) {
+    activitySignal({ event_id: `session.turn_recorded:${randomUUID()}`, kind: 'session.turn_recorded',
+      session_id: input.sessionId, turn_seq: next, occurred_at: input.turn.endedAt ?? null });
+  }
 }
 
 async function storedTurnCount(sessionId: string): Promise<number> {
@@ -258,5 +268,20 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
   await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  await db.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq)));
+  const removed = await db.delete(sessionTurns)
+    .where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq)))
+    .returning({ seq: sessionTurns.seq });
+  // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
+  if (removed.length > 0) {
+    activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
+      session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
+  }
+}
+
+/** One stored turn by its sequence, or null when the session's stored history no longer has it. */
+export async function readStoredTurn(sessionId: string, seq: number): Promise<TranscriptTurn | null> {
+  await persistenceTails.get(sessionId);
+  const [row] = await db.select({ data: sessionTurns.data }).from(sessionTurns)
+    .where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.seq, seq))).limit(1);
+  return row ? JSON.parse(row.data) as TranscriptTurn : null;
 }

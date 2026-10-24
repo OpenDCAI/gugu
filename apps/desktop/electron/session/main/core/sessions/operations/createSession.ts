@@ -126,6 +126,7 @@ export async function prepareCreateSession(
     initialQueue: ic.initialQueue,
     startupOrigin: ic.startupOrigin,
     initialMessageId: ic.initialMessageId,
+    taskChatId: ic.taskChatId,
     // 首启由 hydrateSession 做(工作区要先 provision 完),所以这一行落库时**不**认领
     // session_id —— 那把尺子留给 hydrate 用。
     claimsFirstSpawn: false,
@@ -154,7 +155,7 @@ export function finalizeCreateSession(
   convRow: SessionRow
 ): CreateSessionSuccess {
   // Born in a group: its identity joins it when first minted (birth-groups.ts), the same as a spawned child.
-  if (prepared.params.birthChatId) rememberBirthGroup(convRow.id, prepared.params.birthChatId);
+  if (prepared.params.birthGroup) rememberBirthGroup(convRow.id, prepared.params.birthGroup);
   // 出生排在这条会话的任何事件之前。新建带首轮 ⇒ 出生即 working,
   // ❌ 不再补发一条首句的 start:running 时 start 翻成空,它对读数从来不起作用。
   const session = sessionBorn(convRow, 'createSession');

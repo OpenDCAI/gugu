@@ -1,8 +1,10 @@
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload';
 import { defineEvent } from '@shared/lib/ipc/events';
-import type { ShortcutSettingsKey, TabNavigationDirection } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
+import type { TabNavigationDirection } from '@shared/shortcuts';
 
 // App editing actions (renderer → main, no payload)
 export const appUndoChannel = defineEvent<void>('app:undo');
@@ -40,7 +42,7 @@ export const tabNavigationShortcutChannel = defineEvent<{
 
 export const browserAppShortcutChannel = defineEvent<{
   source: { kind: 'browser'; browserId: string };
-  shortcutKey: ShortcutSettingsKey;
+  commandId: CommandId;
 }>('browser:app-shortcut');
 
 export const notificationFocusSessionChannel = defineEvent<{
@@ -85,6 +87,7 @@ export const sessionOpenBrowserInPaneChannel = defineEvent<{
   projectId: string;
   sessionId: string;
   url: string;
+  linkTarget?: GuguLinkTarget;
   intent: 'preview' | 'pinned';
   /** Browser Use resolves a persisted tab before restoring its page; ordinary open_in_tab still opens a URL. */
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };
@@ -96,6 +99,8 @@ export const sessionOpenBrowserInPaneResultChannel = defineEvent<{
   success: boolean;
   error?: string;
   browserId?: string;
+  /** Browser Use 这一次新开了页签(会话原来一个浏览器页签都没有):宿主据此把它记成这条会话的产出。 */
+  created?: boolean;
   tabs?: SessionPaneTab[];
 }>('session:open-browser-in-pane-result');
 

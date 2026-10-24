@@ -62,6 +62,18 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
       setDisclosure: vi.fn(),
     } as unknown as Api);
 
+  it('names the default page in the interface language and preserves a specifically named subpage', async () => {
+    const calendar = { ...app('calendar'), name: '日历', localized: { en: { name: 'Calendar' } }, contributes: { tabs: [
+      { name: 'main', title: '日历' }, { name: 'reports', title: 'Reports' },
+    ] } };
+    const store = storeListing([calendar]);
+    await store.load();
+    store.locale = 'en-US';
+    expect(store.tabTitle('calendar.main')).toBe('Calendar');
+    expect(store.tabTitle('calendar.reports')).toBe('Reports');
+    expect(store.tabTitle('missing.main')).toBeUndefined();
+  });
+
   // F95 (S23): a「TODO 看板」tab bound to no file — "Open a .todo-kanban.json file" and an uncaught error. A tab that
   // opens files, in a session or a group, is opened for a file; with none it has nothing to show.
   it('a tab that opens files is no session tab of its own — it still has its page where a file opens it', async () => {

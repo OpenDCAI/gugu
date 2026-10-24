@@ -104,6 +104,12 @@ export function AboutSection() {
             control={<ChevronRight size={16} aria-hidden="true" className="gg-settings-row-chevron" />}
             onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openReleaseNotes))}
           />
+          <SettingsRow
+            data-testid="about-reopen-product-tour"
+            title={t('about.reopenProductTour')}
+            control={<ChevronRight size={16} aria-hidden="true" className="gg-settings-row-chevron" />}
+            onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.reopenProductTour))}
+          />
           {platform.capabilities.appUpdates && (
             <SettingsRow>
               {updateReady ? (

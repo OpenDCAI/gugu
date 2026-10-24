@@ -220,14 +220,12 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
       viewers.set(input.subscriptionId, viewer);
       if (input.browser) browserSeen = 'some';
       else if (browserSeen === 'unknown') browserSeen = 'none';
-      const list = queued.get(input.sessionId) ?? [];
-      const fresh = list.filter((entry) => now() - entry.at <= QUEUED_TTL_MS);
-      // 这台桌面开不了的(浏览器请求到了没有浏览器格的桌面)留着,等一台开得了的来。
-      const deliver = fresh.filter((entry) => canOpen(viewer, entry.request.target));
-      const keep = fresh.filter((entry) => !deliver.includes(entry));
-      if (keep.length > 0) queued.set(input.sessionId, keep);
+      const fresh = (queued.get(input.sessionId) ?? []).filter((entry) => now() - entry.at <= QUEUED_TTL_MS);
+      if (fresh.length > 0) queued.set(input.sessionId, fresh);
       else queued.delete(input.sessionId);
-      return { pending: deliver.map((entry) => entry.request) };
+      // 交出去 ≠ 开好了:桌面回话(ack)才从攒着的里拿掉,与保活补推(touch)同一条规矩。
+      // 这台桌面开不了的(浏览器请求到了没有浏览器格的桌面)不给它,等一台开得了的来。
+      return { pending: fresh.filter((entry) => canOpen(viewer, entry.request.target)).map((entry) => entry.request) };
     },
 
     unsubscribe(subscriptionId: string): boolean {

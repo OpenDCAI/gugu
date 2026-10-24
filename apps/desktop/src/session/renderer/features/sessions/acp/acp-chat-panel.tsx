@@ -1,5 +1,9 @@
+import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
+import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
-import { openConversationLink } from '@/lib/conversationLinks';
+import { followLink } from '@/lib/guguLinks';
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
   ChatComposer,
@@ -16,7 +20,7 @@ import type {
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
 import { observer, useObserver } from 'mobx-react-lite';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
@@ -43,6 +47,7 @@ import {
   getSessionPageStore,
 } from '@renderer/features/sessions/stores/session-selectors';
 import {
+  chatMentionProvider,
   clearLocalSessionMentions,
   issueMentionToken,
   parseIssueMentionToken,
@@ -85,6 +90,7 @@ import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessio
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
+import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -108,8 +114,6 @@ import { resolveVisualEvidenceAttachmentDataUrl } from './acp-chat-resource-mana
 import { useOpenedOutputMenu } from './opened-output-menu';
 import type { AcpChatTabResource } from './acp-chat-tab-resource';
 import { chatViewCommandForShortcut, executeChatViewCommand } from './acp-chat-view-commands';
-import { classifySessionChatLink } from './session-chat-link';
-import { openGroupFile } from '@/components/markdown/fileLinks';
 import {
   effortSourceFor,
   localizeEffortOptions,
@@ -386,6 +390,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 const ComposerForStore = observer(function ComposerForStore({
   store,
+  editorApiRef,
   composerSlot,
   onViewAttachment,
   onScrollToBottom,
@@ -393,6 +398,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onMembershipLockChange,
 }: {
   store: AcpChatStore;
+  editorApiRef: RefObject<PromptEditorRef | null>;
   composerSlot: HTMLElement;
   /** 面板要把模型菜单打开(「这个模型要会员」那一行上的「换模型」):每变一次开一次。 */
   modelMenuRequest: number;
@@ -407,7 +413,14 @@ const ComposerForStore = observer(function ComposerForStore({
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
-  const editorApiRef = useRef<PromptEditorRef | null>(null);
+  // gugu-dev#181 ⑫ 在会话里也能派:项目里的会话,卡落项目群;没有项目的会话(就是和这个 agent 的私聊),卡落那个私聊。
+  const groupChatId = projectGroupsStore.chatIdOf(store.projectId);
+  const verb = useComposerVerb(sessionVerbKey(store.sessionId));
+  // 点了新任务框标签上的 ×:那一框写的话交回这里(composerVerbBridge 的 carry)。
+  useEffect(() => {
+    const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
+    if (back) store.setDraftText(back);
+  }, [verb, store]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
@@ -511,10 +524,8 @@ const ComposerForStore = observer(function ComposerForStore({
 
   // D-31 The host's ask for this agent (an App install) is the session timeline's, not the runtime's: shown first — read only
   // while the session waits on an approval.
-  const hostBand = useHostAskBand(
-    store.runtimeSessionId,
-    sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)
-  );
+  const hostSession = sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId);
+  const hostBand = useHostAskBand(store.runtimeSessionId, hostSession);
   const resolveHostAsk = hostBand?.resolve;
   const permissionRequest =
     hostBand?.request ?? toComposerPermission(store.permissionQueue[0], translate, (id) => store.hasActiveToolCall(id));
@@ -787,11 +798,7 @@ const ComposerForStore = observer(function ComposerForStore({
     };
   });
   const { connectedProviders, isProviderUsable } = useConnectedIssueProviders(issueProviderContext);
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
-  const agentCreationToolsByEngine = useMemo(
-    () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
-    [agentCreationTools]
-  );
+  const { byEngine: agentCreationToolsByEngine, error: agentCreationToolsError, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const issueProvider = useMemo(() => {
     const selected = issueProviderContext.selectedIssueProvider;
     if (selected && isProviderUsable(selected)) return selected;
@@ -866,6 +873,12 @@ const ComposerForStore = observer(function ComposerForStore({
     const wsId = workspaceId;
     const resultsChanged = new Set<() => void>();
     return {
+      resolve(target, label) {
+        const meta = chatMentionProvider.resolve(target, store.chatState.uri ?? store.sessionId);
+        return meta ? { id: meta.id, label: target, name: label, kind: meta.kind,
+          role: target.startsWith('aid:') ? 'agent' : undefined, engine: meta.engine,
+          description: meta.title } : null;
+      },
       onResultsChanged(listener: () => void) {
         resultsChanged.add(listener);
         return () => resultsChanged.delete(listener);
@@ -1504,17 +1517,14 @@ const ComposerForStore = observer(function ComposerForStore({
     ? (harnessCatalog.state.selectedEffort ?? undefined)
     : undefined;
   const renderMentionIcon = useCallback(
-    ({ id, kind, engine }: { id: string; kind: string; engine?: string | null }) => {
-      if (kind === 'custom' && engine) {
-        const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-        return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-      }
+    ({ id, label, kind, engine }: { id: string; label: string; kind: string; engine?: string | null }) => {
+      if (kind === 'custom' && engine) return renderAgentMentionIcon({ id, label, kind, engine });
       if (kind !== 'issue') return null;
       const target = parseIssueMentionToken(id);
       if (!target) return null;
       return <IntegrationIcon provider={target.provider} size={12} />;
     },
-    [agentCreationToolsByEngine]
+    [renderAgentMentionIcon]
   );
 
   const querySlashItems = useCallback(
@@ -1564,6 +1574,11 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const a = store.affordances;
+
+  // gugu-dev#181 ⑫ 会话里也能派:选了「新任务」,这一框换成新任务的框(卡落项目群;没有项目的落它的私聊)。
+  if (verb) {
+    return createPortal(<SessionVerbDock sessionId={store.sessionId} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
+  }
 
   return createPortal(
     <>
@@ -1616,6 +1631,7 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -1722,6 +1738,7 @@ const ComposerForStore = observer(function ComposerForStore({
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}
+        toolbarExtra={<SessionComposerVerbs sessionId={store.sessionId} draft={store.draftText} onCarried={() => store.setDraftText('')} />}
       />
     </>,
     composerSlot
@@ -1753,6 +1770,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const [composerSlot, setComposerSlot] = useState<HTMLElement | null>(null);
   const [heroSlot, setHeroSlot] = useState<HTMLElement | null>(null);
@@ -2175,10 +2193,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
-      classifyLink: classifySessionChatLink,
-      onOpenConversationLink: (href) => { openConversationLink(href); },
-      // 摩擦单 F10: a file of a group, linked in the transcript — opened in that group, where the person is taken.
-      onOpenGroupFile: ({ itemId, at }) => void openGroupFile(itemId, at),
+      classifyLink: classifyFileLink,
+      onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
@@ -2203,6 +2219,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: (arg) => {
         if (!store) return;
         store.setDraftText(arg.text);
+        editorApiRef.current?.setText(arg.text);
+        editorApiRef.current?.focus('end');
       },
       // 「继续」——上游 stopped-run 的 Continue。与上面那颗**刚好相反**：这颗是真发送。
       // 能这么接是因为 `cancel` 之后会话还活着，且 agent 的上下文里带着刚被切断的那半截输出
@@ -2431,6 +2449,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         <ComposerForStore
           key={store.sessionId}
           store={store}
+          editorApiRef={editorApiRef}
           composerSlot={composerSlot}
           onViewAttachment={handleAttachmentView}
           onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}

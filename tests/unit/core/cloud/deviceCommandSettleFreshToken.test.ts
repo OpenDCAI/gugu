@@ -28,7 +28,7 @@ function tokenClient(db: MemoryDeviceCommandClient, valid: () => boolean): Devic
   return {
     from: ((table: 'gugu_device_commands' | 'runtime_instances') => {
       if (valid()) return db.from(table as 'gugu_device_commands')
-      return { select: () => rejected, update: () => rejected, insert: () => ({ select: () => ({ single: () => Promise.resolve(JWT_EXPIRED) }) }) }
+      return { select: () => rejected, update: () => rejected, delete: () => rejected, insert: () => ({ select: () => ({ single: () => Promise.resolve(JWT_EXPIRED) }) }) }
     }) as DeviceCommandTableClient['from'],
     rpc: (fn, args) => (valid() ? db.rpc(fn, args) : Promise.resolve(JWT_EXPIRED)),
   }

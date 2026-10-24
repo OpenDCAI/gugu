@@ -129,9 +129,8 @@ export async function removeDevice(
 // current user)。此处加显式 WHERE 护栏,RLS 之外再兜一层,绝不回退到别人的行。ownerId 缺失即报错
 // (fail-loud,不做无 owner 作用域的全表列举)。
 //
-// #7199 手机也登记设备行(云端的助理调它的单个动作),但手机不跑 agent(product spec)——
-// 「在哪跑」、机器页、跨机器会话列表读的都是这一份,所以默认把手机分出去,❌ 让每个调用方各自记得滤。
-// 要手机的(调设备动作的那一侧、手机自己的设置页)显式带 includePhones。
+// Action-only phones stay out of run targets. An Android host appears only after its native
+// runtime advertises both a host capability and an available harness.
 export async function listDevices(
   client: DeviceTableClient,
   ownerId: string,
@@ -147,12 +146,18 @@ export async function listDevices(
 
   if (!Array.isArray(data)) throw new Error('Device list response must be an array')
   const devices = data.map((row) => normalizeDeviceRow(row))
-  return options.includePhones ? devices : devices.filter((device) => !isPhoneDevice(device))
+  return options.includePhones ? devices : devices.filter(isAgentHostDevice)
 }
 
-/** #7199 这一行是手机(只被调动作,不是 agent 的运行位置)。 */
+/** Device kind and host availability are independent: a phone can also host agents. */
 export function isPhoneDevice(device: Pick<Device, 'capabilities'>): boolean {
   return device.capabilities.host_kind === 'phone'
+}
+
+export function isAgentHostDevice(device: Pick<Device, 'capabilities'>): boolean {
+  return !isPhoneDevice(device)
+    || (typeof device.capabilities.host_runtime_capability === 'number'
+      && device.capabilities.host_runtime_capability > 0 && device.capabilities.runtimes.length > 0)
 }
 
 export function normalizeDeviceRow(value: unknown): Device {
@@ -258,6 +263,8 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(row.host_kind === 'server' || row.host_kind === 'desktop' || row.host_kind === 'phone' ? { host_kind: row.host_kind } : {}),
     ...(typeof row.os_name === 'string' && row.os_name ? { os_name: row.os_name.slice(0, 80) } : {}),
     ...(typeof row.arch === 'string' && row.arch ? { arch: row.arch.slice(0, 32) } : {}),
+    // 截断的路径是另一个路径:太长就当没报,❌ 切一截冒充。
+    ...(typeof row.home_dir === 'string' && row.home_dir && row.home_dir.length <= 4096 ? { home_dir: row.home_dir } : {}),
     ...(row.runs_as_root === true ? { runs_as_root: true } : {}),
     ...(row.assistant_home === true ? { assistant_home: true } : {}),
     ...normalizeServerUpdate(row.server_update),

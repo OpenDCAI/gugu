@@ -53,10 +53,10 @@ describe('unread locator navigation', () => {
     const threadRow = threadSurface.querySelector<HTMLElement>('[data-msg-id]')!
     for (const element of [mainSurface, threadSurface, mainRow, threadRow]) giveVisibleRect(element)
 
-    expect(findVisibleUnreadMessageRow('main', 'same-id')).toBe(mainRow)
-    expect(findVisibleUnreadMessageRow('thread', 'same-id')).toBeNull()
+    expect(findVisibleUnreadMessageRow(mainSurface, 'same-id')).toBe(mainRow)
+    expect(findVisibleUnreadMessageRow(threadSurface, 'same-id')).toBeNull()
     threadSurface.style.opacity = '1'
-    expect(findVisibleUnreadMessageRow('thread', 'same-id')).toBe(threadRow)
+    expect(findVisibleUnreadMessageRow(threadSurface, 'same-id')).toBe(threadRow)
   })
 
   // @@@4258 — 水位提交的是 ensureMessageLoaded 交回的 commit.readSeq(本次真拉进行集的最大已落定 seq),

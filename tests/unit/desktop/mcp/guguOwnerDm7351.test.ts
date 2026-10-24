@@ -65,7 +65,7 @@ describe('chat_id = the owner\'s address (#7351)', () => {
     const file = join(root, 'report.html')
     writeFileSync(file, '<p>report</p>')
     const result = await callTool(context, 'message_send_file', { chat_id: `aid:${owner}`, file_path: file }, d)
-    expect(result).toContain('file sent')
+    expect(JSON.parse(result)).toMatchObject({ status: 'sent', file_name: 'report.html', source_link: expect.stringContaining(`gugu-chat://${dm}/`) })
     expect(d.restRpc).toHaveBeenCalledWith('open_dm', { p_target_user_id: agent })
     expect(d.commits).toEqual([expect.objectContaining({ chat_id: dm })])
   })

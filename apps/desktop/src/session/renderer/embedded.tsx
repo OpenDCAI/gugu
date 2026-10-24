@@ -42,7 +42,7 @@ import { wireProgramNotifications } from '@renderer/features/extensions/wire-pro
 import { wireAppQuit } from '@renderer/features/extensions/app-dock';
 import { wireExtensionHostActions } from '@renderer/features/extensions/wire-extension-host-actions';
 import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
-import { setupViewCommandProvider } from '@renderer/lib/commands/registry';
+import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-provider';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
@@ -63,6 +63,7 @@ import { setEmbedVisible, setPortalContainer } from './lib/portal-container';
 import { setEmbedView, type EmbedView } from './lib/stores/embed-view';
 import { installSessionStartupFailureBridge } from './features/sessions/stores/session-startup-failures';
 import { installSessionViewRequestBridge } from './features/sessions/stores/session-view-requests';
+import { openChatOnScreen, openSessionOnScreen } from './features/chats/open-chat';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
 import { SessionLocalizationProvider } from './localization/localization-provider';
@@ -141,7 +142,8 @@ async function bootstrap() {
   //    桥要跟着指向新的那份,否则宿主读的是旧实例里那张永远空着的 Map。装桥本身幂等,每次求值都装无妨。
   installSessionStartupFailureBridge(window);
   // #7167 聊天页那颗模式按钮选了编程 / 通用:打开任务之后请这一页换展示(session-view-requests.ts)。同上,热更新前装。
-  installSessionViewRequestBridge(window);
+  // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)。
+  installSessionViewRequestBridge(window, { openChat: openChatOnScreen, openSession: openSessionOnScreen });
   installRemoteHostSessionpageBridges(window, () => appState.navigation.navigate('new-session'));
   if (hasEntryRoot(container)) {
     renderSessionTree(container, mountEl);

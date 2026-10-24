@@ -15,7 +15,11 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
-import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
+import type { BirthGroup } from '@shared/core/sessions/create-session';
+export { readCurrentActivityInput } from './core/sessions/session-activity-source'
+import { installActivityCollector } from '@main/core/activity/collector'
+import { openLink } from './core/extensions/gugu-links'
+import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
 import { appKey } from '@shared/extensions/app-identity'
@@ -114,7 +118,7 @@ import {
 import {
   claimInterruptedDispatches,
 } from '@main/core/sessions/sendMessage'
-import { claimInterruptedDeferredMessages, installDeferredMessageDelivery } from '@main/core/sessions/session-deferred-messages'
+import { claimInterruptedDeferredMessages, installDeferredMessageDelivery, withDeferredMessagesBeforeAdmission } from '@main/core/sessions/session-deferred-messages'
 import { hydrateSession } from '@main/core/sessions/hydrateSession'
 import { recordLiveModelSwitch } from '@main/core/sessions/live-model-switch'
 import { readSessionOptions, SessionOptionsError } from '@main/core/session-timeline/live-options'
@@ -127,7 +131,6 @@ import {
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
 import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
-import { viewStateService } from '@main/core/view-state/view-state-service'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
@@ -340,7 +343,7 @@ import { appScope } from '@main/app/app-scope'
 // events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
 import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, needsAttention, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { busyForVersionSwitch, mostUrgentAttention, parseAgentStatusView, type AgentAttention, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
   sessionInScope,
   type AgentStatusChange,
@@ -387,7 +390,7 @@ function installSessionClearDataShim(): void {
 /** 咕咕 server(server-entry.ts):同一份主进程,没有窗口、没有渲染层。 */
 const HEADLESS_SERVER = process.env.GUGU_SERVER_MODE === '1'
 
-export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
+export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<SessionHostBootOptions, 'scheduleDiscovery'>): Promise<void> {
   // #6264 没有窗口:会话里的 open_in_tab 送到正看着这条会话的桌面,❌ 问一个不存在的渲染层干等超时(remote-pane.ts)。
   if (HEADLESS_SERVER) setRemotePaneOpener(sharedRemotePaneRoute())
   const electronIpc = createElectronHostIpc({ ipcMain, BrowserWindow, MessageChannelMain })
@@ -402,6 +405,7 @@ export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
   await bootSessionHostCore({
     hostIpc: composeHostIpc(devWs ? [electronIpc, deviceHost, devWs] : [electronIpc, deviceHost]),
     browserFeatures: true,
+    ...discovery,
   })
 }
 
@@ -423,6 +427,8 @@ export type SessionHostBootOptions = {
   hostIpc: HostIpc
   /** 只有 Electron 窗口宿主为 true:<webview> 准入、扩展桥、内置浏览器分区。无头宿主 false。 */
   browserFeatures: boolean
+  /** The host owns the first-request boundary; ordinary desktop hosts discover immediately. */
+  scheduleDiscovery?: (work: () => Promise<void>) => Promise<void>
 }
 
 /**
@@ -591,11 +597,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 分区改名后的目录搬迁:必须赶在任何浏览器会话打开之前(下面注册 RPC 之前)同步做完,见函数注释。
   if (browserFeatures) migrateLegacyBrowserPartitionDirs()
   if (browserFeatures) void cleanupLegacyBrowserPartitions()
-  try {
-    viewStateService.pruneOrphans()
-  } catch (e: unknown) {
-    log.warn('view-state: failed to prune orphaned entries', { error: e })
-  }
 
   // #6387 上一次运行的会话都已随进程结束:它们冻结的扩展副本、以及卸载时延后删的数据夹,在这里清掉。
   // 放在任何会话启动之前,才保证清的都是没人在用的。
@@ -644,6 +645,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // --- Eager service .initialize()/.start() block (index.ts:146-156). ---
   projectSettingsService.initialize()
   prSyncScheduler.initialize()
+  stopActivityCollector = installActivityCollector()
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
@@ -717,7 +719,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
   // --- Post-registration reconcilers (index.ts:185-215). Fire-and-forget. ---
   void reconcileResourceSampler()
-  localDependencyManager.probeAll().catch((e: unknown) => {
+  const discover = () => localDependencyManager.probeAll()
+  const discovery = options.scheduleDiscovery ? options.scheduleDiscovery(discover) : discover()
+  discovery.catch((e: unknown) => {
     log.error('Failed to probe dependencies:', e)
   })
   // @@@3130 GitHub 账号对账**不在这里跑**。它三步里任何一步碰到已有数据都会写加密存储 →
@@ -727,6 +731,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ❌ 别把 reconcile 挪回开机。
 
 }
+
+let stopActivityCollector: (() => void) | null = null
 
 /**
  * Tears down the runtime worker processes the module spawned. The host folds this into its own
@@ -765,6 +771,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('agent-config-runtime', disposeAgentConfigRuntimeProcess)
   await runPhase('module-scope', () => appScope.dispose())
   await runPhase('local-pty', disposeLocalPtySessions)
+  await runPhase('activity', () => { stopActivityCollector?.(); stopActivityCollector = null })
   await runPhase('database', closeDatabase)
   await runPhase('logging', flushLogWrites)
   await flushLogWrites()
@@ -835,6 +842,7 @@ export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
   description?: string
+  agentInstructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -870,6 +878,7 @@ export function emdashExtensionAgentContributions(): {
       extensionId: manifest.id,
       name: manifest.name,
       ...(manifest.description ? { description: manifest.description } : {}),
+      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,
@@ -925,8 +934,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
-export async function openEmdashExtensionLink(url: string): Promise<ExtensionLinkOutcome> {
-  return await openExtensionLink(url)
+export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
+  return await openLink(url)
 }
 
 /** #4320 —— 唤醒超过它就把分段整份 warn 出来(沿用 #4181 报 still-running 的 30s 节拍)。 */
@@ -961,14 +970,15 @@ export async function injectEmdashPromptDetached(
   sessionId: string,
   text: string,
   /** `coalesceKey`: a still-queued prompt of the same key is replaced in place (machine.ts PromptQueued). */
-  opts?: { steerIfBusy?: boolean; coalesceKey?: string },
+  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
 ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient()
-  const result = await client.promptDetached({
+  const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
     sessionId,
-    prompt: { text, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    prompt: { text: prepared, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
-  })
+  // A replaceable queued prompt must not take ownership of unrelated App context.
+  }), Boolean(opts?.deferredDispatch || opts?.coalesceKey))
   if (result.declined) {
     return { outcome: 'declined', completion: Promise.resolve() }
   }
@@ -1066,6 +1076,11 @@ export function acpStartInputFor(
     workspaceId,
     cwd,
     providerSessionId: session.providerSessionId ?? null,
+    // 首轮的来路与会话页那份启动入参(acp-chat-store)同一组:不经会话页起的(launchCreatedSession)也要带上,
+    // 否则注入器认不出这一轮该落成一条咕咕消息 / 任务卡(gugu-dev#181 建完不打开的派任务正是走这里)。
+    ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
+    ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+    ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
     model: session.model ?? null,
     effort: session.effort ?? null,
     permissionMode: resolveSessionPermissionMode(session),
@@ -2047,7 +2062,7 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   return project?.name ?? null
 }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
-export async function emdashTakeBirthGroup(sessionId: string): Promise<string | null> {
+export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
 }
 
@@ -2248,15 +2263,16 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent-attention count for the gugu host shell.
+// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent attention for the gugu host shell.
 // The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance "N agents need you" signal on gugu's 任务 sidebar tab, so a blocked/errored agent is visible
+// at-a-glance signal on gugu's 消息 rail cell (gugu-dev#181: amber while someone waits on you, red only when
+// the only trouble is an error), so a blocked/errored agent is visible
 // WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
 // BLOCKED on the human: needs_user or error. working/idle are NOT attention.
 //
 // Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
 // agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the count to
+// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the most urgent one to
 // subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
 // (owner #43: the host reaches the session backend only through exported entries; this is the session
 // backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
@@ -2264,26 +2280,22 @@ const attentionStatusBySession = new Map<
   string,
   { status: AgentStatus; projectId: string }
 >()
-const attentionSubscribers = new Set<(count: number) => void>()
+const attentionSubscribers = new Set<(attention: AgentAttention) => void>()
 
 // Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
 // hook). Silent in production so the main-process log isn't spammed on every agent status change.
 const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
 
-function computeAttentionCount(): number {
-  let count = 0
-  for (const { status } of attentionStatusBySession.values()) {
-    if (needsAttention(status)) count += 1
-  }
-  return count
+function computeAttention(): AgentAttention {
+  return mostUrgentAttention([...attentionStatusBySession.values()].map(({ status }) => status))
 }
 
 function notifyAttentionSubscribers(): void {
-  const count = computeAttentionCount()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention count=${count} (subscribers=${attentionSubscribers.size})`)
+  const attention = computeAttention()
+  if (OTTY_DEBUG) console.log(`[otty-tracker] attention=${attention} (subscribers=${attentionSubscribers.size})`)
   for (const cb of attentionSubscribers) {
     try {
-      cb(count)
+      cb(attention)
     } catch (err) {
       log.warn('session-page attention subscriber threw', { error: String(err) })
     }
@@ -2424,9 +2436,9 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (count: number) => void): () => void {
+export function onEmdashAttentionChanged(cb: (attention: AgentAttention) => void): () => void {
   attentionSubscribers.add(cb)
-  cb(computeAttentionCount())
+  cb(computeAttention())
   return () => {
     attentionSubscribers.delete(cb)
   }

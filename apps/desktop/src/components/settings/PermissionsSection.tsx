@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { platform } from '../../platform'
 import type { SystemPermission, SystemPermissionState } from '../../platform/types'
 import {
   SYSTEM_PERMISSION_ROWS,
-  systemPermissionAction,
+  changeSystemPermission,
   systemPermissionRows,
   useSystemPermissionStates,
 } from '../../lib/systemPermissions'
@@ -44,9 +43,7 @@ export function PermissionsSection() {
     setPending(permission)
     setUnreachable(null)
     try {
-      if (systemPermissionAction(state) === 'request') {
-        await platform.requestSystemPermission(permission)
-      } else if (!(await platform.openSystemPermissionSettings(permission))) {
+      if (!(await changeSystemPermission(permission, state))) {
         setUnreachable(permission)
       }
     } catch {

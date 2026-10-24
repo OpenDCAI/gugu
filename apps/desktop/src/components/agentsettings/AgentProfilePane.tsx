@@ -8,6 +8,7 @@ import { useAuth } from '../../store/auth'
 import { closeIfMyAssistant } from '../../lib/assistantClose'
 import { useToast } from '../toastContext'
 import { asClass, profileInputClass } from './agentSettingsStyles'
+import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
 import { Avatar } from '../Avatar'
 import { validateAgentAvatarFileCode, type AgentAvatarValidationCode } from '../../lib/agentAvatar'
 import { Button } from '../ui/Button'
@@ -22,6 +23,7 @@ const profileLog = rendererLogger('agents/profile')
 
 export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPaneProps) {
   const { t } = useTranslation('agents')
+  const assistant = useIsAssistantAvatar(agent.id)
   const { updateAgentProfile, uploadAgentAvatar, removeOwnedAgent } = useContactsStore()
   const { user } = useAuth()
   const { toast } = useToast()
@@ -161,9 +163,8 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
             上传的图（=身份），要么没有——没有就按稳定 id 生成默认脸。中间不再有「像策展作品、
             但其实是从小图库里发的」这一档。 */}
         <div className={asClass.profileLabel}>{t('settings.profile.avatar')}</div>
-        {/* 头像默认是会动的小鸟:颜色和休息表情去「形象」里捏;也可以换成一张照片。 */}
         <div className="flex flex-wrap items-center gap-2">
-          {onOpenTab ? (
+          {assistant && onOpenTab ? (
             <Button
               type="button"
               variant="secondary"

@@ -1,4 +1,5 @@
-import { dissolveScreenGroup, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
+import { commandRegistry } from '@renderer/lib/commands/registry';
+import { dissolveScreenGroup, isScreenView, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -157,8 +158,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     // behavior session-page「键盘导航」: the highlight is the cursor, so a click moves the cursor too —
     // pressing ↓ right after clicking must continue from the row you just clicked.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'conversation', projectId, sessionId });
-    // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在会话页上才有「正看着那块」。
-    if (beside && appState.navigation.currentViewId === 'session') {
+    // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在看这屏的视图上才有「正看着那块」。
+    if (beside && isScreenView(appState.navigation.currentViewId)) {
       showSessionBeside({ projectId, sessionId });
       openSessionInSessionWhenReady({ projectId, sessionId });
       return;
@@ -441,13 +442,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
         会话页 ⋯ 菜单里仍然可见可点,不是只剩快捷键。 */}
     <ContextMenuItem
       onClick={() => {
-        // Pass the row explicitly: the modal must rename the row under the pointer even when
-        // the main view and keyboard cursor are on another conversation.
-        sessionKeyboardNav.startRename({
-          kind: 'conversation',
-          projectId,
-          sessionId,
-        });
+        commandRegistry.dispatch('session.rename', { projectId, sessionId });
       }}
     >
       <Pencil className="size-4" />

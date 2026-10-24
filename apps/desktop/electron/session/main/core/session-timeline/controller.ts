@@ -126,6 +126,8 @@ export const sessionTimelineController = createRPCController({
   }),
   /** 手机点开附件卡(#7193):这条会话打开给人看的那份文件,按块读;只认它真的打开过的。 */
   sessionOpenedFileRead: (input: SessionpageOpenedFileReadRequest) => service.readOpenedFile(input),
+  /** 这条会话给人打开过什么(桌面「输出」、手机):会话所在这台机器上的那一份(sessions/session-outputs.ts)。 */
+  sessionOutputs: (input: { conversationId: string }) => service.outputs(input),
   sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),
@@ -137,6 +139,11 @@ export const sessionTimelineController = createRPCController({
   sessionCreateOptions: () => create.createOptions(),
   /** 选定的 harness 在这台机器上能跑哪些模型。 */
   sessionCreateModels: (input: SessionpageSessionCreateModelsRequest) => create.createModels(input),
+  /**
+   * 起一条建好了、还没开起来的会话(「再试一次」那一步;第一句话随之投递)。gugu-dev#181:建完不打开的创建
+   * (项目里、聊天里派任务)没有会话页去起它,建完就调这一句。已经起过的什么都不做。
+   */
+  sessionStart: (input: { conversationId: string }) => create.startSession(input.conversationId),
   /** 在这台机器上开一条新会话;应答带上列表里那一行,调用方不必再列一遍。 */
   sessionCreate: async (input: SessionpageSessionCreateRequest) => {
     const created = await create.createSession(input);

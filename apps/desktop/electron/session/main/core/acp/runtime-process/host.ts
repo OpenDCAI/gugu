@@ -276,7 +276,6 @@ const acpWorker = lazyWorker(
           void releaseEmdashPlatformSession(null);
         })
       );
-      installRendererWire(withProviderSessionIdPersistence(handle.client));
       // 起来之后才告诉订阅者:订阅者会再 `get()`,那要等这里返回 ⇒ 只排出去、❌ 在这里 await。
       for (const listener of spawnedListeners) queueMicrotask(() => listener(handle.process));
     },
@@ -300,6 +299,7 @@ export function onAcpRuntimeSpawned(listener: (runtime: object) => void): () => 
 let rendererWireDispose: (() => void) | null = null;
 
 export async function initializeAcpRuntimeProcess(): Promise<AcpRuntimeHandle> {
+  rendererWireDispose ??= exposeRendererWire();
   return decorateAcpRuntimeHandle(await acpWorker.get());
 }
 
@@ -342,7 +342,7 @@ function decorateAcpRuntimeHandle(handle: AcpRuntimeProcessHandle): AcpRuntimeHa
 // servers, but still carries trusted session metadata and keeps the same host-selected permission mode.
 // 合并说明:`effort`(本 PR,起始推理档)与 `startupOrigin`/`initialMessageId`/`initialQueue`
 // (dev #4612,聊天页首轮走信封)是两侧各自的纯新增,没有语义冲突 —— 取并集,❌ 别二选一。
-async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
+async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; taskChatId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
   input: T,
   lifecycle: 'fresh' | 'fork' | 'resume',
   facts: SessionInjectionFacts,
@@ -391,6 +391,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     reasoningEffort: (facts.effort !== undefined ? facts.effort : input.input.effort) ?? null,
     startupOrigin: input.input.startupOrigin,
     initialMessageId: input.input.initialMessageId,
+    taskChatId: input.input.taskChatId,
     initialMessageText: input.input.initialQueue?.[0]?.text,
     // @@@5004 行上有没有 provider session 是「首次 spawn / 重来」与「重开」的分水岭;注入器据此判
     // 「sessionId 为空却没带首句载荷」这种不一致,❌ 不再拿 lifecycle=fresh 当首次 spawn 用。
@@ -749,6 +750,14 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
 
   return {
     ...client,
+    cancelTurn: async (input, meta) => {
+      // Harnesses do not all cancel their outstanding MCP requests when interrupted.
+      // Stop this turn's browser work at the owning host as well; the person's page stays open.
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.cancelTurn(input, meta), closingBrowser]);
+      return result;
+    },
     revertSession: createHistoryReverter({
       boundary: storedRevertBoundary,
       revert: client.revertSession,
@@ -808,7 +817,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       const inFlight = startsInFlight.get(input.sessionId);
       if (inFlight) inFlight.stopped = true;
       startsInFlight.delete(input.sessionId);
-      const result = await client.stopSession(input, meta);
+      const { closeSessionBrowserTools } = await import('../../../../../browser-agent-mcp');
+      const closingBrowser = closeSessionBrowserTools(input.sessionId);
+      const [result] = await Promise.all([client.stopSession(input, meta), closingBrowser]);
       await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
       // @@@stop-settles-the-credential — 「停了」和「它的凭据没了」必须是**同一个结果**。
       //
@@ -987,20 +998,20 @@ async function persistProviderSessionMissing(
   }
 }
 
-function installRendererWire(client: AcpRuntimeClient): void {
-  rendererWireDispose?.();
-  const controller = withValidation(
-    acpApiContract,
-    forwardController(acpApiContract, client),
-    runtimeWireValidationPolicy()
-  );
+/**
+ * 渲染层的 `acp-wire:connect` 在开机那一刻就挂上,不等运行时起来:每次 connect 都先 `get()`。
+ * 运行时第一次没起来 ⇒ 这次 connect 带着原始错误失败;界面上的 Try again 再 connect 一次,就是重新起它的那一次。
+ */
+function exposeRendererWire(): () => void {
   const hostIpc = getHostIpc();
-  rendererWireDispose = exposeWireToWindows(
+  return exposeWireToWindows(
     {
       ipcMain: hostIpc.ipcMain,
       createMessageChannel: (event) => hostIpc.createMessageChannel(event),
     },
-    controller,
+    () => acpWorker.get(),
+    (handle) =>
+      withValidation(acpApiContract, forwardController(acpApiContract, withProviderSessionIdPersistence(handle.client)), runtimeWireValidationPolicy()),
     { channel: ACP_WIRE_CHANNEL }
   );
 }

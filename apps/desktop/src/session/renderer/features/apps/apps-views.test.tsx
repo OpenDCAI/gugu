@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   toggle: null as null | (() => void),
 }));
 
-vi.mock('@renderer/features/extensions/extension-surface-store', () => ({
+vi.mock('@renderer/features/extensions/extension-surface-store', async (original) => ({
+  ...await original<typeof import('@renderer/features/extensions/extension-surface-store')>(),
   extensionSurfaceStore: {
     said: (sessionId: string | null, tabId: string) => {
       mocks.saidFor.push([sessionId, tabId]);
@@ -72,6 +73,15 @@ describe('an App opened from the far-left rail', () => {
     mocks.params = { appId: 'clock' };
     mocks.main = { kind: 'clock.main', enabled: true, extensionName: 'Clock' };
     mocks.lastSession = { projectId: 'project-1', sessionId: 'task-1' };
+  });
+
+  it('uses the same live page title as its task tab and keeps the App name as the initial title', () => {
+    expect(renderToStaticMarkup(<appView.TitlebarSlot />)).toContain('>Clock</span>');
+    mocks.said = { title: 'Timer running', badge: null, error: null };
+    const markup = renderToStaticMarkup(<appView.TitlebarSlot />);
+    expect(markup).toContain('>Timer running</span>');
+    expect(markup).not.toContain('>Clock</span>');
+    expect(mocks.saidFor).toContainEqual([null, 'dock']);
   });
 
   // 真源原则 13: the rail's App sits nowhere — what the person is looking at is `getAppState()`'s. Control (the parent

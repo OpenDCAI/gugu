@@ -1,0 +1,30 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { QuickChat } from '../../../../apps/desktop/src/components/assistant/QuickChat'
+import { chatWindowStub } from '../../../support/chatWindowStub'
+import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
+
+let harness: ReturnType<typeof createReactHarness> | undefined
+afterEach(() => harness?.cleanup())
+describe('Quick chat viewport lifetime', () => {
+  it('shows the current tail after more than a window arrives while the native host is hidden', async () => {
+    harness = createReactHarness()
+    const windows = chatWindowStub()
+    const row = (seq: number) => message({ id: `quick-${seq}`, chat_id: 'quick', seq, content: `arriving ${seq}` })
+    windows.write('quick', () => [row(1)])
+    const render = (visible: boolean) => renderWithAppProviders(harness!, createNode(QuickChat, {
+      assistant: null, assistantState: 'found', chatId: 'quick', chatFailed: false, retryChat: () => {},
+      visible, shortcut: 'test', onClose: () => {}, onOpenMain: () => {},
+    }), { chat: { conversations: windows.conversations } })
+    await render(true)
+    await render(false)
+    await act(async () => { for (let seq = 2; seq <= 180; seq++) windows.write('quick', (rows) => [...rows, row(seq)]) })
+    await render(true)
+    const rows = harness.container.querySelectorAll('[data-testid^="quick-chat-message-"]')
+    expect(rows).toHaveLength(40)
+    expect(rows[0]?.getAttribute('data-testid')).toBe('quick-chat-message-quick-141')
+    expect(rows[39]?.getAttribute('data-testid')).toBe('quick-chat-message-quick-180')
+  })
+})

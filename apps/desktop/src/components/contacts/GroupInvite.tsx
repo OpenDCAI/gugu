@@ -20,6 +20,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { chatService } from '../../lib/chat'
 import { contactsService } from '../../lib/contacts'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
+import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { useGroupInviteJoin } from '../../lib/groupInviteJoin'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../../lib/imageClipboard'
 import { GroupInviteCard } from '../groups/GroupInviteCard'
@@ -30,7 +31,16 @@ import { Sheet } from '../ui/Sheet'
 import { downloadDataUrl } from './downloadDataUrl'
 import { useTranslation } from 'react-i18next'
 
+/** 群聊详情里扫码加入的码。项目群不拉人(gugu-dev#181):不出码,说一句原因。 */
 export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
+  const { t } = useTranslation('messaging')
+  if (isProjectGroupChat(group.id)) {
+    return <div data-testid="project-group-no-invite" className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('group.projectGroupNoInvite')}</div>
+  }
+  return <GroupInviteQr group={group} />
+}
+
+function GroupInviteQr({ group }: { group: ContactGroupChat }) {
   const { t } = useTranslation('contacts')
   const { toast } = useToast()
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)

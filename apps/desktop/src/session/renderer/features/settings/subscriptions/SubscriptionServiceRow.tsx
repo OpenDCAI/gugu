@@ -6,6 +6,7 @@ export function SubscriptionServiceRow({
   badge,
   identity,
   action,
+  notice,
   scope,
   children,
   testId,
@@ -15,6 +16,8 @@ export function SubscriptionServiceRow({
   badge?: string;
   identity: ReactNode;
   action?: ReactNode;
+  /** 整行宽度的提示(如切换被拒的原因)。❌ 塞进 `action`:那一列宽度是 auto,长句会把它撑开、把账号列挤没。 */
+  notice?: ReactNode;
   scope: ReactNode;
   children: ReactNode;
   testId: string;
@@ -35,6 +38,7 @@ export function SubscriptionServiceRow({
         {action}
         <span className="subscription-scope">{scope}</span>
       </div>
+      {notice && <div className="subscription-service-notice">{notice}</div>}
       <div className="subscription-service-details">{children}</div>
     </article>
   );

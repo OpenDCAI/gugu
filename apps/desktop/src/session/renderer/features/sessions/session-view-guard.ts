@@ -1,6 +1,6 @@
 import { sessionLeaveDestination } from '@renderer/features/sessions/leave-session-view';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
-import { appState } from '@renderer/lib/stores/app-state';
+import { projectPresence } from '@renderer/features/projects/project-presence';
 import type { GuardResult } from '@renderer/app/view-registry';
 
 /**
@@ -22,12 +22,8 @@ export function sessionViewCanActivate(params: unknown): GuardResult {
   if (typeof projectId !== 'string' || typeof sessionId !== 'string') {
     return { ok: false, redirect: 'home' };
   }
-  if (
-    !appState.projects.projects.has(projectId) &&
-    !appState.projects.pendingCreationIds.has(projectId)
-  ) {
-    return { ok: false, redirect: 'home' };
-  }
+  // 项目「还不知道」(别的机器上的、那台的清单还没到)先放行:清单到了会再跑一次守卫(project-presence.ts)。
+  if (projectPresence(projectId) === 'deleted') return { ok: false, redirect: 'home' };
   // 任务列表还没加载出来时(冷启动恢复快照那一刻,项目尚未挂载)这里只能放行 —— 所以项目挂载、
   // 任务加载完之后必须再跑一次 revalidate,由 project-manager 负责补那一次。
   const sessionManager = getSessionManagerStore(projectId);

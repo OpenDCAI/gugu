@@ -2,6 +2,8 @@ import type { DeviceActionsCapability } from '../deviceActions'
 import type { AgentType } from '@gugu/core/agentTypes'
 import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
+import type { DeviceProject } from './deviceProject'
+import type { AgentFailureReason } from '../agentQuotaReason'
 export type { AgentType } from '@gugu/core/agentTypes'
 
 // @@@1514 channel 概念已抹除(collapse 进 group)：公开 agent 好友会话原是独立 'channel' kind，
@@ -52,6 +54,8 @@ export interface ChatItem {
   created_at: string
   last_message_at: string | null
   last_message_preview: string | null
+  /** The last message is an agent's failure row: the list says this reason in the viewer's language, not the preview. */
+  last_message_failure?: AgentFailureReason | null
   unread_count: number
   /** The server-owned stream/message locator for the first unread projection. */
   unread_locator?: ChatUnreadLocator | null
@@ -279,6 +283,12 @@ export interface Device {
    */
   session_digest?: DeviceSessionSummary[]
   /**
+   * #113 账号上记着的这台机器上的项目与文件夹(identity.device_projects,那台机器自己写)。这台机器离线时,
+   * 各端照这一份列它的项目与文件夹。缺席 = 这一端还没读到过账号上的那份(由用到的地方说「读不到」);
+   * 读到了而那台机器没记过项目 = 空列表。
+   */
+  projects?: DeviceProject[]
+  /**
    * #7199 这一行是这个账号的云电脑时,它此刻的样子(休眠中 / 正在唤醒 / 运行中)。库里没有这一列:客户端按云电脑管家
    * 的 /state 补上(管家给的 deviceId 认是哪一行)。睡着时 `is_online` 照实为 false,但 ❌ 按离线处理 —— 见
    * `deviceAcceptsWork`。不是云电脑 = 缺席。
@@ -327,7 +337,7 @@ export interface DeviceCapabilities extends Partial<DeviceHostInfo> {
   actions?: DeviceActionsCapability
 }
 
-export type GuguSettingsScope = 'user' | `device:${string}`
+export type GuguSettingsScope = 'user' | `device:${string}` | `chat:${string}`
 
 export interface GuguSettingsRow {
   scope: GuguSettingsScope

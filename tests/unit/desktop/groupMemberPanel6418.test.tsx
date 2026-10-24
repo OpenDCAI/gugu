@@ -92,6 +92,9 @@ async function renderPanel(viewerId = 'owner-1', chatId = 'chat-1') {
     }, contacts: { contacts: [] } },
   )
   await waitForCondition(() => rowIds().length > 0, 'member rows rendered')
+  // gugu-dev#181 我自己的 agent 收在「我的 agent · N」里;这一组用例判的是每一行的行为,先摊开。
+  const mine = q('[data-member-group="mine"]')
+  if (mine?.getAttribute('aria-expanded') === 'false') await click(mine)
 }
 const rowIds = () => [...harness.container.querySelectorAll('[data-member-row]')].map((row) => row.getAttribute('data-member-row'))
 const q = (selector: string) => document.querySelector(selector) as HTMLElement | null
@@ -99,6 +102,28 @@ async function click(element: HTMLElement | null) {
   expect(element).not.toBeNull()
   await act(async () => { element!.click(); await Promise.resolve(); await Promise.resolve() })
 }
+
+describe('gugu-dev#181 我的 agent 收成一组', () => {
+  it('我自己的 agent 默认收着,一行「我的 agent · N」;点开才列出来;别人的 agent 照常列着', async () => {
+    revisionListeners = []
+    await renderWithAppProviders(
+      harness,
+      createNode(MemberListPanel, { chatId: 'chat-1', chatKind: 'group', head }),
+      { auth: { id: 'owner-1' }, chat: {
+        identitiesById: {}, getImRepository: async () => ({ putIdentities: vi.fn(async () => {}) }) as never,
+        subscribeAccountRevision: (() => () => undefined) as never,
+      }, contacts: { contacts: [] } },
+    )
+    await waitForCondition(() => rowIds().length > 0, 'member rows rendered')
+    const mine = q('[data-member-group="mine"]')
+    expect(mine?.getAttribute('aria-expanded')).toBe('false')
+    expect(mine?.textContent).toContain('1')
+    expect(rowIds()).not.toContain('claude')
+    expect(rowIds()).toContain('codex')
+    await click(mine)
+    expect(rowIds()).toContain('claude')
+  })
+})
 
 describe('#6418 群成员面板 —— 搜索', () => {
   it('按名字、主人、引擎匹配,并真的滤掉不匹配的行', async () => {

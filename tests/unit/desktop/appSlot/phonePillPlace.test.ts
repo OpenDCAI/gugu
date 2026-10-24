@@ -17,6 +17,7 @@ const ORIGIN = 'https://office.acct.apps.gugu.invalid'
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => 'h.eyJzdWIiOiJwZXJzb24tMSJ9.s' }))
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
+    rpc: async (name: string, args: { p_chat_id: string }) => ({ data: name === 'chat_facts' ? [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }] : [], error: null }),
     from: (table: string) => {
       let id: unknown = null
       const query = {
@@ -41,7 +42,7 @@ let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
 const binding = (extensionId: string, chatId: string, itemId: string) =>
-  ({ extensionId, tabId: 'tab-1', chatId, itemId, capabilities: ['files:read'] as const, locale: 'en-US', themeMode: 'light' as const })
+  ({ extensionId, tabId: 'tab-1', tabName: 'main', chatId, itemId, capabilities: ['files:read'] as const, locale: 'en-US', themeMode: 'light' as const })
 function start(extensionId: string, chatId: string, itemId = 'item-1') {
   host?.dispose()
   host = hostAppFrame(

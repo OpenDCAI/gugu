@@ -21,6 +21,7 @@ export function MemberPickerModal({
   snapshot,
   currentUserId,
   canInviteHumans,
+  humanDeniedHint,
   onClose,
   onReload,
 }: {
@@ -28,6 +29,8 @@ export function MemberPickerModal({
   snapshot: GroupCollabSnapshot
   currentUserId: string | null
   canInviteHumans: boolean
+  /** 不能邀请人类时那一页说的话;不给 = 权限不够那一句(项目群有自己的原因)。 */
+  humanDeniedHint?: string
   onClose: () => void
   onReload: () => Promise<void>
 }) {
@@ -198,7 +201,7 @@ export function MemberPickerModal({
                 lineHeight: 1.6,
               }}
             >
-              {t('group.picker.humanPermissionHint')}
+              {humanDeniedHint ?? t('group.picker.humanPermissionHint')}
             </div>
           ) : null}
           {loading && !(tab === 'human' && !canInviteHumans) && (

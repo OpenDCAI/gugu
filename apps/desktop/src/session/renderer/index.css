@@ -112,7 +112,6 @@
 }
 [data-join][data-join-on]::before {
   background-color: var(--tab-strip);
-  border-color: transparent;
 }
 [data-join][data-join-on][data-active='true'] {
   background-color: var(--tab-face);
@@ -1511,6 +1510,12 @@
        --transition-fast = --dur-fast(120ms) + --ease,与全站状态色切换同一档。 */
     transition: opacity var(--transition-fast);
     pointer-events: none;
+  }
+
+  /* ④ 块里开着话题(gugu-dev#181 第 ⑤ 步):话题那一枚由壳画进第一枚后面那一格的最前头(它自己是 pairRole="end"),
+        这一枚的右上角在这里收直,两枚连成一对。右栏那几枚(群文件夹、App)排在话题后面,不配对。 */
+  .session-tab-slot:has(+ [data-chat-part='tabs'] [data-topic-tab]) [data-tab-active] {
+    border-top-right-radius: 0;
   }
 
   .session-tab-slot:hover::before,

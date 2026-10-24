@@ -211,12 +211,12 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     expect(state.createParams[0]).not.toHaveProperty('taskType');
   });
 
-  // 手机从群成员里建:请求带的群原样交给建会话那一步(birthChatId),不带就不出现这一格。
-  it('请求带了群:交给建会话的 birthChatId', async () => {
+  // 手机从群成员里建:请求带的群原样交给建会话那一步(birthGroup),不带就不出现这一格。
+  it('请求带了群:交给建会话的 birthGroup(群成员里建的,不是任务座位)', async () => {
     await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', chatId: 'chat-group-1' }, { ensureAgentInstalled: async () => {} });
     await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' }, { ensureAgentInstalled: async () => {} });
-    expect(state.createParams[0]).toMatchObject({ birthChatId: 'chat-group-1' });
-    expect(state.createParams[1]).not.toHaveProperty('birthChatId');
+    expect(state.createParams[0]).toMatchObject({ birthGroup: { chatId: 'chat-group-1', asTask: false } });
+    expect(state.createParams[1]).not.toHaveProperty('birthGroup');
   });
 
   it('已经装好:不去装', async () => {

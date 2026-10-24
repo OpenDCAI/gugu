@@ -11,6 +11,7 @@ import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mj
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
 import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owned-child.ts'
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
+import { unifiedDiffTexts, withoutTrailingNewline } from '../../../../packages/core/src/shared/unifiedDiff.mjs'
 import { createCodexSubagents } from './codex-subagents.mjs'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
@@ -966,32 +967,6 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
 }
 
 /**
- * unified diff 的 hunk → 改前/改后两份文本。
- *
- * ⚠️ 多个 hunk 会被首尾相接:补丁里本来就没有 hunk 之间那段没改动的内容,拼起来等于把不相邻的
- * 几段呈现成相邻。展示出来的每一行都是真的,但「中间省略了多少」这个信息补丁没给,也补不出来。
- */
-function unifiedDiffTexts(patch) {
-  const before = []
-  const after = []
-  let inHunk = false
-  for (const line of String(patch ?? '').split('\n')) {
-    if (line.startsWith('@@')) { inHunk = true; continue }
-    if (!inHunk) continue
-    if (line.startsWith('\\')) continue // "\ No newline at end of file"
-    if (line.startsWith('-')) before.push(line.slice(1))
-    else if (line.startsWith('+')) after.push(line.slice(1))
-    else {
-      const text = line.startsWith(' ') ? line.slice(1) : line
-      before.push(text)
-      after.push(text)
-    }
-  }
-  if (!inHunk) return null
-  return { oldText: before.join('\n'), newText: after.join('\n') }
-}
-
-/**
  * codex 的 `fileChange.changes[]` → ACP 的 diff 内容块。
  *
  * **不带 diff 的编辑类工具条目会被宿主整条丢弃**(session-core 的 `item-fold` 里 `isEditKind` 那一支)。
@@ -1003,16 +978,6 @@ function unifiedDiffTexts(patch) {
  *  - `kind.type === 'add'`:`diff` 就是**文件全文**,可精确还原;
  *  - `kind.type === 'update'`:`diff` 是 unified diff 的 hunk,按 hunk 还原。
  */
-/**
- * 去掉结尾那一个换行。
- *
- * 文本文件本来就以换行收尾,但渲染侧按 `\n` 切行,留着它会凭空多出一个空行 —— 只写了一行 `one`
- * 的新建文件会显示成 `+2 −0`。这不是内容,是行尾约定。
- */
-function withoutTrailingNewline(text) {
-  return text.endsWith('\n') ? text.slice(0, -1) : text
-}
-
 function fileChangeDiffs(item) {
   const blocks = []
   for (const change of Array.isArray(item?.changes) ? item.changes : []) {
@@ -1031,12 +996,7 @@ function fileChangeDiffs(item) {
     const texts = unifiedDiffTexts(raw)
     // 认不出的形状宁可不发:发一个瞎猜的 diff,等于往这段历史里写没发生过的内容。
     if (texts) {
-      blocks.push({
-        type: 'diff',
-        path,
-        oldText: withoutTrailingNewline(texts.oldText),
-        newText: withoutTrailingNewline(texts.newText),
-      })
+      blocks.push({ type: 'diff', path, ...texts })
     }
   }
   return blocks

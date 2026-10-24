@@ -10,11 +10,16 @@ import { useChatStore } from './chatContext'
 import { DevicesContext } from './devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { cachedDevicesAccount, deviceCacheAction, readCachedDevices, writeCachedDevices } from './devicesCache'
+import { withDeviceProjects } from '@gugu/core/cloud/deviceProjects'
+import { listMyDeviceProjects } from '../lib/deviceProjects'
 import { withSshLinkOnline } from '../lib/sshLinkOnline'
 import { useSshLinkProblems, useSshMachineIds } from '../hooks/useSshLinkProblems'
 import { desktopIpc } from '../platform/desktopIpc'
 import { platform } from '../platform'
 import { SERVER_SSH_MACHINES_CHANNELS } from '../lib/serverSshMachines'
+import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
+import { useMyAssistant } from '../lib/myAssistant'
+import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 import {
   cloudComputerPollMs,
   cloudComputerWatchMs,
@@ -33,8 +38,13 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   const { user: authenticatedUser, loading: authLoading } = useAuth()
   const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
   const user = active ? authenticatedUser : null
+  const assistant = useMyAssistant(user?.id, null)
+  const appMachine = useMemo(() => assistant.provisionDeviceId ? { rpc: machineRpc(assistant.provisionDeviceId) } : null, [assistant.provisionDeviceId])
   // 第一帧就用上次那份铺开,❌ 不是空列表 + 转圈;下面的 refresh 一返回就换成此刻的事实。
   const [devices, setDevices] = useState<Device[]>(() => sortDevices(readCachedDevices()))
+  // 上一份读到的(设备行上带着各台机器记在账号上的项目):这一次项目没读到,就沿用这一份。
+  const devicesRef = useRef(devices)
+  devicesRef.current = devices
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,7 +54,16 @@ export function DevicesProvider({ children, active = true }: { children: React.R
     setError(null)
     try {
       // #7199 一次读全(含手机):设置 → 设备要列出手机;「在哪跑」等只读下面拆出来的 devices(没有手机)。
-      const rows = await chatService.listDevices({ includePhones: true })
+      // #113 同时读账号上记着的各台机器的项目:那份读不到不拖垮设备列表 —— 各台沿用上一份,原因进日志。
+      const [listed, projects] = await Promise.all([
+        chatService.listDevices({ includePhones: true }),
+        listMyDeviceProjects().catch((err: unknown) => {
+          if (isLifecycleCancellation(err)) throw err
+          devicesLog.warn({ err: String((err as Error)?.message ?? err) }, 'list device projects failed')
+          return null
+        }),
+      ])
+      const rows = withDeviceProjects(listed, projects, devicesRef.current)
       setDevices(sortDevices(rows))
       writeCachedDevices(user.id, rows)
       // #6264 在别的电脑上被移除的远程 SSH 机器,这台电脑也忘掉它(只凭刚成功读到的完整名单对账)。
@@ -117,14 +136,22 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   }, [userId])
 
   const rename = useCallback(async (deviceId: string, label: string) => {
+    const ownerId = user?.id ?? cachedDevicesAccount()
     await chatService.renameDevice(deviceId, label)
+    if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
+      resource: 'devices', operation: 'edited', id: deviceId, deviceId, after: { name: label },
+    }, ownerId)
     await refresh()
-  }, [refresh])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
 
   const remove = useCallback(async (deviceId: string, options: { cascade?: boolean } = {}) => {
+    const ownerId = user?.id ?? cachedDevicesAccount()
     await chatService.removeDevice(deviceId, options)
+    if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
+      resource: 'devices', operation: 'removed', id: deviceId, deviceId,
+    }, ownerId)
     await refresh()
-  }, [refresh])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
 
   // #6264 这台电脑用远程 SSH 添加的机器(清单随装上 / 移除一台跟着变):在不在线只看 SSH 设备连接(❌ 看咕咕云心跳),
   // 侧栏、选择器、设置 → 设备同一个说法。别的机器照常读心跳。

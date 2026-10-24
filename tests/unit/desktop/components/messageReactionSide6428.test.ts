@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 
 // #6428 表情回应条必须与气泡同侧。消息列是整列宽(70%/78%),气泡行 fit-content,我方靠 marginLeft:auto 贴右;
@@ -11,6 +11,23 @@ beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
 describe('MessageBubble reaction bar side (#6428)', () => {
+  it.each([false, true])('late read watermarks keep the same bubble and a clickable receipt outside its flow (mobile=%s)', async (mobile) => {
+    const onShowReadReceipt = vi.fn()
+    const props = { msg: message({ id: 'late-receipt', is_mine: true, sender_user_id: 'me' }), mobile,
+      onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(),
+      isGroup: true, onShowReadReceipt }
+    await renderWithAppProviders(harness, createNode(MessageBubble, props))
+    const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]')!
+    expect(harness.container.querySelector('[data-testid="message-read-receipt"]')).toBeNull()
+    await renderWithAppProviders(harness, createNode(MessageBubble, { ...props, readReceiptTotal: 2, readReceiptRead: 1 }))
+    expect(harness.container.querySelector('[data-testid="message-bubble-action-target"]')).toBe(bubble)
+    const receipt = harness.container.querySelector<HTMLElement>('[data-testid="message-read-receipt"]')!
+    expect(getComputedStyle(receipt).position).toBe('absolute')
+    expect(receipt.style.right).toBe('100%')
+    await clickElement(receipt)
+    expect(onShowReadReceipt).toHaveBeenCalledWith('late-receipt', receipt)
+  })
+
   it.each([
     { isMine: true, side: 'end' },
     { isMine: false, side: 'start' },

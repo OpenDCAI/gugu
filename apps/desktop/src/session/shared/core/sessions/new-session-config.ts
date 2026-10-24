@@ -45,6 +45,8 @@ const v1Schema = z.object({
       startupOrigin: z.enum(['chat-page', 'session-page']).optional(),
       /** Stable id for a startup-delivered first user message. */
       initialMessageId: z.string().optional(),
+      /** gugu-dev#181: the chat whose composer dispatched this task — its first turn lands there as a task card. */
+      taskChatId: z.string().optional(),
       /** System bootstrap compatibility only. Ordinary user text uses sendMessage. */
       initialPrompt: z.string().optional(),
       /** System bootstrap compatibility only. Ordinary user text uses sendMessage. */

@@ -57,6 +57,10 @@
 **旧字阶的写死字号**(11/13/15/17)按范围记账、只减不增(`offLadderFontSizeLiterals`,baseline 见
 `scripts/ui-visual-spec-baseline.json`)。守卫通过 ≠ 全部组件已适配:记账里剩下的每一处都还是旧字号,清单与进度见 #7333。
 
+### 0.3 手机全页统一（2026-10-21 用户裁决）
+
+手机底栏仍是「咕咕 | 项目 | 对话 | 联系人 | 我的」五格，点「咕咕」直接进助理（2026-10-22 用户裁决：底栏按最小损失来）。参考 [豆包手机助手](https://o.doubao.com/) 与 [Codex](https://openai.com/index/introducing-the-codex-app/) 的连续对话、独立任务和过程阅读方向，具体几何仍消费咕咕母版 token。手机正文16/24、页标题24/32；控件触控目标至少44px。用户消息轻底色气泡、回复开放阅读面，过程折叠但不隐藏实际审批和错误；输入区24px圆角柔和填充。权限、资料和设置采用开放分组与短状态行，详情或长操作使用共享底部 Sheet；去除表格感分隔、卡片套卡片。以真实 Android 键盘、返回、授权与撤权验证交互。此范围为用户批准的整体手机改版，桌面保持现有规则。
+
 ## 0. 一句话
 
 一份规格、多处消费。任何「这个界面自己定一套」的写法都是债，不是灵活性。
@@ -635,7 +639,7 @@ bg-background-quaternary + rounded-[--radius-surface | --radius-xl] + shadow-lif
 | `modal-renderer.tsx:145` | `rounded-xl` 无 shadow | 统一 |
 | `popover.tsx:41` | 用 `border` 而不是 `ring-1` | 改 `ring-1`（`ring` 不占布局，`border` 占） |
 | `sheet.tsx:56` | `shadow-lg` | `shadow-sm` |
-| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一 |
+| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一(该文件已随 #137 删除,提示条样式在 `notice-host.css`) |
 
 > 上一版本文写的是「现存 `shadow-md` 与 `rounded-xl` 由 P1 chrome 车道收敛」——上表就是它兑现后的读数。
 > ⚠️ 表里的 `shadow-sm` 与 `ring-1` 两列**已被 design.md 裁决覆盖**(见本节开头的新公式);

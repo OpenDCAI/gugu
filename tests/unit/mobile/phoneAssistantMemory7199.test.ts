@@ -14,6 +14,7 @@ import {
   filesTrail,
   readMemoryCounts,
   readResourceView,
+  resourceDisplayPath,
   uploadResources,
   VIEW_MAX_BYTES,
 } from '../../../apps/desktop/src/mobile/assistant/phoneMemoryData'
@@ -184,6 +185,18 @@ describe('资料夹路由与读法', () => {
 })
 
 describe('uploadResources', () => {
+  it('住电脑时首次建夹、上传与分析路径都使用该助理的工作目录', async () => {
+    const { machine, fs } = fakeMachine({})
+    machine.paths = assistantPaths(HOME, WORKDIR, 'computer')
+    const create = vi.spyOn(machine.rpc.workspace.files, 'createEntry')
+    await uploadResources(machine, [], [new File(['你好'], 'a.txt')])
+    expect(create).toHaveBeenCalledWith(expect.any(String), expect.any(String), WORKDIR, '给助理的资料', 'folder')
+    expect(fs.has(`${HOME}/给助理的资料`), 'must not create the cloud layout for a computer assistant').toBe(false)
+    expect(fs.get(`${machine.paths.resourcesDir}/a.txt`)).toEqual({ kind: 'file', content: '你好' })
+    expect(resourceDisplayPath(machine, ['报告'])).toBe('~/assistant/给助理的资料/报告')
+    expect(resourceDisplayPath({ ...machine, paths: assistantPaths(HOME, '/home/user-else/project', 'computer') }, [])).toBe('/home/user-else/project/给助理的资料')
+  })
+
   it('传到根上先建资料夹;音视频 / 超 50MB 的不传、说原因;一个没传上不拦后面的', async () => {
     const { machine, fs } = fakeMachine({})
     const big = new File(['x'], 'huge.pdf')

@@ -1,3 +1,10 @@
+import { openLinkTarget } from '@/lib/guguLinks';
+import { rpc } from '@renderer/lib/ipc';
+import { desktopIpc } from '@/platform/desktopIpc';
+import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
+import type { AppModalHostAction } from '@shared/extensions/app-modal';
+import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
+
 import { runInAction } from 'mobx';
 import type { RendererRpcHandlers } from '@/rpc-renderer/rendererRpc';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
@@ -9,8 +16,10 @@ import {
   EXTENSION_INSTALLED_CHANGED_METHOD,
   EXTENSION_LISTED_SESSION_METHOD,
   EXTENSION_MEMBER_FACES_METHOD,
+  EXTENSION_PICK_COMPOSE_TARGET_METHOD,
   INSTALL_CONSENT_HUMAN_WINDOW_MS,
   type ExtensionHostAction,
+  type ExtensionHostActionResult,
   type ExtensionHostActionCommand,
   type ExtensionInstallConsentRequest,
   type ExtensionInstallConsentResult,
@@ -18,14 +27,12 @@ import {
 import {
   APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
-  APP_OPEN_IN_CHAT_EVENT,
   APP_OPEN_WITH_EVENT,
-  APP_SHOW_MESSAGE_EVENT,
-  GROUP_FILE_OPEN_EVENT,
   type AppComposeDetail,
-  type AppOpenInChatDetail,
 } from '@shared/extensions/app-runtime-protocol';
+import type { ComposePickAsk } from '@shared/extensions/app-send-core';
 import { openApp } from './app-dock';
+import { installedExtensionsStore } from './installed-extensions-store';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { peekStore } from './peek-store';
@@ -35,6 +42,7 @@ import { appState } from '@renderer/lib/stores/app-state';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { askInShell, closeInShell, installConsentPrompt } from './install-consent';
 import { revealSessionpage } from '@/hooks/useSessionpageReveal';
+import { closeAppModal, focusAppModalClose, showAppModal } from '@/components/appModal/appModal';
 
 /**
  * Performs the actions main has already decided an extension is allowed to take.
@@ -76,36 +84,89 @@ function blockOnScreen(sessionId: string): string | null {
   return screenLayout.blockOfSession(sessionId) ?? null;
 }
 
-export function applyExtensionHostAction(command: ExtensionHostActionCommand): void | Promise<void> {
+export function applyExtensionHostAction(command: ExtensionHostActionCommand): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   const { origin, action } = command;
   // A link's or a banner's click has no page behind it: only what names its own target is done for it.
   if (!origin) return runInAction(() => openForClick(action));
   return runInAction(() => perform(origin.sessionId, origin.tabId, action));
 }
 
-function openForClick(action: ExtensionHostAction): void {
+function openForClick(action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   switch (action.kind) {
     case 'openApp':
-      // A chat named: the chat shell brings it up and its panel opens the App. None: where it is (#7052), as its rail icon.
-      if (action.chatId) {
-        window.dispatchEvent(new CustomEvent<AppOpenInChatDetail>(APP_OPEN_IN_CHAT_EVENT, { detail: { chatId: action.chatId, extensionId: action.extensionId } }));
-      } else {
-        openApp(action.extensionId);
-        revealSessionpage();
-      }
-      return;
+      if (action.chatId) return openLinkTarget({ kind: 'app', extensionId: action.extensionId, tab: action.tab ?? installedExtensionsStore.mainTabOf(action.extensionId)?.kind.slice(action.extensionId.length + 1) ?? '', path: '', query: {}, place: { chat: action.chatId } });
+      { const opened = openApp(action.extensionId, action.tab); revealSessionpage(); return opened; }
     case 'openChatFile':
-      // As a link to the file opens it: its chat comes up, its panel opens the file.
-      window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail: { chatId: action.chatId, itemId: action.itemId }, cancelable: true }));
-      return;
+      return openLinkTarget({ kind: 'file', itemId: action.itemId });
+    case 'openLinkTarget':
+      return openLinkTarget(action.target);
     default:
       throw new Error(`${action.kind} is a page's: no page asked for it`);
   }
 }
 
-function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): void | Promise<void> {
+function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
+    case 'openAppModal': {
+      let guest: BrowserWebviewElement | null = null;
+      let previous = document.activeElement;
+      while (previous?.shadowRoot?.activeElement) previous = previous.shadowRoot.activeElement;
+      const control = async (action: AppModalHostAction) => {
+        const response = await desktopIpc()!.invoke(EXTENSION_BRIDGE_CHANNEL, { method: 'modalHost', args: action }) as ExtensionBridgeResponse;
+        if (!response.ok) throw new Error(response.message);
+      };
+      const dismiss = (error?: string) => control({ type: 'dismiss', id: action.page.id, ...(error ? { error } : {}) });
+      const fail = (error: unknown) => dismiss(error instanceof Error ? error.message : String(error));
+      const focus = async (edge: 'first' | 'last') => {
+        guest?.focus();
+        await control({ type: 'focus', id: action.page.id, edge });
+      };
+      showAppModal({
+        id: action.page.id, title: action.page.title, appName: action.page.appName, size: action.page.size,
+        url: action.page.entryUrl, partition: action.page.partition,
+        opener: previous instanceof HTMLElement ? previous : document.body,
+        focus, dismiss,
+        attach(element) {
+          guest = element as BrowserWebviewElement;
+          let boundId: number | null = null;
+          const report = () => {
+            if (boundId !== null) void rpc.extensions.reportLayout({ webContentsId: boundId, visible: true, width: element.clientWidth, height: element.clientHeight }).catch(fail);
+          };
+          const observer = new ResizeObserver(report);
+          observer.observe(element);
+          const ready = () => {
+            const webContentsId = (element as BrowserWebviewElement).getWebContentsId();
+            void control({ type: 'bind', id: action.page.id, webContentsId }).then(() => {
+              if (guest !== element) return;
+              boundId = webContentsId; report(); return focus('first');
+            }).catch((error: unknown) => { if (guest === element) void fail(error); });
+          };
+          const gone = () => void fail(new Error('The App modal content process exited'));
+          const failed = (event: Event) => {
+            const failure = event as Event & { errorCode?: number; errorDescription?: string };
+            if (failure.errorCode !== -3) void fail(new Error(failure.errorDescription ?? 'The App modal page did not load'));
+          };
+          element.addEventListener('dom-ready', ready);
+          element.addEventListener('render-process-gone', gone);
+          element.addEventListener('did-fail-load', failed);
+          return () => {
+            observer.disconnect();
+            element.removeEventListener('dom-ready', ready);
+            element.removeEventListener('render-process-gone', gone);
+            element.removeEventListener('did-fail-load', failed);
+            guest = null;
+          };
+        },
+      });
+      return;
+    }
+    case 'closeAppModal':
+      closeAppModal(action.id);
+      return;
+    case 'focusAppModalClose':
+      focusAppModalClose(action.id);
+      return;
     case 'setTabTitle':
       extensionSurfaceStore.say(sessionId, tabId, { title: action.title });
       return;
@@ -136,8 +197,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     }
     // The chat shell takes them (MainLayout: another chat comes up first), as the phone's page gives them.
     case 'showMessage':
-      window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail: action.detail }));
-      return;
+      return openLinkTarget({ kind: 'chat', chatId: action.detail.chatId, messageId: action.detail.messageId });
     case 'openWith':
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;
@@ -155,14 +215,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     }
     case 'openApp':
     case 'openChatFile':
+    case 'openLinkTarget':
       return openForClick(action);
   }
 }
 
 export const extensionHostActionHandlers: RendererRpcHandlers = {
   [EXTENSION_HOST_ACTION_METHOD]: async (params: unknown) => {
-    await applyExtensionHostAction(params as ExtensionHostActionCommand);
-    return { ok: true };
+    const opened = await applyExtensionHostAction(params as ExtensionHostActionCommand);
+    return { ok: true, opened };
   },
   /**
    * 已装的集合变了 —— 重新登记 tab,新装的扩展这才在 tab 栏里出现。
@@ -194,6 +255,11 @@ export const extensionHostActionHandlers: RendererRpcHandlers = {
     if (typeof sessionId !== 'string') throw new Error('Invalid listed session request');
     const { remoteHostsStore } = await import('@renderer/features/remote-hosts/remote-hosts-store');
     return remoteHostsStore.listedProject(sessionId);
+  },
+  /** `gugu.compose(text)` naming no place: the person picks one in the shell's sheet (ComposeTargetPicker). */
+  [EXTENSION_PICK_COMPOSE_TARGET_METHOD]: async (params: unknown) => {
+    const { pickComposeTarget } = await import('@/components/chat/composeTargetAsk');
+    return pickComposeTarget(params as ComposePickAsk);
   },
   [EXTENSION_INSTALL_CONSENT_METHOD]: (params: unknown): Promise<ExtensionInstallConsentResult> => {
     if (!params || typeof params !== 'object') throw new Error('Invalid extension consent request');

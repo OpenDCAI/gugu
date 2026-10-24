@@ -27,6 +27,7 @@ const pdfApp = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app
 const chooser = vi.hoisted(() => ({ kind: 'none' as string }));
 // Where the file is and who opens it are app-files' (their own tests); here, what the bridge does with the answer.
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId,
   openWithTarget: vi.fn(async (_page: unknown, args: { ref: { project?: string } }) =>
     args.ref.project ? { kind: 'peek', target: local } : { kind: 'chat', target: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file } }),
   openerChoice: () => (chooser.kind === 'none' ? { kind: 'none' } : { kind: 'one', candidate: pdfApp }),

@@ -4,10 +4,10 @@ import { useEffect, type ReactNode } from 'react'
 import { ListColumnToggle } from '@/components/PanelToggleButtons'
 import { publishListHotkey, publishPanelToggle } from '@/lib/panelToggles'
 import {
-  hasWindowTitlebarRow,
   readRendererPlatform,
   shellRestoreLane,
   TITLEBAR_ACTION_SLOT_WIDTH_PX,
+  TITLEBAR_ACTION_SLOT_GAP_PX,
   TITLEBAR_LEFT_EDGE_GAP_PX,
   WINDOW_CONTROL_BAR_HEIGHT_PX,
 } from '@/lib/window-chrome'
@@ -16,18 +16,19 @@ import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts'
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider'
 import { formatHotkeyText } from '@renderer/lib/ui/shortcut-format'
 import { useSessionMessages } from '@renderer/localization/use-session-messages'
+import { SidebarListLayoutButton } from '@renderer/features/sidebar/sidebar-list-switch'
 
 /** 28px 按钮在这条 40px 带里居中 —— 左右两端同一个式子,❌ 别在调用点另写 top-*。 */
 const TITLEBAR_ACTION_TOP_PX = (WINDOW_CONTROL_BAR_HEIGHT_PX - TITLEBAR_ACTION_SLOT_WIDTH_PX) / 2
 
 
 /**
- * 会话页**唯一**一枚左侧栏开关:把侧栏登记进 panelToggles(#6753),并在没有标题栏行的平台上把那颗按钮挂在会话页根部。
+ * The sidebar's collapse and layout controls, fixed at the workspace root on every platform.
  *
  * 它挂在会话页根部(<WorkspaceLayout>),不在侧栏里、也不在主区里 —— 所以侧栏开合时它一动不动,
  * 侧栏是从它下面滑过去的。改造前是两枚:侧栏展开时那枚长在侧栏顶端靠右,收起时另换一枚浮到
  * 主区左上角 —— 同一个功能的按钮在两种状态下落在两个坐标,点完一下手就得去别处找它。
- * 按钮本身是 PanelToggleButtons 的 <ListColumnToggle>,与对话页、Windows 标题栏行挂的是同一个组件;
+ * 按钮本身是 PanelToggleButtons 的 <ListColumnToggle>,与对话页挂的是同一个组件;
  * 刚点完 / 预览浮着时不弹提示也在那里。
  *
  * **收起态下悬停它会浮出侧栏预览**(见 sidebar-peek.ts);此时再点 = 把预览钉成常驻,且不放动画(layout-provider 的 setCollapsed)——
@@ -37,7 +38,7 @@ export const ShellSidebarToggle = observer(function ShellSidebarToggle() {
   const { translate } = useSessionMessages()
   const { value: keyboard } = useAppSettingsKey('keyboard')
   const { isLeftOpen, isLeftPeeking, toggleLeft, setTriggerHovered } = useWorkspaceLayoutContext()
-  const hotkey = getEffectiveHotkey('toggleLeftSidebar', keyboard)
+  const hotkey = getEffectiveHotkey('app.toggleLeftSidebar', keyboard)
   const shortcut = hotkey ? formatHotkeyText(hotkey) : undefined
   const label = translate(isLeftOpen ? 'task.collapseSidebar' : 'task.expandSidebar')
 
@@ -49,15 +50,16 @@ export const ShellSidebarToggle = observer(function ShellSidebarToggle() {
   // 对话页的列表栏用同一个键(useListColumnCollapse)。
   useEffect(() => publishListHotkey(hotkey), [hotkey])
 
-  // Windows 上这颗挂在标题栏行(WindowTitleBar),这里 ❌ 再挂第二颗(#5454)。
-  if (hasWindowTitlebarRow(readRendererPlatform())) return null
   return (
     <div
-      className="absolute z-50 [-webkit-app-region:no-drag]"
+      className="absolute z-50 flex items-center [-webkit-app-region:no-drag]"
       // 几何内联而不用 utility:tokens.css 那条 `*{margin:0;padding:0}` 在皮肤壳外面会静默抹平 utility。
-      style={{ top: TITLEBAR_ACTION_TOP_PX, left: TITLEBAR_LEFT_EDGE_GAP_PX }}
+      style={{ top: TITLEBAR_ACTION_TOP_PX, left: TITLEBAR_LEFT_EDGE_GAP_PX, gap: TITLEBAR_ACTION_SLOT_GAP_PX }}
+      data-sidebar-header-controls=""
     >
+      {/* 开关在前、一直在;「显示方式」管的是那张列表,列表收起它就跟着走(owner 2026-10-23)。浮出预览时列表在,它也在。 */}
       <ListColumnToggle slot="list:sessions" />
+      {isLeftOpen || isLeftPeeking ? <SidebarListLayoutButton /> : null}
     </div>
   )
 })

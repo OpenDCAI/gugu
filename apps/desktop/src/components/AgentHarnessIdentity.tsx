@@ -5,6 +5,7 @@ import { pluginIdForAgentType } from '@gugu/core/agentTypes'
 import { engineLabel } from '../lib/usage/engineLabel'
 import { Bot, CircleAlert, Cloud, Clock, UserMinus, type IconComponent } from '@/lib/icons'
 import { useAgentHarnessIdentity } from '../hooks/useAgentHarnessIdentity'
+import { useKnownPhoneAgent } from '../hooks/useKnownPhoneAgent'
 import { htmlProp } from '../lib/innerHtml'
 import { useTheme } from '../store/theme'
 import { pickIconVariant } from '../session/renderer/lib/components/agent-icon-variant'
@@ -34,9 +35,10 @@ function sizeStyle(size: number): CSSProperties {
 
 function useHarness(agentId: string | undefined) {
   const type = useAgentHarnessIdentity(agentId)
+  const phone = useKnownPhoneAgent(agentId) && type !== 'removed'
   const { t } = useTranslation('messaging')
-  const icon = agentIcons[pluginIdForAgentType(type)]
-  const label = icon?.alt ?? t(`agent.identity.${type === 'gugu-cloud' ? 'cloud' : type === 'removed' ? 'removed' : type === 'pending' ? 'pending' : 'unavailable'}`)
+  const icon = phone ? undefined : agentIcons[pluginIdForAgentType(type)]
+  const label = phone ? t('agent.identity.phone') : icon?.alt ?? t(`agent.identity.${type === 'gugu-cloud' ? 'cloud' : type === 'removed' ? 'removed' : type === 'pending' ? 'pending' : 'unavailable'}`)
   return { type, icon, label }
 }
 

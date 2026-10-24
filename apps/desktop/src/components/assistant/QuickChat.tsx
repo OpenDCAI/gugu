@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { turnFailureReason, visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { agentFailureText } from '../../lib/agentTurnFailure'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../ui/Button'
@@ -9,7 +11,7 @@ import { ArrowUp, SquareArrowOutUpRight, X } from '../../lib/icons'
 import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
-import { useChatLineClaim } from '../../store/chatLine'
+import { useChatConversation } from '../../store/useChatConversation'
 import './quick-chat.css'
 
 export type QuickChatAssistant = { id: string; display_name: string; avatar: string | null }
@@ -20,7 +22,7 @@ const RECENT = 40
 /**
  * #7199「快速聊天」小窗里那一块:顶上一条可拖的横栏(左关、中间它、右「打开咕咕」),
  * 中间是和它那条私聊最近的几条,底下一个输入框(Enter 发、Shift+Enter 换行)。草稿只在小窗里,❌ 混进主窗那条的草稿。
- * 摆出来时把那条活的线借过来(store/chatLine.ts),收起就还。
+ * 按 chatId 订阅账户的聊天窗口,不改变主面的选中。
  * 还没有它 / 还在认 / 那条聊天没打开 / 一条都还没说过,各说各的。
  */
 export function QuickChat({
@@ -90,14 +92,14 @@ function QuickNote({ title, body, action, onAction, loading, testId }: { title?:
   )
 }
 
-/** 摆出来时借线、报「在看」;读的是线上那条的消息(线在它身上才算数)。 */
+/** 按自己的 chatId 订阅消息,并报告是否可见。 */
 function QuickThread({ chatId, name, visible }: { chatId: string; name: string; visible: boolean }) {
   const { t } = useTranslation('assistant')
-  useChatLineClaim(chatId, visible)
   useReportChatOnScreen(visible ? chatId : null)
-  const { activeChatId, messages, loadingMessages, sendMessageToChat } = useChatStore('activeChatId', 'messages', 'loadingMessages', 'sendMessageToChat')
-  const onLine = activeChatId === chatId
-  const recent = onLine ? messages.filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT) : []
+  const { conversations } = useChatStore('conversations')
+  const { messages, loadingMessages, sendMessage, setFollowingTail } = useChatConversation(chatId, conversations)
+  useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
+  const recent = visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
@@ -120,7 +122,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
     setDraft('')
     setSendFailed(false)
     try {
-      await sendMessageToChat(chatId, text)
+      await sendMessage(text)
     } catch {
       setDraft(text)
       setSendFailed(true)
@@ -136,7 +138,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   return (
     <>
       <div className="qc-list" ref={list} data-testid="quick-chat-messages">
-        {!onLine || (loadingMessages && recent.length === 0) ? (
+        {loadingMessages && recent.length === 0 ? (
           <div className="qc-note">
             <LoadingIndicator size="inline" />
           </div>
@@ -172,7 +174,10 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
 
 function QuickMessage({ message }: { message: MessageItem }) {
   const { t } = useTranslation('assistant')
-  if (message.content_type === 'system') return <div className="qc-system">{message.content}</div>
+  if (message.content_type === 'system') {
+    const reason = turnFailureReason(message)
+    return <div className="qc-system">{reason ? agentFailureText(reason) : message.content}</div>
+  }
   const body =
     message.content_type === 'text' ? (
       message.is_mine ? (

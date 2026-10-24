@@ -86,8 +86,9 @@ export function createGroupAdmin(client: GroupAdminRpcClient, actor: string) {
     async decideJoin(requestId: string, accept: boolean) {
       return object('decide_group_join', client.rpc('decide_group_join', { p_request_id: requestId, p_accept: accept, p_as_user_id: actor }), { request_id: requestId, status: accept ? 'accepted' : 'rejected' })
     },
-    async addAgent(chatId: string, agent: string): Promise<GroupJoinReceipt> {
-      const row = await object('add_group_agent', client.rpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agent, p_message: null, p_as_user_id: actor }), { chat_id: chatId })
+    /** `asTask`:任务座位 —— 不发「加入了群聊」(gugu-dev#181)。 */
+    async addAgent(chatId: string, agent: string, { asTask = false }: { asTask?: boolean } = {}): Promise<GroupJoinReceipt> {
+      const row = await object('add_group_agent', client.rpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agent, p_message: null, p_as_user_id: actor, p_as_task: asTask }), { chat_id: chatId })
       if (!['joined', 'pending_approval', 'already_member'].includes(String(row.status))) throw new Error('add_group_agent: unexpected membership result')
       return row as GroupJoinReceipt
     },

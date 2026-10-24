@@ -8,6 +8,8 @@ import { senderAvatarUrl, subscribeSenderAvatars } from './sender-avatar';
 import { SESSION_CHAT_FONT_STACK } from './font-stack';
 import { chatMentionProvider, registerIssueMentionIcons } from './chat-mention-provider';
 import { subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
+import { subscribeChatSummaries } from '@/lib/chatSummariesBridge';
+import { chatDisplayName } from './chat-name';
 
 let shared: ChatContext | null = null;
 let didPreloadIssueMentionIcons = false;
@@ -48,6 +50,9 @@ export function initSharedChatContext(): ChatContext {
       // App 代发的投递卡写 App 的名字:这台装着的 App、界面语言(store 的 appName);没装就是 null,卡上写 id。
       appName: (appId) => installedExtensionsStore.appName(appId) ?? null,
       subscribeAppNames: (listener) => reaction(() => [installedExtensionsStore.manifests, installedExtensionsStore.locale], listener),
+      // 群里来的投递写群名(项目群就是项目名,见 chat-name.ts);认不出来是 null,卡上只说「来自群聊」。
+      chatName: chatDisplayName,
+      subscribeChatNames: subscribeChatSummaries,
     });
   }
   return shared;

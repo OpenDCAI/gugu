@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
 import { SidebarStore } from './sidebar-store';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
@@ -138,29 +137,6 @@ describe('sidebar state groups toggle', () => {
     expect(more()).toEqual([1]);
 
     sessionRegistry.release('task-cap');
-  });
-
-  it('flattens the Tasks section into one unlabelled bucket', () => {
-    sessionRegistry.acquire('task-s', IMPLICIT_SESSION_HOME_PROJECT_ID, [
-      session('s-needs', IMPLICIT_SESSION_HOME_PROJECT_ID, 'needs_user', '01'),
-      session('s-working', IMPLICIT_SESSION_HOME_PROJECT_ID, 'working', '05'),
-    ] as never);
-    const store = new SidebarStore(projectManagerWith(IMPLICIT_SESSION_HOME_PROJECT_ID, 'task-s'));
-    store.setStateGroupsEnabled(true);
-
-    expect(store.standaloneSessionGroups.map((g) => g.group)).toEqual([
-      'needs-you',
-      'working',
-    ]);
-
-    store.setStateGroupsEnabled(false);
-    const flat = store.standaloneSessionGroups;
-    expect(flat).toHaveLength(1);
-    // group === null 那一档不带标题 —— 所以「关掉就没有组头」在渲染层是自然成立的。
-    expect(flat[0].group).toBeNull();
-    expect(flat[0].entries.map((e) => e.sessionId)).toEqual(['s-working', 's-needs']);
-
-    sessionRegistry.release('task-s');
   });
 
   it('keeps the keyboard chain in step with what is rendered', () => {

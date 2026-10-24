@@ -1,4 +1,4 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import type { McpToolCall, ToolCallItem } from '../acp/models/turns/tool-calls';

@@ -4,6 +4,7 @@ import { cdp, userEvent } from 'vitest/browser';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import { SessionRowShell } from '@renderer/features/sidebar/sidebar-session-row';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
 
@@ -71,7 +72,7 @@ it('reveals only an overflowing title, stops with the full end readable, and res
   expect(before.width).toBeGreaterThan(0);
   expect(track().getBoundingClientRect().width).toBeGreaterThan(before.width);
   expect(track().getAnimations()).toHaveLength(0);
-  expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(`Open conversation ${LONG_TITLE}`);
+  expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(translateSessionMessage('sidebar.openConversation', { title: LONG_TITLE }));
 
   await userEvent.hover(row);
   const animation = runningAnimation();

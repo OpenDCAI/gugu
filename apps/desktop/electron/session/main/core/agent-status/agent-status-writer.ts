@@ -38,6 +38,7 @@ import {
   readStatusLog,
   restoreStatusLog,
   stepStatusLog,
+  waitsOnHarness,
   type AgentStatusEvent,
   type AgentStatusLogState,
 } from './status-event-log';
@@ -51,7 +52,7 @@ import { translateAgentEvent, type TranslationContext } from './status-event-tra
  * 宿主按 agent 的流唯一的来源。出生、开机收残、打断、退出、provider 门、已读都是这里的一次写入。
  */
 export type AgentStatusWriterHooks = {
-  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string }) =>
+  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string; activityAt?: number }) =>
     | void
     | Promise<void>;
 };
@@ -170,7 +171,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     const before = readStatusLog(state);
     const canonical = translate({
       running: state.running,
-      waiting: state.waits.size > 0,
+      waiting: waitsOnHarness(state),
       failed: state.error !== null,
       autoApproved: isSessionAutoApproved(sessionId),
     });
@@ -250,7 +251,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       appFocused: meta.appFocused,
       ...(options.soundEvent ? { soundEvent: options.soundEvent } : {}),
     });
-    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId });
+    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId,
+      ...(options.active ? { activityAt: meta.timestamp } : {}) });
   }
 
   private now(): PublishMeta {
@@ -372,13 +374,14 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   }
 
   /**
-   * D-31 The host waits on the person in this session — an approval it asked for the agent (an App install, on the
-   * session's timeline): a session-level approval wait while it is asked, ended when answered or withdrawn. The same edge
-   * for a chat-UI session and a terminal one: its yellow dot, the phone's 「等你批准」.
+   * D-31 The host waits on the person in this session — an approval it asked for the agent (an App install) or the agent's
+   * own question (`session_ask_user`), both on the session's timeline: a host wait while it is asked, ended only when
+   * answered or withdrawn (the agent starting work again does not answer it). The same edge for a chat-UI session and a
+   * terminal one: its yellow dot, the phone's 「等你批准」 / 「等你回答」.
    */
   reportHostWait(params: StatusWriteParams & { id: string; open: boolean; waitKind?: 'approval' | 'question' }): void {
     const event: AgentStatusEvent = params.open
-      ? { kind: 'WaitStarted', sessionId: params.sessionId, id: params.id, waitKind: params.waitKind ?? 'approval', scope: 'session' }
+      ? { kind: 'WaitStarted', sessionId: params.sessionId, id: params.id, waitKind: params.waitKind ?? 'approval', scope: 'host' }
       : { kind: 'WaitEnded', sessionId: params.sessionId, id: params.id };
     void this.inOrder(params.sessionId, () => this.apply(params.sessionId, () => [event], this.now())).catch((error) =>
       log.error('AgentStatusWriter: failed to write the host wait', { sessionId: params.sessionId, error: String(error) }),

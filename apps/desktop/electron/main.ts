@@ -1,3 +1,6 @@
+import './browser-user-agent-bootstrap'
+import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -100,7 +103,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth } from './supabase'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -126,6 +129,7 @@ import { TUNNEL_MACHINES_CHANNELS, type TunnelWant } from '../src/lib/tunnelMach
 import { machineDisplayName } from '@gugu/core/device/machineDisplayName'
 import {
   createDeviceRuntimeHostLoop,
+  stopRuntimeHostWithTimeout,
   runtimeAuthFromSupabaseTokens,
   clearHumanAuthSession,
   detectDeviceCapabilities,
@@ -182,6 +186,8 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
+import { withQuestionCard } from './sessionpage/question-card'
 import {
   emdashAgentRegistry,
   type LocalSessionPeer,
@@ -351,7 +357,9 @@ import { connectedSessionIntegrations } from './session/main/core/integrations/s
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
-import { personalAssistantContext, refreshAssistantContext } from './sessionpage/assistant-context'
+import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import { assistantWorkBinding } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -375,7 +383,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '../src/session/shared/extensions/link-scheme'
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
 import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -453,8 +461,9 @@ import {
   findSshMachine,
 } from './server/ssh-machines'
 import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
-import { setPhoneHealthCaller } from '@main/core/extensions/phone-health'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
+import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
+import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
@@ -680,6 +689,8 @@ if (!hasSingleInstanceLock) {
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let deviceRuntimeHost: DeviceRuntimeHost | null = null
+// #113 这台机器的项目记到账号上(会话页后端 boot 之后才有)。
+let deviceProjectsPublisher: DeviceProjectsPublisher | null = null
 // @@@local-device-truth (#777) - retained so localDeviceId can resolve this machine's device id
 // instead of returning null → misrouting. Same provider the host ticks with.
 let authProvider: RuntimeAuthProvider | null = null
@@ -715,6 +726,7 @@ function appInstallFrom(fromDevice: string, action: Record<string, unknown>): Re
 function desktopAuthProvider(): RuntimeAuthProvider {
   return (authProvider ??= createPushedRuntimeAuthProvider(() => pushedHumanAuth))
 }
+bindElectronSupabaseAuth(async () => (await desktopAuthProvider().getAuth())?.accessToken ?? null)
 let primaryGuguMcpHost: DesktopGuguMcpHost | null = null
 
 function hasPersistedMcpGrants(name: string): boolean {
@@ -787,11 +799,11 @@ function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
  * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
  * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
  */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string }): Promise<AcpMcpServer[]> {
+async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
   if (!authProvider || !loadEmdashBridge()) return []
   try {
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId)
+    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
   } catch (error) {
     createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
     return []
@@ -1696,6 +1708,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
   if (deviceActionsRuntimeInstance) return deviceActionsRuntimeInstance
   const log = createLogger('device-actions')
   const runtime = createDeviceActionsRuntime({
+    deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error("Local device identity is unavailable"); return id },
     userData: app.getPath('userData'),
     deps: {
       clipboardRead: async () => await clipboard.readText(),
@@ -1742,7 +1755,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     appVersion: app.getVersion(),
     serverMode: SERVER_MODE,
     openSystemSettings: (url) => shell.openExternal(url),
-    // #7199 电脑控制:agent 不许操作咕咕自己;屏幕底部的「正在操作 · 停止」小条。
+    // 电脑控制:agent 不许操作咕咕自己;提示跟随实际目标窗口。
     selfApp: () => selfAppForComputerControl(),
     // #7317 电脑控制的开关是 Computer Use 这个 App(behavior tab-extensions):它开着这台电脑才有电脑控制。
     appSwitch: { group: 'computer', app: 'Computer Use', on: () => computerUseOn() },
@@ -1750,7 +1763,8 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     ...(SERVER_MODE
       ? {}
       : {
-          computerControlView: createComputerControlWindow({
+          computerControlView: (cua) => createComputerControlWindow({
+            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
               const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
@@ -2161,12 +2175,6 @@ setAccountAccessTokenReader(async () => {
   return auth?.accessToken ?? null
 })
 
-// #7199 健康:「助理」App 的健康页经设备动作问主人的手机,与 agent 的 device_call 同一个调用方(第一次用到时才装)。
-setPhoneHealthCaller({
-  describe: () => deviceActionCaller().describe(),
-  call: (input) => deviceActionCaller().call(input),
-})
-
 // #7337 设置页「用模型给会话起名」的候选:这个账号能在 Chat Completions 上用的在售平台模型(起名走的就是这条协议)。
 ipcMain.handle(SESSION_TITLE_MODELS_CHANNEL, async () => {
   const models = await listPlatformModels(desktopAuthProvider())
@@ -2269,7 +2277,11 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  void refreshElectronSupabaseAuth().catch((error: unknown) => {
+    createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
+  })
   deviceRuntimeHost?.notifyAuthChanged()
+  deviceProjectsPublisher?.notify()
   void handOffWechatIfAny()
 }
 // 「设置 → 聊天渠道 → 微信」的收发在云电脑管家上(#7199,桌面关了照样能聊);界面直接调管家。
@@ -2516,7 +2528,7 @@ if (sshMachineStore) {
     // 问 tunnel.open 只走咕咕云(要建的正是另一条路);一台机器一条频道,与窗口那条各订各的。
     const cloud = createDeviceRpcRequester({
       userId: async () => (await requireAuth()).userId,
-      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
+      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
     })
     const machines = createTunnelMachines({
       currentUserId,
@@ -3043,14 +3055,25 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-done  label=${label}\n`)
   } catch { /* 同上 */ }
 }
-process.on('SIGINT', () => {
-  killEnginesOnCrash('SIGINT')
-  process.exit(130) // 128 + SIGINT(2):同步收组后立退,不等异步(信号=立即终止)
-})
-process.on('SIGTERM', () => {
-  killEnginesOnCrash('SIGTERM')
-  process.exit(143) // 128 + SIGTERM(15)
-})
+// #156 server 模式下这两个信号就是「停掉服务」(`gugu-server stop`、systemd、守护进程收账号进程):先停设备循环 ——
+// 它最后把设备行标成离线,名下别的设备当场看见,❌ 等两分钟租约过期、看起来和崩溃一样 —— 再同步收组退出。
+// 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
+const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
+let signalStopping = false
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  const finish = (): void => {
+    killEnginesOnCrash(label)
+    process.exit(code)
+  }
+  const host = deviceRuntimeHost
+  if (!SERVER_MODE || !host || signalStopping) return finish()
+  signalStopping = true
+  void stopRuntimeHostWithTimeout(host, SERVER_SIGNAL_STOP_TIMEOUT_MS)
+    .catch((error: unknown) => shutdownLogger.warn({ label, error: String(error) }, 'device runtime stop on signal failed'))
+    .finally(finish)
+}
+process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
+process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.
@@ -3100,7 +3123,7 @@ app.on('open-url', (event, url) => {
 
 /**
  * #6387 这个版本认的链接前缀:正式版 gugu://,Beta gugu-beta://,源码起的开发版 gugu-dev://。
- * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(link-scheme.ts)。
+ * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */
@@ -3114,7 +3137,7 @@ function handleGuguLink(url: string): void {
     return
   }
   focusMainWindow()
-  void emdashBridge.openEmdashExtensionLink(url).then(
+  void emdashBridge.openEmdashLink(url).then(
     (outcome) => {
       if (outcome.kind !== 'failed') return
       // 人点了链接、在等:打不开要当面说清为什么,❌ 只记日志。
@@ -3266,8 +3289,8 @@ function hoistDevicePictures(result: DeviceActionResult): unknown {
 }
 
 /**
- * #7199 第二步:agent 的 device_actions / device_call。调别的机器走设备 RPC(与跨机器起会话同一个请求方);
- * 调这台电脑自己不经频道(频道 self:false,自己发的自己收不到),直接交给本机那一份 host。
+ * Agent native actions stay on this computer; other devices are discovery-only.
+ * Local calls go directly to this host. Receiver-side rejection also protects against remote RPC bypasses.
  */
 function deviceActionCaller(): DeviceActionCaller {
   if (deviceActionCallerInstance) return deviceActionCallerInstance
@@ -3320,7 +3343,7 @@ function crossMachine(): CrossMachineSessions {
     userId: async () => (await requireAuth()).userId,
     openPipe: async (deviceId, handlers) => (sshLinks && ((await sshMachine(deviceId)) || tunnelMachines?.linkMachine(deviceId))
       ? openSshDeviceRpcPipe(sshLinks, deviceId, handlers)
-      : openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
+      : openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
     // #7199 第二步:设备推回来的「还在跑」与结果。「收到」之后管道本来就留着(只有超时且没有在途请求才拆),
     // 拆了也无妨:重发同一个 call_id 会重开管道,设备每 5 秒重推结果。
     onEvent: (deviceId, payload) => { deviceActionCallerInstance?.onEvent(deviceId, payload) },
@@ -3335,7 +3358,7 @@ function crossMachine(): CrossMachineSessions {
     },
     listDevices: async () => {
       const auth = await requireAuth()
-      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId)
+      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { includePhones: true })
     },
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
@@ -3966,7 +3989,8 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
-        await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id)
+        const result = await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id) as { opened?: import('../src/session/shared/extensions/host-actions').ExtensionHostActionResult }
+        return result.opened
       },
       isHostWindowFullScreen,
       onHostWindowFullScreenChange,
@@ -4393,6 +4417,29 @@ app.whenReady().then(async () => {
     ): Promise<unknown> => {
       signal.throwIfAborted()
       return handleUnifiedSessionMessage(record, {
+        prepareFiles: async (files, targets) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId ? [target.deviceId] : []))
+          const sender = await senderBinding(context, auth.userId)
+          if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
+          const caller = await remoteCaller(auth, context)
+          const remotePeers = new Map<string, Array<Record<string, unknown>>>()
+          const recipients: string[] = []
+          for (const target of targets) {
+            let agentId: string | null = null
+            if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
+            else {
+              if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
+              const peer = remotePeers.get(target.deviceId)!.find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
+              const identity = peer?.identity as { users?: { id?: string } } | undefined
+              agentId = typeof peer?.agentUserId === 'string' ? peer.agentUserId : typeof peer?.agent_user_id === 'string' ? peer.agent_user_id.replace(/^user:/, '') : identity?.users?.id ?? null
+            }
+            if (!agentId) throw new Error(`Session attachment recipient has no Agent identity: session:${target.sessionId}`)
+            recipients.push(agentId)
+          }
+          const endpoint = configuredEndpoint(auth.accessToken)
+          signal.throwIfAborted()
+          return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+        },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
           { action: 'message', session_ids: sessionIds, text, ...said } as SessionAction,
@@ -4427,10 +4474,15 @@ app.whenReady().then(async () => {
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),
-          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project),
+          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project, { founding: record.action === 'project_create' }),
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
+      // gugu-dev#181 ⑨ 问自群里的那一句,问题卡也进那个群(question-card.ts)。
+      if (record.action === 'ask_user') {
+        const asked = await emdash.runSessionAction(context, record as SessionAction, signal)
+        return withQuestionCard({ auth, caller: await remoteCaller(auth, context), projectId: context.projectId, asked, questions: record.questions })
+      }
       // #7199 第二步:列我的设备与它们的动作 / 调某台设备的某个动作(`device` 是目标,❌ 当成「在那台机器上做」转发)。
       if (record.action === 'device_actions') {
         const device = typeof record.device === 'string' ? record.device : undefined
@@ -4454,7 +4506,15 @@ app.whenReady().then(async () => {
           name: String(record.name ?? ''),
           args: { ...(record.args && typeof record.args === 'object' ? record.args as Record<string, unknown> : {}), ...((record.name === 'recordings.read' || record.name === 'photos.read') ? { _phone_file_transport: 1 } : {}) },
         }
-        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}) } : undefined
+        const taskTitle = call.name.startsWith('computer.')
+          ? await emdash.emdashSessionpageSessionFacts().then(
+            (rows) => rows.find((row) => row.sessionId === (context.sourceSessionId ?? context.sessionId))?.title,
+            (error: unknown) => {
+              createLogger('device-actions').warn({ err: String(error) }, 'device_call task title unavailable')
+              return undefined
+            },
+          ) : undefined
+        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}), ...(taskTitle ? { task_title: taskTitle } : {}) } : undefined
         // A side chat's steps are its task's: the task's 「电脑」 tab shows them (the side chat is a view of it).
         const ended = computerStepStarted({ projectId: context.projectId, sessionId: context.sourceSessionId ?? context.sessionId,
           cursorSession: computerSessionOf({ caller }),
@@ -4737,13 +4797,34 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
-    }): Promise<{ chatId: string; envelope: string }> => {
+      /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
+      taskChatId?: string
+      projectId: string
+    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
       }
       const auth = await getSessionpageAuth()
       if (!auth) throw new Error('chat-page startup envelope: owner not authenticated')
+      if (input.taskChatId) {
+        const deviceId = await localDeviceId()
+        if (!deviceId) throw new Error(`task card for ${input.sessionId}: this device is not registered yet`)
+        return landTaskCardFirstTurn({
+          auth,
+          sessionId: input.sessionId,
+          projectId: input.projectId,
+          agentUserId: input.guguAgentUserId,
+          chatId: input.taskChatId,
+          messageId: input.messageId,
+          text: content,
+          deviceId,
+          machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
+          senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+          timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+          env: process.env,
+        })
+      }
       const chatId = input.knownChatId || await openOwnerDirectChatForAgent(
         input.guguAgentUserId,
         auth.accessToken,
@@ -4782,7 +4863,7 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, envelope }
+      return { chatId, firstTurn: envelope, envelope: true }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
@@ -5068,7 +5149,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' }> | undefined
+      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5083,7 +5164,8 @@ app.whenReady().then(async () => {
       // 这一腿上两种不一致仍响亮失败:载荷在而稳定 id 缺(没有 id 就写不出那条幂等的聊天行);
       // 行上 sessionId 为空(首次 spawn / 重来)却没带载荷 —— 那是载荷没跟上会话行,❌ 不许静默开一条
       // 空会话冒充首轮(重来路径的载荷失联本身归 session-resume 那条票,这里只保证它响亮)。
-      const chatPageFirstTurnText = info.startupOrigin === 'chat-page' && info.lifecycle === 'fresh'
+      // gugu-dev#181:派出去的任务(taskChatId)与对话页同形 —— 首句是一条真的咕咕消息(那张任务卡)。
+      const chatPageFirstTurnText = (info.startupOrigin === 'chat-page' || info.taskChatId) && info.lifecycle === 'fresh'
         ? info.initialMessageText?.trim()
         : undefined
       // ⚠️ 闸的条件是「**承诺过**一份首句载荷却没交出来」,不是「来自聊天页」。承诺的凭据是
@@ -5116,9 +5198,11 @@ app.whenReady().then(async () => {
           knownChatId: provisionedChatId,
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
+          taskChatId: info.taskChatId,
+          projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.envelope, origin: 'communication' }]
+        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5147,6 +5231,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
+        const assistantResourceOwner = (await getSessionpageAuth())?.userId ?? null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5163,11 +5248,16 @@ app.whenReady().then(async () => {
             provisioned.guguAgentUserId,
             provisioned.agentIdentityFacts,
           )),
-          timed('assistant-role', info.providerId === 'claude'
-            ? isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)
-            : Promise.resolve(false)),
+          timed('assistant-role', isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
+        const readAssistantResources = assistantRole ? async () => {
+          if (!assistantResourceOwner || (await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          const { assistantLocalIndex } = await import('./sessionpage/assistant-local-index')
+          const resources = await assistantLocalIndex(info.cwd, SERVER_MODE ? 'cloud' : 'computer')
+          if ((await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          return resources
+        } : undefined
         const projectContextBlock = buildSessionpageProjectContextBlock(provisioned.projectContext)
         const bundle = await buildSessionBundle({
           runtime: { authProvider, env: process.env },
@@ -5214,6 +5304,11 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
+            ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
+              ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
+              currentInput: () => emdashBridge?.readCurrentActivityInput(persistedSessionId) ?? Promise.resolve(undefined),
+            } } : {}),
+            ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
             // @@@2374 不带 auth:写文件与装扩展都不代表用户去调任何云端接口。桥没
@@ -5229,8 +5324,21 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        if (assistantRole) await refreshAssistantContext(info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer')
-        const capabilities = assistantRole ? personalAssistantContext(loaded, SERVER_MODE ? 'cloud' : 'computer') : loaded
+        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
+          loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
+            accountId: async () => {
+              const owner = (await getSessionpageAuth())?.userId
+              return owner && owner === assistantResourceOwner ? owner : null
+            },
+            localSources: readAssistantResources,
+            run: async (action, signal) => {
+              const auth = await getSessionpageAuth()
+              if (!auth) throw new Error('Assistant startup index: owner not authenticated')
+              return runAction(action, auth, signal)
+            },
+          },
+        ) : info.providerId === 'claude' && !SERVER_MODE
+          ? assistantHomeTaskContext(loaded, info.cwd, resolveGuguHome(process.env)) : loaded
         injectMark('capabilities-loaded')
         await applySessionMaterialization({
           cwd: info.cwd,
@@ -5498,8 +5606,10 @@ app.whenReady().then(async () => {
         knownChatId: provisioned.chatId,
         messageId: request.messageId,
         text: request.text,
+        taskChatId: request.taskChatId,
+        projectId: request.projectId,
       })
-      return delivered.envelope
+      return delivered.firstTurn
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an
@@ -5535,16 +5645,16 @@ app.whenReady().then(async () => {
         },
       })
     })
-    // @@@sessionpage TASKPAGE-FUSION otty-state — relay the session backend's consolidated agent-attention count (how
-    // many session-page agents are BLOCKED on the human: needs_user | error) to gugu's 任务 sidebar tab,
+    // @@@sessionpage TASKPAGE-FUSION otty-state — relay the session backend's consolidated agent attention (the most
+    // urgent of the session-page agents BLOCKED on the human: needs_user over error) to gugu's 消息 rail cell,
     // so a stuck/errored agent is visible without opening the session page. main → preload → MainLayout →
     // Sidebar RailItem badge (mirrors the 通讯录 pendingContactsCount dot). Fires once on subscribe + on
     // every change; mainWindow?. tolerates a not-yet/again-created window.
-    emdash.onEmdashAttentionChanged((count) => {
+    emdash.onEmdashAttentionChanged((attention) => {
       if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-        console.log(`[otty-push] attention count=${count} → renderer (window=${mainWindow ? 'yes' : 'no'})`)
+        console.log(`[otty-push] attention=${attention} → renderer (window=${mainWindow ? 'yes' : 'no'})`)
       }
-      sendUiEvent(MAIN_UI_EVENTS.sessionpageAttentionCount, count)
+      sendUiEvent(MAIN_UI_EVENTS.sessionpageAttention, attention)
     })
     // TEST-ONLY, env-gated (GUGU_SESSION_TEST_HOOKS=1) — expose the session backend's control-channel entries + the
     // registry binding on the MAIN-process globalThis so a session-page fusion e2e can drive a
@@ -5617,7 +5727,9 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain)
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+      scheduleDiscovery: (work) => startupDiscovery.schedule(work),
+    })
     // 认回重启前留在 tmux 里的平台会话(#7120):它读 tmux 名与平台票账本,两样都是 boot 里段 2 迁移改的
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。
@@ -5870,6 +5982,20 @@ app.whenReady().then(async () => {
         // unhandledRejection —— 会话页后端直接起不来(e2e 的 launchApp 阶段现形,dev 的 vite 产物顺序
         // 不同所以只在生产打包里暴露)。
         emdash.onEmdashSessionpageReapTrigger(runSessionpageReap)
+        // #113 这台机器的项目记到账号上(桌面与 server 同一份):现在记一次,之后一变就再记。订阅同上要在 boot 之后。
+        deviceProjectsPublisher ??= createDeviceProjectsPublisher({
+          getAuth: () => desktopAuthProvider().getAuth(),
+          deviceId: () => localDeviceId(),
+          client: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceProjectsRpcClient,
+          records: () => emdash.listDeviceProjectRecords(),
+          warn: (message, fields) => createLogger('device-projects').warn(fields, message),
+        })
+        try {
+          emdash.onDeviceProjectsMaybeChanged(() => deviceProjectsPublisher?.notify())
+        } catch (error) {
+          createLogger('device-projects').error({ err: error }, '订不上项目变化:账号上这台机器的项目只在开机与登录时更新')
+        }
+        deviceProjectsPublisher.notify()
         // #4008 —— 把会话页会话的 agent 状态接成咕咕侧的运行事实:「它在不在干活」是**读**会话页的状态,
         // 不再从「有没有一条投递命令正在执行」反推 —— 用户在会话页自己敲的回合、agent 之间的接力、以及
         // 一注入就返回的 transport,在咕咕的单聊/列表/群里都如实显示运行中。

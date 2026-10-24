@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { platform } from '@/platform'
+import { useAuth } from '@/store/auth'
 import { claimBackgroundWatch } from '../backgroundWatchClaims'
 import { agentStatusText } from '@/lib/agentStatusText'
 import {
@@ -12,7 +13,8 @@ import {
 } from './agent-watch-alerts'
 import * as sessionpageRpc from './sessionpage-rpc'
 import { startSessionListSync } from '@/session/shared/remote-sessions/session-list-sync'
-import { retainDeviceSessions, updateDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { registerDeviceSessionsRetry, retainDeviceSessions, updateDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { workspaceDevices } from './machine-list'
 
 /**
  * 「agent 做完了 / 在等你」的提醒 —— 挂在看管入口的**根**上，不是挂在某一条会话的时间线页上。
@@ -51,6 +53,7 @@ export function useAgentWatchFocus(focus: AgentWatchFocus): void {
 
 export function useAgentWatchAlerts(devices: readonly Device[]): void {
   const { t } = useTranslation('main')
+  const ownerId = useAuth().user?.id ?? null
   const statusRef = useRef<Record<string, AgentWatchStatusMap>>({})
   const tRef = useRef(t)
   tRef.current = t
@@ -70,16 +73,25 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [])
-  // 只订在线机器：离线机器发过去只会等到超时，而超时会以「机器没响应」的形状显形。
-  const onlineIds = devices.filter((device) => device.is_online).map((device) => device.device_id)
+  // 只订有 workspace 的在线机器；手机摘要由独立同步器写入同一目录，不开这条 pipe。
+  const onlineIds = workspaceDevices(devices).filter((device) => device.is_online).map((device) => device.device_id)
   // 设备列表按 last_seen_at 倒序:两台在线机器轮流心跳,顺序十几秒就换一次。key ❌ 带顺序,
   // 否则每换一次整套订阅拆掉重来 —— 旧写法里那正是一次次重赌「第一次列表别超时」(#6738)。
   const key = [...onlineIds].sort().join(',')
-
-  useEffect(() => () => retainDeviceSessions([]), [])
+  const retryScope = useRef({ ownerId, onlineIds })
+  retryScope.current = { ownerId, onlineIds }
+  const retainedKey = devices.filter((device) => device.is_online || device.capabilities.host_kind === 'phone').map((device) => device.device_id).sort().join(',')
 
   useEffect(() => {
-    retainDeviceSessions(onlineIds)
+    statusRef.current = {}
+    return () => retainDeviceSessions([])
+  }, [ownerId])
+
+  useEffect(() => {
+    retainDeviceSessions(retainedKey ? retainedKey.split(',') : [])
+  }, [retainedKey])
+
+  useEffect(() => {
     if (onlineIds.length === 0) return
     const stops: Array<() => void> = []
 
@@ -117,16 +129,22 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
      * 断线重连 / 重订之后那一份比的是断开前后两个端点,断开期间落定的终态照样补报,每条会话最多一条。
      */
     const syncs = onlineIds.map((deviceId) => {
-      return startSessionListSync(sessionpageRpc, deviceId, {
+      const sync = startSessionListSync(sessionpageRpc, deviceId, {
         onList: (result, { cached }) => {
+          if (retryScope.current.ownerId !== ownerId) return
           updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached })
           if (cached) return
           deliver(deviceId, diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions))
           statusRef.current[deviceId] = statusMapOf(result.sessions)
         },
-        onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
-        onError: (error) => updateDeviceSessions(deviceId, { error }),
+        onLoading: (loading) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { loading }) },
+        onError: (error) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { error }) },
       })
+      if (ownerId) stops.push(registerDeviceSessionsRetry(ownerId, deviceId, () => {
+        if (retryScope.current.ownerId !== ownerId || !retryScope.current.onlineIds.includes(deviceId)) throw new Error('账号或设备连接已改变，请重新打开项目列表。')
+        sync.reconnect()
+      }))
+      return sync
     })
     for (const sync of syncs) stops.push(() => sync.stop())
 
@@ -148,7 +166,7 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
     }
     // onlineIds 是每次渲染新建的数组，进依赖会让这个 effect 每帧重挂；key 是它的稳定投影。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, ownerId])
 }
 
 /**

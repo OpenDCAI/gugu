@@ -1,17 +1,17 @@
 import { LeftSidebar } from '@renderer/features/sidebar/left-sidebar';
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
 import { MonacoKeyboardBridge } from '@renderer/lib/components/monaco-keyboard-bridge';
+import { DefaultTaskAgentPublisher } from '@renderer/features/sessions/session-verb-dock';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import {
   useWorkspaceSlots,
   useWorkspaceWrapParams,
 } from '@renderer/lib/layout/navigation-provider';
 import { WorkspaceContentLayout, WorkspaceLayout } from '@renderer/lib/layout/workspace-layout';
-import { Toaster } from '@renderer/lib/ui/toaster';
+import { NoticeHost } from '@/components/NoticeHost';
 import { SshKeyInstallToasts } from '@renderer/features/remote-hosts/ssh-key-install-toasts';
 import { observer } from 'mobx-react-lite';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
@@ -21,7 +21,7 @@ import { anchoredToBlock, BlockDropPreviewLayer, hasDraggedAppBlock, ScreenFrame
 import { hasDraggedSession } from '@renderer/lib/drag-session';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from './screen-layout';
-import { ensureScreenLayoutSync, focusScreenBlock, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
+import { ensureScreenLayoutSync, focusScreenBlock, isScreenView, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
 import { auxWindows } from './aux-windows';
 import { followBox, PEEKED_PAGE_STYLE, sessionPeek } from './session-peek';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
@@ -32,6 +32,7 @@ import { sessionView } from '@renderer/features/sessions/view';
 import { ensureMachineSessionWiring } from '@renderer/features/remote-hosts/workspace/machine-session-wiring';
 import { ensureMachineWorkspaceBackend } from '@renderer/features/remote-hosts/workspace/machine-workspace-backend';
 import { isEmbedVisible, subscribeEmbedVisibility } from '@renderer/lib/portal-container';
+
 
 export function Workspace() {
   useTheme();
@@ -57,12 +58,16 @@ export function Workspace() {
           a hidden task frame must not answer arrow keys aimed at the chat tab. */}
       {embedVisible && <SessionKeyboardNavListener />}
       <MonacoKeyboardBridge />
+      <DefaultTaskAgentPublisher />
       <WorkspaceLayout
         sidebarHidden={withoutSessionSidebar}
         leftSidebar={<LeftSidebar />}
         mainContent={
-          <ScreenArea current={currentView === 'session' ? (wrapParams as SessionParams) : null}>
-            {currentView === 'session' ? null : (
+          <ScreenArea
+            onScreenView={isScreenView(currentView)}
+            current={currentView === 'session' ? (wrapParams as SessionParams) : null}
+          >
+            {isScreenView(currentView) ? null : (
               <WrapView {...wrapParams}>
                 <WorkspaceViewContent />
               </WrapView>
@@ -70,9 +75,10 @@ export function Workspace() {
           </ScreenArea>
         }
       />
-      <Toaster />
       {/* #6264「下次免密」做完的回执(装好了 / 没做成)。 */}
       <SshKeyInstallToasts />
+      {/* 提示条:嵌在主 app 里时主 app 画,这里什么也不画;会话页单独成文档时由它画(#137)。 */}
+      <NoticeHost embedded />
     </>
   );
 }
@@ -81,8 +87,17 @@ export function Workspace() {
  * 会话页这一屏(spec session-page「一屏几块」):骨架(几块、分界)+ 每个留着的会话页。摆在某一块里的会话页
  * 贴到那块上,其余的藏着(@@@retained-session-pages)。左边一行、⋮⋮ 拖到一块的边上,在这里判落点。
  */
-const ScreenArea = observer(function ScreenArea({ current, children }: { current: SessionParams | null; children: ReactNode }) {
-  const onSessionView = current !== null;
+const ScreenArea = observer(function ScreenArea({
+  onScreenView: onSessionView,
+  current,
+  children,
+}: {
+  /** 看着这一屏(一条会话、一个项目):画几块;别的视图(资源库、已安排……)盖在它上面。 */
+  onScreenView: boolean;
+  /** 正看着的会话;看着项目块时没有。 */
+  current: SessionParams | null;
+  children: ReactNode;
+}) {
   // 开在单独窗里的会话不在主窗里画(一个会话只在一处,画两份就是两套终端、两个输入框)。
   const currentWindow = current ? auxWindows.windowOfSession(current.sessionId) : undefined;
   // A session beside an App is on screen too: mounted, and never the page to leave.
@@ -185,9 +200,7 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
       <PageShownContext.Provider value={shown}>
         <ScreenBlockContext.Provider value={place}>
           <sessionView.WrapView projectId={projectId} sessionId={sessionId}>
-            <SessionShellProvider>
-              <WorkspaceContentLayout titlebarSlot={<sessionView.TitlebarSlot />} mainPanel={<sessionView.MainPanel />} />
-            </SessionShellProvider>
+            <WorkspaceContentLayout titlebarSlot={<sessionView.TitlebarSlot />} mainPanel={<sessionView.MainPanel />} />
           </sessionView.WrapView>
         </ScreenBlockContext.Provider>
       </PageShownContext.Provider>
@@ -198,8 +211,6 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
 function WorkspaceViewContent() {
   const { TitlebarSlot, MainPanel } = useWorkspaceSlots();
   return (
-    <SessionShellProvider>
-      <WorkspaceContentLayout titlebarSlot={<TitlebarSlot />} mainPanel={<MainPanel />} />
-    </SessionShellProvider>
+    <WorkspaceContentLayout titlebarSlot={<TitlebarSlot />} mainPanel={<MainPanel />} />
   );
 }

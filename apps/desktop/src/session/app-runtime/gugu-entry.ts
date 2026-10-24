@@ -51,6 +51,15 @@ function install(): void {
   });
   Object.defineProperty(window, 'gugu', { value: gugu, enumerable: true, configurable: false, writable: false });
   reportUncaught(gugu.reportError as (message: string) => Promise<unknown>);
+  // After a page/Markdown handler: a link it already took must not open a second time.
+  window.addEventListener('click', (event) => {
+    if (!event.isTrusted || event.defaultPrevented || typeof gugu.openLink !== 'function') return;
+    const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (!anchor || !/^gugu(?:-[a-z0-9-]+)?:$/i.test(anchor.protocol) || anchor.protocol === location.protocol) return;
+    event.preventDefault();
+    void (gugu.openLink as (url: string) => Promise<unknown>)(anchor.href).catch((error: unknown) =>
+      (gugu.reportError as (message: string) => Promise<unknown>)(error instanceof Error ? error.message : String(error)));
+  });
   writeLook();
 }
 

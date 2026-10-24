@@ -9,11 +9,10 @@ import type { LocalProject } from '@shared/projects';
 const mocks = vi.hoisted(() => ({ store: undefined as unknown }));
 
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { projects: { projects: new Map() } } }));
-vi.mock('@renderer/lib/layout/navigation-provider', () => ({ useParams: () => ({ params: { projectId: 'project-id' } }) }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 vi.mock('@renderer/features/projects/hooks/use-confirm-delete-project', () => ({ useConfirmDeleteProject: () => () => {} }));
 vi.mock('@renderer/lib/ipc', () => ({ rpc: {} }));
-vi.mock('./active-project', () => ({ ActiveProject: () => createElement('div', { 'data-testid': 'project-home' }) }));
+vi.mock('./project-home', () => ({ ProjectHome: () => createElement('div', { 'data-testid': 'project-home' }) }));
 vi.mock('./pending-project', () => ({ PendingProjectStatus: () => null }));
 vi.mock('../../stores/project-selectors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../stores/project-selectors')>()),
@@ -49,7 +48,7 @@ afterEach(() => {
 });
 
 function render(): void {
-  act(() => root.render(createElement(ProjectMainPanel)));
+  act(() => root.render(createElement(ProjectMainPanel, { projectId: 'project-id' })));
 }
 const showsHome = () => host.querySelector('[data-testid="project-home"]') !== null;
 

@@ -21,7 +21,7 @@ declare const gugu: {
 };
 
 const { locale, chat, file } = await gugu.getContext();
-// Where the file is (`ctx.file` says it): a chat's (a group, a topic or a private chat), or a folder on the computer.
+// Where the file is (`ctx.file` says it): a source group's or private chat's, or a folder on the computer.
 // Opened for none: where the page is says where its files would be.
 const inChat = file ? 'chat' in file || !('session' in file || 'project' in file) : Boolean(chat);
 const zh = locale.toLowerCase().startsWith('zh');

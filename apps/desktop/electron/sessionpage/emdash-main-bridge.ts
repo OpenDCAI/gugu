@@ -7,6 +7,7 @@
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export {
   bootEmdashModule,
+  readCurrentActivityInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
@@ -77,7 +78,7 @@ export {
   // 全是坏的(dev 上实证)。
   runEmdashExtensionAction,
   // #6387 系统交给咕咕的 gugu://ext/… 链接。同上一条教训:漏在这里只会在有人点链接时才发现。
-  openEmdashExtensionLink,
+  openEmdashLink,
   // #6387 每条会话开场时读:已启用扩展带来的 MCP 程序与 skill。
   emdashExtensionAgentContributions,
   // #6615 扩展网关经它调 main 托管的扩展程序。
@@ -181,3 +182,5 @@ export { onInstalledAppsChanged as emdashOnInstalledAppsChanged } from '@main/co
 export { startSessionPtyAttachServer } from '@main/core/pty/attach/start-attach-server'
 export { broadcastDeviceSessionHostEvent, setDeviceSessionHostShellHandlers } from '@main/host-ws/device-session-host'
 export { setDirectTerminalResolver, type DirectTerminalResolver } from '@main/core/pty/direct-terminal/controller'
+// #113 这台机器的项目记到账号上:那一份,与「它可能变了」的信号(订阅在 boot 之后,同 onEmdashSessionpageReapTrigger)。
+export { listDeviceProjectRecords, onDeviceProjectsMaybeChanged } from '@main/core/projects/operations/device-project-records'

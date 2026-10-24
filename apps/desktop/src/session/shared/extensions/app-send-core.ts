@@ -1,5 +1,5 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { groupFileLink } from '@gugu/core/shared/ui/fileLink';
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
 
@@ -156,8 +156,36 @@ export function pillText(pill: AppComposeRef): string {
   return stringifyMention({ label: pill.label, target: pill.link, kind: 'file' });
 }
 
-/** Said where a call names neither place, or two (`compose` names a session too, on the desktop). */
-export const COMPOSE_WHERE = 'Say where: gugu.compose(text, { chat: id }), { session: id } or { refs: [{ file }] } — one of them';
+/** Said where a call names two places (`compose` names a session too, on the desktop). */
+export const COMPOSE_WHERE = 'Say where: gugu.compose(text, { chat: id }), { session: id } or { refs: [{ file }] } — one of them, or none to let the person pick';
+
+/** Where a compose goes, as a call names it: what the person picked when the call named none, and what the App hears back. */
+export type ComposePlace = { chat: string } | { session: string };
+
+/** What the host's sheet offers (`ComposeTargetPicker`): this computer's tasks too, or chats only; `current` comes ticked. */
+export interface ComposePickAsk {
+  tasks: boolean;
+  current: string | null;
+}
+
+/** Whether the call named where it goes. Naming none is a call of its own: the person picks (`pickComposePlace`). */
+export function composeNamesPlace(args: { chat?: unknown; session?: unknown; refs?: unknown }): boolean {
+  return named(args.chat) || named(args.session) || named(args.refs);
+}
+
+/**
+ * `gugu.compose(text)` naming no place: the host asks the person where, in its own sheet — the list is never the App's —
+ * and it goes there as if the call had named it. The App hears the place, or that they cancelled. Images go into a
+ * chat's composer only, so with images the sheet offers chats.
+ */
+export async function pickComposePlace(
+  args: { text?: unknown; about?: unknown; images?: unknown },
+  pick: (ask: { tasks: boolean }) => Promise<ComposePlace | null>,
+): Promise<ComposePlace | { cancelled: true }> {
+  if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);
+  if (!String(args.text ?? '').trim()) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
+  return (await pick({ tasks: !named(args.images) })) ?? { cancelled: true };
+}
 
 /**
  * `gugu.compose(text, { chat } | { refs })` into a chat the call names (a session's is the desktop's: `extension-send.ts`):

@@ -7,12 +7,14 @@
 //
 // ⚠️ 这不是把桌面版 main.ts 那 10 处触发点全搬来 —— 那些还带着 MCP 注入、投递登记、平台令牌,属于
 // 「会话能收 IM 消息」那一层。本模块只管「会话有身份」:开账号、绑会话、进项目群、开私聊。
+import type { BirthGroup } from '../../src/session/shared/core/sessions/create-session'
 import type {
   SessionShellAgentAddress,
   SessionShellAgentAddressInput,
   SessionShellAgentCard,
   SessionShellAgentName,
   SessionShellRenameAgentInput,
+  SessionShellPeer,
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
 import { listAgents, provisionSessionpageAgentOneTrip } from '@gugu/core'
@@ -49,7 +51,7 @@ export interface SessionpageIdentityHostDeps {
   resolveDeviceId: () => Promise<string | null>
   resolveProjectName: (projectId: string) => Promise<string | null>
   /** The chat a conversation's agent was born in (SessionpageProvisionDeps `takeBirthGroup`). */
-  takeBirthGroup?: (sessionId: string) => Promise<string | null>
+  takeBirthGroup?: (sessionId: string) => Promise<BirthGroup | null>
   sessionFacts: (target: SessionShellAgentAddressInput) => Promise<SessionpageSessionFacts | null>
   /** 这台机器侧栏上的会话(名册 session_peers 拿它对标题;名字表是那份名册的投影)。 */
   listSessionFacts: () => Promise<readonly LocalSessionFacts[]>
@@ -73,6 +75,7 @@ export interface SessionpageIdentityHost {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
+  sessionPeers(): Promise<SessionShellPeer[]>
   /**
    * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
    * 本地元数据，云端认了才跟上。
@@ -95,6 +98,12 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
+  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot) => resolveSessionpageSessionPeers({
+    listRoster: () => listAgents(env, { includeGuests: true }),
+    ownerUserId: auth.userId,
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
+    listSessionFacts: deps.listSessionFacts,
+  })
   const provisionDeps: SessionpageProvisionDeps = {
     getAuth: deps.getAuth,
     resolveDeviceId: deps.resolveDeviceId,
@@ -140,12 +149,12 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       // 同上:名字表也按当下登录的账号过一遍,❌ 别把别家账号的 agent 名字画到侧栏上。
       const auth = await deps.getAuth()
       if (!auth) return []
-      return agentNamesFromPeers(await resolveSessionpageSessionPeers({
-        listRoster: () => listAgents(env, { includeGuests: true }),
-        ownerUserId: auth.userId,
-        lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
-        listSessionFacts: deps.listSessionFacts,
-      }))
+      return agentNamesFromPeers(await peersForAuth(auth))
+    },
+    async sessionPeers() {
+      const auth = await deps.getAuth()
+      if (!auth) throw new Error('Session-page peer directory: owner not authenticated')
+      return peersForAuth(auth)
     },
     async renameAgent(input) {
       const row = input as Partial<SessionShellRenameAgentInput> | null

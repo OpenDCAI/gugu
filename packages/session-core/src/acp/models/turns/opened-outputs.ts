@@ -1,3 +1,4 @@
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 /**
  * agent 用 `session_open_in_tab` 给人打开过的文件与网页 —— 这一轮的「产出」(#7193)。
  *
@@ -7,7 +8,7 @@
  */
 import type { TranscriptItem } from './turn';
 
-/** 打开过的一份东西。形状与桌面「输出」列表(`SessionOutput`)相同:点卡片就是从那里重开同一份。 */
+/** 打开过的一份东西。宿主给每条会话记的「输出」(desktop `sessions/session-outputs.ts`)就是这个形状:点卡片与从「输出」重开是同一份。 */
 export type OpenedOutput = { kind: 'file'; path: string } | { kind: 'page'; url: string };
 
 /**
@@ -52,7 +53,7 @@ export function openedOutputOf(item: TranscriptItem): OpenedOutput | null {
   const input = parseObject(item.rawInput);
   const answer = parseObject(item.outputText) ?? parseObject(item.rawOutput);
   const url = stringField(answer, 'url') ?? stringField(input, 'url');
-  if (url) return url.startsWith('gugu-file://') ? null : { kind: 'page', url };
+  if (url) return parseGuguLink(url) !== null ? null : { kind: 'page', url };
   const path = stringField(answer, 'path') ?? absolutePath(stringField(input, 'path'));
   return path ? { kind: 'file', path } : null;
 }

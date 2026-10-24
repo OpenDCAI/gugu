@@ -7,6 +7,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { renderer } from './markdown-entry';
 
 const gugu = {
+  openLink: vi.fn(async (_url: string) => undefined),
+  reportError: vi.fn(async (_message: string) => undefined),
   openBrowserTab: vi.fn(async (_url: string) => undefined),
   files: { openWith: vi.fn(async (_file: unknown, _options?: unknown) => undefined) },
 };
@@ -159,13 +161,13 @@ describe('gugu.markdown(): links, the ways an App page has out', () => {
     expect(gugu.openBrowserTab).toHaveBeenCalledWith('https://example.com/x');
   });
 
-  it('a chat file link and a relative link open a file through files.openWith; the relative one beside this file', () => {
+  it('a resource link uses openLink; relative files still open beside this file', () => {
     const root = box();
     click(link(root, '群文件'));
     click(link(root, '旁边'));
     click(link(root, '上一层'));
+    expect(gugu.openLink).toHaveBeenCalledExactlyOnceWith('gugu-file://0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60');
     expect(gugu.files.openWith.mock.calls.map(([target]) => target)).toEqual([
-      { id: '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60' },
       { chat: 'chat-1', name: 'notes/todo.md' },
       { chat: 'chat-1', name: 'readme.md' },
     ]);
@@ -177,10 +179,27 @@ describe('gugu.markdown(): links, the ways an App page has out', () => {
     const root = box();
     click(link(root, '第5页'));
     click(link(root, '群文件'));
-    expect(gugu.files.openWith.mock.calls).toEqual([
-      [{ id: '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60' }, { at: { page: '5' } }],
-      [{ id: '0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60' }, undefined],
+    expect(gugu.openLink.mock.calls).toEqual([
+      ['gugu-file://0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60?v=3#page=5'],
+      ['gugu-file://0b6d3a52-5a3e-4b70-9f0e-1d2c3b4a5f60'],
     ]);
+    expect(gugu.files.openWith).not.toHaveBeenCalled();
+  });
+
+  it('chat, App and external resource URIs each use the one host verb once', () => {
+    const links = ['gugu-chat://aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'gugu-beta://ext/chess/main/game/7', 'gugu-dev://project/p1'];
+    const root = rendered(links.map((href, index) => `[resource${index}](${href})`).join(' '));
+    for (const anchor of root.querySelectorAll('a')) click(anchor);
+    expect(gugu.openLink.mock.calls).toEqual(links.map((href) => [href]));
+    expect(gugu.files.openWith).not.toHaveBeenCalled();
+    expect(gugu.openBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it('reports the host refusal instead of swallowing a failed click', async () => {
+    gugu.openLink.mockRejectedValueOnce(new Error('This file is unavailable'));
+    click(link(box(), '群文件'));
+    await Promise.resolve();
+    expect(gugu.reportError).toHaveBeenCalledExactlyOnceWith('This file is unavailable');
   });
 
   it('mailto and a stripped javascript: link do nothing (an App page has no other way out)', () => {

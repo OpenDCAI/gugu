@@ -11,6 +11,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: (_channel: unknown, payload
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@main/core/extensions/extension-agent-context', () => ({ agentSessionContext: vi.fn(async () => null) }));
 vi.mock('@main/core/sessions/session-orchestration', () => ({ openAgentBrowserPane: vi.fn() }));
+vi.mock('./browser-page-runtime', () => ({ acquireBrowserPage: vi.fn() }));
 vi.mock('./browser-webcontents-registry', () => ({
   browserWebContentsRegistry: {
     setMouseDownObserver: (fn: (browserId: string) => boolean) => {
@@ -21,17 +22,26 @@ vi.mock('./browser-webcontents-registry', () => ({
   },
 }));
 
+// controller.ts 拉进来的这些依赖都绑着 Electron;下面「真实 RPC 层」那条用例只用 agent-browser 与 controller 本身。
+vi.mock('@main/core/browser/browser-cookie-import', () => ({ defaultBrowser: vi.fn(), importDefaultBrowserCookies: vi.fn() }));
+vi.mock('@main/core/browser/browser-profile-session', () => ({ configureBrowserProfileSession: vi.fn() }));
+vi.mock('@main/core/browser/browser-page-views', () => ({}));
+vi.mock('@main/core/browser/webview-security', () => ({ isBrowserPartition: vi.fn() }));
+vi.mock('@main/core/settings/settings-service', () => ({ appSettingsService: {} }));
+
 import {
+  agentBrowserStateOf,
   agentBrowserToolFinished,
   agentBrowserToolStarting,
   agentCursorArrived,
   createPaneTransport,
-  resumeAgentBrowser,
   openAgentBrowserTransport,
   setAgentBrowserInitialUrl,
 } from './agent-browser';
 import { agentSessionContext } from '@main/core/extensions/extension-agent-context';
+import { createRPCClient, registerRPCRouter, type RpcIpcMainLike } from '@shared/lib/ipc/rpc';
 import { openAgentBrowserPane } from '@main/core/sessions/session-orchestration';
+import { acquireBrowserPage } from './browser-page-runtime';
 
 /** 网页的 webContents:只做 transport 碰得到的那几样。debugger 的每个命令都记下来。 */
 function fakeGuest(id = 7) {
@@ -102,9 +112,56 @@ function connect(sessionId: string, browserId: string, wc: unknown) {
 }
 
 beforeEach(() => {
+  vi.mocked(acquireBrowserPage).mockReset();
   emitted.length = 0;
   registry.browsers = [];
   registry.preferred = undefined;
+});
+
+describe('native rendering lifetime', () => {
+  it('routes page captures through the owning runtime without changing CDP options', async () => {
+    const lease = { ready: Promise.resolve(), setActive: vi.fn(), capture: vi.fn(async () => ({ data: 'native-image' })), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    const { transport, call } = connect('native-capture', 'captured-page', wc);
+    await call('Target.setAutoAttach');
+    const params = { format: 'jpeg', quality: 60, captureBeyondViewport: true, clip: { x: 10, y: 20, width: 100, height: 200, scale: 0.5 } };
+    expect(await call('Page.captureScreenshot', params, 'gugu-agent-page')).toMatchObject({ result: { data: 'native-image' } });
+    expect(lease.capture).toHaveBeenCalledWith(params);
+    expect(dbg.commands.some(command => command.method === 'Page.captureScreenshot')).toBe(false);
+    transport.close();
+  });
+
+  it('does not attach CDP before the page surface is ready, and releases it on disconnect', async () => {
+    let resolve!: () => void;
+    const lease = { ready: new Promise<void>(done => { resolve = done; }), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    agentBrowserToolStarting('render-lifetime');
+    const { transport, call } = connect('render-lifetime', 'render-page', wc);
+    const pending = call('Target.setAutoAttach');
+    await new Promise(done => setImmediate(done));
+    expect(dbg.attached).toBe(false);
+    expect(lease.setActive).toHaveBeenCalledWith(true);
+    resolve();
+    await pending;
+    expect(dbg.attached).toBe(true);
+    agentBrowserToolFinished('render-lifetime');
+    transport.close();
+    transport.close();
+    expect(lease.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('reports a surface failure without dispatching the command to another target', async () => {
+    const lease = { ready: Promise.reject(new Error('surface failed')), setActive: vi.fn(), capture: vi.fn(), dispose: vi.fn() };
+    vi.mocked(acquireBrowserPage).mockReturnValueOnce(lease);
+    const { wc, dbg } = fakeGuest();
+    const { transport, call } = connect('render-failure', 'failed-page', wc);
+    expect(await call('Target.setAutoAttach')).toMatchObject({ error: { message: 'surface failed' } });
+    expect(dbg.commands).toHaveLength(0);
+    transport.close();
+    expect(lease.dispose).toHaveBeenCalledOnce();
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -332,24 +389,29 @@ describe('#7191 只把这一个页签交给 Playwright', () => {
   });
 });
 
-describe('#7191 人接管:agent 在用的页签被人点了就暂停', () => {
-  it('动作中人按下鼠标 → paused,之后的动作被拒,直到人点「让 agent 继续」', async () => {
-    const { wc } = fakeGuest(11);
-    connect('s2', 'b2', wc);
-    expect(agentBrowserToolStarting('s2')).toEqual({ ok: true });
-    expect(emitted.at(-1)).toEqual({ browserId: 'b2', state: 'driving' });
-    registry.observer?.('b2');
-    expect(emitted.at(-1)).toEqual({ browserId: 'b2', state: 'paused' });
-    agentBrowserToolFinished('s2');
-    const refused = agentBrowserToolStarting('s2');
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.message).toContain('took over');
-    resumeAgentBrowser('b2');
-    expect(agentBrowserToolStarting('s2')).toEqual({ ok: true });
-    agentBrowserToolFinished('s2');
+describe('browser actions pause only when the person presses Stop', () => {
+
+  it('queries current activity through RPC, with no separate pause or resume controls', async () => {
+    vi.useFakeTimers();
+    const { browserController } = await import('./controller');
+    const handlers = new Map<string, Parameters<RpcIpcMainLike['handle']>[1]>();
+    registerRPCRouter({ browser: browserController }, { handle: (channel, listener) => void handlers.set(channel, listener) });
+    const rpc = createRPCClient<{ browser: typeof browserController }>(async (channel, ...args) => {
+      const listener = handlers.get(channel)!;
+      return listener({ sender: { id: 1 } }, ...args);
+    });
+    connect('activity-query', 'activity-query', fakeGuest(56).wc);
+    expect(await rpc.browser.agentState('activity-query')).toEqual({ state: 'idle' });
+    agentBrowserToolStarting('activity-query');
+    expect(await rpc.browser.agentState('activity-query')).toEqual({ state: 'driving' });
+    agentBrowserToolFinished('activity-query');
+    vi.advanceTimersByTime(3_100);
+    expect(await rpc.browser.agentState('activity-query')).toEqual({ state: 'idle' });
+    expect(browserController).not.toHaveProperty('pauseAgent');
+    expect(browserController).not.toHaveProperty('resumeAgent');
   });
 
-  it('agent 自己合成的点击(刚发过 Input.dispatchMouseEvent)不算人接管,也认作 agent 的(页签焦点不跟过去)', async () => {
+  it('agent 自己合成的点击(刚发过 Input.dispatchMouseEvent)认作 agent 的(页签焦点不跟过去)', async () => {
     const { wc } = fakeGuest(12);
     const { call } = connect('s3', 'b3', wc);
     await call('Target.setAutoAttach', {});
@@ -366,46 +428,21 @@ describe('#7191 人接管:agent 在用的页签被人点了就暂停', () => {
     expect(registry.observer?.('b9')).toBe(false);
   });
 
-  it('#7276 点「让 agent 继续」之后、agent 还没动:人点网页只是自己在逛,不重新暂停', () => {
-    const { wc } = fakeGuest(15);
-    connect('s7', 'b7', wc);
-    agentBrowserToolStarting('s7');
-    registry.observer?.('b7');
-    expect(emitted.at(-1)).toEqual({ browserId: 'b7', state: 'paused' });
-    agentBrowserToolFinished('s7');
-    resumeAgentBrowser('b7');
-    expect(emitted.at(-1)).toEqual({ browserId: 'b7', state: 'idle' });
-    registry.observer?.('b7');
-    expect(emitted.at(-1)).toEqual({ browserId: 'b7', state: 'idle' });
-    expect(agentBrowserToolStarting('s7')).toEqual({ ok: true });
-    agentBrowserToolFinished('s7');
-  });
-
-  it('#7276 继续之后 agent 动了一下:30 秒内人点网页照旧算接管', () => {
+  it.each([0, 500, 20_000, 31_000])('clicking the page at %i ms never pauses browser actions', (delay) => {
     vi.useFakeTimers();
-    const { wc } = fakeGuest(17);
-    connect('s8', 'b8', wc);
-    agentBrowserToolStarting('s8');
-    registry.observer?.('b8');
-    agentBrowserToolFinished('s8');
-    resumeAgentBrowser('b8');
-    expect(agentBrowserToolStarting('s8')).toEqual({ ok: true });
-    agentBrowserToolFinished('s8');
-    vi.advanceTimersByTime(20_000);
-    registry.observer?.('b8');
-    expect(emitted.at(-1)).toEqual({ browserId: 'b8', state: 'paused' });
-    resumeAgentBrowser('b8');
-  });
-
-  it('agent 很久没动过这个页签:人点进去只是自己在逛,不暂停', () => {
-    vi.useFakeTimers();
-    const { wc } = fakeGuest(13);
-    connect('s4', 'b4', wc);
-    agentBrowserToolStarting('s4');
-    agentBrowserToolFinished('s4');
-    vi.advanceTimersByTime(31_000);
-    registry.observer?.('b4');
-    expect(emitted.some((e) => e.browserId === 'b4' && e.state === 'paused')).toBe(false);
+    const id = `ordinary-click-${delay}`;
+    const { wc } = fakeGuest(1000 + delay);
+    const { transport } = connect(id, id, wc);
+    agentBrowserToolStarting(id);
+    if (delay > 0) {
+      agentBrowserToolFinished(id);
+      vi.advanceTimersByTime(delay);
+    }
+    expect(registry.observer?.(id)).toBe(false);
+    expect(agentBrowserStateOf(id)).not.toBe('paused');
+    expect(agentBrowserToolStarting(id)).toEqual({ ok: true });
+    expect(emitted.some(e => e.browserId === id && e.state === 'paused')).toBe(false);
+    transport.close();
   });
 
   it('第一个动作开始时还没有页签:页签一连上就报 driving,动作结束后照常回 idle', () => {
@@ -450,21 +487,6 @@ describe('#7274 Playwright 要的 focus emulation 只在 agent 操作期间开�
     expect(emulation(dbg)).toEqual([true, false]);
     agentBrowserToolStarting('e1');
     expect(emulation(dbg)).toEqual([true, false, true]);
-  });
-
-  it('人接管:关掉;没被 Playwright 要过就一直不碰', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const { wc, dbg } = fakeGuest(32);
-    dbg.attached = true;
-    const { call } = connect('e2', 'be2', wc);
-    agentBrowserToolStarting('e2');
-    agentBrowserToolFinished('e2');
-    vi.advanceTimersByTime(3_100);
-    expect(emulation(dbg)).toEqual([]);
-    agentBrowserToolStarting('e2');
-    await call('Emulation.setFocusEmulationEnabled', { enabled: true }, 'gugu-agent-page');
-    registry.observer?.('be2');
-    expect(emulation(dbg)).toEqual([true, false]);
   });
 
   it('网页销毁后不再碰它的 debugger', async () => {
@@ -522,26 +544,28 @@ describe('#7191 人看得见 agent 的鼠标:先飞过去,到了再交给网页'
     agentBrowserToolFinished('c6');
   });
 
-  it('鼠标飞的时候人接管了:排在后面的按下、抬起也不落下去', async () => {
+  it('cancelling a connection while its cursor is moving drops queued input; a new turn can act without unlocking the page', async () => {
     const { wc, dbg } = fakeGuest(27);
-    const { transport, received, call } = connect('c7', 'bc7', wc);
+    const { transport, call } = connect('cancelled-turn', 'cancelled-tab', wc);
     await call('Target.setAutoAttach', {});
-    agentBrowserToolStarting('c7');
+    agentBrowserToolStarting('cancelled-turn');
     transport.send(mouse(63, { type: 'mouseMoved', x: 8, y: 8, buttons: 0 }));
     transport.send(mouse(64, { type: 'mousePressed', x: 8, y: 8, button: 'left', buttons: 1 }));
     transport.send(mouse(65, { type: 'mouseReleased', x: 8, y: 8, button: 'left', buttons: 0 }));
-    await vi.waitFor(() => expect(moves().some((e) => e.browserId === 'bc7')).toBe(true));
-    registry.observer?.('bc7');
-    agentCursorArrived(moves().filter((e) => e.browserId === 'bc7').at(-1)!.moveId!);
-    await vi.waitFor(() => expect([63, 64, 65].every((id) => received.some((m) => m.id === id))).toBe(true));
-    expect([63, 64, 65].map((id) => received.find((m) => m.id === id).error?.message ?? 'ok')).toEqual([
-      expect.stringContaining('took over'),
-      expect.stringContaining('took over'),
-      expect.stringContaining('took over'),
-    ]);
-    expect(forwardedInput(dbg)).toHaveLength(0);
-    agentBrowserToolFinished('c7');
-    resumeAgentBrowser('bc7');
+    await vi.waitFor(() => expect(moves().some(e => e.browserId === 'cancelled-tab')).toBe(true));
+    transport.close();
+    agentCursorArrived(moves().filter(e => e.browserId === 'cancelled-tab').at(-1)!.moveId!);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(forwardedInput(dbg)).toEqual([]);
+    agentBrowserToolFinished('cancelled-turn');
+    expect(agentBrowserStateOf('cancelled-tab')).toBe('idle');
+    const next = connect('cancelled-turn', 'cancelled-tab', wc);
+    await next.call('Target.setAutoAttach', {});
+    expect(agentBrowserToolStarting('cancelled-turn')).toEqual({ ok: true });
+    await next.call('Input.insertText', { text: 'next turn' }, 'gugu-agent-page');
+    expect(forwardedInput(dbg)).toEqual([{ method: 'Input.insertText', params: { text: 'next turn' }, sessionId: undefined }]);
+    next.transport.close();
+    agentBrowserToolFinished('cancelled-turn');
   });
 
   it('页签没回话(渲染层没挂上)也最多等 1.5 秒,❌ 卡住 agent', async () => {
@@ -557,22 +581,6 @@ describe('#7191 人看得见 agent 的鼠标:先飞过去,到了再交给网页'
     await vi.waitFor(() => expect(received.some((m) => m.id === 51)).toBe(true));
     expect(forwardedInput(dbg)).toHaveLength(1);
     agentBrowserToolFinished('c2');
-  });
-
-  it('鼠标飞过去的时候人点进了页面:这一下不落下去,agent 收到「人接管了」', async () => {
-    const { wc, dbg } = fakeGuest(23);
-    const { transport, received, call } = connect('c3', 'bc3', wc);
-    await call('Target.setAutoAttach', {});
-    agentBrowserToolStarting('c3');
-    transport.send(mouse(52, { type: 'mouseMoved', x: 9, y: 9, buttons: 0 }));
-    await vi.waitFor(() => expect(moves().some((e) => e.browserId === 'bc3')).toBe(true));
-    registry.observer?.('bc3');
-    agentCursorArrived(moves().filter((e) => e.browserId === 'bc3').at(-1)!.moveId!);
-    await vi.waitFor(() => expect(received.some((m) => m.id === 52)).toBe(true));
-    expect(received.find((m) => m.id === 52).error?.message).toContain('took over');
-    expect(forwardedInput(dbg)).toHaveLength(0);
-    agentBrowserToolFinished('c3');
-    resumeAgentBrowser('bc3');
   });
 
   it('打字前鼠标落进有焦点的输入框;逐键打字不每键都去找', async () => {

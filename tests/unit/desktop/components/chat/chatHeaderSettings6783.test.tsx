@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
+vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
+
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
@@ -18,7 +20,6 @@ async function openMenuSettings(props: { isGroupChat: boolean; mobile: boolean }
     searchMode: false,
     workspacePanelOpen: false,
     memberListOpen: false,
-    historyPanelOpen: false,
     showHeaderMenu: true,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
@@ -27,8 +28,6 @@ async function openMenuSettings(props: { isGroupChat: boolean; mobile: boolean }
     onOpenSettingsDrawer,
     onOpenMemberList: vi.fn(),
     onCloseRightSurfaces: vi.fn(),
-    onOpenHistoryPanel: vi.fn(),
-    onCloseHistoryPanel: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
     onOpenAnnouncement: vi.fn(),

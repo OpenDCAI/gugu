@@ -3,13 +3,21 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { imSelectors, openImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { imSelectors, openImRepository as openRawRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createAccountRevisionRuntime, type AccountRevisionSource } from '../../../../apps/desktop/src/lib/accountRevisionRuntime'
 import {
   REVISION_RECONCILE_INTERVAL_MS,
   watchRevisionReconcile,
   type RevisionReconcileSignals,
 } from '../../../../apps/desktop/src/lib/accountRevisionReconcile'
+
+async function openImRepository(...args: Parameters<typeof openRawRepository>) {
+  const repository = await openRawRepository(...args)
+  if (!repository.snapshot().sync_state.some((row) => row.key === 'account-revision-cursor')) {
+    await repository.transaction((transaction) => transaction.putSyncState('account-revision-cursor', { revision: '0' }))
+  }
+  return repository
+}
 
 function fakeSignals() {
   const listeners = { visible: new Set<() => void>(), online: new Set<() => void>(), foreground: new Set<() => void>() }

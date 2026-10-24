@@ -3,11 +3,11 @@
 // 是同一张表、同一套界面(behavior gugu-server.md 第 8 条,一套工作台):连上一台就把它的项目清单
 // 并进 projectManager,之后的一切调用按实体所在机器走那台机器的连接(lib/machine-routing.ts)。
 //
-// 机器离线时,它的项目和会话照样列在侧栏里(上次记下的清单与会话目录的底稿)、标离线,❌ 从侧栏消失;连上之后原地换成此刻的。
+// 机器离线时,它的项目和会话照样列在侧栏里(项目清单照账号上记着的那份 #113,会话照会话目录的底稿)、标离线,❌ 从侧栏消失;
+// 连上之后原地换成此刻的。
 // 项目只在用到时挂(projectManager.ensureMounted),列出 ❌ 挂。
 import { comparer, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
-import type { LocalProject } from '@shared/projects';
 import type { SessionHostClient } from '@shared/lib/ipc/session-host-client';
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
 import type { EventDefinition } from '@shared/lib/ipc/events';
@@ -31,6 +31,15 @@ import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
 import { findHomeProject } from './machine-home';
+import {
+  accountBindingsOf,
+  accountCopyKey,
+  accountCopyReplacesLive,
+  accountFoldersOf,
+  accountProjectsOf,
+  forgetRetiredProjectCaches,
+} from './account-projects';
+import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { machineSessionListClient } from './machine-session-list';
 import {
   liveDeviceSessions,
@@ -89,82 +98,6 @@ export type RemoteHostState = {
   synced: boolean;
 };
 
-// ── 上次连上时的项目清单(离线时照样列在侧栏里)─────────────────────────────────
-
-export const MACHINE_PROJECTS_STORAGE_KEY = 'gugu:machine-projects:v1';
-const MAX_CACHED_PROJECTS = 100;
-
-type CachedProjects = Record<string, LocalProject[]>;
-
-export function parseCachedProjects(raw: string | null): CachedProjects {
-  if (!raw) return {};
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    const out: CachedProjects = {};
-    for (const [deviceId, projects] of Object.entries(value as Record<string, unknown>)) {
-      if (!Array.isArray(projects)) continue;
-      out[deviceId] = projects.filter(
-        (p): p is LocalProject =>
-          !!p && typeof p === 'object' && typeof (p as LocalProject).id === 'string' && typeof (p as LocalProject).name === 'string'
-      );
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function loadCachedProjects(): CachedProjects {
-  try {
-    return parseCachedProjects(browserStorage()?.getItem(MACHINE_PROJECTS_STORAGE_KEY) ?? null);
-  } catch {
-    return {};
-  }
-}
-
-// ── 每台机器的主目录(没选项目的会话落在那台机器的主目录项目里,见 machine-home.ts)───────────────
-// 记在这台桌面上:离线时侧栏照样认得出哪一行是那台机器的「~」。
-
-export const MACHINE_HOME_DIRS_STORAGE_KEY = 'gugu:machine-home-dirs:v1';
-
-export function parseHomeDirs(raw: string | null): Record<string, string> {
-  if (!raw) return {};
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && !!entry[1])
-    );
-  } catch {
-    return {};
-  }
-}
-
-function loadHomeDirs(): Record<string, string> {
-  try {
-    return parseHomeDirs(browserStorage()?.getItem(MACHINE_HOME_DIRS_STORAGE_KEY) ?? null);
-  } catch {
-    return {};
-  }
-}
-
-function saveHomeDirs(value: Record<string, string>): void {
-  try {
-    browserStorage()?.setItem(MACHINE_HOME_DIRS_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    /* 存不进只影响离线时认不出「~」那一行 */
-  }
-}
-
-function saveCachedProjects(value: CachedProjects): void {
-  try {
-    browserStorage()?.setItem(MACHINE_PROJECTS_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    /* 存不进(配额 / 隐私模式)只影响离线时列不出上次的项目 */
-  }
-}
-
 /**
  * 名册行上的 engine 是 agent 类型(`claude-code`),目录行上是 harness id(`claude`):按开户时同一个换法换过去,
  * 图标才对得上。这台桌面还不认得的 harness(那台机器更新)原样留着 —— 只是取不到图标、显示首字母,❌ 让整个 @ 落空。
@@ -188,6 +121,8 @@ export class RemoteHostsStore {
   readonly hosts = observable.map<string, RemoteHostState>();
   /** #7199 deviceId → 这一端叫醒那台云电脑走到哪了。 */
   readonly wakes = observable.map<string, CloudWake>();
+  /** deviceId → 到这台机器的线自上次连通以来拨过几次(连通即清零)。重连提示读它,见 dialsSinceOpen。 */
+  readonly dials = observable.map<string, number>();
   /** #7199 正在叫的那一次:同一台再叫就等同一个结果(❌ 没醒就当醒了往下走)。 */
   private readonly wakeInFlight = new Map<string, Promise<boolean>>();
   /** #7403 deviceId → 请它换成匹配版本的那一次(请时它报的版本 + 结果):同一个版本只请一次,各处等同一个结果。 */
@@ -199,8 +134,8 @@ export class RemoteHostsStore {
   newSessionTarget: { deviceId: string; projectPath: string | null } | null = null;
   /** 每台机器最近在上面开过会话的文件夹(这台桌面上记的,重启后还在;见 remote-recent-folders.ts)。 */
   recentFoldersByDevice: RecentFolders = loadRecentFolders(browserStorage());
-  /** 每台机器的主目录(那台机器报的 $HOME)。 */
-  homeDirs: Record<string, string> = loadHomeDirs();
+  /** 连着时问到的每台机器的主目录(那台机器报的 $HOME);心跳报了的以心跳为准(见 homeDir)。 */
+  homeDirs: Record<string, string> = {};
   /** 会话目录(与手机同一份,见 session-directory.ts):每台别的机器上有哪些会话。侧栏的远程行读它,❌ 读挂载的项目。 */
   directory: Readonly<Record<string, DeviceSessions>> = liveDeviceSessions();
   private bridge: RemoteHostsBridge | null = null;
@@ -208,21 +143,22 @@ export class RemoteHostsStore {
   private readonly listSyncs = new Map<string, SessionListSync>();
   private readonly linkOffs = new Map<string, () => void>();
   private readonly homeProjectPromises = new Map<string, Promise<string>>();
-  private cached: CachedProjects = loadCachedProjects();
+  /** #113 deviceId → 经连接读到它的清单之后、连着期间看到的账号上那份(内容指纹;见 accountCopyReplacesLive)。 */
+  private readonly accountSeenLive = new Map<string, string>();
   private stopDevices: (() => void) | null = null;
   private started = false;
 
   constructor() {
     makeAutoObservable<
       RemoteHostsStore,
-      'bridge' | 'linkOffs' | 'homeProjectPromises' | 'cached' | 'stopDevices' | 'started' | 'listSyncs'
+      'bridge' | 'linkOffs' | 'homeProjectPromises' | 'accountSeenLive' | 'stopDevices' | 'started' | 'listSyncs'
     >(this, {
       bridge: observable.ref,
       directory: observable.ref,
       listSyncs: false,
       linkOffs: false,
       homeProjectPromises: false,
-      cached: false,
+      accountSeenLive: false,
       stopDevices: false,
       started: false,
     });
@@ -232,6 +168,7 @@ export class RemoteHostsStore {
   start(): void {
     if (this.started || typeof window === 'undefined') return;
     this.started = true;
+    forgetRetiredProjectCaches(browserStorage());
     sidebarStore.machines = {
       machineOf: (projectId) => machineRegistry.machineOf(projectId),
       label: (deviceId) => this.device(deviceId)?.label ?? null,
@@ -246,6 +183,9 @@ export class RemoteHostsStore {
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
     onRemoteHostsBridgeChange(() => this.attach(findRemoteHostsBridge()));
     this.attach(findRemoteHostsBridge());
+    // 接上名册之前恢复的上次视图(「还不知道」放行的那一页):名下没有别的机器时此刻就知道了;有的,各台的清单并进项目表时
+    // 重判(projectManager.syncMachineProjects)。
+    appState.navigation.revalidate();
     // #7199 打开云电脑上的会话 = 叫醒它的三件事之一(规定草稿 cloud-computer「休眠与唤醒」):打开 / 切到一条在睡着的云电脑上的
     // 会话就叫醒它,切回窗口时也算一次「打开」。看着的时候它又睡着了 ❌ 再叫(那样它永远睡不着、一直扣积分)。
     // 侧栏列出、点开项目这些只读的看 ❌ 叫醒(那会让每次打开咕咕都把它叫起来)。
@@ -332,14 +272,24 @@ export class RemoteHostsStore {
     return this.hosts.get(deviceId)?.device ?? null;
   }
 
+  /**
+   * 别的机器的项目清单这一端还没齐:还没接上设备名册(开机恢复上次视图的那一刻,会话页还没起来),或名下有一台机器
+   * 既没连上读过、账号上也还没有它的那份(#113)。是 ⇒ 不在项目表里的项目还不知道在不在(见 projects/project-presence.ts)。
+   */
+  awaitsMachineLists(): boolean {
+    if (!this.started) return true;
+    return [...this.hosts.values()].some((state) => !state.synced && !state.device.projects);
+  }
+
   /** 这个项目在哪台别的机器上;本机项目 = null。 */
   machineOfProject(projectId: string): RemoteHostDevice | null {
     const deviceId = machineRegistry.machineOf(projectId);
     return deviceId ? this.device(deviceId) : null;
   }
 
+  /** 那台机器的主目录:心跳报的(离线、从没连上过也知道),老宿主不报就用连着时问到的。 */
   homeDir(deviceId: string): string | null {
-    return this.homeDirs[deviceId] ?? null;
+    return this.device(deviceId)?.homeDir ?? this.homeDirs[deviceId] ?? null;
   }
 
   /**
@@ -426,7 +376,6 @@ export class RemoteHostsStore {
   private rememberHomeDir(deviceId: string, home: string): void {
     if (!home || this.homeDirs[deviceId] === home) return;
     this.homeDirs = { ...this.homeDirs, [deviceId]: home };
-    saveHomeDirs(this.homeDirs);
   }
 
   recentFolders(deviceId: string): readonly string[] {
@@ -494,6 +443,14 @@ export class RemoteHostsStore {
   /** 「重新连接」:不等退避立刻再连一次。 */
   reconnect(deviceId: string): void {
     reconnectMachine(deviceId);
+  }
+
+  /**
+   * 到这台机器的线自上次连通以来拨过几次(没连通过的机器第一次拨也算)。「第几次重连」的数字读它:
+   * 一次提示里原地换这个数,❌ 每次重试各发一条。
+   */
+  dialsSinceOpen(deviceId: string): number {
+    return this.dials.get(deviceId) ?? 0;
   }
 
   /** 侧栏那颗点:连接中 / 已连接 / 重连中 / 离线 / 要先登录 / 版本太旧。 */
@@ -577,10 +534,13 @@ export class RemoteHostsStore {
       runInAction(() => {
         if (current) current.device = device;
         else this.hosts.set(device.id, { device, link: machineLinkState(device.id), synced: false });
+        // 读成离线了:这一轮重连到此为止(提示换成「离线」,不带第几次);回来之后从第一次数起。
+        if (!remoteHostReachable(device)) this.dials.delete(device.id);
         // #7199 叫醒没成之后它在别处被叫醒了(正在醒 / 醒了):那条旧的「没叫醒」不再盖住它此刻的样子。
         if (device.cloudComputer && device.cloudComputer !== 'asleep' && this.wakes.get(device.id)?.status === 'failed') this.wakes.delete(device.id);
       });
       if (!current) this.watch(device.id);
+      else this.applyAccountProjects(device.id);
       // 心跳说它在(远程 SSH:设备连接没报问题)就连;刚从离线回来的不等退避。
       if (remoteHostReachable(device)) {
         const client = machineClient(device.id);
@@ -591,27 +551,33 @@ export class RemoteHostsStore {
   }
 
   private watch(deviceId: string): void {
-    // 上次连上时的清单先列出来(离线也照样在侧栏里);连上之后以那台机器此刻的为准。
-    const cached = this.cached[deviceId];
-    if (cached?.length) appState.projects.syncMachineProjects(deviceId, cached);
+    // 账号上记着的清单先列出来(离线也照样在侧栏里);连上之后以那台机器此刻的为准。
+    this.applyAccountProjects(deviceId);
     // 上次的会话也先铺出来(本地底稿):打开就看得到上次的样子,连上之后原地换成此刻的。
     void readCachedSessionList<never, SessionpageSessionSummary>(deviceId).then((stored) => {
       if (!stored || this.directory[deviceId] || !this.hosts.has(deviceId)) return;
       updateDeviceSessions(deviceId, { projects: [], sessions: stored.sessions, cached: true, loading: false });
     });
     let wasOpen = false;
+    let lastLink: MachineLinkState | null = null;
     const onLink = () => {
       const link = machineLinkState(deviceId);
       runInAction(() => {
         const state = this.hosts.get(deviceId);
         if (state) state.link = link;
+        const dials = dialsAfter(this.dials.get(deviceId) ?? 0, lastLink, link, state ? remoteHostReachable(state.device) : true);
+        if (dials === 0) this.dials.delete(deviceId);
+        else this.dials.set(deviceId, dials);
       });
+      lastLink = link;
       if (link === 'open') {
         this.startListSync(deviceId);
         void this.syncProjects(deviceId).then(() => {
           if (wasOpen) appState.projects.refreshMachineProjects(deviceId);
           wasOpen = true;
         });
+      } else {
+        this.applyAccountProjects(deviceId);
       }
     };
     this.linkOffs.set(deviceId, subscribeMachineLink(deviceId, onLink));
@@ -631,8 +597,8 @@ export class RemoteHostsStore {
         const state = this.hosts.get(deviceId);
         if (state) state.synced = true;
       });
-      this.cached = { ...this.cached, [deviceId]: projects.slice(0, MAX_CACHED_PROJECTS) };
-      saveCachedProjects(this.cached);
+      const records = this.hosts.get(deviceId)?.device.projects;
+      if (records) this.accountSeenLive.set(deviceId, accountCopyKey(records));
     } catch (error) {
       log.warn('[machines] 读那台机器的项目清单失败', { deviceId, error: String(error) });
     }
@@ -665,20 +631,54 @@ export class RemoteHostsStore {
     retainDeviceSessions([...this.hosts.keys()].filter((id) => id !== deviceId));
     this.linkOffs.get(deviceId)?.();
     this.linkOffs.delete(deviceId);
+    this.accountSeenLive.delete(deviceId);
     closeMachineClient(deviceId);
     appState.projects.dropMachine(deviceId);
     machineRegistry.forgetMachine(deviceId);
-    runInAction(() => this.hosts.delete(deviceId));
-    if (this.cached[deviceId]) {
-      const { [deviceId]: _dropped, ...rest } = this.cached;
-      this.cached = rest;
-      saveCachedProjects(this.cached);
-    }
+    runInAction(() => {
+      this.hosts.delete(deviceId);
+      this.dials.delete(deviceId);
+    });
     if (this.homeDirs[deviceId]) {
       const { [deviceId]: _home, ...rest } = this.homeDirs;
       runInAction(() => (this.homeDirs = rest));
-      saveHomeDirs(rest);
     }
+  }
+
+  /**
+   * #113 没连着那台机器时,它的项目清单与群绑定照账号上记着的那份。这一端还没读到过账号上的那份就不动(❌ 拿空清单把侧栏里
+   * 它的项目清掉);连着时以那台机器此刻的回答为准(syncProjects、projectGroupsStore.refresh),这时看到的账号上那份记下来:
+   * 断开之后它没变,就照旧列着连着时读到的(见 accountCopyReplacesLive)。
+   */
+  private applyAccountProjects(deviceId: string): void {
+    const state = this.hosts.get(deviceId);
+    const records = state?.device.projects;
+    if (!state || !records) return;
+    if (machineLinkState(deviceId) === 'open') {
+      if (state.synced) this.accountSeenLive.set(deviceId, accountCopyKey(records));
+      return;
+    }
+    if (!this.accountIsNewer(deviceId)) return;
+    appState.projects.syncMachineProjects(deviceId, accountProjectsOf(deviceId, records));
+    projectGroupsStore.applyBindings(deviceId, accountBindingsOf(deviceId, records));
+  }
+
+  /** #113 账号上那份比这一端经连接读到的新(或这一端还没经连接读到过它):没连着时以账号上那份为准。 */
+  accountIsNewer(deviceId: string): boolean {
+    const state = this.hosts.get(deviceId);
+    const records = state?.device.projects;
+    if (!state || !records) return false;
+    return accountCopyReplacesLive({
+      answeredLive: state.synced,
+      seenWhileLive: this.accountSeenLive.get(deviceId),
+      current: accountCopyKey(records),
+    });
+  }
+
+  /** #113 账号上记着的那台机器上这个项目的文件夹;没读到过账号上的那份 / 那里没有这个项目 = null。 */
+  accountFolders(deviceId: string, projectId: string): ProjectFolder[] | null {
+    const records = this.device(deviceId)?.projects;
+    return records ? accountFoldersOf(deviceId, records, projectId) : null;
   }
 }
 
@@ -700,6 +700,16 @@ export function linkNeedsReopen(
   return link === 'tooOld' && client.state() === 'open' && !!device.version && !!helloVersion && device.version !== helloVersion;
 }
 
+/**
+ * 这一轮重连拨了几次(纯函数,单测钉):每次从「没在拨」进到「在拨」算一次,连通了清零。
+ * 同一次拨里线状态的重复通知(connecting → connecting)不算。那台机器读成离线时线照样隔一会儿拨一次,那不算
+ * 这一轮的 —— ❌ 机器回来那一下亮出「第 125 次尝试」(owner 试用实例实测)。
+ */
+export function dialsAfter(dials: number, previous: MachineLinkState | null, link: MachineLinkState, reachable = true): number {
+  if (link === 'open' || !reachable) return 0;
+  return link === 'connecting' && previous !== 'connecting' ? dials + 1 : dials;
+}
+
 /** 侧栏那颗点的判据(纯函数,单测钉):设备状况 + 到它会话页宿主的线。 */
 export function machineConnectionState(
   state: Pick<RemoteHostState, 'device' | 'link' | 'synced'>,
@@ -709,10 +719,13 @@ export function machineConnectionState(
   // 远程 SSH 的机器太旧:设备连接那一格说得更具体(正在替它升级 / 没升成),先看它。
   const ssh = state.device.sshLink;
   if (state.link === 'tooOld' && ssh !== 'updating' && ssh !== 'outdated') return 'outdated';
+  // 线没通就是在连:不管这一刻是在拨(connecting)还是在等下一次退避(closed)。只看 closed 的话,连上过的机器断了之后,
+  // 每一次重连在飞的那几秒会读成「已连接」,再一失败又翻回「重连中」,直到心跳租约过期才停(#137)。
+  const attempting = state.link === 'connecting' || state.link === 'closed';
   return hostConnectionState({
     online: state.device.isOnline,
-    loading: state.link === 'connecting' && !state.synced,
-    unreachable: state.device.isOnline && state.link === 'closed' && state.synced,
+    loading: attempting && !state.synced,
+    unreachable: state.device.isOnline && attempting && state.synced,
     sshLink: state.device.sshLink ?? null,
     cloudComputer: state.device.cloudComputer ?? null,
     wake: state.device.cloudComputer ? wake : null,

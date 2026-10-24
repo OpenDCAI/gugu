@@ -11,8 +11,9 @@ import type {
   MarketUpdatesSummary,
   MarketVersionHistoryEntry,
 } from '@shared/extensions/market';
-import { compatOf, featuredOf, MARKET_PAGE_SIZE, marketHome, popularOf } from '@shared/extensions/market';
+import { compatOf, MARKET_PAGE_SIZE } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
 import { queryScore, queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
@@ -70,12 +71,6 @@ export interface CloudMarketListing {
   page: number;
   /** 后面还有没有。 */
   hasMore: boolean;
-  /** 首页精选那一排(`featuredOf`):只随第一页、不带搜索词时给,别的时候是空的;它们在下面照样各有一行。 */
-  featured: CloudMarketEntry[];
-  /** 首页精选下面那几排(`marketHome`):「最新」和够数的类别各一排;同 `featured`,只随不带搜索词的第一页。 */
-  home: ReturnType<typeof marketHome<CloudMarketEntry & { firstPublishedAt: string }>>;
-  /** 首页「热门」那一排(`popularOf`):近期安装分数够数才有;同 `featured`,只随不带搜索词的第一页。 */
-  popular: CloudMarketEntry[];
   fetchedAt: string;
 }
 
@@ -84,8 +79,6 @@ export interface CloudMarketListOptions {
   page?: number;
   /** 搜索词;空串 = 不搜。按名字 / 简介 / id 做不区分大小写的包含匹配。 */
   search?: string;
-  /** 近期安装分数(`chat.market_install_ranking`),按 App id;排首页精选、「热门」那一排用。没有就只按 `featured`、不画「热门」。 */
-  scores?: ReadonlyMap<string, number>;
 }
 
 export interface CloudExtensionMarketOptions {
@@ -219,9 +212,6 @@ export class CloudExtensionMarket {
       total: matched.length,
       page,
       hasMore: (page + 1) * MARKET_PAGE_SIZE < matched.length,
-      featured: firstPage ? featuredOf(extensions, options.scores ?? new Map()) : [],
-      home: firstPage ? marketHome(await this.entries()) : { newest: [], shelves: [] },
-      popular: firstPage ? popularOf(extensions, options.scores ?? new Map()) : [],
       fetchedAt: new Date(fetchedAt).toISOString(),
     };
   }
@@ -238,10 +228,9 @@ export class CloudExtensionMarket {
    * 市场上的每一个 App(各自给这台机器的那一版,装不了的带着 compat),加上它第一版发布的时刻:agent 的 app_search 按它们
    * 筛选、排序(app-search.ts)。用手上那份目录,❌ 另取一趟。
    */
-  async entries(): Promise<(CloudMarketEntry & { firstPublishedAt: string })[]> {
+  async entries(): Promise<CloudMarketEntry[]> {
     const { index } = await this.index(false);
-    const first = new Map(index.apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']));
-    return (await this.entriesFrom(index.apps)).extensions.map((entry) => ({ ...entry, firstPublishedAt: first.get(entry.manifest.id) ?? entry.publishedAt }));
+    return (await this.entriesFrom(index.apps)).extensions;
   }
 
   /**
@@ -320,6 +309,7 @@ export class CloudExtensionMarket {
     if (row.yanked) {
       throw new Error(`Extension ${extensionId}@${version} was withdrawn: ${row.yanked.reason}`);
     }
+    requireAppPlatform(row.manifest, host.platform);
     const compat = compatOf(row, host);
     if (compat) {
       // 每条安装路径(Apps 页、群里的「用 X 打开」、首启、agent 的 app_install)都走到这里,兼容性只在这里判一次。

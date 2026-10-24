@@ -1,4 +1,4 @@
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { stringifyMention } from '@gugu/session-shared/markdown'
 import type { Element, ElementContent, Root } from 'hast'
 

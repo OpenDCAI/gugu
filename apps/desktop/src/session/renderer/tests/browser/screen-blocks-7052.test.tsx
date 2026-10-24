@@ -46,7 +46,7 @@ const blockWidths = () =>
 const separator = () => document.querySelector<HTMLElement>('[data-screen-frame] [data-slot="resizable-handle"]');
 
 describe('一屏几块的骨架 (#7052)', () => {
-  it('两块之间一根 1px 线,和 border 同色;会话页压在两边时线两边那几 px 仍抓得到', async () => {
+  it('两块之间一根 1px 线,和别处的分界线(话题分栏、右栏)同一个 token;会话页压在两边时线两边那几 px 仍抓得到', async () => {
     screenLayout.show(s('a'));
     screenLayout.showBeside(s('b'));
     root!.render(<ScreenFrame />);
@@ -56,7 +56,7 @@ describe('一屏几块的骨架 (#7052)', () => {
     const rect = line.getBoundingClientRect();
     expect(Math.round(rect.width)).toBe(1);
     const reference = document.createElement('div');
-    reference.className = 'bg-border';
+    reference.className = 'bg-[var(--border-subtle)]';
     host!.appendChild(reference);
     expect(getComputedStyle(line).backgroundColor).toBe(getComputedStyle(reference).backgroundColor);
     reference.remove();

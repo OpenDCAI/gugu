@@ -1,8 +1,8 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 // @vitest-environment jsdom
-import { act, createElement, useLayoutEffect, useState } from 'react'
+import { act, createElement, Fragment, useLayoutEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReactHarness } from '../../../support/testHarness'
+import { chat, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
 
 const boundary = vi.hoisted(() => ({
@@ -17,6 +17,8 @@ const boundary = vi.hoisted(() => ({
   preview: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
+// No topic is open in these file-preview cases; keep the topic's full message runtime outside this boundary.
+vi.mock('@/components/chat/TopicSplitPane', () => ({ TopicTab: () => null }))
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } } }))
 vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => boundary.mobile }))
@@ -35,6 +37,7 @@ vi.mock('@/components/appSlot/appsHere', () => ({
 vi.mock('@/components/extensionBundle/sharedPackages', () => ({ sharedPackagesOf: async () => new Map(), subscribeSharedPackages: () => () => {} }))
 
 const { GroupAppSlot, WORKSPACE_APP_KIND } = await import('@/components/appSlot/GroupAppSlot')
+const { GroupPanelTabs } = await import('@/components/appSlot/GroupPanelTabs')
 const { AppPeek } = await import('@/components/appSlot/AppPeek')
 const { groupSlotMemory } = await import('@/components/appSlot/groupSlotMemory')
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
@@ -46,9 +49,9 @@ let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
 let request = 766300
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })
-const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem } = {}) => createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
-  chatId: opener.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close, visible: extra.visible ?? true, onForward: boundary.forward,
-  fileToOpen: { chatId: opener.chatId, itemId: opener.itemId, request: ++request, ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener } : {}) },
+const slot = (opener: ReturnType<typeof detail>, supplied = true, extra: { visible?: boolean; message?: MessageItem; tabbed?: boolean; restore?: () => void } = {}) => createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
+  chatId: opener.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close, visible: extra.visible ?? true, tabbed: extra.tabbed, onForward: boundary.forward,
+  fileToOpen: { chatId: opener.chatId, itemId: opener.itemId, request: ++request, ...(extra.restore ? { restore: extra.restore } : {}), ...(extra.message ? { message: extra.message } : {}), ...(supplied ? { opener } : {}) },
 }))
 beforeEach(() => {
   harness = createReactHarness()
@@ -66,6 +69,7 @@ beforeEach(() => {
   boundary.read.mockResolvedValue({ status: 'ready', blob: { text: async () => '<h1>lane report</h1>', arrayBuffer: async () => new ArrayBuffer(4) } })
   boundary.document.mockResolvedValue({ text: '<h1>live report</h1>' })
   boundary.save.mockResolvedValue(undefined)
+  for (const item of [...groupSlotMemory.tabs('preview-group')]) groupSlotMemory.close('preview-group', item)
   groupSlotMemory.setOpened('preview-group', null)
   act(() => installedExtensionsStore.applyList({ extensions: [workspace], invalid: [] } as never))
 })
@@ -155,21 +159,50 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(boundary.close).not.toHaveBeenCalled()
   })
 
-  it('the desktop preview close button closes the whole panel instead of going back', async () => {
-    await harness.render(slot(detail('exe')))
-    const close = harness.container.querySelector('header')!.lastElementChild as HTMLButtonElement
-    await act(async () => close.click())
-    expect(boundary.close).toHaveBeenCalledTimes(1)
+  it('a binary tab has only its file name, without treating the source folder as its App title', async () => {
+    await renderWithAppProviders(harness, createElement(Fragment, null,
+      createElement(GroupPanelTabs, { chatId: 'preview-group', onShowPanel: vi.fn(), onClosePanel: boundary.close, onShowTopic: vi.fn(), onShowChatAlone: vi.fn() }),
+      slot(detail('bin'), true, { tabbed: true }),
+    ), { chat: { chats: [chat({ id: 'preview-group', kind: 'group' })] } })
+    const chip = harness.container.querySelector('[data-panel-tab="preview"] [data-tab-label]')!
+    expect(chip.getAttribute('data-tab-label')).toBe('report.bin')
+    expect(chip.getAttribute('title')).toBe('report.bin')
   })
 
-  it('expands and restores a group HTML preview without replacing its page or returning to the folder', async () => {
+  it('the tabbed binary preview closes only its object, keeping the source tab and one host header', async () => {
+    const source = { kind: 'workspace.main', itemId: 'notes', title: 'notes.md', opening: 17401 }
+    groupSlotMemory.setOpened('preview-group', source)
+    const file = detail('exe')
+    await harness.render(slot(file, true, { tabbed: true }))
+    expect(harness.container.querySelector('header')).toBeNull()
+    const bar = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!
+    const close = bar.lastElementChild as HTMLButtonElement
+    await act(async () => close.click())
+    expect(groupSlotMemory.opened('preview-group')).toBe(source)
+    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
+    expect(boundary.close).not.toHaveBeenCalled()
+  })
+
+  it('a message entry has Close, removes its object and then restores the original message', async () => {
+    const restore = vi.fn()
+    const file = detail('exe')
+    await harness.render(slot(file, true, { tabbed: true, restore }))
+    expect(harness.container.querySelector('button[aria-label="返回"]')).toBeNull()
+    const close = harness.container.querySelector('[data-testid="message-file-preview-tab-bar"]')!.lastElementChild as HTMLButtonElement
+    await act(async () => close.click())
+    expect(groupSlotMemory.tabs('preview-group').some((item) => item?.itemId === file.itemId)).toBe(false)
+    expect(boundary.close).toHaveBeenCalledTimes(1)
+    expect(restore).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('expands and restores a group HTML preview without replacing its page (tabbed=%s)', async (tabbed) => {
     const file = detail('html')
     const fileToOpen = { chatId: file.chatId, itemId: file.itemId, request: ++request, opener: file }
     function Preview() {
       const [full, setFull] = useState(false)
       return createElement(AuthContext.Provider, { value: { user: { id: 'viewer' } } as never }, createElement(GroupAppSlot, {
         chatId: file.chatId, kind: WORKSPACE_APP_KIND, title: '群文件夹', onClose: boundary.close,
-        fileToOpen, full, onToggleFull: () => setFull((value) => !value),
+        fileToOpen, full, tabbed, onToggleFull: () => setFull((value) => !value),
       }))
     }
     await harness.render(createElement(Preview))
@@ -183,7 +216,7 @@ describe('unclaimed group files use the message preview from every entry', () =>
     await act(async () => restore!.click())
     expect(harness.container.querySelector('button[aria-label="面板全屏"]')?.getAttribute('aria-pressed')).toBe('false')
     expect(harness.container.querySelector('iframe')).toBe(page)
-    expect(harness.container.querySelectorAll('header')).toHaveLength(1)
+    expect(harness.container.querySelectorAll('header')).toHaveLength(tabbed ? 0 : 1)
     expect(groupSlotMemory.opened(file.chatId)?.itemId).toBe(file.itemId)
     expect(boundary.read).toHaveBeenCalledTimes(1)
     expect(boundary.close).not.toHaveBeenCalled()

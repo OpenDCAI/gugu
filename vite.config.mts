@@ -88,7 +88,7 @@ const isElectronTarget = guguTarget === 'electron'
 const viteOwnsElectronProcess =
   process.env.GUGU_VITE_NO_ELECTRON !== '1'
 // @@@gugu-tier - build-time deployment tier; `pnpm build:beta` sets GUGU_TIER=beta. Inlined into the
-// electron main bundle as __GUGU_TIER__ so main.ts derives the tier-scoped default home.
+// main and renderer bundles as __GUGU_TIER__: the home and external link scheme share this tier.
 const guguTier = process.env.GUGU_TIER ?? 'production'
 const guguBuildDistribution = process.env.GUGU_BUILD_DISTRIBUTION ?? 'local'
 if (guguBuildDistribution !== 'local' && guguBuildDistribution !== 'published') {
@@ -625,6 +625,7 @@ export default defineConfig(({ command }) => ({
   cacheDir: `node_modules/.vite-${guguTarget}`,
   define: {
     ...bakedSupabaseDefine,
+    __GUGU_TIER__: JSON.stringify(guguTier),
     __APP_VERSION__: JSON.stringify(appVersion),
     __GUGU_CHANGELOG_URL__: JSON.stringify(changelogUrl),
     __GUGU_BUILD_TAG__: JSON.stringify(buildTag),

@@ -18,9 +18,9 @@ const TOOLS_LINE = '- 文件夹 (workspace): workspace__list(chat_id)、create(c
 describe('the folder App\'s description: people read a sentence, agents read the tools', () => {
   test('the product page and the installed list show people the sentence, in both languages', () => {
     expect(localizedManifestText(manifest, 'zh-CN').description).toBe(
-      '这个对话(群、话题、私聊)文件夹里的文件:列表、markdown 源码编辑与预览、JSON 的查看与修改。几个人和 agent 同时改同一个文件,各自的改动都在。',
+      '来源群或私聊共享文件夹里的文件，话题使用同一份:列表、markdown 源码编辑与预览、JSON 的查看与修改。几个人和 agent 同时改同一个文件,各自的改动都在。',
     )
-    expect(localizedManifestText(manifest, 'en-US').description).toMatch(/^The files in this chat's folder /)
+    expect(localizedManifestText(manifest, 'en-US').description).toMatch(/^The files in the source group or private chat's shared folder/)
     for (const locale of ['zh-CN', 'en-US']) expect(localizedManifestText(manifest, locale).description).not.toContain('workspace__')
   })
 

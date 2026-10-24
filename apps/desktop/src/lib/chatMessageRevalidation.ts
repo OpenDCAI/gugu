@@ -89,16 +89,14 @@ export async function loadMessageOverlays(
 ): Promise<Map<string, MessageOverlay>> {
   const out = new Map<string, MessageOverlay>()
   if (messageIds.length === 0) return out
-  const reactions = await fetchOverlayRows<{ message_id: string; user_id: string; emoji: string }>(
-    'message_reactions',
-    'message_id, user_id, emoji',
-    messageIds
-  )
-  const deliveries = await fetchOverlayRows<{
-    message_id: string
-    status: MessageDeliveryStatus
-    device_id: string
-  }>('message_deliveries', 'message_id, status, device_id', messageIds)
+  const [reactions, deliveries] = await Promise.all([
+    fetchOverlayRows<{ message_id: string; user_id: string; emoji: string }>(
+      'message_reactions', 'message_id, user_id, emoji', messageIds,
+    ),
+    fetchOverlayRows<{ message_id: string; status: MessageDeliveryStatus; device_id: string }>(
+      'message_deliveries', 'message_id, status, device_id', messageIds,
+    ),
+  ])
 
   const reactionsMap = new Map<string, ReactionGroup[]>()
   for (const r of reactions) {

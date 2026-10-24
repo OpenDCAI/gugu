@@ -11,6 +11,10 @@ vi.mock('../../../../apps/desktop/src/platform', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../apps/desktop/src/platform')>()
   return { ...actual, platform: { ...actual.platform, capabilities: { ...actual.platform.capabilities, agentRuntime: true } } }
 })
+// These menu tests have no session host. Keep the navigation store's debounced persistence out of this fixture.
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/stores/snapshot-registry', () => ({
+  snapshotRegistry: { register: vi.fn(() => () => undefined) },
+}))
 const unpinFromDock = vi.hoisted(() => vi.fn(async () => {}))
 const quitApp = vi.hoisted(() => vi.fn(async () => {}))
 const openAppInWindow = vi.hoisted(() => vi.fn())

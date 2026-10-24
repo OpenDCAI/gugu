@@ -28,7 +28,7 @@ const log = createLogger('browser-agent-mcp')
  *
  * - **连到哪个页签**:Playwright 经 `connectOverCDP(transport)` 连上来,transport 由会话页那一侧给
  *   (`emdashAgentBrowser.openTransport`,只报这条会话的一个页签,见 agent-browser.ts)。不开任何调试端口。
- * - **人接管**:每个动作前问一句会话页那一侧,人点进了页面 / 按了停止,就拒并说清楚该怎么做。
+ * - **跟随 Agent 的调用生命周期**:取消时终止这一份连接的未完成动作,保留人的网页。浏览器没有独立暂停锁。
  * - **每条会话一份**:Playwright 的状态(快照里的 ref、当前页)是一条会话的,❌ 会话之间共用。
  *
  * 递给会话的是一台独立的 MCP server(`gugu-browser`),与 `gugu` 那台并列,和集成同一种做法(integration-mcp-bridge)。
@@ -101,6 +101,8 @@ export interface BrowserAgentGrantContext {
   sessionId: string
   ownerUserId: string
   subjectId: string
+  /** Explicit host role, never inferred from the workspace or the prompt. */
+  personalAssistant?: true
 }
 
 export type BrowserAgentMcpHost = GuguMcpHost<BrowserAgentGrantContext>
@@ -144,8 +146,9 @@ export class SessionBrowserTools {
   readonly outputDir: string
   private connecting: Promise<Client> | null = null
   private closeServer: (() => Promise<void>) | null = null
+  private transport: { close(): void } | null = null
   /**
-   * 会话结束(或连接作废)时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
+   * 调用取消、会话结束或连接作废时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
    * ❌ 半截连上的一份留在页签上(之后重连会和它抢同一个 debugger 的消息)。
    */
   private readonly lifetime = new AbortController()
@@ -179,6 +182,7 @@ export class SessionBrowserTools {
         const transport = await this.bridge().openTransport(this.sessionId, signal)
         if (signal.aborted) transport.close()
         signal.throwIfAborted()
+        this.transport = transport
         const browser = await chromium.connectOverCDP(transport)
         if (signal.aborted) transport.close()
         signal.throwIfAborted()
@@ -208,8 +212,13 @@ export class SessionBrowserTools {
   async close(): Promise<void> {
     this.lifetime.abort()
     this.connecting = null
+    const transport = this.transport
+    this.transport = null
     const close = this.closeServer
     this.closeServer = null
+    // Closing the MCP request alone does not cancel Playwright's pending locator actions.
+    // Disconnect CDP synchronously so those actions cannot later reach the person's page.
+    transport?.close()
     await close?.()
   }
 }
@@ -241,7 +250,7 @@ function toolsFor(sessionId: string, bridge: () => AgentBrowserBridge): SessionB
   return tools
 }
 
-/** 会话结束:关掉它那一份 Playwright(连着的页签就此断开)。 */
+/** End this session's browser work, retaining the person's tab for the next turn. */
 export async function closeSessionBrowserTools(sessionId: string): Promise<void> {
   const tools = sessionTools.get(sessionId)
   sessionTools.delete(sessionId)
@@ -275,6 +284,7 @@ function browserAppToolSchemas(): Promise<Tool[]> {
 
 async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: string, params: CallToolRequest['params'],
   signal: AbortSignal, initialUrl?: string): Promise<CallToolResult> {
+  if (signal.aborted) return refused('This browser action was cancelled with the Agent turn.')
   const local = answeredLocally(params.name)
   if (local) return local
   const person = PERSON_TOOLS.find((tool) => tool.name === params.name)
@@ -286,9 +296,19 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   if (typeof url === 'string' && url) bridge().setInitialUrl(sessionId, url)
   const redact = bridge().redact
   const startedAt = Date.now() - 1_000
+  const tools = toolsFor(sessionId, bridge)
+  const cancel = () => {
+    if (sessionTools.get(sessionId) === tools) sessionTools.delete(sessionId)
+    void tools.close().catch((error: unknown) => {
+      log.warn({ sessionId, error: (error as Error).message }, 'could not close cancelled browser tools')
+    })
+  }
+  signal.addEventListener('abort', cancel, { once: true })
   try {
-    const tools = toolsFor(sessionId, bridge)
+    if (signal.aborted) cancel()
+    signal.throwIfAborted()
     const client = await tools.client()
+    signal.throwIfAborted()
     const request = redact ? { ...params, arguments: withoutOwnFilename(params.name, params.arguments) } : params
     const result = await client.callTool(request, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS }) as CallToolResult
     if (redact) redactOutputFiles(tools.outputDir, startedAt, redact)
@@ -297,6 +317,7 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
     log.warn({ sessionId, tool: params.name, error: (error as Error).message }, 'browser tool failed')
     return refused(`The browser tool could not run: ${(error as Error).message}`)
   } finally {
+    signal.removeEventListener('abort', cancel)
     bridge().setInitialUrl(sessionId, null)
     bridge().toolFinished(sessionId)
   }
@@ -338,7 +359,7 @@ export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): Nativ
 /**
  * 不交给 agent 的(Playwright 把 `core*` 组一律打开,配置关不掉,只能在这里滤):
  * - `browser_run_code_unsafe`:在 Playwright 所在的进程里跑任意代码(它自己的说明就是「RCE-equivalent」),这里那个
- *   进程是咕咕主进程 —— 拿得到每个页签、每份浏览器配置的 cookie,一步越过「只交这一个页签」和「人接管就停」。
+ *   进程是咕咕主进程 —— 拿得到每个页签、每份浏览器配置的 cookie,一步越过「只交这一个页签」和调用的取消边界。
  * - `browser_tabs`:一条会话只操作一个页签,开 / 关页签在 transport 那一层一律被拒,留着只会让 agent 撞错。
  */
 const WITHHELD_TOOLS = new Set(['browser_run_code_unsafe', 'browser_tabs'])
@@ -425,7 +446,7 @@ export function createBrowserAgentMcpHost(
       server.server.setRequestHandler(ListToolsRequestSchema, async () =>
         trackRequest(
           (async () => {
-            return { tools: [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
+            return { tools: getContext().personalAssistant ? [] : [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
           })(),
           'tools/list',
         ),
@@ -433,6 +454,7 @@ export function createBrowserAgentMcpHost(
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
         trackRequest(
           (async (): Promise<CallToolResult> => {
+            if (getContext().personalAssistant) return refused('Browser actions require a task agent on this device: session_spawn device=<device>.')
             return callBrowserTool(bridge, getContext().sessionId, request.params, AbortSignal.any([grantSignal, extra.signal]))
           })(),
           request.params.name,
@@ -443,7 +465,9 @@ export function createBrowserAgentMcpHost(
     (context) => ({
       ownerId: context.ownerUserId,
       subjectId: context.subjectId,
-      toolScope: GUGU_BROWSER_MCP_SERVER_NAME,
+      // Two fixed role surfaces, shared by all assistants / all executors respectively.
+      // Like the Gugu grant, a key cannot change role without revocation.
+      toolScope: GUGU_BROWSER_MCP_SERVER_NAME + (context.personalAssistant ? ':assistant' : ''),
     }),
     persistence,
   )
@@ -459,10 +483,12 @@ export async function buildBrowserAgentBridge(
   sessionId: string,
   ownerUserId: string,
   subjectId: string,
+  personalAssistant?: true,
 ): Promise<AcpMcpServer[]> {
   try {
     await host.start()
-    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId })
+    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId, ...(personalAssistant ? { personalAssistant } : {}) })
+    if (personalAssistant) return []
     return [{
       name: GUGU_BROWSER_MCP_SERVER_NAME,
       transport: 'http',

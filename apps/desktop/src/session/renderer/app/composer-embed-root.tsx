@@ -4,8 +4,7 @@
 // one instance rather than a second independent module load.
 //
 // Reuses NewSessionComposer (new-session-page.tsx), including its createSession submission. This root supplies
-// NewSessionPage's implicit-project effect and shared title; DraftWorkspacePanel's terminal/browser/files
-// side panel remains session-page-specific.
+// NewSessionPage's implicit-project effect and shared title.
 //
 // gugu #2525: 它另外挂上共享创建器的「创建上下文」托盘（设备 · 项目）。设备维度与 per-user 的
 // 「记住最近一次选择」都在 gugu 侧（identity.gugu_devices + identity.user_settings），经
@@ -31,7 +30,6 @@ import {
   sessionComposerTrayClassName,
   sessionComposerTrayStyle
 } from '@renderer/features/sessions/session-composer-styles';
-import { SessionShellProvider } from '@renderer/features/sessions/session-shell-context';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { LibraryHostProvider, machineLibraryHost } from '@renderer/features/library/library-host';
 import { machineComposerProps, useComposerMachines } from '@renderer/features/sessions/use-machine-create-target';
@@ -54,7 +52,6 @@ interface CreateContextBridge {
   selectDevice(deviceId: string): void;
   selectProject(projectId: string | null): void;
   reportAvailableProjects(projectIds: string[]): void;
-  clearBirthGroup(): void;
 }
 
 const PENDING_SNAPSHOT: CreateContextSnapshot = {
@@ -202,7 +199,7 @@ export const ComposerEmbedRoot = observer(function ComposerEmbedRoot() {
     : snapshot.blockMessage;
 
   return (
-    <SessionShellProvider>
+    <>
       <div className="relative z-40 h-0">
         <ShellTitlebarDragRegion />
       </div>
@@ -237,7 +234,7 @@ export const ComposerEmbedRoot = observer(function ComposerEmbedRoot() {
               />
               {projectPicker}
               {snapshot.birthGroup ? (
-                <ComposerBirthGroupChip name={snapshot.birthGroup.name} onClear={() => bridge?.clearBirthGroup()} />
+                <ComposerBirthGroupChip name={snapshot.birthGroup.name} />
               ) : null}
             </div>
             <div className={sessionComposerFrameLiftClassName}>
@@ -265,6 +262,6 @@ export const ComposerEmbedRoot = observer(function ComposerEmbedRoot() {
           </div>
         </div>
       </div>
-    </SessionShellProvider>
+    </>
   );
 });

@@ -83,6 +83,11 @@ export type ChatMessage = {
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
    */
   hookNotice?: HookNotice;
+  /**
+   * 这条用户消息其实是宿主替主人交来的回答(`<gugu_question_answer>`,gugu-dev#181 ⑨):画成一行「你回答了：X」,
+   * ❌ 把那段 XML 原样摆进气泡。由消息单元从正文里解出来,与 `hookNotice` 同一路数。`answer` = null:问题被收回了。
+   */
+  questionAnswer?: { answer: string | null };
 };
 
 export type ChatToolCall = {
@@ -467,6 +472,17 @@ export type TurnProcessItem = {
    * 落定后同一条头默认收起、写的是总时长（点开还原）。
    */
   live?: boolean;
+  /**
+   * 头底下看得见这一轮的内容(摊开着的过程,或它占位时下面那句话)。有内容时「agent 在动」由那些行自己的
+   * 微光负责,头不带微光(同屏两处一起扫就是闪);一轮刚发出、下面还空着,或人把头收起来了,头是这一轮
+   * 唯一的动静,才自己微光。
+   */
+  withBody?: boolean;
+  /**
+   * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
+   * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。
+   */
+  placeholder?: boolean;
   /**
    * 这一轮什么时候开始的（`TranscriptTurn.startedAt`）。缺席 = 不知道（回放来的），
    * 那就不写时间 —— 一个会少报的计时器比没有计时器更糟（`turn-process.def.tsx` 头注）。

@@ -16,7 +16,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { auxLeadingReserve, PutBackButton } from '@renderer/app/aux-window-host';
 import { BlockGrip, CloseBlockButton, droppedOutsideWindow, startSessionBlockDrag } from '@renderer/app/screen-frame';
-import { screenLayout, type ScreenBlockContent } from '@renderer/app/screen-layout';
+import { screenLayout, type WindowableContent } from '@renderer/app/screen-layout';
 import {
   blockDropPreview,
   closeScreenBlock,
@@ -93,7 +93,7 @@ export const SessionMainColumn = observer(function SessionMainColumn() {
    * 拖到别的块边上的,只有两种页签:会话自己那枚(= 整个会话挪过去)和一个 App 为自己开的那枚(= 它单独占一块)。
    * 其余附页(审阅、终端、浏览器、文件、侧边聊天)只属于这个会话,❌ 拖进别的会话。
    */
-  const blockContentOf = (tabId: string): ScreenBlockContent | null => {
+  const blockContentOf = (tabId: string): WindowableContent | null => {
     for (const { pane } of paneLayout.groups) {
       const entry = pane.entries.get(tabId);
       if (!entry) continue;
@@ -445,7 +445,7 @@ const SessionBlockActions = observer(function SessionBlockActions({ atScreenEdge
   const session = sessionId ? sessionRegistry.get(pageSessionId)?.sessions.get(sessionId) : undefined;
   const startupFailure = useSessionStartupFailure(sessionId ?? null);
   return (
-    <TabBarActionRow atWindowEdge={atScreenEdge} fixedCluster={false}>
+    <TabBarActionRow atWindowEdge={atScreenEdge}>
       <ProjectTitleActions projectId={projectId} />
       {/* spec session-terminal-model-switch:终端会话看不到输入框,换模型的入口在这里;通用模式的输入框里已经有一颗。
           从没起过的会话只在首启失败时摆(#7092:会员模型被拒,换一个再起);正在首启的那段不摆,换了也赶不上这一次。 */}

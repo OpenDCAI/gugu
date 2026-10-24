@@ -6,7 +6,8 @@ import { useContactsStore } from '../../store/contactsContext'
 import { useToast } from '../toastContext'
 import { useTranslation } from 'react-i18next'
 import { OPEN_ASSISTANT_TASK_CHAT, rememberAssistantTaskChat, showAssistantTaskChat, useOpenedAssistantTaskChat, type AssistantTaskChat } from '../../lib/assistantTaskChat'
-import { readAssistantShellBridge } from '../../lib/assistantShellBridge'
+import { assistantSlotKey } from '../../lib/assistantShellBridge'
+import { readShellSlots } from '../../lib/shellSlots'
 import { AssistantTaskChatWindow } from './AssistantTaskChatWindow'
 import type { AssistantChatHandlers } from './AssistantChatSlot'
 import { readRequiredDisplayIdentities } from '../../lib/identityReadAdapter'
@@ -21,8 +22,8 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
   const { t } = useTranslation('assistant')
   const opened = useOpenedAssistantTaskChat()
   const [resolved, setResolved] = useState<{ ownerId: string; agent: ContactUser } | null>(null)
-  const bridge = readAssistantShellBridge()
-  const slot = useSyncExternalStore((listener) => bridge?.subscribeSlots(listener) ?? (() => undefined), () => bridge?.getSlots().get('task-chat') ?? null)
+  const shellSlots = readShellSlots()
+  const slot = useSyncExternalStore((listener) => shellSlots?.subscribeSlots(listener) ?? (() => undefined), () => shellSlots?.getSlots().get(assistantSlotKey('task-chat')) ?? null)
   useEffect(() => { if (!visible || opened && opened.ownerId !== user?.id) showAssistantTaskChat(null) }, [visible, user?.id, opened])
   useEffect(() => {
     let alive = true

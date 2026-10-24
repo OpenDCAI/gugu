@@ -15,8 +15,11 @@ import { readRequiredDisplayIdentities } from '../lib/identityReadAdapter'
 import { listManagedGroupJoinRequests, managedGroupChats, type ManagedGroupJoinRequest } from '../lib/groupJoinRequests'
 import { joinRequestIdentityIds } from '../lib/groupAgentJoin'
 import { friendRequestEntries } from '../lib/requestHistory'
-import { planBirthLooks, type AgentLook } from '../components/agentAvatar/look'
+import { type AgentLook } from '../components/agentAvatar/look'
 import { recordContactsRender } from '../lib/perfCounters'
+import { isMyAssistant } from '../lib/myAssistant'
+import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
+import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
 
 type ContactRelation = Pick<ContactUser, 'id' | 'alias' | 'agent_type' | 'project_path'>
 type RevisionRefreshOptions = { throwOnError?: boolean }
@@ -365,18 +368,24 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   // #1228: update an owned agent's name + bio together (真接 bio — was dropped before).
   const updateAgentProfile = useCallback(async (agentId: string, fields: { name?: string; bio?: string; avatar?: string | null }) => {
+    const ownerId = user?.id ?? null
+    const personal = isMyAssistant(ownerId, agentId)
     const updated = await contactsService.updateOwnedAgentProfile(agentId, {
       ...(fields.name !== undefined ? { display_name: fields.name } : {}),
       ...(fields.bio !== undefined ? { bio: fields.bio } : {}),
       ...(fields.avatar !== undefined ? { avatar: fields.avatar } : {}),
     })
+    if (personal) await reportAssistantAppChange(updated.device_id ? { rpc: machineRpc(updated.device_id) } : null, agentId, {
+      resource: 'assistant', operation: 'edited', id: agentId, section: fields.avatar !== undefined ? 'appearance' : 'profile',
+      ...(fields.name !== undefined ? { after: { name: updated.display_name } } : {}),
+    }, ownerId)
     await applyAgentProfileUpdate(updated)
     // @@@share-card-rename 云端 identity.users.display_name 是所有显示面的真源。本机花名册仍同步运行时
     // 所需的 agent 元数据，但会话页分享/身份卡按 agentUserId 回读云端名字，不从这格渲染。
     // 只在名字真的改了时才动本机(改 bio / 头像不该碰花名册)。
     if (fields.name !== undefined) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
     await refreshChats()
-  }, [applyAgentProfileUpdate, refreshChats])
+  }, [applyAgentProfileUpdate, refreshChats, user?.id])
 
   // Every name entry uses the profile path, including its canonical identity and local roster publication.
   const renameAgent = useCallback(async (agentId: string, name: string) => {
@@ -397,47 +406,6 @@ export function ContactsProvider({ children, active = true }: { children: React.
   const setAgentLook = useCallback(async (agentId: string, look: AgentLook) => {
     await updateAgentProfile(agentId, { avatar: contactsService.agentLookAvatarUrl(look) })
   }, [updateAgentProfile])
-
-  // @@@agent-look-birth 主人名下还没有形象的 agent(刚出生的,或形象上线前就有的)→ 定一个形象存进库:
-  // 能保留它一直以来按 id 推出来的样子就保留,颜色被兄弟占了才换成没人用的(look.ts planBirthLooks)。
-  // 写只在头像仍为空时生效(claimAgentLook):主人的几台设备同时在线也只有一台定得下来,其余等 agent_changed 带过来。
-  // 一只 agent 在这一次登录里只试一次:失败就留着按 id 推的样子,❌ 反复重试刷库。
-  const lookClaimsRef = useRef(new Set<string>())
-  // 读通讯录(云端按主人现查的自家 agent 名单),❌ 身份缓存:缓存只增不删,删掉的 agent 会一直留在里面,
-  // 既白发写请求,又占着颜色,让新 agent 和活着的兄弟撞色。刚开户的 agent 等通讯录刷新进来再定。
-  const ownedAgents = useMemo(
-    () => (user
-      ? contacts.flatMap((relation) => {
-          const identity = identitiesById[relation.id]
-          return identity && identity.type === 'agent' && identity.owner_user_id === user.id ? [identity] : []
-        })
-      : []),
-    [contacts, identitiesById, user],
-  )
-  const looklessOwnedAgents = ownedAgents
-    .filter((agent) => agent.avatar == null && !lookClaimsRef.current.has(agent.id))
-    .map((agent) => agent.id)
-    .join(',')
-  useEffect(() => {
-    if (!looklessOwnedAgents || contactsStatus !== 'ready') return
-    const plan = planBirthLooks(
-      ownedAgents.map(({ id, avatar, created_at }) => ({ id, avatar, created_at })),
-      Math.random,
-    ).filter(({ id }) => !lookClaimsRef.current.has(id))
-    for (const { id } of plan) lookClaimsRef.current.add(id)
-    void (async () => {
-      for (const { id, look } of plan) {
-        try {
-          const updated = await contactsService.claimAgentLook(id, look)
-          if (updated) await applyAgentProfileUpdate(updated)
-        } catch (err) {
-          rendererLogger('contacts/agent-look').warn({ agentId: id, error: String(err) }, 'storing a newborn agent look failed')
-        }
-      }
-    })()
-    // ownedAgents 每次渲染都是新数组;真正决定要不要再定一轮的是「还有谁没形象」这串 id。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [looklessOwnedAgents, contactsStatus, applyAgentProfileUpdate])
 
   /** 删掉一个联系人 / 自家 agent 之后(云端已确认):本地先拿掉它,再按权威数据重读。 */
   const dropContactAndReload = useCallback(

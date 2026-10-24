@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { onActivitySignal } from '../activity/signals';
 
 /**
  * A failed upgrade must leave the extension the user already had.
@@ -48,6 +49,7 @@ function manifest(patch: Record<string, unknown> = {}): Record<string, unknown> 
     name: 'Demo',
     version: '1.0.0',
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
     ...patch,
@@ -87,7 +89,12 @@ describe('ExtensionsService install rollback', () => {
     renameCalls = 0;
     failRenameAtCall = 2;
 
-    expect(() => installConsented(service, upgrade)).toThrowError(/simulated rename failure/);
+    const activity: string[] = [];
+    const off = onActivitySignal(event => activity.push(event.kind));
+    try {
+      expect(() => installConsented(service, upgrade)).toThrowError(/simulated rename failure/);
+      expect(activity).toEqual([]);
+    } finally { off(); }
 
     // The upgrade did not happen; losing the working extension would be worse
     // than the upgrade not happening, so the old bundle is put back.

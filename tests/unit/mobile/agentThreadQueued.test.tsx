@@ -5,7 +5,8 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import { createReactHarness } from '../../support/testHarness'
+import { createReactHarness, deferred } from '../../support/testHarness'
+import { readComposer, writeComposer } from '../../support/composerEditor'
 
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class SessionpageRpcError extends Error {},
@@ -53,7 +54,7 @@ afterEach(() => {
   Element.prototype.scrollTo = scrollTo
 })
 
-async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[]) {
+async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: string }[], onSend: (text: string) => Promise<void> = async () => undefined, onStop: () => void = () => undefined, stopping = false) {
   await harness.render(
     <AgentThread
       timeline={{ ...emptyAgentWatchTimeline(), turns, queuedPrompts }}
@@ -62,12 +63,12 @@ async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: 
       sessionRuntime="acp"
       respondingItemId={null}
       onRespond={() => undefined}
-      onSend={async () => undefined}
+      onSend={onSend}
       pendingSends={[]}
       sending={false}
       agentWorking
-      onStop={() => undefined}
-      stopping={false}
+      onStop={onStop}
+      stopping={stopping}
       onLoadOlder={async () => undefined}
     />,
   )
@@ -77,6 +78,43 @@ async function show(turns: TranscriptTurn[], queuedPrompts: { id: string; text: 
 const userBubbles = () => [...harness.container.querySelectorAll('[data-role="user"]')].map((el) => el.textContent ?? '')
 
 describe('手机任务页的排队提示', () => {
+  it('keeps the phone Enter key for writing and sends through the explicit send control', async () => {
+    const onSend = vi.fn(async () => undefined)
+    await show(running, [], onSend)
+    const input = harness.container.querySelector<HTMLElement>('[data-testid="prompt-editor"]')!
+    await act(async () => { writeComposer(input, '下一步\n请继续') })
+    expect(input.getAttribute('enterkeyhint')).toBe('enter')
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })) })
+    expect(onSend).not.toHaveBeenCalled()
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-slot="composer-actions-end"] > button')!.click() })
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('下一步\n请继续')
+  })
+
+  it.each([false, true])('restores a rejected reply without overwriting newer typing=%s', async (typedAgain) => {
+    const pending = deferred<void>()
+    await show(running, [], () => pending.promise)
+    const input = harness.container.querySelector('[data-testid="prompt-editor"]')!
+    await act(async () => { writeComposer(input, 'original reply') })
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('[data-slot="composer-actions-end"] > button')!.click() })
+    expect(readComposer(input)).toBe('')
+    if (typedAgain) await act(async () => { writeComposer(input, 'new reply') })
+    await act(async () => { pending.reject(new Error('host unreachable')); await pending.promise.catch(() => {}) })
+    expect(readComposer(input)).toBe(typedAgain ? 'new reply' : 'original reply')
+  })
+
+  it('uses the shared stop control and disables another stop while one is pending', async () => {
+    const onStop = vi.fn()
+    const onSend = vi.fn(async () => undefined)
+    await show(running, [], onSend, onStop)
+    const stop = () => harness.container.querySelector<HTMLButtonElement>('[data-composer-action="stop"]')!
+    await act(async () => { stop().click() })
+    expect(onStop).toHaveBeenCalledOnce()
+    await show(running, [], onSend, onStop, true)
+    expect(stop().disabled).toBe(true)
+    await act(async () => { stop().click() })
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+
   it('那台机器上排着的那句画在时间线末尾:重新进页时拿到的就是这一份', async () => {
     await show(running, [{ id: 'qp-1', text: QUEUED }])
     expect(userBubbles().filter((text) => text.includes(QUEUED))).toHaveLength(1)

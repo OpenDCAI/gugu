@@ -21,7 +21,8 @@ const STRINGS = {
     folder: '文件夹',
     title: '{folder}',
     filter: '按文件名筛选',
-    newDoc: '新建',
+    new: '新建',
+    newDoc: '新建文档',
     newName: '新文档.md',
     newFolder: '新建文件夹',
     newFolderName: '新建文件夹',
@@ -81,7 +82,6 @@ const STRINGS = {
     upload: '上传',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
-    columns: ['名称', '创建者', '改动', '类型'],
     createdBy: '{who} 创建于{time}',
     agent: 'Agent',
     system: '系统',
@@ -94,7 +94,8 @@ const STRINGS = {
     folder: 'Folder',
     title: '{folder}',
     filter: 'Filter by name',
-    newDoc: 'New',
+    new: 'New',
+    newDoc: 'New document',
     newName: 'Untitled.md',
     newFolder: 'New folder',
     newFolderName: 'New folder',
@@ -154,7 +155,6 @@ const STRINGS = {
     upload: 'Upload',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
-    columns: ['Name', 'Created by', 'Changed', 'Type'],
     createdBy: 'Created by {who} {time}',
     agent: 'agent',
     system: 'System',
@@ -193,8 +193,7 @@ function isZh(locale) {
   return String(locale || '').toLowerCase().startsWith('zh')
 }
 
-// owner 10-11: a group's folder is 群文件夹, a private chat's 文件夹, and a topic goes by the chat it grew out of — which is
-// what ctx.chat.groupId says (set for a group and a topic of one, null otherwise).
+// The shared slot is bound to the source group or private chat; topics use that same folder.
 function stringsFor(locale, chat) {
   const strings = isZh(locale) ? STRINGS.zh : STRINGS.en
   const folder = chat?.groupId ? strings.groupFolder : strings.folder
@@ -265,20 +264,19 @@ async function applyContext(ctx) {
 
 function renderChrome() {
   const t = state.t
-  document.title = t.title
+  const title = state.ctx?.file?.id && state.ctx.file.id === state.shown?.id ? state.shown.name : t.title
+  document.title = title
   // The slot's header says this App's name in the person's language (it would show the manifest's 文件夹 otherwise).
-  if (state.titled !== t.title) {
-    state.titled = t.title
-    Promise.resolve(gugu.setTabTitle(t.title)).catch(() => {})
+  if (state.titled !== title) {
+    state.titled = title
+    Promise.resolve(gugu.setTabTitle(title)).catch(() => {})
   }
   $('filter').placeholder = t.filter
-  $('new-doc').textContent = t.newDoc
+  $('new-label').textContent = t.new
   $('new-doc').hidden = !canWrite()
-  $('new-folder').textContent = t.newFolder
-  $('new-folder').hidden = !canWrite()
   $('move-cancel').textContent = t.cancel
   $('conflicts-done').textContent = t.done
-  $('upload').textContent = t.upload
+  $('upload-label').textContent = $('empty-upload').textContent = t.upload
   $('upload').hidden = !canWrite()
   $('download').textContent = t.download
   $('open-with').textContent = t.openWith
@@ -402,8 +400,7 @@ function inOrder(a, b) {
 }
 
 // One list, one scroll: the folder on screen (子文件夹) — or, while filtering, every file whose name matches, wherever it
-// is. Each row says who made it and when it last changed. When the pane is wide the rows are a table under the column
-// names (style.css, a container query); narrow, the names are not drawn.
+// is. The same two-line rows say who made each file and when it last changed at every width.
 function renderList() {
   // A name being typed (改名, a new folder's name) is not drawn over — a change heard meanwhile is in state.entries, and
   // the list is drawn when the name is done (finish → refreshList).
@@ -418,15 +415,12 @@ function renderList() {
   const shown = (needle ? state.entries : inside(state.folder))
     .filter((e) => !needle || e.name.toLocaleLowerCase().includes(needle) || shownName(e).toLocaleLowerCase().includes(needle))
     .sort(inOrder)
-  const head = document.createElement('li')
-  head.className = 'list-head'
-  head.setAttribute('aria-hidden', 'true')
-  head.append(...t.columns.map((column) => Object.assign(document.createElement('span'), { textContent: column })))
-  list.replaceChildren(...(shown.length ? [head, ...shown.map(listItem)] : []))
+  list.replaceChildren(...shown.map(listItem))
   // A row's menu goes with its row (the list is drawn anew when the workspace changes).
   if (state.menuAnchor && !state.menuAnchor.isConnected) closeMenu()
   empty.hidden = shown.length > 0
-  empty.textContent = state.listError ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : state.folder ? t.folderEmpty : t.noFiles)
+  $('files-empty-message').textContent = state.listError ?? (needle ? fmt(t.noMatch, { q: state.filter.trim() }) : state.folder ? t.folderEmpty : t.noFiles)
+  $('empty-upload').hidden = !canWrite() || !!needle || !!state.listError
 }
 
 // The way up and each folder from the top (子文件夹): a press goes there, a dropped file moves there. Not drawn at the top.
@@ -443,7 +437,7 @@ function renderCrumbs() {
   const up = document.createElement('button')
   up.type = 'button'
   up.className = 'back'
-  up.innerHTML = '<svg class="back-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>'
+  up.innerHTML = '<gugu-icon name="chevron-left"></gugu-icon>'
   up.append(Object.assign(document.createElement('span'), { textContent: t.up }))
   up.onclick = () => enterFolder(trail.length > 1 ? trail[trail.length - 2].id : null)
   const crumb = (text, folderId, current) => {
@@ -531,7 +525,7 @@ function showMoveDialog(entry) {
     button.type = 'button'
     button.className = 'move-target'
     button.style.paddingInlineStart = `${8 + row.depth * 16}px`
-    button.append(folderMark(false), Object.assign(document.createElement('span'), { textContent: row.name }))
+    button.append(folderMark(), Object.assign(document.createElement('span'), { textContent: row.name }))
     const here = (entry.parentId ?? null) === row.id
     if (here) {
       button.disabled = true
@@ -553,18 +547,11 @@ function closeMoveDialog() {
   $('move-targets').replaceChildren()
 }
 
-// A folder's mark: a plain one, or 「附件」's — a folder gugu keeps, its own colour (style.css).
-function folderMark(system) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('viewBox', '0 0 24 24')
-  svg.setAttribute('class', 'folder-mark')
-  svg.setAttribute('aria-hidden', 'true')
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', system
-    ? 'M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM10 12.5l2.5-2.5a1.8 1.8 0 0 1 2.5 2.5l-3.5 3.5a1 1 0 0 1-1.5-1.5l3-3'
-    : 'M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z')
-  svg.append(path)
-  return svg
+function folderMark() {
+  const mark = document.createElement('gugu-icon')
+  mark.className = 'file-mark'
+  mark.setAttribute('name', 'folder')
+  return mark
 }
 
 // A person or an agent by name, the system as itself (entry.createdBy, §2.4).
@@ -614,24 +601,22 @@ function listItem(entry) {
   if (folder) {
     li.dataset.folder = ''
     if (entry.systemRole) li.dataset.system = entry.systemRole
-    title.append(folderMark(!!entry.systemRole))
+    title.append(folderMark())
   } else {
     title.append(fileMark(entry))
   }
   title.append(name)
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = pathOf(entry)
-  // Who made it · when it last changed · what it is (a folder: how much is in it): the line under the name, or three
-  // columns when wide (style.css). While filtering, the folder it is in shows under its name.
+  // Who · when (folders also say how much is in them). A search includes the containing folder on this same line.
   const meta = document.createElement('span')
   meta.className = 'file-meta'
-  meta.dataset.type = folder ? fmt(t.items, { n: inside(entry.id).length }) : entry.type === 'json' ? 'JSON' : entry.contentType === 'text/markdown' ? 'Markdown' : entry.contentType
-  for (const text of [entry.createdBy && !entry.systemRole ? who(entry.createdBy) : '', relativeTime(changedAt(entry)), meta.dataset.type]) {
+  for (const text of [entry.createdBy && !entry.systemRole ? who(entry.createdBy) : '', relativeTime(changedAt(entry)), ...(folder ? [fmt(t.items, { n: inside(entry.id).length })] : [])]) {
     meta.append(Object.assign(document.createElement('span'), { textContent: text }))
   }
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
-  if (where) open.append(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
+  if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
   // Drag a row onto a folder, or onto a crumb, to move it there (desktop; 「附件」 itself stays put).
@@ -660,8 +645,8 @@ function listItem(entry) {
   }
   const more = document.createElement('button')
   more.type = 'button'
-  more.className = 'icon-btn row-more'
-  more.textContent = '⋯'
+  more.className = 'row-more'
+  more.innerHTML = '<gugu-icon name="more-horizontal"></gugu-icon>'
   more.setAttribute('aria-label', t.more)
   more.setAttribute('aria-haspopup', 'menu')
   more.onclick = () => toggleMenu(more, items)
@@ -799,7 +784,6 @@ function askAboutNames(arrived, before) {
     const act = (text, run) => {
       const button = document.createElement('button')
       button.type = 'button'
-      button.className = 'btn'
       button.textContent = text
       button.onclick = async () => {
         for (const b of actions.querySelectorAll('button')) b.disabled = true
@@ -1272,6 +1256,7 @@ function showDocMessage(message) {
 
 function showEntry(entry) {
   state.shown = entry
+  renderChrome()
   $('download').hidden = !entry
   $('open-with').hidden = !entry
   $('more').hidden = !entry
@@ -1297,7 +1282,7 @@ function renderDocInfo(entry) {
     sources.forEach((id, i) => {
       const link = document.createElement('button')
       link.type = 'button'
-      link.className = 'icon-btn source'
+      link.className = 'source'
       link.dataset.messageId = id
       link.textContent = fmt(t.source, { n: i + 1 })
       link.onclick = () =>
@@ -1340,7 +1325,7 @@ function setMode(mode) {
 function applyMode() {
   const mode = narrowPane?.matches && state.mode === 'split' ? 'preview' : state.mode
   document.body.dataset.mode = mode
-  for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-pressed', String(m === mode))
+  for (const m of ['edit', 'split', 'preview']) $(`mode-${m}`).setAttribute('aria-selected', String(m === mode))
 }
 
 // The page's one menu (#menu): a row's ⋯, and the open file's ⋯ when narrow. Under the ⋯ that opened it, above when there
@@ -1355,7 +1340,7 @@ function toggleMenu(anchor, items) {
   menu.replaceChildren(...items.map(([text, onclick, ask]) => {
     const item = document.createElement('button')
     item.type = 'button'
-    item.className = ask ? 'btn danger' : 'btn'
+    if (ask) item.className = 'destructive'
     item.setAttribute('role', 'menuitem')
     item.textContent = text
     item.onclick = () => {
@@ -1389,9 +1374,8 @@ function start() {
     state.filter = event.target.value
     renderList()
   }
-  $('new-doc').onclick = createDoc
-  $('new-folder').onclick = createFolder
-  $('upload').onclick = () => uploadFiles()
+  $('new-doc').onclick = () => toggleMenu($('new-doc'), [[state.t.newDoc, createDoc], [state.t.newFolder, createFolder]])
+  $('upload').onclick = $('empty-upload').onclick = () => uploadFiles()
   $('move-cancel').onclick = closeMoveDialog
   $('move-dialog').addEventListener('pointerdown', (event) => {
     if (event.target === $('move-dialog')) closeMoveDialog()

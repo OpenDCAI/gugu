@@ -1,3 +1,5 @@
+import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
+import type { ChatConversationAccess } from './useChatConversation'
 import type { HistoryWindow } from './chatHistoryWindow'
 import { createContext, createElement, useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { ChatItem, MessageItem, NotificationLevel } from '@gugu/core/shared/types/chat'
@@ -43,10 +45,19 @@ export type SendMessageOptions = {
   beforeDeliver?: () => Promise<void>
 }
 
+export type SendAttachmentOptions = {
+  toUserIds?: string[] | null
+  isWhisper?: boolean
+  caption?: string
+  threadRootId?: string | null
+  isThreadRoot?: boolean
+  onSent?: (file: File, index: number) => void
+}
+
 export interface ChatContextValue {
+  conversations: ChatConversationAccess
   getImRepository: () => Promise<AccountImRepository>
   subscribeAccountRevision: (events: AccountRevisionEvent | readonly AccountRevisionEvent[], listener: AccountRevisionListener) => () => void
-  subscribeChatWindow: (chatId: string, listener: (rows: MessageItem[]) => void) => () => void
   identitiesById: Readonly<Record<string, DisplayIdentity>>
   chats: ChatItem[]
   activeChatId: string | null
@@ -55,6 +66,8 @@ export interface ChatContextValue {
   loadingChats: boolean
   /** 最近一次会话列表读失败了(取消不算):列表空着时不是「没有」,是「没读到」(#2118)。 */
   chatsLoadFailed: boolean
+  /** 这个号的会话列表读成过(首读完成):之前那份空列表是「还不知道」,不是「没有」。 */
+  chatsRead: boolean
   loadingMessages: boolean
   // #7199 这条线这次没读出来(读库报错):消息列表据此说「读不到 + 重试」,❌ 空列表落成首次对话欢迎页。读成了 / 换线 = null。
   messagesError: Error | null
@@ -62,9 +75,8 @@ export interface ChatContextValue {
   hasMoreOlder: boolean
   loadingOlder: boolean
   messageWindow?: HistoryWindow
-  unreadNavigationPending?: boolean
   loadNewerMessages: () => Promise<void>
-  loadMessageAnchor: (messageId: string) => Promise<void>
+  loadMessageAnchor: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
   markMessageVisible: (message: MessageItem) => void
   returnToLatestMessages: () => Promise<void>
   // @@@recipient-read (#521) - each other member's last_read_seq, keyed by user_id; read-receipt
@@ -89,14 +101,15 @@ export interface ChatContextValue {
   // 打开/关闭话题视图：传 rootId 打开并拉取该话题消息；传 null 回到主时间线。
   openThread: (rootId: string | null) => void
   // @@@6530 列表点开有未读的会话停在最新处;unreadEntry = 这次打开时的第一条未读(「↑ N 条新消息」),jumpToUnreadEntry 跳过去。
-  openUnreadChat: (chatId: string) => Promise<void>
+  openUnreadChat: (chatId: string, alreadyOpen?: boolean) => Promise<void>
   unreadEntry?: OpenableUnreadTarget | null
-  jumpToUnreadEntry: () => Promise<void>
+  jumpToUnreadEntry: (viewport?: HTMLElement | null) => Promise<void>
   setActiveChatId: (id: string | null) => void
   // @@@threads — threadRootId 非空时这条消息发进该话题（thread_root_id），不刷主时间线。
   // 返回成功落库的消息 id（「新建话题」首条发完后用它 openThread 进入话题）；未发送返回 undefined。
   // @@@threads (#1531) — isThreadRoot：新建话题首条 INSERT 即标 root，触发器据此把 agent 回复路由进本条 thread。
   sendMessage: (content: string, opts?: SendMessageOptions) => Promise<string | undefined>
+  sendAttachments: (files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendMessageToChat: (chatId: string, content: string, opts?: SendMessageOptions) => Promise<string | undefined>
   // @@@send-outbox (#1762 洞③/#1941) — failed 消息的重试/丢弃(MessageSendStatus 直连,无 props 钻孔)
   retrySend: (messageId: string) => void
@@ -107,7 +120,7 @@ export interface ChatContextValue {
   // @@@chat-window (#504) - load the previous page of history (scroll-up); signal whether the view is
   // pinned to the tail so the realtime path knows when it may trim the window back down (忘记位置).
   loadOlderMessages: () => Promise<void>
-  setFollowingTail: (following: boolean) => void
+  setFollowingTail: (following: boolean | undefined) => void
   createGroupChat: (name: string, memberIds: string[], groupPrompt?: string | null) => Promise<string>
   clearMessages: () => Promise<void>
   removeMessage: (messageId: string) => void
@@ -130,9 +143,10 @@ export interface ChatContextValue {
 }
 
 const EMPTY_CHAT_STORE: ChatContextValue = {
+  conversations: { read: () => { throw new Error('ChatProvider conversation is unavailable') },
+    subscribe: () => () => undefined, setFollowingTail: () => undefined, actions: () => EMPTY_CHAT_STORE, errorOf: () => null },
   getImRepository: async () => { throw new Error('ChatProvider repository is unavailable') },
   subscribeAccountRevision: () => () => undefined,
-  subscribeChatWindow: () => () => undefined,
   identitiesById: {},
   chats: [],
   activeChatId: null,
@@ -140,6 +154,7 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   messages: [],
   loadingChats: false,
   chatsLoadFailed: false,
+  chatsRead: false,
   loadingMessages: false,
   messagesError: null,
   hasMoreOlder: false,
@@ -162,6 +177,7 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   jumpToUnreadEntry: async () => {},
   setActiveChatId: () => {},
   sendMessage: async () => undefined,
+  sendAttachments: async () => undefined,
   sendMessageToChat: async () => undefined,
   retrySend: () => {},
   discardSend: () => {},

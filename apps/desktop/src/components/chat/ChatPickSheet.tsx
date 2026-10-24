@@ -20,11 +20,19 @@ export interface ChatPickRow {
   hint?: ReactNode
 }
 
+/** A run of rows under a heading (「我的任务」 below the chats): searched and picked as the rows above it are. */
+export interface ChatPickSection {
+  id: string
+  title: ReactNode
+  rows: readonly ChatPickRow[]
+}
+
 interface ChatPickSheetProps {
   title: string
   onClose: () => void
   testId: string
   rows: readonly ChatPickRow[]
+  sections?: readonly ChatPickSection[]
   selected: ReadonlySet<string>
   onToggle: (id: string) => void
   query: string
@@ -36,8 +44,8 @@ interface ChatPickSheetProps {
   above?: ReactNode
   /** Above the rows while nothing is searched. */
   top?: ReactNode
-  /** The foot: how many are picked, and what the pick is for. */
-  picked: string
+  /** The foot: how many are picked (several at once; a one-row pick says nothing), and what the pick is for. */
+  picked?: string
   actionLabel: string
   onAction: () => void
   actionDisabled?: boolean
@@ -53,7 +61,52 @@ interface ChatPickSheetProps {
  */
 export function ChatPickSheet(props: ChatPickSheetProps) {
   const { t } = useTranslation('messaging')
-  const { rows, selected, query, actionDisabled = false } = props
+  const { rows, sections = [], selected, query, actionDisabled = false } = props
+  const renderRows = (list: readonly ChatPickRow[]) => list.map((row) => {
+    const isSelected = selected.has(row.id)
+    return (
+      <div
+        key={row.id}
+        data-pick-row={row.id}
+        className="gg-row"
+        data-selected={isSelected || undefined}
+        onClick={() => props.onToggle(row.id)}
+        style={{ display: 'flex', alignItems: 'center', padding: '8px 16px', cursor: 'pointer', gap: '10px' }}
+      >
+        <div
+          style={{
+            width: '18px',
+            height: '18px',
+            borderRadius: 'var(--radius-circle)',
+            border: isSelected ? '2px solid var(--accent)' : '2px solid var(--border-subtle)',
+            background: isSelected ? 'var(--accent)' : 'var(--bg-transparent)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease)',
+          }}
+        >
+          {isSelected && (
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+              <path d="M1 4l3 3 5-6" stroke="var(--surface-white)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </div>
+        <Avatar size="sm" {...row.avatar} />
+        <div className="gg-list-row-body">
+          <div className="gg-list-row-line">
+            <span style={{ fontSize: 'var(--font-body)', color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.name}
+            </span>
+            {row.badge}
+          </div>
+          {row.hint}
+        </div>
+        {row.trailing}
+      </div>
+    )
+  })
   return (
     <Sheet
       onClose={props.onClose}
@@ -85,54 +138,16 @@ export function ChatPickSheet(props: ChatPickSheetProps) {
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!query.trim() && props.top}
-        {rows.length === 0 && (
+        {rows.length === 0 && sections.every((section) => section.rows.length === 0) && (
           <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }}>{props.empty}</div>
         )}
-        {rows.map((row) => {
-          const isSelected = selected.has(row.id)
-          return (
-            <div
-              key={row.id}
-              data-pick-row={row.id}
-              className="gg-row"
-              data-selected={isSelected || undefined}
-              onClick={() => props.onToggle(row.id)}
-              style={{ display: 'flex', alignItems: 'center', padding: '8px 16px', cursor: 'pointer', gap: '10px' }}
-            >
-              <div
-                style={{
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: 'var(--radius-circle)',
-                  border: isSelected ? '2px solid var(--accent)' : '2px solid var(--border-subtle)',
-                  background: isSelected ? 'var(--accent)' : 'var(--bg-transparent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease)',
-                }}
-              >
-                {isSelected && (
-                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                    <path d="M1 4l3 3 5-6" stroke="var(--surface-white)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </div>
-              <Avatar size="sm" {...row.avatar} />
-              <div className="gg-list-row-body">
-                <div className="gg-list-row-line">
-                  <span style={{ fontSize: 'var(--font-body)', color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.name}
-                  </span>
-                  {row.badge}
-                </div>
-                {row.hint}
-              </div>
-              {row.trailing}
-            </div>
-          )
-        })}
+        {renderRows(rows)}
+        {sections.map((section) => section.rows.length > 0 && (
+          <div key={section.id} data-pick-section={section.id}>
+            <div className="px-4 pt-3 pb-1 text-[length:var(--font-caption)] font-semibold text-[var(--text-secondary)]">{section.title}</div>
+            {renderRows(section.rows)}
+          </div>
+        ))}
       </div>
 
       <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>

@@ -14,6 +14,7 @@ import { installScrollbarAutoHide } from './lib/scrollbarAutoHide'
 import { installWindowMaterialAttribute } from './lib/windowMaterial'
 import {
   hasWindowTitlebarRow,
+  rendererPlatformFor,
   titlebarActionsLane,
   windowControlsWidth,
   windowTitlebarHeight,
@@ -59,12 +60,9 @@ captureReferralFromUrl()
 // right window-control inset only where it actually draws controls. Mac keeps native traffic lights
 // (titleBarStyle:hiddenInset) reserved left via --titlebar-traffic-lights-width; Windows/Linux are
 // frameless (frame:false) and self-draw min/max/close on the right (--titlebar-controls-width). Only
-// the Electron renderer has either — the web build stays 'other' (no phantom inset). Electron's
-// renderer UA carries "Electron/x.y.z"; the OS probe mirrors the ⌘/Ctrl hint.
-const isElectronRenderer = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+// the desktop renderer has either — the web build stays 'other' (no phantom inset); see rendererPlatformFor.
 // @@@host-os 系统探针只有 `@shared/host-os` 一条;这里把它收窄成「画什么窗口外壳」。
-const osKind = detectHostOs()
-const rendererPlatform = isElectronRenderer && osKind !== 'other' ? osKind : 'other'
+const rendererPlatform = rendererPlatformFor(detectHostOs(), window.desktopWindow)
 document.documentElement.dataset.platform = rendererPlatform
 document.documentElement.style.setProperty(
   '--titlebar-controls-width',

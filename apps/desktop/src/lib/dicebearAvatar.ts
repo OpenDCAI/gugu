@@ -4,10 +4,12 @@
 import { createAvatar } from '@dicebear/core'
 import { notionists } from '@dicebear/collection'
 import { normalizeAvatarUrl, reportInvalidAvatarUrl } from '@gugu/core/shared/ui/avatarUrl'
+import { boringAgentAvatarDataUri } from './boringAgentAvatar'
+import { isAssistantAvatar } from './avatarIdentity'
 import { withoutBlend } from './notionistsBlend'
 import { agentLookPoster } from '../components/agentAvatar/posters'
 import { agentIdentity } from '../components/agentAvatar/engine/identity'
-import { parseAgentLook } from '../components/agentAvatar/look'
+import { isBuiltinAgentAvatarUrl, parseAgentLook } from '../components/agentAvatar/look'
 
 // DiceBear 标准柔和背景色板：让深色线稿头像在明/暗主题下都清晰（自带浅底，不依赖容器背景）。
 const BACKGROUND = ['b6e3f4', 'c0aede', 'd1d4f9', 'ffd5dc', 'ffdfbf']
@@ -57,21 +59,22 @@ export function displayAvatarUrl(
   avatar: string | null | undefined,
   identityKey: string | null | undefined,
   surface = 'avatar projection',
-  // 'agent':没有自定义头像时,默认脸是咕咕小鸟的静态定格(<img> 画不了会动的那只;会动的是 components/Avatar 的
-  // AgentAvatar),颜色按这只 agent 的身份层(同一只在画布里和这里同色)。真人 / 群仍是上面那张按 id 生成的脸。
+  // Agents use the same official beam SVG as Avatar; only the assistant keeps its 3D look posters.
   kind: 'human' | 'agent' = 'human',
 ): string | null {
   // 形象地址(look.ts:颜色 + 休息表情)不是一张要去加载的图:<img> 场景画这个颜色的本地定格,离线、与画布里同色。
+  const key = (identityKey ?? '').trim()
+  if (kind === 'agent' && key && !isAssistantAvatar(key)
+    && (avatar == null || isBuiltinAgentAvatarUrl(avatar))) return boringAgentAvatarDataUri(key)
   const look = parseAgentLook(normalizeAvatarUrl(avatar))
-  if (look) return agentLookPoster(look, (identityKey ?? '').trim())
+  if (look) return agentLookPoster(look)
   const custom = customAvatarUrl(avatar, surface)
   if (custom) return custom
   // 脏哨兵串已在 customAvatarUrl 里诊断过；这里必须同样拒绝生成脸，不能用一张正常的脸盖掉上游 bug。
   if (avatar != null && normalizeAvatarUrl(avatar) == null) return null
-  const key = (identityKey ?? '').trim()
   if (!key) {
     console.error(`[Avatar] missing identity key at ${surface} — a generated default face needs a stable id; display name must never seed it`)
     return null
   }
-  return kind === 'agent' ? agentLookPoster(agentIdentity(key), key) : dicebearAvatarDataUri(key)
+  return kind === 'agent' ? agentLookPoster(agentIdentity(key)) : dicebearAvatarDataUri(key)
 }

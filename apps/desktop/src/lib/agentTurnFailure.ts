@@ -7,8 +7,10 @@
 // 失败不是「运行态」的一种，是独立的会话内通知。
 
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
+import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { agentStreamKey } from './agentStreamState'
 import { i18n } from '@/i18n'
+import { displayAgentReferences } from './mentionMdast'
 
 export interface AgentTurnFailure {
   agentUserId: string
@@ -24,22 +26,29 @@ export interface AgentTurnFailure {
 export type AgentTurnFailureMap = Record<string, AgentTurnFailure>
 
 export { agentQuotaReason, type AgentQuotaReason } from '@gugu/core/shared/agentQuotaReason'
-import { agentQuotaReason, agentModelUnavailable } from '@gugu/core/shared/agentQuotaReason'
+import { agentFailureNeedsModelChoice, agentFailureReason, type AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
+
+/** A failure row's line in the viewer's language (the chat row, the quick chat, the chat-list preview, the notification). */
+export function agentFailureText(reason: AgentFailureReason): string {
+  return i18n.t(`agent.turnFailure.${reason}`, { ns: 'messaging' })
+}
+
+/** The chat list's last-message line: a failure row says its reason, anything else its stored preview. */
+export function chatPreviewText(chat: Pick<ChatItem, 'last_message_preview' | 'last_message_failure'>): string {
+  return chat.last_message_failure ? agentFailureText(chat.last_message_failure)
+    : displayAgentReferences(chat.last_message_preview ?? '', (_id, label) => `@${label}`)
+}
 
 export function agentTurnFailureNeedsModelChoice(raw: string | null | undefined): boolean {
-  const reason = agentQuotaReason(raw)
-  return (reason !== null && reason !== 'rate-limited') || agentModelUnavailable(raw)
+  return agentFailureNeedsModelChoice(agentFailureReason(raw))
 }
 
 // 人话映射：内部错误（英文/术语/堆栈）一律不透传。文案是「回合」语义——回复没完成，不是「Agent 未能启动」。
 export function agentTurnFailureUserMessage(raw: string | null | undefined): string {
   const text = (raw ?? '').trim()
-  const reason = agentQuotaReason(text)
-  if (reason) return i18n.t(`agent.turnFailure.${reason === 'exhausted' ? 'quota' : reason === 'rate-limited' ? 'rateLimited' : reason === 'weekly' ? 'weeklyQuota' : 'monthlyQuota'}`, { ns: 'messaging' })
-  if (agentModelUnavailable(text)) return i18n.t('agent.turnFailure.modelUnavailable', { ns: 'messaging' })
-  if (!text || /timeout|timed out/i.test(text)) return i18n.t('agent.turnFailure.timeout', { ns: 'messaging' })
-  if (/offline|离线|not connected|disconnected/i.test(text)) return i18n.t('agent.turnFailure.offline', { ns: 'messaging' })
-  return i18n.t('agent.turnFailure.generic', { ns: 'messaging' })
+  const reason = agentFailureReason(text)
+    ?? (!text || /timeout|timed out/i.test(text) ? 'timeout' : /offline|离线|not connected|disconnected/i.test(text) ? 'offline' : 'generic')
+  return i18n.t(`agent.turnFailure.${reason}`, { ns: 'messaging' })
 }
 
 // 纯 reducer：一条流事件如何改写失败条集合。

@@ -1,11 +1,13 @@
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { extensionIdForSession } from '@main/core/extensions/extension-session';
 import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
+import { AppModalSessions } from '@shared/extensions/app-modal';
+import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
-import type { LinkPlace } from '@main/core/extensions/extension-links';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -48,10 +50,10 @@ import type {
 import { fileSync } from '@main/core/extensions/file-sync';
 import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
-import { changedGroupFiles, type DesktopFilePage } from '@main/core/extensions/app-files';
+import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/core/extensions/app-files';
 
 /**
  * The host side of the extension bridge.
@@ -108,6 +110,7 @@ interface SurfaceBinding {
   /** Who is working this page (`getContext().operator`): the person for every page the host draws; an agent for its `app_check` page. */
   operator: ExtensionOperator;
   metrics: ExtensionSurfaceMetrics;
+  modal?: { id: string; data?: unknown };
   /**
    * The theme this page is shown in, when it is not the host's: only a page an agent works (`app_check`'s), which takes
    * its pictures in light and dark (`showAgentPageInTheme`). Null for every surface a person sees — those follow the host.
@@ -116,6 +119,21 @@ interface SurfaceBinding {
 }
 
 const bindings = new Map<number, SurfaceBinding>();
+const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
+  await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
+    log.warn('An App modal closed after its window went away', { reason: String(reason) });
+  });
+});
+
+const observedContents = new WeakSet<WebContents>();
+
+/** Pages and backgrounds share the same document boundary, even before a watch finishes registering. */
+function observeDocument(contents: WebContents): void {
+  if (observedContents.has(contents)) return;
+  observedContents.add(contents);
+  contents.on('did-navigate', () => newDocument(contents.id));
+  contents.once('destroyed', () => unbindExtensionSurface(contents.id));
+}
 
 /**
  * Who calls (真源原则 13: where a page is only fills its context): one of the App's pages, its background page, or its
@@ -130,7 +148,7 @@ export interface BridgeCaller {
   /** Its id with the file relay: a page's webContents id, a program's own (negative). */
   pageId: number;
   /** As the files code sees this call: which file it may open without a capability (`ctx.file`; a program's, handed). */
-  filePage(args: Record<string, unknown>): DesktopFilePage;
+  filePage(args: Record<string, unknown>, resource?: boolean): DesktopFilePage;
   /** Where its events go (`filesChanged`). */
   hear(event: ExtensionHostEvent): void;
   /**
@@ -205,7 +223,7 @@ async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, 
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {
-      page.shown.push({ verb, detail: `gugu-file://${found.target.itemId}` });
+      page.shown.push({ verb, detail: groupFileLink(found.target.itemId) });
       return;
     }
   }
@@ -280,6 +298,8 @@ function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Pro
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  void appModals.pageGone(webContentsId);
+  stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
   if (!binding) return;
   void sayAboutPage(binding, { kind: 'newDocument' }).catch((error: unknown) => {
@@ -330,10 +350,17 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
 
 /**
  * Where each caller asked to hear that files changed (`files.onChanged(place, fn)`, `filesWatch`) — a page, the
- * background page, a program — by `placeKey`: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
+ * background page, a program — by subscription: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
-const pageWatches = new Map<number, { caller: BridgeCaller; places: Map<string, { place: AppPlace; disk: WorkspaceWatch | null }> }>();
+const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
+
+/** The map itself is the document's identity; navigation removes it before a later document can subscribe. */
+function fileWatchesFor(pageId: number) {
+  let watching = pageWatches.get(pageId);
+  if (!watching) pageWatches.set(pageId, watching = new Map());
+  return watching;
+}
 
 /** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
 const forumWatches = new Map<number, Map<string, () => void>>();
@@ -360,39 +387,38 @@ export function stopPageWatches(pageId: number): void {
   for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
   forumWatches.delete(pageId);
   const watching = pageWatches.get(pageId);
-  for (const watch of watching?.places.values() ?? []) watch.disk?.stop();
+  for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
-  for (const { place } of watching?.places.values() ?? []) forgetUnheard(place, watching!.caller);
+  for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): Promise<void> {
-  const key = placeKey(place);
-  const watching = pageWatches.get(caller.pageId);
-  const existing = watching?.places.get(key);
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
+  let watching = pageWatches.get(caller.pageId);
+  const existing = watching?.get(watchId);
   if (!on) {
     existing?.disk?.stop();
-    watching?.places.delete(key);
-    if (existing) forgetUnheard(existing.place, caller);
+    watching?.delete(watchId);
+    if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (existing) return;
+  watching = fileWatchesFor(caller.pageId);
+  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  if (pageWatches.get(caller.pageId) !== watching) return;
+  asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
+  if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
+    const { workspaceRoot } = await localRootOf(place);
+    if (pageWatches.get(caller.pageId) !== watching) return;
     disk = watchWorkspaceForSurface({
       extensionId: caller.extensionId,
-      workspaceRoot: (await localRootOf(place)).workspaceRoot,
-      deliver: (change) => caller.hear({ type: 'filesChanged', place, change }),
+      workspaceRoot,
+      deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
     });
   }
-  if (!watching) {
-    pageWatches.set(caller.pageId, { caller, places: new Map([[key, { place, disk }]]) });
-    // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
-    if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
-    return;
-  }
-  watching.places.set(key, { place, disk });
+  watching.set(watchId, { caller, place, resource, disk });
 }
 
 /**
@@ -486,6 +512,7 @@ export async function bindExtensionSurface(input: {
   itemId?: string;
   /** Who works it: the person unless main binds it for an agent (`app_check`); never the renderer's to say. */
   operator?: ExtensionOperator;
+  modal?: { id: string; data?: unknown };
 }): Promise<void> {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents) throw new Error(`No such webContents: ${input.webContentsId}`);
@@ -511,8 +538,9 @@ export async function bindExtensionSurface(input: {
   const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
+  const chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: input.operator?.kind === 'agent' ? input.operator.id.replace(/^user:/, '') : null }) : null;
   const previous = bindings.get(input.webContentsId);
-  if (previous && (previous.chatId !== (input.chatId ?? null) || previous.itemId !== (input.itemId ?? null))) {
+  if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   bindings.set(input.webContentsId, {
@@ -522,10 +550,11 @@ export async function bindExtensionSurface(input: {
     tabName,
     filePath,
     projectId,
-    chatId: input.chatId ?? null,
+    chatId,
     itemId: input.itemId ?? null,
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
+    ...(input.modal ? { modal: input.modal } : {}),
     // Zero until the pane reports its box. Stated rather than guessed: a made-up
     // size would be indistinguishable from a measured one.
     metrics: { visible: true, width: 0, height: 0 },
@@ -540,9 +569,7 @@ export async function bindExtensionSurface(input: {
       log.warn('[extensions] a page\'s session was found on no machine; it hears no machine\'s program', { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
-  contents.once('destroyed', () => unbindExtensionSurface(input.webContentsId));
-  // Bound again (a task's tab binds at every dom-ready): it already listens.
-  if (!previous) contents.on('did-navigate', () => newDocument(input.webContentsId));
+  observeDocument(contents);
   // 在这条线上等着的那些调用,现在可以往下走了。
   resolveBindingWaiters(input.webContentsId);
   flushQueuedSurfaceEvents(input.webContentsId, bindings.get(input.webContentsId)!);
@@ -594,7 +621,8 @@ function flushQueuedSurfaceEvents(webContentsId: number, binding: SurfaceBinding
   for (let i = 0; i < queuedSurfaceEvents.length; ) {
     const queued = queuedSurfaceEvents[i]!;
     const mine = queued.extensionId === binding.extensionId && queued.where === where
-      && (queued.item === null ? !itemsOnly : queued.item === fileOf(binding));
+      && (queued.event.type !== 'link' || queued.event.tab === binding.tabName)
+      && (queued.item === null ? !itemsOnly && (queued.event.type !== 'link' || queued.event.file !== null || fileOf(binding) === null) : queued.item === fileOf(binding));
     if (queued.expiresAt < now || mine) {
       queuedSurfaceEvents.splice(i, 1);
       if (queued.expiresAt >= now) due.push(queued.event);
@@ -631,6 +659,7 @@ export function deliverToExtension(
     const where = whereKey(opened);
     for (const [webContentsId, binding] of bindings) {
       if (binding.extensionId !== extensionId || whereOf(binding) !== where) continue;
+      if (event.type === 'link' && (event.tab !== binding.tabName || (event.file === null && fileOf(binding) !== null))) continue;
       const contents = webContents.fromId(webContentsId);
       if (!contents || contents.isDestroyed()) continue;
       sendEvent(contents, event);
@@ -721,7 +750,7 @@ export async function retargetExtensionSurface(input: {
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.projectId = null;
-  binding.chatId = input.chatId ?? null;
+  binding.chatId = input.chatId ? await resourceChatOf(input.chatId, { asAgent: binding.operator.kind === 'agent' ? binding.operator.id.replace(/^user:/, '') : null }) : null;
   binding.itemId = input.itemId ?? null;
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
@@ -729,6 +758,7 @@ export async function retargetExtensionSurface(input: {
 }
 
 export function unbindExtensionSurface(webContentsId: number): void {
+  void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
   agentPages.delete(webContentsId);
   // Its open files rested on the binding — but only a page that lives on (uninstall, disable) loses
@@ -773,17 +803,30 @@ function asCallingAgent(caller: BridgeCaller, page: DesktopFilePage, args: Recor
   throw Object.assign(new Error('An agent\'s call works as that agent: hand it the file (a "gugu-file" parameter) or its chat ("gugu-chat")'), { code: 'denied' });
 }
 
+/** File scope compares resource containers; message scope still compares the handed discussion addresses. */
+async function resourcePage(caller: BridgeCaller, args: Record<string, unknown>): Promise<DesktopFilePage> {
+  const ref = args.ref === undefined ? null : fileRefOf(args.ref);
+  const place = args.place === undefined ? null : placeOf(args.place);
+  const named = ref ?? place;
+  if (!named || !('chat' in named) || named.chat === undefined) return caller.filePage(args, true);
+  const actor = caller.callingAgent ?? caller.filePage(args, true).asAgent ?? null;
+  const chat = await resourceChatOf(named.chat, { asAgent: actor });
+  return caller.filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, true);
+}
+
 /** Who reads a chat's files for a caller: the person, or the agent its page works as (`*_as`). */
-const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }).asAgent ?? null;
-const hearsFiles = (caller: BridgeCaller) => extensionsService().hasCapability(caller.extensionId, 'files:read');
+const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }, true).asAgent ?? null;
+const hearsFiles = (caller: BridgeCaller, chatId: string) => extensionsService().hasCapability(caller.extensionId, 'files:read')
+  && (caller.callingAgent === undefined || readerOf(caller, chatId) !== null);
 const readKey = (chatId: string, reader: string | null) => `${chatId}:${reader ?? 'person'}`;
 
 /** A chat no caller hears as `caller`'s reader any more (it stopped, or its page went): what was kept for it goes. */
 function forgetUnheard(place: AppPlace, caller: BridgeCaller): void {
   if (!('chat' in place)) return;
-  const key = placeKey(place);
   const reader = readerOf(caller, place.chat);
-  for (const { caller: other, places } of pageWatches.values()) if (places.has(key) && readerOf(other, place.chat) === reader) return;
+  for (const places of pageWatches.values()) for (const watch of places.values()) {
+    if (placeKey(watch.resource) === placeKey(place) && hearsFiles(watch.caller, place.chat) && readerOf(watch.caller, place.chat) === reader) return;
+  }
   groupReads.forget(readKey(place.chat, reader));
 }
 
@@ -803,7 +846,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
   for (const { chatId, itemIds } of changes) {
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
-    for (const { caller, places } of pageWatches.values()) if (places.has(key) && hearsFiles(caller)) readers.add(readerOf(caller, chatId));
+    for (const places of pageWatches.values()) for (const watch of places.values()) {
+      if (placeKey(watch.resource) === key && hearsFiles(watch.caller, chatId)) readers.add(readerOf(watch.caller, chatId));
+    }
     for (const reader of readers) {
       reads.push(groupReads.want(readKey(chatId, reader), itemIds, async (wanted) => {
         const change = await changedGroupFiles(chatId, reader, wanted);
@@ -816,10 +861,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
-  for (const { caller, places } of pageWatches.values()) {
-    const watched = places.get(key);
-    if (!watched || !hearsFiles(caller) || readerOf(caller, chatId) !== reader) continue;
-    caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
+  for (const places of pageWatches.values()) for (const [watchId, watched] of places) {
+    if (placeKey(watched.resource) !== key || !hearsFiles(watched.caller, chatId) || readerOf(watched.caller, chatId) !== reader) continue;
+    watched.caller.hear({ type: 'filesChanged', watchId, place: watched.place, change: { kind: 'entries', ...change } });
   }
 }
 
@@ -848,7 +892,7 @@ export function notifyInstalledAppsChanged(): Promise<void> {
     }
   }
   const chats = new Set<string>();
-  for (const { places } of pageWatches.values()) for (const { place } of places.values()) if ('chat' in place) chats.add(place.chat);
+  for (const places of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
   return notifyGroupWorkspaceChanged([...chats].map((chatId) => ({ chatId, itemIds: 'all' as const })));
 }
 
@@ -1045,6 +1089,7 @@ function contextFor(binding: SurfaceBinding, session: ExtensionSession | undefin
   return {
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
+    ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, members: drawnIn.members } } : {}),
     ...(session ? { session } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
@@ -1418,6 +1463,30 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'modalOpen': {
+      const source = thePage(caller);
+      const modal = appModals.open(caller.pageId, { ...source }, args);
+      try {
+        const installed = extensionsService().get(extensionId);
+        if (!fs.statSync(path.join(installed.rootDir, modal.options.entry), { throwIfNoEntry: false })?.isFile()) throw new Error(`App modal page not found: ${modal.options.entry}`);
+        await deliver(source, { kind: 'openAppModal', page: {
+          id: modal.id, extensionId, appName: installed.manifest.name,
+          title: modal.options.title, size: modal.options.size,
+          partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry),
+        } });
+      } catch (error) {
+        await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+      }
+      return await appModals.result(modal);
+    }
+    case 'modalClose':
+      return await appModals.close(appModals.forPage(caller.pageId).id, args.result ?? null);
+    case 'modalKey': {
+      const modal = appModals.forPage(caller.pageId);
+      if (args.key !== 'tab') throw Object.assign(new Error('Unknown modal keyboard action'), { code: 'invalid' });
+      await deliver(modal.binding, { kind: 'focusAppModalClose', id: modal.id });
+      return undefined;
+    }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
       // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
@@ -1645,16 +1714,26 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'compose': {
       // Whose composer the call names (真源原则 13), never the page's: a chat's (brought up by the window), or a session's
-      // — brought on screen first, as a banner's click brings it.
-      const { composeTarget } = await import('@main/core/extensions/extension-send');
-      const target = await composeTarget({ text: args.text, chat: args.chat, session: args.session, refs: args.refs, about: args.about, images: args.images });
+      // — brought on screen first, as a banner's click brings it. Naming none, the person picks one in the window's sheet
+      // (the page's own session comes ticked) and the App hears where, or that they cancelled.
+      const [{ composeTarget }, { composeNamesPlace, pickComposePlace }] = await Promise.all([
+        import('@main/core/extensions/extension-send'),
+        import('@shared/extensions/app-send-core'),
+      ]);
+      const page = thePage(caller);
+      const picked = composeNamesPlace(args) ? null : await pickComposePlace(args, async ({ tasks }) => {
+        const { pickComposeTarget } = await import('@main/core/extensions/extension-bridge-relay');
+        return pickComposeTarget(page.embedderId, { tasks, current: page.sessionId });
+      });
+      if (picked && 'cancelled' in picked) return picked;
+      const target = await composeTarget({ text: args.text, chat: args.chat, session: args.session, refs: args.refs, about: args.about, images: args.images, ...picked });
       if ('session' in target) {
         await bringSessionUp({ sessionId: target.session.id, projectId: target.session.projectId });
-        await deliver(thePage(caller), { kind: 'compose', sessionId: target.session.id, text: target.text });
-        return undefined;
+        await deliver(page, { kind: 'compose', sessionId: target.session.id, text: target.text });
+      } else {
+        await deliver(page, { kind: 'compose', detail: target });
       }
-      await deliver(thePage(caller), { kind: 'compose', detail: target });
-      return undefined;
+      return picked ?? undefined;
     }
 
     case 'notify': {
@@ -1664,19 +1743,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'linkTo': {
-      const { extensionLink } = await import('@main/core/extensions/extension-links');
-      const tab = typeof args.tab === 'string' ? args.tab : undefined;
-      const named = (value: unknown) => value !== undefined && value !== null;
-      // Where it opens, as the call names it: a session's tab, the App in a chat's panel, or its own page.
-      if (named(args.chat) && named(args.session)) throw Object.assign(new Error('A link opens in one place: { chat } or { session }'), { code: 'invalid' });
-      const place = named(args.chat) || named(args.session) ? (placeOf(named(args.chat) ? { chat: args.chat } : { session: args.session }) as LinkPlace) : null;
-      return extensionLink({
-        extensionId,
-        ...(tab ? { tab } : {}),
-        path: typeof args.path === 'string' ? args.path : '',
-        query: (args.query ?? {}) as Record<string, unknown>,
-        place,
-      });
+      const { linkTo } = await import('./gugu-links');
+      const { linkTargetOf } = await import('@gugu/core/shared/ui/guguLink');
+      return linkTo(linkTargetOf(args, extensionsService().get(extensionId).manifest), args.external === true);
     }
 
     case 'filesOpen':
@@ -1696,7 +1765,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
-      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, caller.filePage(args), args);
+      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await resourcePage(caller, args), args);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1717,13 +1786,13 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'filesWatch':
-      if (args.on !== false) asCallingAgent(caller, caller.filePage(args), args);
-      await watchFiles(caller, placeOf(args.place), args.on !== false);
+      if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false);
       return undefined;
 
     case 'filesUpload': {
       const files = await import('@main/core/extensions/app-files');
-      const page = asCallingAgent(caller, caller.filePage(args), args);
+      const page = asCallingAgent(caller, await resourcePage(caller, args), args);
       const place = placeOf(args.place);
       // `pick` only ever arrives from the preload's gesture-checked path — a page's: a background page or a program
       // uploads bytes it has (G5), it never opens the person's picker.
@@ -1747,7 +1816,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'showMessage': {
       const files = await import('@main/core/extensions/app-files');
       const shown = thePage(caller);
-      const page = caller.filePage(args);
+      const page = method === 'showMessage' ? caller.filePage(args) : await resourcePage(caller, args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
@@ -1792,16 +1861,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'openLink': {
-      // The gesture was checked in the preload. Only a link of gugu's own, by its structure (scheme, `ext`, an App, one
-      // of its tabs) — and then the very opener a link from outside gugu goes through.
-      const { currentLinkScheme, openExtensionLink, parseExtensionLink } = await import('@main/core/extensions/extension-links');
-      const url = typeof args.url === 'string' ? args.url : '';
-      if (!parseExtensionLink(url, currentLinkScheme())) {
-        throw Object.assign(new Error('Only links of gugu\'s own (gugu.linkTo) open from a page; open others with gugu.openBrowserTab(url).'), { code: 'invalid' });
-      }
-      const outcome = await openExtensionLink(url);
-      if (outcome.kind === 'failed') {
-        throw Object.assign(new Error(`That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}`), { code: 'failed' });
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink(typeof args.url === 'string' ? args.url : '');
+      if (outcome.kind !== 'opened') {
+        throw Object.assign(new Error(outcome.kind === 'failed' ? `That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}` : 'Only gugu resource links open here; use gugu.openBrowserTab for a web page.'), { code: outcome.kind === 'failed' ? 'failed' : 'invalid' });
       }
       return undefined;
     }
@@ -1857,11 +1920,61 @@ export function registerExtensionBridge(): void {
       const method = typeof request.method === 'string' ? request.method : '';
       const args = (request.args ?? {}) as Record<string, unknown>;
 
+      // Shell controls share the App request channel, restricted to the recorded owning window.
+      if (method === 'modalHost') {
+        try {
+          const modal = appModals.get(String(args.id ?? ''));
+          if (event.sender.id !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
+          switch (args.type) {
+            case 'bind': {
+              if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
+              const source = modal.binding;
+              const child = webContents.fromId(args.webContentsId);
+              if (!bindings.has(modal.opener) || !child || child.hostWebContents?.id !== source.embedderId) {
+                throw new Error('The App modal and its opener must be in the same window');
+              }
+              appModals.bind(modal.id, args.webContentsId);
+              try {
+                await bindExtensionSurface({
+                  webContentsId: args.webContentsId, extensionId: source.extensionId,
+                  tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
+                  ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+                  ...(source.chatId ? { chatId: source.chatId } : {}),
+                  ...(source.itemId ? { itemId: source.itemId } : {}),
+                  ...(source.filePath ? { filePath: source.filePath } : {}),
+                  ...(source.projectId ? { projectId: source.projectId } : {}),
+                  operator: source.operator, modal: { id: modal.id, data: modal.options.data },
+                });
+              } catch (error) {
+                await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+                throw error;
+              }
+              break;
+            }
+            case 'dismiss':
+              await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
+              break;
+            case 'focus':
+              if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
+              if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
+              break;
+            default: throw new Error('Unknown modal host action');
+          }
+          return { ok: true, value: undefined };
+        } catch (error) { return failure('host', 'modalHost', error); }
+      }
+
       // Identity from the session the call arrived on. Everything else in the
       // payload is data an untrusted page chose.
       const extensionId = extensionIdForSession(event.sender.session);
       if (!extensionId) {
         return denied('This surface is not an App surface');
+      }
+      // A runtime may subscribe before its host binds it. Capture its document before that first wait too.
+      const documentWatches = method === 'filesWatch' ? fileWatchesFor(event.sender.id) : null;
+      if (documentWatches) {
+        const contents = webContents.fromId(event.sender.id);
+        if (contents) observeDocument(contents);
       }
 
       // 后台实例没有绑定,也不该有 —— 它不是一格面,没有会话、没有 tab、没有布局。身份仍旧由 session 认
@@ -1872,6 +1985,7 @@ export function registerExtensionBridge(): void {
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
       if (!bindings.has(event.sender.id)) await waitForBinding(event.sender.id);
+      if (documentWatches && pageWatches.get(event.sender.id) !== documentWatches) return { ok: true, value: undefined };
       const binding = bindings.get(event.sender.id);
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };

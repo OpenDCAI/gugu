@@ -64,7 +64,7 @@ const portsHandedOver = () => posted.mock.calls.filter(([message, , transfer]) =
 describe('a page the App moves to in its own frame on the phone gets a sync port of its own', () => {
   it('shelf → reader: the reader opens the live file and its port is handed over (the first load came before the host listened)', async () => {
     // The shelf's document loaded before the host listened: no `load` is seen for it.
-    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
+    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', tabName: 'shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
       showMessage: vi.fn(),
       showSession: () => ({ shown: true }),
       openWith: vi.fn(),
@@ -82,7 +82,7 @@ describe('a page the App moves to in its own frame on the phone gets a sync port
   })
 
   it('control: within one document a second open uses the port it has — none is handed over again', async () => {
-    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
+    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', tabName: 'shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
       showMessage: vi.fn(),
       showSession: () => ({ shown: true }),
       openWith: vi.fn(),

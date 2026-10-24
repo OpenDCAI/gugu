@@ -5,7 +5,10 @@
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
+import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
+
+vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
@@ -17,7 +20,6 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
     searchMode: false,
     workspacePanelOpen: false,
     memberListOpen: false,
-    historyPanelOpen: false,
     showHeaderMenu: false,
     moreButtonRef: createRef<HTMLButtonElement>(),
     onEnterSearchMode: vi.fn(),
@@ -26,8 +28,6 @@ const header = (props: { isGroupChat: boolean; isRoomChat: boolean; mobile: bool
     onOpenSettingsDrawer: vi.fn(),
     onOpenMemberList: vi.fn(),
     onCloseRightSurfaces: vi.fn(),
-    onOpenHistoryPanel: vi.fn(),
-    onCloseHistoryPanel: vi.fn(),
     onToggleHeaderMenu: vi.fn(),
     onCloseHeaderMenu: vi.fn(),
     onOpenAnnouncement: vi.fn(),
@@ -40,7 +40,15 @@ describe('a private chat has the folder (workspace) button in its header', () =>
     await header({ isGroupChat: false, isRoomChat: false, mobile }, onOpen)
     expect(workspaceButton()).not.toBeNull()
     expect(workspaceButton()!.getAttribute('aria-label'), 'owner 10-11: a private chat\'s is 文件夹').toBe('文件夹')
-    await clickElement(workspaceButton()!)
+    const asks: unknown[] = []
+    const receive = (event: Event) => asks.push((event as CustomEvent).detail)
+    window.addEventListener(UI_EVENTS.openApp, receive)
+    try {
+      await clickElement(workspaceButton()!)
+    } finally {
+      window.removeEventListener(UI_EVENTS.openApp, receive)
+    }
+    expect(asks).toEqual([{ extensionId: 'workspace', chatId: 'c' }])
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 

@@ -134,6 +134,36 @@ describe('#7191 agent 存成文件的截图、快照落在会话的工作目录'
 })
 
 describe('#7191 会话结束时还在开页签的那一次', () => {
+  it('turn cancellation closes its pending connection; the next message reconnects without a browser resume action', async () => {
+    let finishOpening!: (transport: { close(): void }) => void
+    let openSignal: AbortSignal | undefined
+    const transport = { close: vi.fn() }
+    const bridge = { openTransport: vi.fn((_id: string, signal?: AbortSignal) => {
+      openSignal = signal
+      return new Promise<{ close(): void }>(resolve => { finishOpening = resolve })
+    }), toolStarting: () => ({ ok: true as const }), toolFinished: vi.fn(), setInitialUrl: vi.fn(), workspaceRoot: async () => null }
+    const provider = createBrowserAppProgram(() => bridge)
+    const program = { extensionId: 'browser-cancel', server: 'browser-use', native: 'browser-use' as const,
+      digest: 'd', command: 'Gugu Browser Use', args: [], env: {}, cwd: '/tmp', dataDir: '/tmp' }
+    const id = randomUUID()
+    const stoppedTurn = new AbortController()
+    try {
+      const pending = provider.call(program, { name: 'browser_snapshot', _meta: { 'gugu/sessionId': id } }, stoppedTurn.signal)
+      await vi.waitFor(() => expect(openSignal).toBeDefined())
+      stoppedTurn.abort()
+      expect(await pending).toMatchObject({ isError: true })
+      expect(openSignal?.aborted).toBe(true)
+      finishOpening(transport)
+      await vi.waitFor(() => expect(transport.close).toHaveBeenCalledTimes(1))
+      bridge.openTransport.mockImplementationOnce(async () => { throw new Error('next message acquired the same page') })
+      const next = await provider.call(program, { name: 'browser_snapshot', _meta: { 'gugu/sessionId': id } }, new AbortController().signal)
+      expect(next).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('next message acquired the same page') }] })
+      expect(bridge.openTransport).toHaveBeenCalledTimes(2)
+    } finally {
+      await provider.retire('browser-cancel')
+    }
+  })
+
   it('作罢:开页签的那一步收到中止,开好的连接当场关掉,❌ 半截连上的一份留在页签上', async () => {
     let finishOpening!: (transport: { close(): void }) => void
     let openSignal: AbortSignal | undefined

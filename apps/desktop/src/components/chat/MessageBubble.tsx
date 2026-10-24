@@ -9,16 +9,19 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { MessageMetaRow } from './MessageMetaRow'
 import { useMentionRender } from './useMentionRender'
 import { formatVoiceDuration, parseVoiceAttachmentContent } from '@gugu/core/shared/ui/voiceAttachmentModels'
-import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'; import { reactionLabel } from '@gugu/core/shared/ui/reactionCatalog'; import { i18n } from '../../i18n/runtime'; import type { MessageItem, MessageSendState, ReactionGroup } from '@gugu/core/shared/types/chat'
 import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'
-import { Markdown } from '../markdown/Markdown'; import { chatLinks } from '../markdown/fileLinks'
+import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
+import { ComposerCardView } from './ComposerCardView'
+import { QuestionCardView } from './QuestionCardView'
+import { MessageQuote } from './MessageQuote'
+import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
 const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
@@ -186,7 +189,7 @@ interface BubbleProps {
   // @@@1313 点开已读名单（谁读谁没读）：稳定回调，父层（持 roster+profiles）弹名单，避免把 reader 列表作对象 prop 传进破 memo。
   onShowReadReceipt?: (messageId: string, anchor: HTMLElement) => void
   highlight?: string
-  onQuote: (msg: MessageItem) => void
+  onQuote: (msg: MessageItem) => void; onShowMessage?: (id: string) => void
   onForward: (msg: MessageItem) => void
   onDelete: (messageId: string) => void
   isAgent?: boolean; hideAvatar?: boolean; streaming?: boolean // Live IM text shares the settled bubble's layout.
@@ -226,7 +229,7 @@ export const MessageBubble = memo(function MessageBubble({
   readReceiptTotal,
   onShowReadReceipt,
   highlight,
-  onQuote,
+  onQuote, onShowMessage,
   onForward,
   onDelete,
   isAgent = false, hideAvatar = false, streaming = false,
@@ -327,7 +330,9 @@ export const MessageBubble = memo(function MessageBubble({
   // @@@2017 owner 终版 — 路由真源 → 高亮名单(backedNames)+ 兜底徽标名单(fallbackLabels),单重显示(见 hook)。
   const mentionRender = useMentionRender(msg, isGroup, memberProfiles)
 
-  const bubbleStyle = buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
+  // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡。
+  const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
+  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
@@ -473,8 +478,9 @@ export const MessageBubble = memo(function MessageBubble({
               @@@1460 与 MessageStatus 互斥：传输瞬态(sending/failed)只显 MessageStatus 小图标、不显环;
               有已读进度时只显环(MessageStatus 已 return null)→ 永远单一指示,无新老双勾。
               showReadReceipt：每条本人消息各自挂环（#2098 owner 要逐条，撤 #1779 只挂末条的降噪）。
-              read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。 */}
-          {showReadReceipt && msg.is_mine && !msg.retracted_at && sendState !== 'sending' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
+              read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。
+              任务卡不挂环:它是交给一个 agent 的事件(gugu-dev#181),接没接、做到哪看卡行尾的状态,❌ 再问谁读了。 */}
+          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
             <button
               type="button"
               data-testid="message-read-receipt"
@@ -488,7 +494,7 @@ export const MessageBubble = memo(function MessageBubble({
                 alignItems: 'center',
                 cursor: onShowReadReceipt ? 'pointer' : 'default',
                 flexShrink: 0,
-                ...(compactMobile ? { position: 'absolute', right: '100%', bottom: -14, marginRight: -8, justifyContent: 'center', zIndex: 1 } : {}), // 44px 浮层不占气泡宽;锚在下层收成气泡宽的那一行上贴气泡左侧(原 left:-14px 锚整列,环离短气泡半屏)
+                position: 'absolute', right: '100%', bottom: compactMobile ? -14 : 0, marginRight: compactMobile ? -8 : 4, justifyContent: 'center', zIndex: 1, // 回执晚到不挤窄正文;仍锚在气泡左侧,手机保留44px点击区。
               }}
             >
               <ReadReceiptRing read={readReceiptRead} total={readReceiptTotal} />
@@ -514,23 +520,12 @@ export const MessageBubble = memo(function MessageBubble({
               <span style={{ color: 'var(--muted-fg)', fontStyle: 'italic' }}>{t('message.retracted')}</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                {msg.reply_to_message_id && (
-                  <div style={{
-                    display: 'inline-block',
-                    overflow: 'hidden',
-                    borderLeft: `3px solid ${msg.is_mine ? 'var(--bubble-quote-bar-mine)' : 'var(--bubble-quote-bar-other)'}`,
-                    paddingLeft: '7px',
-                    maxWidth: '180px',
-                  }}>
-                    <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
-                    </div>
-                    <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {msg.reply_to_content ?? ''}
-                    </div>
-                  </div>
-                )}
-                {msg.content_type === 'widget' ? (() => {
+                {msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
+                {card?.type === 'question' ? (
+                  <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
+                ) : card ? (
+                  <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} />
+                ) : msg.content_type === 'widget' ? (() => {
                   // Widget: parse JSON from msg.content, fall back to plain bubble on failure
                   let widget: Widget | null = null
                   try {
@@ -596,7 +591,7 @@ export const MessageBubble = memo(function MessageBubble({
                   // #1515 段内 Shift+Enter 软换行渲成 <br> 仅对人类手打消息;agent/LLM 内容保持 CommonMark(软换行=空格)。
                   // @@@2017 群内定向消息:渲染注入 nonce marker 后的正文(mentionRender.content),并把本次 marker 传下 →
                   // 只有被 to_user_ids 背书的 @Name 才渲成 mention;非群/whisper → content=undefined 用原始 raw、marker 空。
-                  return <Markdown trust="chat" content={mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={chatLinks(isAgent ? onOpenLocalFileLink : undefined)} />
+                  return <Markdown trust="chat" content={mentionRender.content ?? raw} onAccent={msg.is_mine} hardBreaks={!avatarIsAgent} mentionMarker={mentionRender.mentionMarker} onOpenLink={(href) => { const link = classifyFileLink(href); if (!isAgent || !onOpenLocalFileLink || link.kind !== 'workspace-file') return false; onOpenLocalFileLink(link.path); return true }} />
                 })()}
               </div>
             )}

@@ -100,7 +100,8 @@ describe('群右栏用的分栏', () => {
     // 原来是逐帧挤:消息列 480 → … → 0 → … → 480,槽位每帧一个新宽。里面是终端就是每帧一次 reflow,
     // PTY 一路收到 2 列;是网页就是每帧一次重排。
     expect(messages.seen).toEqual([HOST_WIDTH - 520]);
-    expect(slot.seen).toEqual([520, HOST_WIDTH, 520]);
+    // 旁边是聊天栏时槽位让出左缘那 1px 分隔线(App 的页按槽位的位置盖上来,不能压住线);盖满了没有线,槽位整宽。
+    expect(slot.seen).toEqual([520 - 1, HOST_WIDTH, 520 - 1]);
   });
 
   it('关上:收起动画放完以后槽位卸掉;任务页那样不要求卸的,内容留着', async () => {

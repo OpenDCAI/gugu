@@ -12,6 +12,7 @@
 // 那就是第二个属主在原地 —— #3271 的病只治了增量那一半。
 
 import type { ChatItem, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
+import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 import {
   assemble,
   assertRevision,
@@ -47,6 +48,7 @@ import { readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
 import { chatDb, identityDb } from './supabase'
+import { composerCardLine } from './composerCardCopy'
 
 const log = rendererLogger('chat/projection')
 
@@ -225,20 +227,23 @@ export function createChatProjection(viewerId: string): ChatProjection {
       // 一视同仁、一发拿回 —— 从前只对带门的会话逐会话重算(与带门会话数成正比)。
       // `is_whisper=false` 仍显式排除:RLS 会把发给我的私语放行,但它从前不进列表预览,这里不改产品行为。
       const { data, error } = await chatDb.from('messages_view')
-        .select('chat_id, created_at, preview, seq')
+        .select('id, chat_id, created_at, preview, seq, content_type, sender_user_id, client_message_id')
         .in('chat_id', [...ids]).eq('is_whisper', false)
         .order('seq', { ascending: false }).limit(ids.length * 4)
         .abortSignal(signal)
       if (error) throw new Error(error.message)
-      const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string }>
+      const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string } & Parameters<typeof turnFailureReason>[0]>
       const byChat = new Map<string, unknown>()
       for (const row of found) {
         if (byChat.has(row.chat_id)) continue
         byChat.set(row.chat_id, {
           chat_id: row.chat_id,
           created_at: String(row.created_at),
-          // 预览在库里算好(messages_view 的计算列 preview:附件给文件名、其它截 100 字),这里原样用。
-          preview: typeof row.preview === 'string' ? row.preview : null,
+          // 预览在库里算好(messages_view 的计算列 preview:附件给文件名、其它截 100 字),这里原样用;
+          // 任务卡截出来是半截 JSON,读回成一行原话(gugu-dev#181,serializeComposerCard 让原话排在前面)。
+          preview: typeof row.preview === 'string' ? composerCardLine(row.preview) : null,
+          // 最后一条是 agent 的失败行:列表按看的人的语言说它的原因(systemNotice.ts),❌ 显示那句给 agent 读的英文。
+          failure: turnFailureReason(row),
         })
       }
       return indexExact(ids, byChat)
@@ -509,7 +514,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
   return owner
 }
 
-function membershipValue(row: Record<string, unknown>): unknown {
+export function membershipValue(row: Record<string, unknown>): Record<string, unknown> {
   return {
     chat_id: String(row.chat_id),
     user_id: String(row.user_id),
@@ -526,7 +531,7 @@ function membershipValue(row: Record<string, unknown>): unknown {
 }
 
 /** 同一 chat 的多条 stream locator 合成一条(取最早那条的位置、累加计数)。 */
-function mergeUnreadRows(
+export function mergeUnreadRows(
   rows: Array<Record<string, unknown> & { chat_id: string }>,
 ): Map<string, ChatUnreadLocator & { chat_id: string }> {
   const byChat = new Map<string, ChatUnreadLocator & { chat_id: string }>()

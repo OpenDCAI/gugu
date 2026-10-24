@@ -3,22 +3,24 @@
  *
  * 存法:头像字段放一个形象地址 `https://<存储>/storage/v1/object/public/avatars/agent-look/v1/<颜色>.webp?rest=<表情>&wear=<装扮>`。
  *  · wear = 逗号分隔的 `<装扮 id>.<配色序号>`(engine/outfitCatalog.ts):掷骰子 / DIY 之后存下的那一身;`wear=` 为空 = 明确选了不戴;
- *    没有 wear 参数 = 默认装扮,按 agent id 推导(engine/outfitPick.ts defaultWear,规则 DERIVE_V1;owner 10-19:默认形象不写库)。
+ *    没有 wear 参数 = 不戴装扮;只有用户掷骰子或 DIY 后保存的 wear 才穿上。
  *    认不出的 id(更新的版本加的)跳过这一件,冲突的留先出现的;
  *  · 新客户端认出这个地址 → 画会动的小鸟(颜色、休息表情按地址),不去加载那张图;
  *  · 老客户端 / 别的消费方只当它是一张普通头像图 → 那个颜色的小鸟定格图(存储里一色一张,所有 agent 共用);
  *  · 只认路径尾巴 `/agent-look/v1/<颜色>.webp`,不认主机:同一个形象在哪套环境都读得出来。
- * 头像是 null(没配过形象、也没传照片)= 按 id 推出来的样子(identity.ts agentIdentity);出生时主人的设备把它定下来存进库
- * (planBirthLooks),从此各端读的都是库里那一份。
+ * 普通 agent 的默认脸由 Boring Avatars 按 id 生成;这些形象地址只在助理路径继续解释成 3D。
  */
 import { rendererLogger } from '@/lib/log'
 import { BODY_COLORS, REST_FACES, agentIdentity, type AgentIdentity } from './engine/identity'
 import { OUTFIT_BY_ID, clashes, wearKey, type WearItem } from './engine/outfitCatalog'
-import { ROLL_RULES, defaultWear, pickWear } from './engine/outfitPick'
+import { ROLL_RULES, pickWear } from './engine/outfitPick'
 import { EXPRESSIONS, type ExpressionId } from './engine/spec'
 
-/** wear 不给 = 默认装扮(地址里没有 wear 参数,按 id 推导,见 wornOf);[] = 明确不戴 */
+/** wear 不给或 [] = 不戴装扮;非空数组 = 用户保存的装扮 */
 export type AgentLook = AgentIdentity & { wear?: readonly WearItem[] }
+
+/** 个人助理未自定义时：奶油色、平静、不戴装扮。 */
+export const DEFAULT_ASSISTANT_LOOK: AgentLook = { color: 0, rest: 'neutral' }
 
 const log = rendererLogger('agents/look')
 
@@ -72,6 +74,17 @@ function parseWear(raw: string): WearItem[] {
 
 const LOOK_TAIL = /\/agent-look\/v1\/([a-z]+)\.webp(?:\?([^#]*))?(?:#.*)?$/
 
+/** All built-in v1 looks, including older URLs without expression parameters. Custom images stay custom. */
+export function isBuiltinAgentAvatarUrl(avatar: string | null | undefined): boolean {
+  if (!avatar) return false
+  try {
+    const url = new URL(avatar)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && /\/agent-look\/v1\/[^/]+$/.test(url.pathname)
+  } catch {
+    return false
+  }
+}
+
 /** 头像地址 → 形象;不是形象地址(照片 / null / 认不出的颜色或表情)= null。 */
 export function parseAgentLook(avatar: string | null | undefined): AgentLook | null {
   if (!avatar) return null
@@ -96,9 +109,9 @@ export function resolveAgentLook(id: string | null | undefined, avatar: string |
   return parseAgentLook(avatar) ?? agentIdentity(id)
 }
 
-/** 这只鸟实际穿的那一身:存了按存的(含 [] = 不戴);没存按 id 推导(同一个 id + 颜色在哪台设备上都一样) */
-export function wornOf(look: AgentLook, id: string): readonly WearItem[] {
-  return look.wear ?? defaultWear(id, look.color)
+/** 实际穿着:有保存就按保存的,缺省或空数组都不戴装扮 */
+export function wornOf(look: AgentLook): readonly WearItem[] {
+  return look.wear ?? []
 }
 
 export function sameLook(a: AgentLook | null | undefined, b: AgentLook | null | undefined): boolean {
@@ -130,7 +143,7 @@ export function pickDistinctLook(taken: readonly AgentLook[], avoid: AgentLook |
 
 /**
  * 掷骰子:颜色、表情照 pickDistinctLook;再抽一身装扮(engine/outfitPick.ts),主件尽量不和兄弟们撞。
- * 结果带着明确的 wear,存下去就是这一身(不再按 id 推导)。taken 里兄弟的 wear 由调用方先按 wornOf 定下来。
+ * 结果带着明确的 wear,存下去就是这一身。taken 里兄弟的 wear 由调用方先按 wornOf 定下来。
  */
 export function rollLook(taken: readonly AgentLook[], avoid: AgentLook | null, rng: Rng, month = new Date().getMonth()): AgentLook {
   const look = pickDistinctLook(taken, avoid, rng)
@@ -143,36 +156,4 @@ export function rollWear(color: number, taken: readonly AgentLook[], rng: Rng, m
   const pool = new Set(ROLL_RULES.pool.flatMap((g) => g.ids))
   const mains = taken.flatMap((t) => t.wear?.find((w) => pool.has(w.id))?.id ?? [])
   return pickWear(color, rng, ROLL_RULES, { taken: mains, month })
-}
-
-export interface BirthCandidate {
-  id: string
-  avatar: string | null
-  created_at?: string | null
-}
-
-/**
- * 主人名下还没有形象(头像 null)的 agent → 给它们定形象,按出生先后一只只来:
- *  · 先看按 id 推出来的那个样子(它一直就长这样,能不变就不变);
- *  · 那个颜色已经被兄弟占了 → 换成没人用(或用得最少)的颜色,表情也挑同色兄弟没用过的。
- * 传了照片的不算(头像位是照片,不画小鸟,也不占颜色)。
- */
-export function planBirthLooks(agents: readonly BirthCandidate[], rng: Rng): { id: string; look: AgentLook }[] {
-  const taken: AgentLook[] = []
-  for (const a of agents) {
-    const look = parseAgentLook(a.avatar)
-    if (look) taken.push(look)
-  }
-  const newborn = agents
-    .filter((a) => a.avatar == null)
-    .slice()
-    .sort((x, y) => (x.created_at ?? '').localeCompare(y.created_at ?? '') || x.id.localeCompare(y.id))
-  const plan: { id: string; look: AgentLook }[] = []
-  for (const a of newborn) {
-    const derived = agentIdentity(a.id)
-    const look = taken.some((t) => t.color === derived.color) ? pickDistinctLook(taken, null, rng) : derived
-    taken.push(look)
-    plan.push({ id: a.id, look })
-  }
-  return plan
 }

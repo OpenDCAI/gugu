@@ -7,7 +7,7 @@ import type { ViewDefinition } from '@renderer/app/view-registry';
 import { SquareArrowOutUpRight } from '@/lib/icons';
 import { openAppInWindow } from '@renderer/features/extensions/app-dock';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
-import { extensionSurfaceStore } from '@renderer/features/extensions/extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { ExtensionsLibraryPage } from '@renderer/features/library/extensions-library-page';
 import { LibraryHostProvider } from '@renderer/features/library/library-host';
@@ -48,7 +48,7 @@ export const appsView = {
   withoutSessionSidebar: true,
 } satisfies ViewDefinition;
 
-type AppViewParams = { appId?: string };
+type AppViewParams = { appId?: string; tab?: string };
 
 /** Draws nothing: a view's params are typed from its WrapView's props (`WrapParams`), so `useParams('app')` knows appId. */
 function AppViewWrapper({ children }: { children: ReactNode } & AppViewParams) {
@@ -73,15 +73,16 @@ const pageError = () => extensionSurfaceStore.said(null, 'dock').error;
 const AppTitlebar = observer(function AppTitlebar() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main ? pageError() : null;
+  const heading = main ? extensionTabTitle(extensionSurfaceStore.said(null, 'dock'), main.extensionName) : null;
   const openInWindowLabel = translate('tabs.openInWindow');
   return (
     <ShellTitlebar
       leftSlot={
         main ? (
           <span className="flex min-w-0 items-center gap-1">
-            <span className="text-sm font-medium">{main.extensionName}</span>
+            <span className="text-sm font-medium" title={heading?.tooltip}>{heading?.label}</span>
             {error ? <AppErrorMark error={error} onToggle={() => toggleErrorDetails(main.kind)} testId="app-page-error" /> : null}
           </span>
         ) : null
@@ -89,7 +90,7 @@ const AppTitlebar = observer(function AppTitlebar() {
     >
       {main?.enabled && params.appId ? (
         <div className="absolute top-0 right-0 flex" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }}>
-          <TabBarActionRow atWindowEdge fixedCluster={false}>
+          <TabBarActionRow atWindowEdge>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -115,7 +116,7 @@ const AppTitlebar = observer(function AppTitlebar() {
 const AppMainPanel = observer(function AppMainPanel() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main?.enabled ? pageError() : null;
   // The title bar is a zero-height band over the top of the main area (the App's name, the window's handle): the page
   // starts under it, as a session's tabs do (tab-bar.tsx) — an App drawing from its top edge sat beneath its own name

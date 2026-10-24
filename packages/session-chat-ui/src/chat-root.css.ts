@@ -243,13 +243,13 @@ export const composerSlotInnerClass = style({
 });
 
 /**
- * 实色,❌ 毛玻璃(rgba + backdrop-filter)。玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md「玻璃拟态已退役」,tokens.css @@@no-glass),
- * 这一处是当时漏改的。它不只是样式:mac 上一块 backdrop-filter 就让 CoreAnimation overlay 失败,
- * Chromium 改为每帧自己用 Skia 画 render pass;只要帧还在来(光标一闪就是一帧),GPU 进程那份驱动内存就清不掉
- * —— macOS 实测这一块约 390MB(2026-10-05)。
+ * 底部的槽垫一层半透明的底色:往上滑时输入框那张卡(实色)盖住消息,卡四周和底下那 8px 是一层淡的遮罩,
+ * 后面的消息隐约透出来(owner 2026-10-23「类似 telegram 的那种半透明遮蔽」,❌ 一整块实色白底、❌ 全透明)。
+ * 只是带 alpha 的底色,❌ 毛玻璃(backdrop-filter):玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md),mac 上一块
+ * backdrop-filter 就让 CoreAnimation overlay 失败,GPU 进程那份驱动内存清不掉(macOS 实测约 390MB,2026-10-05)。
  */
 export const composerSlotInnerBottomClass = style({
-  background: vars.bg,
+  background: `color-mix(in srgb, ${vars.bg} 82%, transparent)`,
 });
 
 export const composerSlotInnerCenteredClass = style({

@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type {
   SessionpageProjectSummary,
   SessionpageSessionSummary,
@@ -28,13 +29,31 @@ const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loadin
 
 // Shell and session renderer can be separate module graphs in the same document.
 // Keep the single directory and its subscribers on that document, not in either bundle.
-type DirectoryState = { live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void> }
+type DirectoryRetry = { ownerId: string; run: () => void | Promise<void> }
+type DirectoryState = { live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry> }
 const DIRECTORY_KEY = '__GUGU_SESSION_DIRECTORY__' as const
-const fallback: DirectoryState = { live: {}, listeners: new Set() }
+const fallback: DirectoryState = { live: {}, listeners: new Set(), retries: new Map() }
 function directoryState(): DirectoryState {
   if (typeof window === 'undefined') return fallback
   const host = window as Window & { [DIRECTORY_KEY]?: DirectoryState }
-  return host[DIRECTORY_KEY] ??= { live: {}, listeners: new Set() }
+  const state = host[DIRECTORY_KEY] ??= { live: {}, listeners: new Set(), retries: new Map() }
+  state.retries ??= new Map()
+  return state
+}
+
+/** Only the owning root can register its existing sync; pages never start another subscription. */
+export function registerDeviceSessionsRetry(ownerId: string, deviceId: string, run: DirectoryRetry['run']): () => void {
+  const retries = directoryState().retries
+  const entry = { ownerId, run }
+  retries.set(deviceId, entry)
+  return () => { if (retries.get(deviceId) === entry) retries.delete(deviceId) }
+}
+
+/** A stale page from another account or a stopped device cannot reconnect that device. */
+export async function retryDeviceSessions(ownerId: string, deviceId: string): Promise<void> {
+  const entry = directoryState().retries.get(deviceId)
+  if (!ownerId || !entry || entry.ownerId !== ownerId) throw new Error('当前账号没有这台设备的可重试连接。')
+  await entry.run()
 }
 
 function publish(next: Readonly<Record<string, DeviceSessions>>): void {
@@ -70,9 +89,20 @@ export function useLiveDeviceSessions(): Readonly<Record<string, DeviceSessions>
   return useSyncExternalStore(subscribeDeviceSessions, liveDeviceSessions)
 }
 
+/**
+ * 一台机器上的项目与会话。离线时会话照心跳摘要;项目照账号上记着的那份(#113)列全 —— ❌ 只列摘要里碰巧有会话的那几个。
+ * 摘要里的会话所在的项目账号上没有(还没读到账号上的那份)也照样列出,会话不能没有归处。
+ */
 export function deviceSessionsOf(device: Device, liveSessions: Readonly<Record<string, DeviceSessions>>): DeviceSessions {
   if (device.is_online) return liveSessions[device.device_id] ?? EMPTY
-  return { ...sessionListFromDigest(device.session_digest), cached: false, loading: false, error: null }
+  // 手机摘要里的 chatId 是继续真实 DM 的地址,离线也有效。状态由行所在机器的在线信号决定,
+  // 不把旧的 working 当此刻正在运行;完整 workspace 时间线仍然 unsupported。
+  if (isPhoneDevice(device) && liveSessions[device.device_id]) return { ...liveSessions[device.device_id]!, cached: true, loading: false, error: null }
+  const digest = sessionListFromDigest(device.session_digest)
+  const recorded = (device.projects ?? []).map((project) => ({ id: project.localProjectId, name: project.name, path: project.rootPath }))
+  const known = new Set(recorded.map((project) => project.id))
+  const projects = [...recorded, ...digest.projects.filter((project) => !known.has(project.id))]
+  return { ...digest, projects, cached: false, loading: false, error: null }
 }
 
 /** 全部机器的行;地址是行上的机器,❌ 人进的是哪台。 */

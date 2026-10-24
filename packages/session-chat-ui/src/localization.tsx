@@ -34,6 +34,7 @@ const fallbackMessages = {
   'transcript.planKeepPlanning': 'Keep planning',
   'transcript.planRejectExit': "Don't start — leave planning",
   'transcript.working': 'Working…',
+  'transcript.turnPlaceholder': 'Thinking…',
   // thinking 行头的 5 个状态。`{seconds}` 是已经算好的整秒数——
   // 秒数本身是数据，不是文案，所以计时逻辑留在组件里，这里只管怎么说这句话。
   'transcript.thinking': 'Thinking',
@@ -126,6 +127,10 @@ const fallbackMessages = {
   'transcript.planProgress': 'Plan · {done} of {total} done',
   'transcript.deliveryViaChat': 'via chat',
   'transcript.deliveryViaGroup': 'via group {chat}',
+  'transcript.deliveryViaUnnamedGroup': 'via a group',
+  'transcript.deliveryFromMe': 'You',
+  'transcript.questionAnswered': 'You answered: {answer}',
+  'transcript.questionWithdrawn': 'You withdrew the question',
   'transcript.deliveryWhisper': 'whisper',
   'transcript.deliveryViaApp': 'from app {app}',
   'transcript.deliveryViaSession': 'from a task',

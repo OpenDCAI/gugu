@@ -117,6 +117,10 @@ export function AppProductPage({
   onDisclosureChange,
   onAsk,
   onBrowseReplacement,
+  onOpenExternal = confirmOpenExternalLink,
+  backgroundSupported = true,
+  permissionRevocationSupported = true,
+  phoneAgentFeaturesUnavailable = false,
   similar = [],
   menu,
 }: {
@@ -153,6 +157,14 @@ export function AppProductPage({
   onDisclosureChange?: (level: ExtensionDisclosureLevel) => void;
   /** 「对 agent 说」点一句 = 新建任务、这句已填好;不给(看的是别的机器)就只读。 */
   onAsk?: (text: string) => void;
+  /** Opens a web link on the viewing device. Desktop retains its confirmation dialog. */
+  onOpenExternal?: (url: string) => void;
+  /** The phone has no persistent App background-page host. */
+  backgroundSupported?: boolean;
+  /** Whether this host lets people take back individual permissions after installation. */
+  permissionRevocationSupported?: boolean;
+  /** Agent capabilities declared by the App, before the phone removes them from its permission list. */
+  phoneAgentFeaturesUnavailable?: boolean;
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
@@ -363,7 +375,7 @@ export function AppProductPage({
           </p>
         ) : null}
         <div className="mk-new">
-          {notes ? <MarkdownRenderer content={notes} /> : null}
+          {notes ? <MarkdownRenderer content={notes} onOpenLink={(url) => { onOpenExternal(url); return true; }} /> : null}
           <span>
             {notesDate
               ? translate('extensions.releasedOn', { version: notesVersion, date: shortDate(notesDate, locale) })
@@ -381,6 +393,7 @@ export function AppProductPage({
                 offeredVersion={installed && menu.autoUpdate?.on ? (cloud?.version ?? null) : null}
                 locale={locale}
                 translate={translate}
+                onOpenExternal={onOpenExternal}
                 onInstallVersion={(version) => onInstallVersion({ extensionId: manifest.id, version })}
               />
             </div>
@@ -470,7 +483,7 @@ export function AppProductPage({
       </AddsEntry>
     );
   }
-  if (manifest.background) {
+  if (manifest.background && backgroundSupported) {
     adds.push(
       <AddsEntry key="background" icon={<Moon className="size-4" />} label={translate('extensions.addsBackground')}>
         <i>{translate('extensions.permissionsBackground')}</i>
@@ -528,7 +541,7 @@ export function AppProductPage({
       <p className="mk-note">
         {installed && withdrawn > 0
           ? translate('extensions.permissionsWithdrawnNote', { count: permissions.length, revoked: withdrawn })
-          : translate(permissions.length > 0 ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteNone')}
+          : translate(permissions.length === 0 ? 'extensions.permissionsNoteNone' : permissionRevocationSupported ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteInstall')}
       </p>
       <fieldset disabled={readOnly} className="contents">
         <div className="mk-card">
@@ -556,7 +569,7 @@ export function AppProductPage({
   const sourceButton =
     official && cloud?.source ? (
       // 市场记下的出包来源(仓 @ 提交 @ 目录,App 市场方案 10-07):打出这份字节的那份代码。早于这条记录的版本没有。
-      <button type="button" className="mk-ext" title={marketSourceLabel(cloud.source)} onClick={() => cloud.source && confirmOpenExternalLink(marketSourceUrl(cloud.source))}>
+      <button type="button" className="mk-ext" title={marketSourceLabel(cloud.source)} onClick={() => cloud.source && onOpenExternal(marketSourceUrl(cloud.source))}>
         {translate('extensions.viewSource')}
         <ExternalLink className="size-3" />
       </button>
@@ -575,7 +588,7 @@ export function AppProductPage({
           <h3>{translate('extensions.detailLinks')}</h3>
           <div className="mk-side-links">
             {links.map((link) => (
-              <button type="button" className="mk-ext" key={link.href} onClick={() => confirmOpenExternalLink(link.href)}>
+              <button type="button" className="mk-ext" key={link.href} onClick={() => onOpenExternal(link.href)}>
                 {link.label}
                 <ExternalLink className="size-3" />
               </button>
@@ -628,6 +641,7 @@ export function AppProductPage({
   // 信息表:正文最后一节,平铺在页上(照 App Store 产品页的「信息」),❌ 收进弹框里。
   const info: [string, ReactNode][] = [
     [translate('extensions.stripVersion'), `v${shownVersion}`],
+    ...(declaring.platforms?.length ? ([[translate('extensions.infoPlatforms'), listOf(declaring.platforms.map((platform) => translate(`extensions.platform.${platform}`)), locale)]] as [string, ReactNode][]) : []),
     ...(publishedAt ? ([[translate('extensions.updatedOn'), longDate(publishedAt, locale)]] as [string, ReactNode][]) : []),
     ...(minApp ? ([[translate('extensions.stripNeedsApp'), translate('extensions.stripAndUp', { version: minApp })]] as [string, ReactNode][]) : []),
     ...(size ? ([[translate('extensions.stripSize'), size]] as [string, ReactNode][]) : []),
@@ -705,6 +719,11 @@ export function AppProductPage({
           {translate('extensions.justInstalled')}
         </div>
       ) : null}
+      {phoneAgentFeaturesUnavailable ? (
+        <div className="mk-banner" data-testid="app-product-phone-agent-features">
+          {translate('extensions.phoneAgentsUnavailable')}
+        </div>
+      ) : null}
       {/* 装不上 / 停止维护 / 这一版被撤回:一句话,带它的下一步。 */}
       {compat ? (
         <div className="mk-banner is-warn">
@@ -773,7 +792,7 @@ export function AppProductPage({
             </span>
           </DialogHeader>
           <DialogContentArea className="gap-4">
-            {readmeText ? <MarkdownRenderer content={readmeText} /> : text.description ? <p>{text.description}</p> : null}
+            {readmeText ? <MarkdownRenderer content={readmeText} onOpenLink={(url) => { onOpenExternal(url); return true; }} /> : text.description ? <p>{text.description}</p> : null}
           </DialogContentArea>
         </DialogContent>
       </Dialog>
@@ -883,6 +902,7 @@ function VersionHistorySection({
   locale,
   translate,
   onInstallVersion,
+  onOpenExternal,
 }: {
   state: Loadable<MarketVersionHistoryEntry[]>;
   extensionId: string;
@@ -892,6 +912,7 @@ function VersionHistorySection({
   locale: string;
   translate: SessionTranslate;
   onInstallVersion: (version: string) => void;
+  onOpenExternal: (url: string) => void;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
     return <p className="text-foreground-passive">{translate('extensions.loading')}</p>;
@@ -914,6 +935,7 @@ function VersionHistorySection({
           locale={locale}
           translate={translate}
           onInstallVersion={onInstallVersion}
+          onOpenExternal={onOpenExternal}
         />
       ))}
     </ul>
@@ -932,6 +954,7 @@ function VersionHistoryRow({
   locale,
   translate,
   onInstallVersion,
+  onOpenExternal,
 }: {
   entry: MarketVersionHistoryEntry;
   extensionId: string;
@@ -941,11 +964,14 @@ function VersionHistoryRow({
   locale: string;
   translate: SessionTranslate;
   onInstallVersion: (version: string) => void;
+  onOpenExternal: (url: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isInstalled = entry.version === installedVersion;
   const yankedReason = entry.yanked ? translate('extensions.historyYanked', { note: entry.yanked.reason }) : null;
-  const compatReason = entry.compat
+  const compatReason = entry.platformRefusal
+    ? translate('extensions.platformVersionUnavailable')
+    : entry.compat
     ? entry.compat.reason === 'needs-newer-app'
       ? translate('extensions.needsNewerApp', { version: entry.compat.minAppVersion })
       : translate('extensions.needsAuthorUpdate')
@@ -995,7 +1021,7 @@ function VersionHistoryRow({
       </div>
       {expanded && !yankedReason ? (
         <div className="xp-history-body">
-          <MarkdownRenderer content={entry.releaseNotes} />
+          <MarkdownRenderer content={entry.releaseNotes} onOpenLink={(url) => { onOpenExternal(url); return true; }} />
         </div>
       ) : null}
     </li>

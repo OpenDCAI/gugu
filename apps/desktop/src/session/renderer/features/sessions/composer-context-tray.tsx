@@ -57,7 +57,7 @@ function TrayMenuSearch({
   placeholder: string;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <div className="flex items-center gap-2 border-b border-border bg-[var(--em-surface-input)] px-3 py-2">
       <Search className="size-3.5 shrink-0 text-foreground-muted" />
       <input
         value={value}
@@ -75,30 +75,16 @@ function TrayMenuSearch({
 }
 
 /**
- * 群成员里点的「新建 Agent」带来的那个群:建好就进群。与项目同一种托盘按钮;菜单里只有一件事 —— 不进群。
- * 去掉之后托盘里就没有这一格了(要进群,从群成员里再点一次)。
+ * 这次建的 agent 进哪个群(在群里派任务 / 群成员里点的「新建 Agent」):建好就进群,结果回这个群。
+ * gugu-dev#181:❌「不加入」—— 不进群,结果就回不来。只是一枚说明,不是选择。
  */
-export function ComposerBirthGroupChip({ name, onClear }: { name: string; onClear: () => void }) {
+export function ComposerBirthGroupChip({ name }: { name: string }) {
   const { translate } = useSessionMessages();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button type="button" className={sessionComposerTrayTriggerClassName} title={translate('newAgent.birthGroupHint')} data-testid="composer-birth-group">
-            <Users className="size-3 shrink-0" />
-            <span className="max-w-[200px] truncate">{name}</span>
-            <ChevronDown className="size-3 shrink-0" />
-          </button>
-        }
-      />
-      <DropdownMenuContent side="top" className="min-w-48">
-        <div className="px-3 py-2 text-xs text-foreground-muted">{translate('newAgent.birthGroupHint')}</div>
-        <DropdownMenuItem onClick={onClear}>
-          <X className="size-3.5" />
-          <span>{translate('newAgent.birthGroupSkip')}</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <span className={sessionComposerTrayTriggerClassName} title={translate('newAgent.birthGroupHint')} data-testid="composer-birth-group">
+      <Users className="size-3 shrink-0" />
+      <span className="max-w-[200px] truncate">{name}</span>
+    </span>
   );
 }
 

@@ -4,10 +4,10 @@ import { installRemoteHostsBridge, type RemoteHostDevice } from '@/session/share
 import {
   RemoteHostsStore,
   deviceIdFromRemoteKey,
+  dialsAfter,
   isRemoteKey,
   linkNeedsReopen,
   machineConnectionState,
-  parseCachedProjects,
   remoteSessionKey,
 } from './remote-hosts-store';
 
@@ -33,6 +33,20 @@ describe('侧栏那颗点:设备状况 + 到它任务页宿主的线(#6264 一�
     expect(machineConnectionState({ device: device({ isOnline: false }), link: 'closed', synced: true })).toBe('offline');
   });
 
+  it('#137 连上过的机器断了:每一次重连在飞(connecting)也是重连中,❌ 翻回已连接再翻回来', () => {
+    // 机器停了之后到心跳租约过期的两分钟里,线在 closed(等退避)与 connecting(拨)之间来回走,读数不许跟着跳
+    for (const link of ['closed', 'connecting'] as const) {
+      expect(machineConnectionState({ device: device(), link, synced: true }), link).toBe('reconnecting');
+      expect(machineConnectionState({ device: device({ isOnline: false }), link, synced: true }), link).toBe('offline');
+    }
+  });
+
+  it('#137 没连上过的机器线没通:一直是正在连接,❌ 读成已连接', () => {
+    for (const link of ['closed', 'connecting'] as const) {
+      expect(machineConnectionState({ device: device(), link, synced: false }), link).toBe('connecting');
+    }
+  });
+
   it('那台机器上的咕咕 server 太旧(还不会一套工作台)= 版本太旧,❌ 退回旧界面', () => {
     expect(machineConnectionState({ device: device(), link: 'tooOld', synced: false })).toBe('outdated');
   });
@@ -50,6 +64,53 @@ describe('侧栏那颗点:设备状况 + 到它任务页宿主的线(#6264 一�
 
   it('远程 SSH 要先登录:只看 SSH 那一条', () => {
     expect(machineConnectionState({ device: device({ sshLink: 'signInRequired' }), link: 'closed', synced: false })).toBe('sign-in');
+  });
+});
+
+describe('#137 重连提示里「第几次」的数', () => {
+  it('每次从没在拨进到在拨算一次;同一次拨里线状态重复通知不算;连通了清零', () => {
+    let dials = 0;
+    const walk = (links: Array<'connecting' | 'closed' | 'open'>) => {
+      let previous: 'connecting' | 'closed' | 'open' | null = null;
+      return links.map((link) => {
+        dials = dialsAfter(dials, previous, link);
+        previous = link;
+        return dials;
+      });
+    };
+    expect(walk(['connecting', 'connecting', 'closed', 'connecting', 'closed', 'connecting', 'closed'])).toEqual([1, 1, 1, 2, 2, 3, 3]);
+    expect(walk(['open'])).toEqual([0]);
+  });
+
+  it('那台机器读成离线时线还在隔一会儿拨:那些不算;回来之后从第一次数起,❌「第 125 次尝试」', () => {
+    let dials = 3;
+    let previous: 'connecting' | 'closed' | null = 'closed';
+    for (const link of ['connecting', 'closed', 'connecting', 'closed'] as const) {
+      dials = dialsAfter(dials, previous, link, false);
+      previous = link;
+    }
+    expect(dials).toBe(0);
+    expect(dialsAfter(dials, previous, 'connecting', true)).toBe(1);
+  });
+
+  it('设备行读成离线的那一刻就清零(没有线的通知也一样)', () => {
+    const store = new RemoteHostsStore();
+    store.start();
+    let listed = [device({ id: 'dev-count' })];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+    } as never);
+    try {
+      store.dials.set('dev-count', 8);
+      listed = [device({ id: 'dev-count', isOnline: false, directTerminal: false })];
+      listeners.forEach((listener) => listener());
+      expect(store.dialsSinceOpen('dev-count')).toBe(0);
+    } finally {
+      off();
+    }
   });
 });
 
@@ -82,15 +143,59 @@ describe('心跳说那台机器在时,线要不要现在重开', () => {
   });
 });
 
-describe('离线时照样列出的那份项目清单', () => {
-  it('读回上次存的;坏数据丢掉那一格,❌ 整份作废', () => {
-    const raw = JSON.stringify({
-      'dev-1': [{ id: 'p1', name: 'repo', path: '/srv/repo' }, { id: 3 }],
-      'dev-2': 'nope',
-    });
-    expect(parseCachedProjects(raw)).toEqual({ 'dev-1': [{ id: 'p1', name: 'repo', path: '/srv/repo' }] });
-    expect(parseCachedProjects('{')).toEqual({});
-    expect(parseCachedProjects(null)).toEqual({});
+// #113 没连着的机器:项目清单、群绑定、主目录照账号上记着的那份(设备行上带着),❌ 这台桌面从前问到过才有。
+describe('没连着的机器照账号上记着的那份', () => {
+  const record = (overrides: Record<string, unknown> = {}) => ({
+    localProjectId: 'acct-proj-1',
+    name: 'repo',
+    rootPath: '/srv/repo',
+    createdAt: '2026-10-01T08:00:00.000Z',
+    chatId: 'chat-repo',
+    groupRepresentative: true,
+    folders: [{ workspaceId: 'ws-acct-root', kind: 'root' as const, path: '/srv/repo', attachedAt: null }],
+    ...overrides,
+  });
+
+  it('列出它的项目、并上它的群、认得它的主目录,这台桌面从没连上过它也一样', async () => {
+    const { appState } = await import('@renderer/lib/stores/app-state');
+    const { projectGroupsStore } = await import('@renderer/features/projects/stores/project-groups-store');
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const store = new RemoteHostsStore();
+    store.start();
+    const offline = device({ id: 'dev-acct-1', isOnline: false, projects: [record()], homeDir: '/home/alice' });
+    let listed = [offline];
+    const listeners = new Set<() => void>();
+    const off = installRemoteHostsBridge({
+      listDevices: () => listed,
+      subscribeDevices: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+      pickFolder: async () => null,
+    } as never);
+    try {
+      expect(appState.projects.projects.get('acct-proj-1')?.data).toMatchObject({
+        id: 'acct-proj-1', name: 'repo', path: '/srv/repo', repositoryWorkspaceId: 'ws-acct-root', createdAt: '2026-10-01 08:00:00',
+      });
+      expect(machineRegistry.machineOf('acct-proj-1')).toBe('dev-acct-1');
+      expect(projectGroupsStore.chatIdOf('acct-proj-1')).toBe('chat-repo');
+      expect(projectGroupsStore.isRepresentative('acct-proj-1')).toBe(true);
+      expect(store.homeDir('dev-acct-1')).toBe('/home/alice');
+      expect(store.accountFolders('dev-acct-1', 'acct-proj-1')?.map((folder) => [folder.workspaceId, folder.kind, folder.branch])).toEqual([
+        ['ws-acct-root', 'root', null],
+      ]);
+
+      // 那台机器离线时在它上面删了这个项目、建了另一个(它记到账号上,设备列表跟着刷新):这一端原地跟上。
+      listed = [{ ...offline, projects: [record({ localProjectId: 'acct-proj-2', name: 'next', chatId: null, groupRepresentative: false })] }];
+      listeners.forEach((listener) => listener());
+      expect(appState.projects.projects.has('acct-proj-1')).toBe(false);
+      expect(appState.projects.projects.get('acct-proj-2')?.data?.name).toBe('next');
+      expect(projectGroupsStore.chatIdOf('acct-proj-1')).toBeUndefined();
+
+      // 账号上那份这一端还没读到(设备行上没带):❌ 拿空清单把侧栏里它的项目清掉。
+      listed = [{ ...offline, projects: undefined }];
+      listeners.forEach((listener) => listener());
+      expect(appState.projects.projects.has('acct-proj-2')).toBe(true);
+    } finally {
+      off();
+    }
   });
 });
 

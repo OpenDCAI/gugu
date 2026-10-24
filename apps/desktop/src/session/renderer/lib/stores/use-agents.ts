@@ -10,10 +10,13 @@ export const AGENTS_METADATA_QUERY_KEY = ['agents', 'metadata'] as const;
  */
 export function useAgents() {
   // #6264 会话 / 新建框在别的机器上:名单与装没装都是那台机器的(一套工作台,同一个控制器)。
-  const machine = useLibraryHost().remote?.deviceId ?? null;
+  const remote = useLibraryHost().remote;
+  const machine = remote?.deviceId ?? null;
   return useQuery<AgentPayload[]>({
     queryKey: machine ? [...AGENTS_METADATA_QUERY_KEY, 'remote', machine] : AGENTS_METADATA_QUERY_KEY,
     queryFn: () => rpcOn(machine).agents.list() as Promise<AgentPayload[]>,
+    // 那台机器没连上就不问(手上有上次的就照旧画);连上时这里变回 true,过期了的当场重取 —— 机器回来,名单自己续上。
+    enabled: remote?.online !== false,
     staleTime: machine ? 30_000 : 5 * 60 * 1000,
   });
 }

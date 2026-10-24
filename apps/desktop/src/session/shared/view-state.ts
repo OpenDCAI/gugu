@@ -160,11 +160,7 @@ export type SessionViewSnapshot = {
   terminals?: TabViewSnapshot;
   editor?: EditorViewSnapshot;
   diffView?: DiffViewSnapshot;
-  outputs?: SessionOutput[];
 };
-
-/** agent 用 `open_in_tab` 给人开过的文件 / 网页 —— tab 关了还能从 Outputs 面板再开。 */
-export type SessionOutput = { kind: 'file'; path: string } | { kind: 'page'; url: string };
 
 export type ProjectViewSnapshot = {
   activeView: string;
@@ -186,8 +182,14 @@ export type SidebarSnapshot = {
   projectOrder?: string[];
   sessionOrderByProject?: Record<string, string[]>;
   sessionSortBy?: SidebarSessionSortBy;
-  /** Section headers (Pinned / Projects / Tasks) folded by the user. */
+  /** Section headers (Pinned / Projects / Chats) folded by the user. */
   pinnedCollapsed?: boolean;
   projectsCollapsed?: boolean;
-  sessionsCollapsed?: boolean;
+  chatsCollapsed?: boolean;
+  /** gugu-dev#181 项目和对话分开(两枚页签)还是合在一起(一条列表),以及分开时看的是哪一页。 */
+  listLayout?: SidebarListLayout;
+  listPage?: SidebarListPage;
 };
+
+export type SidebarListLayout = 'split' | 'merged';
+export type SidebarListPage = 'projects' | 'chats';

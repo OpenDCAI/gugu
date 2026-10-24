@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -16,6 +17,7 @@ import {
 import { EXTENSION_ORIGINS, keptRevocations, type ExtensionOrigin } from '@shared/extensions/upgrade';
 import { appIdentityOf, appKey, type AppIdentity } from '@shared/extensions/app-identity';
 import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-settings';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 
 export type { ExtensionOrigin };
 
@@ -249,6 +251,7 @@ export class ExtensionsService {
    */
   installFromDirectory(sourceDir: string, consentedDigest: string, origin: ExtensionOrigin, publisher?: ExtensionPublisher): InstalledExtension {
     const { source, manifest, manifestDigest } = this.validateSource(sourceDir);
+    requireAppPlatform(manifest, 'desktop');
     // Read the withdrawal record up front. It is written after the bundle lands,
     // and reading it can throw — doing that afterwards would report a failed
     // install for one that already happened: the new bundle on disk, the caller
@@ -348,7 +351,10 @@ export class ExtensionsService {
         this.dockFile.write([...firstInstall.dock, manifest.id]);
       }
     }
-    return this.get(manifest.id);
+    const installed = this.get(manifest.id);
+    if (origin !== 'preinstalled') activitySignal({ event_id: randomUUID(), kind: firstInstall ? 'app.installed' : 'app.replaced',
+      object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
+    return installed;
   }
 
   /** Who published each App installed from a chat (摩擦单 F66); throws on a file it cannot read, like the origins. */

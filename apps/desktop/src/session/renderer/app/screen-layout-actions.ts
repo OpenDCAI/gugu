@@ -1,4 +1,4 @@
-import { observable, reaction, runInAction } from 'mobx';
+import { comparer, observable, reaction, runInAction } from 'mobx';
 import { appPlacementStore } from '@renderer/features/extensions/app-placement-store';
 import type { PaneEdge } from '@renderer/features/tabs/pane-layout-tree';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -10,7 +10,7 @@ import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-layout-store';
 import { minExtent } from '@renderer/features/tabs/pane-layout-tree';
 import { auxWindows, type TabWindowHome } from './aux-windows';
-import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession } from './screen-layout';
+import { MAX_SCREEN_BLOCKS, screenLayout, type ScreenBlockContent, type ScreenLayoutSnapshot, type ScreenSession, type WindowableContent } from './screen-layout';
 
 /**
  * 这一屏(screen-layout)和导航之间的那两根线(spec session-page「一屏几块」):
@@ -114,25 +114,13 @@ export function ensureScreenLayoutSync(): void {
     (groups) => sidebarStore.setJoinedGroups(groups),
     { fireImmediately: true }
   );
-  reaction(
-    () => {
-      const navigation = appState.navigation;
-      return navigation.currentViewId === 'session'
-        ? (navigation.viewParamsStore.session as Partial<ScreenSession> | undefined)
-        : undefined;
-    },
-    (params) => {
-      if (!params?.projectId || !params.sessionId) return;
-      // 它开在单独的窗口里:把那扇窗提到前面,这屏不动(一个会话只在一处)。
-      const windowed = auxWindows.windowOfSession(params.sessionId);
-      if (windowed) {
-        if (auxWindows.focusedWindowId !== windowed.id) windowed.handle?.focus();
-        return;
-      }
-      screenLayout.show({ projectId: params.projectId, sessionId: params.sessionId });
-    },
-    { fireImmediately: true }
-  );
+  // 导航是进入某块的意图;启动时先由整屏快照决定摆法和焦点,不能把旧视图参数再当一次点击。
+  if (screenLayout.layout) {
+    if (isScreenView(appState.navigation.currentViewId)) returnToScreen();
+  } else {
+    showNavigationBlock(navigationBlock());
+  }
+  reaction(navigationBlock, showNavigationBlock, { equals: comparer.structural });
   // 回到主窗:导航跟回这屏正看着的那块(焦点在子窗时,导航指着窗里那条会话)。
   window.addEventListener('focus', () => {
     if (auxWindows.focusedWindowId === null) return;
@@ -141,20 +129,71 @@ export function ensureScreenLayoutSync(): void {
   });
 }
 
+/** 导航当前明确指向的块;项目的多台机器认左边同一行。 */
+function navigationBlock(): ScreenBlockContent | undefined {
+  const { currentViewId, viewParamsStore: params } = appState.navigation;
+  switch (currentViewId) {
+    case 'session':
+      return params.session?.projectId && params.session.sessionId ? { kind: 'session', projectId: params.session.projectId, sessionId: params.session.sessionId } : undefined;
+    case 'project':
+      return params.project?.projectId ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(params.project.projectId) } : undefined;
+    case 'chat':
+      return params.chat?.chatId ? { kind: 'chat', chatId: params.chat.chatId } : undefined;
+  }
+}
+
+function showNavigationBlock(content: ScreenBlockContent | undefined): void {
+  if (!content) return;
+  const windowed = content.kind === 'session' ? auxWindows.windowOfSession(content.sessionId) : undefined;
+  if (windowed) {
+    if (auxWindows.focusedWindowId !== windowed.id) windowed.handle?.focus();
+  } else screenLayout.show(content);
+}
+
 /**
  * 导航跟到正看着的那块(会话块)。正看着 App 那块时导航指着最近看过的会话:它还在这屏上就不动;
  * 不在了(开在窗里、窗刚关掉)就跟到这屏上最近看过的那块会话 —— 导航那一下会把会话块当成正看着的,还给 App。
  */
 function followFocus(): void {
   const navigation = appState.navigation;
+  // 正看着项目块:导航到那个项目(左边那一行高亮、新建会话预选它)。
+  const focusedBlock = screenLayout.focusedBlockId ? screenLayout.blocks.get(screenLayout.focusedBlockId) : undefined;
+  if (focusedBlock?.kind === 'project') {
+    const current = navigation.viewParamsStore.project as { projectId?: string } | undefined;
+    const here = navigation.currentViewId === 'project' && !!current?.projectId && sidebarStore.rowProjectIdOf(current.projectId) === focusedBlock.projectId;
+    if (!here) navigation.navigate('project', { projectId: focusedBlock.projectId });
+    return;
+  }
+  // 正看着对话块:导航到那条对话(左边那一行高亮)。
+  if (focusedBlock?.kind === 'chat') {
+    const current = navigation.viewParamsStore.chat as { chatId?: string } | undefined;
+    if (navigation.currentViewId !== 'chat' || current?.chatId !== focusedBlock.chatId) navigation.navigate('chat', { chatId: focusedBlock.chatId });
+    return;
+  }
   const current = navigation.viewParamsStore.session as Partial<ScreenSession> | undefined;
   const onScreen = navigation.currentViewId === 'session' && !!current?.sessionId && !!screenLayout.blockOfSession(current.sessionId);
   const focusedId = screenLayout.focusedBlockId;
   const session = screenLayout.focusedSession ?? (onScreen ? undefined : screenLayout.recentSession);
-  if (!session) return;
+  if (!session) {
+    if (focusedBlock?.kind === 'app' && !onScreen && navigation.currentViewId !== 'screen') navigation.navigate('screen');
+    return;
+  }
   if (navigation.currentViewId === 'session' && current?.sessionId === session.sessionId) return;
   navigation.navigate('session', session);
   if (focusedId && screenLayout.focusedBlockId !== focusedId && screenLayout.blocks.has(focusedId)) screenLayout.focus(focusedId);
+}
+
+/** 回到消息工作区:导航跟回这屏的焦点,不从某一类视图的旧参数重开另一屏。空工作区才去首页。 */
+export function returnToScreen(): void {
+  followFocus();
+  // 只剩 App 块、或 App 正有焦点而没有会话块:也还是这屏,无需重开一个旧任务来承载它。
+  if (!isScreenView(appState.navigation.currentViewId)) appState.navigation.navigate(screenLayout.layout ? 'screen' : 'home');
+}
+
+/** 这几个视图看的是这一屏:会话、项目、对话都是其中一块(gugu-dev#181)。⌘ 点「拼到旁边」也只在这些视图上才有「正看着那块」。 */
+const SCREEN_VIEWS: ReadonlySet<string> = new Set(['session', 'project', 'chat', 'screen']);
+export function isScreenView(viewId: string | null | undefined): boolean {
+  return !!viewId && SCREEN_VIEWS.has(viewId);
 }
 
 /** 在一块里按下 = 看这一块。 */
@@ -215,6 +254,25 @@ export function showSessionBeside(target: ScreenSession): void {
   followFocus();
 }
 
+/** 把一样东西摆到这屏上(项目、对话;会话走导航):它在哪组就整组回来,否则单独一屏。 */
+export function showOnScreen(content: ScreenBlockContent): void {
+  screenLayout.show(content);
+  followFocus();
+}
+
+/** ⌘ 点左边一行(项目、对话、会话都一样):并排放在正看着那块右边;满了提示。 */
+export function showBesideOnScreen(content: ScreenBlockContent): void {
+  if (content.kind === 'session') {
+    showSessionBeside(content);
+    return;
+  }
+  if (!screenLayout.showBeside(content, { even: halfWontFit(screenLayout.focusedBlockId, 'right') })) {
+    fullToast();
+    return;
+  }
+  followFocus();
+}
+
 /** 贴着 `targetId` 那块的一条边分出一块放它(拖到边上松手、页签右键「单独一块」)。 */
 export function placeOnScreen(content: ScreenBlockContent, targetId: string, edge: PaneEdge): boolean {
   if (!screenLayout.canPlaceAt(content, targetId)) {
@@ -243,6 +301,13 @@ function refillScreen(): void {
   screenLayout.show({ projectId: last.projectId, sessionId: last.sessionId });
 }
 
+/** 这个项目删掉了:它那块收掉(收起来的组里也一样);屏上空了就摆回最近看过的会话。 */
+export function forgetProjectOnScreen(projectId: string): void {
+  screenLayout.forgetContent({ kind: 'project', projectId });
+  refillScreen();
+  followFocus();
+}
+
 /** 这个 App 不在一块里、也不在单独的窗里了:× 收起、退出、停用、被放进某条会话或新建任务页的面板。 */
 export function takeAppOffScreen(tabKind: string): void {
   const windowed = auxWindows.windowOfApp(tabKind);
@@ -260,7 +325,7 @@ export function takeAppOffScreen(tabKind: string): void {
  * 这屏留一句「开在单独的窗口里」—— 再开一扇窗装它。已经在窗里 = 把那扇窗提到前面。
  * `at`:拖到窗口外松手的那一点(屏幕坐标),新窗开在那里。
  */
-export function openInWindow(content: ScreenBlockContent, at?: { screenX: number; screenY: number }): void {
+export function openInWindow(content: WindowableContent, at?: { screenX: number; screenY: number }): void {
   const existing = auxWindows.windowOf(content);
   if (existing) {
     existing.handle?.focus();
@@ -366,18 +431,11 @@ export function revealAppBlock(tabKind: string): boolean {
   const parkedWith = screenLayout.blockOfApp(tabKind) ? undefined : screenLayout.parkedSessionOfApp(tabKind);
   if (parkedWith) {
     screenLayout.show(parkedWith);
-    appState.navigation.navigate('session', parkedWith);
   }
   const blockId = screenLayout.blockOfApp(tabKind);
   if (!blockId) return false;
-  const navigation = appState.navigation;
-  if (navigation.currentViewId !== 'session') {
-    const session = screenLayout.sessions[0] ?? (navigation.viewParamsStore.session as ScreenSession | undefined);
-    if (!session) return false;
-    navigation.navigate('session', { projectId: session.projectId, sessionId: session.sessionId });
-  }
-  // 导航那一下会把它的会话块当成正看着的;App 那块在它之后接过来。
   screenLayout.focus(blockId);
+  returnToScreen();
   return true;
 }
 
@@ -401,8 +459,7 @@ export function revealTabWindow(paneId: string): void {
   auxWindows.windowOfTabPane(paneId)?.handle?.focus();
 }
 
-const blockOf = (content: ScreenBlockContent) =>
-  content.kind === 'session' ? screenLayout.blockOfSession(content.sessionId) : screenLayout.blockOfApp(content.tabKind);
+const blockOf = (content: ScreenBlockContent) => screenLayout.blockOf(content);
 
 // ── 拖到一块的边上,或(App)拖进一格 ──
 
@@ -455,7 +512,7 @@ export function contentMinExtent(content: ScreenBlockContent, axis: 'width' | 'h
 export function blockMinExtent(blockId: string, axis: 'width' | 'height'): number {
   const block = screenLayout.blocks.get(blockId);
   if (!block) return axis === 'width' ? MIN_PANE_WIDTH_PX : MIN_PANE_HEIGHT_PX;
-  return contentMinExtent(block.kind === 'session' ? { kind: 'session', projectId: block.projectId, sessionId: block.sessionId } : { kind: 'app', tabKind: block.tabKind }, axis);
+  return contentMinExtent(block, axis);
 }
 
 export const screenBlockElement = (blockId: string): HTMLElement | null =>

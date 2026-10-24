@@ -226,7 +226,9 @@ export function TabStripShell({
   return (
     <div
       ref={barRef}
-      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip"
+      // 页签条的空白处拖窗口,三个平台、每种块都一样(项目块、对话块、App 块原先这里什么都没有);
+      // 页签、按钮这些可交互的东西由 index.css 的 @@@4259 规则默认退订,照常能点。
+      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip [-webkit-app-region:drag]"
       data-testid={testId}
       data-strip-narrow={narrow ? '' : undefined}
       style={{

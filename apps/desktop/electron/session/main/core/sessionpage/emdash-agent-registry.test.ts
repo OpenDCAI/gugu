@@ -387,6 +387,14 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
     expect(receipt).toMatchObject({ turnId: 'turn-codex' })
   })
 
+  it('preserves the deferred queue claim marker across the host bridge without another context claim', async () => {
+    const { injectEmdashPromptDetached } = bridgeFor('codex')
+    await emdashAgentRegistry.tryInjectSessionMessage('conv-codex-acp', {
+      id: 'app-message', text: 'APP FACT', kind: 'session-direct', deferredDispatch: true,
+    })
+    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toEqual({ steerIfBusy: true, deferredDispatch: true })
+  })
+
   // 发信方要排队:同一个 next-tool-call 家不带 steerIfBusy(会话机忙就排进队列),key 原样交给会话机的同键替换。
   // 变异对照:去掉 steerIfBusy 判据里的 `!opts?.delivery?.queue`,第一条红在 `{ steerIfBusy: true }`。
   it('does not steer a busy codex acp session when the sender asks to queue, and hands the key to the runtime queue', async () => {

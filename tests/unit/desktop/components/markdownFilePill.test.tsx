@@ -4,7 +4,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from '../../../../apps/desktop/src/components/markdown/Markdown'
 import { filePillText, filePillToken } from '../../../../apps/desktop/src/components/markdown/filePills'
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+
+const { openResource } = vi.hoisted(() => ({ openResource: vi.fn(async (target: GuguLinkTarget) => ({ kind: 'opened', target })) }))
+vi.mock('@/platform', () => ({ platform: { kind: 'web' } }))
+vi.mock('@/components/appSlot/phoneAppHost', () => ({ openPhoneLink: openResource }))
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**
@@ -23,6 +28,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount())
   container.remove()
+  vi.clearAllMocks()
 })
 async function render(content: string, onOpenLink: (href: string) => boolean = () => true): Promise<void> {
   await act(async () => {
@@ -42,8 +48,12 @@ describe('a pill pointing at a group file, in a chat bubble', () => {
     // The words come from the messaging strings (filePill.picked); the label leads, the version note follows.
     expect(pill.title.startsWith('演示稿 · 第 3 页 · 标题 · ')).toBe(true)
     expect(container.textContent).toBe('把这处改成蓝色 演示稿 · 第 3 页 · 标题')
-    await act(async () => pill.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })))
-    expect(onOpenLink).toHaveBeenCalledWith(pill.getAttribute('href'))
+    await act(async () => {
+      pill.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      await vi.dynamicImportSettled()
+    })
+    expect(openResource).toHaveBeenCalledExactlyOnceWith({ kind: 'file', itemId: ITEM, version: 7, at: { slide: '3', shape: '12' } })
+    expect(onOpenLink).not.toHaveBeenCalled()
     expect(decodeURI(pill.getAttribute('href')!)).toBe(`gugu-file://${ITEM}?v=7#slide=3&shape=12`)
   })
 

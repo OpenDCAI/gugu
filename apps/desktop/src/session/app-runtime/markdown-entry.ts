@@ -1,4 +1,3 @@
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink';
 import type { ChatHighlighter, HighlightResult } from '@gugu/session-chat-ui/highlight';
 import { documentToHtml } from '@gugu/session-chat-ui/markdown-html';
 import type { MarkdownTrust } from '@gugu/session-shared/markdown/dialect';
@@ -23,6 +22,8 @@ type Density = 'compact' | 'comfortable';
 type RenderOptions = { trust: MarkdownTrust; density: Density; frontmatter: boolean; sourceLines: boolean; file: unknown };
 /** What a link needs of `gugu` (create-gugu.ts hands its own object). */
 type LinkVerbs = {
+  openLink(url: string): Promise<unknown>;
+  reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
   files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
 };
@@ -147,18 +148,14 @@ function followLink(root: HTMLElement, gugu: LinkVerbs, file: unknown, href: str
     revealMarkdownAnchor(root, href.slice(1));
     return;
   }
-  const groupFile = parseGroupFileLink(href);
-  if (groupFile) {
-    // The place a pill points at goes with it, as a pill in the chat opens its file (`openGroupFile`).
-    void gugu.files.openWith?.({ id: groupFile.itemId }, groupFile.at ? { at: groupFile.at } : undefined)?.catch(() => undefined);
-    return;
-  }
+  const failed = (error: unknown) => gugu.reportError(error instanceof Error ? error.message : String(error));
   if (/^https?:\/\//i.test(href)) {
-    void gugu.openBrowserTab(href).catch(() => undefined);
+    void gugu.openBrowserTab(href).catch(failed);
     return;
   }
   const sibling = siblingOf(file, href);
-  if (sibling) void gugu.files.openWith?.(sibling)?.catch(() => undefined);
+  if (sibling) void gugu.files.openWith?.(sibling)?.catch(failed);
+  else void gugu.openLink(href).catch(failed);
 }
 
 // ── render ──

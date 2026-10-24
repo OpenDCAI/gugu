@@ -83,6 +83,18 @@ const actions = (call: ReturnType<typeof vi.fn>) =>
   call.mock.calls.map(([deviceId, , payload]) => [deviceId, (payload as { action: { action: string } }).action.action])
 
 describe('reaching another machine', () => {
+  it('refuses file handoff to an older or unknown receiver before any message RPC, without blocking text', async () => {
+    for (const protocol of [undefined, 10, 11]) {
+      const target = device('dev-b', 'receiver', true)
+      target.capabilities.remote_protocol = protocol
+      const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [device('dev-a', 'sender', true), target] })
+      if (protocol === 11) await xm.assertFileHandoffSupported(['dev-b'])
+      else await expect(xm.assertFileHandoffSupported(['dev-b'])).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+      expect(call).not.toHaveBeenCalled()
+      await xm.runOnDevice('dev-b', CALLER, { action: 'message', session_ids: ['receiver'], text: 'plain text' })
+      expect(call).toHaveBeenCalledOnce()
+    }
+  })
   it('lists this machine first, then online machines', async () => {
     const { xm } = makeCrossMachine()
     expect((await xm.listDeviceRows()).map((row) => [row.device_id, row.this_machine, row.online])).toEqual([
@@ -90,6 +102,57 @@ describe('reaching another machine', () => {
       ['dev-b', false, true],
       ['dev-c', false, false],
     ])
+  })
+
+  it('advertises a phone task runtime even without native file actions', async () => {
+    const phone = device('phone', 'phone', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const { xm } = makeCrossMachine(undefined, { listDevices: async () => [phone] })
+    expect(await xm.listDeviceRows()).toEqual([expect.objectContaining({ device_id: 'phone',
+      task_runtime: { capability: 1, runtimes: ['pi'] } })])
+  })
+
+  it('keeps an older computer with no runtime capability field usable for tasks', async () => {
+    const computer = device('old-computer', 'older computer', true)
+    delete computer.capabilities.host_runtime_capability
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [computer] })
+    await expect(xm.runOnDevice('old-computer', CALLER, { action: 'spawn', prompt: 'work' })).resolves.toMatchObject({ ok: true, device_id: 'old-computer' })
+    expect(call).toHaveBeenCalledOnce()
+  })
+
+  it('keeps an owned phone visible when its task host is off and distinguishes it from an unknown device', async () => {
+    const phone = device('phone', '主人的手机', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 0, runtimes: [] }
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [device('dev-a', 'sender', true), phone] })
+    expect(await xm.listDeviceRows()).toContainEqual(expect.objectContaining({ device_id: 'phone', online: true,
+      task_runtime: { capability: 0, runtimes: [] } }))
+    for (const action of [{ action: 'spawn', prompt: 'work' }, { action: 'message', session_ids: ['s'], text: 'work' }]) {
+      await expect(xm.runOnDevice('phone', CALLER, action)).rejects.toMatchObject({ code: 'device_no_task_runtime',
+        message: expect.stringMatching(/主人的手机.*device:phone.*请主人.*那台设备.*开启任务宿主.*其他设备不能代调/) })
+    }
+    await expect(xm.messageDeps(async () => CALLER).assertReachable(['phone'])).rejects.toMatchObject({ code: 'device_no_task_runtime' })
+    await expect(xm.runOnDevice('stranger', CALLER, { action: 'spawn', prompt: 'work' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_UNKNOWN' })
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it('refuses reuse when a known executor’s host stops, without hiding the device or sending a request', async () => {
+    const phone = device('phone', '手机', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'phone-task' } }),
+      { listDevices: async () => [phone] })
+    await xm.runOnDevice('phone', CALLER, { action: 'spawn', prompt: 'work' })
+    phone.capabilities = { ...phone.capabilities, host_runtime_capability: 0, runtimes: [] }
+    call.mockClear()
+    const remote = xm.messageDeps(async () => CALLER)
+    expect((await remote.locateSessions(['phone-task'])).found.get('phone-task')).toBe('phone')
+    await expect(remote.assertReachable(['phone'])).rejects.toMatchObject({ code: 'device_no_task_runtime' })
+    expect(call).not.toHaveBeenCalled()
+    expect(await xm.withRemoteChildren([], undefined, async () => CALLER)).toEqual([])
+    expect((await xm.sessionsElsewhere(null)).unreached).toEqual([expect.objectContaining({ deviceId: 'phone', detail: expect.stringContaining('开启任务宿主') })])
+    await xm.appCall({ extensionId: 'app', extensionName: 'App' }, 'phone', {
+      action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' },
+    })
+    expect(call).toHaveBeenCalledOnce()
   })
 
   it('asks that machine\'s task-page router: agentSession.<action>(caller, action), one call, no window', async () => {

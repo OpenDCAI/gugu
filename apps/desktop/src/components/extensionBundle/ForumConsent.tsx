@@ -6,8 +6,7 @@ import { rendererLogger } from '@/lib/log'
 import { getRendererAccessToken } from '@/lib/sessionPublication'
 import { APP_FORUM_CONSENT_EVENT, type AppForumConsentDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { createAppForum } from '@/session/shared/extensions/app-forum-core'
-import { Avatar } from '../Avatar'
-import { ListRow } from '../ui/ListRow'
+import { ChatPickSheet } from '../chat/ChatPickSheet'
 import { useOwnedAgents } from '../settings/channels/channelAgents'
 
 const log = rendererLogger('forum')
@@ -40,7 +39,8 @@ const REASONS: ReadonlyArray<[string, string]> = [
  * 论坛 (9): a bounty's community points move only behind this sheet, drawn by the host — never one an App draws. Posting a
  * bounty and settling one (accepting answers, or ending it without): the App's call came here (`gugu.forum.post` with a bounty,
  * `gugu.forum.award`); this does it if the person confirms, and the App hears the outcome from the forum's channel. Assigning
- * an agent too (`gugu.forum.assign`): the person picks one of their own agents here, so an App never lists them. Confirming
+ * an agent too (`gugu.forum.assign`): the person picks one of their own agents in the host's pick sheet (ChatPickSheet, the
+ * one a compose naming no place opens), so an App never lists them. Confirming
  * waits until it is really done; one that fails stays open saying why, ❌ closed as if it had worked.
  */
 export function ForumConsent() {
@@ -50,6 +50,7 @@ export function ForumConsent() {
   const [failed, setFailed] = useState<string | null>(null)
   const agents = useOwnedAgents()
   const [picked, setPicked] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   const titleId = useId()
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export function ForumConsent() {
       setFailed(null)
       setBusy(false)
       setPicked(detail.type === 'assign' ? detail.draft.preselect?.replace(/^user:/, '') ?? null : null)
+      setQuery('')
       setAsk(detail)
     }
     window.addEventListener(APP_FORUM_CONSENT_EVENT, onAsk)
@@ -86,10 +88,34 @@ export function ForumConsent() {
     }
   }
 
+  if (ask.type === 'assign') {
+    const needle = query.trim().toLocaleLowerCase()
+    return (
+      <ChatPickSheet
+        title={t('forum.consent.assignTitle')}
+        onClose={close}
+        testId="forum-assign"
+        rows={agents
+          .filter((agent) => !needle || agent.display_name.toLocaleLowerCase().includes(needle))
+          .map((agent) => ({ id: agent.id, name: agent.display_name, avatar: { name: agent.display_name, avatarUrl: agent.avatar, seed: agent.id, isAgent: true } }))}
+        selected={new Set(picked ? [picked] : [])}
+        onToggle={setPicked}
+        query={query}
+        onQuery={setQuery}
+        placeholder={t('forum.consent.searchAgents')}
+        empty={t('forum.consent.noAgents')}
+        above={<div className="text-[length:var(--font-body)] text-[var(--text-primary)]">{ask.draft.title}<p className="m-0 mt-1 text-[var(--text-secondary)]">{t('forum.consent.assignBody')}</p></div>}
+        actionLabel={t('forum.consent.assignConfirm')}
+        actionDisabled={busy || !picked}
+        onAction={() => void confirm()}
+        error={failed}
+        fullScreenMobile
+      />
+    )
+  }
   const ending = ask.type === 'award' && ask.draft.awards.length === 0
-  const title = ask.type === 'bounty' ? t('forum.consent.postTitle') : ask.type === 'assign' ? t('forum.consent.assignTitle')
-    : ending ? t('forum.consent.endTitle') : t('forum.consent.acceptTitle')
-  const lines = ask.type === 'assign' ? [ask.draft.title] : ask.type === 'bounty'
+  const title = ask.type === 'bounty' ? t('forum.consent.postTitle') : ending ? t('forum.consent.endTitle') : t('forum.consent.acceptTitle')
+  const lines = ask.type === 'bounty'
     ? [
         ask.draft.title,
         t('forum.consent.reward', { amount: ask.draft.amount }),
@@ -97,12 +123,9 @@ export function ForumConsent() {
         t(`forum.consent.visibility.${ask.draft.visibility}`),
       ]
     : [ask.draft.title, ...ask.draft.awards.map((award) => t('forum.consent.awardLine', { name: award.to, amount: award.amount }))]
-  const body = ask.type === 'bounty'
-    ? t('forum.consent.postBody', { amount: ask.draft.amount })
-    : ask.type === 'assign' ? (agents.length > 0 ? t('forum.consent.assignBody') : t('forum.consent.noAgents'))
-      : ending ? t('forum.consent.endBody') : t('forum.consent.acceptBody')
-  const confirmLabel = ask.type === 'bounty' ? t('forum.consent.postConfirm') : ask.type === 'assign' ? t('forum.consent.assignConfirm')
-    : ending ? t('forum.consent.endConfirm') : t('forum.consent.acceptConfirm')
+  const body = ask.type === 'bounty' ? t('forum.consent.postBody', { amount: ask.draft.amount })
+    : ending ? t('forum.consent.endBody') : t('forum.consent.acceptBody')
+  const confirmLabel = ask.type === 'bounty' ? t('forum.consent.postConfirm') : ending ? t('forum.consent.endConfirm') : t('forum.consent.acceptConfirm')
 
   return (
     // The same sheet the install consent beside it draws (ExtensionConsentSheet): one look for every consent an App asks for.
@@ -114,34 +137,11 @@ export function ForumConsent() {
             {lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}
           </ul>
           <p className="m-0">{body}</p>
-          {ask.type === 'assign' && agents.length > 0 ? (
-            <div role="radiogroup" aria-label={t('forum.consent.assignTitle')} className="flex max-h-[280px] flex-col gap-1 overflow-y-auto">
-              {agents.map((agent) => (
-                <ListRow
-                  key={agent.id}
-                  role="radio"
-                  tabIndex={0}
-                  aria-checked={picked === agent.id}
-                  selected={picked === agent.id}
-                  data-testid={`forum-assign-option-${agent.id}`}
-                  onClick={() => setPicked(agent.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      setPicked(agent.id)
-                    }
-                  }}
-                  leading={<Avatar name={agent.display_name} avatarUrl={agent.avatar} seed={agent.id} size="xs" isAgent harnessBadge={false} />}
-                  title={agent.display_name}
-                />
-              ))}
-            </div>
-          ) : null}
           {failed ? <p className="m-0 text-[var(--danger)]" role="alert">{failed}</p> : null}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={busy} onClick={close} data-testid="forum-consent-cancel">{t('forum.consent.cancel')}</Button>
-          <Button variant={ending ? 'danger' : 'primary'} disabled={busy || (ask.type === 'assign' && !picked)} onClick={() => void confirm()} data-testid="forum-consent-confirm">
+          <Button variant={ending ? 'danger' : 'primary'} disabled={busy} onClick={() => void confirm()} data-testid="forum-consent-confirm">
             {confirmLabel}
           </Button>
         </div>

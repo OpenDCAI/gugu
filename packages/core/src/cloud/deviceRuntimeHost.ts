@@ -6,6 +6,7 @@ import {
   DEVICE_HEARTBEAT_INTERVAL_MS,
   resolveLocalDeviceId,
   runDeviceRuntimeTick,
+  markDeviceOffline,
   syncDeviceHeartbeat,
   cleanupLegacyDeviceRows,
   type AgentDeliverFailure,
@@ -20,7 +21,9 @@ import {
   type DeviceHeartbeatTableClient
 } from './deviceRuntime'
 import {
+  readDeviceRuntimeInstances,
   reportRuntimeInstanceHeartbeat,
+  retireRuntimeInstance,
   type DeviceCommandTableClient,
   type ProcessDeviceCommandResult,
   RUNTIME_INSTANCE_STALE_MS,
@@ -79,7 +82,6 @@ export type DeviceRuntimeTickTrigger = 'event' | 'reconcile'
 
 export type SubscribeDeviceCommandWake = (input: {
   deviceId: string
-  accessToken: string
   /** 有行变成 pending 了。事件点名了哪一行就带上它的 id(广播负载里有);不带 = 泛指(订上时的补拉)。 */
   onCommand: (commandId?: string) => Promise<void>
   /**
@@ -93,10 +95,9 @@ export type SubscribeDeviceCommandWake = (input: {
   onSubscribeFailure: () => void
 }) => Promise<() => void> | (() => void)
 
-// @@@device-rpc-seam - same inject shape as SubscribeDeviceCommandWake: the host owns realtime
+// 账号客户端拥有认证;订阅只跟设备与 owner 生灭,令牌续期不拆掉手机的窗口。
 export type SubscribeDeviceRpc = (input: {
   deviceId: string
-  accessToken: string
 }) => Promise<() => void> | (() => void)
 
 export interface DeviceRuntimeHostOptions {
@@ -339,9 +340,9 @@ export function createDeviceRuntimeHostLoop(
   let lastLeaseRenewAt: number | null = null
   // @@@5912 上一次跑 legacy / 陈旧行清理的时刻。换 owner 要重来 —— 那是另一批行。
   let lastLegacyCleanupAt: number | null = null
-  let commandWake: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let commandWake: { deviceId: string; unsubscribe: () => void } | null = null
   let commandWakeEpoch = 0
-  let deviceRpc: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let deviceRpc: { deviceId: string; unsubscribe: () => void } | null = null
   let lifecycleGeneration = 0
   let lastAuth: RuntimeAuth | null = null
   let activeOwnerUserId: string | null = null
@@ -475,17 +476,17 @@ export function createDeviceRuntimeHostLoop(
     }
   }
 
-  async function ensureDeviceRpc(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureDeviceRpc(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeDeviceRpc) return
     if (generation !== lifecycleGeneration) return
-    if (deviceRpc?.deviceId === deviceId && deviceRpc.accessToken === accessToken) return
+    if (deviceRpc?.deviceId === deviceId) return
     unsubscribeDeviceRpc()
-    const unsubscribe = await options.subscribeDeviceRpc({ deviceId, accessToken })
+    const unsubscribe = await options.subscribeDeviceRpc({ deviceId })
     if (generation !== lifecycleGeneration) {
       unsubscribe()
       return
     }
-    deviceRpc = { deviceId, accessToken, unsubscribe }
+    deviceRpc = { deviceId, unsubscribe }
   }
 
   // 一次「该取命令了」的请求。没有 tick 在飞就立刻跑一轮;有就排一个后续的 ——
@@ -546,16 +547,15 @@ export function createDeviceRuntimeHostLoop(
     return flight
   }
 
-  async function ensureCommandWake(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureCommandWake(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeCommandWake) return
     if (generation !== lifecycleGeneration) return
-    if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) return
+    if (commandWake?.deviceId === deviceId) return
     unsubscribeCommandWake()
     const wakeEpoch = commandWakeEpoch
     let failed = false
     const unsubscribe = await options.subscribeCommandWake({
       deviceId,
-      accessToken,
       onCommand: async (commandId) => {
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
         noteCommandAnnouncement(commandId)
@@ -575,7 +575,7 @@ export function createDeviceRuntimeHostLoop(
       onSubscribeFailure: () => {
         failed = true
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
-        if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) {
+        if (commandWake?.deviceId === deviceId) {
           unsubscribeCommandWake()
         }
         onCommandWakeSubscribeFailed(generation)
@@ -586,7 +586,7 @@ export function createDeviceRuntimeHostLoop(
       unsubscribe()
       return
     }
-    commandWake = { deviceId, accessToken, unsubscribe }
+    commandWake = { deviceId, unsubscribe }
   }
 
   // wake 是新命令的事件源。订不上不致命(入队的行是持久的,订上时的补拉与对账节拍都会把它们取回),但必须响亮,
@@ -711,7 +711,7 @@ export function createDeviceRuntimeHostLoop(
       lastDeviceId = deviceId
       // 先订设备 RPC,再写心跳:设备行里出现这台(心跳带 app_version)就等于它已经接得了 RPC。看到机器上线 / 换完版
       // 就去开线的路径(会话页的机器线)发来的请求是 broadcast,频道还没订上就直接丢了,只能等它超时。
-      await ensureDeviceRpc(deviceId, auth.accessToken, generation)
+      await ensureDeviceRpc(deviceId, generation)
       preClaim.mark('device-rpc')
       let heartbeatSynced = false
       if (syncHeartbeat) {
@@ -792,7 +792,7 @@ export function createDeviceRuntimeHostLoop(
         },
         env
       )
-      await ensureCommandWake(result.deviceId, auth.accessToken, generation)
+      await ensureCommandWake(result.deviceId, generation)
       // @@@scheduled-tasks (#987) — 定时任务由到期定时器驱动,❌ 不在 tick 里跑。tick 只负责本生命周期第一次确立 owner
       // 边界之后排第一次;周期重排挂在对账**定时器**上(见 start())—— 挂在 tick 上就是按事件频率扫表。
       if (!scheduledTasksPlanned) scheduleScheduledTasksRun()
@@ -1357,6 +1357,8 @@ export function createDeviceRuntimeHostLoop(
 
   async function stop(): Promise<void> {
     const runningTick = activeTick
+    const ownerAtStop = activeOwnerUserId
+    const deviceAtStop = lastDeviceId
     stopped = true
     lifecycleGeneration += 1
     activeTickAbortController?.abort(new Error('device runtime host stopped'))
@@ -1385,8 +1387,38 @@ export function createDeviceRuntimeHostLoop(
     if (activeScheduledTasksRun) await activeScheduledTasksRun.catch(() => undefined)
     if (activeLeaseRenewal) await activeLeaseRenewal
     if (activeActivityPublish) await activeActivityPublish.catch(() => undefined)
-    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired,设备行由租约清扫者在
-    // 租约过期后翻成 offline(#5912)。逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    // 在路上的心跳先落地:它写的是「在线」,落在下面那一句之后就又把这台标回在线了。
+    await Promise.all([...heartbeatFlights.values()].map((flight) => flight.catch(() => undefined)))
+    // 这台机器要走了:设备行当场标离线(#156),名下别的设备马上看见,❌ 等两分钟租约过期、看起来和崩溃一样。
+    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired(#5912),这一行就够了;
+    // 逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    if (ownerAtStop && deviceAtStop) await announceOffline(ownerAtStop, deviceAtStop)
+  }
+
+  async function announceOffline(ownerUserId: string, deviceId: string): Promise<void> {
+    try {
+      const auth = await options.authProvider.getAuth()
+      if (!auth?.accessToken || auth.userId !== ownerUserId) return
+      const client = options.makeIdentityClient(auth.accessToken)
+      // 先注销自己这个实例,再看兄弟:两个一起停(关机)时,后看的那个一定看得见先走的已经走了,至少有一个说离线。
+      await retireRuntimeInstance(client, instanceId, options.operationTimeouts)
+      // 同账号同机的别的实例共用这一行(#5041):它还活着,这台机器就没走 ——
+      // ❌ 替它说离线(要等它下一拍心跳才写回在线,中间别的设备都读成离线)。
+      const instances = await readDeviceRuntimeInstances(client, deviceId, options.operationTimeouts)
+      const siblingAlive = instances.some((instance) => {
+        if (instance.instanceId === instanceId) return false
+        const at = Date.parse(instance.lastHeartbeatAt)
+        return !Number.isNaN(at) && nowMs() - at < RUNTIME_INSTANCE_STALE_MS
+      })
+      if (siblingAlive) return
+      await markDeviceOffline(client, deviceId, {
+        nowIso: options.nowIso,
+        operationTimeouts: options.operationTimeouts,
+      })
+    } catch (error) {
+      // 说不出去(断网、令牌没了):别处照旧在租约过期后看见它离线。
+      options.warn?.(`[device-runtime] could not mark this device offline on stop: ${(error as Error).message}`)
+    }
   }
 
   function getDebugSnapshot(): DeviceRuntimeHostDebugSnapshot {
@@ -1412,7 +1444,8 @@ export function createDeviceRuntimeHostLoop(
   }
 
   return {
-    tickOnce: () => tickOnce('event'),
+    // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
+    tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,
     notifyCommandsChanged: () => {
       noteCommandAnnouncement()

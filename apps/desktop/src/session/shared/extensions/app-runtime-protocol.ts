@@ -1,4 +1,3 @@
-import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { FileOpenerCandidate } from './file-openers';
 /**
@@ -69,7 +68,7 @@ export const BUSY_SECONDS = 10;
 export const PAGE_DIALOGS = ['alert', 'confirm', 'prompt'] as const;
 export type PageDialog = (typeof PAGE_DIALOGS)[number];
 export function noPageDialog(name: PageDialog): string {
-  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host; a phone has none): ask on the page — an input, a button, a line of text (guide: apps-page)`;
+  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host): use gugu.modal.open({ entry, title }) (guide: apps-page)`;
 }
 
 /**
@@ -493,22 +492,6 @@ export type PeekTarget =
   | { kind: 'local'; place: LocalPlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
   | { kind: 'session'; sessionId: string; projectId: string; deviceId?: string };
 
-/**
- * 摩擦单 F10: open a file of a group (or a topic) where the person is — a link in the chat, `session_open_in_tab`, a link
- * in a session's transcript (`gugu-file://<itemId>`, `parseGroupFileLink`). One window event, one listener (the chat shell):
- * it brings that chat up, leaves the file with whatever shows it (a group's side panel, a topic's split) and cancels the
- * event to say it took it. Not taken: the person is not in that chat (told so), and whoever asked says that, not that it
- * opened.
- */
-export const GROUP_FILE_OPEN_EVENT = 'gugu:open-group-file';
-export interface GroupFileOpenDetail {
-  message?: MessageItem;
-  /** The chat the file is in, as the file says (F112); null when the person is not in it — they see no such file. */
-  chatId: string | null;
-  itemId: string;
-  /** The place in it a pill points at (its link's `#…`, `parseGroupFileLink`): the App that opens it gets it as a `link` event. */
-  at?: Record<string, string>;
-}
 export const GROUP_FILE_NOT_OPENED = 'Not opened: the person at this computer is not in the chat this file belongs to';
 
 /** `gugu.compose` from an App in a chat's slot, desktop (main's host action) and phone alike: `useSlotMakesWay` takes it. */
@@ -559,7 +542,6 @@ export type AppForumConsentDetail =
   /** `gugu.forum.assign`: the person picks one of their own agents in the host's list; the App never lists them. */
   | { type: 'assign'; draft: import('./app-forum-core').AssignDraft };
 
-export const APP_SHOW_MESSAGE_EVENT = 'gugu:app-show-message';
 export interface AppShowMessageDetail {
   chatId: string;
   messageId: string;
@@ -567,10 +549,7 @@ export interface AppShowMessageDetail {
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
-export interface AppShowSessionDetail {
-  deviceId: string;
-  session: SessionpageSessionSummary;
-}
+export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string } | { projectId: string };
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {

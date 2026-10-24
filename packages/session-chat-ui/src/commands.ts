@@ -169,20 +169,15 @@ export type ChatCommands = {
   /**
    * Synchronously classify an `href` from a rendered markdown link.
    * Returns `{ kind: 'workspace-file'; path: string; at? }` for workspace files (`at` the place its `#…` names),
-   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, opened by `onOpenGroupFile`; `at` the place a pill points at),
+   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, claimed first by `onOpenLink`; `at` the place a pill points at),
    * or `{ kind: 'external' }` to keep the default external-link behavior.
    */
   classifyLink?: (
     href: string,
   ) => { kind: 'workspace-file'; path: string; at?: Record<string, string> } | { kind: 'group-file'; itemId: string; at?: Record<string, string> } | { kind: 'conversation'; href: string } | { kind: 'external' };
 
-  onOpenConversationLink?: (href: string) => void;
-
-  /**
-   * User clicked a link to a file of a group (`gugu-file://<itemId>`), or a pill pointing at one: the host opens it in
-   * the group it is in, at the place the pill points at (`at`).
-   */
-  onOpenGroupFile?: (arg: { itemId: string; at?: Record<string, string> }) => void;
+  /** A product link or file pill, handed to the host's common link opener before local paths. */
+  onOpenLink?: (href: string) => boolean;
 
   /**
    * 点了一张附件卡(#7193):agent 用 `session_open_in_tab` 打开过的那份文件 / 网页。宿主重新打开它 ——

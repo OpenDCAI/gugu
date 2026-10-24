@@ -111,12 +111,13 @@ describe('the slot header', () => {
       expect(harness.container.querySelector('[data-testid="group-app-slot-error"]')).toBeNull()
 
       // A page opened for a file: its own slot, its own words; the group's page untouched.
-      groupSlotMemory.setOpened('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'Workspace', typedName: 'plan.json', opening: 4 })
+      groupSlotMemory.setOpened('group-4', { kind: WORKSPACE_APP_KIND, itemId: 'item-4', title: 'plan', fileName: 'plan.json', typedName: 'plan.json', opening: 4 })
       // (Its page waits for the group's shared packages to be read — a signed-in person's.)
       await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never }, slot({ chatId: 'group-4' })))
       await act(async () => {})
-      act(() => extensionSurfaceStore.say(null, claimOf('group-4', 'item-4').tabId, { title: 'plan.json · Board' }))
-      expect(harness.container.textContent).toContain('plan.json · Board')
+      act(() => extensionSurfaceStore.say(null, claimOf('group-4', 'item-4').tabId, { title: 'Board' }))
+      expect(harness.container.querySelector('[title="plan.json · Board"]')?.textContent).toBe('plan')
+      expect(harness.container.textContent).not.toContain('Board')
       expect(extensionSurfaceStore.sharedState(residentPageKey(WORKSPACE_APP_KIND, residentPlace({ chatId: 'group-4' }))).title).toBeNull()
     } finally {
       stop()
@@ -183,6 +184,17 @@ describe('the slot header', () => {
 describe('an App opened in the group (「在本群打开」)', () => {
   const installTabs = (tabs: { name: string; title: string; opensFiles?: Record<string, string[]> }[]) =>
     act(() => installedExtensionsStore.applyList({ extensions: [{ id: 'board', name: 'Board', version: '1.0.0', contributes: { tabs } }], invalid: [] } as unknown as InstalledExtensionsList))
+
+  it('a folder request replaces a remembered App with the folder root, without a back trail', async () => {
+    const chatId = 'folder-entry-7590'
+    groupSlotMemory.setOpened(chatId, { kind: 'day-calendar.main', title: '日历', opening: 7590 })
+    await harness.render(slot({ chatId }))
+    expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe('day-calendar.main')
+    await harness.render(slot({ chatId, appToOpen: { chatId, extensionId: 'workspace', request: 759001 } }))
+    expect(harness.container.querySelector('[data-app-kind]')?.getAttribute('data-app-kind')).toBe(WORKSPACE_APP_KIND)
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    expect(groupSlotMemory.opened(chatId)).toBeNull()
+  })
 
   it('opens its own page here, with no file', async () => {
     const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')

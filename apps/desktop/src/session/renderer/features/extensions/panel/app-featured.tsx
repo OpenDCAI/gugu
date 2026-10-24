@@ -1,4 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
+import { cn } from '@/lib/cn';
+import { Button } from '@renderer/lib/ui/button';
 import type { SessionTranslate } from '../extension-consent';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import type { ProductPageApi } from './app-product-page';
@@ -7,10 +10,10 @@ import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 
 /**
- * 市场首页精选那一排里的一张(owner 10-19「参考 app store 首页」= App Store 的精选大卡):
- * 底图是它 README 里的第一张截图(截图铺右边,左边渐变出文字区);没有截图就用它的图标 —— 放大模糊当底,再放一个清晰的大图标。
- * 左上是「精选」、副标题(大字)和简介里剩下的话;底下一条是图标、名字、类别和那颗按钮。点卡片别处 = 它的产品页。
- * `card`:首页「最新」那一排的小卡(App Store 发现页里大图配一句话的卡):同一张底图在上(16:9),下面一条图标、名字、副标题和按钮。
+ * A market feature uses its README's first image as complete artwork. App identity and
+ * lifecycle controls sit below it; the image remains a keyboard-accessible detail entry.
+ * Without artwork, the existing icon card supplies the title and description.
+ * `card` uses the same image in the smaller 16:9 tiles on the newest shelf.
  */
 export function AppFeaturedCard({
   variant = 'hero',
@@ -52,23 +55,47 @@ export function AppFeaturedCard({
 }) {
   // 底图跟着 README 走:一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里。再进这一页时第一帧就是截图,
   // 不会每次先画图标版、等 README 取回来再换(owner 10-20「每次点进去 banner image 都要变一下」)。
-  const { data: shot = null } = useQuery({
+  const { data: shot = null, isPending, isError, refetch } = useQuery({
     queryKey: ['market-readme-shot', hostKey, id, version],
     // 没读到就抛:失败不进缓存,下次进来再取(主进程那边已记日志)。
     queryFn: async () => {
       const result = await api.marketReadme({ extensionId: id, version });
       if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
-      return result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
+      const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
+      if (artwork) {
+        const image = new window.Image();
+        image.src = artwork.src;
+        await image.decode();
+      }
+      return artwork;
     },
     staleTime: Infinity,
   });
 
   const card = variant === 'card';
+  const artwork = isPending || isError || Boolean(shot);
   return (
-    <div role="listitem" className={card ? 'mk-hero-card is-card' : 'mk-hero-card'} data-testid={card ? `extension-card-${id}` : `app-featured-${id}`} onClick={onOpen}>
-      <div className={shot ? 'mk-hero-art is-shot' : 'mk-hero-art is-icon'} aria-hidden>
-        {shot ? (
-          <img src={shot.src} alt="" loading="lazy" decoding="async" />
+    <div
+      role="listitem"
+      className={cn('mk-hero-card', card && 'is-card', artwork && 'has-shot')}
+      data-testid={card ? `extension-card-${id}` : `app-featured-${id}`}
+      onClick={onOpen}
+    >
+      <div className={cn('mk-hero-art', artwork ? 'is-shot' : 'is-icon')} aria-hidden={artwork ? undefined : true}>
+        {isPending ? (
+          <Skeleton className="absolute inset-0 rounded-none" role="status" aria-label={translate('extensions.loading')} aria-busy="true" />
+        ) : isError ? (
+          <div className="mk-status" role="alert">
+            <span>{translate('extensions.loadFailed')}</span>
+            <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); void refetch(); }}>{translate('extensions.retry')}</Button>
+          </div>
+        ) : shot ? (
+          <>
+            <img src={shot.src} alt="" loading="lazy" decoding="async" />
+            {!card ? (
+              <button type="button" className="mk-hero-open" aria-label={translate('extensions.detailsOf', { name })} />
+            ) : null}
+          </>
         ) : (
           <>
             {iconUrl ? <img className="mk-hero-blur" src={iconUrl} alt="" /> : null}
@@ -78,7 +105,7 @@ export function AppFeaturedCard({
           </>
         )}
       </div>
-      {card ? null : (
+      {card || artwork ? null : (
         <div className="mk-hero-text">
           <span className="mk-hero-label">{translate('extensions.featured')}</span>
           {/* 大字是一颗按钮:键盘也能进它的产品页(点了冒泡到外层那个 onClick)。 */}

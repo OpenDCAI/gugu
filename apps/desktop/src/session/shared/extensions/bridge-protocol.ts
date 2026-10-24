@@ -48,8 +48,14 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 8, and a client that knows only 7 is handed the App's last version for 7.
  * 9 (10-20, 论坛): `gugu.forum.*` (app-forum-core.ts). An App that calls it says 9, so a client without it is handed the
  * App's last version for 8 instead of a page whose calls are missing.
+ * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
+ * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
+ * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
+ * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
+ * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
+ * 13: common resource linkTo/openLink on desktop, phone and programs (generation only).
  */
-export const EXTENSION_API_VERSION = 9;
+export const EXTENSION_API_VERSION = 13;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -138,6 +144,8 @@ export interface ExtensionHostContext {
    * instances apart. Absent on a page nobody draws — the background page, a program.
    */
   tabId?: string;
+  /** A host modal's initial data, under the opener's context and existing grants. */
+  modal?: { data?: unknown };
   /**
    * The chat this surface is drawn for (its panel, 「在本群打开」): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
@@ -439,6 +447,7 @@ export interface ExtensionAgentHistoryPage {
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
   | { type: 'context'; context: ExtensionHostContext }
+  | { type: 'modalFocus'; edge: 'first' | 'last' }
   /**
    * The user picked something the extension declared in its manifest.
    *
@@ -487,7 +496,7 @@ export type ExtensionHostEvent =
    * `resync` (a working copy only) means "re-read what you care about": the watcher lost its place. It carries no paths
    * on purpose — a guessed set would be worse.
    */
-  | { type: 'filesChanged'; place: AppPlace; change: ExtensionFileChangeBatch }
+  | { type: 'filesChanged'; watchId: string; place: AppPlace; change: ExtensionFileChangeBatch }
   /**
    * What the app is showing moved — a pane switched tabs, the view split, the
    * user changed session, or the window gained or lost the foreground.
@@ -613,6 +622,11 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
+  modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
+  modalClose: { needs: null, only: 'page' },
+  /** Runtime keyboard traversal at the edge of a modal guest; not an App-facing member. */
+  modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
   /**
@@ -648,7 +662,7 @@ export const BRIDGE_VERBS = {
   broadcastToViews: { needs: null, only: 'background' },
   /**
    * Put text in the composer of the conversation open here — the group's, or the agent's in a session — and show
-   * it. Nothing is sent: the person @s whom they like and sends it, as their own message, or not at all. Handed to the
+   * it; naming none, the person picks where in the host's sheet (`ComposeTargetPicker`). Nothing is sent: the person @s whom they like and sends it, as their own message, or not at all. Handed to the
    * host's own composer, never drawn in the App. No capability: the last step is the person's; the
    * gesture is what keeps a page from filling the composer on its own.
    */
@@ -805,7 +819,7 @@ export const BRIDGE_VERBS = {
   showSession: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
   /**
    * The person clicked a link of gugu's own in the page (what `linkTo` makes): it opens through the one opener a link
-   * from outside gugu takes (`openExtensionLink`). Not on `window.gugu`: the preload sends it from a real click on an
+   * from outside gugu takes. Public on `window.gugu`; the runtime also sends a real click on an
    * `<a>`; a page script that moves `location` is still stopped at `will-navigate`, and any other link is still refused.
    */
   openLink: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },

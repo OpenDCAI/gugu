@@ -1,5 +1,5 @@
 import { questionAnswerError, type PendingRequest, type Settlement } from '@gugu/session-core/session-record';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { log } from '@main/lib/logger';
 import type { HostAnswer } from '../session-timeline/service';
 
