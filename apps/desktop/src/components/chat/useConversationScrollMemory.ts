@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from 'react'
 import { rendererLogger } from '../../lib/log'
 import { restoreLanding } from '../../lib/listLanding'
 import type { ListLanding } from '../../lib/flowList'
 import { currentAuthSessionSignal } from '../../lib/authSessionLoss'
+import type { UnreadLocatorCommit } from '../../lib/chatUnreadLocatorWindow'
 
 const log = rendererLogger('conversation-scroll')
 
@@ -53,7 +54,7 @@ interface UseConversationScrollMemoryOptions {
   messageIds: ReadonlyArray<string>
   isAtBottomRef: RefObject<boolean>
   setFollowingTail: (following: boolean) => void
-  loadMessageAnchor?: (messageId: string) => Promise<void>
+  loadMessageAnchor?: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
   discardSaved?: boolean // @@@6530 因为有新消息才点开的这一次停在最新处,不回上次读到一半的位置(微信同款)
 }
 
@@ -83,7 +84,7 @@ export function useConversationScrollMemory({
   isPreservingPosition: () => boolean
   forgetSavedPosition: () => void
   openLocation: () => ListLanding | null
-  revealMessage: (messageId: string) => Promise<void>
+  revealMessage: (messageId: string, commit?: UnreadLocatorCommit) => Promise<void>
 } {
   const session = currentAuthSessionSignal()
   const positions = useMemo(() => positionsBySession.get(session) ?? new Map<string, ConversationViewportPosition>(), [session])
@@ -109,7 +110,7 @@ export function useConversationScrollMemory({
   const [, rerender] = useReducer((n: number) => n + 1, 0)
   // revealMessage: a message someone asked to see (#1708 来源消息). It travels the restore path below, and this
   // settles with it: resolved when the row has settled in place, rejected when it cannot be loaded or never settles.
-  const revealRef = useRef<{ chatId: string; messageId: string; resolve: () => void; reject: (error: Error) => void } | null>(null)
+  const revealRef = useRef<{ chatId: string; messageId: string; commit?: UnreadLocatorCommit; resolve: () => void; reject: (error: Error) => void } | null>(null)
   const [revealRequest, setRevealRequest] = useState(0)
   const settleReveal = useCallback((messageId: string, error?: Error) => {
     const reveal = revealRef.current
@@ -213,13 +214,13 @@ export function useConversationScrollMemory({
   // Show one message of this conversation, loaded or not: it becomes the position to restore, so a window
   // loaded around it (loadMessageAnchor) remounts the list landing on it, and the settle loop holds it there
   // against whatever else moves the list meanwhile. A one-shot scroll does not survive that remount.
-  const revealMessage = useCallback((messageId: string) => new Promise<void>((resolve, reject) => {
+  const revealMessage = useCallback((messageId: string, commit?: UnreadLocatorCommit) => new Promise<void>((resolve, reject) => {
     if (!chatId || !enabled) {
       reject(new Error('The conversation cannot show a message now'))
       return
     }
     revealRef.current?.reject(new Error('Superseded by another message to show'))
-    revealRef.current = { chatId, messageId, resolve, reject }
+    revealRef.current = { chatId, messageId, commit, resolve, reject }
     const height = scrollerRef.current?.clientHeight ?? 0
     positions.set(positionKey, { atBottom: false, messageId, offset: Math.round(height * REVEAL_VIEWPORT_FRACTION) })
     completedActivationRef.current = null
@@ -230,7 +231,7 @@ export function useConversationScrollMemory({
     setRevealRequest((n) => n + 1)
   }), [chatId, enabled, isAtBottomRef, setFollowingTail, positions, positionKey])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current
     if (!chatId || !enabled || !scroller || completedActivationRef.current === activationKey) return
     const position = positions.get(positionKey)
@@ -250,7 +251,9 @@ export function useConversationScrollMemory({
     if (!location) {
       if (loadMessageAnchor && requestedAnchorRef.current !== activationKey) {
         requestedAnchorRef.current = activationKey
-        void loadMessageAnchor(position.messageId).catch((error: unknown) => {
+        const commit = revealRef.current?.commit
+        const loading = commit ? loadMessageAnchor(position.messageId, commit) : loadMessageAnchor(position.messageId)
+        void loading.catch((error: unknown) => {
           if (lastActivationRef.current !== activationKey) return
           log.error({ chatId, messageId: position.messageId, error }, 'loading saved message anchor failed')
           settleReveal(position.messageId, error instanceof Error ? error : new Error(String(error)))
@@ -300,7 +303,8 @@ export function useConversationScrollMemory({
       }
       frame = requestAnimationFrame(settle)
     }
-    frame = requestAnimationFrame(settle)
+    // An already loaded target also moves before paint; a window replacement uses openLocation above.
+    settle(performance.now())
     return () => {
       cancelAnimationFrame(frame)
       if (restoringActivationRef.current === activationKey) restoringActivationRef.current = null

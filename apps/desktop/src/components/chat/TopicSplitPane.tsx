@@ -339,12 +339,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
-  const unreadNavigationPending = useUnreadLocatorNavigation({ loadMessageAnchor, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
-    onNavigate: () => search.setSearchMode(false), rows, loadingAnchor: messageWindow.loading === 'anchor', listRef, scrollerRef,
-    setFollowingTail: (following) => { isAtBottomRef.current = following; setFollowingTail(following) },
-    setFlashMessageId, flashTimerRef, hasMoreOlder: messageWindow.hasOlder, loadingOlder: history.loadingOlder,
-    loadOlderMessages: history.loadOlderMessages, hasMoreNewer: messageWindow.hasNewer,
-    loadingNewer: messageWindow.loading === 'newer', loadNewerMessages: history.loadNewerMessages })
+  const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
+    onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
   const { viewportAtBottom, onAtBottomChange } = useFollowingTail({ resetKey: chatResetKey, unreadNavigationPending: !!unreadNavigationPending,
     hasNewer: messageWindow.hasNewer, loading: !!messageWindow.loading, isPreservingPosition, isAtBottomRef, setFollowingTail })
   useChatHistoryPagination({ resetKey: chatResetKey, messages, enabled: visible !== false && !isFiltering && !unreadNavigationPending,
