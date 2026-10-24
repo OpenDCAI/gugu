@@ -1372,7 +1372,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {topicSurface.splitTopic && (
           <TopicSplitPane
             viewportKey={`${viewportKey}:topic`} navigationTarget={navigationTarget}
-            topic={topicSurface.splitTopic}
+            topic={topicSurface.splitTopic} sourceChatId={activeChatId!}
             messages={topicSurface.splitLine.messages} history={topicSurface.splitLine}
             loading={topicSurface.splitLine.loadingMessages}
             memberProfiles={messageMemberProfiles}

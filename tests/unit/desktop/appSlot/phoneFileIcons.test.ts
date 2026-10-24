@@ -34,7 +34,8 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     // The folder's doors, as the person: a file by its id, the chat's list, who may delete what (everyone, everything).
     const placed = (row: (typeof rows)[number]) => ({ ...row, parent_id: null, system_role: null, path: row.filename })
     const rpc = async (name: string, args: Record<string, unknown>) => {
-      if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
+      if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null };
+  if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
       if (name === 'workspace_list_as') return { data: rows.map(placed), error: null }
       const row = rows.find((candidate) => candidate.id === args.p_item_id)
       return row ? { data: [placed(row)], error: null } : { data: null, error: { message: 'workspace item not found', hint: 'workspace_item_not_found' } }
@@ -83,7 +84,7 @@ async function call(method: string, args: Record<string, unknown>): Promise<Reco
 
 describe('a chat file\'s icon on the phone: the one its App declared for its kind (owner 10-17)', () => {
   it('a declared kind carries that icon; a claimed kind without one carries none — not the tab\'s icon', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [MD, JSON_FILE] }])
     const change = posted.mock.calls.map(([m]) => m as { t?: string; event?: { type: string; change: { entries: { id: string; claimedBy: unknown }[] } } })
       .find((m) => m.t === 'event' && m.event?.type === 'filesChanged')!.event!.change
