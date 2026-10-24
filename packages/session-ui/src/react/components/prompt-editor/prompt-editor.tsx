@@ -41,7 +41,7 @@ import { buildSlashCommandExtension } from './extensions/slash-command';
 import { buildSubmitKeymap } from './extensions/submit-keymap';
 import { buildPromptHistoryKeymap } from './extensions/prompt-history-keymap';
 import { compactMentionPath } from './mention-pill-helpers';
-import { plainTextDoc, serializeDoc, serializeNode } from './serialize';
+import { mentionInsertContent, plainTextDoc, serializeDoc, serializeNode } from './serialize';
 import type {
   CommandItem,
   MentionItem,
@@ -64,6 +64,7 @@ function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
   return {
     id: item.id,
     label: isStackedAgent ? agentTitle : name,
+    labelContent: item.optionLabel,
     // File rows already show a stable path tail; an initial avatar adds no
     // information and makes same-name files look like duplicates.
     avatarLabel: icon || isFile ? undefined : firstInitial(name),
@@ -200,29 +201,15 @@ function makeSuggestionRender<T>(
         setSuggestion(emptySuggestion());
       },
       onKeyDown({ event }: SuggestionKeyDownProps) {
+        if (event.key === 'Escape') {
+          cancelPendingClear();
+          setSuggestion(emptySuggestion());
+          return true;
+        }
         return popupRef.current?.onKeyDown(event) ?? false;
       },
     };
   };
-}
-
-function mentionInsertContent(item: MentionItem) {
-  return [
-    {
-      type: 'mention',
-      attrs: {
-        id: item.id,
-        label: item.label,
-        name: item.name ?? null,
-        kind: item.kind,
-        role: item.role ?? null,
-        engine: item.engine ?? null,
-        title: item.role === 'agent' ? item.description ?? null : null,
-        pending: item.pending ?? false,
-      },
-    },
-    { type: 'text', text: ' ' },
-  ];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -230,6 +217,9 @@ function mentionInsertContent(item: MentionItem) {
 export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(function PromptEditor(
   {
     placeholder = 'Message…',
+    inputTestId = 'prompt-editor',
+    inputRef,
+    enterBehavior = 'submit',
     disabled = false,
     onChange,
     onPasteText,
@@ -248,6 +238,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   ref
 ) {
   // Stable refs so callbacks inside TipTap extensions always see current values.
+  const enterBehaviorRef = useRef(enterBehavior);
+  enterBehaviorRef.current = enterBehavior;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const clearOnSubmitRef = useRef(clearOnSubmit);
@@ -265,15 +257,16 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   const openMention = useRef<OpenSuggestion>({ props: null, apply: null });
   // 提供方说「结果变了」:弹层还开着就按当前查询再查一次,原地换掉列表(查询期间没换过才写回)。
   useEffect(() => {
-    if (!mentionProvider?.onResultsChanged) return;
-    return mentionProvider.onResultsChanged(() => {
+    if (!mentionProvider) return;
+    const refresh = () => {
       const { props, apply } = openMention.current;
       if (!props || !apply) return;
-      // requery:这是重查,不是用户刚打开「@」—— 提供方据此 ❌ 再触发一轮(否则停在「@」上会扫个不停)。
       void mentionProvider.search(props.query, { requery: true }).then((items) => {
         if (openMention.current.props === props) apply({ ...props, items }, true);
       });
-    });
+    };
+    refresh();
+    return mentionProvider.onResultsChanged?.(refresh);
   }, [mentionProvider]);
   const renderMentionIconRef = useRef(renderMentionIcon);
   renderMentionIconRef.current = renderMentionIcon;
@@ -309,7 +302,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     const ed = editorRef.current;
     if (!ed) return;
     const text = serializeDoc(ed.state.doc);
-    if (!text.trim()) return;
     if (!onSubmitRef.current) return;
     if (clearOnSubmitRef.current) ed.commands.clearContent(true);
     onSubmitRef.current(text);
@@ -323,6 +315,9 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         if (provider) return provider.search(query);
         return (await queryMentionsRef.current?.(query)) ?? [];
       },
+      allowSpaces: mentionProvider?.allowSpaces ?? false,
+      allow: ({ state, range }) => mentionProviderRef.current?.isQueryActive?.(state.doc.textBetween(range.from + 1, range.to, '\n')) ?? true,
+      ...(mentionProvider?.allowSpaces ? { allowedPrefixes: null } : {}),
       render: makeSuggestionRender<MentionItem>(setMentionSuggestion, mentionPopupRef, openMention.current),
       command({ editor, range, props }) {
         const item = props as unknown as MentionItem;
@@ -361,7 +356,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     }
   );
 
-  const submitKeymap = buildSubmitKeymap(handleSubmitFromKeymap);
+  const submitKeymap = buildSubmitKeymap(handleSubmitFromKeymap, () => enterBehaviorRef.current);
 
   // Read through a ref so a host that rebuilds the getter each render does not rebuild the editor.
   const getPromptHistoryRef = useRef(getPromptHistory);
@@ -370,7 +365,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   // the walk state has to be the first render's — rebuilding it per render would allocate a fresh
   // (and unused) one each time and hide where that state actually lives.
   const historyKeymap = useMemo(
-    () => buildPromptHistoryKeymap({ getHistory: () => getPromptHistoryRef.current?.() ?? [] }),
+    () => buildPromptHistoryKeymap({ getHistory: () => getPromptHistoryRef.current?.() ?? [], restoreText: (text) => plainTextDoc(text, mentionProviderRef.current?.resolve) }),
     []
   );
 
@@ -408,7 +403,11 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       handleDOMEvents: { keydown: (_view, event) => event.isComposing || event.keyCode === 229 },
       attributes: {
         class: cx('prompt-editor-content', styles.promptEditorContentClass),
-        'data-testid': 'prompt-editor',
+        'data-testid': inputTestId,
+        'aria-disabled': String(disabled),
+        'aria-label': placeholder,
+        'data-placeholder': placeholder,
+        enterkeyhint: enterBehavior === 'newline' ? 'enter' : 'send',
       },
       // 纯文本粘贴的第一手。只有「剪贴板里没有文件、且宿主说它收走了」才吞掉这一次粘贴
       // (返回 true = ProseMirror 不再插入)。带文件的粘贴一律放行，交给外层那条既有的
@@ -444,6 +443,11 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     editable: !disabled,
   });
 
+  useEffect(() => {
+    inputRef?.(editor?.view.dom ?? null);
+    return () => inputRef?.(null);
+  }, [editor, inputRef]);
+
   // Keep stable ref to editor.
   editorRef.current = editor;
 
@@ -459,7 +463,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       return serializeDoc(editor.state.doc);
     },
     setText(text) {
-      editor?.commands.setContent(plainTextDoc(text), { emitUpdate: true });
+      editor?.commands.setContent(plainTextDoc(text, mentionProviderRef.current?.resolve), { emitUpdate: true });
     },
     insertMention(item) {
       if (item.insertText !== undefined) {
@@ -509,13 +513,13 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       });
       if (changed) editor.view.dispatch(tr);
     },
-  }));
+  }), [editor]);
 
   // Convert suggestion items to ComboboxPopupItem shape.
   const mentionPopupItems = mentionSuggestion.items.map(mentionToPopupItem);
   const commandPopupItems = commandSuggestion.items.map(commandToPopupItem);
 
-  const mentionActive = mentionSuggestion.items.length > 0;
+  const mentionActive = mentionSuggestion.items.length > 0 || Boolean(mentionProvider?.emptyLabel && mentionSuggestion.rect);
   const commandActive = commandSuggestion.items.length > 0;
 
   /**
@@ -587,6 +591,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
             id={mentionListboxId}
             onActiveOptionChange={setMentionActiveOptionId}
             items={mentionPopupItems}
+            emptyLabel={mentionProvider?.emptyLabel}
             keepActiveOnChange={mentionSuggestion.refreshed}
             anchorRect={mentionSuggestion.rect}
             onSelect={(popupItem) => {

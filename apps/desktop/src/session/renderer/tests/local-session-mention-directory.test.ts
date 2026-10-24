@@ -56,4 +56,12 @@ describe('@ 弹层读会话目录', () => {
     const pill = await createLocalSessionMentionProvider().resolveSession('remote-1');
     expect(pill).toMatchObject({ id: 'aid:agent-remote', label: 'aid:agent-remote', name: 'Codex 8', role: 'agent' });
   });
+
+  it('uses the shared host bridge for a web or phone task drop too', async () => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    const pill = await createLocalSessionMentionProvider().resolveSession('remote-1');
+    expect(pill).toMatchObject({ label: 'aid:agent-remote', name: 'Codex 8' });
+    expect(sessionPeers).toHaveBeenCalled();
+  });
+
 });
