@@ -7,6 +7,7 @@ import { createNode, createReactHarness } from '../../../support/testHarness'
 const mocks = vi.hoisted(() => ({
   authUser: { id: 'account-a' },
   listDevices: vi.fn(),
+  listProjects: vi.fn(),
   subscribeAccountRevision: vi.fn(),
   revisionListener: null as null | (() => void | Promise<void>),
 }))
@@ -19,6 +20,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
     listDevices: mocks.listDevices,
   },
 }))
+vi.mock('../../../../apps/desktop/src/lib/deviceProjects', () => ({ listMyDeviceProjects: mocks.listProjects }))
 vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
   useChatStore: () => ({ subscribeAccountRevision: mocks.subscribeAccountRevision }),
 }))
@@ -36,8 +38,10 @@ describe('DevicesProvider list failure disclosure', () => {
   let consoleError: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    mocks.authUser = { id: 'account-a' }
     harness = createReactHarness()
     mocks.listDevices.mockReset().mockResolvedValue([])
+    mocks.listProjects.mockReset().mockResolvedValue([])
     mocks.revisionListener = null
     mocks.subscribeAccountRevision.mockReset().mockImplementation((_event: string, listener: () => void | Promise<void>) => {
       mocks.revisionListener = listener
@@ -49,6 +53,34 @@ describe('DevicesProvider list failure disclosure', () => {
   afterEach(() => {
     harness.cleanup()
     consoleError.mockRestore()
+  })
+
+  it('keeps device reads and the revision listener stable across same-account hydration', async () => {
+    await harness.render(createNode(DevicesProvider, {}, createNode('div')))
+    const listener = mocks.revisionListener
+    const subscriptions = mocks.subscribeAccountRevision.mock.calls.length
+    mocks.authUser = { id: 'account-a' }
+    await harness.render(createNode(DevicesProvider, {}, createNode('div')))
+
+    expect(mocks.listDevices).toHaveBeenCalledTimes(1)
+    expect(mocks.listProjects).toHaveBeenCalledTimes(1)
+    expect(mocks.revisionListener).toBe(listener)
+    expect(mocks.subscribeAccountRevision).toHaveBeenCalledTimes(subscriptions)
+    if (!listener) throw new Error('missing device revision listener')
+    await act(async () => { await listener() })
+    expect(mocks.listDevices).toHaveBeenCalledTimes(2)
+    expect(mocks.listProjects).toHaveBeenCalledTimes(2)
+  })
+
+  it('initializes the new account and refreshes after shell reactivation', async () => {
+    await harness.render(createNode(DevicesProvider, {}, createNode('div')))
+    mocks.authUser = { id: 'account-b' }
+    await harness.render(createNode(DevicesProvider, {}, createNode('div')))
+    expect(mocks.listDevices).toHaveBeenCalledTimes(2)
+    await harness.render(createNode(DevicesProvider, { active: false }, createNode('div')))
+    expect(mocks.listDevices).toHaveBeenCalledTimes(2)
+    await harness.render(createNode(DevicesProvider, { active: true }, createNode('div')))
+    expect(mocks.listDevices).toHaveBeenCalledTimes(3)
   })
 
   it('writes the raw list failure reason to the log', async () => {
