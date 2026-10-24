@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
@@ -637,7 +638,7 @@ async function workspaceRpcItem(deps, name, body, label) {
  */
 export function workspaceFileLink(item) {
   const name = String(item.filename ?? '').replace(/[[\]\\]/g, (c) => `\\${c}`)
-  return `[${name}](gugu-file://${item.id})`
+  return `[${name}](${groupFileLink(item.id)})`
 }
 function summarizeWorkspaceItem(item) {
   return {

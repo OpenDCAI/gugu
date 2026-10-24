@@ -109,24 +109,6 @@ window.addEventListener('message', (event) => {
   handOverPort();
 });
 
-// A click on a link of gugu's own (`linkTo`'s) opens it, through the host, as that link from outside gugu would — the
-// page itself may not navigate there (will-navigate keeps it on its own origin). Only a click the person made
-// (`isTrusted`, and the gesture `call` checks); http(s) and the page's own links are left to what they did before.
-const LEFT_ALONE = new Set(['http:', 'https:', 'about:', 'javascript:', 'data:', 'blob:', location.protocol]);
-/** The clicked link, handed to the host: the gesture is checked in `call` like every gesture verb's. */
-export function openClickedLink(url: string): Promise<unknown> {
-  return call('openLink', { url });
-}
-window.addEventListener('click', (event) => {
-  if (!event.isTrusted || event.defaultPrevented) return;
-  const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-  if (!anchor || LEFT_ALONE.has(anchor.protocol)) return;
-  event.preventDefault();
-  void openClickedLink(anchor.href).catch((error: { message?: string }) => {
-    void call('reportError', { message: error?.message ?? String(error) });
-  });
-}, true);
-
 /**
  * The theme this page loads in (`EXTENSION_THEME_CHANNEL`), asked before its first line runs: the runtime puts it on
  * `<html>` before the first paint. Main always answers; anything else is the wiring broken — loud, like the host's own

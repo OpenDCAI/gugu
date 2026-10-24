@@ -1,3 +1,4 @@
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 /**
  * #6264 别的机器上的会话调 `session_open_in_tab`:那台机器没有窗口,tab 要开在**正看着这条会话的那台桌面**的
  * 右侧工作区里。走的是到那台机器会话页宿主的那条连接(`SESSION_HOST_PANE`,host-ws/device-pane-relay.ts):
@@ -13,7 +14,7 @@
  */
 export type SessionpagePaneTarget =
   | { kind: 'file'; path: string }
-  | { kind: 'browser'; url: string }
+  | { kind: 'browser'; url: string; linkTarget?: GuguLinkTarget }
   | { kind: 'external'; url: string }
   | { kind: 'tabs' }
   | { kind: 'close-tab'; tabId: string };

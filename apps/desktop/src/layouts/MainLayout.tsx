@@ -1,3 +1,8 @@
+import { Sheet } from '../components/ui/Sheet'
+import { PaneHeader } from '../components/ui/Pane'
+import { RightPanelBackButton } from '../components/chat/RightPanel'
+import { SessionAppFrame } from '../components/appSlot/SessionAppFrame'
+import { installedExtensionsStore } from '../session/renderer/features/extensions/installed-extensions-store'
 import { ResourceMonitorHost } from '@/session/renderer/features/settings/components/resource-monitor-host'
 import { reaction } from 'mobx'
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
@@ -21,7 +26,7 @@ import { MobileTabPager } from '@/mobile/MobileTabPager'
 import { navigateMobile } from '@/mobile/navigateMobile'
 import { TAB_AVATAR_STYLE, tabItemStyle } from '@/mobile/settledTab'
 import { chatOnScreen, useReportChatOnScreen } from '@/lib/onScreenChat'
-import { useConversationLinkNavigation } from '../hooks/useConversationLinkNavigation'
+import { useLinkNavigation } from '../hooks/useLinkNavigation'
 import { readAssistantShellBridge } from '../lib/assistantShellBridge'
 import { ChatListPanel } from '../components/ChatListPanel'
 import { ChatAreaPanel } from '../components/ChatAreaPanel'
@@ -84,7 +89,7 @@ import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
 import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
 import { addFilePills } from '../components/markdown/filePills'
-import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, APP_SHOW_MESSAGE_EVENT, GROUP_FILE_OPEN_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail, type AppShowMessageDetail, type GroupFileOpenDetail } from '../session/shared/extensions/app-runtime-protocol'
+import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
 import { assistantSlotKey } from '../lib/assistantShellBridge'
 import { askReveal } from '../hooks/useSourceMessageReveal'
@@ -347,6 +352,7 @@ function InnerLayout({
   // 手机上从群成员里点的「新建 Agent」:与 watchCreateRequest 一起递进去,null = 不进群。
   const [watchCreateGroup, setWatchCreateGroup] = useState<CreateContextBirthGroup | null>(null)
   const watchOpenRequest = useAppShowSession(() => setActiveTab('tasks'))
+  const [openedPhoneApp, setOpenedPhoneApp] = useState<{ kind: string; name: string } | null>(null)
   const { contacts, pendingRequestCount, setAgentPublic } = useContactsStore()
   // 会话页分享名片:{名字, agentUserId, conversationId(留着备用,浮层本身不摆)};咕咕号**每次渲染从通讯录读**(懒分配:开启公开后才有号,
   // 存进 state 就会停在「未分配」那一帧)。非空即渲染浮层 / SharePosterDialog。
@@ -491,7 +497,11 @@ function InnerLayout({
     if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id! })
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
   }, [openChatBlock, setActiveChatId])
-  useConversationLinkNavigation({ ownerId: user.id, chats, contacts,
+  useLinkNavigation({ ownerId: user.id, chats, contacts,
+    openFile: (chatId, target, source) => { openChatTarget(chatId); groupSlotMemory.askFile(chatId, target.itemId, target.at, undefined, source.message, source.restore) },
+    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); groupSlotMemory.askApp(chatId, extensionId, tab) },
+    openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
+    openProject: (projectId) => { setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
     openChat: openChatTarget,
     openAssistant: (tasks) => { setActiveTab(mobile ? 'assistant' : 'tasks'); if (!mobile && (tasks || appState.navigation.currentViewId !== 'assistant')) appState.navigation.navigate('assistant', tasks ? { tab: 'tasks' } : {}); return tasks ? assistantSlotKey('task-chat') : mobile ? 'assistant' : assistantSlotKey('chat') },
   })
@@ -854,11 +864,6 @@ function InnerLayout({
       window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked, { detail: { chatId: chat.id } }))
       return true
     }
-    const onFile = (event: Event) => {
-      const detail = (event as CustomEvent<GroupFileOpenDetail>).detail
-      if (!detail || typeof detail.itemId !== 'string') return
-      if (bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, detail.at, undefined, detail.message, detail.restore), true)) event.preventDefault()
-    }
     // gugu.compose into a chat the call named — from a page anywhere, the phone's too: after that chat's draft, the chat
     // up and its composer focused (the slot of that chat, if open, gets out of the way: useSlotMakesWay).
     const onCompose = (event: Event) => {
@@ -884,11 +889,6 @@ function InnerLayout({
     }
     // gugu.showMessage: a message of the chat on screen is its list's to show (useSourceMessageReveal), and an App slot over it
     // makes way (useSlotMakesWay); another chat's comes up first, and its list goes to the message when it shows the chat.
-    const onShowMessage = (event: Event) => {
-      const detail = (event as CustomEvent<AppShowMessageDetail>).detail
-      if (!detail) return
-      bringUp(detail.chatId, (chatId, viewportKey) => askReveal(chatId, detail.messageId, viewportKey))
-    }
     // gugu.files.openWith, wherever the page is (a chat's panel, an App's own page, a session's tab): the file's chat comes
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
@@ -906,16 +906,12 @@ function InnerLayout({
         .then((chatId) => bringUp(chatId, (id) => groupSlotMemory.askApp(id, detail.extensionId), true))
         .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
     }
-    window.addEventListener(GROUP_FILE_OPEN_EVENT, onFile)
     window.addEventListener(APP_COMPOSE_EVENT, onCompose)
-    window.addEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
     window.addEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
     window.addEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
     window.addEventListener(UI_EVENTS.openApp, onOpenInChat)
     return () => {
-      window.removeEventListener(GROUP_FILE_OPEN_EVENT, onFile)
       window.removeEventListener(APP_COMPOSE_EVENT, onCompose)
-      window.removeEventListener(APP_SHOW_MESSAGE_EVENT, onShowMessage)
       window.removeEventListener(APP_OPEN_WITH_EVENT, onOpenWith)
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
@@ -1562,6 +1558,12 @@ function InnerLayout({
           qrValue={createGuguQrScanUrl(createContactQrPayload(shareAgentNumber), { downloadUrl: GUGU_ANDROID_DOWNLOAD_URL })}
           onClose={() => { setShareAgentPoster(false); setShareAgentCard(null) }}
         />
+      )}
+      {openedPhoneApp && (
+        <Sheet fullScreenMobile onClose={() => setOpenedPhoneApp(null)} testId="app-link-page" ariaLabel={openedPhoneApp.name}>
+          <PaneHeader mobile divider title={openedPhoneApp.name} leading={<RightPanelBackButton onBack={() => setOpenedPhoneApp(null)} />} />
+          <SessionAppFrame kind={openedPhoneApp.kind} />
+        </Sheet>
       )}
       <ExtensionForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}

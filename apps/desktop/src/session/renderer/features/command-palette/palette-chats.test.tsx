@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UI_EVENTS } from '@/lib/uiEvents';
-import { conversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { conversationLink } from '@gugu/core/shared/ui/guguLink';
 import { publishChatSummaries, publishContactSummaries } from '@/lib/chatSummariesBridge';
 import { PaletteChatGroups } from './palette-chats';
 

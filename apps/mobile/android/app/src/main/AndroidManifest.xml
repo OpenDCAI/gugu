@@ -56,6 +56,13 @@
                 <data android:mimeType="text/*" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${guguLinkScheme}" />
+            </intent-filter>
+
             <!-- @@@server-login-app-link —— `gugu-server login` 打出的确认链接直接进咕咕:页面里以 App 自己的登录批准那台机器
                  (apps/desktop/src/lib/inAppLinks.ts → mobile/server-login),不再走网页的邮箱验证码。主机 = 这个包连的库
                  (build.gradle 的 guguDbHost)。autoVerify:系统装包时去读那个域名的 /.well-known/assetlinks.json,包名 + 签名对上

@@ -1,3 +1,4 @@
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink';
 /**
  * The one markdown dialect of Gugu.
  *
@@ -192,7 +193,7 @@ export const MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), 'tel', 'gugu-file', 'gugu-chat', ...DRIVE_LETTERS],
+    href: [...(defaultSchema.protocols?.href ?? []), 'tel', 'gugu-file', 'gugu-chat', guguLinkScheme({ tier: 'production', devLaunch: false }), guguLinkScheme({ tier: 'beta', devLaunch: false }), guguLinkScheme({ tier: undefined, devLaunch: true }), ...DRIVE_LETTERS],
   },
 };
 

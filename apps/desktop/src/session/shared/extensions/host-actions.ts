@@ -1,3 +1,4 @@
+import type { GuguLinkTarget, LinkPlace } from '@gugu/core/shared/ui/guguLink';
 import type { AppComposeDetail, AppForumConsentDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
 import type { GroupAvatarMember } from '@gugu/core/shared/types/chat';
 import type { ExtensionManifest } from './manifest';
@@ -48,7 +49,8 @@ export type ExtensionHostAction =
   /** G1 Beside the page that asked, in its own slot (the origin's): the page stays as it is. */
   | { kind: 'peek'; target: PeekTarget }
   /** A link's or a banner's click (no page asked): the App in a chat's panel, or — naming no chat — on its own page. */
-  | { kind: 'openApp'; extensionId: string; chatId?: string }
+  | { kind: 'openApp'; extensionId: string; tab?: string; chatId?: string }
+  | { kind: 'openLinkTarget'; target: GuguLinkTarget }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
   | { kind: 'openChatFile'; chatId: string; itemId: string }
   /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */
@@ -240,3 +242,5 @@ export interface ExtensionConsentAnswerDetail {
   /** owner 10-16: the other computers ticked, when the sheet listed them. */
   alsoOn?: string[];
 }
+
+export type ExtensionHostActionResult = LinkPlace | 'own' | void;

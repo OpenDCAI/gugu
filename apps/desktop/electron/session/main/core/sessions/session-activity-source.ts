@@ -1,7 +1,7 @@
 import { ReplicaState } from '@gugu/session-wire';
 import { transcriptTurnSchema, type TranscriptTurn } from '@gugu/session-core/acp';
 import { replySource } from '@gugu/session-core/session-record/reply-process';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { peekAcpRuntimeClient } from '../acp/controller';
 
 /** A host-observed current input, never a guess from cached history or the last work on a reused agent. */

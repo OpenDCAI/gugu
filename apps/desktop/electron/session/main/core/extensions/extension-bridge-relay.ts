@@ -12,6 +12,7 @@ import {
   type ExtensionInstallConsentRequest,
   type ExtensionInstallConsentResult,
   type ExtensionHostAction,
+  type ExtensionHostActionResult,
   type ExtensionHostActionCommand,
   type ExtensionHostActionOrigin,
 } from '@shared/extensions/host-actions';
@@ -60,7 +61,7 @@ export type ExtensionHostWindowChannel = {
   /** #7158 The project the window's task list has another computer's session under, or null (`remoteHostsStore.listedProject`). */
   listedSession: (sessionId: string) => Promise<string | null>;
   /** An action no page asked for (a link's or a banner's click), done by the window that shows chats and Apps. */
-  act: (command: ExtensionHostActionCommand) => Promise<void>;
+  act: (command: ExtensionHostActionCommand) => Promise<ExtensionHostActionResult>;
   isHostWindowFullScreen: () => boolean;
   onHostWindowFullScreenChange: (listener: () => void) => () => void;
   /**
@@ -182,7 +183,7 @@ export function notifyInstalledExtensionsChanged(): Promise<void> {
 }
 
 /** What a link's or a banner's click opens in the window: the App in a chat's panel or on its own page, a chat's file. */
-export function actInWindow(action: ExtensionHostAction): Promise<void> {
+export function actInWindow(action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return Promise.resolve().then(() => requireHostWindow().act({ origin: null, action }));
 }
 

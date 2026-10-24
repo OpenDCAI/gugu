@@ -39,7 +39,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 }));
 const opened: string[] = [];
 let outcome: Record<string, unknown> = { kind: 'opened', extensionId: 'chess', tab: 'main' };
-vi.mock('@main/core/extensions/extension-links', async (original) => ({
+vi.mock('@main/core/extensions/gugu-links', async (original) => ({
   ...(await original<typeof import('./extension-links')>()),
   currentLinkScheme: () => 'gugu-dev',
   openExtensionLink: async (url: string) => { opened.push(url); return outcome; },

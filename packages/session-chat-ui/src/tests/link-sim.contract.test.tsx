@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { parseMarkdownToBlocks } from '../core/markdown/parse'
-import { classifyFileLink } from '@gugu/core/shared/ui/fileLink'
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import {
   isAbsolutePath,
   isPathInsideWorkspace,

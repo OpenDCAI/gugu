@@ -75,7 +75,7 @@ const NO_TABS: readonly PanelItem[] = []
 const FOLDER_ONLY: readonly PanelItem[] = [null]
 const entryOf = (chatId: string) => remembered.get(chatId) ?? { form: 'closed' as PanelForm, open: [], active: null }
 const asked = new Map<string, AskedFile>()
-const askedApps = new Map<string, string>()
+const askedApps = new Map<string, { extensionId: string; tab?: string }>()
 export const groupSlotMemory = {
   form: (chatId: string | null | undefined): PanelForm => (chatId ? remembered.get(chatId)?.form ?? 'closed' : 'closed'),
   setForm(chatId: string | null | undefined, form: PanelForm) {
@@ -98,10 +98,10 @@ export const groupSlotMemory = {
     return file
   },
   /** An App asked to open in this chat's panel (a banner's or a link's click names the chat): taken by the panel. */
-  askApp(chatId: string, extensionId: string) {
-    askedApps.set(chatId, extensionId)
+  askApp(chatId: string, extensionId: string, tab?: string) {
+    askedApps.set(chatId, { extensionId, ...(tab ? { tab } : {}) })
   },
-  takeApp(chatId: string | null | undefined): string | null {
+  takeApp(chatId: string | null | undefined): { extensionId: string; tab?: string } | null {
     if (!chatId) return null
     const extensionId = askedApps.get(chatId) ?? null
     askedApps.delete(chatId)

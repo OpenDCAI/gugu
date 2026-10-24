@@ -57,6 +57,7 @@ export const HOST_CALLS = {
     pack: (tool: string, args?: Record<string, unknown>, server?: string) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(server === undefined ? {} : { server }) }),
   },
   notify: { verb: 'notify' },
+  openLink: { verb: 'openLink', pack: (url: string) => ({ url }) },
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },
   setTabTitle: { verb: 'setTabTitle', pack: (title: string) => ({ title }) },
   setTabBadge: { verb: 'setTabBadge', pack: (badge: number | string | null) => ({ badge }) },

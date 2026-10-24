@@ -48,7 +48,7 @@ export const appsView = {
   withoutSessionSidebar: true,
 } satisfies ViewDefinition;
 
-type AppViewParams = { appId?: string };
+type AppViewParams = { appId?: string; tab?: string };
 
 /** Draws nothing: a view's params are typed from its WrapView's props (`WrapParams`), so `useParams('app')` knows appId. */
 function AppViewWrapper({ children }: { children: ReactNode } & AppViewParams) {
@@ -73,7 +73,7 @@ const pageError = () => extensionSurfaceStore.said(null, 'dock').error;
 const AppTitlebar = observer(function AppTitlebar() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main ? pageError() : null;
   const heading = main ? extensionTabTitle(extensionSurfaceStore.said(null, 'dock'), main.extensionName) : null;
   const openInWindowLabel = translate('tabs.openInWindow');
@@ -116,7 +116,7 @@ const AppTitlebar = observer(function AppTitlebar() {
 const AppMainPanel = observer(function AppMainPanel() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main?.enabled ? pageError() : null;
   // The title bar is a zero-height band over the top of the main area (the App's name, the window's handle): the page
   // starts under it, as a session's tabs do (tab-bar.tsx) — an App drawing from its top edge sat beneath its own name

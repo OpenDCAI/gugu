@@ -1,3 +1,4 @@
+import { openTarget } from '../../lib/guguLinks'
 import { comparer, reaction } from 'mobx'
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -7,7 +8,6 @@ import { localizedManifestText } from '../../session/shared/extensions/catalog'
 import { compareExtensionVersions, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import type { MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { phoneApps } from '../appSlot/phoneApps'
-import { SessionAppFrame } from '../appSlot/SessionAppFrame'
 import { Button } from '../ui/Button'
 import { PaneHeader } from '../ui/Pane'
 import { RightPanelBackButton } from '../chat/RightPanel'
@@ -44,7 +44,6 @@ export function AppsSection() {
   const [versionsOf, setVersionsOf] = useState<{ id: string; name: string } | null>(null)
   const [history, setHistory] = useState<MarketVersionHistoryEntry[] | 'error' | null>(null)
   /** The App page opened from its row: its tab kind, and the name its sheet is called by. */
-  const [opened, setOpened] = useState<{ kind: string; name: string } | null>(null)
   // Installed, but not runnable by this build (phoneApps `tell`): the row's title is its id, its line the refusal as it
   // is (not the id again — L3 phone ②, 125 10-06), and it is still removable: any App the phone cannot read must be.
   const [unusable, setUnusable] = useState<{ id: string; reason: string }[]>([])
@@ -174,7 +173,7 @@ export function AppsSection() {
                   control={
                     <div className="flex items-center gap-1">
                       {page && enabled ? (
-                        <Button size="sm" variant="ghost" data-testid="settings-apps-open" onClick={() => setOpened({ kind: page, name })}>
+                        <Button size="sm" variant="ghost" data-testid="settings-apps-open" onClick={() => void openTarget({ kind: 'app', extensionId: manifest.id, tab: page.slice(manifest.id.length + 1), path: '', query: {}, place: null })}>
                           {t('settings.apps.open')}
                         </Button>
                       ) : null}
@@ -232,13 +231,7 @@ export function AppsSection() {
           />
         </Sheet>
       ) : null}
-      {opened ? (
-        <Sheet onClose={() => setOpened(null)} fullScreenMobile testId="settings-apps-page" ariaLabel={opened.name}>
-          {/* 整页的出口是左上返回 + App 名,和群右栏里同一个 App 的页头一样。 */}
-          <PaneHeader mobile divider title={opened.name} leading={<RightPanelBackButton onBack={() => setOpened(null)} />} />
-          <SessionAppFrame kind={opened.kind} />
-        </Sheet>
-      ) : null}
+
       {asking ? (
         <Sheet onClose={() => setAsking(null)} testId="settings-apps-uninstall-sheet" titleId={titleId}>
           <div className="flex min-h-0 flex-1 flex-col gap-3 !p-5">

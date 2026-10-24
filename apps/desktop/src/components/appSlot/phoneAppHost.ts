@@ -1,3 +1,9 @@
+import { guguLink, guguLinkScheme, linkTargetOf, type GuguLinkTarget, type LinkPlace } from '@gugu/core/shared/ui/guguLink'
+import { openLinkWith } from '../../session/shared/extensions/open-link'
+import { openLinkTarget } from '../../lib/guguLinks'
+import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
+import { readCachedDevices } from '../../store/devicesCache'
+import { listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { fetchBlob } from '../../lib/download'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
@@ -83,6 +89,7 @@ export interface PhoneAppBinding {
   extensionId: string
   /** The slot drawing it. */
   tabId: string
+  tabName: string
   /** The chat it is drawn for — null for a page in a session (`session`). */
   chatId: string | null
   /**
@@ -102,6 +109,7 @@ interface HostedFrame {
   binding: PhoneAppBinding
   /** Its open files with the relay, once it opened a file: the port went to its document. */
   syncPage(): PageSync
+  deliver(event: ExtensionHostEvent): void
 }
 
 const frames = new Map<number, HostedFrame>()
@@ -247,7 +255,7 @@ const failure = (error: unknown): { success: false; error: string } => ({ succes
  * Never to a page of another file of the chat (复核 71c15165 要改 1). Bounded in time, as the desktop's.
  */
 const OPENING_LINK_TTL_MS = 30_000
-const openingLinks: { extensionId: string; chatId: string; itemId: string; event: ExtensionHostEvent; expiresAt: number }[] = []
+const openingLinks: { extensionId: string; chatId: string | null; itemId: string | null; sessionId?: string; event: ExtensionHostEvent; expiresAt: number }[] = []
 export function holdPlaceForOpeningPage(chatId: string, itemId: string, candidate: FileOpenerCandidate, at: Record<string, string>): void {
   openingLinks.push({ extensionId: candidate.extensionId, chatId, itemId, event: placeLink(candidate, at, itemId), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
 }
@@ -256,7 +264,9 @@ function takeOpeningLinks(binding: PhoneAppBinding): ExtensionHostEvent[] {
   const taken: ExtensionHostEvent[] = []
   for (let i = 0; i < openingLinks.length; ) {
     const opening = openingLinks[i]!
-    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && opening.itemId === binding.itemId
+    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && (opening.sessionId ?? null) === (binding.session?.id ?? null)
+      && (opening.event.type !== 'link' || opening.event.tab === binding.tabName)
+      && (opening.itemId === null ? !binding.itemId : opening.itemId === binding.itemId)
     if (opening.expiresAt < now || mine) {
       openingLinks.splice(i, 1)
       if (opening.expiresAt >= now) taken.push(opening.event)
@@ -331,6 +341,7 @@ export function hostAppFrame(
   const hosted: HostedFrame = {
     frame,
     binding: granted(initial),
+    deliver: (event) => { channel.post({ m: APP_FRAME_MARKER, t: 'event', event }) },
     syncPage() {
       const existing = relay.page(pageId)
       if (existing) return existing
@@ -446,6 +457,17 @@ export function hostAppFrame(
       }
     }
     switch (method) {
+      case 'linkTo': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const target = linkTargetOf(args, manifest)
+        return guguLink(target, args.external === true || (target.kind !== 'chat' && target.kind !== 'file') ? phoneLinkScheme() : undefined)
+      }
+      case 'openLink': {
+        const result = await openPhoneLink(typeof args.url === 'string' ? args.url : '')
+        if (result.kind !== 'opened') refused(result.kind === 'failed' ? 'failed' : 'invalid', result.kind === 'failed' ? result.detail ?? result.reason : 'Only gugu resource links open here')
+        return undefined
+      }
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
@@ -723,4 +745,37 @@ export function hostAppFrame(
       frames.delete(pageId)
     },
   }
+}
+
+
+declare const __GUGU_TIER__: string
+const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+
+/** Host facts and transports only; target parsing and opening order are shared with main. */
+export function openPhoneLink(target: string | GuguLinkTarget) {
+  return openLinkWith({
+    scheme: phoneLinkScheme(),
+    installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
+    isEnabled: (id) => installedExtensionsStore.isEnabled(id),
+    locale: () => document.documentElement.lang,
+    resourceChat: async (chatId) => { const { token, userId } = await sendPlatform.account(); return resourceChatIdOf(token, chatId, userId) },
+    sessionProject: async (sessionId) => { const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId); return 'row' in listed ? listed.row.session.projectId : null },
+    reveal: async ({ sessionId, tabKind }) => {
+      const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
+      if (!('row' in listed)) throw new Error('Session is not in your task list')
+      const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
+      window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { ...listed.row, tabKind } }))
+    },
+    openApp: async (extensionId, tab, chatId) => {
+      const opened = await openLinkTarget({ kind: 'app', extensionId, tab, path: '', query: {}, place: chatId ? { chat: chatId } : null })
+      if (!opened) throw new Error('The App did not open')
+      return opened
+    },
+    openResource: async (resource) => { await openLinkTarget(resource) },
+    deliver: (extensionId, event, opened) => {
+      const place = opened === 'own' ? null : opened
+      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
+      for (const frame of frames.values()) for (const waiting of takeOpeningLinks(frame.binding)) frame.deliver(waiting)
+    },
+  }, target)
 }

@@ -1,3 +1,4 @@
+import { openLinkTarget } from '../../lib/guguLinks'
 import { reaction } from 'mobx'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,7 +7,6 @@ import { extensionSurfaceStore } from '../../session/renderer/features/extension
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import {
   APP_SESSION_FRAME_NAME,
-  APP_SHOW_MESSAGE_EVENT,
   APP_SHOW_SESSION_EVENT,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
@@ -112,10 +112,11 @@ export function PhoneAppFrame({
   }, [extensionId, kind])
 
   // What the host is told about where it is; read when the host starts and on every change.
-  const bindingRef = useRef<Omit<PhoneAppBinding, 'capabilities'>>({ extensionId, tabId, chatId, locale: i18n.language, themeMode: 'light' })
+  const bindingRef = useRef<Omit<PhoneAppBinding, 'capabilities'>>({ extensionId, tabId, tabName, chatId, locale: i18n.language, themeMode: 'light' })
   bindingRef.current = {
     extensionId,
     tabId,
+    tabName,
     chatId,
     ...(session ? { session } : {}),
     ...(itemId ? { itemId } : {}),
@@ -128,7 +129,7 @@ export function PhoneAppFrame({
     const frame = frameRef.current
     if (!frame || !app) return undefined
     const host = hostAppFrame(frame, { ...bindingRef.current, capabilities: app.capabilities }, {
-      showMessage: (detail: AppShowMessageDetail) => window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail })),
+      showMessage: (detail: AppShowMessageDetail) => { void openLinkTarget({ kind: 'chat', chatId: detail.chatId, messageId: detail.messageId }) },
       showSession: (sessionId, peek) => {
         const listed = listedSession(devicesRef.current, liveDeviceSessions(), sessionId)
         if (!('row' in listed)) return listed

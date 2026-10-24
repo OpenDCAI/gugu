@@ -48,10 +48,11 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 8, and a client that knows only 7 is handed the App's last version for 7.
  * 9 (10-20, 论坛): `gugu.forum.*` (app-forum-core.ts). An App that calls it says 9, so a client without it is handed the
  * App's last version for 8 instead of a page whose calls are missing.
+ * 11: common resource linkTo/openLink on desktop, phone and programs (generation only).
  * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
  * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
  */
-export const EXTENSION_API_VERSION = 10;
+export const EXTENSION_API_VERSION = 11;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -807,7 +808,7 @@ export const BRIDGE_VERBS = {
   showSession: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
   /**
    * The person clicked a link of gugu's own in the page (what `linkTo` makes): it opens through the one opener a link
-   * from outside gugu takes (`openExtensionLink`). Not on `window.gugu`: the preload sends it from a real click on an
+   * from outside gugu takes. Public on `window.gugu`; the runtime also sends a real click on an
    * `<a>`; a page script that moves `location` is still stopped at `will-navigate`, and any other link is still refused.
    */
   openLink: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },

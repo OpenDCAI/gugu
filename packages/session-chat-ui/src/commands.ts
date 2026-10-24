@@ -176,13 +176,8 @@ export type ChatCommands = {
     href: string,
   ) => { kind: 'workspace-file'; path: string; at?: Record<string, string> } | { kind: 'group-file'; itemId: string; at?: Record<string, string> } | { kind: 'conversation'; href: string } | { kind: 'external' };
 
-  onOpenConversationLink?: (href: string) => void;
-
-  /**
-   * User clicked a link to a file of a group (`gugu-file://<itemId>`), or a pill pointing at one: the host opens it in
-   * the group it is in, at the place the pill points at (`at`).
-   */
-  onOpenGroupFile?: (arg: { itemId: string; at?: Record<string, string> }) => void;
+  /** A product link or file pill, handed to the host's common link opener before local paths. */
+  onOpenLink?: (href: string) => boolean;
 
   /**
    * 点了一张附件卡(#7193):agent 用 `session_open_in_tab` 打开过的那份文件 / 网页。宿主重新打开它 ——

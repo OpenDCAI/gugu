@@ -7,7 +7,7 @@ import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
 import { platform } from '../../platform'
 import { Sheet } from '../ui/Sheet'
-import { openGroupFile } from '../markdown/fileLinks'
+import { openLinkTarget } from '../../lib/guguLinks'
 import { MessageFilePreview, type PreviewFile } from './MessageFilePreview'
 
 export type { PreviewFile } from './MessageFilePreview'
@@ -36,7 +36,7 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
   const open = useCallback((file: PreviewFile, message?: MessageItem, restore: () => void = () => {}) => {
     // A personal assistant conversation hosts its own preview; other group files use the App-first path.
     if (!hosted && file.source.kind === 'item' && platform.kind !== 'web') {
-      void openGroupFile(file.source.itemId, undefined, message, restore).catch((error) => {
+      void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
         toast(messageForUser(error, downloadFailed), 'error')
       })

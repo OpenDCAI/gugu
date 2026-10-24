@@ -49,6 +49,7 @@ export function SessionTimelinePage({
   session,
   agent,
   firstPrompt,
+  initialAppKind,
   onBack,
   onOpenChat,
 }: {
@@ -58,6 +59,7 @@ export function SessionTimelinePage({
   agent?: SessionShellAgentName | undefined
   /** 刚从新建页建成:建它时带的那句(新建页上已经画着),这一页接着画,❌ 换页时让它消失。 */
   firstPrompt?: string
+  initialAppKind?: string
   onBack: () => void
   /** 去这个 agent 的私聊(模式按钮的「聊天」,#7197)。 */
   onOpenChat?: (agentUserId: string) => void
@@ -71,7 +73,7 @@ export function SessionTimelinePage({
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
   const [menuOpen, setMenuOpen] = useState(false)
   // owner 10-16 The App this page shows instead of the timeline, picked from the mode button; null = the timeline.
-  const [appKind, setAppKind] = useState<string | null>(null)
+  const [appKind, setAppKind] = useState<string | null>(initialAppKind ?? null)
   // Its back key goes back to the timeline, as its header's back does — not past it to the list (the App is a layer here).
   useBackLayer(() => setAppKind(null), appKind !== null)
   const apps = useSessionApps()

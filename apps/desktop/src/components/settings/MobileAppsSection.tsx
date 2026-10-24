@@ -1,3 +1,4 @@
+import { openTarget } from '../../lib/guguLinks'
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,7 +21,6 @@ import { localizedManifestText, type MarketCategory } from '@/session/shared/ext
 import { grantableBy } from '@/session/shared/extensions/attachment-install'
 import { PHONE_CAPABILITIES, phoneApps } from '../appSlot/phoneApps'
 import { phoneRuns } from '../appSlot/phoneAppHost'
-import { SessionAppFrame } from '../appSlot/SessionAppFrame'
 import { Button } from '../ui/Button'
 import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { SearchField } from '../ui/SearchField'
@@ -52,7 +52,6 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const [chip, setChip] = useState<'all' | MarketCategory>('all')
   const [pages, setPages] = useState(1)
   const [detail, setDetail] = useState<MarketListItem | null>(null)
-  const [opened, setOpened] = useState<{ kind: string; name: string } | null>(null)
   const [pending, setPending] = useState<Record<string, ExtensionPendingAction>>({})
   const inFlight = useRef(false)
   const [failed, setFailed] = useState<string | null>(null)
@@ -120,7 +119,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
     else if (state?.kind === 'enable') void change(id, undefined, () => phoneApps.setEnabled(id, true))
     else if (state?.kind === 'open') {
       const kind = store.mainTabOf(id)?.kind
-      if (kind) setOpened({ kind, name: localizedManifestText(item.manifest, locale).name })
+      if (kind) void openTarget({ kind: 'app', extensionId: item.manifest.id, tab: kind.slice(item.manifest.id.length + 1), path: '', query: {}, place: null })
     }
   }
   const error = failed ? <SettingsNote tone="danger" role="alert">{failed}</SettingsNote> : null
@@ -175,12 +174,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
           </div>
         </Sheet>
       ) : null}
-      {opened ? (
-        <Sheet fullScreenMobile onClose={() => setOpened(null)} testId="phone-market-app-page" ariaLabel={opened.name}>
-          <PaneHeader mobile divider title={opened.name} leading={<RightPanelBackButton onBack={() => setOpened(null)} />} />
-          <SessionAppFrame kind={opened.kind} />
-        </Sheet>
-      ) : null}
+
     </>
   )
 })

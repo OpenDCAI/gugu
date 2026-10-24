@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { parseMarkdownToBlocks } from '../core/markdown/parse'
-import { classifyFileLink } from '@gugu/core/shared/ui/fileLink'
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { stringifyMention } from '@gugu/session-shared/markdown'
 import { htmlBlockDef } from '@session-chat/components/rows/markdown/html/html.def'
 import { makeContractCtx } from './contract'

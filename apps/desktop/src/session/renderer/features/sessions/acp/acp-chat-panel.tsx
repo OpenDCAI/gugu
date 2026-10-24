@@ -2,7 +2,8 @@ import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
-import { openConversationLink } from '@/lib/conversationLinks';
+import { followLink } from '@/lib/guguLinks';
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
   ChatComposer,
@@ -112,8 +113,6 @@ import { resolveVisualEvidenceAttachmentDataUrl } from './acp-chat-resource-mana
 import { useOpenedOutputMenu } from './opened-output-menu';
 import type { AcpChatTabResource } from './acp-chat-tab-resource';
 import { chatViewCommandForShortcut, executeChatViewCommand } from './acp-chat-view-commands';
-import { classifySessionChatLink } from './session-chat-link';
-import { openGroupFile } from '@/components/markdown/fileLinks';
 import {
   effortSourceFor,
   localizeEffortOptions,
@@ -2192,10 +2191,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
-      classifyLink: classifySessionChatLink,
-      onOpenConversationLink: (href) => { openConversationLink(href); },
-      // 摩擦单 F10: a file of a group, linked in the transcript — opened in that group, where the person is taken.
-      onOpenGroupFile: ({ itemId, at }) => void openGroupFile(itemId, at),
+      classifyLink: classifyFileLink,
+      onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮

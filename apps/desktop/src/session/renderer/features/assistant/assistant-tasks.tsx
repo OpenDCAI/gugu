@@ -1,5 +1,5 @@
 import { readCachedDevices } from '@/store/devicesCache';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

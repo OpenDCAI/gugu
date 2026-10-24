@@ -183,7 +183,7 @@ where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capab
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
-  programs (a session's tab calls its computer's), \`linkTo\`, agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
+  programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
 - \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
   entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
 - A chat's shared side panel opens 520 px wide: lay out for narrow first, widen with a media or container query.
@@ -253,9 +253,13 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo({ tab?, path?, query?, chat? | session? })\` → a link, from anywhere outside gugu (a README, an
-  email), that opens your \`tab\` (default: your first) in that session, you in that chat's panel, or your own
-  page. Never spell the scheme: it differs per build.
+- \`linkTo(target)\` (API 11) → a resource link, on desktop, phone and App programs. \`{ kind: 'chat', chat, message? }\`;
+  \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
+  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, place?: { chat } | { session } }\`.
+  App defaults: yourself, your first tab. Chat/file references in stored text are build-independent. Add \`external: true\`
+  only for OS invocation (email/browser); never spell a scheme. App links and session/project invocation use the build scheme.
+- \`openLink(url)\` (API 11), from a click/key → opens that resource with the same target, desktop and phone; no capability.
+  Native \`<a>\` and \`gugu.markdown\` use it too. A program/background may generate links; only a page opens them with a gesture.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)
   a task chat's \`path#k=v\` link (\`file\`: path), also if it opens your page; phones too.
 

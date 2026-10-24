@@ -6,7 +6,7 @@ import { openAssistantTaskChat } from '../../lib/assistantTaskChat'
 import { useDevicesStore } from '../../store/devicesContext'
 import { localHomeSessions } from '../../session/renderer/features/assistant/assistant-home-sessions'
 import { remoteHostsStore } from '../../session/renderer/features/remote-hosts/remote-hosts-store'
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 
 /** A small, factual association on the original request; never a synthetic progress or completion signal. */
 export const ActivitySourceBadge = observer(function ActivitySourceBadge({ chatId, messageId }: { chatId: string; messageId: string }) {

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from '../../../../apps/desktop/src/components/markdown/Markdown'
 import { filePillText, filePillToken } from '../../../../apps/desktop/src/components/markdown/filePills'
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**

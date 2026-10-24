@@ -1,4 +1,4 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 // session_* 域 —— 会话页会话管理的十个原子工具(发现 harness/model、列任务、起子会话、读、停、归档、开 tab)。
 // 与社交域、extension 域注册在同一个会话 MCP server 上;是否注册只取决于这条 grant 是否属于
 // 会话页会话。单 server 下「域」是架构一等公民(#4191):本文件只有这个域的定义,注册机制在

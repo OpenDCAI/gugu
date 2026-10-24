@@ -7,7 +7,7 @@
 // 只装一次(启动时)。触发:进出会话页、换任务、那台机器连上 / 断开 —— 都是事件,❌ 定时查。
 import { closeSessionPaneTab, sessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
 import { comparer, reaction } from 'mobx';
-import { openGroupFileLink } from '@/components/markdown/fileLinks';
+import { openLink } from '@/lib/guguLinks';
 import type { SessionpagePaneOpenRequest } from '@gugu/session-core/session-record/contract';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
@@ -105,7 +105,7 @@ function openRequested(session: ViewedMachineSession, request: SessionpagePaneOp
   }
   // A group's file (摩擦单 F10) is no page for the browser cell: opened in its group, as a chat link is (not in that
   // chat: the person is told, the machine hears it failed).
-  const groupFileOpened = request.target.kind === 'browser' ? openGroupFileLink(request.target.url) : null;
+  const groupFileOpened = request.target.kind === 'browser' ? openLink(request.target.linkTarget ?? request.target.url) : null;
   if (groupFileOpened !== null) return groupFileOpened.then((opened): PaneOpenResult => (opened ? { ok: true } : { ok: false, failure: 'open_failed' }));
   if (request.target.kind === 'browser' && !browser) return { ok: false, failure: 'no_browser' };
   const view = sessionView(session.projectId, session.sessionId);
