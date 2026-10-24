@@ -2,7 +2,8 @@ import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload';
 import { defineEvent } from '@shared/lib/ipc/events';
-import type { ShortcutSettingsKey, TabNavigationDirection } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
+import type { TabNavigationDirection } from '@shared/shortcuts';
 
 // App editing actions (renderer → main, no payload)
 export const appUndoChannel = defineEvent<void>('app:undo');
@@ -40,7 +41,7 @@ export const tabNavigationShortcutChannel = defineEvent<{
 
 export const browserAppShortcutChannel = defineEvent<{
   source: { kind: 'browser'; browserId: string };
-  shortcutKey: ShortcutSettingsKey;
+  commandId: CommandId;
 }>('browser:app-shortcut');
 
 export const notificationFocusSessionChannel = defineEvent<{

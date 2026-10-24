@@ -3,9 +3,10 @@
 // 列表点话题 = 切到来源线 + 往盒子里放一条请求。来源线就是当前线时,聊天区(隐藏着)在事件里当场取走、开出分栏;
 // 同一次点击把手机会话页露出来并 bump openNonce,重置 effect 在那次提交里 closeRightSurfaces 把刚开的分栏关了。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { requestTopicSplit } from '../../../../apps/desktop/src/lib/topicSplitRequest'
+import { requestTopicsPanel } from '../../../../apps/desktop/src/lib/topicsPanelRequest'
 import { chat, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
@@ -13,6 +14,11 @@ import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localS
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
 
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
+// A closing panel retained for its exit animation must not count as an open panel.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...await importOriginal<typeof import('framer-motion')>(),
+  AnimatePresence: ({ children }: { children: ReactNode }) => children,
+}))
 vi.mock('../../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
     createTopic: vi.fn(),
@@ -24,6 +30,7 @@ vi.mock('../../../../apps/desktop/src/lib/topics', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
+    getChatFiles: vi.fn(async () => []),
     getMessages: vi.fn(async () => []),
     getGroupCollab: vi.fn(async () => ({
       snapshot: {
@@ -88,5 +95,12 @@ describe('手机从列表点回同一个群的话题行,话题页要出来', () 
     await render(false, 0)
     await act(async () => { requestTopicSplit({ chatId: 't1', name: '北京天气', sourceChatId: 'g1', focusComposer: true }) })
     expect(topicPage()).not.toBeNull()
+  })
+
+  it('keeps More topics pending until the mobile chat becomes visible and resets', async () => {
+    await render(true, 0)
+    await act(async () => { requestTopicsPanel('g1') })
+    await render(false, 1)
+    expect(harness.container.querySelector('[data-testid="history-panel"]')).not.toBeNull()
   })
 })

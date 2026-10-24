@@ -80,7 +80,7 @@ function mount(): void {
               <span className="truncate">设置</span>
             </span>
             <BoundShortcut
-              settingsKey="settings"
+              commandId="app.settings"
               variant="keycaps"
               className={sidebarRowShortcutClass}
             />

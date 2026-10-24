@@ -1,15 +1,12 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { commandRegistry } from '@renderer/lib/commands/registry';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { ChevronDown, SquareArrowRight } from '@/lib/icons'
 import React, { useCallback, useContext, useMemo } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { useScreenBlock } from '@renderer/app/screen-block-context';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import {
-  getEffectiveHotkey,
-  getHotkeyRegistration,
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { useOpenInApps } from '@renderer/lib/hooks/useOpenInApps';
 import { rpc } from '@renderer/lib/ipc';
 import { ContextMenuItem } from '@renderer/lib/ui/context-menu';
@@ -103,8 +100,6 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
 }) => {
   const { translate } = useSessionMessages();
   const { icons, labels, availability, loading, defaultApp, menuApps, triggerOpenIn, selectAndOpenApp } = useOpenInTargets(path);
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  const openInHotkey = getEffectiveHotkey('openInEditor', keyboard);
 
   // Listens on the document: only the page on screen answers (@@@retained-session-pages), and of the
   // blocks on the screen only the one looked at (#7052).
@@ -120,14 +115,12 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
 
   const buttonAppLabel = buttonAppId ? (labels[buttonAppId] ?? buttonAppId) : null;
 
-  useHotkey(
-    getHotkeyRegistration('openInEditor', keyboard),
-    () => {
-      if (!buttonAppId) return;
-      void triggerOpenIn(buttonAppId);
-    },
-    { enabled: shown && !!buttonAppId && !loading && openInHotkey !== null }
-  );
+  useCommandProvider({
+    scopeId: 'project',
+    getCommands: () => !shown || !buttonAppId || loading ? [] : [{
+      id: 'project.openInEditor', execute: () => { void triggerOpenIn(buttonAppId); },
+    }],
+  });
 
   const renderOpenButton = (nativeDisabled: boolean) => (
     <button
@@ -138,7 +131,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
       )}
       onClick={() => {
         if (loading || !buttonAppId) return;
-        void triggerOpenIn(buttonAppId);
+        commandRegistry.dispatch('project.openInEditor');
       }}
       disabled={nativeDisabled || undefined}
       aria-disabled={buttonAppId ? undefined : true}
@@ -180,7 +173,7 @@ export const OpenInMenu: React.FC<OpenInMenuProps> = ({
                   app: buttonAppLabel || translate('titlebar.openInFallback'),
                 })}
               </span>
-              <BoundShortcut settingsKey="openInEditor" variant="keycaps" />
+              <BoundShortcut commandId="project.openInEditor" variant="keycaps" />
             </div>
           </TooltipContent>
         </Tooltip>

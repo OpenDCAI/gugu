@@ -1,4 +1,4 @@
-export type SearchItemKind = 'project' | 'session' | 'command' | 'file';
+export type SearchItemKind = 'project' | 'session';
 
 export interface SearchItem {
   kind: SearchItemKind;
@@ -11,10 +11,6 @@ export interface SearchItem {
 
 export interface CommandPaletteQuery {
   query: string;
-  context?: {
-    projectId?: string;
-    workspaceId?: string;
-  };
 }
 
 export interface WorkspaceFileSearchQuery {

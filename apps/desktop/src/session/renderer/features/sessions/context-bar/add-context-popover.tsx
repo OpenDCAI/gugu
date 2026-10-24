@@ -15,14 +15,14 @@ import {
 import { Button } from '@renderer/lib/ui/button';
 import { BoundShortcut, Shortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
-import { SESSION_COMMAND_DEFS } from '@shared/commands';
+import { COMMANDS } from '@shared/commands';
 import { ProviderLogo } from '@renderer/features/integrations/provider-logo';
 import { usePromptLibraryActions } from '@renderer/features/library/prompts/use-prompt-library-actions';
 import { buildContextActionText, type ContextAction } from '../context-bar/context-actions';
 import { parsePromptDraft, type PromptDraft } from './parse-prompt-draft';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
-const ADD_CONTEXT_COMMAND = SESSION_COMMAND_DEFS.find((def) => def.id === 'session.addContext')!;
+const ADD_CONTEXT_COMMAND = COMMANDS['session.addContext'];
 
 /**
  * 列表里的一行。多出来的 `create-prompt` 是**打出来的那一行**:一条现有条目都匹配不上时,
@@ -240,22 +240,19 @@ export function AddContextPopover({
   useEffect(() => {
     if (!isActivePane) return;
 
-    commandRegistry.register({
+    return commandRegistry.register({
       scopeId: 'session-sub',
       getCommands: () => [
         {
           id: ADD_CONTEXT_COMMAND.id,
           label: ADD_CONTEXT_COMMAND.label,
           description: ADD_CONTEXT_COMMAND.description,
-          shortcutKey: ADD_CONTEXT_COMMAND.shortcutKey,
-          group: ADD_CONTEXT_COMMAND.group,
           enabled: hotkeyEnabled ?? !disabled,
           execute: () => setOpen((value) => !value),
         },
       ],
     });
 
-    return () => commandRegistry.unregister('session-sub');
   }, [disabled, hotkeyEnabled, isActivePane]);
 
   // 弹层与对话框是两层浮层:先收弹层再开对话框,❌ 让它们同时在场抢焦点(输入框还留在弹层里,
@@ -357,7 +354,7 @@ export function AddContextPopover({
               )}
               <span>{translate('contextBar.addContext')}</span>
             </span>
-            <BoundShortcut settingsKey="addContext" variant="keycaps" />
+            <BoundShortcut commandId="session.addContext" variant="keycaps" />
           </>
         )}
       </ComboboxTrigger>
