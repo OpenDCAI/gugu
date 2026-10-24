@@ -172,7 +172,8 @@ export default defineConfig({
   // 它只在下面 chat-ui 那三个 project 里挂 —— Solid 的 JSX 是编译期展开,没插件编不出来。
   plugins: [vanillaExtractPlugin()],
   test: {
-    reporters: ['default', new WorkerAttributionReporter()],
+    reporters: ['default', new WorkerAttributionReporter(), ...(process.env.GUGU_VITEST_JSON_REPORT ? ['json' as const] : [])],
+    outputFile: process.env.GUGU_VITEST_JSON_REPORT ? { json: process.env.GUGU_VITEST_JSON_REPORT } : undefined,
     // Direct `vitest`/IDE launches must enforce the same exact Node pin as the package scripts.
     // The setup only validates the process; it never switches toolchains or changes PATH.
     // 第二项:每次运行一个专属临时根,结束删净(#6272),原因见文件头。

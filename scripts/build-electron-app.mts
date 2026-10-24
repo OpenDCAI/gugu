@@ -41,6 +41,7 @@ async function mainStage() {
   const isWebTarget = (process.env.GUGU_TARGET ?? 'electron') === 'web'
   const stageTwoEntries = isWebTarget ? sessionHostBuildEntries : electronBuildEntries
   for (const entry of stageTwoEntries) {
+    const entryStarted = performance.now()
     const label = typeof entry.entry === 'string' ? entry.entry : Object.keys(entry.entry ?? {}).join(',')
     console.log(`[build-electron-app] main stage: ${label}`)
     await build({
@@ -52,6 +53,7 @@ async function mainStage() {
         envDir: entry.vite?.envDir ?? repoRoot,
       },
     })
+    console.log(`[build-electron-app] main entry done in ${((performance.now() - entryStarted) / 1000).toFixed(1)}s: ${label}`)
   }
   console.log(`[build-electron-app] main stage done at ${elapsed()}`)
 }

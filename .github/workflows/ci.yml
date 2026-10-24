@@ -158,6 +158,14 @@ jobs:
           key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
           restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-shard-${{ matrix.shard }}-
       - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
+        env:
+          GUGU_VITEST_JSON_REPORT: timing-results/unit-${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-timings-${{ matrix.shard }}
+          path: timing-results/
+          retention-days: 7
   renderer-build:
     name: Renderer build (web target)
     needs: changes
@@ -214,8 +222,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: command -v tmux || brew install tmux
       - uses: ./.github/actions/setup-community
-      - run: pnpm build:app:ci
-      - run: pnpm rebuild:native
+      - run: node scripts/ci-build-profile.mjs pnpm build:app:ci
+      - run: /usr/bin/time -l pnpm rebuild:native
   android-build:
     name: Android debug build
     needs: changes
@@ -281,7 +289,15 @@ jobs:
         with:
           container-image: ${{ env.PLAYWRIGHT_IMAGE }}
       - run: pnpm exec vitest run --project session-browser
+        env:
+          GUGU_VITEST_JSON_REPORT: timing-results/session-browser.json
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: session-browser-timings
+          path: timing-results/
+          retention-days: 7
   web-smoke:
     name: Web E2E (${{ matrix.id }})
     runs-on: ubuntu-24.04
