@@ -153,7 +153,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_children',
-    description: 'Direct children, newest first (default: yours). Archived only with status:"archived"; preview.ended = last turn\'s end.',
+    description: 'Children/current state, not history; what happened when: activity_list. Newest first (default yours); archived: status:"archived"; preview.ended = last turn end.',
     schema: z.object({
       session_id: sessionIdSchema.optional(),
       ...listWindowShape,
