@@ -1,4 +1,5 @@
 import { commandRegistry } from '@renderer/lib/commands/registry';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { useEffect, useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
@@ -156,6 +157,14 @@ function runShortcut(key: SessionNavShortcutKey): boolean {
  */
 export function SessionKeyboardNavListener() {
   const { value: keyboard } = useAppSettingsKey('keyboard');
+  useCommandProvider({
+    scopeId: 'app',
+    getCommands: () => [{
+      id: 'session.rename',
+      hideFromPalette: sessionKeyboardNav.cursor?.kind !== 'conversation',
+      execute: (task) => sessionKeyboardNav.startRename(task ? { kind: 'conversation', ...task } : undefined),
+    }],
+  });
 
   const hotkeys = useMemo<SessionNavHotkeys>(() => {
     const map: SessionNavHotkeys = {};

@@ -1,4 +1,3 @@
-import { sessionKeyboardNav } from '@renderer/features/sidebar/session-keyboard-nav';
 import { applyHistoryEntry } from '@renderer/lib/components/nav-buttons';
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import { openShellFeedback } from '@renderer/lib/open-shell-feedback';
@@ -157,7 +156,6 @@ function createAppCommandProvider(): CommandProvider {
       );
 
       commands.push(
-        { id: 'session.rename', hideFromPalette: sessionKeyboardNav.cursor?.kind !== 'conversation', execute: (task) => sessionKeyboardNav.startRename(task ? { kind: 'conversation', ...task } : undefined) },
         { id: 'app.resourceMonitor', execute: () => openShellSettings('resource-monitor') },
       );
       return commands;
