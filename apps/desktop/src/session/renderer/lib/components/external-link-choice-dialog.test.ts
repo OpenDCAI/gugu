@@ -44,7 +44,6 @@ describe('ExternalLinkChoiceDialog', () => {
 
     for (const text of [
       '打开链接？',
-      '选择在哪里打开这个链接。',
       '在 gugu 浏览器中打开',
       '在系统浏览器中打开',
       '取消',
@@ -53,7 +52,6 @@ describe('ExternalLinkChoiceDialog', () => {
     }
     for (const english of [
       'Open link?',
-      'Choose where to open this link.',
       'Open in gugu Browser',
       'Open in Browser',
       '>Cancel<',
