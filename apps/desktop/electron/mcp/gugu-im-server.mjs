@@ -705,8 +705,8 @@ export async function sendExtensionCardOf(context, { chatId, filePath, fileName,
   }
   // No mime_type: the .guguext name gives the extension archive type, which is what makes the chat draw a card.
   const out = await handleFile({ action: 'send-file', chat_id: chat, file_path: filePath, file_name: fileName }, deps)
-  const id = /\(id=([0-9a-f-]{36})[,)]/i.exec(String(out))?.[1]
-  if (!id) throw new Error(`the card was not sent (${out})`)
+  const id = String(JSON.parse(out).message_id ?? '').replace(/^msg:/, '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`the card was not sent (${out})`)
   return { messageId: id, alreadyThere: false, differs: false }
 }
 
@@ -2156,7 +2156,8 @@ async function handleFile(args, deps) {
       thread_root_id: deps.context.threadRootId ?? null,
     }
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
-    return `file sent (id=${message.id})`
+    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName,
+      source_link: `gugu-chat://${chatId}/${String(message.id).replace(/^msg:/, '')}` })
   }
   if (args.action === 'download-attachment') {
     if (args.source_attachment_id) {
@@ -2235,7 +2236,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send',
     writer: true,
-    description: 'Set destination fields before writing text. Post a message to a chat; chat_id and to_user_ids are never inferred from the message that triggered you. Each call is independent; multiple distinct calls are valid. With reply_to_message_id a DM peer is implied; in a group still name recipients. Sessions: session_message.',
+    description: 'Set destination first; never infer chat_id or recipients from the trigger. Independent, multiple distinct calls allowed. reply_to_message_id implies a DM peer; groups still require recipients. Sessions: session_message.',
     schema: z.object({
       chat_id: chatIdSchema.describe(CHAT_ID_DESCRIPTION),
       to_user_ids: chatRecipientsSchema,
@@ -2348,7 +2349,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'Post a file from this machine (≤10 MiB) as an attachment: the delivery tool for a file, report or artifact someone asked for. A file the chat keeps and edits goes in its folder (workspace__create in the catalog).',
+    description: 'File delivery tool: attach a requested file/report (≤10 MiB) from this machine. Editable documents: workspace__create in the catalog.',
     schema: z.object({
       file_path: uploadFilePathSchema,
       file_name: uploadFileNameSchema,

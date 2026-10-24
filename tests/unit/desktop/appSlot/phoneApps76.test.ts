@@ -149,7 +149,7 @@ function jwt(sub: string): string {
 }
 
 function manifest(id: string, version: string, capabilities: string[] = []) {
-  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
+  return { id, name: id === 'vote' ? 'Vote' : 'Workspace', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop', 'phone'], entry: 'index.html', permissions: { capabilities }, contributes: { tabs: [{ name: 'main', title: 'Main' }] } }
 }
 
 /** A card carrying a package `uploader` published: two pages, a script, a data file. Its message id. */
@@ -280,7 +280,7 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
   // about agents:control too.
   it('asks only for what the phone can grant: an App asking only for agents installs without a sheet; with chat:relay, about that alone', async () => {
     const apps = await start()
-    const quiet = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['agents:read', 'notifications']) })
+    const quiet = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['agents:read']) })
     expect(quiet).toMatchObject({ success: true, data: { installed: true, outcome: 'confirmed' } })
     expect(shell.asked).toEqual([])
 
@@ -290,6 +290,14 @@ describe('U3 the phone App store: install, update, uninstall, re-tag', () => {
     // What is kept is the App as it was written: a computer reading the same package asks about all of it.
     const kept = index().installed.board as unknown as { manifest: { permissions: { capabilities: string[] } } }
     expect(kept.manifest.permissions.capabilities).toEqual(['agents:control', 'chat:relay'])
+  })
+
+  it('refuses a phone declaration requiring an unavailable human capability before consent', async () => {
+    const apps = await start()
+    const refused = await apps.installAttachment({ messageId: await publish('vote', '1.0.0', ALICE_UPLOADER, ['notifications']) })
+    expect(refused).toMatchObject({ success: false, error: expect.stringContaining('phone does not support notifications') })
+    expect(shell.asked).toEqual([])
+    expect(index().installed.vote).toBeUndefined()
   })
 
   it('asks in full when another publisher sends the same id, however little it asks for', async () => {
@@ -640,10 +648,24 @@ describe('the phone installs Apps from the market', () => {
   }
 
   // owner 10-19: market Apps update by themselves on the phone too (phoneApps `autoUpdate`), as on the desktop.
-  it('updates a market App by itself when the index comes in changed; one asking for more waits', async () => {
+  it('keeps an installed API 10 App without platforms readable and updates it; one asking for more waits', async () => {
     await listAll('notes', [{ version: '1.0.0' }])
-    const apps = await start()
+    let apps = await start()
     await apps.installFromMarket({ ref: { extensionId: 'notes' } })
+    // A phone profile kept by the old client: runtime must not apply the new installation rule to it.
+    const kept = JSON.parse(shell.index!)
+    const record = kept.installed.notes
+    record.manifest.apiVersion = 10
+    delete record.manifest.platforms
+    const oldManifest = JSON.stringify(record.manifest)
+    record.manifestDigest = createHash('sha256').update(oldManifest).digest('hex')
+    shell.versions.get(record.dir)!.set('manifest.json', new TextEncoder().encode(oldManifest))
+    shell.index = JSON.stringify(kept)
+    apps = await start()
+    await apps.ready()
+    expect(lastList().extensions.find((entry) => entry.id === 'notes')).toMatchObject({ apiVersion: 10, version: '1.0.0' })
+    expect(apps.installedFromChats().find((entry) => entry.id === 'notes')?.platforms).toBeUndefined()
+
     await listAll('notes', [{ version: '1.0.0' }, { version: '1.1.0' }])
     expect(await apps.market.refresh()).toMatchObject({ outcome: 'changed' })
     expect(await settle(() => installedDir('notes') === 'notes@1.1.0')).toBe(true)

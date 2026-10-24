@@ -12,7 +12,7 @@ describe('the market hands a host that knows only 9 the last version for 9', () 
     { version: '0.3.3', apiVersion: 8, minAppVersion: '0.2.57' },
     { version: '0.3.4', apiVersion: 10, minAppVersion: '0.2.57' },
   ];
-  const host = (apiVersionMax: number): MarketHost => ({ appVersion: '0.2.58', apiVersionMin: 3, apiVersionMax });
+  const host = (apiVersionMax: number): MarketHost => ({ platform: 'desktop' as const, appVersion: '0.2.58', apiVersionMin: 3, apiVersionMax });
 
   it('this build knows 10', () => {
     expect(EXTENSION_API_VERSION).toBeGreaterThanOrEqual(10);

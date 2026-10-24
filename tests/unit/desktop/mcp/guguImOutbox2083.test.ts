@@ -134,18 +134,20 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
         ? [{ user_id: 'agent-1' }, { user_id: 'member-1' }]
         : [],
     })
-    await expect(callTool('message_send_file', {
+    const receipt = JSON.parse(await callTool('message_send_file', {
       chat_id: 'c1',
       file_name: 'proof.txt',
       file_path: proofPath,
       mime_type: 'text/plain',
       to_user_ids: ['user:member-1'],
-    }, deps)).resolves.toMatch(/^file sent/)
+    }, deps))
+    expect(receipt).toMatchObject({ status: 'sent', file_name: 'proof.txt' })
     expect(uploads).toHaveLength(1)
     expect(inserted, 'the message is the commit\'s, not a direct insert').toHaveLength(0)
     expect(commits).toHaveLength(1)
     expect(commits[0]).toMatchObject({ chat_id: 'c1', sender_user_id: 'agent-1', to_user_ids: ['member-1'], file_name: 'proof.txt', content_type: 'text/plain' })
     expect(String(commits[0]!.message_id)).toMatch(/^[0-9a-f-]{36}$/)
+    expect(receipt.source_link).toBe(`gugu-chat://c1/${commits[0]!.message_id}`)
   })
 
   test.each([403, 409, 422])('DB HTTP %s from the durable insert is semantic/terminal — fails loud, single attempt', async (status) => {

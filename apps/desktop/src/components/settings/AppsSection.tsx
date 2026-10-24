@@ -318,6 +318,8 @@ function VersionsSheet({
             const firstLine = (entry.releaseNotes.split(/\r?\n/).find((line) => line.trim() !== '') ?? '').trim().replace(/^(?:[-*+]|\d+[.)]|#{1,6})\s+/, '')
             const reason = entry.yanked
               ? translateSessionMessage('extensions.historyYanked', { note: entry.yanked.reason })
+              : entry.platformRefusal
+                ? translateSessionMessage('extensions.platformVersionUnavailable')
               : entry.compat
                 ? entry.compat.reason === 'needs-newer-app'
                   ? translateSessionMessage('extensions.needsNewerApp', { version: entry.compat.minAppVersion })

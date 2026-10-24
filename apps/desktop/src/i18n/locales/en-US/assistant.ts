@@ -457,6 +457,22 @@ export default {
     "gone": "It may have been deleted."
   },
   "memory": {
+    "pending": {
+      "title": "Unfinished work",
+      "count": "{{count}} items",
+      "note": "Clearing removes recovery entries without cancelling tasks.",
+      "retry": "Could not read. Retry",
+      "loading": "Loading…",
+      "empty": "No pending entries",
+      "uncertain": "Delivery needs verification",
+      "needsSource": "Source missing; cannot recover automatically",
+      "blocked": "Waiting for the device task host",
+      "question": "Waiting for your answer",
+      "executor": "Waiting for task results",
+      "source": "Original request",
+      "clear": "Clear entries",
+      "clearFailed": "Could not clear. Try again."
+    },
     "loadFailed": "Couldn't load memories. Try again shortly.",
     "aboutUserTitle": "What I know about {{owner}}",
     "updated": "Updated {{time}}",

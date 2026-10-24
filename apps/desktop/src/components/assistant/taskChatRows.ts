@@ -1,4 +1,5 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import type { AssistantTaskChat } from '../../lib/assistantTaskChat'
 import type { TaskExchange } from '../../session/shared/core/sessions/task-collaboration'
 import type { ChatListRowItem } from '../chat/MessageList'
@@ -13,7 +14,7 @@ export function taskChatWindow(rows: ChatListRowItem[], count: number): { rows: 
 }
 
 export function taskChatRows(messages: readonly MessageItem[], exchanges: readonly TaskExchange[], task: AssistantTaskChat | null, query: string): ChatListRowItem[] {
-  const rows: ChatListRowItem[] = messages.map((message) => ({ type: 'message', message }))
+  const rows: ChatListRowItem[] = visibleDeliveryMessages(messages).map((message) => ({ type: 'message', message }))
   if (!task) return rows
   const seen = new Set<string>()
   for (const entry of exchanges) {
