@@ -609,6 +609,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
             id={commandListboxId}
             onActiveOptionChange={setCommandActiveOptionId}
             items={commandPopupItems}
+            autoSelectFirst={false}
             anchorRect={commandSuggestion.rect}
             stacked
             onSelect={(popupItem) => {

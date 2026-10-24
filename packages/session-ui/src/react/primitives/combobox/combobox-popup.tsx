@@ -96,6 +96,8 @@ interface ComboboxPopupProps {
    * 缺省 = 内容一变就回第一条(打字过滤时该这样)。
    */
   keepActiveOnChange?: boolean;
+  /** Start without a selected option when Enter must keep its ordinary editor behavior. */
+  autoSelectFirst?: boolean;
   /**
    * 这个 listbox 的 DOM id。**给出它,就是要把弹层接进调用方那个输入框的 ARIA 合同**
    * (`aria-controls` 指这里,`aria-activedescendant` 指这里的某一条)。
@@ -129,13 +131,14 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
       stacked = false,
       slot,
       keepActiveOnChange = false,
+      autoSelectFirst = true,
       id,
       onActiveOptionChange,
       className,
     },
     ref
   ) {
-    const [selectedIndex, setSelectedIndex] = React.useState(0);
+    const [selectedIndex, setSelectedIndex] = React.useState(autoSelectFirst ? 0 : -1);
     // 稳定 id —— composer 那一侧要用它接 `aria-controls` / `aria-activedescendant`
     // (上游 trigger-popover 的可访问性契约:WAI-ARIA editable combobox)。
     // 调用方给了就用它的,好让输入框那一侧能先于弹层写出 `aria-controls`。
@@ -159,7 +162,7 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
      */
     const itemsSignature = JSON.stringify(items.map((item) => item.id));
     // 归位到第一条能选的(说明行不当高亮)。
-    const firstEnabled = Math.max(0, items.findIndex((item) => !item.disabled));
+    const firstEnabled = autoSelectFirst ? Math.max(0, items.findIndex((item) => !item.disabled)) : -1;
     // 高亮的那一条是谁(按 id):重查回来的列表里它还在,就留在它上面。
     const activeIdRef = React.useRef<string | null>(null);
     const keepActiveRef = React.useRef(keepActiveOnChange);
@@ -184,10 +187,10 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
     // ⚠️ 回调走 ref:它进依赖数组的话,调用方每次重渲染换一个新函数就会把这个 effect 打成自激。
     const activeChangeRef = React.useRef(onActiveOptionChange);
     activeChangeRef.current = onActiveOptionChange;
-    const hasItems = items.length > 0;
+    const hasActiveItem = selectedIndex >= 0 && !!items[selectedIndex] && !items[selectedIndex].disabled;
     React.useEffect(() => {
-      activeChangeRef.current?.(hasItems ? `${listboxId}-opt-${selectedIndex}` : null);
-    }, [hasItems, listboxId, selectedIndex]);
+      activeChangeRef.current?.(hasActiveItem ? `${listboxId}-opt-${selectedIndex}` : null);
+    }, [hasActiveItem, listboxId, selectedIndex]);
     // 卸载时把它清掉 —— 否则输入框会一直指着一个已经不在 DOM 里的 id,
     // 读屏器读到的是一条**幽灵选项**(比没有更糟)。
     React.useEffect(
@@ -214,7 +217,7 @@ export const ComboboxPopup = React.forwardRef<ComboboxPopupHandle, ComboboxPopup
           return true;
         }
         if (event.key === 'ArrowUp') {
-          setSelectedIndex((i) => (items.length === 0 ? 0 : nextEnabled(items, i, -1)));
+          setSelectedIndex((i) => (items.length === 0 ? -1 : nextEnabled(items, i < 0 ? 0 : i, -1)));
           return true;
         }
         if (event.key === 'Enter' || event.key === 'Tab') {
