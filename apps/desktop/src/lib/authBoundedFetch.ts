@@ -32,7 +32,7 @@ async function fetchWithSignals(
 ): Promise<Response> {
   // PostgREST reads the finite body after fetch resolves; keep that read inside the same deadline and signal cleanup.
   const complete = async (response: Response): Promise<Response> => requestPath(input).startsWith('/rest/v1/') && response.body
-    ? new Response(await response.arrayBuffer(), response)
+    ? response.clone().arrayBuffer().then(() => response)
     : response
   if (signals.length === 1) return fetch(input, { ...init, signal: signals[0] }).then(complete)
   if (typeof AbortSignal.any === 'function') {
