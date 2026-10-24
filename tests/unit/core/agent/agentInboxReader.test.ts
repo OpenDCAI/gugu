@@ -1071,7 +1071,7 @@ describe('三态判决与失败面', () => {
     try {
       await postDeliveryDisclosureRow({ agentUserId: AGENT, chatId: 'chat-a', key: 'notice', threadRootId: null, reason: 'notAdmitted' }, 'test-token')
       const body = JSON.parse(post.mock.calls[0]![1]!.body as string)
-      expect(body.content).toContain('消息暂未送达，已保留')
+      expect(body.content).toBe('消息已保留，助理就绪后回复。')
       expect(body.content).not.toMatch(/failed|could not hand|失败/)
     } finally { vi.unstubAllGlobals() }
     const cloud = seed()

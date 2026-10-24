@@ -465,6 +465,7 @@ export default {
       "loading": "Loading…",
       "empty": "No pending entries",
       "uncertain": "Delivery needs verification",
+      "needsSource": "Source missing; cannot recover automatically",
       "blocked": "Waiting for the device task host",
       "question": "Waiting for your answer",
       "executor": "Waiting for task results",

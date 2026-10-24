@@ -62,3 +62,10 @@ it('shows a refused device task with its original requirement and source instead
   expect(container.textContent).toContain('gugu-chat://request/message');
   expect(container.textContent).not.toContain('memory.pending.executor');
 });
+it('keeps source-missing recovery entries visible for manual clearing without suggesting an active wait', async () => {
+  state.items = [{ id: 'legacy', kind: 'executor', state: 'needs_source', recipients: [], receipt_ids: [], created_at: '2020-01-01T00:00:00Z' }];
+  await open();
+  expect(container.textContent).toContain('memory.pending.needsSource');
+  expect(container.textContent).toContain('memory.pending.clear');
+  expect(container.textContent).not.toMatch(/memory.pending.executor|memory.pending.uncertain/);
+});

@@ -140,6 +140,12 @@ describe('durable provider failure notice', () => {
     expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('Codex 1: 请求过于频繁，请稍后重试。')
     expect(harness.container.querySelector('button')).toBeNull()
   })
+  it('renders retained delivery as a short pending status even when the stored fallback is an old English failure', async () => {
+    await harness.render(createNode(SystemMessageNotice, { senderName: '咕咕', message: failureRow('notAdmitted', 'Gugu could not hand these messages to the agent. Please try again later.') }))
+    expect(harness.container.querySelector('[role="status"]')?.textContent).toBe('咕咕: 消息已保留，助理就绪后回复。')
+    expect(harness.container.textContent).not.toMatch(/could not hand|出错|重试/)
+    expect(harness.container.querySelector('button')).toBeNull()
+  })
   it('shows a row whose reason it cannot read (an old Chinese row, an unknown reason) as its plain content', async () => {
     for (const message of [{ ...failureRow('x', '周限额度不足'), client_message_id: 'turn-failure:batch:fixture' }, failureRow('notYetKnown')]) {
       await harness.render(createNode(SystemMessageNotice, { senderName: 'Codex 1', message }))

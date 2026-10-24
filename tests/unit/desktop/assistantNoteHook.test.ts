@@ -50,3 +50,18 @@ it.each(['startup', 'resume', 'compact', 'clear', 'fork'])('restores pending ref
   store.clear()
   expect(hook(assistantPendingHook(store.path), { hook_event_name: 'SessionStart', source })).toBe(null)
 })
+
+it('omits source-missing entries from model context, including pre-upgrade legacy rows', async () => {
+  const file = join(root, 'pending-work.json')
+  const base = { kind: 'executor', recipients: [], receipt_ids: [], created_at: '2020-01-01T00:00:00Z' }
+  await writeFile(file, JSON.stringify({ version: 1, items: [
+    { ...base, id: 'manual-only', state: 'needs_source' },
+    { ...base, id: 'legacy-orphan', state: 'uncertain' },
+    { ...base, id: 'recoverable', state: 'blocked', source_link: 'gugu-chat://original/request' },
+  ] }))
+  const output = hook(assistantPendingHook(file), { hook_event_name: 'SessionStart', source: 'resume' })
+  expect(output.additionalContext).toContain('recoverable')
+  expect(output.additionalContext).not.toMatch(/manual-only|legacy-orphan/)
+  await writeFile(file, JSON.stringify({ version: 1, items: [{ ...base, id: 'manual-only', state: 'needs_source' }] }))
+  expect(hook(assistantPendingHook(file), { hook_event_name: 'SessionStart', source: 'compact' })).toBe(null)
+})

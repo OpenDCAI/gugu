@@ -355,6 +355,7 @@ export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId:
 /**
  * The failure row's content: what agents and clients that cannot read the reason see. Fixed English, so an agent reads the
  * same words whatever the viewers' language; a client that reads the reason (`systemNotice.ts`) says it in its own language.
+ * Retained admission gaps use a Chinese pending notice rather than a terminal failure.
  */
 const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   weeklyQuota: 'Weekly usage limit reached for this model account. Switch models or wait for the limit to reset.',
@@ -363,7 +364,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   rateLimited: 'Too many requests to this model. Please try again shortly.',
   modelUnavailable: 'The current model is not available or is at capacity. Resend later, or switch models and resend.',
   generic: 'This reply could not be completed. Please try again later.',
-  notAdmitted: '消息暂未送达，已保留；咕咕就绪后会继续处理。',
+  notAdmitted: '消息已保留，助理就绪后回复。',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
 }
 

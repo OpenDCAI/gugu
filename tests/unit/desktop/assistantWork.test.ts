@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -63,7 +63,25 @@ it('continuing one recipient preserves other unfinished recipients of the same w
 it('keeps unknown outcomes explicit and does not turn them into a successful dispatch', async () => {
   const binding = { sessionId: 'parent', memoryDir: root }
   await expect(coordinateAssistantAction(binding, { action: 'spawn', prompt: 'request' }, async () => { throw new Error('RPC timeout') })).rejects.toThrow('RPC timeout')
-  expect(new AssistantWorkStore(root).list()[0].state).toBe('uncertain')
+  expect(new AssistantWorkStore(root).list()[0].state).toBe('needs_source')
+})
+
+it('persists a source-missing legacy outcome for manual recovery without expiring referenced old work', async () => {
+  const store = new AssistantWorkStore(root)
+  const legacy = { id: 'legacy', kind: 'executor', state: 'uncertain', created_at: '2020-01-01T00:00:00Z', recipients: [], receipt_ids: [] }
+  await writeFile(store.path, JSON.stringify({ version: 1, items: [legacy,
+    { ...legacy, id: 'source', source_link: 'gugu-chat://original/request' },
+    { ...legacy, id: 'recipient', recipients: ['session:child'] },
+    { ...legacy, id: 'receipt', receipt_ids: ['accepted'] },
+  ] }))
+  expect(store.list().map(row => [row.id, row.state])).toEqual([
+    ['legacy', 'needs_source'], ['source', 'uncertain'], ['recipient', 'uncertain'], ['receipt', 'uncertain'],
+  ])
+  expect(JSON.parse(await readFile(store.path, 'utf8')).items[0]).toEqual({ ...legacy, state: 'needs_source' })
+  await expect(coordinateAssistantAction({ sessionId: 'parent', memoryDir: root },
+    { action: 'message', work_id: 'legacy', to: ['session:child'], text: 'continue' }, vi.fn())).rejects.toThrow('waiting work')
+  store.remove('legacy')
+  expect(store.list().map(row => row.id)).toEqual(['source', 'recipient', 'receipt'])
 })
 
 it('persists the host-observed original input when dispatch is refused, independently of model source fields', async () => {

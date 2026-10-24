@@ -30,7 +30,11 @@ async function main() {
       if (bytesRead !== actual.size || after.size !== actual.size || after.mtimeMs !== actual.mtimeMs) throw new Error('changed-during-read');
       const state = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytesRead)));
       if (state.version !== 1 || !Array.isArray(state.items)) throw new Error('invalid-state');
-      const items = state.items.filter(row => row.state !== 'dispatching').map(({ early, ...row }) => row);
+      // Also omit unnormalized legacy rows when this artifact runs before a host upgrade has read the store.
+      const items = state.items.filter(row => row.state !== 'dispatching' && row.state !== 'needs_source'
+        && !(row.kind === 'executor' && ['uncertain', 'blocked'].includes(row.state)
+          && !row.source_link && !row.source_message_id && !row.source_summary && !row.recipients?.length && !row.receipt_ids?.length))
+        .map(({ early, ...row }) => row);
       if (!items.length) return;
       data = { status: 'loaded', path: filePath, complete: true, items };
     }

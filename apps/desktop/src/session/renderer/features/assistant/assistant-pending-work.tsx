@@ -50,7 +50,7 @@ export function AssistantPendingWork({ context }: { context: AssistantContext })
             : !query.data?.length ? <AssistantEmpty>{t('memory.pending.empty')}</AssistantEmpty>
               : query.data.map(work => (
                 <div key={work.id} className="py-2" data-testid="assistant-pending-work-item">
-                  <p>{t(work.state === 'blocked' ? 'memory.pending.blocked' : work.state === 'uncertain' ? 'memory.pending.uncertain' : work.kind === 'question' ? 'memory.pending.question' : 'memory.pending.executor')}</p>
+                  <p>{t(work.state === 'needs_source' ? 'memory.pending.needsSource' : work.state === 'blocked' ? 'memory.pending.blocked' : work.state === 'uncertain' ? 'memory.pending.uncertain' : work.kind === 'question' ? 'memory.pending.question' : 'memory.pending.executor')}</p>
                   {work.source_summary ? <p className="ta-page-sub">{work.source_summary}</p> : null}
                   {work.source_link ? <MarkdownRenderer content={`[${t('memory.pending.source')}](${work.source_link})`} /> : null}
                 </div>

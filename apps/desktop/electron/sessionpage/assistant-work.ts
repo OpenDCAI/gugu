@@ -16,7 +16,20 @@ export function onAssistantWorkChanged(listener: () => void): () => void { liste
 const empty = () => ({ version: 1 as const, items: [] as PendingAssistantWork[] })
 
 function read(path: string): ReturnType<typeof empty> {
-  try { return pendingAssistantWorkSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) }
+  try {
+    const data = pendingAssistantWorkSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    let changed = false
+    for (const row of data.items) {
+      // Legacy unacknowledged work without any locator cannot be verified or safely redispatched.
+      // Preserve it for the owner's recovery view, rather than silently expiring a possible commitment.
+      if (row.kind === 'executor' && (row.state === 'uncertain' || row.state === 'blocked')
+        && !row.source_link && !row.source_message_id && !row.source_summary && !row.recipients.length && !row.receipt_ids.length) {
+        row.state = 'needs_source'; changed = true
+      }
+    }
+    if (changed) atomic(path, data)
+    return data
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error }
 }
 function atomic(path: string, data: unknown): void {
@@ -103,6 +116,7 @@ const registry = (sessionId: string) => {
 export function assistantWorkBinding(sessionId: string, cwd: string, kind: AssistantHomeKind, agentId?: string): AssistantWorkBinding {
   if (agentId && !/^[a-zA-Z0-9_-]{1,128}$/.test(agentId)) throw new Error('Invalid assistant identity')
   const binding = { sessionId, memoryDir: assistantHomePaths(homedir(), cwd, kind).memoryDir }
+  new AssistantWorkStore(binding.memoryDir).list() // Normalize legacy recovery entries before startup hooks read them.
   atomic(registry(sessionId), binding)
   if (agentId) atomic(join(resolveGuguHome(), 'assistant-coordination', 'by-agent', `${agentId}.json`), binding)
   return binding
