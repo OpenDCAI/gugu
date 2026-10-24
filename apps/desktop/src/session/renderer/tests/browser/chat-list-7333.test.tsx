@@ -95,7 +95,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
   });
 
   it.each([false, true])('only writes workspace content from an avatar image drag when the row is draggable (mobile: %s)', async (mobile) => {
-    await page.viewport(1000, 800);
+    await page.viewport(mobile ? 390 : 1000, mobile ? 844 : 800);
     const avatarUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="blue"/></svg>')}`;
     const root = await renderList('grp-1', vi.fn(), mobile, avatarUrl);
     const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
@@ -107,7 +107,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     avatar.addEventListener('dragstart', (event) => starts.push({ trusted: event.isTrusted, fromAvatar: event.target === avatar }));
     const drops: { trusted: boolean; types: string[]; content: unknown }[] = [];
     const target = document.createElement('div');
-    target.style.cssText = 'position:fixed;left:400px;top:100px;width:200px;height:100px';
+    target.style.cssText = `position:fixed;left:${mobile ? 40 : 400}px;top:${mobile ? 700 : 100}px;width:200px;height:100px`;
     target.addEventListener('dragover', (event) => { event.preventDefault(); event.dataTransfer!.dropEffect = 'move'; });
     target.addEventListener('drop', (event) => {
       event.preventDefault();
