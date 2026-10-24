@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
+import { turnFailureReason, visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { agentFailureText } from '../../lib/agentTurnFailure'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
@@ -99,7 +99,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   const { conversations } = useChatStore('conversations')
   const { messages, loadingMessages, sendMessage, setFollowingTail } = useChatConversation(chatId, conversations)
   useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
-  const recent = messages.filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
+  const recent = visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')

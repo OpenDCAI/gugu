@@ -47,17 +47,29 @@ async function fixture() {
 test('phone session_message uploads original bytes and durably delivers scoped references; retries reuse the receipt', async () => {
   const fx = await fixture()
   try {
-    const args = { to: [`session:${fx.receiver.sessionId}`], text: 'complete original', files: [{ file_path: fx.artifact.file_path }] }
+    const work = { work_id: randomUUID(), status: 'completed' }
+    const args = { to: [`session:${fx.receiver.sessionId}`], text: 'complete original', files: [{ file_path: fx.artifact.file_path }], work_result: work }
     await fx.send.execute('call-one', args); await fx.send.execute('call-one', args)
     assert.equal(fx.requests.filter(([url]) => url.endsWith('/session-commit')).length, 1)
     assert.deepEqual(Buffer.from(await fx.requests.find(([url]) => url === 'https://objects.invalid/upload')[1].body.arrayBuffer()), fx.bytes)
     const commit = JSON.parse(fx.requests.find(([url]) => url.endsWith('/session-commit'))[1].body)
     assert.deepEqual(commit.recipient_user_ids, [fx.receiver.agentUserId])
     assert.equal(fx.delivered[0].attachments[0].attachment_id, commit.attachment_id)
+    assert.deepEqual(fx.delivered[0].work_result, work)
     assert.equal(JSON.stringify(fx.delivered).includes(fx.bytes.toString('base64')), false)
     fx.revoke()
     await assert.rejects(fx.send.execute('call-one', args), /permission revoked/)
     assert.equal(fx.delivered.length, 2)
+  } finally { await fx.close() }
+})
+
+test('the active phone session tool exposes and validates correlated results before delivery', async () => {
+  const fx = await fixture()
+  try {
+    assert.ok(fx.send.parameters.properties.work_result)
+    await assert.rejects(fx.send.execute('invalid-report', { to: [`session:${fx.receiver.sessionId}`], text: 'result', work_result: { work_id: randomUUID(), status: 'idle' } }))
+    assert.equal(fx.delivered.length, 0)
+    assert.equal(fx.requests.length, 0)
   } finally { await fx.close() }
 })
 

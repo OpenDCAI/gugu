@@ -212,7 +212,7 @@ it('does not expose another account when authentication changes', async () => {
   expect(JSON.parse(recovery.text).hookSpecificOutput.additionalContext).toBe(recoveryContext)
 }, 15000)
 
-it('retains the entire large index in a private readable artifact', async () => {
+it('retains a complete bounded index with explicit omissions in a private readable artifact', async () => {
   const f = await fixture()
   f.state.many = true
   const result = await f.hook()
@@ -222,7 +222,13 @@ it('retains the entire large index in a private readable artifact', async () => 
   const { details } = JSON.parse(context.split('\n').find(line => line.startsWith('{'))!)
   expect(details.startsWith(await realpath(f.root))).toBe(true)
   const complete = await readFile(details, 'utf8')
-  expect(complete).toContain('p-179')
+  expect(complete.length).toBeLessThanOrEqual(6000)
+  expect(complete).toContain('</gugu_resource_index>')
+  const rows = complete.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+  const projects = rows.find(row => row.source === 'projects')
+  expect(projects.read.tool).toBe('project_list')
+  expect(projects.omitted_items).toBeGreaterThan(0)
+  expect(projects.items.length).toBeLessThan(180)
   expect(complete).not.toContain('PRIVATE-BODY')
   expect((await stat(details)).mode & 0o777).toBe(0o600)
 }, 15000)

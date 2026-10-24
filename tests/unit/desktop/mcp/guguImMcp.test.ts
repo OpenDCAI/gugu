@@ -1870,7 +1870,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const h = harness()
     const client = await connect(h.deps)
     const r = await client.callTool({ name: 'message_send_file', arguments: { chat_id: 'c1', file_name: 'a b.png', file_path: fixtureFile('src.png', Buffer.from([1, 2, 3])), mime_type: 'image/png' } })
-    expect(text(r)).toMatch(/^file sent \(id=/)
+    expect(JSON.parse(text(r))).toMatchObject({ status: 'sent', file_name: 'a b.png', source_link: expect.stringMatching(/^gugu-chat:\/\/c1\//) })
     expect(h.calls.uploads[0][0]).toBe('oss')
     const row = h.calls.inserts[0][1] as Record<string, unknown>
     expect(row).toMatchObject({ content_type: 'attachment', chat_id: 'c1', sender_user_id: 'agent-1', file_item_id: `item:${String(h.calls.uploads[0][1])}` })
@@ -1888,7 +1888,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const args: Record<string, unknown> = { chat_id: 'c1', file_path: fixtureFile('chart.PNG', Buffer.from([1, 2, 3])) }
     if (mimeType) args.mime_type = mimeType
     const r = await client.callTool({ name: 'message_send_file', arguments: args })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     expect(h.calls.uploads[0][2]).toBe('image/png')
     const content = String((h.calls.inserts[0][1] as Record<string, unknown>).content)
     expect(content).toContain('[附件] chart.PNG (image/png)')
@@ -1910,7 +1910,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name: 'message_send_file',
       arguments: { chat_id: 'c1', file_path: src, mime_type: 'application/octet-stream' },
     })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     const sent = h.calls.uploads[0][3] as Buffer
     expect(Buffer.isBuffer(sent)).toBe(true)
     expect(sent.equals(payload)).toBe(true)
@@ -1929,7 +1929,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name: 'message_send_file',
       arguments: { chat_id: 'c1', file_path: src, mime_type: 'text/html' },
     })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     // 不给 file_name，就用盘上那个名字——用户看到的是中文原文
     const row = h.calls.inserts[0][1] as Record<string, unknown>
     expect(String(row.content)).toContain('[附件] 咕咕的资本叙事与竞品地图.html')
@@ -1996,7 +1996,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(h.commitBodies).toHaveLength(2)
     expect(h.commitBodies[1]).toEqual(h.commitBodies[0])
     expect(h.calls.inserts).toHaveLength(1)
-    expect(sent).toBe(`file sent (id=msg:${String(h.commitBodies[0]!.message_id)})`)
+    expect(JSON.parse(sent)).toMatchObject({ status: 'sent', message_id: `msg:${String(h.commitBodies[0]!.message_id)}`, source_link: `gugu-chat://c1/${String(h.commitBodies[0]!.message_id)}` })
     const refused = harness()
     refused.failCommit(new Error('the group only lets admins send files'))
     await expect(callTool('message_send_file', { chat_id: 'c1', file_path: fixtureFile('no.png', Buffer.from([1])) }, refused.deps)).rejects.toThrow(/only lets admins/)
@@ -2465,7 +2465,7 @@ describe('MCP 工具对外声明的入参 schema', () => {
       expect(h.calls.uploads).toHaveLength(0)
       expect(h.calls.inserts).toHaveLength(0)
       // 正对照:拒过一次即记为已读,重发通过。
-      expect(text(await client.callTool({ name: 'message_send_file', arguments: args }))).toMatch(/^file sent/)
+      expect(JSON.parse(text(await client.callTool({ name: 'message_send_file', arguments: args }))).status).toBe('sent')
       await client.close()
     })
     test('#3641 投递已送达当前版本(落盘记录)⇒ 第一次发言就放行;记录的是旧版本 ⇒ 照拒', async () => {
