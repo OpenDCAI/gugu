@@ -1,4 +1,4 @@
-import { globalStyle, keyframes, style } from '@vanilla-extract/css';
+import { keyframes, style } from '@vanilla-extract/css';
 import { vars } from '@session-ui/theme/core/contract/contract.css';
 import { tokenVars } from '@session-ui/theme/tokens.css';
 
@@ -63,43 +63,6 @@ export const pillPlainIconArea = style({
   inset: 0,
   width: '100%',
   height: '100%',
-});
-
-export const pillAgentIconArea = style({
-  position: 'relative',
-  display: 'inline-flex',
-  width: '0.875rem',
-  height: '0.875rem',
-  flexShrink: 0,
-  alignItems: 'center',
-  justifyContent: 'center',
-  verticalAlign: 'middle',
-});
-
-export const pillAgentIcon = style({
-  display: 'inline-flex',
-  width: '100%',
-  height: '100%',
-  alignItems: 'center',
-  justifyContent: 'center',
-  overflow: 'hidden',
-});
-
-globalStyle(`${pillAgentIcon} > img, ${pillAgentIcon} > svg`, {
-  width: '100%',
-  height: '100%',
-  objectFit: 'contain',
-});
-
-export const pillAgentFallback = style({
-  display: 'inline-flex',
-  width: '100%',
-  height: '100%',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: tokenVars.textSm,
-  fontWeight: 600,
-  lineHeight: 1,
 });
 
 export const pillRemoveBtn = style({

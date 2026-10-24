@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
+import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { installedExtensionsStore, type InstalledExtensionsList } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
 import { AuthContext } from '../../../../apps/desktop/src/store/auth'
@@ -59,7 +59,7 @@ beforeEach(() => {
   install([])
   sharedHere.packages = new Map()
   here.market = { success: true, data: [] }
-  groupSlotMemory.setOpened('group-1', null)
+  for (const item of [...groupSlotMemory.tabs('group-1')]) groupSlotMemory.close('group-1', item)
   vi.mocked(appsHere!.marketOffers).mockClear()
   vi.mocked(appsHere!.installFromMarket).mockReset()
   vi.mocked(appsHere!.installAttachment).mockReset()
@@ -82,7 +82,7 @@ async function openFile(request: number) {
     createElement(
       AuthContext.Provider,
       { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId: 'group-1', kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), fileToOpen: { chatId: 'group-1', itemId: 'item-1', request } }),
+      createElement(GroupAppSlot, { chatId: 'group-1', onClose: vi.fn(), asked: { chatId: 'group-1', itemId: 'item-1', request } }),
     ),
   )
 }

@@ -300,6 +300,15 @@ export async function groupFileOpener(args: { chatId: string; itemId: string; at
   }
 }
 
+/** API 14 `chatFile`: the file an App opened in this chat shows, as that file opened with it (made the first time) — main's answer too. */
+export async function appChatFile(args: { chatId: string; extensionId: string }): Promise<Result<AppOpenWithDetail>> {
+  try {
+    return { success: true, data: await files.appChatFile(args.chatId, appsHereNow().find((manifest) => manifest.id === args.extensionId)) }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
 /** 摩擦单 F51: the files of this group a tap opens with this App, newest first (`filesOpenedBy`, main's answer too). */
 export async function groupFilesOpenedBy(args: { chatId: string; extensionId: string }): Promise<Result<ReturnType<typeof filesOpenedBy>>> {
   try {

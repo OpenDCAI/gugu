@@ -3,6 +3,10 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/supabase', () => ({
+  dataClient: () => { throw new Error('Initial composer tests must not access the cloud'); },
+}));
 import {
   SESSIONPAGE_PLATFORM_CATALOG_CHANNEL,
   type PlatformModelCatalogResponse,

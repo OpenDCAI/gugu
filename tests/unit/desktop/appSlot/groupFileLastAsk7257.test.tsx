@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, type ComponentProps } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
+import { GroupAppSlot } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { appsHere } from '../../../../apps/desktop/src/components/appSlot/appsHere'
 import { APP_OPEN_WITH_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -43,7 +43,7 @@ const detailOf = (chatId: string, itemId: string) => ({
 })
 const slot = (props: Partial<ComponentProps<typeof GroupAppSlot>>) =>
   createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-    createElement(GroupAppSlot, { chatId: 'race', kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), ...props }))
+    createElement(GroupAppSlot, { chatId: 'race', onClose: vi.fn(), ...props }))
 const unopened = () => harness.container.querySelector('[data-testid="group-app-slot-unopened"]')?.textContent ?? null
 /** A task boundary: every microtask the answer let go has run (not a wall-clock wait). */
 const settled = () => new Promise<void>((done) => setTimeout(done, 0))
@@ -59,7 +59,7 @@ function holdAnswers() {
   return gates
 }
 async function clickPill(chatId: string, itemId: string, gates: Map<string, unknown>) {
-  await harness.render(slot({ chatId, fileToOpen: { chatId, itemId, request: ++request, at: { slide: '1' } } }))
+  await harness.render(slot({ chatId, asked: { chatId, itemId, request: ++request, at: { slide: '1' } } }))
   await until(`${itemId} is asked of the host`, () => gates.has(itemId))
 }
 async function letGo(gates: Map<string, (fail?: string) => void>, itemId: string, fail?: string) {
@@ -105,7 +105,7 @@ describe('two pills clicked one after the other: the panel ends on the second (#
   it('a pill, then a file clicked in an App\'s list: the App\'s file, whatever the pill\'s answer does later', async () => {
     const gates = holdAnswers()
     await clickPill('race-4', 'A', gates)
-    await harness.render(slot({ chatId: 'race-4', fileToOpen: { chatId: 'race-4', itemId: 'Y', request: ++request, opener: detailOf('race-4', 'Y') as never } }))
+    await harness.render(slot({ chatId: 'race-4', asked: { chatId: 'race-4', itemId: 'Y', request: ++request, opener: detailOf('race-4', 'Y') as never } }))
     expect(groupSlotMemory.opened('race-4')?.itemId).toBe('Y')
     expect(vi.mocked(appsHere!.groupFileOpener).mock.calls.some(([args]) => (args as { itemId: string }).itemId === 'Y'), 'answered already: not asked of the host again').toBe(false)
     await letGo(gates, 'A')
