@@ -14,6 +14,8 @@ export interface OpenedWith {
   message?: MessageItem
   /** Present only for a file opened from a message, whose caller owns the way back. */
   restore?: () => void
+  /** The App was opened while the chat panel was closed: leaving its root returns to the chat. */
+  fromChat?: boolean
   /** No App claims it: the host's file preview. */
   kind: string | null
   file?: ChatPeekFile
@@ -124,7 +126,8 @@ export const groupSlotMemory = {
     let open = entry ? [...entry.open] : []
     if (opened) {
       const previous = open.find((item) => sameItem(item, opened))
-      opened.trail = opened.restore ? [] : previous ? previous.trail ?? [] : opened.trail ?? (shown ? [...(shown.trail ?? []), shown] : [])
+      opened.fromChat ??= previous?.fromChat
+      opened.trail = opened.restore || opened.fromChat ? [] : previous ? previous.trail ?? [] : opened.trail ?? (shown ? [...(shown.trail ?? []), shown] : [])
     }
     if (!open.some((item) => sameItem(item, shown))) open.push(shown)
     open = open.some((item) => sameItem(item, opened)) ? open.map((item) => (sameItem(item, opened) ? opened : item)) : [...open, opened]
@@ -180,7 +183,7 @@ export const groupSlotMemory = {
     remembered.set(chatId, rest.length > 0 ? { ...entry, open: rest, active } : { ...entry, form: 'closed', open: [], active: null })
     extensionSurfaceStore.forget(null, groupPageSlot(chatId, item))
     changed()
-    if (item?.restore || rest.length === 0) onClosePanel?.()
+    if (item?.restore || item?.fromChat || rest.length === 0) onClosePanel?.()
     item?.restore?.()
   },
   subscribe(listener: () => void): () => void {

@@ -3,7 +3,7 @@ import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupSlotMemory } from './groupSlotMemory'
 
 /** The App a chat's panel is asked to open (`GroupAppSlot`): its own page, or else its files in this chat. */
-export type AppToOpen = { chatId: string; extensionId: string; request: number }
+export type AppToOpen = { chatId: string; extensionId: string; request: number; fromChat?: boolean }
 
 /**
  * 「在本群打开」(app-redesign §5): the one way an App is opened from a chat — a card's 「打开」, and the chat header's ⋯
@@ -23,8 +23,9 @@ export function useOpenApp(chatId: string | null, openPanel: () => void): AppToO
     const takeAsked = () => {
       const extensionId = groupSlotMemory.takeApp(chatId)
       if (!extensionId) return
+      const fromChat = groupSlotMemory.form(chatId) === 'closed'
       openPanel()
-      setAppToOpen({ chatId, extensionId, request: Date.now() })
+      setAppToOpen({ chatId, extensionId, request: Date.now(), ...(fromChat ? { fromChat } : {}) })
     }
     takeAsked()
     window.addEventListener(UI_EVENTS.chatAsked, takeAsked)

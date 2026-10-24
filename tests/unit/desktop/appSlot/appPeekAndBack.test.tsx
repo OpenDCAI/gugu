@@ -61,20 +61,33 @@ afterEach(() => {
 })
 
 describe('G2: back from a file opened by an App goes back to that App', () => {
-  it('the App, then a file it opened, then back: the App again — and back once more: the folder', async () => {
-    const chatId = 'back-1'
+  it.each([false, true])('an App and its file return through their source (fromChat=%s)', async (fromChat) => {
+    const chatId = `back-1-${fromChat}`
+    const onClose = vi.fn()
     const slot = (props: Record<string, unknown>) =>
       createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-        createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), ...props }))
-    await harness.render(slot({ appToOpen: { chatId, extensionId: 'kanban', request: 9101 } }))
+        createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose, ...props }))
+    await harness.render(slot({ appToOpen: { chatId, extensionId: 'kanban', request: fromChat ? 9111 : 9101, fromChat } }))
     expect(groupSlotMemory.opened(chatId)?.kind).toBe('kanban.board')
     const opener = { chatId, itemId: 'deck', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'one', candidate: pdf } }
-    await harness.render(slot({ fileToOpen: { chatId, itemId: 'deck', request: 9102, opener } }))
+    await harness.render(slot({ fileToOpen: { chatId, itemId: 'deck', request: fromChat ? 9114 : 9102, opener } }))
     expect(groupSlotMemory.opened(chatId)).toMatchObject({ kind: 'pdf.viewer', itemId: 'deck' })
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)?.kind, '对照:父提交回到文件夹(null)').toBe('kanban.board')
+    expect(onClose).not.toHaveBeenCalled()
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)).toBeNull()
+    expect(onClose).toHaveBeenCalledTimes(fromChat ? 1 : 0)
+  })
+
+  it('opening an App from an existing object returns to that object', async () => {
+    const chatId = 'app-from-object'
+    const previous = { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf', opening: 9112 }
+    groupSlotMemory.setOpened(chatId, previous)
+    await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
+      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), appToOpen: { chatId, extensionId: 'kanban', request: 9113 } })))
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
+    expect(groupSlotMemory.opened(chatId)).toBe(previous)
   })
 })
 
