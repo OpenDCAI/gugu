@@ -2,7 +2,7 @@
 import { act, useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
-import { chat, createNode, createReactHarness, message as messageItem, waitForCondition } from '../../../support/testHarness'
+import { chat, createNode, createReactHarness, deferred, message as messageItem, waitForCondition } from '../../../support/testHarness'
 const {
   authUser,
   setUserMock,
@@ -362,6 +362,63 @@ describe('#6530 opening a badged chat lands on the latest message (WeChat)', () 
 })
 // 下面这些用例的定位路径现在由「↑ N 条新消息」触发(主线)或列表直接触发(话题流未读)。
 describe('#4258 jumping to the unread locator', () => {
+  it('consumes the entry as soon as presentation confirms, before the read RPC settles', async () => {
+    serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
+    serverMainReadSeq = 9
+    await renderProvider()
+    await openBadgedChat()
+    const read = deferred()
+    markStreamReadMock.mockImplementationOnce(() => read.promise)
+    let jump!: Promise<void>, finished = false
+    await act(async () => { jump = latestStore!.jumpToUnreadEntry(); void jump.then(() => { finished = true }) })
+    await waitForCondition(() => pendingReveals.length === 1, 'unread presenter was not requested')
+    await act(async () => { pendingReveals.shift()!.confirm('m10') })
+    expect(markStreamReadMock).toHaveBeenCalledOnce()
+    expect(finished).toBe(false)
+    expect(latestStore!.unreadEntry).toBeNull()
+    await act(async () => { read.resolve(undefined); await jump })
+  })
+
+  it('keeps the entry available when presentation fails', async () => {
+    serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
+    serverMainReadSeq = 9
+    await renderProvider()
+    await openBadgedChat()
+    const entry = latestStore!.unreadEntry
+    let jump!: Promise<void>
+    await act(async () => { jump = latestStore!.jumpToUnreadEntry(); void jump.catch(() => {}) })
+    await waitForCondition(() => pendingReveals.length === 1, 'unread presenter was not requested')
+    await act(async () => { pendingReveals.shift()!.reject(new Error('Target was not shown')) })
+    await expect(jump).rejects.toThrow('Target was not shown')
+    expect(latestStore!.unreadEntry).toBe(entry)
+    expect(markStreamReadMock).not.toHaveBeenCalled()
+  })
+
+  it('does not consume a newer captured entry when an earlier presenter confirms', async () => {
+    serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
+    serverMainReadSeq = 9
+    chatServiceMock.markRead.mockImplementation(async (_chatId: string, seq: number) => {
+      if (seq > serverMainReadSeq) readStateVersion += 1
+      serverMainReadSeq = Math.max(serverMainReadSeq, seq)
+    })
+    await renderProvider()
+    await openBadgedChat()
+    let jump!: Promise<void>
+    await act(async () => { jump = latestStore!.jumpToUnreadEntry() })
+    await waitForCondition(() => pendingReveals.length === 1, 'unread presenter was not requested')
+    await act(async () => { latestStore!.setFollowingTail(false) })
+    expect(serverMainReadSeq).toBe(11)
+    serverRows = [...serverRows, peerRow(12)]
+    await act(async () => { await latestStore!.refreshChats() })
+    expect(serverMainReadSeq).toBe(11)
+    expect(latestStore!.chats[0]?.unread_locator?.message_id).toBe('m12')
+    await act(async () => { await latestStore!.openUnreadChat(CHAT_ID, false) })
+    const entry = latestStore!.unreadEntry
+    expect(entry?.locator.message_id).toBe('m12')
+    await act(async () => { pendingReveals.shift()!.confirm('m10'); await jump })
+    expect(latestStore!.unreadEntry).toBe(entry)
+  })
+
   it('keeps two same-chat viewport requests current until each presenter confirms', async () => {
     serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
     serverMainReadSeq = 9
