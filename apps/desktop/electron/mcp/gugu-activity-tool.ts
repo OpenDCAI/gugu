@@ -6,7 +6,7 @@ import { registerSessionpageTools, type SessionDispatcher, type SessionpageToolD
 const device_id = z.string().min(1).describe('device:<id> from session_devices; omit for this machine.').optional();
 export const ACTIVITY_TOOL_DEFS: readonly SessionpageToolDef[] = [
   { name: 'activity_list', action: 'activity_list',
-    description: 'Recent work activity by time, session or project. Reads persistent temporal metadata only, never prompts, replies or transcripts. Includes coverage and gaps; an empty result is not proof of no work. Agent done means a turn ended, not task acceptance. Unenrolled external CLI work is not covered. Query other devices explicitly.',
+    description: 'Use for what agents did and when: chat claims are not executor records. Metadata only. Returns collection gaps: say no record, not no work. Turn done is not acceptance; external CLI must enroll. Query each device; activity_context reads sources.',
     schema: z.object({ device_id, since: z.string().datetime({ offset: true }), until: z.string().datetime({ offset: true }),
       session_id: z.string().min(1).optional(), project_id: z.string().min(1).optional(),
       limit: z.number().int().min(1).max(200).optional(), cursor: z.string().optional() }).strict() },
