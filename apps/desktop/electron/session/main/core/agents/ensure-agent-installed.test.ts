@@ -23,6 +23,7 @@ describe('ensureAgentInstalled(#6264 第 6 条:没装的当场装上)', () => {
     const d = deps({ status: vi.fn(async () => 'available') });
     await createEnsureAgentInstalled(d)('codex');
     expect(d.probe).toHaveBeenCalledOnce();
+    expect(d.probe).toHaveBeenCalledWith('codex');
     expect(d.install).not.toHaveBeenCalled();
   });
 

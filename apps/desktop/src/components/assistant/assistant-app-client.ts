@@ -22,11 +22,11 @@ type PanelAPI = {
 };
 
 /** Native React App surface, using the Extension API's member table and wire, without a second SDK. */
-export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = cachedDevicesAccount()) {
+export function assistantAppClient(machine: AssistantAppMachine | null | undefined, expectedOwnerId = cachedDevicesAccount(), onHomeDevice = false) {
   const hub = hostEventHub();
   const api = hostMembers('page', name => ['listAgents', 'messageAgent', 'callProgram', 'onProgramNotification'].includes(name),
     async (verb, args) => {
-      const host = libraryHost(machine);
+      const host = onHomeDevice ? machine?.rpc.app : libraryHost(machine);
       if (!host) throw new Error('Assistant App host is unavailable');
       return host.assistantAppCall(verb, args, expectedOwnerId);
     }, hub.on) as unknown as PanelAPI;

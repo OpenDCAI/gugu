@@ -4,6 +4,7 @@ import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
 import { readCurrentActivitySource } from './session-activity-source';
+import { receiveAssistantWorkReport, workReportSchema, type WorkReport } from '../../../../sessionpage/assistant-work';
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
 import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } from '../app/user-library';
 import { randomUUID } from 'node:crypto';
@@ -164,6 +165,7 @@ export type SessionAction =
   | {
       action: 'message';
       attachments?: SessionAttachmentRef[];
+      work_result?: WorkReport;
       /** Bare conversation ids, already decoded from `session:` typed entries at the host boundary. */
       session_ids: string[];
       text: string;
@@ -1711,6 +1713,7 @@ function checkedMessage(
   if (action.reply_to_message_id !== undefined && !SESSION_MESSAGE_REPLY_TO.test(action.reply_to_message_id)) {
     throw new Error(`reply_to_message_id must be a msg:<uuid> as a delivery's msg gives it (got ${JSON.stringify(action.reply_to_message_id).slice(0, 80)})`);
   }
+  if (action.work_result !== undefined) workReportSchema.parse(action.work_result);
   const targets = [...new Set(action.session_ids)].map((sessionId) =>
     assertMessageableTarget(rows, callerSessionId, resolveSessionRow(rows, sessionId)),
   );
@@ -1737,7 +1740,9 @@ async function sendSessionMessage(
 ): Promise<{ recipients: SessionDirectRecipientResult[] }> {
   signal?.throwIfAborted();
   if (!action.text.trim()) throw new Error('message text is required');
-  const text = withSessionAttachments(withActivitySource(action.text.trim(), action.source_link), action.attachments);
+  const report = action.work_result ? workReportSchema.parse(action.work_result) : null;
+  const text = withSessionAttachments(withActivitySource(action.text.trim(), action.source_link), action.attachments)
+    + (report ? `\n<gugu_work_result>\n${JSON.stringify(report)}\n</gugu_work_result>` : '');
   if (!text) throw new Error('message text is required');
   if (!Array.isArray(action.session_ids) || action.session_ids.length === 0) {
     throw new Error('message requires at least one session target');
@@ -1779,6 +1784,10 @@ async function sendSessionMessage(
                 : { code: 'SESSION_DIRECT_DELIVERY_FAILED', message: `delivery ended in status ${result.status}` },
             }),
       });
+      if (result.status === 'delivered' && report && keyScope.startsWith('session:')) {
+        try { receiveAssistantWorkReport(target.id, keyScope.slice('session:'.length), report, result.id); }
+        catch (error) { log.error('assistant result received but recovery metadata could not be updated', { sessionId: target.id, error: String(error) }); }
+      }
     } catch (error) {
       if (signal?.aborted) throw error;
       // 本工具的合同是「每个收件人各自有一句判决」。所以**一旦有人已经收到,这个调用就不许再抛** ——

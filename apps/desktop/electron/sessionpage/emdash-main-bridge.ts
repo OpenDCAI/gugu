@@ -7,6 +7,7 @@
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export {
   bootEmdashModule,
+  readCurrentActivityInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
