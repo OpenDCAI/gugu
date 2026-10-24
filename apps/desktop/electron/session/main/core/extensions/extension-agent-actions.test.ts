@@ -1293,7 +1293,11 @@ describe('app_create { template } with files', () => {
 // 而主人那台正是它装的那台。装完的 next 说清谁已经有了、谁还没有、下一步是哪一句。
 describe('app_install: what comes next', () => {
   const inspectedOf = (tabs: unknown[]) => ({
-    manifest: { id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', contributes: { tabs } },
+    manifest: {
+      apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
+      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', contributes: { tabs },
+    },
     manifestDigest: 'digest',
   });
   const install = (tabs: unknown[], checkSurface?: () => Promise<never>, chatId?: string) => {
