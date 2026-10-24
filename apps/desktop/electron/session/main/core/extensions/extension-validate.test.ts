@@ -30,6 +30,7 @@ function bundle(name: string, patch: Record<string, unknown> = {}, files: Record
     name: 'Demo',
     version: '1.0.0',
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
     ...patch,
@@ -70,6 +71,7 @@ describe('validateExtensionBundle', () => {
     mkdirSync(escaping);
     writeFileSync(path.join(escaping, 'manifest.json'), JSON.stringify({
       id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      platforms: ['desktop'],
       entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
     }));
     symlinkSync(path.join(workDir, 'secret.txt'), path.join(escaping, 'index.html'));

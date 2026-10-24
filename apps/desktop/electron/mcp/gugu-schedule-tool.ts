@@ -16,7 +16,7 @@ import {
 export const SCHEDULE_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'schedule_create',
-    description: 'Have 咕咕 bring a prompt back to this session later — once (at) or repeating (cron) — even if this process stopped or the machine slept. Never use your harness\'s own timers (CronCreate, ScheduleWakeup, sleep loops) for this: they die with the process. The person sees it in 已安排; check the returned next_run_at.',
+    description: 'Persist a prompt for this session: once (at) or recurring (cron), surviving process/device shutdown. Use this instead of harness timers or sleep loops. Shown in 已安排; verify next_run_at.',
     schema: z.object({
       prompt: z.string().min(1).describe('A standalone instruction to your future self, saying where the result goes.'),
       at: z.string().min(1).describe('ISO 8601; at or cron, not both.').optional(),

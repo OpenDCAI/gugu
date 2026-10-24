@@ -65,6 +65,46 @@ async function render(props: Record<string, unknown>, act_?: (document: Document
 }
 
 describe('App 的产品页 (#7059)', () => {
+  it('shows the platforms declared by the installed version rather than the market version', async () => {
+    const market = { ...(pomodoro as object), platforms: ['desktop', 'phone'] };
+    const installed = { ...(pomodoro as object), platforms: ['desktop'] };
+    await render({ subject: { manifest: market, installed, cloud: null } }, async (document) => {
+      const row = [...document.querySelectorAll('dt')].find((label) => label.textContent === 'extensions.infoPlatforms')?.parentElement;
+      expect(row?.querySelector('dd')?.textContent).toBe('extensions.platform.desktop');
+    });
+  });
+
+  it('does not invent platform metadata for an installed older App', async () => {
+    const market = { ...(pomodoro as object), platforms: ['desktop', 'phone'] };
+    expect((await render({ subject: { manifest: market, installed: pomodoro, cloud: null } })).text).not.toContain('extensions.infoPlatforms');
+    const uninstalled = await render({ subject: { manifest: market, installed: undefined, cloud: null } });
+    expect(uninstalled.text).toContain('extensions.platform.desktop and extensions.platform.phone');
+  });
+
+  it('explains unavailable agent features only when the phone reports them', async () => {
+    expect((await render({ phoneAgentFeaturesUnavailable: true })).text).toContain('extensions.phoneAgentsUnavailable');
+    expect((await render({})).text).not.toContain('extensions.phoneAgentsUnavailable');
+  });
+
+  it('does not offer to install a history version unavailable on this device', async () => {
+    const installed = vi.fn();
+    const entry = { publishedAt: '2026-10-24T00:00:00Z', releaseNotes: 'A release', compat: null, yanked: null };
+    const api = { ...readmeOf(null), marketHistory: async () => ({ success: true, data: [
+      { ...entry, version: '3.0.0', platformRefusal: 'platforms: this App does not support phone' },
+      { ...entry, version: '2.0.0' },
+    ] }) };
+    await render({ api, onInstallVersion: installed }, async (document) => {
+      const toggle = document.querySelector('[data-testid="app-product-news"] button[aria-expanded]')!;
+      await act(async () => void toggle.dispatchEvent(new document.defaultView!.MouseEvent('click', { bubbles: true })));
+      const refused = document.querySelector('[data-testid="extension-history-pomodoro-log-3.0.0"] .xp-history-action')!;
+      expect(refused.textContent).toBe('extensions.platformVersionUnavailable');
+      expect(refused.querySelector('button')).toBeNull();
+      const allowed = document.querySelector('[data-testid="extension-history-pomodoro-log-2.0.0"] .xp-history-action button')!;
+      await act(async () => void allowed.dispatchEvent(new document.defaultView!.MouseEvent('click', { bubbles: true })));
+      expect(installed).toHaveBeenCalledWith({ extensionId: 'pomodoro-log', version: '2.0.0' });
+    });
+  });
+
   it('「给 agent 工具」那句带上要跑的命令,与同意框同一句', async () => {
     expect((await render({})).text).toContain('node mcp/server.mjs');
   });

@@ -38,3 +38,17 @@ export function turnFailureReason(msg: NoticeRow): AgentFailureReason | null {
   const notice = parseSystemNotice(msg)
   return notice?.kind === 'turn-failure' ? notice.reason : null
 }
+
+/** A later confirmed reply in the same agent stream ends an earlier pending-delivery status.
+ * Keep durable history unchanged; other agents, threads and terminal failures are independent. */
+export function visibleDeliveryMessages<T extends MessageItem>(messages: readonly T[], evidence: readonly MessageItem[] = messages): T[] {
+  const latest = new Map<string, number>()
+  const stream = (msg: MessageItem) => JSON.stringify([msg.chat_id, msg.thread_root_id ?? null, msg.sender_user_id, msg.is_whisper ?? false, [...(msg.to_user_ids ?? [])].sort()])
+  for (const msg of evidence) {
+    if (msg.sender_user_id && msg.seq > 0 && !msg.retracted_at && (msg.content_type === 'text' || msg.content_type === 'attachment')) {
+      const key = stream(msg)
+      latest.set(key, Math.max(latest.get(key) ?? 0, msg.seq))
+    }
+  }
+  return messages.filter(msg => turnFailureReason(msg) !== 'notAdmitted' || (latest.get(stream(msg)) ?? 0) <= msg.seq)
+}

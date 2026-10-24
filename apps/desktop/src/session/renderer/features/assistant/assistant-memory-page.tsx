@@ -18,6 +18,7 @@ import { useVoiceNotes } from './voice-notes/voice-notes-data';
 import { VOICE_NOTE_SUB, VoiceNotesPage } from './voice-notes/voice-notes-pages';
 import { AssistantLibraryCard, AssistantLibraryVolume } from '@/components/assistant/AssistantLibraryVolume';
 import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { AssistantPendingWork } from './assistant-pending-work';
 
 function useTimeFormat() {
   const { i18n } = useTranslation();
@@ -66,6 +67,7 @@ function MemoryHome({ context }: { context: AssistantContext }) {
         error={context.machineError ?? notes.error}
         onRetry={() => (context.machineError ? context.retryMachine() : void notes.refetch())}
       >
+        <AssistantPendingWork context={context} />
         <AssistantSection title={t('library.longTerm')} testId="assistant-memory-about">
           {aboutYou.length === 0 ? (
             <div className="flex flex-col items-start gap-3">
