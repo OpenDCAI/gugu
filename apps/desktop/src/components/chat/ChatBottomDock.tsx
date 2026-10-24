@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
 
 /** 底部那一摞的实测高度,挂在它所在的那一栏上;消息流末尾(MessageList)和空态占位都按它让位。 */
 const CHAT_DOCK_HEIGHT_VAR = '--chat-dock-h'
 
 /**
- * A static background gradient covers messages below the floating dock. The solid
- * composer card stays above it; scrolling needs no mask or backdrop sampling.
+ * The desktop composer uses the same slot frame as ACP tasks. Only its absolute
+ * anchoring and message-list height reservation belong to the IM host.
  *
  * 浮起来以后它不再占消息流的高度:它把自己的高度写进所在那一栏的 --chat-dock-h,消息流在最后一条后面让出同样高的一格,
  * 滚到底时最后一条落在运行条上面;它一变高(运行条出现、输入框长高),那一格跟着变,消息流在底部就照常贴底。
@@ -27,9 +28,8 @@ export function ChatBottomDock({ floating, reserve, children }: { floating: bool
   return (
     <>
       {reserve && <div aria-hidden className="h-[var(--chat-dock-h,0px)] shrink-0" />}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-[var(--chat-dock-h,0px)] bg-[linear-gradient(to_bottom,transparent,var(--bg-primary)_32px)]" />
-      <div ref={ref} data-chat-bottom-dock="" className="absolute inset-x-0 bottom-0 z-[2]">
-        {children}
+      <div ref={ref} data-chat-bottom-dock="" className={composerSlotClass} style={{ position: 'absolute' }}>
+        <div className={`${composerSlotInnerClass} ${composerSlotInnerBottomClass}`}>{children}</div>
       </div>
     </>
   )
