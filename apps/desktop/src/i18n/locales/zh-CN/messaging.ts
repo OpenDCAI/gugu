@@ -618,7 +618,6 @@ export default {
     "noGroupApps": "本设备暂无可用的 App。",
     "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
-    "history": "历史记录",
     "memberList": "成员列表",
     "more": "更多操作",
     "searchChat": "搜索对话",

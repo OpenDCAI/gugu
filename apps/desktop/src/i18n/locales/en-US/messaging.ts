@@ -618,7 +618,6 @@ export default {
     "noGroupApps": "No Apps available on this device.",
     "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
-    "history": "History",
     "memberList": "Members",
     "more": "More actions",
     "searchChat": "Search chat",

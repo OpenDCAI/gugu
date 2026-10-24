@@ -69,9 +69,9 @@ afterEach(() => {
 async function header(chatId = 'g1', userId = 'user-1', mobile = true) {
   await renderWithAppProviders(harness, createNode(ChatHeaderActions, {
     isGroupChat: true, isRoomChat: true, mobile,
-    searchMode: false, workspacePanelOpen: false, memberListOpen: false, historyPanelOpen: false, showHeaderMenu: true,
+    searchMode: false, workspacePanelOpen: false, memberListOpen: false, showHeaderMenu: true,
     moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenWorkspacePanel: vi.fn(), onCloseWorkspacePanel: vi.fn(),
-    onOpenSettingsDrawer: vi.fn(), onOpenMemberList: vi.fn(), onCloseRightSurfaces: vi.fn(), onOpenHistoryPanel: vi.fn(), onCloseHistoryPanel: vi.fn(),
+    onOpenSettingsDrawer: vi.fn(), onOpenMemberList: vi.fn(), onCloseRightSurfaces: vi.fn(),
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(), onOpenAnnouncement: vi.fn(),
   }), { auth: { id: userId }, chat: { activeChatId: chatId, chats: [{ id: chatId, kind: 'group' }] as never } })
 }
@@ -82,6 +82,22 @@ async function picker() {
 }
 
 describe('personal group App shortcuts', () => {
+  it.each([false, true])('keeps group App access without History (mobile=%s)', async (mobile) => {
+    row('user-1', 'g1', ['board'])
+    await header('g1', 'user-1', mobile)
+    if (mobile) {
+      const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
+      expect(items).toContain('群文件夹')
+      expect(items).toContain('群 Apps')
+      expect(items).not.toContain('历史记录')
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="chat-header-menu-app"] .gg-menu-item-label')?.textContent).toBe('board'))
+    } else {
+      expect(document.querySelector('button[aria-label="群文件夹"]')).not.toBeNull()
+      expect(document.querySelector('[data-testid="chat-header-apps-button"]')).not.toBeNull()
+    }
+    expect(document.querySelector('button[aria-label="历史记录"]')).toBeNull()
+  })
+
   it('persists each user and group separately and retains unrelated preferences', async () => {
     io.rows.set('u1/chat:g1', { scope: 'chat:g1', config: { other: true }, updated_at: 'now' })
     expect(await readChatAppPins('u1', 'g1')).toEqual([])
