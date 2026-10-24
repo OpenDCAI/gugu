@@ -8,7 +8,7 @@ import { useMobileShell } from "@/hooks/useMobileShell";
 import { createLocalSessionMentionProvider, useSessionAgentCreationTools } from "@/session/renderer/lib/chat/local-session-mention-provider";
 import { useSessionMentionDrop } from "@/session/renderer/lib/chat/use-session-mention-drop";
 import { translateSessionMessage } from "@/session/renderer/localization/locale-store";
-import { File } from "./file";
+import { File as FilePart } from "./file";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
 import { Image } from "./image";
 import { MarkdownText } from "./markdown-text";
@@ -47,7 +47,7 @@ import {
   type ImageMessagePartComponent,
   type ToolCallMessagePartComponent,
   useAuiState,
-  useComposerRuntime,
+  useAui,
 } from "@assistant-ui/react";
 import {
   ArrowDown as ArrowDownIcon,
@@ -372,8 +372,8 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   const { resolvedLocale } = useLocale();
   const { theme } = useTheme();
   const mobile = useMobileShell();
-  const composer = useComposerRuntime();
-  const { text, attachments, isEmpty } = useAuiState((s) => s.composer);
+  const composer = useAui().composer;
+  const { text, attachments, isEmpty, canSend } = useAuiState((s) => s.composer);
   const { isRunning, isDisabled, capabilities } = useAuiState((s) => s.thread);
   const hostStop = useComposerStop();
   const placeholder = useComposerPlaceholder() ?? c.placeholder;
@@ -416,13 +416,13 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
         <input ref={picker} type="file" multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
         <ChatComposer editorApiRef={editor} mobile={mobile} placeholder={placeholder}
           editorOptions={{ enterBehavior: submitOnEnter ? 'submit' : 'newline', clearOnSubmit: false }}
-          disabled={isDisabled} canSubmit={!sendDisabled && !isRunning && !isEmpty && attachments.every((attachment) => attachment.status.type !== 'running' && attachment.status.type !== 'incomplete')}
+          disabled={isDisabled} canSubmit={!sendDisabled && canSend && (!isRunning || capabilities.queue)}
           isWorking={!!hostStop && isEmpty} stopDisabled={hostStop?.stopping}
           onStop={hostStop?.onStop} onInputChange={(value) => composer.setText(value)} onSubmit={() => composer.send()}
           onAttach={capabilities.attachments ? () => picker.current?.click() : undefined}
           onFilesDropped={capabilities.attachments ? addFiles : undefined} onImageFilesDropped={capabilities.attachments ? addFiles : undefined}
-          attachments={chips} onAttachmentsChange={(next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.removeAttachment(attachment.id); }}
-          onRetryAttachment={(id) => { const file = attachments.find((attachment) => attachment.id === id)?.file; if (file) void composer.removeAttachment(id).then(() => composer.addAttachment(file)); }}
+          attachments={chips} onAttachmentsChange={(next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove(); }}
+          onRetryAttachment={(id) => { const file = attachments.find((attachment) => attachment.id === id)?.file; if (file) void composer.attachment({ id }).remove().then(() => composer.addAttachment(file)); }}
           toolbarExtra={<ComposerExtras />} mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon}
           dataDropTypes={dataDropTypes} onDataDropped={onDataDropped} />
       </MessageProvider>
@@ -518,7 +518,7 @@ export const AssistantMessage: FC = () => {
               case "file":
                 return (
                   <div data-slot="aui_assistant-message-file" className="py-1">
-                    <File {...part} />
+                    <FilePart {...part} />
                   </div>
                 );
               case "image":
@@ -603,7 +603,7 @@ const AssistantActionBar: FC = () => {
 
 const UserFilePart: FileMessagePartComponent = (part) => (
   <div data-slot="aui_user-message-file" className="py-1">
-    <File {...part} />
+    <FilePart {...part} />
   </div>
 );
 
