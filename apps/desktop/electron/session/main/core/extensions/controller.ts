@@ -10,9 +10,6 @@ import {
 import {
   chatMembersChanged,
   bindExtensionSurface,
-  bindAppModalSurface,
-  dismissAppModal,
-  focusAppModal,
   retargetExtensionSurface,
   notifyGroupWorkspaceChanged,
   notifyInstalledAppsChanged,
@@ -245,18 +242,6 @@ export const extensionsController = createRPCController({
    * from the webContents' own session and refuses a mismatch, so a wrong binding
    * can never hand one extension another's grants.
    */
-  bindModal: async (args: { id: string; webContentsId: number }) => {
-    await bindAppModalSurface(args);
-    return { success: true };
-  },
-  dismissModal: async (args: { id: string; error?: string }) => {
-    await dismissAppModal(args);
-    return { success: true };
-  },
-  focusModal: async (args: { id: string; edge: 'first' | 'last' }) => {
-    focusAppModal(args);
-    return { success: true };
-  },
   bindSurface: async (args: {
     webContentsId: number;
     extensionId: string;

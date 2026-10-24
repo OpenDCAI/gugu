@@ -56,7 +56,7 @@ const REMOTE_ALLOWED_APP = new Set([
   'app.readUserLibraryEntry',
   'app.writeUserLibraryEntry',
 ]);
-const REMOTE_DENIED_EXTENSIONS = /^extensions\.(bindSurface|bindModal|dismissModal|focusModal|retargetSurface|invokeCommand|reportLayout|setAppState|programNotifiedElsewhere)$/;
+const REMOTE_DENIED_EXTENSIONS = /^extensions\.(bindSurface|retargetSurface|invokeCommand|reportLayout|setAppState|programNotifiedElsewhere)$/;
 /** 屏上有哪些会话:那台桌面的屏,❌ 盖掉这台机器自己报的(闲置回收读它,见 core/sessions/sessions-on-screen.ts)。 */
 const REMOTE_DENIED_CHANNELS = new Set(['sessions.reportSessionsOnScreen']);
 

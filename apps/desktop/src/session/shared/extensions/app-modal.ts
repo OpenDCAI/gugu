@@ -19,8 +19,14 @@ export interface AppModalPage {
   size: AppModalOptions['size'];
   entryUrl: string;
   partition: string;
-  openerId: number;
 }
+
+/** Shell replies over the existing App bridge; never exposed on window.gugu. */
+export type AppModalHostAction = { id: string } & (
+  | { type: 'bind'; webContentsId: number }
+  | { type: 'dismiss'; error?: string }
+  | { type: 'focus'; edge: AppModalFocus }
+);
 
 export interface AppModalSession<T> {
   id: string;

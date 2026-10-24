@@ -4,7 +4,7 @@ import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type W
 import { extensionIdForSession } from '@main/core/extensions/extension-session';
 import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
-import { AppModalSessions, type AppModalFocus } from '@shared/extensions/app-modal';
+import { AppModalSessions } from '@shared/extensions/app-modal';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
 import type { LinkPlace } from '@main/core/extensions/extension-links';
@@ -152,14 +152,27 @@ export async function bindAppModalSurface(input: { id: string; webContentsId: nu
   }
 }
 
-export function dismissAppModal(input: { id: string; error?: string }): Promise<void> {
-  return appModals.close(input.id, null, input.error);
-}
-
-export function focusAppModal(input: { id: string; edge: AppModalFocus }): void {
-  const modal = appModals.get(input.id);
-  if (input.edge !== 'first' && input.edge !== 'last') throw new Error('Unknown modal focus edge');
-  if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: input.edge });
+/** The shell uses the same request/reply channel as its guests, restricted to the recorded owning window. */
+async function answerModalHost(senderId: number, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
+  try {
+    const modal = appModals.get(String(args.id ?? ''));
+    if (senderId !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
+    switch (args.type) {
+      case 'bind':
+        if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
+        await bindAppModalSurface({ id: modal.id, webContentsId: args.webContentsId });
+        break;
+      case 'dismiss':
+        await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
+        break;
+      case 'focus':
+        if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
+        if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
+        break;
+      default: throw new Error('Unknown modal host action');
+    }
+    return { ok: true, value: undefined };
+  } catch (error) { return failure('host', 'modalHost', error); }
 }
 const observedContents = new WeakSet<WebContents>();
 
@@ -1506,7 +1519,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         await deliver(source, { kind: 'openAppModal', page: {
           id: modal.id, extensionId, appName: installed.manifest.name,
           title: modal.options.title, size: modal.options.size,
-          partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry), openerId: caller.pageId,
+          partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry),
         } });
       } catch (error) {
         await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
@@ -1970,6 +1983,8 @@ export function registerExtensionBridge(): void {
       const request = (raw ?? {}) as ExtensionBridgeRequest;
       const method = typeof request.method === 'string' ? request.method : '';
       const args = (request.args ?? {}) as Record<string, unknown>;
+
+      if (method === 'modalHost') return await answerModalHost(event.sender.id, args);
 
       // Identity from the session the call arrived on. Everything else in the
       // payload is data an untrusted page chose.

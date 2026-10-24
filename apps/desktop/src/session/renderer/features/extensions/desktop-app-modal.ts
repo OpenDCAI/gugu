@@ -1,5 +1,6 @@
-import { rpc } from '@renderer/lib/ipc';
-import type { AppModalPage } from '@shared/extensions/app-modal';
+import { desktopIpc } from '@/platform/desktopIpc';
+import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
+import type { AppModalHostAction, AppModalPage } from '@shared/extensions/app-modal';
 import type { BrowserWebviewElement } from '@renderer/features/browser/browser-webview-types';
 import { showAppModal } from '@/components/appModal/appModal';
 
@@ -7,11 +8,15 @@ export function openDesktopAppModal(page: AppModalPage): void {
   let guest: BrowserWebviewElement | null = null;
   let previous = document.activeElement;
   while (previous?.shadowRoot?.activeElement) previous = previous.shadowRoot.activeElement;
-  const dismiss = (error?: string) => rpc.extensions.dismissModal({ id: page.id, ...(error ? { error } : {}) }).then(() => undefined);
+  const control = async (action: AppModalHostAction) => {
+    const response = await desktopIpc()!.invoke(EXTENSION_BRIDGE_CHANNEL, { method: 'modalHost', args: action }) as ExtensionBridgeResponse;
+    if (!response.ok) throw new Error(response.message);
+  };
+  const dismiss = (error?: string) => control({ type: 'dismiss', id: page.id, ...(error ? { error } : {}) });
   const fail = (error: unknown) => dismiss(error instanceof Error ? error.message : String(error));
   const focus = async (edge: 'first' | 'last') => {
     guest?.focus();
-    await rpc.extensions.focusModal({ id: page.id, edge });
+    await control({ type: 'focus', id: page.id, edge });
   };
   showAppModal({
     id: page.id, title: page.title, appName: page.appName, size: page.size,
@@ -20,7 +25,7 @@ export function openDesktopAppModal(page: AppModalPage): void {
     focus, dismiss,
     attach(element) {
       guest = element as BrowserWebviewElement;
-      const ready = () => void rpc.extensions.bindModal({ id: page.id, webContentsId: guest!.getWebContentsId() }).then(() => focus('first')).catch(fail);
+      const ready = () => void control({ type: 'bind', id: page.id, webContentsId: guest!.getWebContentsId() }).then(() => focus('first')).catch(fail);
       const gone = () => void fail(new Error('The App modal content process exited'));
       const failed = (event: Event) => {
         const failure = event as Event & { errorCode?: number; errorDescription?: string };

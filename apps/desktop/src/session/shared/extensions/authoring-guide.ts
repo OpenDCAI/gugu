@@ -174,7 +174,7 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 Location fills context, never changes authority: a task has \`session\`, a chat panel has \`chat\`, a file page has \`file\`;
 the dock/background have neither chat nor session. Read context before drawing.
-- \`gugu.files\`: chats' files and sessions' working copies; every call names its target (\`apps-files\`).
+- \`gugu.files\`: open, list, create, rename, remove — the one way to open and edit a session's file. Name its target (\`apps-files\`).
 - \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
@@ -188,10 +188,10 @@ the dock/background have neither chat nor session. Read context before drawing.
 ## Custom modals (apiVersion 11)
 
 \`await gugu.modal.open({ entry: 'new.html', title: 'New card', size: 'md', data })\` opens your bundle's HTML in
-gugu's window-level dialog (phone: fullscreen). Sizes: xs/sm/md/lg/xl. No permission word or second consent.
+gugu's window-level dialog (phone: fullscreen). Sizes: xs/sm/md/lg/xl. No new consent.
 The page stays sandboxed with the opener's context/grants; \`(await gugu.getContext()).modal.data\` holds \`data\`.
-Save in your App, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
-The host handles Escape, Tab traversal, Back and focus restoration. Opening works from \`onCommand\` too.
+Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
+The host handles Escape, Tab traversal, Back and focus restoration.
 
 Free (they only concern your own tab):
 
