@@ -16,7 +16,7 @@ vi.mock('../../../apps/desktop/src/store/chatContext', () => ({ useChatStore: ()
 vi.mock('../../../apps/desktop/src/lib/guguLinks', () => ({ openLink: m.open }))
 vi.mock('../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => true }))
 vi.mock('../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: m.toast }) }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: m.t }) }))
+vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: m.t }) }))
 vi.mock('../../../apps/desktop/src/platform', () => ({ platform: { subscribeOpenedLinks: m.subscribe } }))
 vi.mock('../../../apps/desktop/src/mobile/server-login/ServerLoginApproveSheet', () => ({ ServerLoginApproveSheet: () => null }))
 
