@@ -217,7 +217,7 @@ export const SessionActionsProvider = observer(function SessionActionsProvider({
             label: translate('task.rename'),
             icon: Pencil,
             group: 'edit' as const,
-            shortcut: 'tabRename' as const,
+            shortcut: 'session.tabRename' as const,
             // Inline on the tab when it can be (the tab's own field); the dialog otherwise.
             run: () => rename(),
           },

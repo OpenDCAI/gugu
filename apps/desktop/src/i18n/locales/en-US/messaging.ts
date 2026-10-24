@@ -612,7 +612,6 @@ export default {
   "header": {
     "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
-    "history": "History",
     "memberList": "Members",
     "more": "More actions",
     "searchChat": "Search chat",

@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react'
+import { GroupRenameContext } from './use-chat-commands'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { Pencil } from '@/lib/icons'
@@ -28,6 +29,15 @@ export function GroupNameInlineEdit({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+
+  const renameCommand = useContext(GroupRenameContext)
+  const handledRequest = useRef(0)
+  useEffect(() => {
+    if (renameCommand?.request && renameCommand.request !== handledRequest.current && canEdit && name !== null) {
+      handledRequest.current = renameCommand.request
+      setDraft(name); setFailed(false); setEditing(true)
+    }
+  }, [renameCommand?.request, canEdit, name])
 
   const commit = useCallback(async () => {
     if (busy) return
@@ -97,7 +107,7 @@ export function GroupNameInlineEdit({
       />
     )
   }
-  const startEditing = () => { setDraft(name); setFailed(false); setEditing(true) }
+  const startEditing = () => { if (renameCommand) renameCommand.edit(); else { setDraft(name); setFailed(false); setEditing(true) } }
   return (
     <div className="flex min-w-0 items-center gap-1">
       <div
