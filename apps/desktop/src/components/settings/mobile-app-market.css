@@ -1,3 +1,7 @@
+.phone-app-market-tabs > .gg-segtabs {
+  flex-wrap: wrap;
+  row-gap: var(--spacing-xs);
+}
 div.phone-app-market {
   gap: var(--spacing-lg);
   padding-top: var(--spacing-lg);
