@@ -170,9 +170,8 @@ export function parseConversationLink(href: string): ConversationLink | null {
   return match ? { chatId: match[1]!.toLowerCase(), ...(match[2] ? { messageId: match[2].toLowerCase() } : {}) } : null
 }
 
-export const EXTENSION_LINK_HOST = 'ext';
 /** Beyond this a link stops being a link and starts being a payload. */
-export const MAX_EXTENSION_LINK_LENGTH = 2048;
+const MAX_EXTENSION_LINK_LENGTH = 2048;
 
 export interface ParsedExtensionLink {
   extensionId: string;
@@ -185,18 +184,8 @@ export interface ParsedExtensionLink {
 
 const PLACE_KEYS = { chat: 'gugu.chat', session: 'gugu.session' } as const;
 
-export function buildExtensionLink(input: {
-  scheme: string;
-  manifest: { id: string; contributes: { tabs: readonly { name: string }[] } };
-  tab?: string;
-  path: string;
-  query: Record<string, unknown>;
-  place?: LinkPlace | null;
-}): string {
-  const tab = input.tab ?? input.manifest.contributes.tabs[0]?.name;
-  if (!tab || !input.manifest.contributes.tabs.some((entry) => entry.name === tab)) {
-    throw new Error(`this App has no tab named: ${String(input.tab)}`);
-  }
+function buildAppLink(input: ParsedExtensionLink, scheme: string): string {
+  const tab = input.tab;
   const segments = input.path.split('/').filter((segment) => segment !== '');
   if (segments.some((segment) => segment === '.' || segment === '..')) {
     throw new Error('path must not contain "." or ".." segments');
@@ -214,36 +203,11 @@ export function buildExtensionLink(input: {
   }
   const tail = segments.map(encodeURIComponent).join('/');
   const query = search.toString();
-  const link = `${input.scheme}://${EXTENSION_LINK_HOST}/${input.manifest.id}/${tab}${tail ? `/${tail}` : ''}${query ? `?${query}` : ''}`;
+  const link = `${scheme}://ext/${input.extensionId}/${tab}${tail ? `/${tail}` : ''}${query ? `?${query}` : ''}`;
   if (link.length > MAX_EXTENSION_LINK_LENGTH) {
     throw new Error(`link is longer than ${MAX_EXTENSION_LINK_LENGTH} characters — keep data in the App, put an id in the link`);
   }
   return link;
-}
-
-/** Null when the URL is not an extension link of this build — the caller ignores it. */
-export function parseExtensionLink(raw: string, scheme: string): ParsedExtensionLink | null {
-  if (raw.length > MAX_EXTENSION_LINK_LENGTH) return null;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== `${scheme}:` || url.hostname !== EXTENSION_LINK_HOST) return null;
-  const [extensionId, tab, ...rest] = url.pathname.split('/').filter((segment) => segment !== '');
-  if (!extensionId || !tab) return null;
-  let path: string;
-  try {
-    path = rest.map((segment) => decodeURIComponent(segment)).join('/');
-  } catch {
-    return null;
-  }
-  const chat = url.searchParams.get(PLACE_KEYS.chat);
-  const session = url.searchParams.get(PLACE_KEYS.session);
-  const query: Record<string, string> = {};
-  for (const [key, value] of url.searchParams) if (!key.startsWith('gugu.')) query[key] = value;
-  return { extensionId, tab, path, query, place: session ? { session } : chat ? { chat } : null };
 }
 
 /** Stored chat/file links are independent of the build that writes or reads the message. */
@@ -281,8 +245,18 @@ export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {
   try { url = new URL(raw) } catch { return null }
   const scheme = url.protocol.slice(0, -1)
   if (!/^gugu(?:-[a-z0-9-]+)?$/.test(scheme)) return null
-  const app = parseExtensionLink(raw, scheme)
-  if (app) return { kind: 'app', ...app }
+  if (url.hostname === 'ext') {
+    if (raw.length > MAX_EXTENSION_LINK_LENGTH) return null
+    const [extensionId, tab, ...rest] = url.pathname.split('/').filter(Boolean)
+    if (!extensionId || !tab) return null
+    let path: string
+    try { path = rest.map(decodeURIComponent).join('/') } catch { return null }
+    const chat = url.searchParams.get(PLACE_KEYS.chat)
+    const session = url.searchParams.get(PLACE_KEYS.session)
+    const query: Record<string, string> = {}
+    for (const [key, value] of url.searchParams) if (!key.startsWith('gugu.')) query[key] = value
+    return { kind: 'app', extensionId, tab, path, query, place: session ? { session } : chat ? { chat } : null }
+  }
   if (url.hostname === 'chat') {
     const match = new RegExp(`^/(${UUID})(?:/message/(${UUID}))?/?$`, 'i').exec(url.pathname)
     return match ? { kind: 'chat', chatId: match[1]!.toLowerCase(), ...(match[2] ? { messageId: match[2].toLowerCase() } : {}) } : null
@@ -313,7 +287,7 @@ export function guguLink(target: Exclude<GuguLinkTarget, { kind: 'server-login' 
     }
     case 'app':
       if (!scheme) throw new Error('An App link needs the build scheme')
-      return buildExtensionLink({ scheme, manifest: { id: target.extensionId, contributes: { tabs: [{ name: target.tab }] } }, ...target })
+      return buildAppLink(target, scheme)
     case 'session':
     case 'project':
       if (!scheme) throw new Error('An external resource link needs the build scheme')

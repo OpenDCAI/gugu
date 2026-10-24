@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
-import { buildExtensionLink, parseExtensionLink, conversationLink, groupFileLink, guguLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink';
+import { linkTargetOf, conversationLink, groupFileLink, guguLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { openLinkWith, type LinkOpenDeps } from '@shared/extensions/open-link';
 
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
@@ -22,42 +22,42 @@ const manifest = parseExtensionManifest({
   contributes: { tabs: [{ name: 'main', title: 'Main' }, { name: 'inbox', title: 'Inbox' }] },
 });
 
+const appLink = (args: Record<string, unknown>, scheme = 'gugu') => guguLink(linkTargetOf(args, manifest), scheme);
+
 describe('building and reading links (#6387)', () => {
   it('round-trips tab, path and query, with this build\'s scheme', () => {
-    const link = buildExtensionLink({
-      scheme: 'gugu-beta', manifest, tab: 'inbox', path: 'papers/ä 1', query: { id: 42, open: true },
-    });
+    const link = appLink({ tab: 'inbox', path: 'papers/ä 1', query: { id: 42, open: true } }, 'gugu-beta');
     expect(link).toBe('gugu-beta://ext/notes/inbox/papers/%C3%A4%201?id=42&open=true');
-    expect(parseExtensionLink(link, 'gugu-beta')).toEqual({
-      extensionId: 'notes', tab: 'inbox', path: 'papers/ä 1', query: { id: '42', open: 'true' }, place: null,
+    expect(parseGuguLink(link)).toEqual({
+      kind: 'app', extensionId: 'notes', tab: 'inbox', path: 'papers/ä 1', query: { id: '42', open: 'true' }, place: null,
     });
   });
 
   it('carries where it opens under gugu\'s own keys, kept out of the App\'s query', () => {
-    const inSession = buildExtensionLink({ scheme: 'gugu', manifest, path: '', query: { x: 1 }, place: { session: 's1' } });
+    const inSession = appLink({ path: '', query: { x: 1 }, session: 's1' });
     expect(inSession).toBe('gugu://ext/notes/main?x=1&gugu.session=s1');
-    expect(parseExtensionLink(inSession, 'gugu')).toMatchObject({ query: { x: '1' }, place: { session: 's1' } });
-    expect(parseExtensionLink(buildExtensionLink({ scheme: 'gugu', manifest, path: '', query: {}, place: { chat: 'c1' } }), 'gugu'))
+    expect(parseGuguLink(inSession)).toMatchObject({ query: { x: '1' }, place: { session: 's1' } });
+    expect(parseGuguLink(appLink({ path: '', query: {}, chat: 'c1' })))
       .toMatchObject({ place: { chat: 'c1' } });
-    expect(() => buildExtensionLink({ scheme: 'gugu', manifest, path: '', query: { 'gugu.chat': 'c2' } })).toThrow(/gugu's own/);
+    expect(() => appLink({ path: '', query: { 'gugu.chat': 'c2' } })).toThrow(/gugu's own/);
   });
 
   it('defaults to the first tab and refuses a tab the extension does not have', () => {
-    expect(buildExtensionLink({ scheme: 'gugu', manifest, path: '', query: {} })).toBe('gugu://ext/notes/main');
-    expect(() => buildExtensionLink({ scheme: 'gugu', manifest, tab: 'nope', path: '', query: {} })).toThrow(/no tab named/);
+    expect(appLink({ path: '', query: {} })).toBe('gugu://ext/notes/main');
+    expect(() => appLink({ tab: 'nope', path: '', query: {} })).toThrow(/no tab named/);
   });
 
   it('refuses paths that climb, nested query values, and links too long to be links', () => {
-    expect(() => buildExtensionLink({ scheme: 'gugu', manifest, path: '../x', query: {} })).toThrow(/"\.\."/);
-    expect(() => buildExtensionLink({ scheme: 'gugu', manifest, path: '', query: { a: { b: 1 } } })).toThrow(/must be a string/);
-    expect(() => buildExtensionLink({ scheme: 'gugu', manifest, path: 'x'.repeat(3000), query: {} })).toThrow(/longer than/);
+    expect(() => appLink({ path: '../x', query: {} })).toThrow(/"\.\."/);
+    expect(() => appLink({ path: '', query: { a: { b: 1 } } })).toThrow(/must be a string/);
+    expect(() => appLink({ path: 'x'.repeat(3000), query: {} })).toThrow(/longer than/);
   });
 
-  it('ignores anything that is not an extension link of this build', () => {
-    expect(parseExtensionLink('gugu://ext/notes/main', 'gugu-beta')).toBeNull();
-    expect(parseExtensionLink('gugu://chat/123', 'gugu')).toBeNull();
-    expect(parseExtensionLink('gugu://ext/notes', 'gugu')).toBeNull();
-    expect(parseExtensionLink('not a url', 'gugu')).toBeNull();
+  it('rejects malformed resources and non-gugu schemes', () => {
+    expect(parseGuguLink('https://ext/notes/main')).toBeNull();
+    expect(parseGuguLink('gugu://chat/123')).toBeNull();
+    expect(parseGuguLink('gugu://ext/notes')).toBeNull();
+    expect(parseGuguLink('not a url')).toBeNull();
   });
 });
 
