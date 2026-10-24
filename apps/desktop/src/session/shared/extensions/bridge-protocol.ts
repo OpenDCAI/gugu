@@ -620,7 +620,7 @@ export interface VerbFacts {
  */
 export const BRIDGE_VERBS = {
   /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
-  modalOpen: { needs: null, only: 'page' },
+  modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
   modalClose: { needs: null, only: 'page' },
   /** Runtime keyboard traversal at the edge of a modal guest; not an App-facing member. */
   modalKey: { needs: null, only: 'page' },
