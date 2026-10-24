@@ -1,0 +1,56 @@
+div.phone-app-market {
+  gap: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  background: transparent;
+}
+div.phone-app-product {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: max(var(--spacing-lg), env(safe-area-inset-top)) var(--spacing-lg) max(var(--spacing-2xl), env(safe-area-inset-bottom));
+}
+/* Keep the phone header's action and facts below its icon, using the same product markup. */
+.phone-app-product .mk-dh-main {
+  display: contents;
+}
+.phone-app-product .mk-dh {
+  gap: var(--spacing-lg);
+}
+.phone-app-product .mk-dh-title,
+.phone-app-product .mk-dh-sub,
+.phone-app-product .mk-dh-by,
+.phone-app-product .mk-facts,
+.phone-app-product .mk-acts {
+  grid-column: 1 / -1;
+}
+.phone-app-product .mk-dh > .mk-icon {
+  grid-column: 2;
+  grid-row: 1;
+}
+.phone-app-product .mk-dh-title {
+  grid-column: 1;
+  align-self: center;
+}
+.phone-app-product .mk-primary-action {
+  width: 100%;
+}
+.phone-app-product button,
+.phone-app-market [data-lifecycle],
+.phone-app-market .mk-chipbar [data-slot='toggle-group-item'] {
+  min-height: var(--control-h-touch);
+}
+.phone-app-product [data-testid='app-product-more'] {
+  min-width: var(--control-h-touch);
+}
+.phone-app-product .mk-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  row-gap: var(--spacing-lg);
+}
+.phone-app-product .mk-facts > div {
+  padding: 0;
+  align-items: flex-start;
+}
+.phone-app-product .mk-facts > div + div::before {
+  display: none;
+}

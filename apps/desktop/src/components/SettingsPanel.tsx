@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
@@ -15,7 +15,6 @@ import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
 import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
-import { AppsSection } from './settings/AppsSection'
 import { ChannelsSection } from './settings/channels/ChannelsSection'
 import { PhoneDeviceActionsPage } from '../mobile/phone-device/PhoneDeviceActionsPage'
 import { SettingsNav } from './settings/SettingsNav'
@@ -59,6 +58,7 @@ const DESKTOP_SECTIONS_FOR_PLATFORM = sectionsFor(false)
 const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant', 'connectors']
 /** 内页自己没有一句话说明的几页:由这里补在最上面(其余各页自己有,❌ 重复)。 */
 const PAGE_LEDE_SECTIONS: readonly ActiveSection[] = ['general', 'activity']
+const MobileAppsSection = lazy(() => import('./settings/MobileAppsSection').then((module) => ({ default: module.MobileAppsSection })))
 
 /**
  * 会话页那几格的浮层(下拉、提示、确认框)落在 SessionSettingsSection 的浮层层里,不在壳的层栈(sheetStack)上:
@@ -113,7 +113,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
-      case 'apps':     return <AppsSection />
+      case 'apps':     return <Suspense fallback={null}><MobileAppsSection /></Suspense>
       case 'channels': return <ChannelsSection />
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':

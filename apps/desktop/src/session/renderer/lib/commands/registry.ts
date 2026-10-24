@@ -1,89 +1,48 @@
-import { comparer, makeAutoObservable, reaction } from 'mobx';
-import { registeredViews } from '@renderer/lib/layout/registered-views';
-import type { ShortcutSettingsKey } from '@renderer/lib/hooks/useKeyboardShortcuts';
-import { appState } from '@renderer/lib/stores/app-state';
+import { makeAutoObservable, observable } from 'mobx';
+import type { CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { SCOPE_LEVELS, type AppCommand, type CommandProvider, type ScopeId } from './types';
 
-class CommandRegistry {
-  private scopes = new Map<ScopeId, CommandProvider>();
+export class CommandRegistry {
+  private providers = new Set<CommandProvider>();
+  contextElement: HTMLElement | null = null;
+  shortcutsPaused = false;
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable<this, 'providers'>(this, { providers: observable.shallow, contextElement: observable.ref });
   }
 
-  register(provider: CommandProvider): void {
-    this.scopes.set(provider.scopeId, provider);
+  register(provider: CommandProvider): () => void {
+    this.providers.add(provider);
+    return () => { this.providers.delete(provider); };
+  }
+
+  setShortcutsPaused(paused: boolean): void {
+    this.shortcutsPaused = paused;
   }
 
   unregister(scopeId: ScopeId): void {
-    this.scopes.delete(scopeId);
-  }
-
-  /**
-   * Walks scopes innermost-first. Calls the first enabled handler for the
-   * given shortcut key and returns true. Returns false if nothing handled it.
-   */
-  dispatch(shortcutKey: ShortcutSettingsKey): boolean {
-    for (const scope of this.sortedScopes) {
-      const cmd = scope
-        .getCommands()
-        .find((c) => c.shortcutKey === shortcutKey && c.enabled !== false);
-      if (cmd) {
-        cmd.execute();
-        return true;
-      }
+    for (const provider of this.providers) {
+      if (provider.scopeId === scopeId) this.providers.delete(provider);
     }
-    return false;
   }
 
-  /**
-   * All commands from all active scopes, innermost scope first.
-   * @computed — reactive to scope registration changes and to any MobX
-   * observable accessed inside each provider's getCommands().
-   */
+  setContext(element: HTMLElement): void {
+    if (!element.closest('[role="menu"], [cmdk-root]')) {
+      this.contextElement = element;
+    }
+  }
+
+  dispatch(id: CommandId, task?: { projectId: string; sessionId: string }): boolean {
+    const command = this.activeCommands.find((item) => item.id === id && item.enabled !== false);
+    if (!command) return false;
+    return command.execute(task) !== false;
+  }
+
   get activeCommands(): AppCommand[] {
-    return this.sortedScopes.flatMap((s) => s.getCommands());
-  }
-
-  /**
-   * Looks up a live command by its ID across all active scopes, innermost first.
-   * Used by the command palette to resolve FTS command results to live handlers.
-   */
-  findById(id: string): AppCommand | undefined {
-    for (const scope of this.sortedScopes) {
-      const cmd = scope.getCommands().find((c) => c.id === id);
-      if (cmd) return cmd;
-    }
-    return undefined;
-  }
-
-  private get sortedScopes(): CommandProvider[] {
-    return [...this.scopes.values()].sort(
-      (a, b) => SCOPE_LEVELS[b.scopeId] - SCOPE_LEVELS[a.scopeId]
-    );
+    const providers = [...this.providers].sort((a, b) => SCOPE_LEVELS[b.scopeId] - SCOPE_LEVELS[a.scopeId]);
+    return providers.filter((provider) => !provider.isActive || provider.isActive(this.contextElement))
+      .flatMap((provider) => provider.getCommands());
   }
 }
 
 export const commandRegistry = new CommandRegistry();
-
-/**
- * Wires a MobX reaction that keeps the task-scope CommandProvider in sync with
- * the active view. Must be called once at app startup (after navigation state
- * is restored). No React dependency — runs entirely off MobX observables.
- */
-export function setupViewCommandProvider(): void {
-  reaction(
-    () => {
-      const viewId = appState.navigation.currentViewId;
-      return { viewId, params: appState.navigation.viewParamsStore[viewId] ?? {} };
-    },
-    ({ viewId, params }) => {
-      commandRegistry.unregister('session');
-      const def = (
-        registeredViews() as unknown as Record<string, { commandProvider?: (p: unknown) => CommandProvider }>
-      )[viewId];
-      if (def?.commandProvider) commandRegistry.register(def.commandProvider(params));
-    },
-    { fireImmediately: true, equals: comparer.structural }
-  );
-}

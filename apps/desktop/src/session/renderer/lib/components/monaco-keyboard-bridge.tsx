@@ -2,9 +2,9 @@ import { detectPlatform, normalizeHotkey } from '@tanstack/hotkeys';
 import { useEffect, useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import {
-  APP_SHORTCUTS,
+  COMMANDS,
   getEffectiveHotkey,
-  type ShortcutSettingsKey,
+  type CommandId,
 } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
 
@@ -28,9 +28,9 @@ export function MonacoKeyboardBridge() {
   const ignoredHotkeys = useMemo(() => {
     const platform = detectPlatform();
     const next = new Set<string>();
-    const shortcuts = Object.entries(APP_SHORTCUTS) as [
-      ShortcutSettingsKey,
-      (typeof APP_SHORTCUTS)[ShortcutSettingsKey],
+    const shortcuts = Object.entries(COMMANDS) as [
+      CommandId,
+      (typeof COMMANDS)[CommandId],
     ][];
 
     for (const [key, def] of shortcuts) {

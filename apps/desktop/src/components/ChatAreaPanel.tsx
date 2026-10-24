@@ -1,3 +1,4 @@
+import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -5,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle, Zap } from '@/lib/icons'
-import { downloadAttachment, openAttachmentImage } from '@/lib/attachmentBytes'
+import { downloadAttachment } from '@/lib/attachmentBytes'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -25,7 +26,7 @@ import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupColla
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
-import { UI_EVENTS, type ChatDetailsRequest } from '../lib/uiEvents'
+import { UI_EVENTS } from '../lib/uiEvents'
 import { drainTopicSplitRequest, requestTopicSplit } from '../lib/topicSplitRequest'
 import { useTopicsPanelRequest } from '../hooks/useTopicsPanelRequest'
 import type { HistoryTab } from './historyPanelModels'
@@ -65,7 +66,7 @@ import {
   type MemberProfileSide,
   toIdentityProfile,
 } from './memberProfileModels'
-import { InputArea, type ComposerAttachAction } from './chat/InputArea'
+import { ChatMessageComposer, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
 import { useTaskChatRows } from './assistant/useTaskChatRows'
@@ -194,10 +195,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // @@@message-forward (#899) / @@@multi-select (#988) - messages pending forward; single-forward
   // sets [msg], batch sets the selected list. Opens ForwardMessageDialog when non-empty.
   const [forwardMessages, setForwardMessages] = useState<MessageItem[]>([])
-  // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; InputArea
+  // @@@avatar-click-mention (#518) - clicking an agent avatar in the group bar sets this; ChatMessageComposer
   // consumes it (insert "@name " + register the mention target) then clears via onMentionInserted.
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
-  // @@@whisper (#820) — 悄悄话目标：设置后 InputArea 进入悄悄话模式，发送强制 isWhisper+toUserIds。
+  // @@@whisper (#820) — 悄悄话目标：设置后 ChatMessageComposer 进入悄悄话模式，发送强制 isWhisper+toUserIds。
   const [whisperTarget, setWhisperTarget] = useState<{ userId: string; displayName: string } | null>(null)
   const [groupCollabSnapshot, setGroupCollabSnapshot] = useState<GroupCollabSnapshot>(EMPTY_GROUP_COLLAB)
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
@@ -332,17 +333,11 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     loadGroupCollab()
   }, [loadGroupCollab, openNonce])
 
-  useEffect(() => {
-    // 块页签的右键菜单(gugu-dev#181):点名是哪个对话、开哪一页;屏上几块里只有那个对话的这块面答。
-    const handleOpenDetailsDrawer = (event: Event) => {
-      const detail = (event as CustomEvent<ChatDetailsRequest>).detail
-      if (!activeChatId || detail?.chatId !== activeChatId) return
-      if (detail.page === 'announcement') handleOpenAnnounce()
-      else handleOpenSettingsDrawer()
-    }
-    window.addEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-    return () => window.removeEventListener(UI_EVENTS.openChatDetailsDrawer, handleOpenDetailsDrawer)
-  }, [activeChatId, handleOpenAnnounce, handleOpenSettingsDrawer])
+  const groupRename = useChatCommands({
+    chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
+    canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
+    openSettings: handleOpenSettingsDrawer, openAnnouncement: handleOpenAnnounce,
+  })
 
   useEffect(() => {
     if (!activeChatId || !isRoomChatSurface || !user?.id) return
@@ -462,11 +457,11 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     if (!isRoomChatSurface) void loadImportedHistories(activeChatId)
   }, [activeChatId, isRoomChatSurface, loadHistoryFiles, loadImportedHistories, closeRightSurfaces])
 
-  useTopicsPanelRequest(activeChatId, openNonce, handleOpenHistoryPanel)
+  useTopicsPanelRequest(surfaceVisible ? activeChatId : null, openNonce, handleOpenHistoryPanel)
   const handleCloseHistoryPanel = useCallback(() => setHistoryPanelOpen(false), [])
 
   const topicSurface = useTopicSurface({
-    chat: activeChat,
+    chat: activeChat, messages,
     userId: user?.id ?? null,
     closeRightSurfaces,
     subscribeAccountRevision,
@@ -868,9 +863,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         searchMode={searchMode}
         workspacePanelOpen={workspaceForm !== 'closed'}
         memberListOpen={memberListOpen}
-        historyPanelOpen={historyPanelOpen}
         showHeaderMenu={showHeaderMenu}
-        mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
+        mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
         moreInTabMenu={Boolean(blockHost)}
@@ -881,8 +875,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         onOpenSettingsDrawer={handleOpenSettingsDrawer}
         onOpenMemberList={handleOpenMemberList}
         onCloseRightSurfaces={closeRightSurfaces}
-        onOpenHistoryPanel={handleOpenHistoryPanel}
-        onCloseHistoryPanel={handleCloseHistoryPanel}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
         onCloseHeaderMenu={() => setShowHeaderMenu(false)}
         onOpenAnnouncement={handleOpenAnnounce}
@@ -1200,7 +1192,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {/* #1099: offline「唤醒 Agent」状态栏已删(ACP 发消息即触达自启)。removed 显提示栏。 */}
         {/* agent 会话 composer 通知区：已注销 Agent 的禁用说明。 */}
         {isAgentChat ? <AgentComposerNotices disabledReason={agentComposerDisabled ? (agentComposerDisabledReason ?? null) : null} agentUserId={activeChat?.peer_user_id ?? null} agentName={activeChatName} /> : null}
-        <InputArea
+        <ChatMessageComposer
           beforeSend={createSessionpageChatSendPreflight(isAgentChat, activeChat?.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
           onSend={async (content, opts) => {
             await sendMessage(content, opts)
@@ -1254,10 +1246,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                     setHistoryPanelOpen(false)
                     void topicSurface.openTopicFromMessage(latestMessageIdForTopic)
                   } : undefined}
-                  onOpenFile={(f) => {
-                    if (f.kind === 'image') void openAttachmentImage(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else openFilePreview(f)
-                  }}
+                  onOpenFile={openFilePreview}
                   onDownloadFile={(f) => {
                     void downloadAttachment(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
                   }}
@@ -1289,10 +1278,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                     />
                   )}
                   loading={historyFilesLoading}
-                  onOpenFile={(file) => {
-                    if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else openFilePreview(file)
-                  }}
+                  onOpenFile={openFilePreview}
                   onDownloadFile={(file) => {
                     void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
                   }}
@@ -1311,7 +1297,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {/* 会话/群设置、群公告:与成员列表同一个右栏外壳(RightPanel),同槽位互斥。 */}
         <AnimatePresence>
           {showDrawer && (
-            <ChatSettingsPanel
+            <GroupRenameContext.Provider value={groupRename}><ChatSettingsPanel
               activeChat={activeChat}
               messages={messages}
               onClose={() => setShowDrawer(false)}
@@ -1335,7 +1321,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
               onLeaveGroup={() => leaveGroup(activeChat.id)}
               onDissolveGroup={() => deleteChat(activeChat.id, true)}
               mobile={mobile}
-            />
+            /></GroupRenameContext.Provider>
           )}
         </AnimatePresence>
         {/* 从页头 ⋯ 开的群公告 / 👥 开的名册没有上一层:页头与群设置同一个,桌面 ⊗、手机左上返回 = 关。
@@ -1381,8 +1367,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             focusComposerToken={splitFocusToken}
             memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
             onOpenFile={(file) => {
-              if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-              else { const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined) }
+              const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
             }}
             onDownloadFile={(file) => {
               void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))

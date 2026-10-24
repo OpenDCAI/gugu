@@ -10,6 +10,7 @@ import type {
   SessionShellAgentCard,
   SessionShellAgentName,
   SessionShellRenameAgentInput,
+  SessionShellPeer,
 } from './shell-port'
 import { defineEvent } from './events'
 
@@ -27,6 +28,7 @@ export type SessionpageIdentityRpc = {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机花名册上全部「会话 → 显示名 + agent id」(#5818 / #6092)。 */
   agentNames(): Promise<SessionShellAgentName[]>
+  sessionPeers(): Promise<SessionShellPeer[]>
   /** 改会话的 agent 名(#6091):云端 display_name + 宿主机花名册,一次改完。 */
   renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>

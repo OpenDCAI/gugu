@@ -5,6 +5,7 @@ import { useChatStore } from '../store/chatContext'
 import { AgentContactStatusMark } from './AgentContactStatusMark'
 import { Avatar } from './Avatar'
 import { ListRow } from './ui/ListRow'
+import { clearDraggedSession, setDraggedSession } from '../session/renderer/lib/drag-session'
 
 // gugu-dev#181 没有项目的会话就是和它的 agent 私聊,和对话排在同一条「对话」列表里,照私聊那一行画:agent 的头像和名字、
 // 第二行是这个会话的标题、右上是最后活动的时刻;行尾是状态(要你处理 = 琥珀字形,在跑 = 点),和对话行尾的未读数落在同一个位置。
@@ -20,6 +21,9 @@ export function SidebarSessionLineRow({ line, isActive, onClick }: {
   return (
     <ListRow
       data-session-line={line.sessionId}
+      draggable
+      onDragStart={(event) => setDraggedSession(event.dataTransfer, { sessionId: line.sessionId, title: line.title, projectId: line.projectId }, event.currentTarget)}
+      onDragEnd={clearDraggedSession}
       selected={isActive}
       role="option"
       aria-selected={isActive}

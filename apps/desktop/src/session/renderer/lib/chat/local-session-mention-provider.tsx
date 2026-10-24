@@ -1,4 +1,4 @@
-import type { ContextMentionProvider, MentionItem } from '@gugu/session-ui/react/components';
+import type { ChatComposerProps, ContextMentionProvider, MentionItem } from '@gugu/session-ui/react/components';
 import { AGENT_TYPES } from '@gugu/core/shared/enums/agentTypeModels';
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
 import {
@@ -20,7 +20,9 @@ import {
 } from './chat-mention-provider';
 import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { log } from '@renderer/utils/logger';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+type RenderMentionIcon = NonNullable<ChatComposerProps['renderMentionIcon']>;
 
 type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string };
 
@@ -170,7 +172,6 @@ async function loadLocalSessionMentionCandidates(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
   warnedMissingEngines: Set<string> = new Set<string>(),
 ): Promise<{ candidates: MentionCandidate[]; notRead: readonly { id: string; label: string }[] }> {
-  if (!window.electronAPI) return { candidates: [], notRead: [] };
   const local = await shellPort().sessionPeers();
   const remote = remoteHostsStore.directoryPeers();
   const candidates = candidatesFromRows([...local, ...remote.peers], options, warnedMissingEngines);
@@ -236,6 +237,8 @@ export function createLocalSessionMentionProvider(
 export function useSessionAgentCreationTools(): {
   tools: readonly LocalAgentCreationTool[];
   error: string | null;
+  byEngine: ReadonlyMap<string, LocalAgentCreationTool>;
+  renderMentionIcon: RenderMentionIcon;
 } {
   const [tools, setTools] = useState<readonly LocalAgentCreationTool[]>(() =>
     typeof window !== 'undefined' && window.electronAPI ? [] : LOCAL_AGENT_CREATION_TOOLS,
@@ -264,5 +267,10 @@ export function useSessionAgentCreationTools(): {
     };
   }, []);
 
-  return { tools, error };
+  const byEngine = useMemo(() => new Map<string, LocalAgentCreationTool>(tools.map((tool) => [tool.engine, tool])), [tools]);
+  const renderMentionIcon = useCallback<RenderMentionIcon>(({ engine }) => {
+    const iconUrl = engine ? byEngine.get(engine)?.icon?.trim() : undefined;
+    return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
+  }, [byEngine]);
+  return { tools, error, byEngine, renderMentionIcon };
 }

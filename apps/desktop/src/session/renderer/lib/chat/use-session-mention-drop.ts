@@ -56,9 +56,11 @@ export function useSessionMentionDrop({
       const dragged = getDraggedSession(dataTransfer);
       if (!dragged || !provider) return;
       if (dragged.sessionId === selfSessionId) return;
+      const editor = editorApiRef.current;
 
       void (async () => {
         const item = await provider.resolveSession(dragged.sessionId);
+        if (editorApiRef.current !== editor) return;
         if (!item) {
           // fail loud:名册里没有它就没有可投递的地址,❌ 不插一枚发不出去的 pill 让人以为成了。
           toast({
@@ -67,7 +69,7 @@ export function useSessionMentionDrop({
           return;
         }
         onMentionResolved?.(item);
-        editorApiRef.current?.insertMention(item);
+        editor?.insertMention(item);
       })();
     },
     [editorApiRef, onMentionResolved, provider, selfSessionId, translate],

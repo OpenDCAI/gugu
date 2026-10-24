@@ -112,6 +112,7 @@ export function MentionPill({
         )}
         {/* Display name */}
         <span className={styles.pillName}>{name}</span>
+        {node.attrs.annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(node.attrs.annotation)}</small>}
       </span>
     </NodeViewWrapper>
   );

@@ -42,7 +42,7 @@ import { wireProgramNotifications } from '@renderer/features/extensions/wire-pro
 import { wireAppQuit } from '@renderer/features/extensions/app-dock';
 import { wireExtensionHostActions } from '@renderer/features/extensions/wire-extension-host-actions';
 import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
-import { setupViewCommandProvider } from '@renderer/lib/commands/registry';
+import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-provider';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';

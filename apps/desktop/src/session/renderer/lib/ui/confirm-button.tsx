@@ -15,9 +15,9 @@ type ConfirmButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVari
 export function ConfirmButton({ disabled, children, ...props }: ConfirmButtonProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const { value: keyboard } = useAppSettingsKey('keyboard');
-  const confirmHotkey = getEffectiveHotkey('confirm', keyboard);
+  const confirmHotkey = getEffectiveHotkey('app.confirm', keyboard);
 
-  useHotkey(getHotkeyRegistration('confirm', keyboard), () => ref.current?.click(), {
+  useHotkey(getHotkeyRegistration('app.confirm', keyboard), () => ref.current?.click(), {
     enabled: !disabled && confirmHotkey !== null,
   });
 
@@ -25,7 +25,7 @@ export function ConfirmButton({ disabled, children, ...props }: ConfirmButtonPro
     <Button ref={ref} disabled={disabled} {...props}>
       <span className="flex items-center gap-2">
         {children}
-        <BoundShortcut settingsKey="confirm" variant="keycaps" />
+        <BoundShortcut commandId="app.confirm" variant="keycaps" />
       </span>
     </Button>
   );

@@ -15,7 +15,7 @@ import { canStartSideSession, startSideSession } from '@renderer/features/sessio
 import { useArrowKeyNavigation } from '@renderer/lib/hooks/use-arrow-key-navigation';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { workspaceBackend } from './workspace-backend/workspace-backend';
@@ -57,7 +57,7 @@ export function useSessionWorkspaceActions(
       id: 'side-session',
       label: translate('workspace.sideTask'),
       icon: <GitFork className="size-3.5" />,
-      shortcutSettingsKey: 'sideSession',
+      shortcutSettingsKey: 'session.sideSession',
       disabled: !canSideSession,
       title: canSideSession ? undefined : translate('workspace.sideTaskUnavailable'),
       onClick: () => startSideSession(projectId, sessionId)
@@ -90,7 +90,6 @@ export function useSessionWorkspaceActions(
       id: 'files',
       label: translate('workspace.files'),
       icon: <FileText className="size-3.5" />,
-      shortcutSettingsKey: 'openFile',
       onClick: () => sessionView.paneLayout.open('file-browser', {}, { preview: false })
     }
   };
@@ -197,7 +196,7 @@ export interface WorkspacePanelAction {
   label: string;
   icon: ReactNode;
   section?: WorkspacePanelSection;
-  shortcutSettingsKey?: ShortcutSettingsKey;
+  shortcutSettingsKey?: CommandId;
   disabled?: boolean;
   title?: string;
   onClick: () => void;
@@ -314,7 +313,7 @@ export function PaneEmptyStateAction({
 }: {
   icon: ReactNode;
   label: string;
-  shortcutSettingsKey?: ShortcutSettingsKey;
+  shortcutSettingsKey?: CommandId;
   isSelected?: boolean;
   disabled?: boolean;
   title?: string;
@@ -340,7 +339,7 @@ export function PaneEmptyStateAction({
         {icon}
         {label}
       </div>
-      {shortcutSettingsKey && <BoundShortcut settingsKey={shortcutSettingsKey} variant="keycaps" />}
+      {shortcutSettingsKey && <BoundShortcut commandId={shortcutSettingsKey} variant="keycaps" />}
     </button>
   );
 }
