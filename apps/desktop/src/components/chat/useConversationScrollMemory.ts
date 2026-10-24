@@ -161,16 +161,6 @@ export function useConversationScrollMemory({
     scrollerOwnerRef.current = null
   }
 
-  const setScrollerRef = useCallback((value: HTMLElement | Window | null) => {
-    const element = value instanceof HTMLElement ? value : null
-    if (!element && scrollerOwnerRef.current) capturePosition(scrollerOwnerRef.current)
-    scrollerOwnerRef.current = element && chatId
-      ? { chatId, key: positionKey, element, captureEnabled: enabled }
-      : null
-    scrollerRef.current = element
-    setScrollerEl(element)
-  }, [chatId, positionKey, enabled, capturePosition])
-
   const hasSavedOffBottomPosition = useCallback(() => {
     if (!chatId) return false
     const position = positions.get(positionKey)
@@ -180,6 +170,17 @@ export function useConversationScrollMemory({
   const isPreservingPosition = useCallback(() => (
     completedActivationRef.current !== activationKey && hasSavedOffBottomPosition()
   ), [activationKey, hasSavedOffBottomPosition])
+
+  const setScrollerRef = useCallback((value: HTMLElement | Window | null) => {
+    const element = value instanceof HTMLElement ? value : null
+    // A keyed window replacement must keep its requested landing, not capture the departing tail.
+    if (!element && scrollerOwnerRef.current && !isPreservingPosition()) capturePosition(scrollerOwnerRef.current)
+    scrollerOwnerRef.current = element && chatId
+      ? { chatId, key: positionKey, element, captureEnabled: enabled }
+      : null
+    scrollerRef.current = element
+    setScrollerEl(element)
+  }, [chatId, positionKey, enabled, capturePosition, isPreservingPosition])
 
   useEffect(() => {
     const scroller = scrollerRef.current
