@@ -80,7 +80,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'device_actions',
-    description: 'Inspect native capabilities; Computer Use controls macOS/Windows desktop apps (screen, mouse, keys; group computer); no scripts or access bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: full schema, read before calling. Other-device work: session_spawn there. unavailable_detail explains available:false.',
+    description: 'Inspect native capabilities. Computer Use (computer): macOS/Windows screen, mouse, keys; no scripts/bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: schema to read first. Other-device work: session_spawn there. available:false has unavailable_detail.',
     schema: z.object({
       device: deviceSchema.describe('Omit for all devices.').optional(),
       group: z.string().min(1).optional(),
@@ -121,15 +121,15 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_spawn',
-    description: 'Start a persistent Gugu agent with its own identity. Omit transport to inherit your chat or terminal UI. Returns session_id and model.',
+    description: 'Start a persistent Gugu agent; returns session_id and model. Omitted transport inherits your UI.',
     schema: z.object({
       prompt: z.string().min(1),
       source_link: sourceLinkSchema.optional(),
-      title: z.string().min(1).describe('Its name; short. Default: automatic (Codex 3 …).').optional(),
+      title: z.string().min(1).describe('Short name; default automatic.').optional(),
       device: deviceSchema.describe(DEVICE_DESCRIPTION).optional(),
       // #7331 先复用:描述只说「新目录当场登记」时,agent 把每个自己切的 worktree 都传进来,对方机器上一个 worktree 一个项目。
-      project: z.string().min(1).describe('Existing project:<id> or its root folder. New folders register projects: only when requested; put subfolders/worktrees in prompt. Omit: current directory (remote: home).').optional(),
-      nest: z.boolean().describe('List it under you (session_children): for helpers / 子会话 / 小弟 that report back, not a standalone session. Default: true without project.').optional(),
+      project: z.string().min(1).describe('Existing project:<id> or root. New projects only when requested; subfolders/worktrees go in prompt. Omit: current directory (remote: home).').optional(),
+      nest: z.boolean().describe('Child reporting to you, listed in session_children. Default true without project.').optional(),
       transport: z.enum(['acp', 'pty']).optional(),
       harness: z.string().describe('From session_list_harnesses; default: your sub-agent default.').optional(),
       model: z.string().describe('From session_list_models (verbatim) or model.spawn_model_id; platform: ids bill Gugu credits.').optional(),
@@ -165,7 +165,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_message',
-    description: 'Message your sessions across devices: session:<id>, aid:<Agent ID>, gugu:<number> from session_peers. Resumes stopped recipients; reports per-recipient delivery. Owner sees exchanges in task chat. Project/chat members: message_send.',
+    description: 'Message sessions across devices: session:<id>, aid:<Agent ID>, gugu:<number> from session_peers. Resumes stopped recipients; reports delivery. Owner sees task exchanges. Chat members: message_send.',
     schema: z.strictObject({
       // ACP XML/JSON bridges sometimes serialize array parameters as JSON strings。协议边界兼容是
       // im-mcp spec 的既有合同(「合法的 JSON 序列化数组继续在协议边界兼容,裸字符串或非法 JSON
@@ -195,9 +195,9 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       // 地址写法顶层描述已列,拒绝时 refine 的原话再说一遍 —— 字段上不重复(#7335 预算)。
       ),
       text: z.string().min(1),
-      work_id: z.string().uuid().describe('Existing work_id from an assistant dispatch receipt, when continuing that work.').optional(),
-      work_result: workReportSchema.describe('Report the host-issued work_id: progress/question keep the wait open; completed/cancelled settle only this work.').optional(),
-      files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).describe('Local originals; recipients use message_download_file.').optional(),
+      work_id: z.string().uuid().optional(),
+      work_result: workReportSchema.optional(),
+      files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
       then: z.enum(SESSION_MESSAGE_THEN).describe('What you do next: continue, wait (on what: say) or stop.').optional(),

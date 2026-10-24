@@ -2235,7 +2235,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send',
     writer: true,
-    description: 'Set destination fields before writing text. Post a message to a chat; chat_id and to_user_ids are never inferred from the message that triggered you. Each call is independent; multiple distinct calls are valid. With reply_to_message_id a DM peer is implied; in a group still name recipients. Sessions: session_message.',
+    description: 'Set destination first; never infer chat_id or recipients from the trigger. Each call is independent. reply_to_message_id implies a DM peer; groups still require recipients. Sessions: session_message.',
     schema: z.object({
       chat_id: chatIdSchema.describe(CHAT_ID_DESCRIPTION),
       to_user_ids: chatRecipientsSchema,
@@ -2348,7 +2348,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'Post a file from this machine (≤10 MiB) as an attachment: the delivery tool for a file, report or artifact someone asked for. A file the chat keeps and edits goes in its folder (workspace__create in the catalog).',
+    description: 'Attach a requested file/report (≤10 MiB) from this machine. Shared editable documents: catalog workspace__create.',
     schema: z.object({
       file_path: uploadFilePathSchema,
       file_name: uploadFileNameSchema,
