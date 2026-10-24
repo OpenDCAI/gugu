@@ -1,11 +1,13 @@
 // An App page's member faces (画廊车道 §6): `getContext().chat.members[].avatar` is the face this host already draws for
 // someone (`displayAvatarUrl`: their upload, else their default face), made small — 128px, twice the largest App avatar
-// (`--em-avatar-lg` 64), WebP — as a `data:` URL, which the App's CSP already lets in (`app-csp.ts` img-src). Drawn
+// (`--em-avatar-lg` 64), WebP for images and the original SVG for Boring defaults — as a `data:` URL, which the App's CSP already lets in (`app-csp.ts` img-src). Drawn
 // here, in a renderer: the phone's host calls it, and the desktop's main process asks the window for it.
 import { normalizeAvatarUrl } from '@gugu/core/shared/ui/avatarUrl'
 import { displayAvatarUrl } from './dicebearAvatar'
-import { parseAgentLook } from '../components/agentAvatar/look'
+import { isBuiltinAgentAvatarUrl, parseAgentLook } from '../components/agentAvatar/look'
 import { settledAgentLookPoster } from '../components/agentAvatar/posters'
+import { readIdentityDirectoryBridge } from './identityDirectoryBridge'
+import { isAssistantAvatar } from './avatarIdentity'
 import { redrawImage } from './redrawImage'
 
 const SIZE = 128
@@ -19,14 +21,21 @@ const drawn = new Map<string, Promise<string | null>>()
  * a default face over it (`displayAvatarUrl`) — and drawn again the next time it is asked.
  */
 export function memberFace(id: string, avatar: string | null): Promise<string | null> {
-  const key = `${id} ${avatar ?? ''}`
+  const directory = readIdentityDirectoryBridge()
+  const identity = directory?.getSnapshot()?.[id]
+  if (!identity) { directory?.ensure([id]); return Promise.resolve(null) }
+  const assistant = isAssistantAvatar(id)
+  const key = `${id} ${avatar ?? ''} ${identity.type} ${assistant}`
+  if (identity.type === 'agent' && !assistant && (avatar == null || isBuiltinAgentAvatarUrl(avatar))) {
+    return Promise.resolve(displayAvatarUrl(avatar, id, 'App member face', 'agent'))
+  }
   const known = drawn.get(key)
   if (known) return known
   // 形象地址:等引擎把这个形象的定格画好再缩(❌ 缩那张还没画好时顶着的同色图,这里画一次就缓存住了)
   const look = parseAgentLook(normalizeAvatarUrl(avatar))
   const face = look
     ? settledAgentLookPoster(look, id).then(draw, () => null)
-    : draw(displayAvatarUrl(avatar, id, 'App member face'))
+    : draw(displayAvatarUrl(avatar, id, 'App member face', identity.type))
   drawn.set(key, face)
   void face.then((url) => url === null && drawn.delete(key))
   return face

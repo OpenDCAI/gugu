@@ -14,6 +14,7 @@ import { Sheet } from '../ui/Sheet'
 import { Avatar } from '../Avatar'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { AgentProfilePane } from './AgentProfilePane'
+import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
 import { AgentLookPane } from './AgentLookPane'
 import { AgentSharePane } from './AgentSharePane'
 import { AgentHistoryPane } from './AgentHistoryPane'
@@ -44,6 +45,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
   // 通讯录里有这个人就读通讯录里最新的。
   const { contacts } = useContactsStore()
   const agent = contacts.find((contact) => contact.id === openedAgent.id) ?? openedAgent
+  const assistant = useIsAssistantAvatar(agent.id)
   const { presence, status: displayStatus } = useAgentDisplayStatus(agent.id)
   const headerStatus = useAgentHeaderStatusText(agent.id)
   const shownStatus = useShownAgentStatus().status(agent.id, displayStatus) // #7199 宿主闲时收回着 ≠ 不在线
@@ -55,7 +57,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
     closeRequestedRef.current = true
     onClose?.()
   }, [onClose])
-  const [activeTab, setActiveTab] = useState<AgentSettingsTab>(initialTab)
+  const [activeTab, setActiveTab] = useState<AgentSettingsTab>(initialTab === 'look' && !assistant ? 'profile' : initialTab)
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   // @@@1787 手机化(owner 审核:桌面双栏塞 390px 全挤坏)——mobile 单栏状态机:nav 全宽列表 ⇄ 详情页,
   // 出口/返回=左上箭头(手机导航规范),✗ 只留桌面。
@@ -70,6 +72,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
   const isSettingsTab = settingsSubTabs.includes(activeTab)
 
   function selectTab(tab: AgentSettingsTab) {
+    if (tab === 'look' && !assistant) return
     if (settingsSubTabs.includes(tab) && !settingsExpanded) {
       setSettingsExpanded(true)
     }
@@ -190,8 +193,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
               {t('settings.nav.profile')}
             </button>
 
-            {/* 形象 —— 给 agent 捏个样子(身体颜色 + 休息表情) */}
-            <Button
+            {assistant ? <Button
               variant="ghost"
               className={cx(agentSettingsTabClass(activeTab === 'look'), 'min-h-0 justify-start leading-[inherit]')}
               style={mobileTabStyle}
@@ -201,7 +203,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
               <Palette size={16} className="gg-as-il" aria-hidden="true" />
               <PaletteFilled size={16} className="gg-as-if" aria-hidden="true" />
               {t('settings.nav.look')}
-            </Button>
+            </Button> : null}
 
             {/* 分享 */}
             <button
@@ -427,7 +429,7 @@ export function AgentSettingsModal({ agent: openedAgent, onClose, initialTab = '
             </div>
             <div className={agentSettingsPaneClass(activeTab === 'look')}>
               {/* 只在这页开着时挂:里面有十几只会动的小鸟,藏着也跑是白烧 */}
-              {activeTab === 'look' ? <AgentLookPane {...paneProps} /> : null}
+              {assistant && activeTab === 'look' ? <AgentLookPane {...paneProps} /> : null}
             </div>
             <div className={agentSettingsPaneClass(activeTab === 'share-act')}>
               <AgentSharePane {...paneProps} />

@@ -139,7 +139,7 @@ export function GroupMembersSection({
   )
   // @@@445/#2470 海报 canvas 不走 React Avatar → 按同一口径预解析成员头像;小鸟的定格画好了会重渲染,这里跟着重读(海报按 URL 串判变)。
   useAgentLookPostersVersion()
-  const posterMemberUrls = groupAvatarMembers.map((m) => displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`))
+  const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
 
   // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
   const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
