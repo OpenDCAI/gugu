@@ -31,6 +31,7 @@ import { autoUpdatesFrom, pinsAutoUpdate } from '../../session/shared/extensions
 import { installAsks } from '../../session/shared/extensions/upgrade'
 import { firstRunRecordSchema, isGuguOwnApp, type FirstRunRecord } from '../../session/shared/extensions/first-run'
 import { phoneMarket } from './phoneMarket'
+import feeds from '../../../electron/updateFeeds.json'
 
 declare const __APP_VERSION__: string
 
@@ -519,6 +520,7 @@ const market = phoneMarket(
     },
   },
   (error) => log.warn({ error: error instanceof Error ? error.message : String(error) }, 'App market index not refreshed; the one in hand stays'),
+  (relativePath) => new URL(relativePath, feeds.market).href,
 )
 
 /** Packages read for an ask handed back (`return`), kept until the person's yes installs them (`given`): never fetched twice. */
