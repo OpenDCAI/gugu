@@ -127,14 +127,14 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     inputRef: receiveInput, clearOnSubmit: false, enterBehavior: mobile ? 'newline' as const : 'submit' as const }
   return <ThemeProvider theme={theme} target="documentElement">
     <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-      <div title={disabledReason} data-chat-composer-host="" data-sending={sending} hidden={hidden} style={{ display: takenOver ? 'none' : undefined }}>
+      <div title={disabledReason} data-chat-composer-host="" data-mobile-group={mobile && isGroupChat || undefined} data-sending={sending} hidden={hidden} style={{ display: takenOver ? 'none' : undefined }}>
         <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => { enqueueFiles(Array.from(event.target.files ?? [])); event.target.value = '' }} />
         <DraftRefPills refs={refs} onRemove={(link) => setRefs((held) => held.filter((ref) => ref.link !== link))} />
         <ChatComposerContextBands {...props} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
         <ChatComposer key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
           disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0 || refs.length > 0)}
-          placeholder={whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder'))}
+          placeholder={whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder'))}
           onInputChange={setText} onSubmit={(value) => { void handleSend(value) }} onMentionInsert={onMentionInsert}
           mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon} dataDropTypes={dataDropTypes} onDataDropped={onDataDropped}
           onFilesDropped={enqueueFiles} onImageFilesDropped={enqueueFiles}

@@ -7,6 +7,7 @@ import { CreateSessionPage } from '../../../apps/desktop/src/mobile/agent-watch/
 import { composerDrafts } from '../../../apps/desktop/src/session/renderer/features/sessions/composer-drafts'
 import { mobileCreationDraftKey } from '../../../apps/desktop/src/mobile/agent-watch/create-session-draft'
 import { createNode, createReactHarness, deferred } from '../../support/testHarness'
+import { readComposer, writeComposer } from '../../support/composerEditor'
 
 const rpc = vi.hoisted(() => ({ options: vi.fn(), models: vi.fn(), create: vi.fn() }))
 vi.mock('../../../apps/desktop/src/store/auth', async (original) => ({
@@ -54,13 +55,10 @@ afterEach(() => {
   harness.cleanup()
   Element.prototype.scrollTo = scrollTo
 })
-const input = () => harness.container.querySelector('textarea')!
-const send = () => harness.container.querySelector<HTMLButtonElement>('.aui-composer-send')!
+const input = () => harness.container.querySelector<HTMLElement>('[data-testid="prompt-editor"]')!
+const send = () => harness.container.querySelector<HTMLButtonElement>('[data-slot="composer-actions-end"] > button')!
 async function write(text: string) {
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input(), text)
-    input().dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  await act(async () => { writeComposer(input(), text) })
 }
 
 describe('phone first-send host readiness', () => {
@@ -70,12 +68,12 @@ describe('phone first-send host readiness', () => {
     const onCreated = vi.fn()
     await harness.render(createNode(CreateSessionPage, { device, onCreated }))
     await write('请检查\n明天的日程')
-    expect(input().disabled).toBe(false)
+    expect(input().getAttribute('contenteditable')).toBe('true')
     expect(send().disabled).toBe(true)
     expect(harness.container.querySelector('[data-testid="agent-watch-create-options-loading"]')).toBeTruthy()
-    await act(async () => { send().click(); input().closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    await act(async () => { send().click() })
     expect(rpc.create).not.toHaveBeenCalled()
-    expect(input().value).toBe('请检查\n明天的日程')
+    expect(readComposer(input())).toBe('请检查\n明天的日程')
     await act(async () => { reading.resolve(options); await reading.promise })
     expect(send().disabled).toBe(false)
     await act(async () => { input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
@@ -85,7 +83,7 @@ describe('phone first-send host readiness', () => {
     expect(onCreated).toHaveBeenCalledOnce()
   })
 
-  it('retains the same textarea and draft through option failure and retry, without sending defaults', async () => {
+  it('retains the same editor and draft through option failure and retry, without sending defaults', async () => {
     const first = deferred<SessionpageSessionCreateOptions>()
     const retry = deferred<SessionpageSessionCreateOptions>()
     rpc.options.mockReturnValueOnce(first.promise).mockReturnValueOnce(retry.promise)
@@ -94,7 +92,7 @@ describe('phone first-send host readiness', () => {
     await write('保留我的任务')
     await act(async () => { first.reject(new Error('host request timed out')); await Promise.resolve() })
     expect(input()).toBe(field)
-    expect(field.value).toBe('保留我的任务')
+    expect(readComposer(field)).toBe('保留我的任务')
     expect(send().disabled).toBe(true)
     expect(harness.container.querySelector('[data-testid="agent-watch-create-options-error"]')?.textContent).toContain('host request timed out')
     await act(async () => { (harness.container.querySelector('[data-testid="agent-watch-create-options-retry"]') as HTMLButtonElement).click() })
@@ -104,7 +102,7 @@ describe('phone first-send host readiness', () => {
     expect(send().disabled).toBe(true)
     expect(rpc.create).not.toHaveBeenCalled()
     await act(async () => { retry.resolve(options); await retry.promise })
-    expect(field.value).toBe('重试中继续编辑')
+    expect(readComposer(field)).toBe('重试中继续编辑')
     expect(send().disabled).toBe(false)
   })
 
@@ -120,8 +118,8 @@ describe('phone first-send host readiness', () => {
     expect(rpc.create).not.toHaveBeenCalled()
     await harness.render(createNode(CreateSessionPage, { ...props, device: { ...device, is_online: false } }))
     expect(input()).toBe(field)
-    expect(field.value).toBe('稍后再发')
-    expect(field.disabled).toBe(false)
+    expect(readComposer(field)).toBe('稍后再发')
+    expect(field.getAttribute('contenteditable')).toBe('true')
     expect(send().disabled).toBe(true)
     expect(harness.container.querySelector('[data-testid="agent-watch-offline-why"]')).toBeTruthy()
   })

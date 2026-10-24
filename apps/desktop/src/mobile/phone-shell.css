@@ -1,4 +1,37 @@
 /* Handset composition. Desktop surfaces keep their existing geometry and tokens. */
+[data-mobile-group] [data-slot='composer-bar'] {
+  display: grid;
+  grid-template-columns: var(--control-h-touch) minmax(0, 1fr) var(--control-h-touch);
+  align-items: end;
+  padding: var(--spacing-xs);
+}
+
+[data-mobile-group] [data-slot='composer-attachments'] {
+  grid-column: 1 / -1;
+  padding: var(--spacing-xs);
+}
+
+[data-mobile-group] [data-slot='composer-input'] {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: var(--control-h-touch);
+  padding: var(--spacing-sm);
+}
+
+[data-mobile-group] :is([data-slot='composer-toolbar'], [data-slot='composer-actions-start'], [data-slot='composer-actions-end']) {
+  display: contents;
+}
+
+[data-mobile-group] [data-slot='composer-actions-start'] > button {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+[data-mobile-group] [data-slot='composer-actions-end'] > button {
+  grid-column: 3;
+  grid-row: 2;
+}
+
 [data-phone-shell] {
   --phone-font-caption: calc((var(--font-caption) + var(--font-body)) / 2);
   --pane-pad-x: var(--spacing-lg);
