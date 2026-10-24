@@ -160,7 +160,9 @@ describe('first unread navigation paints its final landing', () => {
       return { id: row.dataset.msgId, top: row.getBoundingClientRect().top - bounds.top }
     }
     const surface = view.scroller()
+    const scrolled = new Promise<void>((resolve) => surface.addEventListener('scroll', () => resolve(), { once: true }))
     surface.scrollTop = surface.scrollHeight - surface.clientHeight - 500
+    await scrolled
     await until('the real scroll event withdraws tail following', () => !view.history.isFollowingTail())
     const before = visible()
     await view.closeSlot()
