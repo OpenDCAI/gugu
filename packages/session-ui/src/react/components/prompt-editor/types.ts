@@ -126,8 +126,8 @@ export interface CommandItem {
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface PromptEditorRef {
-  /** Focus the editor. */
-  focus(): void;
+  /** Focus the editor, optionally moving the caret to a document boundary. */
+  focus(position?: 'start' | 'end'): void;
   /** Clear all content. */
   clear(): void;
   /** Read the current serialized plain text. */
