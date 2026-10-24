@@ -4,12 +4,6 @@ on:
   push:
     branches: [main, dev]
   workflow_dispatch:
-    inputs:
-      experiment:
-        description: Temporary duration experiment; each run keeps all checks
-        type: choice
-        default: baseline
-        options: [baseline, serial, heap4096, duration-shards, e2e-fast]
 permissions:
   contents: read
   actions: read
@@ -18,8 +12,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   CI: true
-  # Temporary control: PR runs use this fallback; dispatch can select the same isolated mode.
-  GUGU_CI_EXPERIMENT: ${{ inputs.experiment || 'baseline' }}
+  # Temporary label for isolated PR timing controls; all runner settings stay literal.
+  GUGU_CI_EXPERIMENT: baseline
   GUGU_SUPABASE_URL: http://127.0.0.1:54321
   VITE_SUPABASE_URL: http://127.0.0.1:54321
   GUGU_SUPABASE_ANON_KEY: community-build-placeholder
@@ -168,7 +162,7 @@ jobs:
       - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
         env:
           GUGU_VITEST_JSON_REPORT: timing-results/unit-${{ matrix.shard }}.json
-          GUGU_CI_DURATION_SHARDS: ${{ env.GUGU_CI_EXPERIMENT == 'duration-shards' && '1' || '0' }}
+          GUGU_CI_DURATION_SHARDS: '0'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -233,8 +227,8 @@ jobs:
       - uses: ./.github/actions/setup-community
       - run: node scripts/ci-build-profile.mjs pnpm build:app:ci
         env:
-          NODE_OPTIONS: --max-old-space-size=${{ env.GUGU_CI_EXPERIMENT == 'heap4096' && '4096' || '6144' }}
-          GUGU_BUILD_SERIAL: ${{ env.GUGU_CI_EXPERIMENT == 'serial' && '1' || '0' }}
+          NODE_OPTIONS: --max-old-space-size=6144
+          GUGU_BUILD_SERIAL: '0'
       - run: /usr/bin/time -l pnpm rebuild:native
   android-build:
     name: Android debug build
@@ -340,7 +334,7 @@ jobs:
       - name: Run automatically discovered CI web specs
         run: pnpm exec playwright test --project=${{ matrix.playwright_project }} ${{ matrix.shard_arg }} --workers=1
         env:
-          GUGU_E2E_FAST: ${{ env.GUGU_CI_EXPERIMENT == 'e2e-fast' && '1' || '0' }}
+          GUGU_E2E_FAST: '0'
         shell: bash .github/actions/setup-playwright/run-in-container.sh {0}
       - name: Verify local Playwright artifacts exist
         if: ${{ always() }}
