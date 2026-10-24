@@ -1,4 +1,4 @@
-import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
+import { groupFileLink, type LinkPlace } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';
@@ -6,7 +6,6 @@ import { extensionIdForSession } from '@main/core/extensions/extension-session';
 import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
-import type { LinkPlace } from '@main/core/extensions/gugu-links';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';

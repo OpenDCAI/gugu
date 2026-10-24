@@ -67,6 +67,7 @@ export function PhoneAppFrame({
   missingTestId: string
 }) {
   const extensionId = kind.split('.')[0] ?? kind
+  const tabName = kind.slice(extensionId.length + 1)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const hostRef = useRef<ReturnType<typeof hostAppFrame> | null>(null)
   const onOpenWithRef = useRef(onOpenWith)
@@ -84,7 +85,6 @@ export function PhoneAppFrame({
 
   // The App as installed here now, and where its page is (a new version is another page).
   useEffect(() => {
-    const tabName = kind.split('.').slice(1).join('.')
     return reaction(
       () => {
         const manifest = installedExtensionsStore.isLoaded && installedExtensionsStore.isEnabled(extensionId) ? installedExtensionsStore.manifestFor(extensionId) : undefined
@@ -109,7 +109,7 @@ export function PhoneAppFrame({
       },
       { fireImmediately: true, equals: (a, b) => a.loaded === b.loaded && a.manifest === b.manifest },
     )
-  }, [extensionId, kind])
+  }, [extensionId, tabName])
 
   // What the host is told about where it is; read when the host starts and on every change.
   const bindingRef = useRef<Omit<PhoneAppBinding, 'capabilities'>>({ extensionId, tabId, tabName, chatId, locale: i18n.language, themeMode: 'light' })

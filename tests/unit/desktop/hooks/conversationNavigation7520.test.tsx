@@ -103,7 +103,7 @@ describe('file links use the same shell request', () => {
     mocked.file.mockImplementation((id: string) => new Promise((resolve) => held.set(id, () => resolve({ data: { chat_id: assistantChat } }))))
     let openedA!: ReturnType<typeof request>, openedB!: ReturnType<typeof request>
     await act(async () => { openedA = request({ kind: 'file', itemId: a }); openedB = request({ kind: 'file', itemId: b }) })
-    await vi.waitFor(() => expect(held.size).toBe(2))
+    await vi.waitFor(() => expect(mocked.file.mock.calls).toEqual([[a], [b]]))
     await act(async () => { held.get(first)!(); await (first === a ? openedA : openedB) })
     await act(async () => { held.get(second)!(); await (second === a ? openedA : openedB) })
     expect(openFile).toHaveBeenCalledOnce()
