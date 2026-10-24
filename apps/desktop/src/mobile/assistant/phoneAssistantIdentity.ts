@@ -15,12 +15,15 @@ export function publishPhoneAssistant(next: PhoneAssistantIdentity): void {
   for (const listener of listeners) listener()
 }
 
+export function readPhoneAssistantIdentity(): PhoneAssistantIdentity {
+  return current
+}
+
+export function subscribePhoneAssistantIdentity(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
 export function usePhoneAssistantIdentity(): PhoneAssistantIdentity {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => current,
-  )
+  return useSyncExternalStore(subscribePhoneAssistantIdentity, readPhoneAssistantIdentity, () => null)
 }

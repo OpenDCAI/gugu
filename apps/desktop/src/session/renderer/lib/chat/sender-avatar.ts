@@ -1,3 +1,5 @@
+import { subscribePhoneAssistantIdentity } from '@/mobile/assistant/phoneAssistantIdentity';
+import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import { observe } from 'mobx';
 import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
 import { displayAvatarUrl } from '@/lib/dicebearAvatar';
@@ -35,7 +37,7 @@ export function senderAvatarUrl(
 ): string | null {
   if (!fromId || !bridge) return null;
   let userId: string;
-  // 会话属主一定是 agent;`user:` 那一腿看身份自己说的 type。agent 的默认脸是咕咕小鸟,真人是生成脸。
+  // 会话属主一定是 agent;`user:` 那一腿看身份自己说的 type。agent 的默认脸是 Boring SVG,真人是原来的生成脸。
   let ownerIsAgent = false;
   if (fromId.startsWith('user:')) {
     userId = decodeTypedId('user', fromId, 'delivery from_id');
@@ -62,9 +64,13 @@ export function subscribeSenderAvatars(listener: () => void): () => void {
   const offIdentities = readIdentityDirectoryBridge()?.subscribe(listener) ?? (() => {});
   const offOwners = observe(sessionAgentNames.identities, () => listener());
   const offPosters = subscribeAgentLookPosters(listener);
+  const offAssistant = readAssistantShellBridge()?.subscribe(listener) ?? (() => {});
+  const offPhoneAssistant = subscribePhoneAssistantIdentity(listener);
   return () => {
+    offPhoneAssistant();
     offIdentities();
     offOwners();
     offPosters();
+    offAssistant();
   };
 }

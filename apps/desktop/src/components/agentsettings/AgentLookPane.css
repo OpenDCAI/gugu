@@ -416,18 +416,6 @@
   animation: gg-look-pop 260ms var(--ease-pop);
 }
 
-/* 「已经有兄弟穿这个颜色了」:球角上蹲着一只同色的小鸟(悬停看是谁) */
-.gg-look-taken {
-  position: absolute;
-  top: -5px;
-  right: -7px;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-capsule);
-  background: transparent;
-  object-fit: cover;
-  object-position: 50% 30%;
-}
 
 .gg-look-hint {
   margin-top: var(--spacing-md);

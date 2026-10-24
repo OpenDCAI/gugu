@@ -34,7 +34,7 @@ describe('the one settings nav', () => {
       ['assistant', 'connectors'],
       ['account', 'usage', 'subscriptions', 'activity'],
       ['general', 'interface', 'permissions', 'model', 'resource-monitor'],
-      ['sessions', 'repository', 'browser', 'devices', 'channels', 'apps', 'phone'],
+      ['sessions', 'browser', 'devices', 'channels', 'apps', 'phone'],
       ['about'],
     ])
   })

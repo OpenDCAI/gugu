@@ -23,6 +23,7 @@ let personSees: ReturnType<typeof rowOf>[] = [];
 
 async function rpc(name: string, args: Record<string, unknown>) {
   // Who may delete what is the folder's to say; here, everyone may delete everything.
+  if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null };
   if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
   if (name !== 'workspace_get_as') throw new Error(`no fake for ${name}`);
   const row = personSees.find((r) => r.id === args.p_item_id);

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, StrictMode } from 'react'
+import { act, StrictMode, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import {
@@ -221,6 +221,8 @@ function Probe() {
   const store = useChatStore()
   latestStore = store
   useReportChatOnScreen(store.activeChatId)
+  const { activeChatId, setFollowingTail } = store
+  useEffect(() => { setFollowingTail(true) }, [activeChatId, setFollowingTail])
   return createNode(
     'div',
     { 'data-testid': 'messages' },

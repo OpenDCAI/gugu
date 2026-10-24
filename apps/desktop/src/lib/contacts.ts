@@ -37,13 +37,9 @@ const FRIEND_REQUEST_HISTORY_LIMIT = 100
 const identity = () => dataClient.schema('identity')
 const chat = () => dataClient.schema('chat')
 
-/**
- * 改自己名下 agent 的那一行(identity.users;RLS 只放行主人改 display_name / bio / avatar 这几列)。
- * onlyIfNoAvatar = 只在头像还是空的时候写(出生定形象:主人的几台设备同时在定,也只有先到的那台写得进去)。
- */
-function updateOwnedAgentRow(agentUserId: string, payload: Record<string, unknown>, onlyIfNoAvatar = false) {
-  const row = identity().from('users').update(dbPayload(payload)).eq('id', agentUserId).eq('type', 'agent')
-  return (onlyIfNoAvatar ? row.is('avatar', null) : row).select(DISPLAY_IDENTITY_SELECT)
+/** Update an owned agent's editable identity fields. */
+function updateOwnedAgentRow(agentUserId: string, payload: Record<string, unknown>) {
+  return identity().from('users').update(dbPayload(payload)).eq('id', agentUserId).eq('type', 'agent').select(DISPLAY_IDENTITY_SELECT)
 }
 // @@@no-email-select (#635) - email is PII and MUST NOT be fetched for peers. identity.users RLS is
 // @@@1761 device_id:云 agent 判定(isCloudAgentMarked)需要——好友的云 agent 无 agent_type 富化,只有 'cloud:' 前缀可判
@@ -628,15 +624,6 @@ export const contactsService = {
     return buildLookUrl(data.publicUrl, look.rest, look.wear)
   },
 
-  /**
-   * 出生定形象:只在这只 agent 的头像**还是空的**时写(主人的几台设备可能同时在定,先到先得;
-   * 晚到的那台什么都不改、返回 null,等 agent_changed 把先到的那份带过来)。
-   */
-  async claimAgentLook(agentUserId: string, look: AgentLook): Promise<ContactUser | null> {
-    const { data, error } = await updateOwnedAgentRow(agentUserId, { avatar: contactsService.agentLookAvatarUrl(look) }, true).maybeSingle()
-    if (error) throw toUserFacingError(error, genericFailure())
-    return (data as ContactUser | null) ?? null
-  },
 
   async uploadOwnedAgentAvatar(
     agentUserId: string,

@@ -25,8 +25,6 @@ vi.mock('@renderer/lib/ipc', () => ({
 
 const { createMachineSettingsHost, SettingsHostProvider } = await import('./settings-host');
 const { useAppSettingsKey } = await import('./use-app-settings-key');
-const { DeviceSettingsTag } = await import('./components/DeviceSettingsScope');
-const { LOCAL_SETTINGS_HOST } = await import('./settings-host');
 
 type Api = ReturnType<typeof useAppSettingsKey<'project'>>;
 
@@ -50,8 +48,7 @@ describe('设置里跟机器走的那几组(默认 tmux、仓库)跟着所选机
           React.createElement(
             SettingsHostProvider,
             { value: host },
-            React.createElement(Probe),
-            React.createElement(DeviceSettingsTag)
+            React.createElement(Probe)
           )
         )
       );
@@ -103,11 +100,4 @@ describe('设置里跟机器走的那几组(默认 tmux、仓库)跟着所选机
     expect(api?.isLoading).toBe(true);
   });
 
-  it('页里只有这一行按机器:选了 d22 时行标题旁标出机器名,本机时不标', async () => {
-    const tag = () => dom.window.document.querySelector('[data-slot="device-settings-tag"]')?.textContent ?? null;
-    await mount(remote().host);
-    expect(tag()).toBe('Linux 1');
-    await mount(LOCAL_SETTINGS_HOST);
-    expect(tag()).toBeNull();
-  });
 });

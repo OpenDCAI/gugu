@@ -489,7 +489,7 @@ export type ExtensionHostEvent =
    * `resync` (a working copy only) means "re-read what you care about": the watcher lost its place. It carries no paths
    * on purpose — a guessed set would be worse.
    */
-  | { type: 'filesChanged'; place: AppPlace; change: ExtensionFileChangeBatch }
+  | { type: 'filesChanged'; watchId: string; place: AppPlace; change: ExtensionFileChangeBatch }
   /**
    * What the app is showing moved — a pane switched tabs, the view split, the
    * user changed session, or the window gained or lost the foreground.

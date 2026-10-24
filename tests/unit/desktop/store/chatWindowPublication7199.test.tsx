@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReactHarness, message } from '../../../support/testHarness'
-import { useChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowPublication'
+import { createReactHarness, deferred, message } from '../../../support/testHarness'
+import { chatService } from '../../../../apps/desktop/src/lib/chat'
+import { openImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { openCachedChatWindow, useChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowPublication'
 
 let harness: ReturnType<typeof createReactHarness>
 let first: ReturnType<typeof useChatWindowCache>, second: ReturnType<typeof useChatWindowCache>
@@ -41,4 +44,32 @@ describe('shared message cache publication', () => {
     expect(observe).not.toHaveBeenCalled()
     stop()
   })
+  it('publishes cold bodies while watermarks and overlays are still pending', async () => {
+    await harness.render(<CacheOwner index={1} />)
+    const body = deferred<ReturnType<typeof message>[]>()
+    const watermarks = deferred<Record<string, number>>()
+    const overlays = deferred<void>()
+    vi.spyOn(chatService, 'getMessages').mockImplementation(() => body.promise)
+    vi.spyOn(chatService, 'getOtherMembersReadSeqs').mockImplementation(() => watermarks.promise)
+    const repository = await openImRepository('user', { adapter: createMemoryLocalSyncDb() })
+    const ready = vi.fn(), readSeqs = vi.fn()
+    const read = openCachedChatWindow({
+      chatId: 'topic', userId: 'user', cache: first.cache, history: first.cache.history('topic'), getRepository: async () => repository,
+      expectedTailSeq: null, hasPositiveUnread: false,
+      observer: { current: () => true, painted: vi.fn(), ready, readSeqs },
+      commit: (rows) => { first.cache.set('topic', rows) },
+      revalidate: () => overlays.promise,
+    })
+    await Promise.resolve()
+    const rows = [message({ chat_id: 'topic' })]
+    body.resolve(rows)
+    await vi.waitFor(() => expect(ready).toHaveBeenCalled())
+    expect(first.cache.get('topic')).toEqual(rows)
+    expect(readSeqs).not.toHaveBeenCalled()
+    watermarks.resolve({ peer: 1 }); overlays.resolve()
+    await read
+    expect(readSeqs).toHaveBeenCalledWith({ peer: 1 })
+    repository.close()
+  })
+
 })

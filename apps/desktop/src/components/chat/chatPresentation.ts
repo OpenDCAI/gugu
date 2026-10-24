@@ -58,8 +58,8 @@ export const AGENT_HERO_OVERHANG_PX = 24
  * 没有小鸟头顶那圈留白 —— 放大、上移、探出都会把脸顶出窗格被裁,所以它保持原来的尺寸、居中。
  * 与 Avatar 的判法一致:显式给了一个不是形象的地址(哪怕是坏的)就不是小鸟。
  */
-export function isAgentHeroBird(avatarUrl: string | null | undefined): boolean {
-  return avatarUrl == null || isLookAvatar(avatarUrl)
+export function isAgentHeroBird(avatarUrl: string | null | undefined, assistant: boolean): boolean {
+  return assistant && (avatarUrl == null || isLookAvatar(avatarUrl))
 }
 
 /**

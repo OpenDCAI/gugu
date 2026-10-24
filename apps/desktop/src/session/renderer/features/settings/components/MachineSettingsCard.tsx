@@ -1,4 +1,3 @@
-import React from 'react'
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key'
 import { Input } from '@renderer/lib/ui/input'
 import { Switch } from '@/components/ui/Switch'
@@ -7,8 +6,11 @@ import { PRODUCT_NAME } from '@shared/app-identity'
 import { DeviceSettingsNotice } from './DeviceSettingsScope'
 import { ResetToDefaultButton } from './ResetToDefaultButton'
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsPrimitives'
+import { DeviceScopePicker } from '@renderer/features/remote-hosts/device-scope-picker'
+import { settingsDeviceStore } from '@renderer/features/remote-hosts/device-scope-store'
+import { EnableTmuxRow } from './SessionSettingsRows'
 
-const RepositorySettingsCard: React.FC = () => {
+export function MachineSettingsCard() {
   const {
     value: localProject,
     update: updateLocalProject,
@@ -25,7 +27,7 @@ const RepositorySettingsCard: React.FC = () => {
   const localProjectBusy = localProjectLoading || localProjectSaving
 
   return (
-    <SettingsGroup>
+    <SettingsGroup title={<DeviceScopePicker store={settingsDeviceStore} />}>
       {/* 看的是别的机器(#6264):离线 / 太旧时说一句,下面照旧画、一起灰。 */}
       <DeviceSettingsNotice error={localProjectError} hasData={localProject !== undefined} />
       <SettingsRow
@@ -68,8 +70,7 @@ const RepositorySettingsCard: React.FC = () => {
           </>
         }
       />
+      <EnableTmuxRow />
     </SettingsGroup>
   )
 }
-
-export default RepositorySettingsCard

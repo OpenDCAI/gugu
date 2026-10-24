@@ -193,8 +193,7 @@ function isZh(locale) {
   return String(locale || '').toLowerCase().startsWith('zh')
 }
 
-// owner 10-11: a group's folder is 群文件夹, a private chat's 文件夹, and a topic goes by the chat it grew out of — which is
-// what ctx.chat.groupId says (set for a group and a topic of one, null otherwise).
+// The shared slot is bound to the source group or private chat; topics use that same folder.
 function stringsFor(locale, chat) {
   const strings = isZh(locale) ? STRINGS.zh : STRINGS.en
   const folder = chat?.groupId ? strings.groupFolder : strings.folder

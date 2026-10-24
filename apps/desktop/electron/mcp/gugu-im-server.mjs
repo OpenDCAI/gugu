@@ -614,7 +614,7 @@ async function currentAuthUserId(deps) {
   throw new Error('workspace write requires an authenticated owner token with a JWT sub')
 }
 
-// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是这个群/话题的成员判,
+// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是来源群/私聊的成员判,
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
@@ -771,7 +771,8 @@ export async function extensionCheckScopeOf(context, { chatId, itemId }, injecte
   const deps = createDeps(context, injected)
   // L5 S1 rerun: an agent passed the group's public_id ("208920") and was told the file is in some other chat. chat_id
   // reads here the way every other tool reads it — one resolver — so either spelling of the same group is that group.
-  const chat = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const addressed = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const chat = addressed ? (await topicSourceChatIdOf(deps, addressed)) ?? addressed : null
   if (itemId) {
     const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: String(itemId) }, 'app_check')
     const itemChat = String(item.chat_id)
@@ -2381,7 +2382,7 @@ export const TOOL_DEFS = [
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from one existing message, to take a question out of a busy chat: only its members are notified. It is an ordinary chat: message_send / message_history on the returned chat_id. Only a person can delete it.',
+    description: 'Open a topic from a message. Only participants are notified. Use its chat_id for messages; files and Apps use the source chat. Only a person can delete it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),

@@ -6,6 +6,7 @@ import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
 import { fileSync } from './file-sync';
+import { resourceChatIdOf } from '@shared/extensions/app-files-core';
 
 /**
  * An App's MCP program as a caller of the App (摩擦单 F16, 真源 §4): the same `gugu` a page has but for a page's own
@@ -35,6 +36,7 @@ export interface ExtensionHandedFile {
 /** A1 A chat an agent handed a program in one call (`format: "gugu-chat"`): the agent is in it, checked at the gateway. */
 export interface ExtensionHandedChat {
   chatId: string;
+  resourceChatId: string;
   agentUserId: string;
 }
 
@@ -70,7 +72,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // is the agent's doing. In a chat that call handed it (A1), or the chat of a file it handed it (G5), what it lists,
   // makes, renames and removes is that agent's too, judged by the agent's membership. Anything else — and every verb made
   // in no call: as a page, by the capability words.
-  const filePage = (args: Record<string, unknown>, callId: string | undefined) => {
+  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean) => {
     const call = callId === undefined ? undefined : calls.get(callId);
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isLocal(ref)) {
@@ -79,7 +81,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
-    const given = call && typeof chat === 'string' ? [...call.files, ...call.chats].find((handed) => handed.chatId === chat) : undefined;
+    const given = call && typeof chat === 'string' ? call.files.find((handed) => handed.chatId === chat)
+      ?? call.chats.find((handed) => (resource ? handed.resourceChatId : handed.chatId) === chat) : undefined;
     return given ? { pageId, extensionId, handed: null, asAgent: given.agentUserId } : { pageId, extensionId, handed: null };
   };
   const callerFor = (callId: string | undefined): BridgeCaller => ({
@@ -87,7 +90,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     kind: 'program',
     binding: null,
     pageId,
-    filePage: (args) => filePage(args, callId),
+    filePage: (args, resource = false) => filePage(args, callId, resource),
     hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
     // Only an agent's call is stamped with an id (`gugu/call`): a person's page calling the program is not.
     ...(callId === undefined ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
@@ -174,7 +177,7 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
       const refusal = new Error(`${named}: not a chat you are in, so it was not handed over`);
       let chatId = named.trim();
       if (/^\d+$/.test(chatId)) {
-        const { data, error } = await client.from('chats').select('id').eq('public_id', chatId);
+        const { data, error } = await client.rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: agentUserId });
         if (error) throw doorFailed(named, 'which chat this number is', error);
         const rows = (data as { id: string }[] | null) ?? [];
         if (rows.length !== 1) throw refusal;
@@ -183,7 +186,9 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
       const { error } = await client.rpc('workspace_status_as', { p_chat_id: chatId, p_as_user_id: agentUserId });
       if (error?.hint === 'workspace_not_member') throw refusal;
       if (error) throw doorFailed(named, 'that you are in this chat', error);
-      return { chatId, agentUserId };
+      const token = await currentAccountAccessToken();
+      if (!token) throw new Error('Not signed in, so no chat can be handed over');
+      return { chatId, resourceChatId: await resourceChatIdOf(token, chatId, agentUserId), agentUserId };
     }),
   );
 }

@@ -31,9 +31,9 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
   it('不跟尾但窗口含尾:自己消息的确认行替换乐观行后留在屏上,别人的新消息也进来并计入未读泡', () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.setFollowingTail(false) // 读者往上滚了一点
     const optimistic = row(-1, { id: 'mine', is_mine: true, local_send_state: 'sending' })
     w.update((prev) => [...prev, optimistic])
+    w.setFollowingTail(false) // 本视口已发出,等待 ACK 时往上滚
     expect(w.getSnapshot().messages.at(-1)?.id).toBe('mine')
 
     // 送达:权威行(同 id,seq=11)替换乐观行
@@ -46,10 +46,45 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     expect(w.getSnapshot().newMessageCount).toBe(1)
   })
 
-  it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', () => {
+  it.each([false, true])('seeds a cold viewport before its queued historical reveal (pending=%s)', async (pending) => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', pending ? [row(-1, { id: 'pending', is_mine: true, local_send_state: 'sending' })] : [])
+    w.setFollowingTail(false)
+    w.establishTail(range(156, 185))
+    expect(w.getSnapshot().messages.filter((message) => message.seq > 0).map((message) => message.seq))
+      .toEqual(range(156, 185).map((message) => message.seq))
+    expect(w.getSnapshot().hasNewer).toBe(false)
+    expect(w.isFollowingTail()).toBe(false)
+    expect(await w.restoreAnchor(async () => ({ messages: range(1, 20), hasNewer: true }))).toBe(true)
+    expect(w.getSnapshot().messages[0]).toMatchObject({ id: 'm-1', seq: 1 })
+    expect(w.getSnapshot().hasNewer).toBe(true)
+  })
+
+  it('does not join a disconnected tail to an established off-tail range', () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(61, 100))
+    w.setFollowingTail(false)
+    w.establishTail(range(156, 185))
+    expect(seqs(w)).toEqual(range(61, 100).map((message) => message.seq))
+    expect(w.getSnapshot().hasNewer).toBe(true)
+    expect(w.isFollowingTail()).toBe(false)
+  })
+
+  it('snapshot and pending with the same UUID produce one confirmed row', () => {
+    const w = new ChatHistoryWindow('owner')
+    w.reset('chat-1', range(1, 40))
+    w.update((previous) => [...previous, row(-1, { id: 'same-id', is_mine: true, local_send_state: 'sending' })])
+    w.establishTail([...range(12, 40), row(41, { id: 'same-id', is_mine: true })])
+    const matches = w.getSnapshot().messages.filter((message) => message.id === 'same-id')
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toMatchObject({ seq: 41, local_send_state: null })
+    expect(new Set(w.getSnapshot().messages.map((message) => message.id)).size).toBe(w.getSnapshot().messages.length)
+  })
+
+  it('阴控:离尾的历史段不接越过上界的别人消息(不在窗口里留洞),只亮 hasNewer', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.replace(range(1, 10), false) // 定位到一段历史,尾部之后还有
+    await w.restoreAnchor(async () => ({ messages: range(1, 10), hasNewer: true })) // 定位到一段历史,尾部之后还有
     expect(w.getSnapshot().hasNewer).toBe(true)
     w.update((prev) => [...prev, row(50)])
     expect(seqs(w)).toEqual(range(1, 10).map((m) => m.seq))
@@ -60,15 +95,20 @@ describe('ChatHistoryWindow 尾部接续 (C3)', () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
     w.setFollowingTail(false)
+    const before = w.getSnapshot()
     expect(w.followForSend()).toBe(true)
     expect(w.isFollowingTail()).toBe(true)
+    expect(w.getSnapshot()).toMatchObject({ navigation: 'latest', navigationVersion: before.navigationVersion + 1,
+      viewVersion: before.viewVersion, messages: before.messages })
   })
 
   it('发送钉底:离尾 ⇒ 交给回最新页;拉取期间自己的确认行不消失,并进最新页', async () => {
     const w = new ChatHistoryWindow('owner')
     w.reset('chat-1', range(1, 10))
-    w.replace(range(1, 10), false)
+    await w.restoreAnchor(async () => ({ messages: range(1, 10), hasNewer: true }))
+    const before = w.getSnapshot()
     expect(w.followForSend()).toBe(false)
+    expect(w.getSnapshot()).toBe(before)
 
     const pages = [deferred<MessageItem[]>(), deferred<MessageItem[]>()]
     let calls = 0

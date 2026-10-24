@@ -459,7 +459,6 @@ export default {
       "model": "Models",
       "phone": "This phone",
       "permissions": "Permissions",
-      "repository": "Repository",
       "sessions": "Tasks",
       "subscriptions": "Subscriptions",
       "usage": "Usage"

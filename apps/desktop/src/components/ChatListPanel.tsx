@@ -779,6 +779,9 @@ export function ChatListPanel({
       if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
       const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
       sessionPage.openChat(topic?.source_chat_id ?? chat.id, beside)
+      if (chat.unread_locator && !topic) void openUnreadChat(chat.id, selectedChatId === chat.id).catch((error) => {
+        chatListLog.error({ error: String(error) }, 'unread locator open failed')
+      })
       if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id!, focusComposer: focusTarget === 'composer' })
       return
     }
@@ -808,7 +811,7 @@ export function ChatListPanel({
       setActiveChatId(chat.id)
     }
     onChatSelected?.(focusTarget)
-  }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId])
+  }, [inSidebar, onChatSelected, openUnreadChat, setActiveChatId, selectedChatId])
 
   const toggleTopics = (chatId: string) => {
     setCollapsedTopicSources((previous) => {
@@ -821,7 +824,7 @@ export function ChatListPanel({
 
   // 手机整行只导航;桌面重复激活当前来源行才收起/展开,⌘ 点照常拼到右边。
   const activateChatRow = (chat: ChatItem, beside = false) => {
-    if (mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
+    if (chat.unread_locator || mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
       selectChat(chat, 'composer', beside)
       return
     }

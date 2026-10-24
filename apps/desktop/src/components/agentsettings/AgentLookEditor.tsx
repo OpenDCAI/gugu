@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentStatusLabel } from '@gugu/core/shared/agentStatusPresentation'
 import { Palette, Sparkles } from '@/lib/icons'
@@ -7,7 +7,7 @@ import { agentStatusText } from '../../lib/agentStatusText'
 import { useToast } from '../toastContext'
 import { Button } from '../ui/Button'
 import { AgentAvatar } from '../agentAvatar/AgentAvatar'
-import { agentLookPoster, useAgentLookPostersVersion } from '../agentAvatar/posters'
+import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { wearKey } from '../agentAvatar/engine/outfitCatalog'
 import { BODY_CHROMA, BODY_COLORS, BODY_LIGHTNESS, REST_FACES } from '../agentAvatar/engine/identity'
 import type { ExpressionId } from '../agentAvatar/engine/spec'
@@ -82,7 +82,6 @@ export function AgentLookEditor({
   hasSavedLook = false,
   usesPhoto = false,
   isOwned = true,
-  siblings = [],
   onSave,
 }: {
   id: string
@@ -92,7 +91,6 @@ export function AgentLookEditor({
   hasSavedLook?: boolean
   usesPhoto?: boolean
   isOwned?: boolean
-  siblings?: readonly { name: string; look: AgentLook }[]
   onSave: (look: AgentLook) => Promise<void>
 }) {
   const { t } = useTranslation('agents')
@@ -124,12 +122,6 @@ export function AgentLookEditor({
     for (const id of timers.current) clearTimeout(id)
   }, [])
 
-  const takenBy = useMemo(() => {
-    const byColor = new Map<number, string[]>()
-    for (const s of siblings) byColor.set(s.look.color, [...(byColor.get(s.look.color) ?? []), s.name])
-    return byColor
-  }, [siblings])
-
   const dirty = !sameLook(draft, current)
   const canSave = isOwned && !saving && !rolling && (dirty || !hasSavedLook)
   const editable = isOwned && !saving && !rolling
@@ -151,10 +143,10 @@ export function AgentLookEditor({
     if (!editable) return
     if (tab === 'outfit') {
       // 装扮页签里的骰子只换装扮:颜色、表情不动
-      pick({ ...draft, wear: rollWear(draft.color, siblings.map((s) => s.look), Math.random) })
+      pick({ ...draft, wear: rollWear(draft.color, [], Math.random) })
       return
     }
-    const final = rollLook(siblings.map((s) => s.look), draft, Math.random)
+    const final = rollLook([], draft, Math.random)
     if (prefersReducedMotion()) {
       setDraft(final)
       setPulse((n) => n + 1)
@@ -162,8 +154,8 @@ export function AgentLookEditor({
     }
     setRolling(true)
     let at = 0
-    // 转动的那几跳只换颜色、表情,装扮固定成此刻穿的那身(默认装扮随颜色推导,不固定就会每跳换一身、等素材卡顿)
-    let prev: AgentLook = { ...draft, wear: wornOf(draft, id) }
+    // 转动的那几跳只换颜色、表情,装扮固定成此刻穿的那身
+    let prev: AgentLook = { ...draft, wear: wornOf(draft) }
     ROLL_STEPS.forEach((step, i) => {
       at += step
       const last = i === ROLL_STEPS.length - 1
@@ -313,7 +305,6 @@ export function AgentLookEditor({
                   onKeyDown={(e) => moveInGrid(e, colors, colorIndex, COLOR_COLUMNS, (color) => pick({ ...draft, color }))}
                 >
                   {colors.map((color) => {
-                    const users = takenBy.get(color)
                     const selected = color === draft.color
                     return (
                       <Button
@@ -325,15 +316,13 @@ export function AgentLookEditor({
                         disabled={!isOwned}
                         className="gg-look-cell gg-look-orb-cell"
                         data-color={colorSlug(color)}
-                        title={users ? t('settings.look.takenBy', { names: users.join('、') }) : colorName(color)}
+                        title={colorName(color)}
                         onClick={() => pick({ ...draft, color })}
                         style={orbVars(color)}
                       >
                         <span className="gg-look-orb">
                           {selected ? <span className="gg-look-check" aria-hidden="true"><CheckMark /></span> : null}
-                          {users ? (
-                            <img className="gg-look-taken" src={agentLookPoster({ color, rest: 'neutral', wear: [] }, '')} alt="" aria-hidden="true" draggable={false} />
-                          ) : null}
+
                         </span>
                         <span className="gg-look-cell-label">{colorName(color)}</span>
                       </Button>
@@ -349,7 +338,7 @@ export function AgentLookEditor({
                   hint={t('settings.look.facesDailyHint')}
                   faces={REST_FACES}
                   draft={draft}
-                  worn={wornOf(draft, id)}
+                  worn={wornOf(draft)}
                   isOwned={isOwned}
                   faceName={faceName}
                   pulse={facePulse}
@@ -361,7 +350,7 @@ export function AgentLookEditor({
                   hint={t('settings.look.facesBoldHint')}
                   faces={BOLD_REST_FACES}
                   draft={draft}
-                  worn={wornOf(draft, id)}
+                  worn={wornOf(draft)}
                   isOwned={isOwned}
                   faceName={faceName}
                   pulse={facePulse}
@@ -371,7 +360,7 @@ export function AgentLookEditor({
               </>
             ) : (
               <AgentLookOutfits
-                worn={wornOf(draft, id)}
+                worn={wornOf(draft)}
                 isDefault={draft.wear === undefined}
                 editable={editable}
                 onChange={(wear) => pick({ ...draft, wear })}

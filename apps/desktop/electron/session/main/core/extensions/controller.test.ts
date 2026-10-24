@@ -625,7 +625,7 @@ describe('卸载时 tab 还开着(#6656)', () => {
     registerExtensionBridge();
     const asked = (await bridgeHandlers.get(EXTENSION_BRIDGE_CHANNEL)!(
       { sender: { id: surface.id, session: surface.session } },
-      { method: 'filesWatch', args: { place: { session: 'task-1' }, on: true } },
+      { method: 'filesWatch', args: { watchId: 'working-copy', place: { session: 'task-1' }, on: true } },
     )) as { ok: boolean };
     expect(asked).toMatchObject({ ok: true });
     await watching.promise;

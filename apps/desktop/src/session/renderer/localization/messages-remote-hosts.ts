@@ -182,7 +182,6 @@ export const enUSRemoteHostMessages = {
   'deviceScope.subtitle.integrations': 'Connect external services and tools on {device}.',
   'deviceScope.subtitle.mcp': "MCP servers on {device}",
   'deviceScope.subtitle.automations': 'Run agents on a schedule across projects on {device}',
-  'deviceScope.subtitle.repository': 'Configure how projects are stored on {device}.',
   // ── 机器选择器(各处同一个):名字后面那一小段 ─────────────────────────────────
   'machinePicker.offline': 'Offline',
   'machinePicker.asleep': 'Asleep',
@@ -368,7 +367,6 @@ export const zhCNRemoteHostMessages: Record<RemoteHostMessageKey, string> = {
   'deviceScope.subtitle.integrations': '连接 {device} 上的外部服务和工具。',
   'deviceScope.subtitle.mcp': '{device} 上的 MCP server',
   'deviceScope.subtitle.automations': '按计划在 {device} 的项目中运行智能体',
-  'deviceScope.subtitle.repository': '配置项目在 {device} 上的存放方式。',
   'machinePicker.offline': '离线',
   'machinePicker.asleep': '休息中',
   'machinePicker.waking': '正在醒来…',

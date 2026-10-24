@@ -872,7 +872,6 @@ export default {
       "interface": "侧栏与会话页的外观",
       "model": "咕咕提供的模型与开关",
       "sessions": "会话的默认行为",
-      "repository": "项目仓库",
       "browser": "会话里的浏览器",
       "about": "版本与更新"
     },

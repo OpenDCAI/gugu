@@ -39,7 +39,7 @@ describe('公开加入页的 owner 行是署名，不是身份投影', () => {
     const html = joinPage(null)
     expect(html, '署名文字仍在').toContain('阿力')
     // agent 自己的头像位是身份投影:没上传 → 咕咕小鸟(canvas),一只;署名行不得再多出任何一张生成脸。
-    expect(html.split('data-agent-avatar=""').length - 1, 'agent 自己那一只小鸟').toBe(1)
+    expect(html.split('data-agent-avatar-boring=').length - 1, 'the agent default SVG').toBe(1)
     expect(generatedFaceCount(html), '署名行不得生成脸').toBe(0)
     expect(html, '也不得留一个空头像位').not.toContain('data-avatar-empty')
   })

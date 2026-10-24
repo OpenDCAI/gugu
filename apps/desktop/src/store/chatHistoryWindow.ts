@@ -119,8 +119,9 @@ export class ChatHistoryWindow {
    */
   followForSend = (): boolean => {
     if (this.state.hasNewer) return false
-    this.setFollowingTail(true)
-    return true
+    const following = this.setFollowingTail(true)
+    if (following) this.publish({ ...this.state, navigation: 'latest', navigationVersion: this.state.navigationVersion + 1 })
+    return following
   }
 
   isFollowingTail = (): boolean => this.followingTail && !this.state.hasNewer && this.state.loading === null
@@ -150,7 +151,8 @@ export class ChatHistoryWindow {
     }
     const upper = maxMainlineSeq(previous.messages)
     const lower = oldestSeq(previous.messages)
-    const pending = incoming.filter((row) => row.seq < 1)
+    const pending = incoming.filter((row) => row.seq < 1
+      && (previous.loading === 'latest' || previous.messages.some((existing) => existing.id === row.id)))
     // C3 — 窗口含尾(无 hasNewer)时,seq 越过上界的行就是尾巴在继续长:接上(按头部封顶,读者看的那段
     // 不动;超出容量才截尾并亮 hasNewer)。从前一律丢弃,自己刚发的消息确认后从屏上消失、新消息「不来」。
     // 窗口是离尾的历史段时不接(会在窗口里留洞,增量游标会跳过洞里的行);唯一例外是正在拉最新页时
@@ -166,16 +168,6 @@ export class ChatHistoryWindow {
       newMessageCount: previous.newMessageCount + received })
   }
 
-  /** Explicit navigation (e.g. unread locator) replaces the range and cancels its old requests. */
-  replace = (updater: MessageItem[] | ((previous: MessageItem[]) => MessageItem[]), reachedTail = true): void => {
-    this.invalidate()
-    this.followingTail = false
-    const messages = typeof updater === 'function' ? updater(this.state.messages) : updater
-    this.commit(boundRows(messages, MAX_WINDOW), { change: 'anchor', navigation: 'anchor', navigationVersion: this.state.navigationVersion + 1,
-      hasNewer: !reachedTail || this.state.latestSeen > maxMainlineSeq(messages),
-      latestSeen: Math.max(this.state.latestSeen, maxMainlineSeq(messages)), newMessageCount: 0 })
-  }
-
   /** A full cold-start delta cannot be joined to a disconnected cached range. */
   establishTail = (messages: MessageItem[]): void => {
     if (maxMainlineSeq(messages) < maxMainlineSeq(this.state.messages)) {
@@ -184,11 +176,13 @@ export class ChatHistoryWindow {
     }
     if (this.followingTail && !this.state.hasNewer && !this.state.loading) {
       const arrivedAfterSnapshot = this.state.messages.filter((row) => row.seq < 1 || row.seq > maxMainlineSeq(messages))
-      const next = mergeMessagesById(messages, arrivedAfterSnapshot, this.state.chatId!)
+      const retained = oldestSeq(messages) <= maxMainlineSeq(this.state.messages) + 1 ? this.state.messages : []
+      const next = mergeMessagesById(retained, mergeMessagesById(arrivedAfterSnapshot, messages, this.state.chatId!), this.state.chatId!)
       const hasNewer = this.state.latestSeen > maxMainlineSeq(next)
       this.followingTail = !hasNewer
       this.commit(boundRows(next, tailBound(this.state.messages)), { hasNewer, latestSeen: Math.max(this.state.latestSeen, maxMainlineSeq(next)), change: 'update' })
     } else {
+      if (maxMainlineSeq(this.state.messages) > 0) this.commit(this.state.messages, { hasNewer: this.state.hasNewer || maxMainlineSeq(messages) > maxMainlineSeq(this.state.messages) })
       this.update(mergeMessagesById(this.state.messages, messages, this.state.chatId!))
     }
   }
@@ -221,6 +215,7 @@ export class ChatHistoryWindow {
     if (direction === 'latest') this.invalidate()
     else if (this.state.loading || (direction === 'newer' && !this.state.hasNewer)) return false
     const before = this.state
+    const cold = !before.messages.some((row) => row.seq > 0)
     if (direction === 'older' && (!before.hasOlder || oldestSeq(before.messages) === 1)) return false
     const cursor = direction === 'older' ? oldestSeq(before.messages) : maxMainlineSeq(before.messages)
     if (direction !== 'latest' && (!Number.isFinite(cursor) || cursor < 1)) return false
@@ -235,15 +230,15 @@ export class ChatHistoryWindow {
       if (!current()) return false
       // C3 — 拉取在途时尾巴又长了(比如自己刚发的消息确认了):这一页读的是旧尾,再读一次最新页。
       // 从前直接收下旧页并亮 hasNewer,「回到最新」之后仍不在最新、也不跟尾。
-      if (direction === 'latest' && this.state.latestSeen > maxMainlineSeq(page)) {
+      if (direction === 'latest' && !cold && this.state.latestSeen > maxMainlineSeq(page)) {
         page = await fetchPage(chatId, direction, cursor, INITIAL_PAGE)
         if (!current()) return false
       }
       const live = this.state
       if (direction === 'latest') {
-        // 乐观行,以及拉取期间落地、比页尾更新的自己的行(确认行)并进最新页,不先消失再出现。
+        // 保留乐观行与比页尾更新的确认行;冷首读还保留在途到达的对端行。
         const pageTail = maxMainlineSeq(page)
-        const pending = live.messages.filter((row) => row.seq < 1 || (pageTail > 0 && row.is_mine && row.seq > pageTail))
+        const pending = live.messages.filter((row) => row.seq < 1 || (pageTail > 0 && (row.is_mine || cold) && row.seq > pageTail))
         const messages = boundRows(mergeMessagesById(page, pending, chatId), MESSAGE_WINDOW)
         const hasNewer = live.latestSeen > maxMainlineSeq(messages)
         this.followingTail = !hasNewer

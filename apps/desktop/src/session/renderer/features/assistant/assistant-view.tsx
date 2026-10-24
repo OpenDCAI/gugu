@@ -9,7 +9,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/Avatar';
 import { ChevronLeft, Search, Settings } from '@/lib/icons';
-import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
+import { assistantSlotKey, readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { OPEN_ASSISTANT_TASK_CHAT, showAssistantTaskChat, useOpenedAssistantTaskChat } from '@/lib/assistantTaskChat';
 import type { ViewDefinition } from '@renderer/app/view-registry';
@@ -213,7 +213,7 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
                 className="ta-circle"
                 aria-label={t('top.search')}
                 title={t('top.search')}
-                onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: context.chatId } }))}
+                onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openChatSearch, { detail: { chatId: context.chatId, viewportKey: assistantSlotKey('chat') } }))}
                 data-testid="assistant-search"
               >
                 <Search />
