@@ -868,9 +868,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         searchMode={searchMode}
         workspacePanelOpen={workspaceForm !== 'closed'}
         memberListOpen={memberListOpen}
-        historyPanelOpen={historyPanelOpen}
         showHeaderMenu={showHeaderMenu}
-        mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
+        mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
         moreInTabMenu={Boolean(blockHost)}
@@ -881,8 +880,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         onOpenSettingsDrawer={handleOpenSettingsDrawer}
         onOpenMemberList={handleOpenMemberList}
         onCloseRightSurfaces={closeRightSurfaces}
-        onOpenHistoryPanel={handleOpenHistoryPanel}
-        onCloseHistoryPanel={handleCloseHistoryPanel}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
         onCloseHeaderMenu={() => setShowHeaderMenu(false)}
         onOpenAnnouncement={handleOpenAnnounce}
