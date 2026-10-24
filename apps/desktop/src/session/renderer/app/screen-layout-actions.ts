@@ -545,6 +545,7 @@ export const screenBlockElement = (blockId: string): HTMLElement | null =>
  * 指针在 (x, y) 时把 `content` 放下去会落在哪:一块的四条边(离哪条边近就是哪边)= 分出一块;
  * 一条会话那块的页签条或中间 —— 只有 App 能落 —— = 指针下那一格。它自己那块、满了又不能进格、太窄分不开、
  * 会话落在别的会话中间 —— 都是 null,这里不画落点(会话落在中间是插 @:那由指针下的输入面判,见 screenDropHandlers)。
+ * 会话落在聊天块的中间仍按最近边分块;输入框由 screenDropHandlers 排除,留给它自己的提及或邀请。
  */
 export function resolveBlockDrop(x: number, y: number, content: ScreenBlockContent): BlockDrop | null {
   const from = blockOf(content);
@@ -573,7 +574,8 @@ export function resolveBlockDrop(x: number, y: number, content: ScreenBlockConte
         ? (frame ? paneExtent(removePane(screenLayout.layout, from), blockId, axis, frame[axis]) ?? 0 : 0)
         : rect[axis];
       const splittable = available >= blockMinExtent(blockId, axis) + contentMinExtent(content, axis) + 1;
-      if (distance[edge] <= EDGE_SHARE && splittable) return { blockId, edge };
+      const taskInChat = content.kind === 'session' && screenLayout.blocks.get(blockId)?.kind === 'chat';
+      if ((distance[edge] <= EDGE_SHARE || taskInChat) && splittable) return { blockId, edge };
     }
     return content.kind === 'app' ? paneDropAt(x, y, blockId, content.tabKind) : null;
   }

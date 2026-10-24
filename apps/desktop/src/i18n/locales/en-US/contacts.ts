@@ -102,6 +102,7 @@ export default {
     "title": "New group chat"
   },
   "memberPicker": {
+    "selectionUnavailable": "A selected member is unavailable or cannot be invited to this group.",
     "allProjects": "All",
     "allResults": "All results",
     "localDevice": "{{name}} · This device",
