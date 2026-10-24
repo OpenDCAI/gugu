@@ -93,6 +93,8 @@ const USAGE = `用法:
                                  把标准输入输出接到这个账号的咕咕 server 上(远程 SSH:桌面经 SSH 自动调用)
   gugu-server open-url <网址或文件>
                                  在正看着这台机器的咕咕桌面上打开网页(这台机器上的 $BROWSER 就是它)
+  gugu-server resume --account <账号 id>
+                                 通知保留的账号进程恢复连接并立即补收消息
   gugu-server match-version --account <账号 id> (--desktop <桌面 id> --version <版本> | --apply <版本>)
                                  让这个账号跑和桌面匹配的那一版(桌面经 SSH 自动调用)`
 
@@ -348,6 +350,10 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     case 'open-url': {
       const { runOpenUrl } = await import('./server/open-url-cli')
       return process.exit(await runOpenUrl(args))
+    }
+    case 'resume': {
+      const { runResume } = await import('./server/resume-cli')
+      return process.exit(await runResume(args))
     }
     case 'match-version': {
       const { runMatchVersion } = await import('./server/match-version-cli')
