@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
+import { readComposer, writeComposer } from '../../../support/composerEditor'
 
 const auth = vi.hoisted(() => ({ owner: 'draft-owner-a' }))
 const rpc = vi.hoisted(() => ({ invoke: vi.fn(() => new Promise(() => undefined)) }))
@@ -18,7 +19,8 @@ import { phoneTaskSendKey, readPhoneTaskSend, restorePhoneTaskDraft, sendPhoneTa
 
 let harness: ReturnType<typeof createReactHarness>
 const oldScroll = Element.prototype.scrollTo
-const input = () => harness.container.querySelector<HTMLTextAreaElement>('textarea')!
+const input = () => harness.container.querySelector<HTMLElement>('[data-testid="prompt-editor"]')!
+const draft = () => { const field = input(); return field ? readComposer(field) : null }
 const recovery = () => harness.container.querySelector<HTMLElement>('[data-testid="phone-task-draft-recovery"]')
 const retry = () => harness.container.querySelector<HTMLElement>('[data-testid="phone-task-retry-original"]')!
 async function leaveUnconfirmed(text: string) {
@@ -46,7 +48,7 @@ describe('the existing phone task composer recovers an unacknowledged send', () 
     rpc.invoke.mockImplementation((...args: unknown[]) => args[1] === 'sessionTimeline.sessionSend' ? accepted(...args) : new Promise(() => undefined))
     const ordinarySend = vi.fn(async () => undefined)
     await show(ordinarySend)
-    await waitForCondition(() => input()?.value === original.text, 'actual composer restored')
+    await waitForCondition(() => draft() === original.text, 'actual composer restored')
     expect(accepted).not.toHaveBeenCalled()
     expect(recovery()?.textContent).toContain('查看原消息')
     await clickElement(retry())
@@ -54,7 +56,7 @@ describe('the existing phone task composer recovers an unacknowledged send', () 
     expect(accepted).toHaveBeenCalledTimes(1)
     expect(ordinarySend).not.toHaveBeenCalled()
     expect(accepted.mock.calls[0][2][0].clientRequestId).toBe(original.clientRequestId)
-    expect(input().value).toBe('')
+    expect(draft()).toBe('')
   })
 
   it('preserves newly typed words and lets the saved original be retried separately', async () => {
@@ -63,26 +65,25 @@ describe('the existing phone task composer recovers an unacknowledged send', () 
     await show()
     await waitForCondition(() => !!input(), 'actual composer mounted')
     await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!.call(input(), '我正在写的新内容')
-      input().dispatchEvent(new Event('input', { bubbles: true }))
+      writeComposer(input(), '我正在写的新内容')
     })
     let original!: Awaited<ReturnType<typeof leaveUnconfirmed>>
     await act(async () => { original = await leaveUnconfirmed('之前未确认的原稿') })
     await waitForCondition(() => !!retry(), 'saved original offers retry')
-    expect(input().value).toBe('我正在写的新内容')
+    expect(draft()).toBe('我正在写的新内容')
     expect(recovery()?.textContent).toContain('之前未确认的原稿')
     await clickElement(retry())
     expect(accepted.mock.calls[0][2][0].clientRequestId).toBe(original.clientRequestId)
-    expect(input().value).toBe('我正在写的新内容')
+    expect(draft()).toBe('我正在写的新内容')
   })
 
   it('does not restore another account record and removes only its own untouched injected text on account change', async () => {
     await leaveUnconfirmed('属于账号A的原稿')
     await show()
-    await waitForCondition(() => input()?.value === '属于账号A的原稿', 'owner A restored')
+    await waitForCondition(() => draft() === '属于账号A的原稿', 'owner A restored')
     auth.owner = 'draft-owner-b'
     await show()
-    await waitForCondition(() => recovery() === null && input()?.value === '', 'owner B sees no owner A draft')
+    await waitForCondition(() => recovery() === null && draft() === '', 'owner B sees no owner A draft')
     expect(readPhoneTaskSend('draft-owner-a', 'phone-draft', 'task-draft')?.text).toBe('属于账号A的原稿')
     expect(readPhoneTaskSend('draft-owner-b', 'phone-draft', 'task-draft')).toBeNull()
   })

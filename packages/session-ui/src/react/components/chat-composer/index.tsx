@@ -212,6 +212,7 @@ export interface ChatComposerProps {
   mobile?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
+  stopDisabled?: boolean;
   /** False while the session is still starting up. Blocks Send/Enter but keeps the editor typeable. */
   canSubmit?: boolean;
   /** Hide the submit/stop control for draft-only composer surfaces. */
@@ -402,6 +403,7 @@ export function ChatComposer({
   mobile = false,
   disabled = false,
   isWorking = false,
+  stopDisabled = false,
   canSubmit: hostCanSubmit,
   showSubmitButton = true,
   placeholder,
@@ -996,6 +998,8 @@ export function ChatComposer({
                   //    "这会中断正在跑的东西",不该被换成与正文同色的墨点。
                   className={styles.sendButtonRound}
                   data-composer-action="stop"
+                  disabled={disabled || stopDisabled}
+                  aria-busy={stopDisabled || undefined}
                   onClick={onStop}
                   aria-label={translate('composer.stopGeneration')}
                 >
