@@ -110,7 +110,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
     groups: [],
     recentAt: model.lastAt,
     extraFields: model.searchFields,
-  }), [deferredQuery, model, peopleDenied])
+  }), [deferredQuery, model])
 
   const entryOf = useMemo(() => new Map([...model.people, ...model.agents].map((entry) => [entry.contact.id, entry])), [model])
   const searchRows: Row[] = result ? [...result.people, ...result.agents].map((hit) => ({ entry: entryOf.get(hit.item.id)!, hit })) : []
