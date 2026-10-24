@@ -13,8 +13,10 @@ import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
 import { useTheme } from '../../store/theme'
 import { useMobileShell } from '../../hooks/useMobileShell'
+import { Avatar } from '../Avatar'
 import { useInChatSlot, useChatSlotProjectName } from '../../lib/shellSlots'
-import { createLocalSessionMentionProvider, useSessionAgentCreationTools } from '../../session/renderer/lib/chat/local-session-mention-provider'
+import { createLocalSessionMentionProvider } from '../../session/renderer/lib/chat/local-session-mention-provider'
+import { useSessionAgentCreationTools } from '../../session/renderer/lib/chat/use-session-agent-creation-tools'
 import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
 import { useSessionMentionDrop } from '../../session/renderer/lib/chat/use-session-mention-drop'
 import { translateSessionMessage } from '../../session/renderer/localization/locale-store'
@@ -58,8 +60,13 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   ] : [], [isGroupChat, groupMembers, currentUserId, contacts, t])
   const activeTargets = activeMentionPicks(text, mentionTargets, members)
   const { sending, handleSend } = useChatMessageSend(props, draft, members, activeTargets, inputRef)
-  const { byEngine, error: creationToolsError, renderMentionIcon } = useSessionAgentCreationTools()
-  const localProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine, creationToolsError }), [byEngine, creationToolsError])
+  const { byEngine, renderMentionIcon: renderSessionMentionIcon } = useSessionAgentCreationTools()
+  const renderMentionIcon = useCallback<NonNullable<Parameters<typeof ChatComposer>[0]['renderMentionIcon']>>((attrs) => {
+    if (attrs.id === MENTION_ALL_USER_ID) return <Avatar name={attrs.name ?? attrs.label} size={14} variant="group"
+      memberAvatars={members.filter((member) => member.type !== 'all').map((member) => ({ id: member.id, name: member.name, avatar: member.avatar ?? null }))} />
+    return renderSessionMentionIcon(attrs)
+  }, [members, renderSessionMentionIcon])
+  const localProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine }), [byEngine])
   const decorate = useCallback((item: MentionItem): MentionItem => ({ ...item,
     annotation: isGroupChat && !members.some((member) => `aid:${member.id}` === item.label) ? t('composer.notInGroup') : undefined,
   }), [isGroupChat, members, t])
@@ -71,7 +78,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       if (!isGroupChat || whisperTarget || !isMentionQueryActive(query, members)) return []
       return filterMentionCandidates(members, query).map((member): MentionItem => ({
         id: member.type === 'all' ? MENTION_ALL_USER_ID : member.id,
-        label: member.name, name: member.name, kind: 'custom', role: member.type === 'human' ? 'human' : 'agent',
+        label: member.name, name: member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
         optionLabel: <span {...mentionOptionStatusProps(member, agentStatuses)}><AgentMentionOptionLabel member={member} status={agentStatuses[member.id]} /></span>,
       }))
     },

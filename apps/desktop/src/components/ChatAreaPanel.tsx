@@ -104,6 +104,9 @@ import { useChatSearch } from './chat/useChatSearch'
 import { loadImportedSessionHistories, type ImportedSessionHistory } from '../lib/importedHistoryReader'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
+import { useChatSlotProjectName } from '../lib/shellSlots'
+import { useChatHasMessages } from '../lib/chatSummariesBridge'
+import { ChatPartSlot } from '../session/renderer/lib/chat-slot'
 interface ChatAreaPanelProps {
   /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
@@ -120,11 +123,7 @@ interface ChatAreaPanelProps {
   onBack?: () => void
   /** #7199「助理」App 里那块:头栏只在搜索时出现(头像、搜索、设置在 App 自己那一排),输入框「和 X 聊天」+「+」;typing = 接在消息流末尾、取代运行条的「它在处理」。 */
   chrome?: { placeholder: string; attachGlyph: ReactNode; attachMenu?: readonly ComposerAttachAction[]; typing?: ReactNode; hideRunningStatus?: boolean }
-  /**
-   * gugu-dev#181 画在会话页一块里(项目块的项目群、对话块,见 ChatSlotHost):块顶上那条页签条就是头,这里不画头栏
-   * (搜索时照样临时出一条搜索栏);头栏右边那排图标画进 `actions`,对话的头像和名字画进 `title`(对话块第一枚页签),
-   * `tabs` 里是开着的话题(TopicSplitPane)和右栏开着的那几枚(GroupPanelTabs)。格子还没挂上 = null。不给 = 对话页、手机、网页那一种,头栏照旧。
-   */
+  /** Block tab-strip slots for actions, title, topics and right-panel tabs; absent on standalone/phone headers. */
   blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }
   onOpenUserChat?: (target: MemberProfileChatTarget) => void; onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>; onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
@@ -252,6 +251,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     closeRightSurfaces()
     setShowDrawer(true)
   }, [closeRightSurfaces])
+  const projectName = useChatSlotProjectName()
+  const emptyProject = useChatHasMessages(projectName !== null ? activeChatId ?? undefined : undefined) === false
   const handleOpenAgentSettings = useCallback(() => {
     closeRightSurfaces()
     setShowAgentSettings(true)
@@ -867,7 +868,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
-        moreInTabMenu={Boolean(blockHost)}
         moreButtonRef={moreButtonRef}
         onEnterSearchMode={() => setSearchMode(true)}
         onOpenWorkspacePanel={handleOpenWorkspacePanel}
@@ -1032,11 +1032,9 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           position: 'relative',
         }}
       >
-        {/* @@@1572/2234 中栏地板(useMessageColumnMinWidth:有右栏且行宽 < 380+360 时让位,右栏不被裁;否则 380;mobile→0)挂在分栏根上。工作区开着时
-            地板归分栏(左栏至少 240):它和会话页右栏是同一个分栏(SidePanelSplit:开合、全屏、拖宽)。手机上工作区是整页,在下面。 */}
         <SidePanelSplit form={mobile ? 'closed' : workspaceForm} resizeLabel={t('chatArea.openWith.resize')} widths={GROUP_PANEL_WIDTHS} unmountWhenClosed onCollapseWorkspace={handleCloseWorkspacePanel}
           className="flex-1" chatMinWidth={workspaceForm === 'closed' ? messageColumnMinWidth : 0} workspacePanel={workspaceSlot} chatColumn={
-        <div
+        emptyProject ? <ChatPartSlot chatId={activeChat.id} part="empty" className="flex min-h-0 min-w-0 flex-1 flex-col" /> : <div
           style={{
             flex: 1,
             minHeight: 0,
