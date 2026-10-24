@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
 import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
 import { rendererLogger } from '@/lib/log'
 import { useTheme } from '@/store/theme'
 import { sessionSkinClassName } from '../sessionpage/sessionSkin'
+import { queryClient } from '@/session/renderer/lib/query-client'
+import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages'
 import { AppMarketContent } from '@/session/renderer/features/extensions/panel/app-market-content'
 import { AppProductPage } from '@/session/renderer/features/extensions/panel/app-product-page'
@@ -35,7 +37,11 @@ const MARKET_KEY = ['phone-app-market']
 const log = rendererLogger('settings/mobile-apps')
 
 /** The phone supplies storage and actions; browsing and product pages are the desktop's components. */
-export const MobileAppsSection = observer(function MobileAppsSection() {
+export function MobileAppsSection() {
+  return <QueryClientProvider client={queryClient}><MobileAppsContent /></QueryClientProvider>
+}
+
+const MobileAppsContent = observer(function MobileAppsContent() {
   const { translate, locale } = useSessionMessages()
   const { theme } = useTheme()
   const skin = sessionSkinClassName(theme)
@@ -59,7 +65,7 @@ export const MobileAppsSection = observer(function MobileAppsSection() {
   useEffect(() => {
     void phoneApps.ready().catch((error: unknown) => {
       log.warn({ error: String(error) }, 'Phone Apps unreadable')
-      setFailed(translate('extensions.loadFailed'))
+      setFailed(translateSessionMessage('extensions.loadFailed'))
     })
     const off = phoneApps.market.onRefreshed((result) => {
       if (result.outcome === 'changed') void client.invalidateQueries({ queryKey: MARKET_KEY })
@@ -160,7 +166,7 @@ export const MobileAppsSection = observer(function MobileAppsSection() {
                 key={detail.manifest.id}
                 subject={{ manifest: grantableBy(detail.manifest, PHONE_CAPABILITIES), installed: installed ? grantableBy(installed, PHONE_CAPABILITIES) : undefined, cloud: detail.cloud, installRef: detail.ref }}
                 enabled={store.isEnabled(detail.manifest.id)} lifecycle={lifecycleOf(detail.manifest.id, detail)} pending={pending[detail.manifest.id]}
-                locale={locale} translate={translate} api={phoneProductApi} justInstalled={justInstalled === detail.manifest.id}
+                locale={locale} translate={translate} api={phoneProductApi} onOpenExternal={(url) => { window.open(url, '_blank', 'noopener,noreferrer') }} justInstalled={justInstalled === detail.manifest.id}
                 onBack={() => setDetail(null)} onLifecycle={() => act(detail)} onInstallVersion={install}
                 menu={installed && !store.isPreinstalled(installed.id) ? {
                   onToggleEnabled: (on) => void change(installed.id, undefined, () => phoneApps.setEnabled(installed.id, on)),
