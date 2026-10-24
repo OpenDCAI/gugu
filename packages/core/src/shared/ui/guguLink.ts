@@ -268,7 +268,7 @@ export function serverLoginCode(raw: string, supabaseUrl: string): string | null
 }
 
 /** One reader for stored references and OS links. Only external invocation binds a link to a build's scheme. */
-export function parseGuguLink(raw: string, options: { scheme?: string; supabaseUrl?: string } = {}): GuguLinkTarget | null {
+export function parseGuguLink(raw: string, options: { supabaseUrl?: string } = {}): GuguLinkTarget | null {
   const chat = parseConversationLink(raw)
   if (chat) return { kind: 'chat', ...chat }
   const file = parseGroupFileLink(raw)
@@ -280,7 +280,7 @@ export function parseGuguLink(raw: string, options: { scheme?: string; supabaseU
   let url: URL
   try { url = new URL(raw) } catch { return null }
   const scheme = url.protocol.slice(0, -1)
-  if (!/^gugu(?:-[a-z0-9-]+)?$/.test(scheme) || (options.scheme && scheme !== options.scheme)) return null
+  if (!/^gugu(?:-[a-z0-9-]+)?$/.test(scheme)) return null
   const app = parseExtensionLink(raw, scheme)
   if (app) return { kind: 'app', ...app }
   if (url.hostname === 'chat') {
@@ -344,13 +344,11 @@ export function linkTargetOf(args: Record<string, unknown>, own: { id: string; c
       const extensionId = args.app === undefined ? own.id : text(args.app, 'app')
       const tab = args.tab ?? (extensionId === own.id ? own.contributes.tabs[0]?.name : undefined)
       if (extensionId === own.id && !own.contributes.tabs.some((entry) => entry.name === tab)) throw new Error(`this App has no tab named: ${String(tab)}`)
-      const place = args.place as LinkPlace | undefined
-      // The existing App-specific form also names its placement with chat/session.
-      if ((args.chat != null && args.session != null) || (place && 'chat' in place && 'session' in place)) throw new Error('An App link opens in one place')
+      if (args.chat != null && args.session != null) throw new Error('An App link opens in one place')
       return {
         kind: 'app', extensionId, tab: text(tab, 'tab'), path: typeof args.path === 'string' ? args.path : '',
         query: (args.query ?? {}) as Record<string, string>,
-        place: place ?? (args.chat != null ? { chat: text(args.chat, 'chat') } : args.session != null ? { session: text(args.session, 'session') } : null),
+        place: args.chat != null ? { chat: text(args.chat, 'chat') } : args.session != null ? { session: text(args.session, 'session') } : null,
       }
     }
     default: throw new Error(`Unknown link target: ${String(args.kind)}`)

@@ -755,7 +755,6 @@ const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'u
 export async function openPhoneLink(target: string | GuguLinkTarget) {
   if (platform.kind === 'capacitor') await phoneApps.ready()
   return openLinkWith({
-    scheme: phoneLinkScheme(),
     installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
     isEnabled: (id) => installedExtensionsStore.isEnabled(id),
     locale: () => document.documentElement.lang,

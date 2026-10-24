@@ -379,7 +379,7 @@ export const edit = {
         }
         throw said(error, item_id)
       })
-      return { replaced: replaced.id, version: replaced.version, link: linkOf(replaced) }
+      return { replaced: replaced.id, version: replaced.version, link: await linkOf(replaced) }
     }
     if (typeof old !== 'string' || !old) throw new Error('old must not be empty: copy the text to replace from read')
     if (typeof next !== 'string') throw new Error('new is the text that goes in old\'s place (an empty string removes it)')

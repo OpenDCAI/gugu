@@ -1,11 +1,9 @@
 import { parseGuguLink, type GuguLinkTarget, type LinkPlace } from '@gugu/core/shared/ui/guguLink';
-import type { AppPlace } from './app-runtime-protocol';
 import type { ExtensionHostEvent } from './bridge-protocol';
 import { localizedManifestText } from './catalog';
 import { extensionTabKind, type ExtensionManifest } from './manifest';
 
 export interface LinkOpenDeps {
-  scheme: string;
   supabaseUrl?: string;
   installed(): readonly { manifest: ExtensionManifest }[];
   isEnabled(extensionId: string): boolean;
@@ -18,7 +16,7 @@ export interface LinkOpenDeps {
   openApp(extensionId: string, tab: string, chatId: string | null): Promise<LinkPlace | 'own'>;
   resourceChat(chatId: string): Promise<string>;
   openResource(target: Exclude<GuguLinkTarget, { kind: 'app' }>): Promise<void>;
-  deliver(extensionId: string, event: ExtensionHostEvent, opened: AppPlace | 'own'): void;
+  deliver(extensionId: string, event: ExtensionHostEvent, opened: LinkPlace | 'own'): void;
 }
 
 /**

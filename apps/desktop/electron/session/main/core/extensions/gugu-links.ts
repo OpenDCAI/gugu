@@ -21,7 +21,6 @@ export async function openLink(raw: string | GuguLinkTarget): Promise<LinkOpenOu
   ]);
   return await openLinkWith(
     {
-      scheme: currentLinkScheme(),
       installed: () => extensionsService().list().extensions,
       isEnabled: (id) => extensionsService().isEnabled(id),
       locale: sessionHostLocale,

@@ -64,7 +64,6 @@ describe('building and reading links (#6387)', () => {
 function deps(overrides: Partial<LinkOpenDeps> = {}) {
   const delivered: { id: string; event: ExtensionHostEvent; opened: unknown }[] = [];
   const value: LinkOpenDeps = {
-    scheme: 'gugu',
     installed: () => [{ manifest }],
     isEnabled: () => true,
     locale: () => 'en-US',

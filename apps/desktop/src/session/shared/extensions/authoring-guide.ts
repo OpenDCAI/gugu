@@ -255,8 +255,8 @@ Free:
 
 - \`linkTo(target)\` (API 11) → a resource link, on desktop, phone and App programs. \`{ kind: 'chat', chat, message? }\`;
   \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
-  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, place?: { chat } | { session } }\`.
-  App defaults: yourself, your first tab. Chat/file references in stored text are build-independent. Add \`external: true\`
+  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
+  App defaults: yourself, your first tab; name at most one of chat/session for its place. Chat/file references in stored text are build-independent. Add \`external: true\`
   only for OS invocation (email/browser); never spell a scheme. App links and session/project invocation use the build scheme.
 - \`openLink(url)\` (API 11), from a click/key → opens that resource with the same target, desktop and phone; no capability.
   Native \`<a>\` and \`gugu.markdown\` use it too. A program/background may generate links; only a page opens them with a gesture.

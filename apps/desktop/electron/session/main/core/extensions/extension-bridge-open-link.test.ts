@@ -73,7 +73,7 @@ describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
     const openApp = vi.fn(async () => ({ chat: CHAT }));
     const event: ExtensionHostEvent = { type: 'link', tab: 'main', path: 'game/7', query: { move: 'e4' }, file: null };
     await expect(openLinkWith({
-      scheme: 'gugu-dev', installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
+      installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
       sessionProject: async () => null, reveal: async () => {}, openApp, deliver: deliverToExtension,
       resourceChat: async (id) => id === TOPIC ? CHAT : id, openResource: async () => {},
     }, `gugu-dev://ext/chess/main/game/7?move=e4&gugu.chat=${TOPIC}`))
