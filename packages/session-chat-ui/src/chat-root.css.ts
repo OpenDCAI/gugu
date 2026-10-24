@@ -164,8 +164,7 @@ export const contentOverlaySlotClass = style({
 });
 
 /**
- * Composer slot — sticky positioning layer only. Transparent so the scrollbar
- * at the viewport edge remains fully visible.
+ * Composer slot — sticky positioning layer with a static background fade.
  */
 export const composerSlotClass = style({
   position: 'sticky',
@@ -178,6 +177,14 @@ export const composerSlotClass = style({
   // message column when the viewport is narrower than CONTAINER_WIDTH.
   paddingLeft: CONTENT_GUTTER,
   paddingRight: CONTENT_GUTTER,
+  '::before': {
+    content: '""',
+    position: 'absolute',
+    inset: 0,
+    zIndex: -1,
+    pointerEvents: 'none',
+    background: `linear-gradient(to bottom, transparent, ${vars.bg} 32px)`,
+  },
 });
 
 /**
@@ -228,8 +235,7 @@ export const heroSlotHiddenClass = style({
 /**
  * Inner centering wrapper inside the composer slot — constrains the composer
  * to the same max-width as the content column so it aligns with user message
- * cards. Carries the composer's solid backing and 8px bottom gap so the backing only
- * covers the content area, leaving the scrollbar track unobscured.
+ * cards. Keeps the composer's 8px bottom gap above the background fade.
  * This is the element exposed as `view.composerSlot` (portal target).
  */
 export const composerSlotInnerClass = style({
@@ -242,14 +248,9 @@ export const composerSlotInnerClass = style({
   pointerEvents: 'auto',
 });
 
-/**
- * 底部的槽垫一层半透明的底色:往上滑时输入框那张卡(实色)盖住消息,卡四周和底下那 8px 是一层淡的遮罩,
- * 后面的消息隐约透出来(owner 2026-10-23「类似 telegram 的那种半透明遮蔽」,❌ 一整块实色白底、❌ 全透明)。
- * 只是带 alpha 的底色,❌ 毛玻璃(backdrop-filter):玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md),mac 上一块
- * backdrop-filter 就让 CoreAnimation overlay 失败,GPU 进程那份驱动内存清不掉(macOS 实测约 390MB,2026-10-05)。
- */
+/** The bottom slot's static gradient is painted below the solid composer card. */
 export const composerSlotInnerBottomClass = style({
-  background: `color-mix(in srgb, ${vars.bg} 82%, transparent)`,
+  background: 'transparent',
 });
 
 export const composerSlotInnerCenteredClass = style({
