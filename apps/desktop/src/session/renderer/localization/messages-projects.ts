@@ -160,10 +160,6 @@ export const enUSProjectMessages = {
   'projects.pending.genericError': 'An error occurred',
   'projects.pending.dismiss': 'Dismiss',
 
-  // ── projects: add-project modal ────────────────────────────────────────
-  'projects.add.configImported': '{label} config imported',
-  'projects.add.configImportedDetail': '{files} was imported successfully.',
-
   // ── projects: directory browser ────────────────────────────────────────
   'projects.remoteDir.empty': 'Empty directory',
   'projects.remoteDir.listLabel': 'Directory contents',
@@ -378,10 +374,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.pending.registering': '正在注册',
   'projects.pending.genericError': '发生错误',
   'projects.pending.dismiss': '关闭',
-
-  // ── projects: add-project modal ────────────────────────────────────────
-  'projects.add.configImported': '已导入 {label} 配置',
-  'projects.add.configImportedDetail': '已成功导入 {files}。',
 
   // ── projects: directory browser ────────────────────────────────────────
   'projects.remoteDir.empty': '空目录',
