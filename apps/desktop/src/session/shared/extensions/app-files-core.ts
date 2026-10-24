@@ -943,7 +943,7 @@ export function createAppFiles(platform: FilesPlatform) {
       const endpoint = configuredEndpoint(token);
       let replaced: ItemRow & { version: number; pruned_pointers: string[] | null };
       try {
-        const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name: row.filename, contentType });
+        const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name: row.filename, contentType }, { chat_id: row.chat_id, as: surface.asAgent ?? userId });
         replaced = await placeAttachment(endpoint, {
           staging_key: stagingKey, item_id: row.id, expected_version: expected, as_user_id: surface.asAgent ?? userId, content_type: contentType,
         }) as unknown as ItemRow & { version: number; pruned_pointers: string[] | null };
@@ -1000,7 +1000,7 @@ export function createAppFiles(platform: FilesPlatform) {
           // #7290 gugu-3: a stored file's bytes go to OSS (attachments/upload); the server puts it in the folder (attachments/place),
           // as the agent or the person — the folder made all the way down when it is not there, as folderIdFor does.
           const endpoint = configuredEndpoint(token);
-          const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType });
+          const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
           rows.push(await placeAttachment(endpoint, {
             staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null, as_user_id: actor,
             source_message_ids: sourceMessageIds, content_type: contentType,

@@ -34,6 +34,8 @@ it('uploads complete binary bytes; receiver downloads and verifies the original 
  const fx=fixture()
  const receipt=await uploadSessionFile(fx.endpoint,{file_path:input},{agentId:'sender',sessionId:'s',recipients:['receiver']})
  expect(receipt.sha256).toBe(ref.sha256)
+ const permit=fx.fetcher.mock.calls.find(([url])=>String(url).endsWith('/upload'))!
+ expect(JSON.parse(String(permit[1]?.body))).toMatchObject({size_bytes:original.length,chat_id:null,as:'sender',request_id:expect.any(String)})
  const sent=fx.fetcher.mock.calls.find(([url])=>String(url).endsWith('/session-commit'))!
  expect(JSON.parse(String(sent[1]?.body))).toMatchObject({sender_user_id:'sender',recipient_user_ids:['receiver']})
  const downloaded=await downloadSessionFile(fx.endpoint,ref.attachment_id,'receiver',join(root,'download'))
