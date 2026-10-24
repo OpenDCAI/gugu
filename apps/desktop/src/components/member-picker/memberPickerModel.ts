@@ -2,7 +2,6 @@ import type { Device } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { getAgentTypeLabel, isAgentType, isCloudAgentMarked } from '@gugu/core/shared/enums/agentTypeModels'
 import { deviceSessionsOf, type DeviceSessions } from '@/session/shared/remote-sessions/session-directory'
-import { sessionListFromDigest } from '@/session/shared/remote-sessions/session-list-sync'
 import type { ContactSearchField } from '../../lib/contactSearch'
 import { groupContacts } from '../../lib/contactsListSort'
 import { partitionContactsByDevice, type ContactsDeviceSection } from '../contacts/contactsByDevice'
@@ -41,12 +40,12 @@ type AgentTask = { title: string; project: string | null; lastAt: number }
 
 /**
  * 每个 Agent 在跨设备任务目录里的那条任务。桌面的目录只同步别的机器(useRemoteHostsBridge 滤掉本机),
- * 本机读它自己随心跳发布的摘要 —— 同一种摘要行,最近动过的在前,有条数上限;上限外的更旧,本来就排在后面。
+ * 本机读它自己随心跳发布的摘要(deviceSessionsOf 没读到此刻的就是这一份)—— 同一种摘要行,最近动过的在前,有条数上限;上限外的更旧,本来就排在后面。
  */
 export function agentTasks(devices: readonly Device[], live: Readonly<Record<string, DeviceSessions>>): Map<string, AgentTask> {
   const tasks = new Map<string, AgentTask>()
   for (const device of devices) {
-    const { projects, sessions } = device.is_current_device && !live[device.device_id] ? sessionListFromDigest(device.session_digest) : deviceSessionsOf(device, live)
+    const { projects, sessions } = deviceSessionsOf(device, live)
     const projectName = new Map(projects.map((project) => [project.id, project.name]))
     for (const session of sessions) {
       const id = session.agent?.userId

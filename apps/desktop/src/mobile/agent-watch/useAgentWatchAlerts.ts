@@ -130,10 +130,9 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
      */
     const syncs = onlineIds.map((deviceId) => {
       const sync = startSessionListSync(sessionpageRpc, deviceId, {
-        onList: (result, { cached }) => {
+        onList: (result) => {
           if (retryScope.current.ownerId !== ownerId) return
-          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached })
-          if (cached) return
+          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false })
           deliver(deviceId, diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions))
           statusRef.current[deviceId] = statusMapOf(result.sessions)
         },
