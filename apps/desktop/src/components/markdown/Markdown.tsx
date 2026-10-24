@@ -23,7 +23,7 @@ import {
 import { readEffectiveHostTheme, subscribeToHostTheme } from '@renderer/lib/theme/host-theme'
 import { MermaidDiagram } from '@renderer/lib/ui/mermaid-diagram'
 import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
-import { isMentionMarkerUrl } from '../../lib/mentionMdast'
+import { displayAgentReferences, isMentionMarkerUrl } from '../../lib/mentionMdast'
 import { markdownCodeHighlighter } from './codeHighlight'
 import { FILE_PILL_CLASS, hookFilePillCopy, rehypeGroupFilePills } from './filePills'
 import { GroupFileName } from './GroupFileName'
@@ -119,7 +119,7 @@ export const Markdown = memo(function Markdown({
   useEffect(() => hookFilePillCopy(), [])
 
   const plugins = pluginsFor({ trust, hardBreaks, frontmatter })
-  const source = useMemo(() => normalizeMarkdownSource(content), [content])
+  const source = useMemo(() => normalizeMarkdownSource(displayAgentReferences(content)), [content])
   const components = useMemo(
     () => ({
       a: ({ href, children, node: _node, ...rest }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {

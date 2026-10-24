@@ -2,6 +2,7 @@
 //
 // 手机上话题整页盖住了来源群,群里那条运行条就看不见了。话题页挂上同一条:数据取来源群,
 // 短按 @ 进**话题自己的**输入框。桌面不挂:分栏旁边群里那条一直看得见。
+import { readComposer } from '../../support/composerEditor'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../support/testHarness'
@@ -49,8 +50,8 @@ describe('手机话题页的运行条', () => {
     const bar = harness.container.querySelector('[data-testid="topic-agent-running-status"]')
     expect(bar, '话题页没有运行条').toBeTruthy()
     await clickElement(bar!.querySelector('[data-message-preview-trigger="agent-1"]') as HTMLElement)
-    const composer = harness.container.querySelector('[data-topic-split-composer] textarea') as HTMLTextAreaElement
-    expect(composer.value).toBe('@Pico ')
+    const composer = harness.container.querySelector('[data-topic-split-composer] [contenteditable]')!
+    expect(readComposer(composer)).toBe('@Pico ')
   })
 
   it('没有 token(桌面不传)⇒ 不挂', async () => {
