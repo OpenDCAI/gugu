@@ -280,7 +280,8 @@ export function useConversationScrollMemory({
       if (row) {
         const actualOffset = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top
         const delta = actualOffset - position.offset
-        if (Math.abs(delta) <= RESTORE_OFFSET_TOLERANCE) {
+        const destination = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + delta))
+        if (Math.abs(destination - scroller.scrollTop) <= RESTORE_OFFSET_TOLERANCE) {
           stableFrames += 1
           if (stableFrames >= RESTORE_STABLE_FRAMES) {
             completedActivationRef.current = activationKey
@@ -293,7 +294,7 @@ export function useConversationScrollMemory({
           }
         } else {
           stableFrames = 0
-          scroller.scrollTop += delta
+          scroller.scrollTop = destination
         }
       }
 
