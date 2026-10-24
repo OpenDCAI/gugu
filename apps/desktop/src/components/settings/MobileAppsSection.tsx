@@ -128,13 +128,13 @@ const MobileAppsContent = observer(function MobileAppsContent() {
 
   return (
     <>
-      <SegmentedTabs className="flex-wrap gap-y-1" value={tab} onChange={setTab} ariaLabel={translate('extensions.title')} items={[
+      <div className="phone-app-market-tabs"><SegmentedTabs value={tab} onChange={setTab} ariaLabel={translate('extensions.title')} items={[
         { value: 'market', label: translate('extensions.recommended'), testId: 'phone-apps-market-tab' },
         { value: 'newest', label: translate('extensions.newest'), testId: 'phone-apps-newest-tab' },
         { value: 'popular', label: translate('extensions.popular'), testId: 'phone-apps-popular-tab' },
         { value: 'all', label: translate('extensions.allApps'), testId: 'phone-apps-all-tab' },
         { value: 'installed', label: translate('extensions.tabInstalled'), testId: 'phone-apps-installed-tab' },
-      ]} />
+      ]} /></div>
       {tab === 'installed' ? <AppsSection /> : (
         <div className={`${skin} mk phone-app-market`} data-testid="phone-app-market">
           <SearchField value={query} placeholder={translate('extensions.searchPlaceholder')} onChange={(event) => { setQuery(event.target.value); setPages(1) }} />
