@@ -1,6 +1,6 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { LocalizationProvider, i18n, getLocaleSnapshot, setLocalePreference } from '@/i18n'
 import { until } from '../../../../../../../tests/support/awaitCondition'
@@ -76,7 +76,11 @@ it.each(['en-US', 'zh-CN'] as const)('a hidden empty group composer shows its re
   await until('long text reaches the shared height cap', () => scroller.scrollHeight > scroller.clientHeight)
   expect(scroller.clientHeight).toBe(Number.parseFloat(getComputedStyle(scroller).maxHeight))
 
-  await input.fill('')
+  // fill('') selects a DOM range and sends Delete in separate commands; the editor can restore its old caret between them.
+  // Select through the editor keymap so the deletion sees an AllSelection in both the model and DOM.
+  await input.click()
+  const modifier = /Mac/.test(navigator.platform) ? 'Meta' : 'Control'
+  await userEvent.keyboard(`{${modifier}>}a{/${modifier}}{Backspace}`)
   await until('clearing fits the real placeholder', () => editor.innerText.trim() === '' && scroller.scrollHeight <= scroller.clientHeight)
   expect(editor.getBoundingClientRect().height).toBe(oneLine)
   expect(host.querySelector('[contenteditable]')).toBe(editor)
