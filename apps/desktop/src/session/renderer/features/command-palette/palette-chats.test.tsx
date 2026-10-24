@@ -10,7 +10,7 @@ import { PaletteChatGroups } from './palette-chats';
 
 // Quick switching searches object names; message contents belong to in-chat find.
 const opened = vi.hoisted(() => ({ links: [] as string[] }));
-vi.mock('@/lib/conversationLinks', () => ({ openConversationLink: (href: string) => { opened.links.push(href); return true; } }));
+vi.mock('@/lib/guguLinks', () => ({ followLink: (href: string) => { opened.links.push(href); return true; } }));
 vi.mock('@renderer/localization/use-session-messages', () => ({
   useSessionMessages: () => ({ translate: (key: string, values?: { name?: string }) => (values?.name ? `${key}:${values.name}` : key) }),
 }));
