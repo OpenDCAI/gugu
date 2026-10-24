@@ -37,7 +37,7 @@ describe('shared ACP prompt admission', () => {
     await Promise.all(deliveries.map(delivery => delivery.completion));
     const sent = harness.agent.prompt.mock.calls.slice(1).map(([request]) => request.prompt);
     expect(sent).toEqual(texts.map(text => [{ type: 'text', text }]));
-    const history = await runtime.getHistory('conv-1');
+    const history = runtime.getHistory('conv-1');
     expect(history.success).toBe(true);
     if (!history.success) throw new Error('History unavailable');
     const userTexts = history.data.turns.flatMap(turn => turn.items.flatMap(item =>
