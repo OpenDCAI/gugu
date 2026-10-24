@@ -491,6 +491,7 @@ export default {
     "gone": "它可能已经被删掉或改了名字。"
   },
   "health": {
+    "desktopEmpty": "暂无健康数据",
     "title": "健康",
     "tileSub": "{{n}} 项数据",
     "tileSubEmpty": "睡眠、活动、心率",
@@ -584,7 +585,7 @@ export default {
     "analysisTitle": "你的健康分析",
     "analysisEmpty": "让{{name}}看看你最近的数据，它的解读会记在这里。",
     "analyze": "让{{name}}解读",
-    "analyzePrompt": "【健康】看看我手机里最近 7 天的健康数据（device_call 调手机的 health.summary），给我解读一下睡眠、活动和心率有什么值得注意的。把结论记进你的记忆，文件名以 health_ 开头。",
+    "analyzePrompt": "【健康】请通过数据所在设备的执行者读取已授权的近期健康数据，解读睡眠、活动和心率中值得注意的变化。把结论记进你的记忆，文件名以 health_ 开头。",
     "notes": "健康记录",
     "addData": "添加健康数据",
     "analyzeReport": "分析健康报告",

@@ -81,6 +81,7 @@ describe('#7317 connecting computer control asks for both permissions at once', 
       actions: [],
     }
     const runtime = createDeviceActionsRuntime({
+      deviceId: async () => "local-test",
       userData: dir,
       deps: {} as never,
       nativeDir: null,

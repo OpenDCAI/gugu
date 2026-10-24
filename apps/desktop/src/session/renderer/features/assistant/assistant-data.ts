@@ -22,7 +22,6 @@ import { listDirectory, openAssistantMachine, readMemoryNotes, readText, type As
 
 export type { MemoryEntry } from './assistant-machine';
 import { TODAY_FILE_NAME, TODAY_REFRESH_MS, TodayReadError, todayReadOf, type TodayRead } from './assistant-today-file';
-import { readHealthSummary, type HealthSummary } from '@gugu/core/shared/healthSummary';
 
 export type MachineReadiness =
   /** 线连着,可以读。 */
@@ -169,39 +168,6 @@ export function useTodayFile(chatId: string | null) {
     },
     enabled: !!chatId,
     refetchInterval: TODAY_REFRESH_MS,
-    retry: 1,
-  });
-}
-
-/**
- * 健康页那一份:此刻经设备动作问主人的手机(主进程 phone-health.ts → 手机的 health.summary)。
- * 读不到也是一种答案(没有手机 / 离线 / 没连 / 系统没给 …),如实交给页面;手机交来的 JSON 形状不对 = unreadable(说哪一格)。
- * 每问一次手机的「最近调用」里就多一条:页面开着时 5 分钟问一次,❌ 后台一直问。
- */
-type PhoneHealthRead = Extract<Awaited<ReturnType<typeof rpc.extensions.readPhoneHealth>>, { success: true }>['data'];
-
-export type PhoneHealthView =
-  | Exclude<PhoneHealthRead, { state: 'ok' }>
-  | (Omit<Extract<PhoneHealthRead, { state: 'ok' }>, 'data'> & { summary: HealthSummary })
-  | { state: 'unreadable'; problem: string; label: string };
-
-export const HEALTH_REFRESH_MS = 5 * 60_000;
-
-export function usePhoneHealth(days = 7) {
-  return useQuery<PhoneHealthView>({
-    queryKey: ['assistant', 'health', days],
-    queryFn: async () => {
-      const result = await rpc.extensions.readPhoneHealth({ days });
-      if (!result.success) throw new Error(result.error);
-      const read = result.data;
-      if (read.state !== 'ok') return read;
-      const parsed = readHealthSummary(read.data);
-      if (!parsed.ok) return { state: 'unreadable', problem: parsed.problem, label: read.label };
-      const { data: _data, ...rest } = read;
-      return { ...rest, summary: parsed.summary };
-    },
-    refetchInterval: HEALTH_REFRESH_MS,
-    refetchOnWindowFocus: false,
     retry: 1,
   });
 }

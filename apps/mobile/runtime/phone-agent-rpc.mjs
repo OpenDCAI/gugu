@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { deviceScopeError } from '../../../packages/core/src/shared/deviceActions.ts'
 import { createDeviceActionHost } from '../../../packages/core/src/cloud/deviceActionHost.ts'
 import { createDeviceRpcRequester } from '../../../packages/core/src/cloud/deviceRpcRequester.ts'
 import { openAttachedDeviceRpcPipe } from '../../../packages/core/src/cloud/deviceRpcAttach.ts'
@@ -125,11 +126,13 @@ export async function startPhoneAgentRpc({ cloud, ownerId, deviceId, invoke, pro
         const request = parseDeviceRpcRequest(raw)
         if (!alive || !request || request.user_id !== ownerId || request.type.endsWith(':reply')) return
         peer.lastAsked = Date.now()
+        if (request.type === 'device.action' || request.type === 'device.action.result_ack') {
+          void sendPeerReply(peer, request, { error: deviceScopeError(deviceId) }).catch((error) => warn(error.message))
+          return
+        }
         let result = peer.requests.get(request.request_id)
         if (!result) {
           result = (async () => {
-            if (request.type === 'device.action') return peer.actions.handleCall(request.payload)
-            if (request.type === 'device.action.result_ack') return peer.actions.handleResultAck(request.payload)
             if (request.type === 'taskhost.call') {
               const body = request.payload
               if (!body || typeof body.channel !== 'string' || !Array.isArray(body.args)) return { error: { code: 'invalid_payload', message: 'channel 和 args 是必填的' } }

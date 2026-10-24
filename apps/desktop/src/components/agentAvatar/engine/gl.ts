@@ -318,7 +318,7 @@ export class GuguGL {
    * 一片:this.verts 里 cols×rows 格的网格,贴 id 对应的素材;tint = 身份层的身体颜色(null = 素材原色)。
    * 先攒着,换了纹理 / 去色压暗 / 身体颜色才画掉前面攒的;开新的一格、flush() 时也画掉
    */
-  drawSprite(id: string, desat: number, dim: number, alpha: number, tint: Rgb | null = null, cols = GRID_X, rows = GRID_Y) {
+  drawSprite(id: string, desat: number, dim: number, alpha: number, tint: Rgb | null = null, cols = GRID_X, rows = GRID_Y, vertexAlpha?: Float32Array) {
     const s = this.tex.get(id)
     if (alpha < 0.004 || !s) return
     const nv = (cols + 1) * (rows + 1)
@@ -347,7 +347,7 @@ export class GuguGL {
         bv[k++] = this.verts[q++]
         bv[k++] = s.u + (i / cols) * s.du
         bv[k++] = s.v + (j / rows) * s.dv
-        bv[k++] = alpha
+        bv[k++] = alpha * (vertexAlpha ? vertexAlpha[j * (cols + 1) + i] : 1)
         bv[k++] = tf
       }
     const bi = this.bi
