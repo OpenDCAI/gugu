@@ -105,6 +105,30 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
     expect(onChatSelected).not.toHaveBeenCalled();
   });
 
+  it('opens unread in an already selected source with topics instead of folding the source', async () => {
+    const openUnreadChat = vi.fn().mockResolvedValue(undefined);
+    const onChatSelected = vi.fn();
+    harness = createReactHarness();
+    harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
+    await renderWithAppProviders(harness,
+      createNode(ChatListPanel, { activeTab: 'chats', onChatSelected }),
+      { chat: { activeChatId: 'grp-1', openUnreadChat,
+        chats: chats.map((row) => row.id === 'grp-1' ? { ...row, unread_count: 1,
+          unread_locator: { stream_id: 'main:grp-1', stream_kind: 'main', thread_root_id: null,
+            message_id: 'unread-target', message_seq: 1, unread_count: 1, cursor_seq: 0,
+            version: 0, is_marked_unread: true } } : row),
+        identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) },
+      } },
+    );
+    const source = harness.container.querySelector<HTMLElement>('[data-chat-row="grp-1"]')!;
+    expect(source.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(source.querySelector<HTMLElement>('.gg-list-row-title')!);
+    expect(openUnreadChat).toHaveBeenCalledExactlyOnceWith('grp-1');
+    expect(source.getAttribute('aria-expanded')).toBe('true');
+    expect(harness.container.querySelector('[data-topic-subrow="t-live"]')).not.toBeNull();
+    expect(onChatSelected).toHaveBeenCalledExactlyOnceWith('composer');
+  });
+
   it('#7589 selecting a different source navigates without folding its topics', async () => {
     const onChatSelected = vi.fn();
     const root = await renderList('dm-1', onChatSelected);

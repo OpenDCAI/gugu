@@ -18,6 +18,7 @@ export interface SeqJumpRepairIo {
   revalidateInFlight: Set<string>
   applyMessagesSnapshot(chatId: string, msgs: MessageItem[], readSeqs: Record<string, number>, epoch: number): void
   refreshMessages(chatId: string): Promise<void>
+  revalidateWindowOverlays(chatId: string): Promise<void>
 }
 
 // @@@1888 同则的轻量重验证:一页主线 delta,结果侧定真(空/短页 = 群话题 seq 膨胀的假洞,有行 = 补齐,
@@ -35,6 +36,7 @@ async function reverifySeqRange(io: SeqJumpRepairIo, chatId: string, sinceSeq: n
     ])
     if (msgs.length > 0) io.applyMessagesSnapshot(chatId, msgs, readSeqs, epoch)
     if (msgs.length >= NEWER_PAGE) await io.refreshMessages(chatId)
+    else if (msgs.length > 0) await io.revalidateWindowOverlays(chatId)
   } finally {
     io.revalidateInFlight.delete(chatId)
   }

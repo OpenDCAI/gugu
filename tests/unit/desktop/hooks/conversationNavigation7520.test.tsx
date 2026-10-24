@@ -29,6 +29,7 @@ function Hook({ owner = 'owner' }: { owner?: string }) {
 async function click(chat: string) { await act(async () => { openConversationLink(`gugu-chat://${chat}/${messageId}`) }) }
 beforeEach(async () => {
   vi.clearAllMocks()
+  openAssistant.mockImplementation((tasks: boolean) => tasks ? 'assistant:task-chat' : 'assistant:chat')
   mocked.task = { assistantId: 'assistant', taskAgentId: 'task', task: { deviceId: 'device', sessionId: 'session' }, assistants: [] }
   mocked.lookup.mockResolvedValue({ chat_id: assistantChat })
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
@@ -40,7 +41,7 @@ describe('conversation source navigation', () => {
   it('reveals a valid assistant source on the left without replacing the task pane', async () => {
     await click(assistantChat)
     expect(mocked.lookup).toHaveBeenCalledWith(messageId, 'owner')
-    expect(mocked.reveal).toHaveBeenCalledWith(assistantChat, messageId)
+    expect(mocked.reveal).toHaveBeenCalledWith(assistantChat, messageId, 'assistant:chat')
     expect(openAssistant).toHaveBeenCalledWith(false)
     expect(openChat).not.toHaveBeenCalled()
   })
@@ -50,7 +51,7 @@ describe('conversation source navigation', () => {
     try {
       await click(taskChat)
       expect(openAssistant).toHaveBeenCalledWith(true)
-      expect(mocked.reveal).toHaveBeenCalledWith(taskChat, messageId)
+      expect(mocked.reveal).toHaveBeenCalledWith(taskChat, messageId, 'assistant:task-chat')
       expect(listener).toHaveBeenCalledOnce()
       expect(openChat).not.toHaveBeenCalled()
     } finally { window.removeEventListener('__open_assistant_task_chat', listener) }
