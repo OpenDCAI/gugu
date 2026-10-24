@@ -22,8 +22,8 @@ vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
 }))
 // Every group item uses the same opener; the message does not decide who claims it again.
-const appMocks = vi.hoisted(() => ({ openGroupFile: vi.fn() }))
-vi.mock('@/components/markdown/fileLinks', () => ({ openGroupFile: appMocks.openGroupFile }))
+const appMocks = vi.hoisted(() => ({ openResource: vi.fn() }))
+vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: appMocks.openResource }))
 vi.mock('@/lib/attachmentBytes', () => bytesMocks)
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
 const downloadMocks = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
@@ -97,25 +97,25 @@ describe('useMessageFilePreview', () => {
     ['a group item', { kind: 'item', itemId: 'item-1', version: 2 }, true],
     ['an old URL attachment', { kind: 'url', url: 'https://files.test/deck.pptx' }, false],
   ] as const)('%s: uses the shared group opener = %s', async (_label, source, toApp) => {
-    appMocks.openGroupFile.mockResolvedValue(true)
+    appMocks.openResource.mockResolvedValue(undefined)
     bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => ''))
     const deck: PreviewFile = { kind: 'file', fileName: '今晚车道进展.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', sizeBytes: 9, source }
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(deck) })
-    expect(appMocks.openGroupFile).toHaveBeenCalledTimes(toApp ? 1 : 0)
-    if (toApp) expect(appMocks.openGroupFile).toHaveBeenCalledWith('item-1', undefined, undefined, expect.any(Function))
+    expect(appMocks.openResource).toHaveBeenCalledTimes(toApp ? 1 : 0)
+    if (toApp) expect(appMocks.openResource).toHaveBeenCalledWith({ kind: 'file', itemId: 'item-1' }, { message: undefined, restore: expect.any(Function) })
     expect(closeRightSurfaces).toHaveBeenCalledTimes(toApp ? 0 : 1)
     expect(container.querySelector('[data-testid="preview-content"]') !== null).toBe(!toApp)
   })
 
   it('passes the originating message into the shared group-file route', async () => {
-    appMocks.openGroupFile.mockResolvedValue(true)
+    appMocks.openResource.mockResolvedValue(undefined)
     const message = { id: 'origin', content: 'attachment' } as MessageItem
     const attachment = { ...file, source: { kind: 'item' as const, itemId: 'group-file', version: 1 } }
     await act(async () => { root.render(React.createElement(Probe)) })
     const restore = vi.fn()
     await act(async () => { openPreview?.(attachment, message, restore) })
-    expect(appMocks.openGroupFile).toHaveBeenCalledWith('group-file', undefined, message, restore)
+    expect(appMocks.openResource).toHaveBeenCalledWith({ kind: 'file', itemId: 'group-file' }, { message, restore })
     expect(restore).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="preview-content"]')).toBeNull()
   })
