@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '@/components/assistant-ui/ui/skeleton';
+import { Button } from '@renderer/lib/ui/button';
 import type { SessionTranslate } from '../extension-consent';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
 import type { ProductPageApi } from './app-product-page';
@@ -52,27 +54,41 @@ export function AppFeaturedCard({
 }) {
   // 底图跟着 README 走:一版的 README 不会变,所以按机器 + App + 版本记在查询缓存里。再进这一页时第一帧就是截图,
   // 不会每次先画图标版、等 README 取回来再换(owner 10-20「每次点进去 banner image 都要变一下」)。
-  const { data: shot = null } = useQuery({
+  const { data: shot = null, isPending, isError, refetch } = useQuery({
     queryKey: ['market-readme-shot', hostKey, id, version],
     // 没读到就抛:失败不进缓存,下次进来再取(主进程那边已记日志)。
     queryFn: async () => {
       const result = await api.marketReadme({ extensionId: id, version });
       if (!result.success) throw new Error(result.error ?? 'featured App README unreadable');
-      return result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
+      const artwork = result.data?.readme ? (splitReadme(result.data.readme).images[0] ?? null) : null;
+      if (artwork) {
+        const image = new window.Image();
+        image.src = artwork.src;
+        await image.decode();
+      }
+      return artwork;
     },
     staleTime: Infinity,
   });
 
   const card = variant === 'card';
+  const artwork = isPending || isError || Boolean(shot);
   return (
     <div
       role="listitem"
-      className={`${card ? 'mk-hero-card is-card' : 'mk-hero-card'}${shot ? ' has-shot' : ''}`}
+      className={`${card ? 'mk-hero-card is-card' : 'mk-hero-card'}${artwork ? ' has-shot' : ''}`}
       data-testid={card ? `extension-card-${id}` : `app-featured-${id}`}
       onClick={onOpen}
     >
-      <div className={shot ? 'mk-hero-art is-shot' : 'mk-hero-art is-icon'} aria-hidden={card || !shot ? true : undefined}>
-        {shot ? (
+      <div className={artwork ? 'mk-hero-art is-shot' : 'mk-hero-art is-icon'} aria-hidden={artwork ? undefined : true}>
+        {isPending ? (
+          <Skeleton className="absolute inset-0 rounded-none" role="status" aria-label={translate('extensions.loading')} aria-busy="true" />
+        ) : isError ? (
+          <div className="mk-status" role="alert">
+            <span>{translate('extensions.loadFailed')}</span>
+            <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); void refetch(); }}>{translate('extensions.retry')}</Button>
+          </div>
+        ) : shot ? (
           <>
             <img src={shot.src} alt="" loading="lazy" decoding="async" />
             {!card ? (
@@ -88,7 +104,7 @@ export function AppFeaturedCard({
           </>
         )}
       </div>
-      {card || shot ? null : (
+      {card || artwork ? null : (
         <div className="mk-hero-text">
           <span className="mk-hero-label">{translate('extensions.featured')}</span>
           {/* 大字是一颗按钮:键盘也能进它的产品页(点了冒泡到外层那个 onClick)。 */}
