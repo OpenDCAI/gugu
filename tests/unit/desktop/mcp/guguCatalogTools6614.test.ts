@@ -10,7 +10,7 @@ import {
   type DesktopGuguMcpHost,
   type GuguMcpContext,
 } from '../../../../apps/desktop/electron/acp-engine-utils'
-import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, unlistedTools, type CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
+import { GUGU_ASSISTANT_LISTED_TOOLS, GUGU_LISTED_TOOLS, registerGuguCatalogTools, unlistedTools, type CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { AppSearchHit } from '../../../../apps/desktop/electron/mcp/gugu-app-search-tool'
 import { GUIDE_TOPICS } from '../../../../apps/desktop/electron/mcp/gugu-guide-tool'
 import { ACTIVITY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-activity-tool'
@@ -72,6 +72,30 @@ const catalogNames = async (client: Client): Promise<string[]> =>
     .items.map((item) => nameOfCall(item.call))
 
 describe('catalog_*: 渐进披露 (#6614)', () => {
+  it('the assistant catalog follows its fixed role surface without losing occasional social tools', async () => {
+    const client = await connectTo(social({ personalAssistant: true, runSessionAction: async () => ({}) }))
+    const listed = (await client.listTools()).tools.map(tool => tool.name)
+    const catalog = await catalogNames(client)
+    expect(new Set(listed)).toEqual(GUGU_ASSISTANT_LISTED_TOOLS)
+    expect(listed.filter(name => catalog.includes(name))).toEqual([])
+    expect([...listed, ...catalog]).not.toContain('device_call')
+    for (const name of ['contact_friend', 'message_invite', 'topic_open']) {
+      expect(listed).not.toContain(name)
+      expect(catalog).toContain(name)
+      expect(JSON.parse(text(await client.callTool({ name: 'catalog_describe', arguments: { tool: name } })))).toMatchObject({ name })
+      const invalid = await client.callTool({ name: 'catalog_call', arguments: { tool: name, args: {} } })
+      expect(invalid).toMatchObject({ isError: true })
+      expect(text(invalid)).not.toContain('not a catalog entry')
+    }
+    for (const name of ['activity_list', 'activity_context', 'session_stop']) {
+      expect(listed).toContain(name)
+      expect(catalog).not.toContain(name)
+      const searched = JSON.parse(text(await client.callTool({ name: 'catalog_list', arguments: { name } }))) as { items: Array<{ call: string; native?: boolean }> }
+      expect(searched.items.find(item => nameOfCall(item.call) === name)?.native).toBe(true)
+      expect(text(await client.callTool({ name: 'catalog_describe', arguments: { tool: name } }))).toContain('call it directly')
+    }
+  })
+
   it('原生清单与目录恰好分开,合起来就是注册的全部工具', async () => {
     const client = await connectTo(social({ runSessionAction: async () => ({}), runExtensionAction: async () => ({}) }))
     const listed = (await client.listTools()).tools.map((tool) => tool.name)
