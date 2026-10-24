@@ -9,7 +9,7 @@ import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 
 const { openResource } = vi.hoisted(() => ({ openResource: vi.fn(async (target: GuguLinkTarget) => ({ kind: 'opened', target })) }))
 vi.mock('@/platform', () => ({ platform: { kind: 'web' } }))
-vi.mock('@/lib/phoneAppHost', () => ({ openPhoneLink: openResource }))
+vi.mock('@/components/appSlot/phoneAppHost', () => ({ openPhoneLink: openResource }))
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**
