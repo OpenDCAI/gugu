@@ -55,7 +55,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   useEffect(() => {
     let live = true
     setRead(null)
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(file.source, file.fileName) : readPreview(file, kind)).then(
+    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(file.source, file.fileName, () => live) : readPreview(file, kind)).then(
       (done) => { if (live) { if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) } },
       (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
     )
