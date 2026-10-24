@@ -22,8 +22,8 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
   subscribeSharedPackages: () => () => {},
 }))
 
-const { GroupAppSlot, WORKSPACE_APP_KIND } = await import('../../../../apps/desktop/src/components/appSlot/GroupAppSlot')
-const { groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
+const { GroupAppSlot } = await import('../../../../apps/desktop/src/components/appSlot/GroupAppSlot')
+const { folderTab, groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
 const { AppPeekSlot } = await import('../../../../apps/desktop/src/components/appSlot/AppPeekSlot')
 const { ClaimedPage } = await import('../../../../apps/desktop/src/components/appSlot/ClaimedPage')
 const { peekStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/peek-store')
@@ -61,33 +61,39 @@ afterEach(() => {
 })
 
 describe('G2: back from a file opened by an App goes back to that App', () => {
-  it.each([false, true])('an App and its file return through their source (fromChat=%s)', async (fromChat) => {
-    const chatId = `back-1-${fromChat}`
+  it('a file its page opened goes back to the App; the App, opened from the chat, has no Back and closes to the chat', async () => {
+    const chatId = 'back-1'
     const onClose = vi.fn()
     const slot = (props: Record<string, unknown>) =>
       createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-        createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose, ...props }))
-    await harness.render(slot({ appToOpen: { chatId, extensionId: 'kanban', request: fromChat ? 9111 : 9101, fromChat } }))
-    expect(groupSlotMemory.opened(chatId)?.kind).toBe('kanban.board')
+        createElement(GroupAppSlot, { chatId, onClose, ...props }))
+    await harness.render(slot({ asked: { chatId, app: 'kanban', request: 9101 } }))
+    const app = groupSlotMemory.opened(chatId)
+    expect(app?.kind).toBe('kanban.board')
+    expect(groupSlotMemory.tabs(chatId), '对照:父提交在它前面多一枚文件夹(null)').toEqual([app])
     const opener = { chatId, itemId: 'deck', name: 'deck.pdf', typedName: 'deck.pdf', choice: { kind: 'one', candidate: pdf } }
-    await harness.render(slot({ fileToOpen: { chatId, itemId: 'deck', request: fromChat ? 9114 : 9102, opener } }))
+    await harness.render(slot({ asked: { chatId, itemId: 'deck', request: 9102, opener, fromPage: true, from: app } }))
     expect(groupSlotMemory.opened(chatId)).toMatchObject({ kind: 'pdf.viewer', itemId: 'deck' })
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)?.kind, '对照:父提交回到文件夹(null)').toBe('kanban.board')
+    expect(groupSlotMemory.opened(chatId)?.kind).toBe('kanban.board')
     expect(onClose).not.toHaveBeenCalled()
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]'), 'opened straight from the chat: no 上一页').toBeNull()
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)).toBeNull()
-    expect(onClose).toHaveBeenCalledTimes(fromChat ? 1 : 0)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('opening an App from an existing object returns to that object', async () => {
+  it('an App opened while another tab is shown: no Back, and closing it shows that tab again', async () => {
     const chatId = 'app-from-object'
     const previous = { kind: 'pdf.viewer', itemId: 'source', title: 'source.pdf', opening: 9112 }
-    groupSlotMemory.setOpened(chatId, previous)
+    groupSlotMemory.open(chatId, previous)
+    const onClose = vi.fn()
     await harness.render(createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), appToOpen: { chatId, extensionId: 'kanban', request: 9113 } })))
-    act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
+      createElement(GroupAppSlot, { chatId, onClose, asked: { chatId, app: 'kanban', request: 9113 } })))
+    expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
+    act(() => (harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)).toBe(previous)
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
 
@@ -99,9 +105,9 @@ describe('tabbed group panel expansion', () => {
       const [full, setFull] = useState(false)
       return createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
         createElement(GroupAppSlot, {
-          chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose, tabbed: true, full,
+          chatId, onClose, tabbed: true, full,
           onToggleFull: () => setFull((value) => !value),
-          ...(app ? { appToOpen: { chatId, extensionId: 'kanban', request: 9120 } } : {}),
+          asked: { chatId, app: app ? 'kanban' : 'workspace', request: app ? 9120 : 9121 },
         }))
     }
     await harness.render(createElement(Panel))
@@ -120,14 +126,14 @@ describe('tabbed group panel expansion', () => {
 describe('message attachment entry', () => {
   const slot = (chatId: string, props: Record<string, unknown>) =>
     createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), ...props }))
+      createElement(GroupAppSlot, { chatId, onClose: vi.fn(), ...props }))
   const file = (chatId: string, itemId: string) => ({ chatId, itemId, name: `${itemId}.pdf`, typedName: `${itemId}.pdf`, choice: { kind: 'one', candidate: pdf } })
 
   it.each([false, true])('a message file has Close without Back and restores its caller (tabbed=%s)', async (tabbed) => {
     const chatId = `message-entry-${tabbed}`
     const restore = vi.fn()
     const onClose = vi.fn()
-    await harness.render(slot(chatId, { tabbed, onClose, fileToOpen: { chatId, itemId: 'message-file', request: tabbed ? 9202 : 9201, restore, opener: file(chatId, 'message-file') } }))
+    await harness.render(slot(chatId, { tabbed, onClose, asked: { chatId, itemId: 'message-file', request: tabbed ? 9202 : 9201, restore, opener: file(chatId, 'message-file') } }))
     expect(harness.container.querySelector('[data-testid="group-app-slot-back"]')).toBeNull()
     const close = harness.container.querySelector('[data-testid="group-app-slot-close"]') as HTMLButtonElement
     expect(close).not.toBeNull()
@@ -140,9 +146,11 @@ describe('message attachment entry', () => {
   it('the same file from a folder keeps Back and returns to its list', async () => {
     const chatId = 'folder-entry'
     const onClose = vi.fn()
-    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'message-file', request: 9203, opener: file(chatId, 'message-file') } }))
+    const folder = folderTab()
+    groupSlotMemory.open(chatId, folder)
+    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'message-file', request: 9203, opener: file(chatId, 'message-file'), fromPage: true, from: folder } }))
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
-    expect(groupSlotMemory.opened(chatId)).toBeNull()
+    expect(groupSlotMemory.opened(chatId)).toBe(folder)
     expect(onClose).not.toHaveBeenCalled()
   })
 
@@ -150,8 +158,8 @@ describe('message attachment entry', () => {
     const chatId = 'message-trail'
     const restore = vi.fn()
     const onClose = vi.fn()
-    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'first', request: 9204, restore, opener: file(chatId, 'first') } }))
-    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'second', request: 9205, opener: file(chatId, 'second') } }))
+    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'first', request: 9204, restore, opener: file(chatId, 'first') } }))
+    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'second', request: 9205, opener: file(chatId, 'second'), fromPage: true, from: groupSlotMemory.opened(chatId) } }))
     act(() => (harness.container.querySelector('[data-testid="group-app-slot-back"]') as HTMLButtonElement).click())
     expect(groupSlotMemory.opened(chatId)?.itemId).toBe('first')
     expect(restore).not.toHaveBeenCalled()
@@ -164,7 +172,7 @@ describe('message attachment entry', () => {
     const chatId = 'message-raw'
     const restore = vi.fn()
     const onClose = vi.fn()
-    await harness.render(slot(chatId, { onClose, fileToOpen: { chatId, itemId: 'raw', request: 9206, restore, opener: {
+    await harness.render(slot(chatId, { onClose, asked: { chatId, itemId: 'raw', request: 9206, restore, opener: {
       chatId, itemId: 'raw', name: 'raw.opaque', typedName: 'raw.opaque', choice: { kind: 'none' },
       file: { document: false, contentType: 'application/octet-stream', version: 1, size: 3 },
     } } }))
@@ -178,7 +186,7 @@ describe('message attachment entry', () => {
   it('choosing an App for a message file keeps the message entry', async () => {
     const chatId = 'message-choice'
     const restore = vi.fn()
-    await harness.render(slot(chatId, { fileToOpen: { chatId, itemId: 'choice', request: 9207, restore, opener: {
+    await harness.render(slot(chatId, { asked: { chatId, itemId: 'choice', request: 9207, restore, opener: {
       ...file(chatId, 'choice'), choice: { kind: 'choose', suffix: '.pdf', candidates: [pdf] },
     } } }))
     act(() => (harness.container.querySelector('[data-open-with="pdf.viewer"]') as HTMLButtonElement).click())

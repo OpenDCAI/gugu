@@ -69,8 +69,8 @@ afterEach(() => {
 async function header(chatId = 'g1', userId = 'user-1', mobile = true) {
   const actions = createNode(ChatHeaderActions, {
     isGroupChat: true, isRoomChat: true, mobile,
-    searchMode: false, workspacePanelOpen: false, memberListOpen: false, showHeaderMenu: true,
-    moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenWorkspacePanel: vi.fn(), onCloseWorkspacePanel: vi.fn(),
+    searchMode: false, folderShown: false, memberListOpen: false, showHeaderMenu: true,
+    moreButtonRef: createRef<HTMLButtonElement>(), onEnterSearchMode: vi.fn(), onOpenFolder: vi.fn(), onCloseWorkspacePanel: vi.fn(),
     onOpenSettingsDrawer: vi.fn(), onOpenMemberList: vi.fn(), onCloseRightSurfaces: vi.fn(),
     onToggleHeaderMenu: vi.fn(), onCloseHeaderMenu: vi.fn(), onOpenAnnouncement: vi.fn(),
   })

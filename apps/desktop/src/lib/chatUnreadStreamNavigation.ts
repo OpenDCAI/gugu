@@ -122,7 +122,16 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           assertCurrent()
           return commit
         },
-        revealMessage: async (currentTarget, commit) => { assertCurrent(); await requestUnreadMessageReveal(currentTarget, isCurrent, viewport, commit) },
+        revealMessage: async (currentTarget, commit) => {
+          assertCurrent()
+          await requestUnreadMessageReveal(currentTarget, isCurrent, viewport, commit)
+          // A confirmed entry is consumed before the read RPC: it must not discard a later reading anchor.
+          setUnreadEntries((previous) => {
+            if (!saved || previous[chatId]?.locator !== saved) return previous
+            const { [chatId]: _consumed, ...remaining } = previous
+            return remaining
+          })
+        },
         markRead: async (currentTarget, commit) => { assertCurrent(); await markStreamRead(currentTarget.chatId, currentTarget.locator.stream_id, commit.readSeq, currentTarget.locator.thread_root_id) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
       })

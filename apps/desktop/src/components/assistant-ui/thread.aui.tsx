@@ -5,7 +5,8 @@ import { ThemeProvider } from "@gugu/session-ui/react/primitives";
 import { useLocale } from "@/i18n";
 import { useTheme } from "@/store/theme";
 import { useMobileShell } from "@/hooks/useMobileShell";
-import { createLocalSessionMentionProvider, useSessionAgentCreationTools } from "@/session/renderer/lib/chat/local-session-mention-provider";
+import { createLocalSessionMentionProvider } from "@/session/renderer/lib/chat/local-session-mention-provider";
+import { useSessionAgentCreationTools } from "@/session/renderer/lib/chat/use-session-agent-creation-tools";
 import { useSessionMentionDrop } from "@/session/renderer/lib/chat/use-session-mention-drop";
 import { translateSessionMessage } from "@/session/renderer/localization/locale-store";
 import { File as FilePart } from "./file";
@@ -373,8 +374,8 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   const editor = useRef<PromptEditorRef | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const previews = useRef(new Map<File, string>());
-  const { byEngine, error, renderMentionIcon } = useSessionAgentCreationTools();
-  const mentionProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine, creationToolsError: error }), [byEngine, error]);
+  const { byEngine, renderMentionIcon } = useSessionAgentCreationTools();
+  const mentionProvider = useMemo(() => createLocalSessionMentionProvider({ creationToolsByEngine: byEngine }), [byEngine]);
   const { dataDropTypes, onDataDropped } = useSessionMentionDrop({ provider: mentionProvider, editorApiRef: editor });
   useEffect(() => {
     if (editor.current?.getText() !== text) editor.current?.setText(text);

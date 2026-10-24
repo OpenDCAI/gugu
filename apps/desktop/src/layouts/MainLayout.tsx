@@ -498,8 +498,8 @@ function InnerLayout({
     return topic ? `${viewportKey ?? 'chats'}:topic` : viewportKey ?? 'chats'
   }, [openChatBlock, setActiveChatId])
   useLinkNavigation({ ownerId: user.id, chats, contacts,
-    openFile: (chatId, target, source) => { openChatTarget(chatId); groupSlotMemory.askFile(chatId, target.itemId, target.at, undefined, source.message, source.restore) },
-    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); groupSlotMemory.askApp(chatId, extensionId, tab) },
+    openFile: (chatId, target, source) => { openChatTarget(chatId); groupSlotMemory.ask(chatId, { itemId: target.itemId, ...(target.at ? { at: target.at } : {}), ...(source.message ? { message: source.message } : {}), ...(source.restore ? { restore: source.restore } : {}) }) },
+    openApp: (chatId, extensionId, tab) => { openChatTarget(chatId); groupSlotMemory.ask(chatId, { app: extensionId, ...(tab ? { tab } : {}) }) },
     openOwnApp: (extensionId, tab) => { const page = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${extensionId}.${tab}`); if (!page) throw new Error('App tab is unavailable'); setOpenedPhoneApp({ kind: page.kind, name: page.extensionName }) },
     openProject: (projectId) => { setOpenedPhoneApp(null); setActiveTab('tasks'); appState.navigation.navigate('project', { projectId }) },
     openChat: openChatTarget,
@@ -887,9 +887,9 @@ function InnerLayout({
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
-      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, undefined, detail), true)
+      if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.ask(chatId, { itemId: detail.itemId, opener: detail, fromPage: true }), true)
     }
-    // A card's Open action names a chat: it comes up, and its panel opens the App (useOpenApp takes it).
+    // A card's Open action names a chat: it comes up, and its panel opens the App (ChatAreaPanel takes it).
     const onOpenInChat = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenInChatDetail>).detail
       const named = detail?.chatId ?? activeChatIdRef.current
@@ -897,7 +897,7 @@ function InnerLayout({
       const token = getRendererAccessToken()
       if (!token) { toast(t('groupFile.notInGroup'), 'error'); return }
       void resourceChatIdOf(token, named, user.id)
-        .then((chatId) => bringUp(chatId, (id) => groupSlotMemory.askApp(id, detail.extensionId), true))
+        .then((chatId) => bringUp(chatId, (id) => groupSlotMemory.ask(id, { app: detail.extensionId }), true))
         .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'))
     }
     window.addEventListener(APP_COMPOSE_EVENT, onCompose)
