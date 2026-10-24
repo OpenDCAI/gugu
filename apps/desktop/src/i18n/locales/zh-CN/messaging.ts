@@ -326,6 +326,10 @@ export default {
   "attachmentView": {
     "fileGone": "文件已删除",
     "fileVersion": "第 {{n}} 版",
+    "fileExpired": "文件已过期",
+    "reupload": "重新上传",
+    "selectOriginal": "选择原文件",
+
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",

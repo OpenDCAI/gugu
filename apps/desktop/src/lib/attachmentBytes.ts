@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createAttachmentResolver, type AttachmentLink } from '@gugu/core/shared/attachmentUrls'
 import type { AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
-import { fetchAttachmentUrls } from '@gugu/core/cloud/attachmentsApi'
+import { fetchAttachmentUrls, attachmentRequest } from '@gugu/core/cloud/attachmentsApi'
 import { attachmentsEndpoint } from './attachmentsEndpoint'
 import { platform } from '../platform'
 
@@ -13,7 +13,9 @@ const CACHE_NAME = 'gugu-attachments-v1'
 /** Cache Storage 的键要是 URL:内容寻址的用一个不会真去请求的地址。 */
 const CACHE_ORIGIN = 'https://attachments.gugu.invalid'
 
-export const attachmentResolver = createAttachmentResolver(async (refs) => fetchAttachmentUrls(await attachmentsEndpoint(), refs))
+export const attachmentResolver = createAttachmentResolver(async (refs) => fetchAttachmentUrls(await attachmentsEndpoint(), refs), {
+  fetchMetadata: async (ref) => attachmentRequest(await attachmentsEndpoint(), 'file-resolve', { ref }),
+})
 
 export type AttachmentVariant = 'full' | 'thumb'
 
@@ -27,12 +29,12 @@ function cacheKey(link: AttachmentLink, variant: AttachmentVariant): string {
   return link.sha256 ? `${CACHE_ORIGIN}/sha256/${link.sha256}${thumb}` : `${CACHE_ORIGIN}/url/${encodeURIComponent(link.url)}${thumb}`
 }
 
-export type AttachmentBytes = { status: 'ready'; blob: Blob; link: AttachmentLink } | { status: 'gone' }
+export type AttachmentBytes = { status: 'ready'; blob: Blob; link: AttachmentLink } | { status: 'gone' | 'expired' }
 
 /** 取一个附件的字节:先看本机缓存,没有就按签名链接下,存进缓存。取不到就抛(调用方显示「暂时打不开 · 重试」)。 */
 export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: AttachmentLink) => void): Promise<AttachmentBytes> {
   const resolved = await attachmentResolver.resolve(source)
-  if (resolved.status === 'gone') return resolved
+  if (resolved.status !== 'ready') return resolved
   onLink?.(resolved)
   const key = cacheKey(resolved, variant)
   const cache = await caches.open(CACHE_NAME)
@@ -49,7 +51,7 @@ export type AttachmentView =
   /** link:签好了、字节还在路上(气泡按宽高先留位置)。 */
   | { status: 'loading'; link?: AttachmentLink }
   | { status: 'ready'; objectUrl: string; link: AttachmentLink }
-  | { status: 'gone' }
+  | { status: 'gone' | 'expired' }
   | { status: 'failed' }
 
 /**
@@ -68,7 +70,7 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
     attachmentBytes(source, variant, (link) => alive && setView({ status: 'loading', link })).then(
       (bytes) => {
         if (!alive) return
-        if (bytes.status === 'gone') return setView({ status: 'gone' })
+        if (bytes.status !== 'ready') return setView({ status: bytes.status })
         objectUrl = URL.createObjectURL(bytes.blob)
         setView({ status: 'ready', objectUrl, link: bytes.link })
       },
@@ -91,7 +93,7 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */
 export async function openAttachmentImage(source: AttachmentSource, alt: string, isCurrent: () => boolean, quote?: () => Promise<void> | void): Promise<void> {
   const bytes = await attachmentBytes(source)
-  if (bytes.status === 'gone') throw new Error('attachment is gone')
+  if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { openImageViewer } = await import('./imageViewer')
   if (!isCurrent()) return
   openImageViewer([{ url: URL.createObjectURL(bytes.blob), alt, quote }])
@@ -100,7 +102,7 @@ export async function openAttachmentImage(source: AttachmentSource, alt: string,
 /** 下载一个附件(同一份缓存);条目删了就抛。 */
 export async function downloadAttachment(source: AttachmentSource, fileName: string): Promise<void> {
   const bytes = await attachmentBytes(source)
-  if (bytes.status === 'gone') throw new Error('attachment is gone')
+  if (bytes.status !== 'ready') throw new Error(bytes.status)
   const { downloadBlob } = await import('./download')
   await downloadBlob(bytes.blob, fileName)
 }
@@ -111,13 +113,20 @@ export async function openAttachmentInSystemApp(source: AttachmentSource, fileNa
   await platform.openRemoteFile({
     bytes: async () => {
       const bytes = await attachmentBytes(source)
-      if (bytes.status === 'gone') throw new Error('attachment is gone')
+      if (bytes.status !== 'ready') throw new Error(bytes.status)
       return bytes.blob
     },
     url: async () => {
       const link = await attachmentResolver.resolve(source)
-      if (link.status === 'gone') throw new Error('attachment is gone')
+      if (link.status !== 'ready') throw new Error(link.status)
       return link.url
     },
   }, fileName)
+}
+
+/** Reads only an existing full-size local copy; never signs or downloads. ACL is checked by the caller. */
+export async function cachedAttachmentCopy(sha256: string | null): Promise<Blob | null> {
+  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) return null
+  const hit = await (await caches.open(CACHE_NAME)).match(`${CACHE_ORIGIN}/sha256/${sha256}`)
+  return hit ? hit.blob() : null
 }

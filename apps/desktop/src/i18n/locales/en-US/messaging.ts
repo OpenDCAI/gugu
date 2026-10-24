@@ -326,6 +326,10 @@ export default {
   "attachmentView": {
     "fileGone": "File deleted",
     "fileVersion": "Version {{n}}",
+    "fileExpired": "File expired",
+    "reupload": "Upload again",
+    "selectOriginal": "Choose the original file",
+
     "fileUnavailable": "File unavailable right now",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",

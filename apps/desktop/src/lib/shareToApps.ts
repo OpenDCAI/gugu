@@ -16,7 +16,7 @@ export interface SharePlan {
 export async function resolveSharePlan(plan: SharePlan, resolve: (source: AttachmentSource) => Promise<AttachmentResolution>): Promise<ShareToAppsPayload> {
   const files = await Promise.all((plan.files ?? []).map(async ({ source, name, mimeType }) => {
     const link = await resolve(source)
-    if (link.status === 'gone') throw new Error(`${name} was deleted`)
+    if (link.status !== 'ready') throw new Error(`${name} was deleted`)
     return { url: link.url, name, ...(mimeType ? { mimeType } : {}) }
   }))
   return { ...(plan.text ? { text: plan.text } : {}), ...(files.length > 0 ? { files } : {}) }

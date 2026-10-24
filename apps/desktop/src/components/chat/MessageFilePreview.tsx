@@ -27,7 +27,7 @@ async function previewBytes(file: PreviewFile): Promise<Blob> {
     return new Blob([document.text], { type: file.mimeType })
   }
   const bytes = await attachmentBytes(file.source)
-  if (bytes.status === 'gone') throw new Error('gone')
+  if (bytes.status !== 'ready') throw new Error(bytes.status)
   return bytes.blob
 }
 
@@ -39,7 +39,7 @@ async function previewBytes(file: PreviewFile): Promise<Blob> {
 async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promise<{ content: string | ArrayBuffer | null; videoUrl?: string }> {
   if (!documentPreviewNeedsFetch(kind)) {
     const link = await attachmentResolver.resolve(file.source)
-    if (link.status === 'gone') throw new Error('gone')
+    if (link.status !== 'ready') throw new Error(link.status)
     return { content: null, videoUrl: link.url }
   }
   const blob = await previewBytes(file)
@@ -74,7 +74,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
     if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage) : readPreview(file, kind)).then(
       (done) => { if (live) { if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) } },
-      (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
+      (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') }),
     )
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes

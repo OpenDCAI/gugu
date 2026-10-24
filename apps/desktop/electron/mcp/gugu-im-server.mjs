@@ -2126,7 +2126,7 @@ async function downloadAttachment(messageId, deps) {
   if (!attachment) throw new Error(`message_download_file: message ${messageId} has no attachment`)
   if (attachment.source.kind === 'gone') throw new Error(`message_download_file: the file of message ${messageId} was deleted from the group folder`)
   const link = await createAttachmentResolver((refs) => deps.attachmentUrls(refs, readerId)).resolve(attachment.source)
-  if (link.status === 'gone') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
+  if (link.status !== 'ready') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
   const bytes = await deps.fetchBytes(link.url)
   const home = typeof deps.context.guguHome === 'string' ? deps.context.guguHome.trim() : ''
   if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
