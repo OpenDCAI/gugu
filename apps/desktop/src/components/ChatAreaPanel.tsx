@@ -462,7 +462,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     if (!isRoomChatSurface) void loadImportedHistories(activeChatId)
   }, [activeChatId, isRoomChatSurface, loadHistoryFiles, loadImportedHistories, closeRightSurfaces])
 
-  useTopicsPanelRequest(activeChatId, openNonce, handleOpenHistoryPanel)
+  useTopicsPanelRequest(surfaceVisible ? activeChatId : null, openNonce, handleOpenHistoryPanel)
   const handleCloseHistoryPanel = useCallback(() => setHistoryPanelOpen(false), [])
 
   const topicSurface = useTopicSurface({
