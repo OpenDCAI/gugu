@@ -232,6 +232,7 @@ const TOPIC_SUBROW_ICON_STYLE: React.CSSProperties = { color: 'var(--text-tertia
 const TOPIC_SUBROW_NAME_STYLE: React.CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }
 
 function startChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem, title: string) {
+  if (!event.currentTarget.draggable) return
   setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.kind === 'topic' ? chat.source_chat_id! : chat.id, title, ...(chat.kind === 'topic' ? { topic: { chatId: chat.id, name: chat.name ?? '' } } : {}) }, event.currentTarget)
 }
 

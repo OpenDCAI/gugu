@@ -56,13 +56,13 @@ beforeAll(async () => {
 });
 afterEach(() => { harness?.cleanup(); clearDraggedScreenContent(); });
 
-async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false) {
+async function renderList(activeChatId = 'grp-1', onChatSelected = vi.fn(), mobile = false, peerAvatar: string | null = null) {
   harness = createReactHarness();
   harness.container.style.cssText = 'width: 320px; height: 640px; display: flex;';
   await renderWithAppProviders(
     harness,
     createNode(ChatListPanel, { activeTab: 'chats', mobile, onOpenAgentCreateDraft: vi.fn(), onChatSelected }),
-    { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏' }) } } },
+    { chat: { chats, activeChatId, identitiesById: { 'peer-lin': displayIdentity('peer-lin', { display_name: '林知夏', avatar: peerAvatar }) } } },
   );
   await until('the chat rows rendered', () => harness.container.querySelector('[data-chat-row="dm-1"]') !== null);
   return harness.container;
@@ -92,6 +92,36 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
   it('keeps mobile chat and topic rows non-draggable', async () => {
     const root = await renderList('grp-1', vi.fn(), true);
     for (const row of root.querySelectorAll<HTMLElement>('[data-chat-row]')) expect(row.draggable).toBe(false);
+  });
+
+  it.each([false, true])('only writes workspace content from an avatar image drag when the row is draggable (mobile: %s)', async (mobile) => {
+    await page.viewport(1000, 800);
+    const avatarUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="blue"/></svg>')}`;
+    const root = await renderList('grp-1', vi.fn(), mobile, avatarUrl);
+    const row = root.querySelector<HTMLElement>('[data-chat-row="dm-1"]')!;
+    const avatar = row.querySelector<HTMLImageElement>('img')!;
+    await until('the custom avatar image loads', () => avatar.complete && avatar.naturalWidth > 0);
+    expect(row.draggable).toBe(!mobile);
+    expect(avatar.draggable).toBe(true);
+    const starts: unknown[] = [];
+    avatar.addEventListener('dragstart', (event) => starts.push({ trusted: event.isTrusted, fromAvatar: event.target === avatar }));
+    const drops: { trusted: boolean; types: string[]; content: unknown }[] = [];
+    const target = document.createElement('div');
+    target.style.cssText = 'position:fixed;left:400px;top:100px;width:200px;height:100px';
+    target.addEventListener('dragover', (event) => { event.preventDefault(); event.dataTransfer!.dropEffect = 'move'; });
+    target.addEventListener('drop', (event) => {
+      event.preventDefault();
+      drops.push({ trusted: event.isTrusted, types: [...event.dataTransfer!.types], content: getDraggedScreenContent(event.dataTransfer!) });
+    });
+    document.body.appendChild(target);
+    try {
+      await userEvent.dragAndDrop(avatar, target);
+      expect(starts).toEqual([{ trusted: true, fromAvatar: true }]);
+      expect(drops).toHaveLength(1);
+      expect(drops[0].trusted).toBe(true);
+      expect(drops[0].types.includes(SCREEN_CONTENT_DRAG_TYPE)).toBe(!mobile);
+      expect(drops[0].content).toEqual(mobile ? null : { kind: 'chat', chatId: 'dm-1', title: '林知夏' });
+    } finally { target.remove(); }
   });
 
   it('a sidebar topic activation requests a split toggle on its source', async () => {
