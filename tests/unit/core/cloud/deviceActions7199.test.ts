@@ -338,7 +338,7 @@ describe('登记清单的解析', () => {
       available: true, risk: 'low', confirm: 'never',
     }
     const raw = {
-      v: 1, updated_at: 't', timezone: 'Asia/Shanghai', actions: [null, {}, entry],
+      v: 1, timezone: 'Asia/Shanghai', actions: [null, {}, entry],
       switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
     }
     const { description: _description, input_schema: _schema, ...summary } = entry

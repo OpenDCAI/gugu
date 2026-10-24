@@ -106,7 +106,7 @@ describe('device cloud helpers', () => {
       risk: 'low', confirm: 'never', unavailable_reason: 'not_granted', unavailable_detail: 'Enable files',
     }
     const actions = {
-      v: 1, updated_at: '2026-10-24T00:00:00Z', timezone: 'Asia/Shanghai', actions: [action],
+      v: 1, timezone: 'Asia/Shanghai', actions: [action],
       switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
     }
     const device = normalizeDeviceRow({
