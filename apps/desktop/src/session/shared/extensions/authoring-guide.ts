@@ -173,9 +173,6 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
 
-Declare human UI hosts in \`platforms\` (API 11): desktop, phone, or both. A phone UI may declare agent
-capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
-
 Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
 A session's tab has \`session\`; a chat's side panel (a group's or DM's; a phone's too) has \`chat\`;
 the dock and the background page have neither; opened for a file, \`file\` names it. Read the context first, then draw:
@@ -883,6 +880,11 @@ What the card, the detail sheet and the installed list show comes from manifest.
 `;
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
+
+## Platform declarations
+
+Declare human UI hosts in \`platforms\` (API 11): desktop, phone, or both. A phone UI may declare agent
+capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
 
 ## Standing agent behavior
 
