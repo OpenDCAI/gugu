@@ -124,4 +124,12 @@ describe('first unread navigation paints its final landing', () => {
     expect(view.confirmed).toHaveBeenCalledWith('m310')
     expect(view.rejected).not.toHaveBeenCalled()
   })
+
+  it('confirms the first unread near the beginning where the viewport cannot scroll above zero', async () => {
+    const view = await renderConversation(2, 390)
+    expect(view.readings.at(-1)?.targetVisible).toBe(true)
+    expect(view.scroller().scrollTop).toBe(0)
+    expect(view.confirmed).toHaveBeenCalledWith('m2')
+    expect(view.rejected).not.toHaveBeenCalled()
+  })
 })
