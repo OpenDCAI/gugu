@@ -21,7 +21,7 @@ import { markAllChatsReadAndRefresh } from '../lib/chatUnreadLocator'
 import { chatPreviewText } from '../lib/agentTurnFailure'
 import { useToast } from './toastContext'
 import { formatCalendarDay } from '../lib/calendarTime'
-import { CreateGroupChatForm } from './CreateGroupChatModal'
+import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -980,7 +980,7 @@ export function ChatListPanel({
         {showAddFriendModal ? <AddFriendContent onClose={() => setShowAddFriendModal(false)} /> : null}
       </Sheet>
 
-      <Sheet open={showGroupModal === true} onClose={() => setShowGroupModal(false)} onClosed={() => { if (typeof showGroupModal === 'string') { openCreatedGroup(showGroupModal); setShowGroupModal(false) } }} desktopWidth="min(440px, 100%)" desktopMaxHeight="min(88vh, calc(100dvh - 32px))" testId="create-group-modal" ariaLabel={t('createGroup.title', { ns: 'contacts' })}>
+      <Sheet open={showGroupModal === true} onClose={() => setShowGroupModal(false)} onClosed={() => { if (typeof showGroupModal === 'string') { openCreatedGroup(showGroupModal); setShowGroupModal(false) } }} {...MEMBER_PICKER_SHEET} testId="create-group-modal" ariaLabel={t('createGroup.title', { ns: 'contacts' })}>
         {showGroupModal === true ? <CreateGroupChatForm
           onClose={() => setShowGroupModal(false)}
           onCreated={setShowGroupModal}

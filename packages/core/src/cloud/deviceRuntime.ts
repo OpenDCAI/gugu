@@ -66,11 +66,14 @@ export const HOST_RUNTIME_CAPABILITY = 1
 
 type DeviceHeartbeatResult = {
   error: { message: string } | null
+  data?: { runtimes: string[] | null }[] | null
 }
 
 export interface DeviceHeartbeatTableClient {
   from(table: 'gugu_devices'): {
-    upsert(value: never, options: { onConflict: string }): PromiseLike<DeviceHeartbeatResult>
+    upsert(value: never, options: { onConflict: string }): PromiseLike<DeviceHeartbeatResult> & {
+      select(columns: 'runtimes:capabilities->runtimes'): PromiseLike<DeviceHeartbeatResult>
+    }
     update(value: { status: 'offline'; updated_at: string }): {
       eq(column: 'device_id', value: string): PromiseLike<DeviceHeartbeatResult>
     }
@@ -774,7 +777,8 @@ function resolveDeviceActions(source: DeviceActionsSource | undefined): { action
 export async function syncDeviceHeartbeat(
   client: DeviceHeartbeatTableClient,
   options: DeviceHeartbeatOptions,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  publishedCapabilities?: Map<string, string>,
 ): Promise<void> {
   const now = (options.nowIso ?? nowIso)()
   const detectedCapabilities = await resolveDeviceCapabilities(
@@ -823,15 +827,26 @@ export async function syncDeviceHeartbeat(
     status: 'online',
     last_seen_at: now,
     updated_at: now,
-    capabilities,
     session_digest: resolveSessionDigest(options.sessionDigest)
   }
-  const { error } = await runDeviceRequest(
-    'device heartbeat upsert',
-    timeouts.heartbeatUpsertMs,
-    () => client.from('gugu_devices').upsert(dbPayload(row), { onConflict: 'device_id' }),
+  const content = JSON.stringify(capabilities)
+  const write = (register: boolean) => runDeviceRequest(
+    'device heartbeat upsert', timeouts.heartbeatUpsertMs, () => {
+      const request = client.from('gugu_devices').upsert(dbPayload(register ? { ...row, capabilities } : row), { onConflict: 'device_id' })
+      // A small projection distinguishes a surviving registration from a recreated/cleared row.
+      return register ? request : request.select('runtimes:capabilities->runtimes')
+    },
   )
-  if (error) throw new Error(error.message)
+  try {
+    const register = publishedCapabilities?.get(identity.deviceId) !== content
+    let result = await write(register)
+    if (!result.error && !register && result.data?.[0]?.runtimes === null) result = await write(true)
+    if (result.error) throw new Error(result.error.message)
+    publishedCapabilities?.set(identity.deviceId, content)
+  } catch (error) {
+    publishedCapabilities?.delete(identity.deviceId)
+    throw error
+  }
 }
 
 /**

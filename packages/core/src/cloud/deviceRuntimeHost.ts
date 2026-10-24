@@ -335,6 +335,7 @@ export function createDeviceRuntimeHostLoop(
   let activeTick: Promise<DeviceRuntimeHostTickResult> | null = null
   let activeTickAbortController: AbortController | null = null
   const heartbeatFlights = new Map<string, Promise<void>>()
+  const publishedCapabilities = new Map<string, string>()
   let lastHeartbeatAt: number | null = null
   // @@@5912 上一次实例租约续成功的时刻(**不分是哪条腿续的**)。tick 据此跳过自己那一次续租。
   let lastLeaseRenewAt: number | null = null
@@ -456,6 +457,7 @@ export function createDeviceRuntimeHostLoop(
       lastLeaseRenewAt = null
       lastLegacyCleanupAt = null
       lastDeviceId = null
+      publishedCapabilities.clear()
       // #3961 —— 上一个身份「已发布过什么」不属于下一个人:留着会让新 owner 的第一轮对账把旧账当成现状
       // (该写的不写、不该写的写)。与上面那批 latch 同一处重置。
       publishedActivity.clear()
@@ -519,7 +521,7 @@ export function createDeviceRuntimeHostLoop(
   ): Promise<void> {
     const active = heartbeatFlights.get(heartbeatOptions.userId)
     if (active) return active
-    const flight = syncDeviceHeartbeat(client, heartbeatOptions, heartbeatEnv).catch((error: unknown) => {
+    const flight = syncDeviceHeartbeat(client, heartbeatOptions, heartbeatEnv, publishedCapabilities).catch((error: unknown) => {
       // #6264 这台机器已被账号主人在「设置 → 设备」里移除:库拒收它的心跳(DEVICE_REMOVED)。
       // 只通知一次,由宿主决定怎么收场(server 退出这个账号的登录)。错误照旧抛出,心跳本身按失败处理。
       if (!deviceRemovedNotified && isDeviceRemovedError(error)) {
