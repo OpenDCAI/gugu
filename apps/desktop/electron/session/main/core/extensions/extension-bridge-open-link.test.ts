@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
+import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
+import { openExtensionLinkWith } from './extension-links';
 
 /**
  * App 页面里人点了一条咕咕自己的链接(linkTo 造的):preload 把它交给宿主(`openLink`),宿主按链接的结构认出它是咕咕的
@@ -8,7 +11,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const PAGE = 7;
 const BACKGROUND = 9;
 const REHEARSAL = 11;
-const contentsOf = (id: number) => ({ id, isDestroyed: () => false, hostWebContents: { id: 42 }, session: {}, once: () => undefined, on: () => undefined, send: () => undefined });
+const CHAT = '0b000000-0000-4000-8000-000000000016';
+const TOPIC = '0b000000-0000-4000-8000-000000000017';
+const received: ExtensionHostEvent[] = [];
+const contentsOf = (id: number) => ({ id, isDestroyed: () => false, hostWebContents: { id: 42 }, session: {}, once: () => undefined, on: () => undefined, send: (_channel: string, event: ExtensionHostEvent) => { if (id === PAGE) received.push(event); } });
 
 const handlers = new Map<string, (event: unknown, raw: unknown) => Promise<unknown>>();
 vi.mock('electron', () => ({
@@ -38,10 +44,10 @@ vi.mock('@main/core/extensions/extension-links', async (original) => ({
   currentLinkScheme: () => 'gugu-dev',
   openExtensionLink: async (url: string) => { opened.push(url); return outcome; },
 }));
-vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id === TOPIC ? CHAT : id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-const { bindExtensionSurface, registerExtensionBridge } = await import('./extension-bridge');
+const { bindExtensionSurface, deliverToExtension, registerExtensionBridge } = await import('./extension-bridge');
 const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-protocol');
 
 registerExtensionBridge();
@@ -53,10 +59,27 @@ const LINK = 'gugu-dev://ext/radar/radar?gugu.session=0d000000-0000-4000-8000-00
 beforeEach(async () => {
   opened.length = 0;
   outcome = { kind: 'opened', extensionId: 'chess', tab: 'main' };
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: '0b000000-0000-4000-8000-000000000016' });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: CHAT });
+  received.length = 0;
 });
 
 describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
+  it('delivers a topic link to the App already bound in its source chat', async () => {
+    const manifest = parseExtensionManifest({
+      id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Main' }] },
+    });
+    const openApp = vi.fn(async () => {});
+    const event: ExtensionHostEvent = { type: 'link', tab: 'main', path: 'game/7', query: { move: 'e4' }, file: null };
+    await expect(openExtensionLinkWith({
+      scheme: 'gugu-dev', installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
+      sessionProject: async () => null, reveal: async () => {}, openApp, deliver: deliverToExtension,
+    }, `gugu-dev://ext/chess/main/game/7?move=e4&gugu.chat=${TOPIC}`))
+      .resolves.toEqual({ kind: 'opened', extensionId: 'chess', tab: 'main' });
+    expect(received.filter((entry) => entry.type === 'link')).toEqual([event]);
+    expect(openApp).toHaveBeenCalledWith('chess', CHAT);
+  });
+
   it('opens through the one opener, the link as it was', async () => {
     expect(await open(PAGE, LINK)).toEqual({ ok: true, value: undefined });
     expect(opened).toEqual([LINK]);
