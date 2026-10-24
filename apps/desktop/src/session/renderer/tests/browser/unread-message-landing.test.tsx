@@ -1,4 +1,5 @@
 import { createElement, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from '@/components/chat/MessageList'
@@ -19,8 +20,9 @@ vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<obj
 vi.mock('@/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 
 let harness: ReturnType<typeof createReactHarness> | undefined
+let slotHarness: ReturnType<typeof createReactHarness> | undefined
 let frame = 0
-afterEach(() => { cancelAnimationFrame(frame); harness?.cleanup() })
+afterEach(() => { cancelAnimationFrame(frame); harness?.cleanup(); slotHarness?.cleanup(); slotHarness = undefined })
 
 const noop = () => {}
 const rowsBetween = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => message({
@@ -29,7 +31,7 @@ const rowsBetween = (from: number, to: number) => Array.from({ length: to - from
 }))
 type Reading = { windowHead: string; visible: boolean; targetVisible: boolean; targetTop: number | null; first: string | undefined; last: string | undefined }
 
-async function renderConversation(target: number, width: number) {
+async function renderConversation(target: number, width: number, portal = false) {
   await page.viewport(width, 760)
   harness = createReactHarness()
   const history = new ChatHistoryWindow('reader')
@@ -43,7 +45,16 @@ async function renderConversation(target: number, width: number) {
   const readings: Reading[] = []
   let clicked = false
   const setFollowingTail = (following: boolean | undefined) => { if (following !== undefined) history.setFollowingTail(following) }
-  const scroller = () => harness!.container.querySelector<HTMLElement>('[data-testid="chat-message-list"]')!
+  let slot: HTMLElement | null = null
+  const subscribers = new Set<() => void>()
+  const registerSlot = (element: HTMLDivElement | null) => { slot = element; subscribers.forEach((listener) => listener()) }
+  const surfaceRoot = () => slot ?? harness!.container
+  const scroller = () => surfaceRoot().querySelector<HTMLElement>('[data-testid="chat-message-list"]')!
+  function Slot() { return <div ref={registerSlot} /> }
+  function PortalHost() {
+    const target = useSyncExternalStore((listener) => { subscribers.add(listener); return () => { subscribers.delete(listener) } }, () => slot)
+    return target ? createPortal(<Conversation />, target) : null
+  }
   function Conversation() {
     const window = useSyncExternalStore(history.subscribe, history.getSnapshot)
     const messages = window.messages
@@ -51,7 +62,7 @@ async function renderConversation(target: number, width: number) {
     const listRef = useRef<FlowListHandle | null>(null), isAtBottomRef = useRef(true)
     const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
-    const memory = useConversationScrollMemory({ chatId: 'long-chat', viewportKey: `unread-${target}-${width}`, activationKey: 'long-chat',
+    const memory = useConversationScrollMemory({ chatId: 'long-chat', viewportKey: `unread-${target}-${width}-${portal}`, activationKey: 'long-chat',
       enabled: true, messageIds: messages.map((row) => row.id), isAtBottomRef, setFollowingTail: history.setFollowingTail, loadMessageAnchor })
     const resetKey = `long-chat#${window.viewVersion}`
     const input = { activeChatId: 'long-chat', navigationTarget: true, rows, scrollerRef: memory.scrollerRef, listRef,
@@ -61,7 +72,7 @@ async function renderConversation(target: number, width: number) {
     const pending = useUnreadLocatorNavigation(input)
     const { onAtBottomChange } = useFollowingTail({ resetKey, unreadNavigationPending: pending, hasNewer: window.hasNewer,
       loading: !!window.loading, isPreservingPosition: memory.isPreservingPosition, isAtBottomRef, setFollowingTail })
-    useTailPinning({ resetKey, messages, enabled: !pending, messageWindow: window, scrollerEl: memory.scrollerEl, scrollerRef: memory.scrollerRef,
+    const { onTotalListHeightChanged } = useTailPinning({ resetKey, messages, enabled: !pending, messageWindow: window, scrollerEl: memory.scrollerEl, scrollerRef: memory.scrollerRef,
       listRef, isAtBottomRef, isPreservingPosition: memory.isPreservingPosition, prepareForSavedPosition: memory.prepareForSavedPosition,
       forgetSavedPosition: memory.forgetSavedPosition, returnToLatest: vi.fn(async () => {}), onError: rejected })
     const jump = () => {
@@ -78,10 +89,15 @@ async function renderConversation(target: number, width: number) {
     return <div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
       <MessageList rows={rows} rowProps={rowProps} resetKey={resetKey} listRef={listRef} scrollerRef={memory.setScrollerRef}
         initialTopMostItemIndex={memory.openLocation()} followTail={!pending && !window.hasNewer} onAtBottomChange={onAtBottomChange}
+        onTotalListHeightChanged={onTotalListHeightChanged}
         unreadAbove={{ messageId: `m${target}`, messageSeq: target, label: 'Jump to first unread', onJump: jump }} />
     </div>
   }
-  await renderWithAppProviders(harness, createElement(Conversation))
+  if (portal) {
+    slotHarness = createReactHarness()
+    await slotHarness.render(<Slot />)
+  }
+  await renderWithAppProviders(harness, createElement(portal ? PortalHost : Conversation))
   await until('the long conversation has completed its initial tail layout', () => scroller()?.querySelectorAll('[data-msg-id]').length === 40)
   const sample = () => {
     if (!clicked) { frame = requestAnimationFrame(sample); return }
@@ -91,7 +107,7 @@ async function renderConversation(target: number, width: number) {
     })
     const targetRow = surface.querySelector<HTMLElement>(`[data-msg-id="m${target}"]`)
     const targetRect = targetRow?.getBoundingClientRect()
-    readings.push({ windowHead: harness!.container.querySelector<HTMLElement>('[data-window-head]')!.dataset.windowHead!,
+    readings.push({ windowHead: surfaceRoot().querySelector<HTMLElement>('[data-window-head]')!.dataset.windowHead!,
       visible: getComputedStyle(surface).visibility !== 'hidden', targetVisible: !!targetRect && targetRect.bottom > bounds.top && targetRect.top < bounds.bottom,
       targetTop: targetRect ? targetRect.top - bounds.top : null, first: visible[0]?.dataset.msgId, last: visible.at(-1)?.dataset.msgId })
     frame = requestAnimationFrame(sample)
@@ -101,7 +117,8 @@ async function renderConversation(target: number, width: number) {
   await until('twelve animation frames after navigation are recorded', () => readings.length >= 12)
   cancelAnimationFrame(frame)
   await until('unread navigation confirms the visible row or reports its failure', () => confirmed.mock.calls.length > 0 || rejected.mock.calls.length > 0)
-  return { readings, confirmed, rejected, loadMessageAnchor, scroller }
+  return { readings, confirmed, rejected, loadMessageAnchor, scroller, history,
+    closeSlot: () => slotHarness!.render(null), reopenSlot: () => slotHarness!.render(<Slot />) }
 }
 
 describe('first unread navigation paints its final landing', () => {
@@ -131,5 +148,32 @@ describe('first unread navigation paints its final landing', () => {
     expect(view.scroller().scrollTop).toBe(0)
     expect(view.confirmed).toHaveBeenCalledWith('m2')
     expect(view.rejected).not.toHaveBeenCalled()
+  })
+
+  it('keeps the saved reading position when a desktop slot is removed and reopened by another React root', async () => {
+    const view = await renderConversation(310, 1100, true)
+    const visible = () => {
+      const surface = view.scroller(), bounds = surface.getBoundingClientRect()
+      const row = Array.from(surface.querySelectorAll<HTMLElement>('[data-msg-id]')).find((row) => {
+        const rect = row.getBoundingClientRect(); return rect.bottom > bounds.top && rect.top < bounds.bottom
+      })!
+      return { id: row.dataset.msgId, top: row.getBoundingClientRect().top - bounds.top }
+    }
+    const surface = view.scroller()
+    surface.scrollTop = surface.scrollHeight - surface.clientHeight - 500
+    await until('the real scroll event withdraws tail following', () => !view.history.isFollowingTail())
+    const before = visible()
+    await view.closeSlot()
+    await until('the other root has removed the conversation slot', () => !view.scroller())
+    const restored: ReturnType<typeof visible>[] = []
+    const sample = () => {
+      if (view.scroller()) restored.push(visible())
+      frame = requestAnimationFrame(sample)
+    }
+    frame = requestAnimationFrame(sample)
+    await view.reopenSlot()
+    await until('twelve restored viewport frames are recorded', () => restored.length >= 12)
+    cancelAnimationFrame(frame)
+    expect(restored.every((row) => row.id === before.id && Math.abs(row.top - before.top) <= 1), JSON.stringify({ before, restored })).toBe(true)
   })
 })
