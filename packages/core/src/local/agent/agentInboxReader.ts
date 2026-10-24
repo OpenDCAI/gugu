@@ -333,7 +333,7 @@ async function downloadAttachment(
     if (!who.accessToken) throw new Error('chat attachment needs a signed link, and this agent has no access token')
     const endpoint = { ...configuredEndpoint(who.accessToken), fetch: timed as typeof fetch }
     const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(endpoint, refs, who.agentUserId)).resolve(source)
-    if (link.status === 'gone') throw new Error('chat attachment is gone (deleted, or not visible to this agent)')
+    if (link.status !== 'ready') throw new Error('chat attachment is gone (deleted, or not visible to this agent)')
     response = await timed(link.url)
   }
   if (!response.ok) throw new Error(`chat attachment download failed (${response.status})`)

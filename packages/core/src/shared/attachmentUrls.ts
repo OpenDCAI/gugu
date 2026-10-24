@@ -21,19 +21,21 @@ export interface AttachmentLink {
   width: number | null
   height: number | null
 }
-export type AttachmentResolution = AttachmentLink | { status: 'gone' }
+export type AttachmentResolution = AttachmentLink | { status: 'gone' | 'expired' }
+export interface AttachmentMetadata { status: 'ready' | 'gone' | 'expired'; sha256: string | null }
 
 /** /urls 回答里的一行(只读用到的):条目的回 item_id + version,悄悄话的回 message_id。 */
 interface UrlRow {
+  status?: 'ready' | 'expired'
   item_id?: string | null
   version?: number | null
   message_id?: string | null
-  url: string
+  url?: string
   thumb_url: string | null
   sha256: string | null
   width: number | null
   height: number | null
-  expires_at: string
+  expires_at?: string
 }
 
 /** 一个要签的东西:群文件夹条目的某一版,或一条悄悄话附件消息。 */
@@ -47,10 +49,11 @@ const keyOfRow = (row: UrlRow) => (row.message_id ? `msg:${row.message_id}` : `$
 function rowsOf(body: unknown): UrlRow[] {
   const urls = (body as { urls?: unknown } | null)?.urls
   if (!Array.isArray(urls)) throw new Error('attachments/urls answered without a urls list')
-  return urls.filter((r): r is UrlRow => (typeof r?.message_id === 'string' || (typeof r?.item_id === 'string' && Number.isInteger(r?.version))) && typeof r?.url === 'string' && typeof r?.expires_at === 'string')
+  return urls.filter((r): r is UrlRow => (typeof r?.message_id === 'string' || (typeof r?.item_id === 'string' && Number.isInteger(r?.version))) &&
+    (r?.status === 'expired' || (typeof r?.url === 'string' && typeof r?.expires_at === 'string')))
 }
 
-export function createAttachmentResolver(fetchUrls: FetchAttachmentUrls, opts: { now?: () => number; schedule?: (flush: () => void) => void } = {}) {
+export function createAttachmentResolver(fetchUrls: FetchAttachmentUrls, opts: { now?: () => number; schedule?: (flush: () => void) => void; fetchMetadata?: (ref: AttachmentUrlRef) => Promise<unknown> } = {}) {
   const now = opts.now ?? (() => Date.now())
   const schedule = opts.schedule ?? ((flush) => setTimeout(flush, 0))
   const signed = new Map<string, { link: AttachmentLink; freshUntil: number }>()
@@ -71,7 +74,10 @@ export function createAttachmentResolver(fetchUrls: FetchAttachmentUrls, opts: {
           const key = keyOfRef(c.ref)
           const row = byKey.get(key)
           let result: AttachmentResolution
-          if (row) {
+          if (row?.status === 'expired') {
+            // Re-upload can make the same reference readable again; expiry is never a permanent tombstone.
+            result = { status: 'expired' }
+          } else if (row?.url && row.expires_at) {
             const link: AttachmentLink = { status: 'ready', url: row.url, thumbUrl: row.thumb_url ?? null, sha256: row.sha256 ?? null, width: row.width ?? null, height: row.height ?? null }
             signed.set(key, { link, freshUntil: Date.parse(row.expires_at) - REFRESH_MARGIN_MS })
             result = link
@@ -114,6 +120,15 @@ export function createAttachmentResolver(fetchUrls: FetchAttachmentUrls, opts: {
     gone.delete(key)
   }
 
-  return { resolve, forget }
+  async function metadata(source: AttachmentSource): Promise<AttachmentMetadata> {
+    if (source.kind === 'gone' || source.kind === 'url') return { status: source.kind === 'gone' ? 'gone' : 'ready', sha256: null }
+    if (!opts.fetchMetadata) throw new Error('Attachment metadata is unavailable')
+    const ref: AttachmentUrlRef = source.kind === 'message' ? { message_id: source.messageId } : { item_id: source.itemId, version: source.version }
+    const row = await opts.fetchMetadata(ref) as Partial<AttachmentMetadata> | null
+    if (!row || !['ready', 'expired', 'gone'].includes(row.status ?? '')) throw new Error('Invalid attachment metadata')
+    return { status: row.status as AttachmentMetadata['status'], sha256: typeof row.sha256 === 'string' ? row.sha256 : null }
+  }
+
+  return { resolve, metadata, forget }
 }
 export type AttachmentResolver = ReturnType<typeof createAttachmentResolver>

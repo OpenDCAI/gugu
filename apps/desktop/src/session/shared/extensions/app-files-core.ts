@@ -215,7 +215,7 @@ async function signedUrlOf(token: string, row: ItemRow, how: { version?: number;
   if (row.kind !== 'file') throw new AppFileError('failed', `${row.filename} has no stored bytes`);
   const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(token), refs, how.as))
     .resolve({ kind: 'item', itemId: row.id, version: how.version ?? row.version });
-  if (link.status === 'gone') throw new AppFileError('not-found', `${row.filename} has no bytes for version ${how.version ?? row.version}`);
+  if (link.status !== 'ready') throw new AppFileError('not-found', `${row.filename} has no bytes for version ${how.version ?? row.version}`);
   return link.url;
 }
 

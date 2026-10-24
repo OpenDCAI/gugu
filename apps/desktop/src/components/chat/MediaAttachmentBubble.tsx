@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
-import { attachmentBytes, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentResolver, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
+import { useAuth } from '../../store/auth'
 import { ExtensionBundleCard } from '../extensionBundle/ExtensionBundleCard'; import { isExtensionBundle } from '../extensionBundle/summarizeExtensionBundle'
 import { openImageFromThumb, registerFullImage } from '../../lib/imageViewer'
 import { Button } from '../ui/Button'
 import { FileAttachmentCard } from './FileAttachmentCard'
+import { ExpiredAttachmentCard } from './ExpiredAttachmentCard'
 import { Markdown } from '../markdown/Markdown'
 import './mediaAttachmentBubble.css'
 
@@ -24,17 +27,27 @@ const INLINE_MAX = 280
 // 条目删了说「文件已删除」。
 export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, senderName, chatId }: { meta: ParsedAttachment; messageId: string; isMine: boolean; onOpenFile?: (meta: ParsedAttachment) => void; senderName?: string; chatId?: string }) {
   const { t } = useTranslation('messaging')
+  const { user } = useAuth()
+  const box = useRef<HTMLDivElement>(null)
+  const near = useNearViewport(box)
+  const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
+    queryFn: () => attachmentResolver.metadata(meta.source),
+    enabled: near && !!user && (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType),
+  })
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
+  if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
+  if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
+    details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} onOpen={() => { if (metadata.isError) void metadata.refetch() }} />{caption}</div>
   // App 包:按这条消息装(发布者就是发送者,装的时候由宿主读这条消息)。
-  if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
+  if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div ref={box} className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
   if (meta.source.kind === 'gone') {
     return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
   }
-  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div className={FIT_BUBBLE}><InlineImage meta={meta} isMine={isMine} />{caption}</div>
-  return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
+  if (isRenderableImage(meta.fileName, meta.mimeType)) return <div ref={box} className={FIT_BUBBLE}><InlineImage meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
+  return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
 }
 
-function InlineImage({ meta, isMine }: { meta: ParsedAttachment; isMine: boolean }) {
+function InlineImage({ meta, messageId, isMine }: { meta: ParsedAttachment; messageId: string; isMine: boolean }) {
   const { t } = useTranslation('messaging')
   const box = useRef<HTMLDivElement>(null)
   const near = useNearViewport(box)
@@ -58,6 +71,7 @@ function InlineImage({ meta, isMine }: { meta: ParsedAttachment; isMine: boolean
   }, [ready, sourceKey])
 
   if (view.status === 'gone') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />
+  if (view.status === 'expired') return <ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />
   if (view.status === 'failed') {
     return (
       <FileAttachmentCard
