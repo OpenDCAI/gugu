@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 
 /**
  * A single actionable entry in a tab context menu (close, rename, …).
@@ -15,7 +15,7 @@ export interface TabCommand {
    * Hotkey binding. Either a user-configurable settings key (resolved via the
    * shortcut settings system) or a getter returning a raw key string.
    */
-  shortcut?: ShortcutSettingsKey | (() => string | undefined);
+  shortcut?: CommandId | (() => string | undefined);
   /** Hides the command when false (default: always visible). */
   isAvailable?(): boolean;
   /** 摆着但灰着(暂时用不了,照 VS Code / Chrome 的页签右键);默认可点。 */

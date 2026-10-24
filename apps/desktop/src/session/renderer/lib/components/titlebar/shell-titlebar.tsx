@@ -38,7 +38,7 @@ export const ShellSidebarToggle = observer(function ShellSidebarToggle() {
   const { translate } = useSessionMessages()
   const { value: keyboard } = useAppSettingsKey('keyboard')
   const { isLeftOpen, isLeftPeeking, toggleLeft, setTriggerHovered } = useWorkspaceLayoutContext()
-  const hotkey = getEffectiveHotkey('toggleLeftSidebar', keyboard)
+  const hotkey = getEffectiveHotkey('app.toggleLeftSidebar', keyboard)
   const shortcut = hotkey ? formatHotkeyText(hotkey) : undefined
   const label = translate(isLeftOpen ? 'task.collapseSidebar' : 'task.expandSidebar')
 

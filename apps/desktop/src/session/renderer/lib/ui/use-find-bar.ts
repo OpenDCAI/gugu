@@ -1,4 +1,4 @@
-import { isMacHost } from '@shared/host-os';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 export type FindStatus = { currentIndex: number; total: number };
@@ -11,7 +11,6 @@ export type FindBackend = {
 };
 
 const EMPTY: FindStatus = { currentIndex: 0, total: 0 };
-const IS_MAC = isMacHost();
 
 /**
  * ⌘F / Ctrl+F with focus inside `rootRef` opens the bar (or refocuses it); closing returns focus to where it was.
@@ -106,22 +105,18 @@ export function useFindBar({
     if (isOpen) focusInput();
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!backend) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const mod = IS_MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      const active = document.activeElement;
-      if (!mod || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'f') return;
-      if (!(active instanceof HTMLElement) || !rootRef.current?.contains(active)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (latest.current.isOpen) return focusInput();
-      returnFocus.current = active;
-      setIsOpen(true);
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [backend, rootRef]);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => !backend ? [] : [{
+      id: 'app.find', hideFromPalette: true,
+      execute: () => {
+        if (latest.current.isOpen) return focusInput();
+        returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setIsOpen(true);
+      },
+    }],
+  });
 
   return { isOpen, searchQuery, searchStatus, searchInputRef, onQueryChange, onStep, onClose };
 }

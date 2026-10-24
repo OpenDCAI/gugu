@@ -1,14 +1,15 @@
 import { useHotkeyRecorder, type Hotkey } from '@tanstack/react-hotkeys';
 import { RotateCcw, X } from '@/lib/icons'
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import {
-  APP_SHORTCUTS,
+  COMMANDS,
   getEffectiveHotkey,
   resolveDefaultHotkey,
   sharesChordIntentionally,
-  type ShortcutSettingsKey,
+  type CommandId,
 } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { Button } from '@renderer/lib/ui/button';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
@@ -17,14 +18,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@rende
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 
 const CONFIGURABLE_SHORTCUTS = (
-  Object.entries(APP_SHORTCUTS) as [
-    ShortcutSettingsKey,
-    (typeof APP_SHORTCUTS)[ShortcutSettingsKey],
+  Object.entries(COMMANDS) as [
+    CommandId,
+    (typeof COMMANDS)[CommandId],
   ][]
 ).filter(([, def]) => !def.hideFromSettings);
 
 const SHORTCUTS_BY_CATEGORY = CONFIGURABLE_SHORTCUTS.reduce<
-  Record<string, [ShortcutSettingsKey, (typeof APP_SHORTCUTS)[ShortcutSettingsKey]][]>
+  Record<string, [CommandId, (typeof COMMANDS)[CommandId]][]>
 >((acc, entry) => {
   const category = entry[1].category;
   if (!acc[category]) acc[category] = [];
@@ -42,7 +43,7 @@ const KeyboardSettingsCard: React.FC = () => {
   } = useAppSettingsKey('keyboard');
   const { translate } = useSessionMessages();
 
-  const [editingKey, setEditingKey] = useState<ShortcutSettingsKey | null>(null);
+  const [editingKey, setEditingKey] = useState<CommandId | null>(null);
 
   const recorder = useHotkeyRecorder({
     onRecord: (hotkey: Hotkey) => {
@@ -73,7 +74,7 @@ const KeyboardSettingsCard: React.FC = () => {
       toast({
         title: translate('keyboard.updatedTitle'),
         description: translate('keyboard.updatedDescription', {
-          label: APP_SHORTCUTS[editingKey].label,
+          label: COMMANDS[editingKey].label,
           hotkey: describeHotkey(hotkey),
         }),
       });
@@ -82,24 +83,29 @@ const KeyboardSettingsCard: React.FC = () => {
     onCancel: () => setEditingKey(null),
   });
 
-  const startCapture = (key: ShortcutSettingsKey) => {
+  const startCapture = (key: CommandId) => {
     setEditingKey(key);
     recorder.startRecording();
   };
 
-  const handleReset = (key: ShortcutSettingsKey) => {
+  useEffect(() => {
+    commandRegistry.setShortcutsPaused(recorder.isRecording);
+    return () => commandRegistry.setShortcutsPaused(false);
+  }, [recorder.isRecording]);
+
+  const handleReset = (key: CommandId) => {
     resetField(key);
     toast({
       title: translate('keyboard.resetTitle'),
-      description: translate('keyboard.resetDescription', { label: APP_SHORTCUTS[key].label }),
+      description: translate('keyboard.resetDescription', { label: COMMANDS[key].label }),
     });
   };
 
-  const handleClear = (key: ShortcutSettingsKey) => {
+  const handleClear = (key: CommandId) => {
     update({ [key]: null });
     toast({
       title: translate('keyboard.removedTitle'),
-      description: translate('keyboard.removedDescription', { label: APP_SHORTCUTS[key].label }),
+      description: translate('keyboard.removedDescription', { label: COMMANDS[key].label }),
     });
   };
 
@@ -124,6 +130,7 @@ const KeyboardSettingsCard: React.FC = () => {
                 return (
                   <div
                     key={key}
+                    data-command-id={key}
                     className="group/shortcut flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-2"
                   >
                     <div className="min-w-0 flex-1 basis-64 space-y-1">

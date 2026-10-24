@@ -4,13 +4,13 @@ import { openShellFeedback } from '@renderer/lib/open-shell-feedback';
 import { openShellSettings } from '@renderer/lib/open-shell-settings';
 import { appState } from '@renderer/lib/stores/app-state';
 import { toggleHostTheme } from '@renderer/lib/theme/host-theme';
-import { APP_COMMAND_DEFS, type AppCommandId, type CommandDef } from '@shared/commands';
+import { COMMANDS, type CommandId } from '@shared/commands';
 import { openShellChatAction } from '@renderer/features/sidebar/sidebar-chats-section';
 import { commandRegistry } from './registry';
 import type { AppCommand, CommandProvider } from './types';
 
-function appDef(id: AppCommandId): CommandDef {
-  return APP_COMMAND_DEFS.find((d) => d.id === id)!;
+function appDef<T extends CommandId>(id: T): (typeof COMMANDS)[T] {
+  return COMMANDS[id];
 }
 
 function isLibraryView(viewId: string): boolean {
@@ -40,22 +40,14 @@ function createAppCommandProvider(): CommandProvider {
 
       const commands: AppCommand[] = [
         {
-          id: settingsDef.id,
-          label: settingsDef.label,
-          description: settingsDef.description,
-          shortcutKey: settingsDef.shortcutKey,
-          group: settingsDef.group,
+          ...settingsDef,
           // 设置是壳的弹窗:命令只负责打开,关掉是弹窗自己的事(Esc / ✕)。
           execute() {
             openShellSettings();
           },
         },
         {
-          id: libraryDef.id,
-          label: libraryDef.label,
-          description: libraryDef.description,
-          shortcutKey: libraryDef.shortcutKey,
-          group: libraryDef.group,
+          ...libraryDef,
           execute() {
             if (isLibraryView(appState.navigation.currentViewId)) {
               appState.navigation.navigate(appState.navigation.lastNonLibraryView);
@@ -66,11 +58,7 @@ function createAppCommandProvider(): CommandProvider {
           },
         },
         {
-          id: newProjectDef.id,
-          label: newProjectDef.label,
-          description: newProjectDef.description,
-          shortcutKey: newProjectDef.shortcutKey,
-          group: newProjectDef.group,
+          ...newProjectDef,
           execute() {
             // 「新建项目」命令 = 行为文档里的「新建空白项目」(仅命名,落默认项目目录)。
             // 旧的 AddProjectModal(Pick/New/Clone)已删:不在产品预期里,能力被菜单项覆盖。
@@ -81,43 +69,31 @@ function createAppCommandProvider(): CommandProvider {
 
       const sessionHistoryDef = appDef('app.sessionHistory');
       commands.push({
-        id: sessionHistoryDef.id,
-        label: sessionHistoryDef.label,
-        description: sessionHistoryDef.description,
-        group: sessionHistoryDef.group,
+        ...sessionHistoryDef,
         execute() {
           appState.navigation.navigate('session-history');
         },
       });
 
-      // gugu-dev#181 ⑯ 侧栏上那几个入口在 ⌘K 面板里也能到:执行的就是那几行点下去的同一件事。
+      // gugu-dev#181 ⑯ 侧栏上那几个入口在命令面板里也能到:执行的就是那几行点下去的同一件事。
       const scheduledDef = appDef('app.scheduled');
       const newGroupChatDef = appDef('app.newGroupChat');
       const addContactDef = appDef('app.addContact');
       commands.push(
         {
-          id: scheduledDef.id,
-          label: scheduledDef.label,
-          description: scheduledDef.description,
-          group: scheduledDef.group,
+          ...scheduledDef,
           execute() {
             appState.navigation.navigate('automations');
           },
         },
         {
-          id: newGroupChatDef.id,
-          label: newGroupChatDef.label,
-          description: newGroupChatDef.description,
-          group: newGroupChatDef.group,
+          ...newGroupChatDef,
           execute() {
             openShellChatAction('create-group');
           },
         },
         {
-          id: addContactDef.id,
-          label: addContactDef.label,
-          description: addContactDef.description,
-          group: addContactDef.group,
+          ...addContactDef,
           execute() {
             openShellChatAction('add-contact');
           },
@@ -125,22 +101,14 @@ function createAppCommandProvider(): CommandProvider {
       );
 
       commands.push({
-        id: giveFeedbackDef.id,
-        label: giveFeedbackDef.label,
-        description: giveFeedbackDef.description,
-        shortcutKey: giveFeedbackDef.shortcutKey,
-        group: giveFeedbackDef.group,
+        ...giveFeedbackDef,
         execute() {
           openShellFeedback();
         },
       });
 
       commands.push({
-        id: toggleThemeDef.id,
-        label: toggleThemeDef.label,
-        description: toggleThemeDef.description,
-        shortcutKey: toggleThemeDef.shortcutKey,
-        group: toggleThemeDef.group,
+        ...toggleThemeDef,
         execute() {
           // @@@task-fusion (#2802) — 从前这里走会话页自己的 app-settings(异步、可能失败,
           // 所以有个失败 toast)。主题收敛成 `<html data-theme>` 一份真值后,翻转就是一次 DOM
@@ -151,11 +119,7 @@ function createAppCommandProvider(): CommandProvider {
 
       const newSessionDef = appDef('app.newSession');
       commands.push({
-        id: newSessionDef.id,
-        label: newSessionDef.label,
-        description: newSessionDef.description,
-        shortcutKey: newSessionDef.shortcutKey,
-        group: newSessionDef.group,
+        ...newSessionDef,
         execute() {
           // 在项目里:与项目行的「新建」同一条路,回到这个项目,在那里带着第一句话建(#5690)。
           // 不在项目里:与侧栏「新建会话」同一条路,去新建会话页。
@@ -168,11 +132,7 @@ function createAppCommandProvider(): CommandProvider {
       const showKeyboardShortcutsDef = appDef('app.showKeyboardShortcuts');
       commands.push(
         {
-          id: navigateBackDef.id,
-          label: navigateBackDef.label,
-          description: navigateBackDef.description,
-          shortcutKey: navigateBackDef.shortcutKey,
-          group: navigateBackDef.group,
+          ...navigateBackDef,
           enabled: appState.history.canGoBack,
           hideFromPalette: true,
           execute() {
@@ -180,11 +140,7 @@ function createAppCommandProvider(): CommandProvider {
           },
         },
         {
-          id: navigateForwardDef.id,
-          label: navigateForwardDef.label,
-          description: navigateForwardDef.description,
-          shortcutKey: navigateForwardDef.shortcutKey,
-          group: navigateForwardDef.group,
+          ...navigateForwardDef,
           enabled: appState.history.canGoForward,
           hideFromPalette: true,
           execute() {
@@ -192,17 +148,16 @@ function createAppCommandProvider(): CommandProvider {
           },
         },
         {
-          id: showKeyboardShortcutsDef.id,
-          label: showKeyboardShortcutsDef.label,
-          description: showKeyboardShortcutsDef.description,
-          shortcutKey: showKeyboardShortcutsDef.shortcutKey,
-          group: showKeyboardShortcutsDef.group,
+          ...showKeyboardShortcutsDef,
           execute() {
             showModal('keyboardShortcutsModal', {});
           },
         }
       );
 
+      commands.push(
+        { id: 'app.resourceMonitor', execute: () => openShellSettings('resource-monitor') },
+      );
       return commands;
     },
   };

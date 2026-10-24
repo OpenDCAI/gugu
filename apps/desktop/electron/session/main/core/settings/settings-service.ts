@@ -18,7 +18,8 @@ export class SettingsStore implements IInitializable {
     const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).execute();
     if (!row) return null;
     try {
-      return JSON.parse(row.value);
+      const value: unknown = JSON.parse(row.value);
+      return key === 'keyboard' ? APP_SETTINGS_SCHEMA_MAP.keyboard.parse(value) : value;
     } catch {
       return null;
     }
