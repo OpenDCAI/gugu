@@ -8,7 +8,7 @@ import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { requestShellChatAction } from '../../../../apps/desktop/src/lib/sidebarChatsBridge'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-import { chat, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
+import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
 
@@ -67,12 +67,12 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }) {
-  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost }), {
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'topic' | 'dm' | 'ai' = 'group', mobile = false) {
+  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile }), {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'group-1',
-      activeChat: chat({ id: 'group-1', kind: 'group', name: '设计评审' }),
+      activeChat: chat({ id: 'group-1', kind, name: '设计评审' }),
       identitiesById: { 'user-1': displayIdentity('user-1'), 'user-2': displayIdentity('user-2') },
       messages: [],
     },
@@ -99,12 +99,21 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(title.textContent).toContain('设计评审')
   })
 
-  it('in a block the ⋯ is not on the strip (its items are in the tab\'s context menu); on the chat page it is', async () => {
-    await renderPanel({ actions, title, tabs: null })
-    expect(actions.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).toBeNull()
-    await renderPanel()
-    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)).not.toBeNull()
-  })
+  for (const layout of ['header', 'block', 'project', 'phone'] as const) {
+    for (const kind of ['group', 'topic', 'dm', 'ai'] as const) {
+      it(`${layout} ${kind}: More opens this conversation's settings without installed or pinned Apps`, async () => {
+        const hosted = layout === 'block' || layout === 'project'
+        await renderPanel(hosted ? { actions, title, tabs: null } : undefined, kind, layout === 'phone')
+        const more = (hosted ? actions : harness.container).querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)
+        expect(more, 'settings have a visible menu trigger in every layout').not.toBeNull()
+        await clickElement(more!)
+        const settings = document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)
+        expect(settings).not.toBeNull()
+        await clickElement(settings!)
+        expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+      })
+    }
+  }
 
   it('a tab menu asks one chat for its settings: only that chat\'s panel opens them', async () => {
     await renderPanel({ actions, title, tabs: null })
