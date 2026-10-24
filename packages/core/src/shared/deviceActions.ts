@@ -101,8 +101,9 @@ export interface DeviceActionCallPayload {
   timeout_ms: number
   /** 过了这个时刻(ISO)还没开始执行的,设备不再执行、回 `expired`(掉线很久后重领到的旧命令)。 */
   deadline_at: string
-  /** 谁调的(给设备上的「最近调用」看):agent 的 user id 与名字。 */
-  caller?: { agent_user_id?: string; name?: string }
+  /** Display-only caller metadata. task_title is the host's actual task title,
+   * independent of the Agent's canonical name; older senders may omit it. */
+  caller?: { agent_user_id?: string; name?: string; task_title?: string }
 }
 
 /** 「收到」:`device.action:reply` 的 result(开工前就判出来的,reply 里直接是终局的 DeviceActionResult)。 */
@@ -187,6 +188,7 @@ export function parseDeviceActionCallPayload(raw: unknown): DeviceActionCallPayl
     ? {
         ...(typeof raw.caller.agent_user_id === 'string' ? { agent_user_id: raw.caller.agent_user_id } : {}),
         ...(typeof raw.caller.name === 'string' ? { name: raw.caller.name } : {}),
+        ...(typeof raw.caller.task_title === 'string' && raw.caller.task_title.trim() ? { task_title: raw.caller.task_title.trim() } : {}),
       }
     : undefined
   return {

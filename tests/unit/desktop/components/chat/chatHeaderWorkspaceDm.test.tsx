@@ -8,6 +8,8 @@ import { clickElement, createNode, createReactHarness, renderWithAppProviders } 
 import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 import { ChatHeaderActions } from '../../../../../apps/desktop/src/components/chat/ChatHeaderActions'
 
+vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
+
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })

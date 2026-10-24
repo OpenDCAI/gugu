@@ -19,6 +19,7 @@ import { FullScreenLoader } from './components/FullScreenLoader'
 import { FirstRunGate } from './components/firstRun/FirstRunGate'
 import { ShellErrorBoundary } from './components/ShellErrorBoundary'
 import { ReleaseNotesOpener } from './components/ReleaseNotesOpener'
+import { AppModalHost } from './components/appModal/AppModalHost'
 import { ThemeProvider } from './store/theme'
 import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
@@ -68,6 +69,7 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
         <UnfinishedAgentCreateSweeper active={effectsActive} />
         <SessionExpiredNotice />
         <ReleaseNotesOpener />
+        <AppModalHost />
       </ImagePreviewProvider>
     </ChatProvider>
   )

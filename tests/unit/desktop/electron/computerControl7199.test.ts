@@ -35,6 +35,42 @@ function begun(handle: ReturnType<ReturnType<typeof createComputerControl>['begi
 }
 
 describe('小条', () => {
+  it('does not infer the window of a later app-only call from the previously shown target', () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    begun(control.begin({ ...calc, windowId: 501, taskTitle: 'Task A' })).end()
+    begun(control.begin({ ...calc, callerName: 'Agent B', taskTitle: 'Task B' })).end()
+    expect(show).toHaveBeenLastCalledWith({ state: 'driving', callerName: 'Agent B', taskTitle: 'Task B', app: { pid: 77, name: '计算器' } })
+    control.dispose()
+  })
+
+  it('keeps Agent/task identity with its shown window and does not reuse an absent task title', () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    begun(control.begin({ ...calc, taskTitle: 'Task A', windowId: 501 })).end()
+    begun(control.begin({ callerName: 'Another Agent', taskTitle: 'Desktop look' })).end()
+    control.stop()
+    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: calc.callerName, taskTitle: 'Task A', app: { pid: 77, name: '计算器', windowId: 501 } })
+    control.resume()
+    begun(control.begin({ ...notes, callerName: 'Agent B' })).end()
+    expect(show).toHaveBeenLastCalledWith({ state: 'driving', callerName: 'Agent B', app: { pid: 88, name: '备忘录' } })
+    control.dispose()
+  })
+
+  it('retains the target window through Stop and a later refused app call, but switches between windows of the same app', () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    begun(control.begin({ ...calc, windowId: 501 })).end()
+    begun(control.begin({ ...calc, windowId: 502 })).end()
+    expect(show).toHaveBeenLastCalledWith({ state: 'driving', callerName: calc.callerName, app: { pid: 77, name: '计算器', windowId: 502 } })
+    control.stop()
+    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: calc.callerName, app: { pid: 77, name: '计算器', windowId: 502 } })
+    vi.advanceTimersByTime(120_001)
+    expect(control.begin(calc)).toEqual({ refused: appStopped('计算器') })
+    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: calc.callerName, app: { pid: 77, name: '计算器', windowId: 502 } })
+    control.dispose()
+  })
+
   it('写 agent 正在操作的那个 App;只是查看电脑(没指定 App)不把它盖掉;做完半分钟没有下一个才收起', () => {
     const { control, views } = setup()
     begun(control.begin(look)).end()

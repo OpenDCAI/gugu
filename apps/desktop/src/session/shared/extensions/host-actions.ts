@@ -2,6 +2,7 @@ import type { AppComposeDetail, AppForumConsentDetail, AppOpenWithDetail, AppSho
 import type { GroupAvatarMember } from '@gugu/core/shared/types/chat';
 import type { ExtensionManifest } from './manifest';
 import type { MarketCodeSource } from './market';
+import type { AppModalPage } from './app-modal';
 
 /**
  * What the bridge asks the renderer to do on an extension's behalf.
@@ -33,6 +34,9 @@ export interface ExtensionHostActionOrigin {
 }
 
 export type ExtensionHostAction =
+  | { kind: 'openAppModal'; page: AppModalPage }
+  | { kind: 'closeAppModal'; id: string }
+  | { kind: 'focusAppModalClose'; id: string }
   | { kind: 'setTabTitle'; title: string }
   | { kind: 'setTabBadge'; badge: number | string | null }
   | { kind: 'openBrowserTab'; url: string }

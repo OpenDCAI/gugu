@@ -52,7 +52,7 @@ export interface DeviceActionCallInput {
   action: string
   args?: Record<string, unknown>
   timeoutMs?: number
-  caller?: { agent_user_id?: string; name?: string }
+  caller?: DeviceActionCallPayload['caller']
   signal?: AbortSignal
 }
 
