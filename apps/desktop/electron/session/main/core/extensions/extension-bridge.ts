@@ -4,6 +4,8 @@ import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type W
 import { extensionIdForSession } from '@main/core/extensions/extension-session';
 import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
+import { AppModalSessions } from '@shared/extensions/app-modal';
+import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
 import type { LinkPlace } from '@main/core/extensions/extension-links';
 import { log } from '@main/lib/logger';
@@ -108,6 +110,7 @@ interface SurfaceBinding {
   /** Who is working this page (`getContext().operator`): the person for every page the host draws; an agent for its `app_check` page. */
   operator: ExtensionOperator;
   metrics: ExtensionSurfaceMetrics;
+  modal?: { id: string; data?: unknown };
   /**
    * The theme this page is shown in, when it is not the host's: only a page an agent works (`app_check`'s), which takes
    * its pictures in light and dark (`showAgentPageInTheme`). Null for every surface a person sees — those follow the host.
@@ -116,6 +119,12 @@ interface SurfaceBinding {
 }
 
 const bindings = new Map<number, SurfaceBinding>();
+const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
+  await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
+    log.warn('An App modal closed after its window went away', { reason: String(reason) });
+  });
+});
+
 const observedContents = new WeakSet<WebContents>();
 
 /** Pages and backgrounds share the same document boundary, even before a watch finishes registering. */
@@ -289,6 +298,7 @@ function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Pro
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  void appModals.pageGone(webContentsId);
   stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
   if (!binding) return;
@@ -502,6 +512,7 @@ export async function bindExtensionSurface(input: {
   itemId?: string;
   /** Who works it: the person unless main binds it for an agent (`app_check`); never the renderer's to say. */
   operator?: ExtensionOperator;
+  modal?: { id: string; data?: unknown };
 }): Promise<void> {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents) throw new Error(`No such webContents: ${input.webContentsId}`);
@@ -543,6 +554,7 @@ export async function bindExtensionSurface(input: {
     itemId: input.itemId ?? null,
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
+    ...(input.modal ? { modal: input.modal } : {}),
     // Zero until the pane reports its box. Stated rather than guessed: a made-up
     // size would be indistinguishable from a measured one.
     metrics: { visible: true, width: 0, height: 0 },
@@ -744,6 +756,7 @@ export async function retargetExtensionSurface(input: {
 }
 
 export function unbindExtensionSurface(webContentsId: number): void {
+  void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
   agentPages.delete(webContentsId);
   // Its open files rested on the binding — but only a page that lives on (uninstall, disable) loses
@@ -1074,6 +1087,7 @@ function contextFor(binding: SurfaceBinding, session: ExtensionSession | undefin
   return {
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
+    ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, members: drawnIn.members } } : {}),
     ...(session ? { session } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
@@ -1447,6 +1461,30 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'modalOpen': {
+      const source = thePage(caller);
+      const modal = appModals.open(caller.pageId, { ...source }, args);
+      try {
+        const installed = extensionsService().get(extensionId);
+        if (!fs.statSync(path.join(installed.rootDir, modal.options.entry), { throwIfNoEntry: false })?.isFile()) throw new Error(`App modal page not found: ${modal.options.entry}`);
+        await deliver(source, { kind: 'openAppModal', page: {
+          id: modal.id, extensionId, appName: installed.manifest.name,
+          title: modal.options.title, size: modal.options.size,
+          partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry),
+        } });
+      } catch (error) {
+        await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+      }
+      return await appModals.result(modal);
+    }
+    case 'modalClose':
+      return await appModals.close(appModals.forPage(caller.pageId).id, args.result ?? null);
+    case 'modalKey': {
+      const modal = appModals.forPage(caller.pageId);
+      if (args.key !== 'tab') throw Object.assign(new Error('Unknown modal keyboard action'), { code: 'invalid' });
+      await deliver(modal.binding, { kind: 'focusAppModalClose', id: modal.id });
+      return undefined;
+    }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
       // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
@@ -1895,6 +1933,50 @@ export function registerExtensionBridge(): void {
       const request = (raw ?? {}) as ExtensionBridgeRequest;
       const method = typeof request.method === 'string' ? request.method : '';
       const args = (request.args ?? {}) as Record<string, unknown>;
+
+      // Shell controls share the App request channel, restricted to the recorded owning window.
+      if (method === 'modalHost') {
+        try {
+          const modal = appModals.get(String(args.id ?? ''));
+          if (event.sender.id !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
+          switch (args.type) {
+            case 'bind': {
+              if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
+              const source = modal.binding;
+              const child = webContents.fromId(args.webContentsId);
+              if (!bindings.has(modal.opener) || !child || child.hostWebContents?.id !== source.embedderId) {
+                throw new Error('The App modal and its opener must be in the same window');
+              }
+              appModals.bind(modal.id, args.webContentsId);
+              try {
+                await bindExtensionSurface({
+                  webContentsId: args.webContentsId, extensionId: source.extensionId,
+                  tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
+                  ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+                  ...(source.chatId ? { chatId: source.chatId } : {}),
+                  ...(source.itemId ? { itemId: source.itemId } : {}),
+                  ...(source.filePath ? { filePath: source.filePath } : {}),
+                  ...(source.projectId ? { projectId: source.projectId } : {}),
+                  operator: source.operator, modal: { id: modal.id, data: modal.options.data },
+                });
+              } catch (error) {
+                await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+                throw error;
+              }
+              break;
+            }
+            case 'dismiss':
+              await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
+              break;
+            case 'focus':
+              if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
+              if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
+              break;
+            default: throw new Error('Unknown modal host action');
+          }
+          return { ok: true, value: undefined };
+        } catch (error) { return failure('host', 'modalHost', error); }
+      }
 
       // Identity from the session the call arrived on. Everything else in the
       // payload is data an untrusted page chose.
