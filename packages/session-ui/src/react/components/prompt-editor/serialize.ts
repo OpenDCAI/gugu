@@ -15,6 +15,17 @@ import { stringifyMention } from '@gugu/session-shared/markdown';
 import { fallbackToken } from './command-token';
 import type { MentionKind } from '@gugu/session-shared/markdown';
 import type { Node } from '@tiptap/pm/model';
+import { markdownMentionReferences } from '@gugu/session-shared/markdown/dialect';
+import type { ContextMentionProvider, MentionItem } from './types';
+
+export function mentionInsertContent(item: MentionItem) {
+  return [{ type: 'mention', attrs: {
+    id: item.id, label: item.label, name: item.name ?? null, kind: item.kind,
+    role: item.role ?? null, engine: item.engine ?? null,
+    title: item.role === 'agent' ? item.description ?? null : null,
+    pending: item.pending ?? false, annotation: item.annotation ?? null,
+  } }, { type: 'text', text: ' ' }];
+}
 
 /**
  * Serialize a mention to its canonical text form.
@@ -97,13 +108,27 @@ export function serializeDoc(doc: Node): string {
  * Shared with the prompt-history keymap so recalling a past prompt rebuilds exactly the document
  * `setText` would have produced — a recalled prompt and a typed one must be the same thing.
  */
-export function plainTextDoc(text: string) {
-  const lines = text.length > 0 ? text.split(/\r?\n/) : [''];
+export function plainTextDoc(text: string, resolve?: ContextMentionProvider['resolve']) {
+  const normalized = text.replace(/\r\n/g, '\n');
+  const lines = normalized.length > 0 ? normalized.split('\n') : [''];
+  let offset = 0;
+  const references = resolve ? markdownMentionReferences(normalized) : [];
   return {
     type: 'doc',
-    content: lines.map((line) => ({
-      type: 'paragraph',
-      ...(line.length > 0 ? { content: [{ type: 'text', text: line }] } : {}),
-    })),
+    content: lines.map((line) => {
+      const content: Array<{ type: string; text?: string; attrs?: Record<string, unknown> }> = [];
+      let cursor = 0;
+      for (const ref of references) {
+        if (ref.start < offset || ref.end > offset + line.length) continue;
+        const item = resolve?.(ref.target, ref.label);
+        if (!item) continue;
+        if (ref.start > offset + cursor) content.push({ type: 'text', text: line.slice(cursor, ref.start - offset) });
+        content.push(mentionInsertContent(item)[0]);
+        cursor = ref.end - offset;
+      }
+      if (cursor < line.length) content.push({ type: 'text', text: line.slice(cursor) });
+      offset += line.length + 1;
+      return { type: 'paragraph', ...(content.length ? { content } : {}) };
+    }),
   };
 }

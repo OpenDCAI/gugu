@@ -29,6 +29,7 @@ const { useTopicSurface } = await import('../../../apps/desktop/src/hooks/useTop
 let surface: ReturnType<typeof useTopicSurface> | null = null
 function Probe() {
   surface = useTopicSurface({
+    messages: [],
     chat: { id: 'chat-A', kind: 'group' },
     userId: 'user-1',
     closeRightSurfaces: () => surface?.closeSplit(),

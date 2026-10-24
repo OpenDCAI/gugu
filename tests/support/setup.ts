@@ -30,6 +30,12 @@ if (typeof window !== 'undefined') {
   }
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
 
+  // Shared rich-text composers use native caret geometry and popup scrolling. jsdom has no layout.
+  Element.prototype.scrollIntoView = () => {}
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 20)
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+  document.elementFromPoint = () => null
+
   const storage = new Map<string, string>()
 
   Object.defineProperty(window, 'localStorage', {
