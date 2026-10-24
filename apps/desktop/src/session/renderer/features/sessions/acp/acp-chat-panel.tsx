@@ -19,7 +19,7 @@ import type {
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
 import { observer, useObserver } from 'mobx-react-lite';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
@@ -391,6 +391,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 const ComposerForStore = observer(function ComposerForStore({
   store,
+  editorApiRef,
   composerSlot,
   onViewAttachment,
   onScrollToBottom,
@@ -398,6 +399,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onMembershipLockChange,
 }: {
   store: AcpChatStore;
+  editorApiRef: RefObject<PromptEditorRef | null>;
   composerSlot: HTMLElement;
   /** 面板要把模型菜单打开(「这个模型要会员」那一行上的「换模型」):每变一次开一次。 */
   modelMenuRequest: number;
@@ -420,7 +422,6 @@ const ComposerForStore = observer(function ComposerForStore({
     const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
     if (back) store.setDraftText(back);
   }, [verb, store]);
-  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
@@ -1770,6 +1771,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const [composerSlot, setComposerSlot] = useState<HTMLElement | null>(null);
   const [heroSlot, setHeroSlot] = useState<HTMLElement | null>(null);
@@ -2220,6 +2222,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: (arg) => {
         if (!store) return;
         store.setDraftText(arg.text);
+        editorApiRef.current?.setText(arg.text);
+        editorApiRef.current?.focus('end');
       },
       // 「继续」——上游 stopped-run 的 Continue。与上面那颗**刚好相反**：这颗是真发送。
       // 能这么接是因为 `cancel` 之后会话还活着，且 agent 的上下文里带着刚被切断的那半截输出
@@ -2448,6 +2452,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         <ComposerForStore
           key={store.sessionId}
           store={store}
+          editorApiRef={editorApiRef}
           composerSlot={composerSlot}
           onViewAttachment={handleAttachmentView}
           onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}

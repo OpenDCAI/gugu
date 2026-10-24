@@ -452,8 +452,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   editorRef.current = editor;
 
   useImperativeHandle(ref, () => ({
-    focus() {
-      editor?.commands.focus();
+    focus(position) {
+      editor?.commands.focus(position);
     },
     clear() {
       editor?.commands.clearContent(true);

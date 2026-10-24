@@ -42,7 +42,8 @@ describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) 
       await until('path draft is sent', () => onSend.mock.calls.length === 1)
       expect(onSend.mock.calls[0]?.[0]).toBe(draft)
     } else {
-      expect(text()).toBe(`${draft}\n`)
+      expect(text()).toBe(draft)
+      expect(editor().element().querySelector('br')).not.toBeNull()
       expect(onSend).not.toHaveBeenCalled()
     }
   })
@@ -57,7 +58,8 @@ describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) 
       await until('ordinary Enter sends the draft', () => onSend.mock.calls.length === 1)
       expect(onSend.mock.calls[0]?.[0]).toBe('Keep this draft /')
     } else {
-      expect(text()).toBe('Keep this draft /\n')
+      expect(text()).toBe('Keep this draft /')
+      expect(editor().element().querySelector('br')).not.toBeNull()
       expect(onSend).not.toHaveBeenCalled()
     }
   })
@@ -70,7 +72,8 @@ describe.each([1100, 390])('IM slash suggestions at viewport width %i', (width) 
       await until('the complete prompt is sent', () => onSend.mock.calls.length === 1)
       expect(onSend.mock.calls[0]?.[0]).toBe(draft)
     } else {
-      expect(text()).toBe(`${draft}\n`)
+      expect(text()).toBe(draft)
+      expect(editor().element().querySelector('br')).not.toBeNull()
       expect(onSend).not.toHaveBeenCalled()
     }
   })
