@@ -346,6 +346,7 @@ describe('市场页 (#7059)', () => {
     vi.stubGlobal('Event', dom.window.Event);
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    Object.defineProperty(dom.window.HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn(async () => undefined) });
     h.ranking.mockResolvedValue({ data: [], error: null });
     h.api.market.mockResolvedValue({
       success: true,
@@ -410,6 +411,44 @@ describe('市场页 (#7059)', () => {
     expect(tiles()).toEqual(['extension-card-trace']);
     // 选了一类,精选那张不再画(它不一定是这一类的)。
     expect(document.querySelector('[data-testid="app-featured-pomo"]')).toBeNull();
+  });
+
+  it('keeps a placeholder until the README and final artwork are ready', async () => {
+    let answer!: (value: { success: boolean; data: { readme: string } }) => void;
+    let decoded!: () => void;
+    const readme = new Promise<{ success: boolean; data: { readme: string } }>((resolve) => { answer = resolve; });
+    const image = new Promise<void>((resolve) => { decoded = resolve; });
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(() => readme);
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(image);
+    await render(false);
+    const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
+    expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(art()?.querySelector('.mk-hero-big')).toBeNull();
+    await act(async () => answer({ success: true, data: { readme: '# Pomo\n\n![Pomo](https://dl.example/pomo/shot.png)\n' } }));
+    await settle();
+    expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(art()?.querySelector('img')).toBeNull();
+    await act(async () => decoded());
+    await settle();
+    expect(art()?.querySelector('img')?.getAttribute('src')).toBe('https://dl.example/pomo/shot.png');
+    expect(art()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(art()?.querySelector('.mk-hero-big')).toBeNull();
+  });
+
+  it('shows an artwork failure and retries without substituting an icon design', async () => {
+    const readme = vi.fn().mockResolvedValueOnce({ success: false, error: 'unreadable' })
+      .mockResolvedValueOnce({ success: true, data: { readme: null } });
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    await render(false);
+    const card = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"]');
+    expect(card()?.querySelector('[role="alert"]')?.textContent).toContain(translateSessionMessage('extensions.loadFailed'));
+    expect(card()?.querySelector('.mk-hero-big')).toBeNull();
+    await press('[data-testid="app-featured-pomo"] [role="alert"] button');
+    expect(readme).toHaveBeenCalledTimes(2);
+    expect(card()?.querySelector('[role="alert"]')).toBeNull();
+    // A successful README with no artwork is the one case that uses the icon design.
+    expect(card()?.querySelector('.mk-hero-big')).not.toBeNull();
+    expect(dom.window.document.querySelector('[data-testid="app-product-page"]')).toBeNull();
   });
 
   // owner 10-20「每次点进去 apps 页面里面整个 banner image 都是要变一下」:从项目页回来这一页是重新挂上的,精选卡先画图标版、
