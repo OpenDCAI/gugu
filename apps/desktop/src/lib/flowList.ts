@@ -97,7 +97,7 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
 
   // 落点按挂载读一次 —— 调用方的落点在恢复落定后会变。
   const landingRef = useRef({ key: resetKey, landing })
-  if (landingRef.current.key !== resetKey) landingRef.current = { key: resetKey, landing }
+  if (landingRef.current.key !== resetKey) { landingRef.current = { key: resetKey, landing }; reportedRef.current = null }
   const [slice, setSlice] = useState<Slice>(() => firstSlice(resetKey, landing ?? { index: 'LAST', align: 'end' }, rowIds))
   if (slice.key !== resetKey) setSlice(firstSlice(resetKey, landingRef.current.landing ?? { index: 'LAST', align: 'end' }, rowIds))
   const from = slice.full ? 0 : rowIds.indexOf(slice.fromId ?? '')
@@ -111,7 +111,6 @@ export function useFlowList({ scrollerRef, contentRef, resetKey, rowIds, landing
     const scroller = scrollerRef.current, content = contentRef.current
     if (!scroller || !content || paintedRef.current === resetKey) return
     const target = landingRef.current.landing ?? { index: 'LAST', align: 'end' }
-    reportedRef.current = null
     placeAtLanding(scroller, content, target)
     report(scroller)
     capture(scroller)
