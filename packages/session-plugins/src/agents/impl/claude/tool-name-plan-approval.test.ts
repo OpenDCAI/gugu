@@ -8,7 +8,9 @@ import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import type { SessionUpdate } from '@agentclientprotocol/sdk/experimental/v2';
 import { AcpTranscriptParser, permissionWaitKind, type AcpPermissionRequest, type ToolCallItem } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
 const planCall = (meta: Record<string, unknown> | undefined): SessionUpdate =>
   ({

@@ -6,7 +6,9 @@
 import type { SessionUpdate } from '@agentclientprotocol/sdk/experimental/v2';
 import { AcpTranscriptParser, type NormalizedEvent } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
 const usage: NormalizedEvent = { kind: 'usage', usage: { contextUsed: 58_000, contextSize: 1_000_000, cost: null } };
 const raw = (meta: Record<string, unknown> | undefined): SessionUpdate =>

@@ -1,8 +1,10 @@
 import { AcpTranscriptParser } from '@gugu/session-core/acp';
-import { describe, expect, it } from 'vitest';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createClaudeSessionDecoder } from './acp-transform';
 
 describe('Claude vendor facts at ingress', () => {
+  let decodeClaudeSessionUpdate: ReturnType<typeof createClaudeSessionDecoder>;
+  beforeEach(() => { decodeClaudeSessionUpdate = createClaudeSessionDecoder(); });
   it('uses the standard tool name even when old vendor metadata disagrees', () => {
     expect(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'read', title: 'Read file',
       name: 'Read', kind: 'read', status: 'completed', _meta: { claudeCode: { toolName: 'Agent' } } }))
@@ -35,4 +37,23 @@ describe('Claude vendor facts at ingress', () => {
     expect(parser.agents).toHaveLength(1);
     expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running', model: 'native-model', outputFile: '/work/child.output' });
   });
+  it.each([false, true])('does not infer a subagent from agentId in another tool result (reported=%s)', reported => {
+    const parser = new AcpTranscriptParser({ sessionId: 'parent' });
+    if (reported) parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'send',
+      name: 'SendMessage', title: 'Send a message', kind: 'other', status: 'in_progress' }));
+    const event = decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'send', status: 'completed',
+      _meta: { claudeCode: { toolResponse: { agentId: 'recipient', isAsync: true } } } });
+    expect(event.kind).toBe('tool_update');
+    parser.pushEvent(event);
+    expect(parser.agents).toEqual([]);
+    expect(JSON.stringify(parser.activeTurn)).not.toContain('spawn-subagent-tool-call');
+  });
+
+  it('keeps the first-report tool name scoped to its connection', () => {
+    decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'shared-id', name: 'Agent', title: 'Audit', kind: 'think' });
+    const otherConnection = createClaudeSessionDecoder();
+    expect(otherConnection({ sessionUpdate: 'tool_call_update', toolCallId: 'shared-id',
+      _meta: { claudeCode: { toolResponse: { agentId: 'not-a-launch' } } } }).kind).toBe('tool_update');
+  });
+
 });

@@ -69,7 +69,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
-import { acceptPromptMessage, reconcilePromptEcho, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
+import { acceptPromptMessage, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -421,6 +421,7 @@ export class SessionCell {
       this.applyReceiptMetadata(event.requestId, event._meta);
       const request = this.requests.get(event.requestId);
       const dequeueAfterFailure = this.dequeueAfterFailure;
+      if (event.error) this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, requestId: event.requestId, cause: event.error });
       if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
         const queued = this.dispatch({ type: 'QueuePrompt', prompt: request.prompt });
         if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
@@ -431,7 +432,6 @@ export class SessionCell {
           platformCredentials: this.deps.platformCredentials, closeRequested: this.closeRequested,
           credentialRefusal: this.credentialRefusal });
         this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: event.error });
-        this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, requestId: event.requestId, cause: event.error });
         this.endWork(classified.outcome, { dequeueQueuedPrompt: this.dequeueAfterFailure });
       }
       if (event.error && request && !request.dispatched) {
@@ -442,7 +442,6 @@ export class SessionCell {
       return;
     }
     if (!this.replayingHistory && event.kind === 'message' && event.role === 'user') {
-      event = reconcilePromptEcho(this.requests, this.transcript, event);
       // Multiple inserted user messages can belong to the same foreground cycle.
       if (this.transcript.activeTurn && this.activeTurnCompletion) event = { ...event, steering: true };
     }
@@ -1261,7 +1260,7 @@ export class SessionCell {
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
-      settleAcceptedRequests(this.requests, this.transcript, true);
+      settleAcceptedRequests(this.requests, this.transcript);
       this.closeTurnCompletion();
       return false;
     }
@@ -1270,7 +1269,7 @@ export class SessionCell {
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.settleTurn(outcome, Date.now(), opts?.foreground);
-    settleAcceptedRequests(this.requests, this.transcript, true);
+    settleAcceptedRequests(this.requests, this.transcript);
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
     // Detach this exact cycle before a queue drain can create its successor.
@@ -1705,7 +1704,8 @@ export class SessionCell {
       : steered
         ? `${this.sessionId}-steer-${prompt.id}-user`
         : `${this.sessionId}-${this.promptSequence}-user`;
-    // Consume attached context only for a new dispatch, never for steering.
+    // #6387 扩展的「附带」只随**新开的一轮**进去:插进在飞那一轮的消息(可能是别的 agent / 别的扩展的)
+    // ❌ 把它带走 —— 附带承诺的是「不打断、下一轮」。同步取走 —— 并发的下一轮不会再带上它。
     const turnContext = started && !steered ? this.takeTurnContext() : null;
     // A communication prompt that hit the provider's transient token boundary can be
     // admitted again from the target queue. Keep one transcript row for that stable prompt id.
@@ -1739,7 +1739,9 @@ export class SessionCell {
       this.push(submittedMessage);
     };
     if (!nativeSteer) recordUserMessage();
-    // Native steering is recorded only after the agent accepts its insertion.
+    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
+    // 转录里画成它自己的一行(来自哪个扩展由信封写明),跟在这一句后面、同属这一轮 ——
+    // `steering` 让它不另开一轮(一轮只由人/投递的那一句开),请求里它是一个块(见 turnContextBlocks)。
     if (turnContext) {
       this.transcript.pushEvent({
         kind: 'message',
@@ -1831,7 +1833,7 @@ export class SessionCell {
       const receipt = agent.prompt(promptRequest, { requestId, message: submittedMessage }).then(receipt => {
         if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') return ok({ queued: false });
         if (receipt.status === 'accepted') {
-          acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event));
+          acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event), this.deps.providerId);
           this.applyReceiptMetadata(requestId, receipt._meta);
           settleAcceptedRequests(this.requests, this.transcript);
           const owner = this.transcript.entityOwner({ ...submittedMessage, messageId: receipt.messageId });
@@ -1846,7 +1848,7 @@ export class SessionCell {
           });
         }
         return ok({ queued: false });
-      }, error => {
+      }).catch(error => {
         if (this._agent === agent) this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
         return acpErr.promptFailed(toSerializedError(error));
       });

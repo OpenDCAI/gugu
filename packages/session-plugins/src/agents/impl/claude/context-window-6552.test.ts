@@ -11,8 +11,10 @@ import type { NormalizedEvent } from '@gugu/session-core/acp';
 import type { SessionMaterialization } from '@gugu/session-core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_GUGU_CAPABILITY_PACKAGE, pluginRegistry } from '../../registry';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 import { CLAUDE_ACP_BRIDGE_STATE_DIR_ENV } from './session-bundle';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
 const GUGU_HOME = '/gugu-home-under-test';
 

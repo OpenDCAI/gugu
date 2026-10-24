@@ -2,7 +2,7 @@ import { decodeSessionUpdate } from '@gugu/session-core/acp';
 /** @jsxImportSource solid-js */
 import { expect, it } from 'vitest';
 import { AcpTranscriptParser } from '@gugu/session-core/acp/transcript-parser';
-import { decodeClaudeSessionUpdate } from '../../../session-plugins/src/agents/impl/claude/acp-transform';
+import { createClaudeSessionDecoder } from '../../../session-plugins/src/agents/impl/claude/acp-transform';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
@@ -10,6 +10,8 @@ import { toolGroupUnitDef } from '@session-chat/components/rows/tools/tool-group
 import { makeContractCtx, renderAndMeasureUnit } from './contract';
 import type { ItemNode } from '@session-chat/state/flatten';
 import { until } from '../../../../tests/support/awaitCondition';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
 
 it('native Codex child reasoning and results expand inside the existing subagent disclosure', async () => {

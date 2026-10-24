@@ -21,7 +21,7 @@ function nativeCell() {
 }
 
 describe('one foreground cycle authority', () => {
-  it.each(['rwei', 'wrei', 'weri', 'weir', 'ewri', 'ewir'])('receipt/echo/state order %s', async order => {
+  it.each(['weri', 'weir', 'ewri', 'ewir'])('receipt/echo/state order %s', async order => {
     const p = nativeCell();
     const sent = p.cell.promptDetached({ text: 'body' });
     await sent.admission;
@@ -68,19 +68,6 @@ describe('one foreground cycle authority', () => {
     p.receipts[1].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[1][1].requestId, messageId: 'u2' });
     await p.receipts[1].promise;
     expect(p.cell.history().committed).toHaveLength(2);
-  });
-
-  it.each(['idle', 'exit', 'close'])('settles an accepted request with no echo at %s', async boundary => {
-    const p = nativeCell();
-    const sent = p.cell.promptDetached({ text: 'not inserted' });
-    await sent.admission;
-    await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
-    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'missing' });
-    await p.receipts[0].promise;
-    if (boundary === 'idle') p.state('idle', { stopReason: 'end_turn' });
-    if (boundary === 'exit') p.cell.processClosed({ exitCode: 1, signal: null, stderrTail: '' });
-    if (boundary === 'close') p.cell.dispose();
-    expect(await sent.completion).toMatchObject({ success: false });
   });
 
   it('two inserted messages can share a cycle without the second receipt completing the first', async () => {

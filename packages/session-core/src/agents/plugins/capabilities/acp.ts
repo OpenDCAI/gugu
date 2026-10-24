@@ -208,7 +208,7 @@ export interface AcpAgentApi {
   loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
   unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
-  /** Dispatch/acceptance only. Foreground completion arrives independently as a domain event. */
+  /** Dispatch/acceptance only; completion is an event. An accepted receipt requires its user echo to have already arrived. */
   prompt(params: PromptRequest, dispatch?: {
     requestId: string;
     message: Extract<NormalizedEvent, { kind: 'message' }>;

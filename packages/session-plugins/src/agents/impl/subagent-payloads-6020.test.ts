@@ -1,6 +1,8 @@
 import { AcpTranscriptParser } from '@gugu/session-core/acp/transcript-parser';
 import { expect, it } from 'vitest';
-import { decodeClaudeSessionUpdate } from './claude/acp-transform';
+import { createClaudeSessionDecoder } from './claude/acp-transform';
+
+const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
 it('#6020 genuine Claude launch/result payloads survive sparse updates and domain replay', () => {
   const input = { description: 'Inspect files', prompt: 'FULL_PROMPT', model: 'requested-model' };

@@ -5,10 +5,8 @@
  */
 import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 
-const decode = (raw: Record<string, unknown>) => raw.sessionUpdate === 'subagent_spawned'
-  ? decodeSessionUpdate(raw) : decodeClaudeSessionUpdate(raw);
 
 const launch = {
   sessionUpdate: 'tool_call',
@@ -46,6 +44,9 @@ const launched = {
 };
 
 function rows(events: Array<Record<string, unknown>>) {
+  const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
+  const decode = (raw: Record<string, unknown>) => raw.sessionUpdate === 'subagent_spawned'
+    ? decodeSessionUpdate(raw) : decodeClaudeSessionUpdate(raw);
   const parser = new AcpTranscriptParser({ sessionId: 's' });
   parser.pushEvent({ kind: 'message', role: 'user', messageId: 'u1', text: 'review it' } as never, 1);
   for (const [i, raw] of events.entries()) parser.pushEvent(decode(raw), 2 + i);

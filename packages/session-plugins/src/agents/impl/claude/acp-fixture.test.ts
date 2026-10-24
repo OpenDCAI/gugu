@@ -10,12 +10,12 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { driveParser, loadFixture } from '../../../../tooling/fixtures/acp/drive-parser';
 import { entitySnapshot } from '../../../../tooling/fixtures/acp/entity-snapshot';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 
 const fixture = loadFixture(new URL('./fixtures/acp-transcript.json', import.meta.url));
 
 function createParser() {
-  return driveParser(fixture, { decode: raw => decodeClaudeSessionUpdate(raw as never) });
+  return driveParser(fixture, { decode: createClaudeSessionDecoder() });
 }
 
 beforeAll(() => {

@@ -1762,7 +1762,11 @@ export class SessionManager implements InboundRouter {
   ): void {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
     if (!sessionId) {
-      // A missing route loses a real update; report it at the routing boundary.
+      // #5143 的第二半:**根因是登记太晚,而它能藏一整天是因为这里太安静。**
+      // 一条本该到达的会话通知被丢掉,产品只留一行 warn ⇒ 症状("命令表是空的")与原因
+      // 之间隔着一整条链,只能靠人倒推。路由登记提前之后,走到这里就**不再是正常时序**,
+      // 而是一条真的对不上号的通知 ⇒ 按 error 记,并说清丢了什么。
+      // ❌ 不抛:这是通知回调,抛出去会带走整条连接 —— 响亮不等于把别的东西也弄死。
       this.deps.logger.error('SessionManager: dropped a session update with no known session', {
         providerSessionId: params.sessionId,
         processKey: connection.key,
@@ -1787,7 +1791,8 @@ export class SessionManager implements InboundRouter {
     const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
     if (!scoped) return;
     event = scoped;
-    // Child routes belong to the parent record and are removed with it.
+    // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
+    // (`unregisterRoutes` 按 conversationId 清)。
     if (event.kind === 'subagent' && event.subagentSessionId) {
       record.childProviderSessionIds.add(event.subagentSessionId);
       this.registerRoute(connection.key, event.subagentSessionId, sessionId);

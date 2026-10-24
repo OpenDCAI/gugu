@@ -12,7 +12,7 @@ export const foregroundEndSchema = z.object({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
-/** A local dispatch receipt is not evidence that the agent inserted a message. */
+/** Dispatch is not insertion. An accepted receipt must follow the matching user echo; a provider that reverses them violates the host contract. */
 export type SessionPromptReceipt =
   ({ status: 'dispatched'; requestId: string }
   | { status: 'accepted'; requestId: string; messageId: string }) & {

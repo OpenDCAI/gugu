@@ -17,32 +17,24 @@ export type PromptRequest = {
   completion: ReturnType<typeof Promise.withResolvers<PromptResult>>;
 };
 
-export function reconcilePromptEcho(requests: Map<string, PromptRequest>, transcript: AcpTranscriptParser,
-  event: Extract<NormalizedEvent, { kind: 'message' }>): typeof event {
-  const request = [...requests.values()].find(request => request.accepted && request.messageId === event.messageId);
-  if (!request || !event.messageId) return event;
-  if (request.submitted.messageId !== event.messageId) transcript.removeSubmittedMessage(request.submitted.messageId!);
-  return { ...event, ...request.submitted, messageId: event.messageId };
-}
-
 export function acceptPromptMessage(request: PromptRequest, messageId: string, transcript: AcpTranscriptParser,
-  push: (event: NormalizedEvent) => void): void {
+  push: (event: NormalizedEvent) => void, providerId: string): void {
+  const inserted = { ...request.submitted, messageId, contentMode: 'replace' as const };
+  if (!transcript.hasEntity(inserted)) throw new Error(`ACP provider '${providerId}' returned an accepted receipt before its user echo (${messageId})`);
   request.messageId = messageId;
   request.accepted = true;
-  const inserted = { ...request.submitted, messageId, contentMode: 'replace' as const };
-  if (!transcript.hasEntity(inserted)) return;
+  if (request.submitted.messageId !== messageId) transcript.removeSubmittedMessage(request.submitted.messageId!);
   push(inserted);
 }
 
-export function settleAcceptedRequests(requests: Map<string, PromptRequest>, transcript: AcpTranscriptParser, missingEcho = false): void {
+export function settleAcceptedRequests(requests: Map<string, PromptRequest>, transcript: AcpTranscriptParser): void {
   for (const [id, request] of requests) {
     if (!request.accepted) continue;
     const owner = transcript.entityOwner({ ...request.submitted, messageId: request.messageId });
     const outcome = owner?.outcome;
-    if (!outcome && (owner || !missingEcho)) continue;
-    request.completion.resolve(!owner || outcome?.kind === 'error'
-      ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome?.kind === 'error'
-        ? outcome.detail ?? outcome.reason ?? 'Foreground failed' : 'Accepted message was not echoed before idle' })
+    if (!outcome) continue;
+    request.completion.resolve(outcome.kind === 'error'
+      ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
       : ok({ queued: false }));
     requests.delete(id);
   }

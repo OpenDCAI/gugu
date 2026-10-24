@@ -22,7 +22,7 @@ import {
   NODE_FOR_CLAUDE_ACP,
   resolveNodeInterpreter,
 } from '../../helpers/node-interpreter';
-import { decodeClaudeSessionUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 import { claudeAuthStatus } from './auth';
 import { claudeSubscriptionBehavior } from './subscription';
 import { buildClaudeHookConfig } from './hooks';
@@ -406,7 +406,7 @@ export const provider = registerPluginBehavior(plugin, {
       },
     }),
     // ACP v2:一轮在前台 idle 处结束,后台子智能体不再扣住这一轮的结局(子智能体在跑时下一句不进队列)。
-    connect: (io, toClient) => connectStdioAcpV2(io, toClient, decodeClaudeSessionUpdate),
+    connect: (io, toClient) => connectStdioAcpV2(io, toClient, createClaudeSessionDecoder()),
   },
   auth: {
     checkStatus: claudeAuthStatus,
