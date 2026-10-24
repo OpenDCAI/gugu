@@ -41,7 +41,7 @@ const SCRIPTS = {
 let turnSeq = 0
 rl.on('line', (line) => {
   const m = JSON.parse(line)
-  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, content: m.params.input } } }) + '\\n')
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: THREAD }, model: 'm' } })
   if (m.method === 'turn/start') {

@@ -11,6 +11,7 @@ import type {
   ReleaseTerminalResponse,
   RequestPermissionResponse,
   SessionNotification,
+  SessionUpdate,
   TerminalOutputRequest,
   TerminalOutputResponse,
   WaitForTerminalExitRequest,
@@ -26,7 +27,7 @@ import type { TerminalPort } from './terminal-port';
 export interface InboundRouter {
   onSessionUpdate(
     connection: AcpConnectionContext,
-    params: SessionNotification,
+    params: { sessionId: string; update?: SessionUpdate },
     event: NormalizedEvent
   ): void;
   onPermissionRequest(
@@ -50,6 +51,7 @@ export function buildAgentClient(
   ports: AgentPorts
 ): AcpClient {
   return {
+    sessionEvent: params => router.onSessionUpdate(connection, { sessionId: params.sessionId }, params.event),
     sessionUpdate: async (params: SessionNotification): Promise<void> => {
       router.onSessionUpdate(connection, params, connection.normalize(params.update));
     },

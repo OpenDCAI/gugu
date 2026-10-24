@@ -43,11 +43,6 @@ export interface AcpAgentConnection {
   /** agent 在 initialize._meta 里声明 ACP steering 扩展。 */
   supportsSteering: boolean;
   /**
-   * agent 自己报状态(ACP v2 的 `state_update`):在不在跑只听它的,谁开的工都一样。
-   * v1 的家只有「prompt 请求还没答」这一个事实可用。
-   */
-  reportsState: boolean;
-  /**
    * 这条连接**实际**在跟哪个进程说话 —— spawn 当场绑定的 pid,拿不到时为 null。
    *
    * 它此前只进了日志(下面那行 `delivery process bound`)。会话**重载**要用它当判据:
@@ -194,13 +189,11 @@ export async function createAcpAgentConnection(
     const supportsImagePrompt = initialized.agentCapabilities?.promptCapabilities?.image === true;
     const initializeMeta = (initialized as InitializeResponse & { _meta?: unknown })._meta;
     const supportsSteering = isSteeringCapability(initializeMeta);
-    const reportsState = initialized.protocolVersion >= 2;
     logger.debug('createAcpAgentConnection: initialized', {
       supportsLoadSession,
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,
-      reportsState,
     });
     void processClosed.then(async (closed) => {
       // @@@5405 先把这棵树收干净,再把「进程没了」报出去 —— 顺序本身就是合同的一部分。
@@ -251,7 +244,6 @@ export async function createAcpAgentConnection(
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,
-      reportsState,
       pid: typeof handle.pid === 'number' ? handle.pid : null,
     });
   } catch (e) {
@@ -434,40 +426,6 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
       _meta: {
         'gugu.mcp-input-preview': true,
         'terminal-auth': true,
-        /**
-         * 上面 `subagents: {}` 是规范草案字段(agent-client-protocol#1992),已发布的
-         * TypeScript SDK 还没保留它;在它落地之前,同一件事的过渡signal走 JetBrains AIR
-         * 扩展。两个都发:规范字段一旦可用就**优先**(README:“The canonical field remains
-         * supported and takes precedence once it is available.”),AIR 这份是兜底。
-         *
-         * ⚠️ 两个能力**各管一段,缺一不可**:
-         *  · `nativeSubagentSessions` —— 子智能体拿到自己的会话(`subagent_spawned` /
-         *    `subagent_state_update`),取消走规范的 `session/cancel` 打那个子会话。
-         *  · `asyncTasks`             —— 后台任务生命周期(`async_task_spawned` /
-         *    `_progress` / `_state_update`)。适配器里这条 lane 由
-         *    `clientSupportsAsyncTasks(clientCapabilities)` 把关,**不声明就整条不发**,
-         *    后台命令连 `canStop` / `toolCallId` 都拿不到。
-         *
-         * 形状不是猜的,来自 0.75.1 的 `air-extension.js`:`version` 必须是 ≥1 的整数,
-         * `capabilities` 必须是数组且 `includes` 那个名字,三条全中才算声明过。
-         */
-        ...(agent.protocolVersion === 2
-          ? {
-              /**
-               * v2 的后台任务扩展(`_async_task_*` 与 `_session/async_task/stop`)。v2 的子智能体是
-               * 标准的子会话(取消走 `session/cancel`),后台命令没有标准形态,靠这个具名扩展。
-               * ⚠️ v2 上❌ 声明 AIR:AIR 客户端拿到的是 AIR 的子智能体形态,v2 那一层发不出来。
-               */
-              asyncTasks: {},
-            }
-          : {
-              jetbrains: {
-                air: {
-                  version: 1,
-                  capabilities: ['nativeSubagentSessions', 'asyncTasks'],
-                },
-              },
-            }),
       },
     },
   };

@@ -16,8 +16,8 @@ import { AcpRuntime } from './runtime';
  */
 
 const SESSION = 'session-1';
-/** claude 桥接 1.3.0 起自己报状态(`state_update`);这组用例按它跑,对照家不报。 */
-const REPORTS_STATE = { reportsState: true } as const;
+/** Notices are independent of the transport that supplies foreground facts. */
+const REPORTS_STATE = {} as const;
 const agentState = (state: 'running' | 'idle'): SessionUpdate =>
   ({ sessionUpdate: 'state_update', state }) as unknown as SessionUpdate;
 

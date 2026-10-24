@@ -1,4 +1,4 @@
-import type { Client } from '@agentclientprotocol/sdk';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { AcpPlatformInjection, AdapterExit, AgentRunContext } from '@gugu/session-core/acp';
 import { acpErr } from '@gugu/session-core/acp';
 import type { AcpProcessHost } from '@gugu/session-core/acp/node';
@@ -36,8 +36,6 @@ export interface AcpConnectionEntry extends AcpConnectionContext {
   supportsImagePrompt: boolean;
   /** initialize._meta.steering.supported: route busy steering through the ACP extension. */
   supportsSteering: boolean;
-  /** 见 AcpAgentConnection.reportsState。 */
-  reportsState: boolean;
   /** 这个受管进程的 pid(spawn 当场绑定);重载判据用它,见 AcpAgentConnection.pid。 */
   pid: number | null;
 }
@@ -61,7 +59,7 @@ export interface AcquireAcpConnectionInput {
   platform?: AcpPlatformInjection;
   capabilitySpawnEnv?: Readonly<Record<string, string>>;
   capabilitySpawnArgs?: readonly string[];
-  buildClient: (agent: AcpAgentApi, context: AcpConnectionContext) => Client;
+  buildClient: (agent: AcpAgentApi, context: AcpConnectionContext) => AcpClient;
   /** 进程 stderr 的每一整行(见 `IAcpBehavior.turnFailure`)。 */
   onStderrLine?: (line: string) => void;
   /** 启动走到了哪一步(版本探针 / 起引擎)—— 属主据此让等待看得见(#6183)。 */
@@ -212,7 +210,6 @@ async function provisionAcpConnection(
     supportsForkSession: connection.data.supportsForkSession,
     supportsImagePrompt: connection.data.supportsImagePrompt,
     supportsSteering: connection.data.supportsSteering,
-    reportsState: connection.data.reportsState,
     pid: connection.data.pid,
   };
 }

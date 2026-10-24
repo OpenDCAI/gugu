@@ -1,9 +1,23 @@
 import type { PromptInput } from './models/prompt';
+import { z } from 'zod';
+
+/** Kept with a committed cycle so unknown reasons and native usage/error facts survive replay. */
+export const foregroundEndSchema = z.object({
+  source: z.enum(['agent', 'request']),
+  state: z.literal('idle'),
+  stopReason: z.string().nullish(),
+  usage: z.record(z.string(), z.unknown()).nullish(),
+  error: z.object({ name: z.string().optional(), message: z.string(), stack: z.string().optional(),
+    code: z.union([z.number(), z.string()]).optional(), data: z.unknown().optional() }).nullish(),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+});
 
 /** A local dispatch receipt is not evidence that the agent inserted a message. */
 export type SessionPromptReceipt =
-  | { status: 'dispatched'; requestId: string }
-  | { status: 'accepted'; requestId: string; messageId: string };
+  ({ status: 'dispatched'; requestId: string }
+  | { status: 'accepted'; requestId: string; messageId: string }) & {
+    _meta?: Readonly<Record<string, unknown>> | null;
+  };
 
 /** Foreground work is independent of the prompt RPC and of background activity. */
 export type SessionForegroundState = {
@@ -16,7 +30,8 @@ export type SessionForegroundState = {
       /** Missing or null means no reason was reported, not end_turn. */
       stopReason?: string | null;
       usage?: Readonly<Record<string, unknown>> | null;
-      error?: { code: number; message: string; data?: unknown } | null;
+      error?: { name?: string; code?: number | string; message: string; stack?: string; data?: unknown } | null;
+      _meta?: Readonly<Record<string, unknown>> | null;
     }
 );
 
@@ -65,7 +80,6 @@ export interface SessionTerminalChunk {
 /**
  * A session-scoped transport boundary. TEvent is the host's domain vocabulary;
  * implementations keep wire versions, RPC correlation and SDK objects private.
- * Defining this port does not change the existing AcpAgentApi call path.
  */
 export interface SessionProtocolPort<TEvent> {
   prompt(request: { requestId: string; input: PromptInput }): Promise<SessionPromptReceipt>;

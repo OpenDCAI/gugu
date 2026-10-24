@@ -2808,9 +2808,10 @@ describe('AcpRuntime session manager', () => {
       })
     );
 
-    await expect(rt.sendPrompt('conv-upstream-final', { text: 'first' })).resolves.toMatchObject({
-      success: false,
-    });
+    const sent = rt.promptDetached('conv-upstream-final', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.admission).toMatchObject({ success: true });
+    expect(await sent.data.completion).toMatchObject({ success: false });
     const before = rt.getHistory('conv-upstream-final');
     expect(before.success).toBe(true);
     if (!before.success) return;
@@ -2844,10 +2845,10 @@ describe('AcpRuntime session manager', () => {
     });
     h.agent.prompt.mockRejectedValueOnce(new Error('connection closed'));
 
-    await expect(rt.sendPrompt('conv-settled-before-close', { text: 'first' })).resolves.toMatchObject({
-      success: false,
-      error: { type: 'prompt_failed' },
-    });
+    const sent = rt.promptDetached('conv-settled-before-close', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.admission).toMatchObject({ success: true });
+    expect(await sent.data.completion).toMatchObject({ success: false, error: { type: 'prompt_failed' } });
     expect(rt.getSessionState('conv-settled-before-close').lastTurnOutcome).toBe('errored');
 
     h.lastChild.emitExit(137);
@@ -2908,7 +2909,9 @@ describe('AcpRuntime session manager', () => {
 
     // conv-x 上落一条**暂定**的失败(传输层塌了那一类)。
     h.agent.prompt.mockRejectedValueOnce(new Error('ACP connection closed'));
-    await expect(rt.sendPrompt('conv-x', { text: 'first' })).resolves.toMatchObject({ success: false });
+    const sent = rt.promptDetached('conv-x', { text: 'first' });
+    if (!sent.success) throw new Error('Missing session');
+    expect(await sent.data.completion).toMatchObject({ success: false });
     const before = rt.getHistory('conv-x');
     expect(before.success).toBe(true);
     if (!before.success) return;
@@ -2973,6 +2976,27 @@ describe('AcpRuntime session manager', () => {
       error: { type: 'invalid_state' },
     });
     expect(h.agent.newSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the old connection after its route key is reused by a reconnect', async () => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    await rt.startSession(makeStartInput({ sessionId: 'replacement' }));
+    const oldClient = h.client();
+    h.lastChild.emitExit(137);
+    await untilSessionSummary(rt, 'replacement', 'adapter exited', summary => summary?.lifecycle === 'lost');
+    await rt.startSession(makeStartInput({ sessionId: 'replacement', providerSessionId: 'session-1' }));
+    const client = h.client();
+    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'running' } as never });
+    await oldClient.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never });
+    await oldClient.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old connection' } } });
+    expect(rt.getSessionState('replacement').lifecycle).toBe('working');
+    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'new connection' } } });
+    await client.sessionUpdate({ sessionId: 'session-1', update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never });
+    expect(rt.getSessionState('replacement').lifecycle).toBe('ready');
+    expect(JSON.stringify(rt.getChatHistory('replacement'))).toContain('new connection');
+    expect(JSON.stringify(rt.getChatHistory('replacement'))).not.toContain('old connection');
+    await rt.dispose();
   });
 
   it('reconnects a lost session through its original provider session', async () => {

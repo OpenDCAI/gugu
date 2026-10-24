@@ -3,14 +3,12 @@ import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type {
   AvailableCommand,
-  Client,
   CreateTerminalRequest,
   CreateTerminalResponse,
   ForkSessionRequest,
   LoadSessionRequest,
   NewSessionRequest,
   RequestPermissionResponse,
-  SessionNotification,
   SessionUpdate,
 } from '@agentclientprotocol/sdk';
 import type {
@@ -618,7 +616,7 @@ export class SessionManager implements InboundRouter {
         platform: input.platform,
         capabilitySpawnEnv: input.capabilitySpawnEnv,
         capabilitySpawnArgs: input.capabilitySpawnArgs,
-        buildClient: (_agent, context): Client => buildAgentClient(context, this, this.ports),
+        buildClient: (_agent, context) => buildAgentClient(context, this, this.ports),
         ...(binding.behavior.turnFailure?.fromStderrLine
           ? {
               onStderrLine: (line: string) => {
@@ -651,7 +649,6 @@ export class SessionManager implements InboundRouter {
     record.cell.setAgent(connection.agent);
     record.cell.setAcceptsImagePrompts(connection.supportsImagePrompt);
     record.cell.setSupportsSteering(connection.supportsSteering);
-    record.cell.setReportsState(connection.reportsState);
     record.cell.setSupportsLoadSession(connection.supportsLoadSession);
 
     try {
@@ -1106,7 +1103,9 @@ export class SessionManager implements InboundRouter {
         `Session '${input.sessionId}' lost its ACP adapter: ${record.loss.message}; reconnect before sending`
       );
     }
-    return await record.cell.prompt(input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
+    const dispatched = record.cell.promptDetached(input.prompt, input.steerIfBusy ? { steerIfBusy: true } : undefined);
+    void dispatched.completion.catch((error: unknown) => this.deps.logger.error('SessionManager: cycle completion failed', { sessionId: input.sessionId, error }));
+    return dispatched.admission;
   }
 
   /** Internal host path: resolve admission without waiting for the provider turn. */
@@ -1752,7 +1751,7 @@ export class SessionManager implements InboundRouter {
 
   onSessionUpdate(
     connection: AcpConnectionContext,
-    params: SessionNotification,
+    params: { sessionId: string; update?: SessionUpdate },
     event: NormalizedEvent
   ): void {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
@@ -1772,17 +1771,18 @@ export class SessionManager implements InboundRouter {
 
     const record = this.cells.get(sessionId);
     if (!record) return;
+    // A route key may already belong to a replacement connection. The normalizer is allocated
+    // per connection, so its existing identity distinguishes late events without another epoch.
+    if (record.connectionLease && record.connectionLease.value.normalize !== connection.normalize) return;
     const fromChildSession = record.childProviderSessionIds.has(params.sessionId);
     if (!fromChildSession && record.cell.acpSessionId !== params.sessionId) {
       record.cell.setAcpSessionId(params.sessionId);
       this.registerRoute(connection.key, params.sessionId, sessionId);
     }
-    record.cell.recordRaw({
-      kind: 'session_update',
-      sessionId: params.sessionId,
-      update: params.update,
-    });
-    this.applyRawMeta(record.cell, params.update);
+    if (params.update) {
+      record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.update });
+      this.applyRawMeta(record.cell, params.update);
+    }
     const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
     if (!scoped) return;
     event = scoped;
@@ -1832,7 +1832,7 @@ export class SessionManager implements InboundRouter {
         if (!result?.continueWith || this.cells.get(input.sessionId) !== record) return;
         if (!record.cell.sessionState.canSubmit) return;
         record.stopHookContinuations = continued + 1;
-        void record.cell.prompt({ text: result.continueWith, origin: 'communication' });
+        void this.prompt({ sessionId: input.sessionId, prompt: { text: result.continueWith, origin: 'communication' } });
       })
       .catch((error: unknown) => {
         this.deps.logger.warn('SessionManager: turn-end hook failed', {
@@ -2108,9 +2108,6 @@ export class SessionManager implements InboundRouter {
       ...(provider?.capabilities.acp.sessionModes
         ? { sessionModes: provider.capabilities.acp.sessionModes }
         : {}),
-      ...(provider?.capabilities.acp.kind === 'supported' && provider.capabilities.acp.midTurnSteer
-        ? { midTurnSteer: provider.capabilities.acp.midTurnSteer }
-        : {}),
       ...(() => {
         const turnFailure = this.deps.agentHost.resolveAcp(input.providerId)?.behavior.turnFailure;
         return turnFailure
@@ -2365,6 +2362,9 @@ export class SessionManager implements InboundRouter {
 
   /** Push new turns and in-place revisions to the single durable history writer. */
   private emitCommittedTurns(record: SessionRecord): void {
+    // Later replayed child records can revise an earlier parent turn. Publish the complete
+    // replay at endReplay; intermediate replay turns cannot safely revise existing storage.
+    if (record.replaying && record.cell.sessionState.lifecycle === 'replaying') return;
     record.cell.transcript.pushEvent({ kind: 'terminal_snapshots', terminals: this.getTerminals(record.input.sessionId) });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
@@ -2592,6 +2592,7 @@ export class SessionManager implements InboundRouter {
     if (!record) return;
     if (record.transcriptTick) clearTimeout(record.transcriptTick);
     record.cell.dispose();
+    this.emitCommittedTurns(record);
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
     this.terminals.disposeSession(sessionId);

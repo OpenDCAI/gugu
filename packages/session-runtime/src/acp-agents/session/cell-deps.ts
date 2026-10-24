@@ -84,8 +84,6 @@ export interface SessionCellDeps {
   acceptsImagePrompts?: boolean;
   /** Whether initialize negotiated the ACP `_session/steering` extension. */
   supportsSteering?: boolean;
-  /** 忙时插话的送法(插件 `acp.midTurnSteer`,语义见那里)。缺席 = 并发 `session/prompt`。 */
-  midTurnSteer?: 'interrupt-at-tool-boundary';
   /** 这一家「失败报成正常结束」的识别(插件 `acp.turnFailure`,语义见那里)。 */
   turnFailure?: {
     fromAgentMessage?: (text: string) => string | null;

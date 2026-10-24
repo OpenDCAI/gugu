@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { foregroundEndSchema } from '../../session-protocol';
 import { terminalStateSchema } from '../terminals';
 import { stopReasonSchema } from '../session';
 import { transcriptCompactionSchema } from './compaction';
@@ -22,9 +23,8 @@ export const transcriptTurnInitiatorSchema = z.enum(['user', 'agent']);
 export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSchema>;
 
 /**
- * Successful turn reasons = ACP stop reasons(用户那一轮,prompt 结算时带来)+ `cycle_end`
- * (agent **自发**的一轮:没有 prompt 在飞,它的边界是适配器在那个 cycle 的 `result` 时
- * 报上来的那条带 cost 的 usage —— 见 session-runtime cell.ts `isAgentCycleEnd`)。
+ * Successful turn reasons come from foreground idle. `cycle_end` preserves a boundary
+ * whose native reason was absent, null or unknown; `foreground` retains the original fact.
  *
  * ⚠️ 这里曾经叫 `quiesced`:「250 ms 没来事件就当它讲完了」。那不是边界,是猜 ——
  * 网关流式中途任何一次 >250 ms 的停顿都会把正在写的那条消息当场封口成一轮,
@@ -37,7 +37,7 @@ export type DoneTurnReason = z.infer<typeof doneTurnReasonSchema>;
 /** Cancellation is modeled as its own outcome instead of a successful stop reason. */
 /**
  * `interrupted_for_message`:不是用户停的 —— 这一家收不了回合中途的插话,咕咕在工具边界替它停下
- * 这一轮,好让刚到的消息作为下一轮进去(`acp.midTurnSteer`,#6335)。下一轮就是接着干,
+ * 这一轮,好让刚到的消息作为下一轮进去(transport tool-boundary interruption, #6335)。下一轮就是接着干,
  * 所以界面上❌ 不给「继续 / 丢弃」。
  */
 export const cancelledTurnReasonSchema = z.enum(['cancelled', 'interrupted_for_message']);
@@ -112,6 +112,7 @@ export const transcriptTurnOutcomeSchema = z.discriminatedUnion('kind', [
 export type TranscriptTurnOutcome = z.infer<typeof transcriptTurnOutcomeSchema>;
 
 export const transcriptTurnSchema = z.object({
+  foreground: foregroundEndSchema.optional(),
   /** Reducer-generated turn id used to scope all item ids in this exchange. */
   id: z.string(),
   /** Stable session order, assigned when the turn opens. */

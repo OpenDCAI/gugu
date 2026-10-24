@@ -14,7 +14,7 @@ const out = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
 let n = 0
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line)
-  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, content: m.params.input } } }) + '\\n')
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringify(m) + '\\n')
   if (!m.id) return
   if (m.method === 'initialize') return out({id:m.id,result:{userAgent:'fixture'}})

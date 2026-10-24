@@ -1,6 +1,7 @@
 import { Writable } from 'node:stream';
 import { ClientSideConnection, ndJsonStream } from '@agentclientprotocol/sdk';
 import { DRAFT_UPDATE_META_KEY } from '@gugu/session-core/acp';
+import { createRequestActivity } from '@gugu/session-core/acp';
 import type {
   AcpAgentApi,
   AcpClientFactory,
@@ -118,12 +119,38 @@ export function rewriteDraftSessionUpdates(
   });
 }
 
-export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi {
+export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory, options: { interruptAtToolBoundary?: boolean } = {}): AcpAgentApi {
   const stream = ndJsonStream(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
     rewriteDraftSessionUpdates(nodeReadableToWeb(io.stdout))
   );
-  return new ClientSideConnection((agent) => toClient(agent as never), stream);
+  let boundary!: ReturnType<typeof createRequestActivity>;
+  new ClientSideConnection((agent) => {
+    // SDK 1.9.0 calls toClient(this), but widens that callback's parameter to Agent/MaybePromise.
+    boundary = createRequestActivity(agent as ClientSideConnection, params => client.sessionEvent(params), options);
+    const client = toClient(boundary.agent);
+    return { ...client, sessionUpdate: params => {
+      const update = params.update;
+      if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
+        boundary.observe(params.sessionId, { kind: update.sessionUpdate === 'tool_call' ? 'tool_call' : 'tool_update',
+          toolCallId: update.toolCallId, status: update.status });
+      }
+      return client.sessionUpdate(params);
+    } };
+  }, stream);
+  const api = boundary.agent;
+  const initialize = api.initialize;
+  // This extension belongs only to the v1 wire handshake.
+  return new Proxy(api, { get(target, property) {
+    if (property === 'initialize') return (params: Parameters<AcpAgentApi['initialize']>[0]) => initialize({
+      ...params,
+      clientCapabilities: { ...params.clientCapabilities, _meta: {
+        ...params.clientCapabilities?._meta,
+        jetbrains: { air: { version: 1, capabilities: ['nativeSubagentSessions', 'asyncTasks'] } },
+      } },
+    });
+    return Reflect.get(target, property);
+  } });
 }
 
 export function nodeReadableToWeb(source: NodeJS.ReadableStream): ReadableStream<Uint8Array> {
@@ -168,7 +195,8 @@ export function nodeReadableToWeb(source: NodeJS.ReadableStream): ReadableStream
 }
 
 export function createNativeAcpBehavior(
-  buildSpawn: (ctx: AcpSpawnContext) => NativeAcpSpawnResult
+  buildSpawn: (ctx: AcpSpawnContext) => NativeAcpSpawnResult,
+  options: { interruptAtToolBoundary?: boolean } = {},
 ): IAcpBehavior {
   return {
     buildSpawn: (ctx) => {
@@ -179,6 +207,6 @@ export function createNativeAcpBehavior(
         env: spawn.env,
       };
     },
-    connect: connectStdioAcp,
+    connect: (io, toClient) => connectStdioAcp(io, toClient, options),
   };
 }

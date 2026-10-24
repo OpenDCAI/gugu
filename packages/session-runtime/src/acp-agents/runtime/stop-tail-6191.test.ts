@@ -27,11 +27,11 @@ type Committed = { source: string; turnId: string; text: string };
 
 async function stopWithPendingPermission(
   sessionId: string,
-  reportsState = false,
+  nativeState = false,
   committed: Committed[] = [],
 ) {
   const h = makeAcpHarness({
-    reportsState,
+    nativeState,
     onTurnCommitted: ({ source, turn }) =>
       committed.push({ source, turnId: turn.id, text: JSON.stringify(turn.items) }),
   });
@@ -49,7 +49,7 @@ async function stopWithPendingPermission(
   await h.agent.called('prompt');
   expect(h.agent.prompt).toHaveBeenCalledTimes(1);
   // 自报状态的桥接收下 prompt 就报 running(每次真机读数都是这个顺序)。
-  if (reportsState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('running') });
+  if (nativeState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('running') });
   await client.sessionUpdate({
     sessionId: SESSION,
     update: { sessionUpdate: 'tool_call', toolCallId: 'call_sleep', title: 'sleep 120', kind: 'execute', status: 'pending' } as SessionUpdate,
@@ -70,7 +70,7 @@ async function stopWithPendingPermission(
   await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } });
   resolvePrompt({ stopReason: 'cancelled' });
   await turn;
-  if (reportsState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('idle') });
+  if (nativeState) await client.sessionUpdate({ sessionId: SESSION, update: agentState('idle') });
   expect(rt.getSessionState(sessionId).canCancel, 'Stop 落定').toBe(false);
   return { h, rt, client };
 }

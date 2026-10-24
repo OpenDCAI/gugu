@@ -3,6 +3,7 @@ import { codexTerminalUpdate } from './codex-terminals.mjs'
 
 // Thin protocol adapter: preserve Gugu's ACP host contract while running the user's own Codex app-server.
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { GUGU_MCP_CONFIG_KEY, normalizeGuguToolName } from '../mcp/gugu-mcp-name.mjs'
@@ -29,12 +30,9 @@ let appNextId = 1
 let appReady = false
 let sessionId = null
 let appServerThreadConfig = null
-let activePrompt = null
+let activeCycle = null
 /** `/compact` 已交给 codex、压缩那一轮还没报 `turn/started` 时,在等它的那条 ACP 请求 id。 */
-let compactAcpId = null
-let threadMaterialization = 'unmaterialized'
-/** 这条 thread 已分页 ⇒ 它从此拒绝 includeTurns 读法,别再问第二次(见 threadReadTurnsRefusal)。 */
-let threadRefusesTurnsRead = false
+let compactInsertion = null
 let established = false
 let revertingHistory = false
 let historyCanRevert = false
@@ -173,10 +171,7 @@ let loadGeneration = 0
 const appPending = new Map()
 // 流过增量的条目(→ 最近一段增量的段号):`item/completed` 时不再整条补发。有的模型思考不流增量,整条只在 completed 里(#6830)。
 const streamedItems = new Map()
-const earlyTurnCompletions = new Map()
 const toolOutcomesByTurn = new Map()
-const steeredAcpIdsByTurn = new Map()
-const pendingSteersByTurn = new Map()
 // itemId → native command. A null turnId means the turn ended and the host owns a background task.
 const runningCommands = new Map()
 
@@ -916,30 +911,38 @@ async function startAppOnce(servers) {
 }
 
 const promptInsertions = new Map()
-function expectPromptInsertion(id, content) {
+function expectPromptInsertion(acpId, content) {
+  const clientId = randomUUID()
   let resolve
   const promise = new Promise(done => { resolve = done })
-  const entry = { content, promise, resolve, messageId: null }
-  promptInsertions.set(id, entry)
+  const entry = { acpId, clientId, content, promise, resolve, messageId: null, cancelled: false }
+  promptInsertions.set(clientId, entry)
   return entry
 }
+function forgetPromptInsertion(acpId) {
+  for (const [clientId, entry] of promptInsertions) if (entry.acpId === acpId) promptInsertions.delete(clientId)
+}
 function insertedUserMessage(item) {
-  const entry = [...promptInsertions.values()].find(value => value.messageId === null)
-  if (entry) {
+  // app-server echoes the explicit clientUserMessageId as userMessage.clientId.
+  // Unsolicited messages never claim an outstanding RPC, even in the same native turn.
+  const entry = promptInsertions.get(item.clientId)
+  sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id,
+    content: entry ? entry.content : [{ type: 'text', text: joinPromptText(item.content) }] })
+  if (entry && !entry.cancelled) {
     entry.messageId = item.id
-    sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id, content: entry.content })
     entry.resolve({ messageId: item.id })
-  } else {
-    sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id,
-      content: [{ type: 'text', text: joinPromptText(item.content) }] })
   }
 }
 async function receipt(id, entry) {
   const result = await entry.promise
-  promptInsertions.delete(id)
-  if (result.error) throw new Error(result.error)
+  promptInsertions.delete(entry.clientId)
+  if (result.error) throw Object.assign(new Error(result.error), { code: result.code })
   respond(id, result)
 }
+function throwIfInsertionCancelled(entry) {
+  if (entry.cancelled) throw Object.assign(new Error('Request cancelled before insertion'), { code: -32800 })
+}
+
 
 function sessionUpdate(update) {
   notify('session/update', { sessionId, update })
@@ -1473,12 +1476,12 @@ function onAppNotification(message) {
     return
   }
   if (method === 'turn/started') {
+    beginCycle(String(params.turn.id))
     sessionUpdate({ sessionUpdate: 'state_update', state: 'running' })
-    if (compactAcpId !== null) {
-      const acpId = compactAcpId
-      compactAcpId = null
-      insertedUserMessage({ id: `compact:${params.turn.id}` })
-      beginPrompt(acpId, String(params.turn.id))
+    if (compactInsertion !== null) {
+      const entry = compactInsertion
+      compactInsertion = null
+      if (!entry.cancelled) insertedUserMessage({ id: `compact:${params.turn.id}`, clientId: entry.clientId })
     }
     return
   }
@@ -1491,11 +1494,11 @@ function onAppNotification(message) {
         name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
       })
     }
-    sessionUpdate({ sessionUpdate: 'state_update', state: 'idle', ...turnOutcome(params.turn) })
-    for (const entry of promptInsertions.values()) {
-      if (entry.messageId === null) entry.resolve({ error: 'Codex completed without inserting the prompt' })
+    if (!activeCycle || activeCycle.turnId === String(params.turn?.id)) {
+      sessionUpdate({ sessionUpdate: 'state_update', state: 'idle', ...turnOutcome(params.turn) })
     }
-    settlePrompt(params.turn)
+    settleCycle(params.turn)
+
   }
 }
 
@@ -1537,41 +1540,20 @@ function compactionUpdate(item, status) {
   sessionUpdate({ sessionUpdate: 'compaction_update', compactionId: String(item.id), status })
 }
 
-/** 这条 ACP 请求从此等 `turnId` 那一轮结束(`turn/completed` → settlePrompt)。 */
-function beginPrompt(acpId, turnId) {
+/** Native foreground has one owner; prompt receipts do not participate in its completion. */
+function beginCycle(turnId) {
+  if (activeCycle?.turnId === turnId) return
   let resolveCompletion
-  const completion = new Promise((resolve) => { resolveCompletion = resolve })
-  activePrompt = { acpId, turnId, steeredAcpIds: [], completion, resolveCompletion }
-  const earlyCompletion = earlyTurnCompletions.get(turnId)
-  if (earlyCompletion) {
-    earlyTurnCompletions.delete(turnId)
-    settlePrompt(earlyCompletion)
-  }
+  const completion = new Promise(resolve => { resolveCompletion = resolve })
+  activeCycle = { turnId, completion, resolveCompletion }
 }
-
-function settlePrompt(turn) {
+function settleCycle(turn) {
   const turnId = String(turn?.id ?? '')
-  // The provider can finish a turn before acknowledging an accepted steer. Keep its
-  // outcome (including Gugu tool failure/recovery) until every admission is known.
-  if ((pendingSteersByTurn.get(turnId) ?? 0) > 0) {
-    earlyTurnCompletions.set(turnId, turn)
-    return
-  }
-  if (!activePrompt || turnId !== activePrompt.turnId) {
-    const steeredAcpIds = steeredAcpIdsByTurn.get(turnId)
-    if (steeredAcpIds?.length) {
-      steeredAcpIdsByTurn.delete(turnId)
-      settleAcpIds(turn, steeredAcpIds, null)
-      return
-    }
-    if (turnId) earlyTurnCompletions.set(turnId, turn)
-    return
-  }
-  const prompt = activePrompt
-  activePrompt = null
-  const promptIds = [prompt.acpId, ...prompt.steeredAcpIds, ...(steeredAcpIdsByTurn.get(turnId) ?? [])]
-  steeredAcpIdsByTurn.delete(turnId)
-  settleAcpIds(turn, promptIds, prompt)
+  toolOutcomesByTurn.delete(turnId)
+  if (activeCycle?.turnId !== turnId) return
+  const cycle = activeCycle
+  activeCycle = null
+  cycle.resolveCompletion()
 }
 
 function turnOutcome(turn) {
@@ -1587,11 +1569,6 @@ function turnOutcome(turn) {
     data: turn?.error ?? failure ?? null } }
 }
 
-function settleAcpIds(turn, _promptIds, prompt) {
-  toolOutcomesByTurn.delete(String(turn?.id ?? ''))
-  prompt?.resolveCompletion?.()
-}
-
 function activeTurnIdFromThread(value) {
   const record = value?.thread && typeof value.thread === 'object' ? value.thread : value
   const turns = record?.turns
@@ -1600,32 +1577,6 @@ function activeTurnIdFromThread(value) {
     const turn = turns[i]
     if (turn?.status === 'inProgress' && turn.id) return String(turn.id)
   }
-  return null
-}
-
-/**
- * Codex 拒绝 `thread/read(includeTurns=true)` 的两种说法。两种都**不是故障**,而是
- * 「这条 thread 现在(或从此)答不了这个问题」:
- *
- *   · `not materialized yet` —— 首条用户消息之前,thread 还没落地。
- *   · `paginated threads do not support …` —— thread 一旦长到分页就**永远**不再支持
- *     (codex 0.145.0 实测)。
- *   · `ephemeral threads do not support includeTurns` —— runtime-only side chat fork 永远不支持
- *     这条读取。
- *
- * 两种都必须降级成「我不知道有没有在飞的 turn」,❌ 不能把整条 `session/prompt` 打挂。
- * 之前只认第一种,于是一条会话**第一轮之后每一轮都发不出去**(第一轮 thread 还没分页,
- * 之后必然分页)—— owner 2026-09-04 实机撞到:「第一个对话百分百能回,第二个百分百回不了」。
- *
- * ❌ 别把判据收紧回 `code === -32600`:分页那条拒绝穿过 ACP 边界后只剩 message,
- * code 会丢(实测 `cause.code === null`)。
- */
-function threadReadTurnsRefusal(error) {
-  const message = typeof error?.message === 'string' ? error.message : ''
-  if (!message.includes('includeTurns')) return null
-  if (message.includes('not materialized yet')) return 'unmaterialized'
-  if (message.includes('paginated')) return 'paginated'
-  if (message.includes('ephemeral threads do not support includeTurns')) return 'ephemeral'
   return null
 }
 
@@ -2209,7 +2160,7 @@ async function handleAcpRequest(message) {
       throw new Error('Invalid conversation revert target')
     }
     if (!historyCanRevert) throw new Error('Conversation revert requires persisted paginated Codex history')
-    if (revertingHistory || activePrompt || runningCommands.size) {
+    if (revertingHistory || activeCycle || runningCommands.size) {
       throw new Error('Wait for current work to finish before reverting')
     }
     revertingHistory = true
@@ -2257,7 +2208,6 @@ async function handleAcpRequest(message) {
     }
     historyCanRevert = forked?.thread?.historyMode === 'paginated' && !forked?.thread?.ephemeral
     established = true
-    threadMaterialization = 'unmaterialized'
     const activePermissionProfile = forked?.activePermissionProfile
       ?? forked?.thread?.activePermissionProfile
     const modes = await probePermissionModes(params.cwd, activePermissionProfile)
@@ -2325,7 +2275,6 @@ async function handleAcpRequest(message) {
     if (!sessionId) throw new Error('local Codex thread/start returned no thread id')
     historyCanRevert = started?.thread?.historyMode === 'paginated' && !started?.thread?.ephemeral
     established = true
-    threadMaterialization = 'unmaterialized'
     const activePermissionProfile = started?.activePermissionProfile
       ?? started?.thread?.activePermissionProfile
     const modes = await probePermissionModes(params.cwd, activePermissionProfile)
@@ -2381,7 +2330,6 @@ async function handleAcpRequest(message) {
     }
     historyCanRevert = resumed?.thread?.historyMode === 'paginated' && !resumed?.thread?.ephemeral
     established = true
-    threadMaterialization = 'materialized'
     // 宿主可以明说不要历史。咕咕聊天那条路(acp-host)自己存消息,并且在 load 期间丢弃一切回放的
     // session/update —— 给它拉历史是纯粹的浪费,还占着这次 load 的预算。默认仍然是重放:ACP 的
     // 语义就是 load 要把对话流回去,不吭声的宿主按契约办。
@@ -2422,7 +2370,9 @@ async function handleAcpRequest(message) {
     }
     const responseModes = permissionModesWithRequestedProfile(modes, requestedPermission?.profile)
     const models = await modelCatalogOnce()
-    sessionUpdate({ sessionUpdate: 'state_update', state: activeTurnIdFromThread(resumed) ? 'running' : 'idle' })
+    const resumedTurnId = activeTurnIdFromThread(resumed)
+    if (resumedTurnId) beginCycle(resumedTurnId)
+    sessionUpdate({ sessionUpdate: 'state_update', state: resumedTurnId ? 'running' : 'idle' })
     respond(id, {
             configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(resumed?.configOptions, responseModes),
@@ -2440,97 +2390,42 @@ async function handleAcpRequest(message) {
     if (revertingHistory) throw new Error('Conversation revert is in progress')
     if (!sessionId) throw new Error('no local Codex session')
     const input = promptInputItems(params.prompt)
-    let activeTurnId = activePrompt?.turnId ?? null
-    if (threadMaterialization !== 'unmaterialized' && !threadRefusesTurnsRead) {
-      try {
-        const thread = await appRequest('thread/read', { threadId: sessionId, includeTurns: true })
-        threadMaterialization = 'materialized'
-        activeTurnId = activeTurnIdFromThread(thread) ?? activeTurnId
-      } catch (error) {
-        const refusal = threadReadTurnsRefusal(error)
-        if (!refusal) throw error
-        // 读不到在飞的 turn 时,仍有本地记账的 activeTurnId(activePrompt) 兜底,
-        // steer 能力只在「turn 由别处发起、我们这侧没记账」时退化。
-        if (refusal === 'paginated' || refusal === 'ephemeral') threadRefusesTurnsRead = true
-        else threadMaterialization = 'unmaterialized'
-      }
-    }
-    // `/compact` 交给 codex 自己的压缩(TUI 的 /compact 是同一个入口):它不回轮次 id,压缩以一轮的形式
-    // 跑完 ⇒ 这条请求等下一个 `turn/started` 报到的那一轮。不当文字发:那样模型只会回一句「已压缩」,
-    // 什么也没压(实测 GLM 就这么答,窗口 23k 前后不变)。与 codex 自己一样,有轮次在跑时不压。
+    const insertion = expectPromptInsertion(id, params.prompt)
+    const cycle = activeCycle
+    const activeTurnId = cycle?.turnId ?? null
     if (joinPromptText(params.prompt).trim() === '/compact') {
-      if (activeTurnId) throw new Error('local Codex cannot compact while a turn is running')
-      compactAcpId = id
-      const insertion = expectPromptInsertion(id, params.prompt)
+      if (cycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
+      compactInsertion = insertion
       try {
         await appRequest('thread/compact/start', { threadId: sessionId })
         await receipt(id, insertion)
-      } catch (error) {
-        compactAcpId = null
-        throw error
+      } finally {
+        if (compactInsertion === insertion) compactInsertion = null
       }
       return
     }
     if (activeTurnId) {
-      const busyPrompt = activePrompt?.turnId === activeTurnId ? activePrompt : null
-      const insertion = expectPromptInsertion(id, params.prompt)
-      pendingSteersByTurn.set(activeTurnId, (pendingSteersByTurn.get(activeTurnId) ?? 0) + 1)
       try {
-        // This ACP shim is the only client of its `--stdio` app-server (the chat UI renders
-        // through it; no TUI attaches here). When a second Gugu prompt arrives while a turn
-        // is active, steer it into the turn instead of manufacturing a competing turn/start.
-        await appRequest('turn/steer', {
-          threadId: sessionId,
-          input,
-          expectedTurnId: activeTurnId,
-        })
-        if (activePrompt?.turnId === activeTurnId) activePrompt.steeredAcpIds.push(id)
-        else {
-          const steeredAcpIds = steeredAcpIdsByTurn.get(activeTurnId) ?? []
-          steeredAcpIds.push(id)
-          steeredAcpIdsByTurn.set(activeTurnId, steeredAcpIds)
-        }
+        await appRequest('turn/steer', { threadId: sessionId, input, expectedTurnId: activeTurnId,
+          clientUserMessageId: insertion.clientId })
         await receipt(id, insertion)
         return
       } catch (error) {
-        // The turn can finish between the active check and the steer RPC. Wait for the
-        // original ACP request to settle before starting a replacement turn so its
-        // response is not orphaned by an activePrompt overwrite.
-        promptInsertions.delete(id)
+        throwIfInsertionCancelled(insertion)
+        if (insertion.messageId !== null) { await receipt(id, insertion); return }
+        // A native cycle can end between observing it and the steer RPC. Wait only for that
+        // specific cycle before submitting a new one; a receipt is never an end-of-work signal.
         process.stderr.write(`[codex-app-server-acp] turn/steer failed; retrying as turn/start: ${error?.message ?? error}\n`)
-      } finally {
-        const pending = pendingSteersByTurn.get(activeTurnId) - 1
-        if (pending > 0) pendingSteersByTurn.set(activeTurnId, pending)
-        else {
-          pendingSteersByTurn.delete(activeTurnId)
-          const completed = earlyTurnCompletions.get(activeTurnId)
-          if (completed) {
-            earlyTurnCompletions.delete(activeTurnId)
-            settlePrompt(completed)
-          }
-        }
+        if (activeCycle === cycle) await cycle.completion
       }
-      // Drain the completion above before waiting on it: a rejected steer must not
-      // deadlock the original prompt or inherit its failure when starting a new turn.
-      if (busyPrompt && activePrompt === busyPrompt) await busyPrompt.completion
     }
-    const insertion = expectPromptInsertion(id, params.prompt)
-    const started = await appRequest('turn/start', {
-      threadId: sessionId,
-      input,
-      // ❌ 别按轮钉档位。codex 的按轮 override「作用于这一轮及其后的所有轮」(app-server
-      //    README),钉死就是每轮都把用户选的档顶掉 —— 选了只读也照样全权跑。
-      //    这一轮该用哪档,由线程自己的设置说了算(见 session/set_config_option)。
-    })
+    throwIfInsertionCancelled(insertion)
+    const started = await appRequest('turn/start', { threadId: sessionId, input,
+      clientUserMessageId: insertion.clientId })
     const turnId = String(started?.turn?.id ?? '')
     if (!turnId) throw new Error('local Codex turn/start returned no turn id')
-    threadMaterialization = 'materialized'
-    // codex's turn/start steers an already-active turn and returns that turn's id (app-server
-    // `start_or_steer_turn`). Two prompts that both saw no active turn before their turn/start then share one
-    // turn: the later answer joins it like a turn/steer, instead of replacing the earlier prompt's bookkeeping
-    // (which left that prompt unanswered forever — the task stayed "working").
-    if (activePrompt?.turnId === turnId) activePrompt.steeredAcpIds.push(id)
-    else beginPrompt(id, turnId)
+    if (insertion.cancelled && activeCycle?.turnId === turnId) await cancelTurn(turnId)
+    throwIfInsertionCancelled(insertion)
     await receipt(id, insertion)
     return
   }
@@ -2654,12 +2549,17 @@ function handleAcpNotification(message) {
     return
   }
   if (message.method === 'session/cancel') {
+    for (const entry of promptInsertions.values()) if (entry.messageId === null) {
+      entry.cancelled = true
+      entry.resolve({ error: 'Request cancelled before insertion', code: -32800 })
+    }
+
     // 人撤了这一轮 => 还在等他回答的提问就地了结(落到 `answers: []`),
     // 否则那条 promise 永不 settle,codex 的 turn 会一直挂着。
     cancelAcpPending('session cancelled')
   }
-  if (message.method === 'session/cancel' && activePrompt) {
-    void cancelTurn(activePrompt.turnId).catch((error) => {
+  if (message.method === 'session/cancel' && activeCycle) {
+    void cancelTurn(activeCycle.turnId).catch((error) => {
       process.stderr.write(`[codex-app-server-acp] cancel failed: ${error.message}\n`)
     })
   }
@@ -2685,7 +2585,7 @@ reader.on('line', (line) => {
   if (message.id !== undefined && message.method) {
     const run = () =>
       handleAcpRequest(message).catch((error) => {
-        promptInsertions.delete(message.id)
+        forgetPromptInsertion(message.id)
         respond(message.id, null, {
           code: typeof error.code === 'number' ? error.code : -32603,
           message: error.message || String(error),
@@ -2706,6 +2606,8 @@ function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   cancelAcpPending('ACP host connection closed')
+  for (const entry of promptInsertions.values()) entry.resolve({ error: 'ACP host connection closed' })
+  promptInsertions.clear()
   appReader?.close()
   // Let approval handlers flush their explicit denial before stopping the local server.
   // Exit only once the app-server tree is down; a tree that will not stop exits non-zero, loud.

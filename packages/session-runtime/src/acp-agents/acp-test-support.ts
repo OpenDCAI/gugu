@@ -8,6 +8,8 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { Client } from '@agentclientprotocol/sdk';
+import { createRequestActivity } from '@gugu/session-core/acp';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { ProviderPermissionModeMap, QueuedPrompt, SessionSummary } from '@gugu/session-core/acp';
 import type {
   AcpFs,
@@ -130,14 +132,18 @@ export class FakeAcpAgent implements AcpAgentApi {
   extMethod: Mock = vi.fn().mockResolvedValue({ stopped: true });
 
   /** The Client handler the runtime registered via toClient(). Available after connect(). */
-  capturedClient: Client | null = null;
+  capturedClient: AcpClient | null = null;
+
+  nativeState = false;
 
   private readonly callWaiters = new Set<{ holds: () => boolean; resolve: () => void }>();
 
   readonly behavior: Pick<IAcpBehavior, 'connect'> = {
     connect: (_io, toClient) => {
-      this.capturedClient = toClient(this as never);
-      return this.observed();
+      const api = this.nativeState ? this.observed() : createRequestActivity(this.observed() as never, params => client.sessionEvent(params)).agent;
+      const client: AcpClient = toClient(api);
+      this.capturedClient = client;
+      return api;
     },
   };
 
@@ -399,7 +405,7 @@ type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
   autoApproveModes?: ProviderPermissionModeMap;
   bundleAutonomy?: 'native' | 'per-surface-acp' | 'none';
   /** agent 自己报状态:它讲 ACP v2(initialize 答 `protocolVersion: 2`)。 */
-  reportsState?: boolean;
+  nativeState?: boolean;
 };
 
 // Tests that exercise the legacy ACP setter path still declare the capability explicitly.
@@ -538,11 +544,12 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     autoApprove,
     autoApproveModes,
     bundleAutonomy,
-    reportsState,
+    nativeState,
     ...depOverrides
   } = options;
   const agent = new FakeAcpAgent();
-  if (reportsState) {
+  agent.nativeState = nativeState === true;
+  if (nativeState) {
     agent.initialize.mockResolvedValue({
       protocolVersion: 2,
       agentCapabilities: { loadSession: true },

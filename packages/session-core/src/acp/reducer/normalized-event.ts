@@ -28,6 +28,9 @@ export type NormalizedToolStatus = 'pending' | 'in_progress' | 'completed' | 'fa
 export type NormalizedToolLocation = Pick<ToolCallLocation, 'path' | 'line'>;
 
 export type NormalizedEvent =
+  | { kind: 'interrupted_for_message' }
+  | { kind: 'prompt_result'; requestId: string; _meta?: Readonly<Record<string, unknown>> | null;
+      error?: import('@gugu/session-shared').SerializedError }
   | { kind: 'terminal_update'; terminal: SessionTerminalUpdate }
   | { kind: 'terminal_chunk'; terminal: SessionTerminalChunk }
   | { kind: 'terminal_snapshots'; terminals: readonly TerminalState[] }
@@ -495,8 +498,7 @@ export type NormalizedEvent =
        * ⚠️ 不是转录里的东西,也不属于哪一轮:谁开的工都一样 —— cell 拿它判「在不在跑」,别处不碰。
        */
       kind: 'agent_state';
-      state: 'running' | 'requires_action' | 'idle';
-    }
+    } & import('../session-protocol').SessionForegroundState
   | { kind: 'ignored' };
 
 /**

@@ -16,7 +16,6 @@ import type {
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
-  PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
@@ -30,6 +29,8 @@ import type { SerializedError } from '@gugu/session-shared';
 import z from 'zod';
 import type { AcpPlatformInjection } from '../../../acp/api/runtime-contract';
 import type { EnrichHook } from '../../../acp/reducer/normalized-event';
+import type { NormalizedEvent } from '../../../acp/reducer/normalized-event';
+import type { SessionPromptReceipt } from '../../../acp/session-protocol';
 import type { PermissionSubject, AcpPermissionOption } from '../../../acp/models/permissions';
 
 export type LiveSettingDimension = 'model' | 'permission' | 'effort';
@@ -203,18 +204,21 @@ export interface AcpProcessIo {
  * structurally — only the methods the session backend actually uses are required here.
  */
 export interface AcpAgentApi {
-  /**
-   * 这条连接讲的 ACP 版本:2 = v2 传输(`connectStdioAcpV2`),缺省 = v1。宿主按它声明
-   * initialize 的能力;一轮的结局对两版都是 `prompt()` 的结果(v2 由传输在前台 idle 时给出)。
-   */
-  readonly protocolVersion?: 2;
   initialize(params: InitializeRequest): Promise<InitializeResponse>;
   newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
   loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
   unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse>;
-  prompt(params: PromptRequest): Promise<PromptResponse>;
+  /** Dispatch/acceptance only. Foreground completion arrives independently as a domain event. */
+  prompt(params: PromptRequest, dispatch?: {
+    requestId: string;
+    message: Extract<NormalizedEvent, { kind: 'message' }>;
+  }): Promise<SessionPromptReceipt>;
+  /** Admission through the negotiated steering extension; completion remains on the event stream. */
+  steer?(params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]): Promise<'injected' | 'promptRequired'>;
+  /** Providers that cannot accept concurrent input can interrupt at their next tool boundary. */
+  interruptForMessage?(params: { sessionId: string }): Promise<void>;
   cancel(params: CancelNotification): Promise<void>;
   /** Optional — only available when the agent advertises `sessionCapabilities.list`. */
   listSessions?(params: ListSessionsRequest): Promise<ListSessionsResponse>;
@@ -258,6 +262,8 @@ export type AcpPermissionParams = Omit<RequestPermissionRequest, 'toolCall' | 'o
 };
 
 export type AcpClient = Omit<Client, 'requestPermission'> & {
+  /** Domain facts synthesized by a transport; never wrapped in a wire tool notification. */
+  sessionEvent(params: { sessionId: string; event: NormalizedEvent }): void;
   requestPermission(params: AcpPermissionParams): RequestPermissionResponse | Promise<RequestPermissionResponse>;
 };
 
@@ -490,17 +496,6 @@ export const acpCapability = definePluginCapability<IAcpBehavior>()(
       liveSettings: liveSettingsCapabilitySchema.optional(),
       /** Stable ACP `session/new.modes` defaults to the permission dimension when omitted. */
       sessionModes: z.enum(['permission', 'none']).optional(),
-      /**
-       * 忙时插话(steerIfBusy)这一家怎么送进当前回合。缺席 = 并发再发一条 `session/prompt`
-       * (未谈成 `_session/steering` 时的旧路)。
-       *
-       * `'interrupt-at-tool-boundary'`:这一家**收不了**并发的第二条 prompt(Antigravity ACP 1.2.1:
-       * 整条连接当场断,「Concurrent receive_steps()」),但 `session/cancel` 保留全部历史
-       * (含执行中的工具调用与结果,2026-09-24 实测)。⇒ 插话先进队列,等**当前工具调用跑完**
-       * (没有在跑的工具就立刻)打断这一轮,回合结束时队列照常出队成下一轮 —— 模型看到的是
-       * 原任务 + 已完成的工具 + 插话。代价:模型正在想的那一步作废重来;在跑的命令不被杀。
-       */
-      midTurnSteer: z.literal('interrupt-at-tool-boundary').optional(),
       startup: startupSchema.optional(),
     }),
   ]),

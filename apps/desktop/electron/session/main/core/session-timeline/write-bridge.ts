@@ -129,8 +129,7 @@ export async function deliverSessionText(
     // 先确认引擎活着,不活先唤醒 —— 桌面端点进会话时做的就是这件事,手机端不能少这一步。
     await ensureAcpSessionLive(target.id);
     const client = await getAcpRuntimeClient();
-    // `sendPrompt` 的 promise 要等**整轮**跑完（可能几分钟），拿它当 RPC 应答等于必超时；
-    // `promptDetached` 是宿主专用的受理路径：受理即返回，轮的结果另行结算。
+    // 只等派发受理；foreground 周期由运行时事件独立结算。
     // 人在手机输入框里写的话,与会话页输入框同一类来源(`manual`)。❌ 不带:会话忙时这句要排队,队列拒收没有来源的 prompt。
     const result = await client.promptDetached({ sessionId: target.id, prompt: { text: body, origin: 'manual' } });
     if (result.declined) {

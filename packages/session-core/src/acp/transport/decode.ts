@@ -499,8 +499,9 @@ function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nu
 function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
   const update = unwrapDraftUpdate(wrapped) as unknown as { sessionUpdate?: string; state?: unknown };
   if (update.sessionUpdate !== 'state_update') return null;
-  return update.state === 'running' || update.state === 'requires_action' || update.state === 'idle'
-    ? { kind: 'agent_state', state: update.state }
+  const { sessionUpdate: _, ...fields } = update;
+  return update.state === 'running' || update.state === 'requires_action' || update.state === 'idle' || update.state === 'unknown'
+    ? { ...fields, kind: 'agent_state', source: 'agent' } as NormalizedEvent
     : { kind: 'ignored' };
 }
 
@@ -529,6 +530,7 @@ function decodeEntityContentUpdate(update: SessionUpdate): NormalizedEvent | nul
       kind: raw.sessionUpdate === 'agent_thought' ? 'thinking' : 'message',
       ...(raw.sessionUpdate === 'agent_thought' ? {} : { role: raw.sessionUpdate === 'user_message' ? 'user' : 'assistant' }),
       messageId: raw.messageId, text: messageContentText(content ?? []), contentMode: 'replace',
+      ...(typeof raw._meta?.guguRevertAnchor === 'string' ? { revertAnchor: raw._meta.guguRevertAnchor } : {}),
       ...(content !== undefined ? { content } : {}),
       ...(raw._meta !== undefined ? { _meta: raw._meta } : {}),
     } as NormalizedEvent;

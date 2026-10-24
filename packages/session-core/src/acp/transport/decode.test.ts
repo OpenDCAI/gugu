@@ -75,14 +75,14 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
     event: { kind: 'compaction', compactionId: 'compact', status: 'completed', summary: 'kept fact' },
   },
   {
-    name: 'the current idle projection is unchanged, including its information limit',
+    name: 'idle preserves the complete native outcome',
     update: { sessionUpdate: 'state_update', state: 'idle', stopReason: 'error', error: { code: -32603, message: 'failed' } },
-    event: { kind: 'agent_state', state: 'idle' },
+    event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'error', error: { code: -32603, message: 'failed' } },
   },
   {
-    name: 'the current unknown-state projection is not silently upgraded during a move',
+    name: 'unknown state remains an explicit foreground fact',
     update: { sessionUpdate: 'state_update', state: 'unknown' },
-    event: { kind: 'ignored' },
+    event: { kind: 'agent_state', source: 'agent', state: 'unknown' },
   },
 ];
 

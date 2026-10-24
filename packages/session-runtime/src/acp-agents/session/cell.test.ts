@@ -3,7 +3,7 @@ import type { LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
 import { isOk } from '@gugu/session-shared';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { permissionWaitKind } from '@gugu/session-core/acp';
+import { createRequestActivity, permissionWaitKind } from '@gugu/session-core/acp';
 import { FakeAcpAgent } from '../acp-test-support';
 import { SessionCell } from './cell';
 
@@ -37,18 +37,21 @@ const TEST_LIVE_SETTINGS: LiveSettingsCapability = {
 };
 
 function makeCell(agent = new FakeAcpAgent(), extra: Record<string, unknown> = {}) {
+  const boundary = createRequestActivity(new Proxy(agent, { get(target, key) { const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value; } }) as never, ({ event }) => cell.push(event), { interruptAtToolBoundary: extra.midTurnSteer === 'interrupt-at-tool-boundary' });
   const cell = new SessionCell({
     mergeEnvelopes: stubMergeEnvelopes,
     sessionId: 'conv-1',
     projectId: 'proj-1',
     providerId: 'claude',
     acpSessionId: 'session-1',
-    agent,
+    agent: boundary.agent,
     liveSettings: TEST_LIVE_SETTINGS,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
     ...extra,
   });
+  const push = cell.push.bind(cell);
+  cell.push = event => { boundary.observe('session-1', event); push(event); };
   cell.applySessionReady();
   return { cell, agent };
 }
@@ -883,7 +886,7 @@ describe('SessionCell prompts', () => {
 
     agent.prompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' });
     cell.push({ kind: 'tool_update', ...tool, status: 'completed' });
-    expect(agent.cancel).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(agent.cancel).toHaveBeenCalledTimes(1));
 
     await first;
     await flushDrains();
@@ -1052,10 +1055,8 @@ describe('SessionCell prompts', () => {
     );
     await flushDrains();
 
-    await expect(steer).resolves.toMatchObject({
-      success: true,
-      data: { queued: true, requeuedAfterTokenBoundary: true },
-    });
+    await expect(steer).resolves.toMatchObject({ success: true, data: { queued: false } });
+    // Dispatch returns first; the refusal event owns retention in the target queue.
     expect(cell.sessionState.queuedPrompts.map((prompt) => prompt.text)).toEqual([
       '<gugu_delivery from="sender"/>',
     ]);
@@ -1093,7 +1094,7 @@ describe('SessionCell prompts', () => {
 
   // 跨家读数(#4472 comment-5464601764:qwen 3/3 主 RPC cancelled 而工作照常、steer end_turn 收尾;
   // droid 同形):并发 steer 引发的主 RPC cancelled 不是真取消,结算权移交给 steer。
-  it('hands settlement to the steer when the primary reports a concurrency-induced cancelled (qwen/droid shape)', async () => {
+  it('waits for all request activity after a concurrency-induced cancelled result (qwen/droid shape)', async () => {
     const { cell, agent } = makeCell();
     let resolveFirst!: (value: { stopReason: string }) => void;
     let resolveSteer!: (value: { stopReason: string }) => void;
@@ -1107,18 +1108,19 @@ describe('SessionCell prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     resolveFirst({ stopReason: 'cancelled' });
-    await first;
+    await Promise.resolve();
     // 一轮活着的对话不落 cancelled 终态:turn 仍在飞,等 steer 的 RPC 收尾。
     expect(cell.sessionState.lifecycle).toBe('working');
     expect(cell.sessionState.lastStopReason).toBeNull();
 
     resolveSteer({ stopReason: 'end_turn' });
     await steer;
+    await first;
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.sessionState.lastStopReason).toBe('end_turn');
   });
 
-  it('still settles a REAL cancellation immediately even with a steer in flight (own Cancel is the discriminator)', async () => {
+  it('keeps real cancellation pending until every request has stopped', async () => {
     const { cell, agent } = makeCell();
     let resolveFirst!: (value: { stopReason: string }) => void;
     let resolveSteer!: (value: { stopReason: string }) => void;
@@ -1133,14 +1135,14 @@ describe('SessionCell prompts', () => {
 
     await cell.cancel();
     resolveFirst({ stopReason: 'cancelled' });
-    await first;
-    // 我们自己发的 Cancel ⇒ cancelled 是真取消,立即结算,❌ 不被移交守卫吞掉。
-    expect(cell.sessionState.lifecycle).toBe('ready');
-    expect(cell.sessionState.lastStopReason).toBe('cancelled');
+    await Promise.resolve();
+    expect(cell.sessionState.lifecycle).toBe('cancelling');
 
     resolveSteer({ stopReason: 'end_turn' });
     await steer;
+    await first;
     expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.sessionState.lastStopReason).toBe('cancelled');
   });
 
   // #6448 park 照收投递(owner 定):只剩后台子代理在跑时没有回合在飞,新来的一句当场开一轮,
@@ -2270,7 +2272,7 @@ describe('SessionCell config options', () => {
 /** 自报状态的家(claude 桥接 1.3.0 起):在不在干活只听它的 `state_update`。 */
 function reportingCell() {
   const made = makeCell();
-  made.cell.setReportsState(true);
+  made.cell.setAgent(made.agent);
   return made;
 }
 
@@ -2336,7 +2338,7 @@ describe('SessionCell idle turns and queue commands', () => {
 
   it('自报状态的家:agent 自己开工就忙,只有它报 idle 才停 —— 谁开的工都一样(#7087)', () => {
     const { cell } = reportingCell();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     expect(cell.sessionState.lifecycle).toBe('working');
     cell.push({ kind: 'message', role: 'assistant', messageId: 'resp_1', text: '子任务跑完了' });
     expect(cell.history().active?.initiator).toBe('agent');
@@ -2346,15 +2348,17 @@ describe('SessionCell idle turns and queue commands', () => {
       usage: { contextUsed: 1, contextSize: 200_000, cost: { amount: 0.01, currency: 'USD' } },
     });
     expect(cell.sessionState.lifecycle).toBe('working');
-    cell.push({ kind: 'agent_state', state: 'idle' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle' });
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.history().active).toBeNull();
     expect(cell.history().committed.at(-1)?.outcome).toEqual({ kind: 'done', reason: 'cycle_end' });
   });
 
-  it('❌ 阴控:不自报状态的家收到 state_update 不动(它没声明,这条不是它的事实)', () => {
+  it('consumes normalized foreground events without a protocol capability switch', () => {
     const { cell } = makeCell();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+    expect(cell.sessionState.lifecycle).toBe('working');
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
     expect(cell.sessionState.lifecycle).toBe('ready');
   });
 
@@ -2372,7 +2376,7 @@ describe('SessionCell idle turns and queue commands', () => {
     try {
       const { cell } = reportingCell();
 
-      cell.push({ kind: 'agent_state', state: 'running' });
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
       cell.push({ kind: 'message', role: 'assistant', messageId: 'resp_1', text: '此前提供的三段正文可直接使用' });
       expect(cell.history().active?.initiator).toBe('agent');
 
@@ -2392,28 +2396,28 @@ describe('SessionCell idle turns and queue commands', () => {
     }
   });
 
-  it('自报状态的家:请求先答复、idle 随后到 —— 在 idle 落定,用请求带来的结局', async () => {
+  it('a receipt never closes work; native idle supplies its complete outcome', async () => {
     const { cell, agent } = reportingCell();
-    let resolvePrompt!: (value: { stopReason: string }) => void;
-    agent.prompt = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { resolvePrompt = resolve; }));
-    const sent = cell.prompt({ text: 'hi', origin: 'typed' });
-    await Promise.resolve();
-    expect(cell.sessionState.lifecycle, '发出去不等于开工:等它报 running').toBe('ready');
-    cell.push({ kind: 'agent_state', state: 'running' });
-    expect(cell.sessionState.lifecycle).toBe('working');
-    cell.push({ kind: 'message', role: 'assistant', messageId: 'r1', text: '好' });
-    resolvePrompt({ stopReason: 'max_tokens' });
-    await sent;
-    expect(cell.sessionState.lifecycle, '请求答复了,agent 还没报 idle').toBe('working');
+    agent.prompt = vi.fn().mockResolvedValue({ status: 'accepted', requestId: 'r', messageId: 'native' });
+    const sent = cell.promptDetached({ text: 'hi', origin: 'typed' });
+    await sent.admission;
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+    cell.push({ kind: 'message', role: 'assistant', messageId: 'r1', text: 'ok' });
     expect(cell.history().committed).toHaveLength(0);
-    cell.push({ kind: 'agent_state', state: 'idle' });
-    expect(cell.sessionState.lifecycle).toBe('ready');
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'max_tokens' });
+    await sent.completion;
     expect(cell.history().committed.at(-1)?.outcome).toEqual({ kind: 'done', reason: 'max_tokens' });
   });
 
-  it('自报状态的家:这一句根本没开工(本地命令,没报 running)—— 请求答复就落定,不卡在忙', async () => {
-    const { cell } = reportingCell();
-    await cell.prompt({ text: '/context', origin: 'typed' });
+  it('local commands also require an explicit idle boundary, without a fabricated running event', async () => {
+    const { cell, agent } = reportingCell();
+    agent.prompt = vi.fn().mockResolvedValue({ status: 'accepted', requestId: 'r', messageId: 'native' });
+    const sent = cell.promptDetached({ text: '/context', origin: 'typed' });
+    await sent.admission;
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+    await sent.completion;
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.history().active).toBeNull();
     expect(cell.history().committed.at(-1)?.outcome?.kind).toBe('done');
@@ -2730,7 +2734,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
       .filter((item) => item.kind === 'message')
       .map((item) => item as { id: string; text: string });
 
-  function busyCellWithQueue(extra: Record<string, unknown> = {}) {
+  async function busyCellWithQueue(extra: Record<string, unknown> = {}) {
     const agent = new FakeAcpAgent();
     const { cell } = makeCell(agent, extra);
     let resolveFirst!: (value: { stopReason: string }) => void;
@@ -2740,6 +2744,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
       .mockResolvedValue({ stopReason: 'end_turn' });
     agent.cancel = vi.fn(async () => ({}));
     const first = cell.prompt({ text: 'first' });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
     expect(isOk(cell.queuePrompt({ text: 'a', origin: 'manual' }))).toBe(true);
     expect(isOk(cell.queuePrompt({ text: 'b', origin: 'manual' }))).toBe(true);
     const [, b] = queuedIds(cell);
@@ -2747,7 +2752,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   }
 
   it('native steering: the chosen entry leaves the queue into the running turn; nothing is cancelled, the draft stays', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'injected' });
     // 排队那两下各清过一次草稿(版本号随之上涨),所以这里要用更新的版本号;先证明它确实存进去了。
     expect(isOk(cell.setPromptDraft({ rev: 100, input: { text: 'typing the next one' } }))).toBe(true);
@@ -2776,7 +2781,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('native steering refused (#7087): no row is drawn, the entry stays at the front of the queue', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'promptRequired', reason: 'noRunningTurn' });
 
     await expect(cell.steerQueuedPrompt(b)).resolves.toEqual({ success: true, data: undefined });
@@ -2797,7 +2802,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('native steering request fails: the failure goes back to the caller and the row stays drawn (#4660)', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockRejectedValue(new Error('steering transport closed'));
 
     const result = await cell.steerQueuedPrompt(b);
@@ -2810,7 +2815,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('concurrent session/prompt lane: sends the entry as a second prompt right away, without cancelling', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue();
     const steered = cell.steerQueuedPrompt(b);
     await flushDrains();
 
@@ -2825,7 +2830,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('no turn to join (being cancelled): moves the entry to the front so the next drain takes it', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue();
     await cell.cancel();
     expect(cell.sessionState.lifecycle).toBe('cancelling');
 
@@ -2840,7 +2845,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('an id that is no longer queued is a no-op', async () => {
-    const { cell, agent, first, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, resolveFirst } = await busyCellWithQueue();
     await expect(cell.steerQueuedPrompt('gone')).resolves.toEqual({ success: true, data: undefined });
     expect(queuedTexts(cell)).toEqual(['a', 'b']);
     expect(agent.prompt).toHaveBeenCalledTimes(1);

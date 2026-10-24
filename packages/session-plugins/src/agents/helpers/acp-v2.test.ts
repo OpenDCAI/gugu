@@ -1,8 +1,8 @@
 import { PassThrough, Writable } from 'node:stream';
-import type { Client, SessionNotification } from '@agentclientprotocol/sdk';
+import type { SessionNotification } from '@agentclientprotocol/sdk';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
-import { AcpTranscriptParser, decodeSessionUpdate } from '@gugu/session-core/acp';
-import { describe, expect, it } from 'vitest';
+import { decodeSessionUpdate } from '@gugu/session-core/acp';
+import { describe, expect, it, vi } from 'vitest';
 
 import { nodeReadableToWeb } from './acp-stdio';
 import { connectStdioAcpV2 } from './acp-v2';
@@ -54,6 +54,7 @@ function agentPair(opts: {
   const updates: SessionNotification[] = [];
   const permissions: unknown[] = [];
   const api = connectStdioAcpV2({ stdin: toAgent, stdout: toClient }, () => ({
+    sessionEvent: () => {},
     sessionUpdate: async (notification: SessionNotification) => {
       updates.push(notification);
     },
@@ -61,7 +62,7 @@ function agentPair(opts: {
       permissions.push(request);
       return { outcome: { outcome: 'selected', optionId: 'allow' } };
     },
-  }) as unknown as Client);
+  }));
   const send = (u: unknown) =>
     context.notify(v2.methods.client.session.update, { sessionId: 's1', update: u as v2.SessionUpdate });
   const kinds = () => updates.map(({ update }) => update.sessionUpdate as string);
@@ -77,7 +78,6 @@ describe('connectStdioAcpV2', () => {
   it('reads a v2 initialize as the host reads v1: capabilities, auth methods, and the protocol it speaks', async () => {
     const { api } = agentPair();
     const response = await initialize(api);
-    expect(api.protocolVersion).toBe(2);
     expect(response.protocolVersion).toBe(2);
     expect(response.agentCapabilities).toMatchObject({
       loadSession: true,
@@ -132,123 +132,36 @@ describe('connectStdioAcpV2', () => {
     ]);
   });
 
-  it('ends a prompt at the idle after the agent took it in, once the client has that idle', async () => {
-    const taken = Promise.withResolvers<void>();
-    const pair = agentPair({
-      prompt: async () => {
-        // The idle of earlier work (a cycle the agent ran on its own) is not this prompt's.
-        await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'm1', content: [{ type: 'text', text: 'hi' }] });
-        await pair.send({ sessionUpdate: 'state_update', state: 'running' });
-        taken.resolve();
-        return { messageId: 'm1' };
-      },
-    });
+  it('returns the native message receipt before foreground idle and forwards the echo', async () => {
+    const pair = agentPair({ prompt: async () => ({ messageId: 'u', _meta: { receipt: true } }) });
     await initialize(pair.api);
-    let settled = false;
-    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [{ type: 'text', text: 'hi' }] }).finally(() => {
-      settled = true;
-    });
-    await taken.promise;
-    await settle();
-    expect(settled).toBe(false);
-
-    await pair.send({
-      sessionUpdate: 'state_update',
-      state: 'idle',
-      stopReason: 'max_tokens',
-      usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 },
-    });
-    await expect(outcome).resolves.toEqual({
-      stopReason: 'max_tokens',
-      usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 },
-    });
-    // The receipt still belongs to the prompt adapter; the cell inserts the local input.
-    expect(pair.kinds()).toEqual(['state_update', 'state_update', 'state_update']);
+    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] }, { requestId: 'r', message: { kind: 'message', role: 'user', messageId: 'local', text: 'hi' } })).resolves.toEqual({ status: 'accepted', requestId: 'r', messageId: 'u', _meta: { receipt: true } });
+    expect(pair.updates).toEqual([]);
+    await pair.send({ sessionUpdate: 'user_message', messageId: 'u', content: [{ type: 'text', text: 'hi' }] });
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'max_tokens', usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } });
+    await vi.waitFor(() => expect(pair.updates).toHaveLength(2));
+    expect(decodeSessionUpdate(pair.updates[0].update)).toMatchObject({ kind: 'message', role: 'user', messageId: 'u', text: 'hi' });
+    expect(decodeSessionUpdate(pair.updates[1].update)).toMatchObject({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'max_tokens', usage: { totalTokens: 5 } });
   });
 
-  it('forwards whole-message replacements and chunks to the domain decoder without ending the prompt', async () => {
-    const taken = Promise.withResolvers<void>();
-    const pair = agentPair({
-      prompt: async () => {
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'u1', content: [] });
-        taken.resolve();
-        return { messageId: 'u1' };
-      },
-    });
+  it('does not reinterpret idle errors or cancellation as prompt responses', async () => {
+    const receipt = Promise.withResolvers<v2.PromptResponse>();
+    const entered = Promise.withResolvers<void>();
+    const pair = agentPair({ prompt: async () => { entered.resolve(); return receipt.promise; } });
     await initialize(pair.api);
-    const outcome = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    await taken.promise;
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'one' }] });
-    await pair.send({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: ' two' } });
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', _meta: { x: 1 } });
-    await pair.send({ sessionUpdate: 'agent_message', messageId: 'a1', content: [{ type: 'text', text: 'short' }] });
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-    await expect(outcome).resolves.toEqual({ stopReason: 'end_turn' });
-    expect(pair.kinds()).toEqual(['agent_message', 'agent_message_chunk', 'agent_message', 'agent_message', 'state_update']);
-    const parser = new AcpTranscriptParser({ sessionId: 's1' });
-    for (const [index, { update }] of pair.updates.entries()) parser.pushEvent(decodeSessionUpdate(update), index);
-    const items = [...parser.history.flatMap(turn => turn.items), ...(parser.activeTurn?.items ?? [])];
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'message', text: 'short', _meta: { x: 1 } });
+    const response = pair.api.prompt({ sessionId: 's1', prompt: [] });
+    await entered.promise;
+    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'error', error: { code: -32000, message: 'Authentication required' } });
+    await vi.waitFor(() => expect(pair.updates).toHaveLength(1));
+    expect(decodeSessionUpdate(pair.updates[0].update)).toMatchObject({ kind: 'agent_state', error: { code: -32000 } });
+    receipt.resolve({ messageId: 'u' });
+    await expect(response).resolves.toMatchObject({ status: 'accepted', messageId: 'u' });
   });
 
-  it('ends a prompt that the agent took in while an earlier one ran with that work, and waits for a later one', async () => {
-    let n = 0;
-    const pair = agentPair({
-      prompt: async () => {
-        n += 1;
-        if (n <= 2) await pair.send({ sessionUpdate: 'user_message', messageId: `m${n}`, content: [] });
-        return { messageId: `m${n}` };
-      },
-    });
+  it('preserves the rejection of a prompt cancelled before acceptance', async () => {
+    const pair = agentPair({ prompt: async () => { throw new v2.RequestError(-32800, 'Request cancelled'); } });
     await initialize(pair.api);
-    const first = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    const second = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    const third = pair.api.prompt({ sessionId: 's1', prompt: [] });
-    await settle();
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' });
-    await expect(first).resolves.toEqual({ stopReason: 'end_turn' });
-    await expect(second).resolves.toEqual({ stopReason: 'end_turn' });
-    let thirdEnded = false;
-    void third.then(() => (thirdEnded = true));
-    await settle();
-    expect(thirdEnded).toBe(false);
-    await pair.send({ sessionUpdate: 'user_message', messageId: 'm3', content: [] });
-    await pair.send({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'cancelled' });
-    await expect(third).resolves.toEqual({ stopReason: 'cancelled' });
-  });
-
-  it('fails a prompt whose turn ends with an error with the JSON-RPC error of that idle', async () => {
-    const pair = agentPair({
-      prompt: async () => {
-        await pair.send({ sessionUpdate: 'user_message', messageId: 'm1', content: [] });
-        setTimeout(() => {
-          void pair.send({
-            sessionUpdate: 'state_update',
-            state: 'idle',
-            stopReason: 'error',
-            error: { code: -32000, message: 'Authentication required' },
-          });
-        }, 0);
-        return { messageId: 'm1' };
-      },
-    });
-    await initialize(pair.api);
-    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toEqual({
-      code: -32000,
-      message: 'Authentication required',
-    });
-  });
-
-  it('reads a queued prompt that a cancel ended before the agent took it in as a cancelled turn', async () => {
-    const pair = agentPair({
-      prompt: async () => {
-        throw new v2.RequestError(-32800, 'Request cancelled');
-      },
-    });
-    await initialize(pair.api);
-    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).resolves.toEqual({ stopReason: 'cancelled' });
+    await expect(pair.api.prompt({ sessionId: 's1', prompt: [] })).rejects.toMatchObject({ code: -32800 });
   });
 
   it('preserves terminal bytes and references without projecting tool text', async () => {

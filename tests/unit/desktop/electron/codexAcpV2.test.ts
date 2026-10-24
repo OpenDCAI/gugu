@@ -21,7 +21,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   if (m.method === 'permissionProfile/list') return out({ id: m.id, result: { data: [{ id: ':workspace', name: 'Workspace', allowed: true }] } })
   if (m.method === 'turn/start') {
     out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
-    out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id: 'native-user', content: m.params.input } } })
+    out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'userMessage', id: 'native-user', clientId: m.params.clientUserMessageId, content: m.params.input } } })
     out({ method: 'item/started', params: { threadId: 'thread', turnId: 'turn', item: { type: 'fileChange', id: 'edit', status: 'inProgress', changes: [{ path: 'C:\\\\work\\\\before.ts', kind: { type: 'update', move_path: 'C:\\\\work\\\\after.ts' }, diff: ${JSON.stringify(patch)} }] } } })
     out({ method: 'item/started', params: { threadId: 'thread', item: { type: 'commandExecution', id: 'command', command: 'echo done', cwd: '/w' } } })
     out({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread', itemId: 'command', delta: 'live output' } })

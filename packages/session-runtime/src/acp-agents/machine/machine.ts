@@ -30,6 +30,8 @@ export type SessionPhase =
   | { kind: 'closed'; exitCode: number | null };
 
 export interface SessionMachineContext {
+  /** A dispatched input is awaiting its first foreground event; it reserves admission only. */
+  dispatchPending?: boolean;
   modeIds?: readonly string[];
   configOptionIds?: readonly string[];
 }
@@ -157,7 +159,7 @@ export function decide(
   switch (cmd.type) {
     case 'Prompt':
       // 「忙」只看 agent 在不在干活;只剩后台是 park,新来的一句直接发,不排到后台跑完。
-      if (isBusy(s)) {
+      if (isBusy(s) || (s.phase.kind === 'ready' && ctx.dispatchPending)) {
         // spec session-injection(next-tool-call 档的 mid-turn 支):忙时把同一条标准 session/prompt
         // **立即**发进当前 turn,❌ 不落 PromptQueued(那正是曾把 opencode 挡成 idle-only 的那道闸)。
         // 单线程 decide 里判定 = 原子;只有会话上那家 harness 声明了 next-tool-call 的调用方才会带这个旗。

@@ -90,10 +90,20 @@ export class AcpTranscriptParser {
     return findEntityOwner(this.state.transcript, event) !== undefined;
   }
 
+  /** Drop a local submitted row only after a receipt identifies its native echo. */
+  removeSubmittedMessage(messageId: string): void {
+    const update = (turn: TranscriptTurn): TranscriptTurn => {
+      const items = turn.items.filter(item => item.kind !== 'message'
+        || !(item.id === messageId || item.id.endsWith(`:${messageId}`)));
+      return items.length === turn.items.length ? turn : { ...turn, items };
+    };
+    this.state = { ...this.state, transcript: { committed: this.state.transcript.committed.map(update),
+      active: this.state.transcript.active ? update(this.state.transcript.active) : null } };
+  }
+
   /**
    * Explicitly close the active transcript turn.
-   * Call this when prompt() resolves (stopReason is discarded — it belongs to
-   * the session state machine, not the transcript).
+   * The foreground owner supplies the boundary; a prompt receipt does not.
    * No-op when there is no active turn.
    */
   endTurn(at = Date.now()): void {
@@ -105,8 +115,8 @@ export class AcpTranscriptParser {
     this.state = reduce(this.state, { kind: 'tail', event, at }, this.deps);
   }
 
-  settleTurn(outcome: TranscriptTurnOutcome, at = Date.now()): void {
-    this.state = reduce(this.state, { kind: 'turn_end', outcome, at }, this.deps);
+  settleTurn(outcome: TranscriptTurnOutcome, at = Date.now(), foreground?: TranscriptTurn['foreground']): void {
+    this.state = reduce(this.state, { kind: 'turn_end', outcome, at, ...(foreground ? { foreground } : {}) }, this.deps);
   }
 
   /**
@@ -167,6 +177,15 @@ export class AcpTranscriptParser {
       committed: this.state.transcript.committed.map(update),
       active: this.state.transcript.active ? update(this.state.transcript.active) : null,
     } };
+  }
+
+  /** A cycle's native history boundary belongs to its inserted user messages. */
+  setActiveRevertAnchor(anchor: string): void {
+    const active = this.state.transcript.active;
+    if (!active) return;
+    const items = active.items.map(item => item.kind === 'message' && item.role === 'user'
+      ? { ...item, revertAnchor: anchor } : item);
+    this.state = { ...this.state, transcript: { ...this.state.transcript, active: { ...active, items } } };
   }
 
   /** Retain only the prefix before a provider-confirmed user message. */

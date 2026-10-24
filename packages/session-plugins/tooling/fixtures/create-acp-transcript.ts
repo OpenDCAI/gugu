@@ -24,6 +24,7 @@ import { createRequire } from 'node:module';
 import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AcpBridgeSource } from '@gugu/session-core/agents/plugins';
+import { type NormalizedEvent } from '@gugu/session-core/acp';
 import { createAcpAgentConnection } from '@gugu/session-runtime/acp-agents';
 import { createScope } from '@gugu/session-wire/util';
 import { pluginRegistry } from '../../src/agents/registry';
@@ -125,6 +126,12 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
 
   let providerSessionId: string | null = null;
   const { client, dispose: disposeClient } = buildRecordingClient(recorder, host, () => providerSessionId);
+  let waiting: { running: boolean; done: ReturnType<typeof Promise.withResolvers<Extract<NormalizedEvent, { kind: 'agent_state' }>>> } | null = null;
+  const observe = (event: NormalizedEvent) => {
+    if (!waiting || event.kind !== 'agent_state') return;
+    if (event.state === 'running') waiting.running = true;
+    if (event.state === 'idle' && waiting.running) waiting.done.resolve(event);
+  };
   const scope = createScope({ label: `acp-fixture:${opts.providerId}` });
   const spawnContext = await host.resolveSpawnContext(opts.providerId);
   const spawn = behavior.buildSpawn({
@@ -145,7 +152,13 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
         cwd,
       },
       scope,
-      buildClient: () => client,
+      buildClient: (_agent, normalize) => ({ ...client,
+        sessionEvent: ({ event }) => observe(event),
+        sessionUpdate: notification => {
+          observe(normalize(notification.update));
+          return client.sessionUpdate(notification);
+        },
+      }),
       onClosed: (exitCode) => {
         console.log(`[fixture] Agent process closed (code ${exitCode ?? 'null'}).`);
       },
@@ -195,8 +208,12 @@ export async function runAcpTranscript(opts: TranscriptOptions): Promise<void> {
         recorder.record({ kind: 'prompt', sessionId: providerSessionId, content });
 
         console.log(`[fixture] → prompt: "${step.text.slice(0, 60)}…"`);
-        const promptResp = await agent.prompt({ sessionId: providerSessionId, prompt: content });
-        const stopReason = promptResp.stopReason ?? null;
+        const cycle = { running: false, done: Promise.withResolvers<Extract<NormalizedEvent, { kind: 'agent_state' }>>() };
+        waiting = cycle;
+        await agent.prompt({ sessionId: providerSessionId, prompt: content });
+        const ended = await cycle.done.promise;
+        waiting = null;
+        const stopReason = ended.state === 'idle' ? ended.stopReason ?? null : null;
         console.log(`[fixture] ← stopReason: ${stopReason}`);
         recorder.record({ kind: 'prompt_result', sessionId: providerSessionId, stopReason });
       } else if (step.kind === 'setModel') {

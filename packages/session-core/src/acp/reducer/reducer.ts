@@ -81,7 +81,7 @@ export type ReducerInput =
   | { kind: 'event'; event: NormalizedEvent; at: number }
   | { kind: 'replay_start'; at: number }
   | { kind: 'replay_end'; at: number; outcome?: TranscriptTurnOutcome }
-  | { kind: 'turn_end'; at: number; outcome?: TranscriptTurnOutcome }
+  | { kind: 'turn_end'; at: number; outcome?: TranscriptTurnOutcome; foreground?: TranscriptTurn['foreground'] }
   /**
    * 回合已经落定之后才到的 agent 内容 —— 归**刚落定的那一轮**,作为它的尾巴。
    *
@@ -914,12 +914,16 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   }
 
   if (input.kind === 'turn_end') {
-    const transcript = closeActive(
+    let transcript = closeActive(
       s.transcript,
       input.at,
       input.outcome,
       s.replaying ? undefined : input.at
     );
+    if (input.foreground && transcript !== s.transcript) {
+      transcript = { ...transcript, committed: transcript.committed.map((turn, index) =>
+        index === transcript.committed.length - 1 ? { ...turn, foreground: input.foreground } : turn) };
+    }
     // 段计数**留给这一轮的尾巴**(`tail`):收口只封住当前开着的段,下一条尾巴拿新号。
     // 新一轮开起来时(用户消息 / 懒开)才从零数。
     const segment = closeSynthesizedSegment(s.transcript, s.segment, input.at).segment;
@@ -1038,6 +1042,8 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
     case 'title':
       return { ...s, title: event.title };
     case 'agent_state':
+    case 'prompt_result':
+    case 'interrupted_for_message':
     case 'terminal_update':
     case 'terminal_chunk':
     case 'ignored':
