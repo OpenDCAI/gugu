@@ -1,6 +1,7 @@
 import { chatDb } from '@/lib/supabase'
 import { rendererLogger } from '@/lib/log'
-import { featuredOf, marketHome, popularOf, type CloudMarketEntry, type MarketListItem } from '@/session/shared/extensions/market'
+import type { CloudMarketEntry, MarketListItem } from '@/session/shared/extensions/market'
+import { marketHome } from '@/session/shared/extensions/market-home'
 import { searchApps } from '@/session/shared/extensions/app-search'
 import { marketCategoryOf, marketCategoryRank } from '@/session/shared/extensions/catalog'
 import type { ProductPageApi } from '@/session/renderer/features/extensions/panel/app-product-page'
@@ -10,17 +11,22 @@ const log = rendererLogger('app-slot/phone-market-page')
 
 /** Only transport differs: the same catalog and home/search rules as the desktop. */
 export async function readPhoneMarketPage() {
-  const [entries, ranking] = await Promise.all([phoneApps.market.entries(), chatDb.rpc('market_install_ranking')])
-  if (ranking.error) log.warn({ error: ranking.error.message }, 'App market install ranking unreadable')
-  const scores = new Map(((ranking.data ?? []) as { app_id: string; score: number }[]).map((row) => [row.app_id, row.score]))
-  const home = marketHome(entries)
+  const ranking = Promise.resolve(chatDb.rpc('market_install_ranking')).then(({ data, error }) => {
+    if (error) throw error
+    return new Map(((data ?? []) as { app_id: string; score: number }[]).map((row) => [row.app_id, row.score]))
+  }).catch((error: unknown) => {
+    log.warn({ error: String(error) }, 'App market install ranking unreadable')
+    return null
+  })
+  const [entries, scores] = await Promise.all([phoneApps.market.entries(), ranking])
+  const home = marketHome(entries, scores)
   return {
     entries,
-    featured: featuredOf(entries, scores).map(marketItem),
+    featured: home.featured.map(marketItem),
     home: {
+      remaining: home.remaining.map(marketItem),
       newest: home.newest.map(marketItem),
-      popular: popularOf(entries, scores).map(marketItem),
-      shelves: home.shelves.map(({ category, entries }) => ({ category, items: entries.map(marketItem) })),
+      popular: home.popular === null ? null : home.popular.map(marketItem),
     },
   }
 }
