@@ -488,16 +488,16 @@ Claim an existing data file's name or suffix and open it live; never copy it int
 
 ## Which files you may open
 
-Topic file addresses resolve to their source chat (entries name it); messages keep their topic address.
+Topic file addresses resolve to their source chat; messages keep the topic's.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
 \`{ project: id }\` — a project's folder, as a working copy (\`gugu.projects.list()\` → \`{ projects: [{ id, name }] }\`).
 
 - The file you were opened for (\`ctx.file\`) — the person clicked it and the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; the most specific wins), or they chose it under "open with".
+  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
   No capability; a session's claims go under \`"session"\`.
-- \`"chatFile": "x.board.json"\` on that tab (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
+- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
 - A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
   does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
   in a folder the search index skips hears the disk only when written.
@@ -506,14 +506,14 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
   \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON content: an object at the top.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, newest first, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries are listed, never opened);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
   \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
-- \`gugu.files.openWith(entry)\` (a click or key) uses its most specific App claim or "always use". \`{ ask: true }\`: they pick among all;
+- \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
   \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
 - \`gugu.files.upload(place)\` (\`files:write\`) opens the file picker (a click or key) → the new entries (\`[]\`);

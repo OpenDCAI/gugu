@@ -570,7 +570,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
       {appError ? <AppErrorMark error={appError} onToggle={() => setErrorShown((open) => !open)} testId="group-app-slot-error" /> : null}
     </>
   )
-  const slimRow = Boolean(backButton) || inline.length + folded.length > 0 || hasBadge || Boolean(appError) || fullButton !== null
+  const slimRow = Boolean(backButton) || fromMessage || inline.length + folded.length > 0 || hasBadge || Boolean(appError) || fullButton !== null
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
       {opened?.file ? null : props.tabbed ? (slimRow ? (
