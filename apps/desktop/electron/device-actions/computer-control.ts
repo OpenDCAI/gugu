@@ -105,7 +105,7 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       inFlight.set(subject, set)
       // 没指定 App 的动作不盖掉已经亮着的条:正在操作的 App 留着让人认得出、能停;暂停的留着让人点得到「让它继续」。
       if (call.pid !== undefined || !shown) {
-        const windowId = call.windowId ?? (shown?.subject === subject ? shown.windowId : undefined)
+        const windowId = call.windowId
         show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       }
       else if (shown.state === 'driving') clearHide()

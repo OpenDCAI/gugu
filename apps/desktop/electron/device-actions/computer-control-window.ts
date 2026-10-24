@@ -29,7 +29,6 @@ const WIDTH = 460
 const HEIGHT = COMPUTER_HEAD_HEIGHT
 const BOTTOM = 28
 
-
 export function createComputerControlWindow(input: {
   readWindows(pid: number, signal: AbortSignal): Promise<CuaToolResult>
   strings(): ComputerBarStrings

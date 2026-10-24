@@ -35,6 +35,15 @@ function begun(handle: ReturnType<ReturnType<typeof createComputerControl>['begi
 }
 
 describe('小条', () => {
+  it('does not infer the window of a later app-only call from the previously shown target', () => {
+    const show = vi.fn()
+    const control = createComputerControl({ view: { show, hide: vi.fn() } })
+    begun(control.begin({ ...calc, windowId: 501, taskTitle: 'Task A' })).end()
+    begun(control.begin({ ...calc, callerName: 'Agent B', taskTitle: 'Task B' })).end()
+    expect(show).toHaveBeenLastCalledWith({ state: 'driving', callerName: 'Agent B', taskTitle: 'Task B', app: { pid: 77, name: '计算器' } })
+    control.dispose()
+  })
+
   it('keeps Agent/task identity with its shown window and does not reuse an absent task title', () => {
     const show = vi.fn()
     const control = createComputerControl({ view: { show, hide: vi.fn() } })
