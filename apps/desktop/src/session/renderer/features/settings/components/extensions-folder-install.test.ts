@@ -32,8 +32,10 @@ const h = vi.hoisted(() => {
     installFromFolder: vi.fn(),
     uninstall: vi.fn(async () => ({ success: true })),
   };
-  return { manifest, api, showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
+  return { manifest, api, ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
 });
+
+vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { extensions: {}, app: {} },
@@ -247,7 +249,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
   const source = { repo: 'shuxueshuxue/promo-skills', path: '.', commit: '6f46446' + 'a'.repeat(33) };
   const cloudOf = (version: string, releaseNotes: string) => ({
     version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes,
-    publishedAt: '2026-10-07T00:00:00Z', iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
+    publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
   });
   const entryOf = (version: string, releaseNotes: string) => ({
     manifest: h.manifest(version, version === '2.0.0' ? ['api.example.com'] : []),
@@ -265,7 +267,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: [entryOf('1.0.0', 'the old notes')], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: [entryOf('1.0.0', 'the old notes')], invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     h.api.marketEntry.mockResolvedValue({ success: true, data: entryOf('3.0.0', 'what 3.0.0 changed') } as never);
     h.api.marketUpdates.mockResolvedValue({
@@ -330,7 +332,7 @@ describe('市场页 (#7059)', () => {
     ref: { extensionId: id, version: '1.0.0' },
     cloud: {
       version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes: '',
-      publishedAt: '2026-10-07T00:00:00Z', iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
+      publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
     },
   });
   const listing = [app('arxiv', ['research'], ['export.arxiv.org']), app('pomo', ['productivity']), app('trace', ['developer'])];
@@ -344,9 +346,10 @@ describe('市场页 (#7059)', () => {
     vi.stubGlobal('Event', dom.window.Event);
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    h.ranking.mockResolvedValue({ data: [], error: null });
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: listing, featured: [listing[1]], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: listing, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: null } }));
     (h.api as Record<string, unknown>).marketHistory = vi.fn(async () => ({ success: true, data: [] }));
@@ -379,11 +382,12 @@ describe('市场页 (#7059)', () => {
       { client: queryClient },
       React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))
     );
-  const render = async () => {
+  const render = async (browseAll = true) => {
     await act(async () => {
       root.render(page());
     });
     await settle();
+    if (browseAll) await press('[data-testid="extensions-tab-all"]');
   };
   const press = async (selector: string) => {
     const node = dom.window.document.querySelector(selector) as HTMLElement | null;
@@ -392,8 +396,8 @@ describe('市场页 (#7059)', () => {
     await settle();
   };
 
-  it('进来先是市场:精选在顶上,类别那排照清单的次序(全部 → 研究 → 效率 → 开发),选一类只剩那一类', async () => {
-    await render();
+  it('opens on recommendations with no repeated featured App, and categories browse the complete catalog', async () => {
+    await render(false);
     const document = dom.window.document;
     expect(document.querySelector('[data-testid="app-featured-pomo"]')).not.toBeNull();
     const chips = [...document.querySelectorAll('[data-testid^="extensions-market-chip-"]')].map((node) =>
@@ -401,9 +405,7 @@ describe('市场页 (#7059)', () => {
     );
     expect(chips).toEqual(['all', 'research', 'productivity', 'developer']);
     const tiles = () => [...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid'));
-    expect(tiles()).toEqual(['extension-card-arxiv', 'extension-card-pomo', 'extension-card-trace']);
-    // 主进程没给「热门」(近期安装分数不够数,或另一台旧版咕咕根本不带这个字段):这一排不画。
-    expect(document.querySelector('[data-testid="extensions-market-popular"]')).toBeNull();
+    expect(tiles()).toEqual(['extension-card-arxiv', 'extension-card-trace']);
     await press('[data-testid="extensions-market-chip-developer"]');
     expect(tiles()).toEqual(['extension-card-trace']);
     // 选了一类,精选那张不再画(它不一定是这一类的)。
@@ -415,7 +417,7 @@ describe('市场页 (#7059)', () => {
   it('精选卡的截图:离开再进来,第一帧就是截图,不先画图标版', async () => {
     const readme = vi.fn(async () => ({ success: true, data: { readme: '# Pomo\n\n![番茄钟](https://dl.example/pomo/shot.png)\n' } }));
     (h.api as Record<string, unknown>).marketReadme = readme;
-    await render();
+    await render(false);
     const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
     expect(art()?.className).toBe('mk-hero-art is-shot');
     await act(async () => root.render(null));
@@ -428,30 +430,58 @@ describe('市场页 (#7059)', () => {
     expect(readme).toHaveBeenCalledTimes(1);
   });
 
-  it('精选下面:「最新」一排、「热门」一排(主进程给了才画),够数的类别各一排(最多 6 个,多了「查看全部」= 选上那一类);选了一类就都不画', async () => {
+  it('browses complete New and Popular pages without subtracting featured Apps or capping at six', async () => {
     const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => app(`p${id}`, ['productivity']));
-    h.api.market.mockResolvedValue({
-      success: true,
-      data: {
-        extensions: [...listing, ...many], featured: [listing[1]], home: { newest: [listing[2], listing[0]], popular: [listing[1], listing[2], listing[0]], shelves: [{ category: 'productivity', items: many }] },
-        invalid: [], errorKind: null, error: null, total: 10, page: 0, hasMore: false, fetchedAt: null,
-      },
-    } as never);
-    await render();
+    many[0]!.cloud.firstPublishedAt = '2026-10-25T00:00:00Z';
+    const entries = [...listing, ...many];
+    h.api.market.mockResolvedValue({ success: true, data: {
+      extensions: entries, invalid: [], errorKind: null, error: null, total: 10, page: 0, hasMore: false, fetchedAt: null,
+    } } as never);
+    h.ranking.mockResolvedValue({ data: [
+      { app_id: 'trace', score: 5 }, { app_id: 'pomo', score: 3 }, { app_id: 'pa', score: 2 }, { app_id: 'arxiv', score: 1 },
+    ], error: null } as never);
+    await render(false);
     const document = dom.window.document;
-    const rowsIn = (section: string) =>
-      [...document.querySelectorAll(`[data-testid="${section}"] [data-testid^="extension-card-"]`)].map((node) => node.getAttribute('data-testid'));
-    // 次序是主进程给的(searchApps 排好的),界面照画。
-    expect(rowsIn('extensions-market-newest')).toEqual(['extension-card-trace', 'extension-card-arxiv']);
-    expect(rowsIn('extensions-market-popular')).toEqual(['extension-card-pomo', 'extension-card-trace', 'extension-card-arxiv']);
-    // 「热门」排在「最新」和类别那几排中间。
-    const sections = [...document.querySelectorAll('[data-testid^="extensions-market-"][data-testid$="newest"], [data-testid="extensions-market-popular"], [data-testid^="extensions-market-shelf-"]')].map((node) => node.getAttribute('data-testid'));
-    expect(sections).toEqual(['extensions-market-newest', 'extensions-market-popular', 'extensions-market-shelf-productivity']);
-    expect(rowsIn('extensions-market-shelf-productivity')).toEqual(many.slice(0, 6).map((item) => `extension-card-${item.manifest.id}`));
-    await press('[data-testid="extensions-market-see-all-productivity"]');
-    expect(document.querySelector('[data-testid="extensions-market-newest"]')).toBeNull();
-    expect(document.querySelector('[data-testid="extensions-market-shelf-productivity"]')).toBeNull();
-    expect(rowsIn('extensions-market-section-productivity')).toEqual(['extension-card-pomo', ...many.map((item) => `extension-card-${item.manifest.id}`)]);
+    const rows = () => [...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid')!.replace('extension-card-', ''));
+    const hero = [...document.querySelectorAll('[role="listitem"][data-testid^="app-featured-"]')].map((node) => node.getAttribute('data-testid')!.replace('app-featured-', ''));
+    expect(hero).toEqual(['trace', 'pomo', 'pa']);
+    expect([...hero, ...rows()].sort()).toEqual(entries.map((item) => item.manifest.id).sort());
+    await press('[data-testid="extensions-tab-newest"]');
+    expect(document.querySelector('[data-testid="app-featured-pomo"]')).toBeNull();
+    expect(rows()).toEqual(['pa', 'arxiv', 'pb', 'pc', 'pd', 'pe', 'pf', 'pg', 'pomo', 'trace']);
+    await press('[data-testid="extensions-tab-popular"]');
+    expect(rows()).toEqual(['trace', 'pomo', 'pa', 'arxiv']);
+    await press('[data-testid="extensions-tab-all"]');
+    expect(rows()).toEqual(entries.map((item) => item.manifest.id));
+    await press('[data-testid="extensions-market-chip-productivity"]');
+    expect(rows()).toEqual(['pomo', ...many.map((item) => item.manifest.id)]);
+  });
+
+  it('shows a retry on ranking failure and a distinct empty state after a successful empty retry', async () => {
+    h.ranking.mockResolvedValue({ data: null, error: { message: 'ranking denied' } } as never);
+    await render(false);
+    await press('[data-testid="extensions-tab-popular"]');
+    const document = dom.window.document;
+    const failed = () => document.querySelector('[data-testid="extensions-market-ranking-error"]');
+    expect(failed()?.textContent).toContain(translateSessionMessage('extensions.rankingUnavailable'));
+    expect(document.querySelector('[data-testid^="extension-card-"]')).toBeNull();
+    h.ranking.mockResolvedValue({ data: [], error: null });
+    await press('[data-testid="extensions-market-ranking-error"] button');
+    expect(failed()).toBeNull();
+    expect(document.querySelector('.mk-empty')?.textContent).toBe(translateSessionMessage('extensions.noPopular'));
+  });
+
+  it('reads every catalog page before selecting recommendations and complete New results', async () => {
+    const entries = Array.from({ length: 14 }, (_, i) => app(`app-${i}`, ['productivity']));
+    h.api.market.mockImplementation((async ({ page }: { page: number }) => ({ success: true, data: {
+      extensions: entries.slice(page * 12, (page + 1) * 12), invalid: [], errorKind: null, error: null,
+      total: 14, page, hasMore: page === 0, fetchedAt: null,
+    } })) as never);
+    await render(false);
+    expect(h.api.market).toHaveBeenCalledWith({ page: 1, query: '' });
+    expect(dom.window.document.querySelectorAll('[data-testid^="extension-card-"]')).toHaveLength(14);
+    await press('[data-testid="extensions-tab-newest"]');
+    expect(dom.window.document.querySelectorAll('[data-testid^="extension-card-"]')).toHaveLength(14);
   });
 
   it('第一次装、什么权限都不要的:产品页头上点「安装」就装,不弹框', async () => {
@@ -485,7 +515,7 @@ describe('市场页 (#7059)', () => {
     ];
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: entries, featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: entries, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     await render();
     const document = dom.window.document;
@@ -511,7 +541,7 @@ describe('市场页 (#7059)', () => {
       const newer = { ...here, manifest: { ...here.manifest, version: '1.1.0' }, ref: { extensionId: 'pomo', version: '1.1.0' }, cloud: { ...here.cloud, version: '1.1.0' } };
       h.api.market.mockResolvedValue({
         success: true,
-        data: { extensions: [newer], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+        data: { extensions: [newer], invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
       } as never);
       h.api.list.mockResolvedValueOnce({ success: true, data: { extensions: [here.manifest], invalid: [], icons: {}, disabled: [], origins } } as never);
       await render();
@@ -527,7 +557,7 @@ describe('市场页 (#7059)', () => {
     const twin = app('focus', ['productivity']);
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: [...listing, twin], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 4, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: [...listing, twin], invalid: [], errorKind: null, error: null, total: 4, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     await render();
     const document = dom.window.document;

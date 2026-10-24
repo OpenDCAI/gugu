@@ -21,6 +21,7 @@ const h = vi.hoisted(() => {
       minAppVersion: '0.1.0',
       releaseNotes: '',
       publishedAt: '2026-10-01T00:00:00Z',
+      firstPublishedAt: '2026-10-01T00:00:00Z',
       iconUrl: null,
       deprecated: null,
       compat: null,
@@ -32,7 +33,7 @@ const h = vi.hoisted(() => {
   });
   const listing = (ids: string[], fetchedAt: string) => ({
     success: true,
-    data: { extensions: ids.map((id) => item(id)), featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
+    data: { extensions: ids.map((id) => item(id)), invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
   });
   const answer = (data: unknown) => async () => ({ success: true, data });
   const api = {
@@ -49,6 +50,8 @@ const h = vi.hoisted(() => {
   const host = { key: 'local', local: true };
   return { item, listing, api, heard, host };
 });
+
+vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: async () => ({ data: [], error: null }) } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { extensions: {}, app: {} },
@@ -204,7 +207,7 @@ describe('the App page market: the index in hand at once, the download site behi
     await act(async () => reread.resolve(h.listing(['one', 'two', 'three'], T2)));
     await until('the new read drawn', tileIds, (ids) => ids.join() !== 'one,two');
     await turn();
-    expect(tileIds()).toEqual(['one', 'two', 'three']);
+    expect(tileIds()).toEqual(['one', 'three', 'two']);
     expect(tiles()[0]).toBe(before);
     expect(skeletonsAfterTiles).toBe(0);
     expect(h.api.market).toHaveBeenCalledTimes(2);
@@ -228,7 +231,7 @@ describe('the App page market: the index in hand at once, the download site behi
     await until('the push of a later moment read', () => h.api.market.mock.calls.length, (n) => n >= 3);
     await turn();
     expect(h.api.market).toHaveBeenCalledTimes(3);
-    expect(tileIds()).toEqual(['one', 'four']);
+    expect(tileIds()).toEqual(['four', 'one']);
   });
 
   it('the download site not reached → the index in hand stays, one quiet line 「上次更新于 …」; ❌ an alert, ❌ a toast', async () => {

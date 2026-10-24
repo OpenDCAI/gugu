@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { searchApps, type AppSearchRecord } from './app-search';
-import { MARKET_CATEGORIES } from './catalog';
 import type { AppPlatform } from './app-platforms';
 import {
   compareExtensionVersions,
@@ -64,6 +62,8 @@ export interface CloudMarketEntry {
   /** 这版改了什么(发布时从 CHANGELOG.md 抽的那一节,markdown)。 */
   releaseNotes: string;
   publishedAt: string;
+  /** The first published version, independent of subsequent updates. */
+  firstPublishedAt: string;
   /**
    * 图标的公开地址(下载站 `market/media/` 下,按内容哈希命名);没有图标就 null,卡片画首字母。
    * 清单里只带地址不带字节:图标由 `<img loading="lazy">` 滚到才取、浏览器自己缓存 ——
@@ -81,7 +81,7 @@ export interface CloudMarketEntry {
   newerNeedsApp: string | null;
   /** 这一版的代码在哪(索引仓里那一行的仓、提交、目录)。 */
   source: MarketCodeSource;
-  /** 官方精选(#7059):近期安装数据不够时,首页精选那一排用它补齐(`featuredOf`)。官方定的事,写在索引仓那条记录上,❌ 由 App 自己说。 */
+  /** 官方精选:近期安装数据不够时,界面侧的共享首页编排用它补齐。官方定的事,写在索引仓那条记录上,❌ 由 App 自己说。 */
   featured: boolean;
   /**
    * 首启默认组(161 10-15):新 profile 第一次启动时一页同意、一起装上的那几个。同 `featured`,官方定的事写在索引仓那条
@@ -92,69 +92,6 @@ export interface CloudMarketEntry {
 
 /** 首页精选那一排几张(owner 10-19「按建议」)。看多近、多久减半写在库函数 `chat.market_install_ranking` 里(14 天、7 天)。 */
 export const FEATURED_COUNT = 3;
-
-/**
- * 首页精选那一排(owner 10-19):近期安装分数从高到低取前 `FEATURED_COUNT` 个,不够的用索引上标了 `featured` 的、按索引次序补齐。
- * 候选只是这台机器装得了、没停维、不在首启默认组里的:首启组新用户已经都装了,放进精选没有意义。
- * `scores` 是 `chat.market_install_ranking()` 的结果(近 14 天去重账号、7 天减半,不到 3 个账号的不出现);读不到时是空的,只剩 `featured`。
- */
-export function featuredOf<T extends Pick<CloudMarketEntry, 'manifest' | 'featured' | 'firstRun' | 'deprecated' | 'compat'>>(
-  entries: readonly T[],
-  scores: ReadonlyMap<string, number>
-): T[] {
-  const candidates = entries.filter((entry) => !entry.deprecated && !entry.compat && !entry.firstRun);
-  const scoreOf = (entry: T) => scores.get(entry.manifest.id) ?? 0;
-  const picked = candidates
-    .filter((entry) => scoreOf(entry) > 0)
-    .sort((a, b) => scoreOf(b) - scoreOf(a) || a.manifest.id.localeCompare(b.manifest.id))
-    .slice(0, FEATURED_COUNT);
-  for (const entry of candidates) {
-    if (picked.length >= FEATURED_COUNT) break;
-    if (entry.featured && !picked.includes(entry)) picked.push(entry);
-  }
-  return picked;
-}
-
-/** 首页「最新」那一排取几个;一个类别够几个 App 才单独成一排(owner 10-19 照设计稿)。 */
-export const NEWEST_COUNT = 6;
-export const SHELF_MIN = 3;
-
-/**
- * 首页精选下面那几排(owner 10-19「参考 app store 首页」):「最新」= 第一版发布得最近的几个;每个够 `SHELF_MIN` 个 App 的
- * 类别各一排(类别表里的那几类,「其他」不成排)。只放这台机器装得了、没停维的。排序、按类别筛都是 `searchApps`(和 agent 的
- * app_search 同一份),❌ 这里另写。
- */
-export function marketHome<T extends CloudMarketEntry & { firstPublishedAt: string }>(
-  entries: readonly T[]
-): { newest: T[]; shelves: { category: (typeof MARKET_CATEGORIES)[number]; entries: T[] }[] } {
-  const records = entries
-    .filter((entry) => !entry.deprecated && !entry.compat)
-    .map((entry) => ({ manifest: entry.manifest, state: 'market' as const, version: entry.version, publishedAt: entry.publishedAt, firstPublishedAt: entry.firstPublishedAt, entry }));
-  const entriesOf = (items: readonly AppSearchRecord[]) => items.map((item) => (item as (typeof records)[number]).entry);
-  const counts = searchApps(records).facets.category;
-  return {
-    newest: entriesOf(searchApps(records, { sort: 'newest' }).items.slice(0, NEWEST_COUNT)),
-    shelves: MARKET_CATEGORIES.filter((category) => (counts[category] ?? 0) >= SHELF_MIN).map((category) => ({
-      category,
-      entries: entriesOf(searchApps(records, { category: [category], sort: 'name' }).items),
-    })),
-  };
-}
-
-/**
- * 首页「热门」那一排:近期安装分数(`featuredOf` 读的同一份 `chat.market_install_ranking`)大于 0 的,从高到低;
- * 不到 `SHELF_MIN` 个就不成排(给空的,界面不画)。只放这台机器装得了、没停维的;分数读不到时是空的。
- */
-export function popularOf<T extends Pick<CloudMarketEntry, 'manifest' | 'deprecated' | 'compat'>>(
-  entries: readonly T[],
-  scores: ReadonlyMap<string, number>
-): T[] {
-  const scoreOf = (entry: T) => scores.get(entry.manifest.id) ?? 0;
-  const ranked = entries
-    .filter((entry) => !entry.deprecated && !entry.compat && scoreOf(entry) > 0)
-    .sort((a, b) => scoreOf(b) - scoreOf(a) || a.manifest.id.localeCompare(b.manifest.id));
-  return ranked.length >= SHELF_MIN ? ranked : [];
-}
 
 /** 下载站上 `market/` 根里的一个文件:相对路径,❌ `..`、❌ 绝对地址 —— 只能落在 market 根下面。 */
 const marketPath = z.string().regex(/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/);

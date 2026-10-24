@@ -8,7 +8,7 @@ import { sessionSkinClassName } from '../sessionpage/sessionSkin'
 import { queryClient } from '@/session/renderer/lib/query-client'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { useSessionMessages } from '@/session/renderer/localization/use-session-messages'
-import { AppMarketContent } from '@/session/renderer/features/extensions/panel/app-market-content'
+import { AppMarketContent, type MarketBrowsePage } from '@/session/renderer/features/extensions/panel/app-market-content'
 import { AppProductPage } from '@/session/renderer/features/extensions/panel/app-product-page'
 import { appLifecycle } from '@/session/renderer/features/extensions/panel/app-lifecycle'
 import type { AppLifecycle } from '@/session/renderer/features/extensions/panel/app-lifecycle-button'
@@ -48,7 +48,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
   const skin = sessionSkinClassName(theme)
   const client = useQueryClient()
   const catalog = useQuery({ queryKey: MARKET_KEY, queryFn: readPhoneMarketPage })
-  const [tab, setTab] = useState<'market' | 'installed'>('market')
+  const [tab, setTab] = useState<MarketBrowsePage | 'installed'>('market')
   const [query, setQuery] = useState('')
   const [chip, setChip] = useState<'all' | MarketCategory>('all')
   const [pages, setPages] = useState(1)
@@ -76,13 +76,13 @@ const MobileAppsContent = observer(function MobileAppsContent() {
 
   useEffect(() => {
     const node = sentinel.current
-    if (!node || !hasMore || tab !== 'market') return
+    if (!node || !hasMore || tab === 'installed') return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) setPages((count) => count + 1)
     })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [hasMore, pages, rows.length, tab])
+  }, [hasMore, pages, rows.length, tab, query, chip])
 
   const lifecycleOf = (id: string, item: MarketListItem): AppLifecycle => {
     // The existing phone host decides whether it has a page; desktop-only host pages cannot be installed here.
@@ -129,10 +129,13 @@ const MobileAppsContent = observer(function MobileAppsContent() {
 
   return (
     <>
-      <SegmentedTabs value={tab} onChange={setTab} ariaLabel={translate('extensions.title')} items={[
-        { value: 'market', label: translate('extensions.tabMarket'), testId: 'phone-apps-market-tab' },
+      <div className="phone-app-market-tabs"><SegmentedTabs value={tab} onChange={setTab} ariaLabel={translate('extensions.title')} items={[
+        { value: 'market', label: translate('extensions.recommended'), testId: 'phone-apps-market-tab' },
+        { value: 'newest', label: translate('extensions.newest'), testId: 'phone-apps-newest-tab' },
+        { value: 'popular', label: translate('extensions.popular'), testId: 'phone-apps-popular-tab' },
+        { value: 'all', label: translate('extensions.allApps'), testId: 'phone-apps-all-tab' },
         { value: 'installed', label: translate('extensions.tabInstalled'), testId: 'phone-apps-installed-tab' },
-      ]} />
+      ]} /></div>
       {tab === 'installed' ? <AppsSection /> : (
         <div className={`${skin} mk phone-app-market`} data-testid="phone-app-market">
           <SearchField value={query} placeholder={translate('extensions.searchPlaceholder')} onChange={(event) => { setQuery(event.target.value); setPages(1) }} />
@@ -144,6 +147,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
             </div>
           ) : catalog.data ? (
             <AppMarketContent
+              view={tab} onRetry={() => void catalog.refetch()}
               shelf={{ status: 'ready', query, errorKind: null, items: rows.slice(0, pages * MARKET_PAGE_SIZE), total: rows.length, page: pages - 1, hasMore, loadingMore: false, invalid: [], featured: catalog.data.featured, home: catalog.data.home }}
               chip={chip} onChipChange={setChip}
               query={query.trim()} hostKey="phone" api={phoneProductApi}

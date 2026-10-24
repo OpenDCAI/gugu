@@ -24,7 +24,7 @@ export interface MarketPackage {
 
 export interface PhoneMarket {
   /** Every App the market offers this phone (the index taken now when `fresh`, else the one in hand). */
-  entries(fresh?: boolean): Promise<(CloudMarketEntry & { firstPublishedAt: string })[]>
+  entries(fresh?: boolean): Promise<CloudMarketEntry[]>
   /** This published version's README, including its market screenshot URLs. */
   readme(extensionId: string, version: string): Promise<string | null>
   /** Every version of one App, newest first, each with whether this phone can install it — the desktop's version history. */
@@ -51,8 +51,7 @@ export function phoneMarket(
   return {
     entries: async (fresh = false) => {
       const apps = (await index(fresh)).apps
-      const first = new Map(apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']))
-      return marketEntriesFrom(apps, host(), urlOf).extensions.map((entry) => ({ ...entry, firstPublishedAt: first.get(entry.manifest.id) ?? entry.publishedAt }))
+      return marketEntriesFrom(apps, host(), urlOf).extensions
     },
     readme: async (extensionId, version) => {
       const path = (await index(false)).apps.find((app) => app.id === extensionId)?.versions.find((entry) => entry.version === version)?.readme

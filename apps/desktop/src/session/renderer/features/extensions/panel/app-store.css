@@ -30,6 +30,7 @@
 /* ── 「市场 / 已安装」+ 装本地文件夹 ─────────────────────────────────── */
 .mk-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;

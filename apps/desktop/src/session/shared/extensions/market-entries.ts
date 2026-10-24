@@ -83,6 +83,7 @@ function entryFrom(
     minAppVersion: version.minAppVersion,
     releaseNotes: version.releaseNotes,
     publishedAt: version.publishedAt,
+    firstPublishedAt: app.versions.map((entry) => entry.publishedAt).sort()[0]!,
     iconUrl: version.icon ? urlOf(version.icon) : null,
     deprecated: app.deprecated,
     compat: version.compat,
