@@ -36,7 +36,7 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true });
   stop = listenAppModals((event) => { if (event.type === 'open') presentation = event.presentation; });
   frame = document.createElement('iframe'); frame.src = 'https://board.apps.gugu.invalid/main.html'; document.body.append(frame); watch(frame);
-  host = hostAppFrame(frame, { extensionId: 'board', tabId: 'board-tab', chatId: null, capabilities: [], locale: 'en', themeMode: 'dark' }, { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome });
+  host = hostAppFrame(frame, { extensionId: 'board', tabId: 'board-tab', tabName: 'main', chatId: null, capabilities: [], locale: 'en', themeMode: 'dark' }, { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome });
   from(frame, { t: 'hello' }); chrome.mockClear();
 });
 afterEach(async () => { await presentation?.dismiss(); detach?.(); host.dispose(); stop(); frame.remove(); child?.remove(); presentation = undefined; child = undefined; detach = undefined; posted.clear(); vi.restoreAllMocks(); });
@@ -51,7 +51,7 @@ describe('App modals in the phone host', () => {
     from(child, { t: 'hello' });
     expect(chrome).not.toHaveBeenCalled();
     expect(await call(child, 'getContext')).toMatchObject({ ok: true, value: { tabId: 'board-tab', modal: { data: { column: 'todo' } }, capabilities: [], layout: { fullscreen: true } } });
-    host.update({ extensionId: 'board', tabId: 'board-tab', chatId: null, capabilities: [], locale: 'zh', themeMode: 'light' });
+    host.update({ extensionId: 'board', tabId: 'board-tab', tabName: 'main', chatId: null, capabilities: [], locale: 'zh', themeMode: 'light' });
     expect(await call(child, 'getContext')).toMatchObject({ ok: true, value: { locale: 'zh', themeMode: 'light', modal: { data: { column: 'todo' } } } });
     host.programNotified({ server: 'tools', method: 'changed' });
     expect(posted.get(child)!.mock.calls.map(([message]) => message.event)).toContainEqual({ type: 'programNotification', server: 'tools', method: 'changed' });
