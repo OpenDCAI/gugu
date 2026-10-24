@@ -49,6 +49,7 @@ function manifest(patch: Record<string, unknown> = {}): Record<string, unknown> 
     name: 'Demo',
     version: '1.0.0',
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
     ...patch,

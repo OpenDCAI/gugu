@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { ChevronLeft, MessageSquare, Paperclip, Search, Users, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
@@ -324,8 +325,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   const search = useChatSearch(topic.chatId, visible !== false && !filesOpen && !membersOpen, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
   const rows = useMemo<ChatListRowItem[]>(
-    () => displayedMessages.map((message) => ({ type: 'message' as const, message })),
-    [displayedMessages],
+    () => visibleDeliveryMessages(displayedMessages, messages).map((message) => ({ type: 'message' as const, message })),
+    [displayedMessages, messages],
   )
   const listRef = useRef<FlowListHandle | null>(null)
   const isAtBottomRef = useRef(true)

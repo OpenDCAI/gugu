@@ -6,6 +6,7 @@ import { resolveGuguHome } from '@gugu/core/local/state/paths';
 import type { PendingRequest, Settlement } from '@gugu/session-core/session-record';
 import { restoredAgentQuestion } from './agent-question-delivery';
 import { activitySignal } from '../activity/signals';
+import { registerAssistantQuestion, settleAssistantQuestion } from '../../../../sessionpage/assistant-work';
 
 function file(sessionId: string): string {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)) throw new Error('Invalid question session ID');
@@ -40,6 +41,8 @@ export function rememberAgentQuestion(sessionId: string, question: PendingReques
   const items = readAgentQuestionRecords(sessionId);
   if (items.some(item => item.itemId === pending.itemId)) return;
   writeRecords(sessionId, [...items, pending]);
+  const payload = pending.host?.payload as { sourceLink?: string } | undefined;
+  registerAssistantQuestion(sessionId, pending.itemId, payload?.sourceLink);
   activitySignal({ event_id: `question.pending:${pending.itemId}`, kind: 'question.pending',
     session_id: sessionId, object_id: pending.itemId, occurred_at: Date.now() });
 }
@@ -52,6 +55,7 @@ export function settleAgentQuestionRecord(sessionId: string, itemId: string, res
   if (current.state !== 'pending') throw new Error('This question is already settled');
   writeRecords(sessionId, items.map(item => item.itemId === itemId
     ? { ...item, state: result.state, optionId: result.optionId, resolvedBy: result.by, resolvedAt: Date.now() } : item));
+  settleAssistantQuestion(sessionId, itemId);
   activitySignal({ event_id: `question.${result.state}:${itemId}`, kind: `question.${result.state}`,
     session_id: sessionId, object_id: itemId, occurred_at: Date.now() });
 }

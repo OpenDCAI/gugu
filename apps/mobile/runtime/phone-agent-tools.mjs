@@ -76,12 +76,15 @@ export function phoneCommunicationTools({ agent, job, cloud, store, env, sendSes
     },
     {
       name: 'session_message', label: '联系其他任务 Agent', description: '向任务会话发消息。收件人用 session:<id> 地址。本轮来自 session-direct 时，必须用本工具回复来源会话。消息实际经咕咕设备 RPC 到收件人宿主。',
-      parameters: { type: 'object', required: ['to', 'text'], properties: { to: { type: 'array', minItems: 1, items: { type: 'string' } }, text: { type: 'string' }, reply_to_message_id: { type: 'string' }, then: { type: 'string', enum: ['continue', 'wait', 'stop'] } } },
+      parameters: { type: 'object', required: ['to', 'text'], properties: { to: { type: 'array', minItems: 1, items: { type: 'string' } }, text: { type: 'string' }, reply_to_message_id: { type: 'string' }, then: { type: 'string', enum: ['continue', 'wait', 'stop'] }, work_result: { type: 'object', required: ['work_id', 'status'], additionalProperties: false, properties: { work_id: { type: 'string', format: 'uuid' }, status: { type: 'string', enum: ['progress', 'question', 'completed', 'cancelled'] } } } } },
       execute: async (callId, args) => {
         await authorize(job.usedGroups ?? [])
         if (!Array.isArray(args.to) || !args.to.length) throw new Error('to is required')
         const ids = [...new Set(args.to.map((id) => uuid(bare(id, 'session'), 'session recipient')))]
-        const result = await sendSession(agent, ids, text(args.text, 'text'), { reply_to_message_id: args.reply_to_message_id, then: args.then }, stableId(job.id, callId))
+        const work = args.work_result
+        if (work && (Object.keys(work).some(key => !['work_id', 'status'].includes(key)) || !['progress', 'question', 'completed', 'cancelled'].includes(work.status))) throw new Error('Invalid work_result')
+        if (work) uuid(work.work_id, 'work_id')
+        const result = await sendSession(agent, ids, text(args.text, 'text'), { reply_to_message_id: args.reply_to_message_id, then: args.then, ...(work ? { work_result: work } : {}) }, stableId(job.id, callId))
         job.sent = [...new Set([...(job.sent ?? []), callId])]
         await store.save()
         return toolResult(result)

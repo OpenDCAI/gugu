@@ -67,6 +67,24 @@ export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
   return !REMOTE_DENIED_EXTENSIONS.test(channel);
 };
 
+/** Read recovery entries, or explicitly clear them, from an owner-bound remote App page.
+ * This is not a grant to the whole App dispatcher. The handler additionally checks the
+ * expected owner against its current authenticated account before reading or writing. */
+export function remoteInvokePolicyForCaller(callerId: string | undefined): FrameInvokePolicy {
+  return (channel, args) => {
+    if (channel !== 'app.assistantAppCall') return remoteInvokePolicy(channel, args);
+    if (!callerId || args?.length !== 3 || args[0] !== 'callProgram' || args[2] !== callerId) return false;
+    const input = args[1];
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
+    const operation = input as Record<string, unknown>;
+    if (Object.keys(operation).some(key => !['name', 'arguments', 'server'].includes(key))) return false;
+    if (operation.server !== undefined && operation.server !== 'resources') return false;
+    if (operation.arguments !== undefined && (!operation.arguments || typeof operation.arguments !== 'object'
+      || Array.isArray(operation.arguments) || Object.keys(operation.arguments).length !== 0)) return false;
+    return operation.name === 'assistant_work_list' || operation.name === 'assistant_work_clear';
+  };
+}
+
 let installed: FrameSessionHost | null = null;
 
 type HostHandler = (event: unknown, ...args: unknown[]) => unknown;
@@ -160,6 +178,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     frameHost: FrameSessionHost,
     desktop: DesktopHello | null,
     asker: DeviceRpcAskerContext | undefined,
+    callerId: string | undefined,
   ): void => {
     clients.get(client)?.close();
     const refreshReport = reportDesktop(desktop);
@@ -212,7 +231,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       close: shut,
     };
     clients.set(client, link);
-    frameHost.attach(socket, { remote: `device:${client.slice(0, 8)}`, policy: remoteInvokePolicy });
+    frameHost.attach(socket, { remote: `device:${client.slice(0, 8)}`, policy: remoteInvokePolicyForCaller(callerId) });
   };
 
   const readClient = (payload: unknown): string | null => {
@@ -242,7 +261,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
           },
         };
       }
-      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker);
+      openClient(client, ctx.publishEvent, frameHost, desktop, ctx.asker, ctx.request?.user_id);
       return { result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } };
     },
     [SESSION_HOST_RPC.frame]: (payload) => {
@@ -257,7 +276,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       link.receive(body.seq, body.frames);
       return { result: { ok: true } };
     },
-    [SESSION_HOST_RPC.call]: async (payload) => {
+    [SESSION_HOST_RPC.call]: async (payload, ctx) => {
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
       const body = (payload ?? {}) as { channel?: unknown; args?: unknown };
@@ -265,7 +284,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
         return { error: { code: 'invalid_payload', message: 'channel 与 args 是必填的' } };
       }
       try {
-        return { result: { value: (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicy)) ?? null } };
+        return { result: { value: (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null } };
       } catch (error) {
         const failed = serializeHostWsError(error);
         return { error: { code: failed.code ?? 'call_failed', message: failed.message } };
