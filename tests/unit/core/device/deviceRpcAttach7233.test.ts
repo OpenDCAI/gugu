@@ -13,7 +13,7 @@ const MINE = `gugu:${DEV}:rpc:${ASKER}`
 
 type Topic = { name: string; sent: { payload: { type: string; request_id: string; payload: unknown } }[]; handlers: DeviceTopicHandlers; closed: boolean }
 
-function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never' } = {}) {
+function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never'; answerProtocol?: number | 'missing' } = {}) {
   const answer = options.answerAttach ?? 'here'
   const topics: Topic[] = []
   const open = (name: string) => topics.filter((t) => t.name === name && !t.closed)
@@ -31,7 +31,7 @@ function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never' } = {
         const reply = (error?: { code: string; message: string }) => ({
           type: 'taskhost.attach:reply',
           request_id: sent.payload.request_id,
-          ...(error ? { error } : { result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } }),
+          ...(error ? { error } : { result: { attached: true, ...(options.answerProtocol === 'missing' ? {} : { protocol: options.answerProtocol ?? REMOTE_PROTOCOL_VERSION }) } }),
         })
         // 新机器在发问端那条上回;旧机器不认这个动词,在共用 topic 上回 unknown_method。
         if (answer === 'here') queueMicrotask(() => push(MINE, reply()))
@@ -84,6 +84,19 @@ describe('发问端报到,之后只在自己那条上问', () => {
     expect(cloud.topics.map((t) => t.name)).toEqual([SHARED, MINE])
     expect(cloud.sentOn(SHARED)).toEqual([{ type: 'taskhost.attach', request_id: 'attach-1', user_id: 'u1', payload: { asker: ASKER, protocol: REMOTE_PROTOCOL_VERSION } }])
     expect(cloud.sentOn(MINE).map((p) => p.request_id)).toEqual(['r1'])
+  })
+
+  it.each([11, 'missing'] as const)('refuses an attached host with protocol %s before sending the request', async answerProtocol => {
+    const cloud = fakeCloud({ answerProtocol })
+    const { pipe } = await openPipe(cloud)
+    try {
+      await expect(pipe.send(request(1))).rejects.toMatchObject({ error: {
+        code: 'server_outdated', message: '请更新那台机器上的咕咕',
+      } })
+      expect(cloud.sentOn(MINE)).toEqual([])
+    } finally {
+      pipe.close()
+    }
   })
 
   it('同时的几问合成一次报到;报到着的时候再问 ❌ 再报到', async () => {
