@@ -31,24 +31,18 @@ describe('an App written for apiVersion 1 or 2', () => {
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(11);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
   // 4 (10-15, App 引用 pill) took `about` out of compose / send: an App on 3 still installs and runs — only a call
   // passing `about` is refused, when it is made — and the market hands a client that knows only 3 an App's 3.
-  it('keeps installed API 3–11 Apps readable and refuses a future interface', () => {
+  it('keeps installed supported Apps readable and refuses a future interface', () => {
     expect(EXTENSION_API_VERSION_MIN_SUPPORTED).toBe(3);
-    expect(issues(app(3))).toBe('');
-    expect(issues(app(4))).toBe('');
-    expect(issues(app(5))).toBe('');
-    expect(issues(app(6))).toBe('');
-    expect(issues(app(7))).toBe('');
-    expect(issues(app(8))).toBe('');
-    expect(issues(app(9))).toBe('');
-    expect(issues(app(10))).toBe('');
-    expect(issues(app(11))).toBe('');
-    expect(issues(app(12))).toBe('apiVersion: apiVersion 12 needs a newer gugu (this build supports up to 11)');
+    for (let version = EXTENSION_API_VERSION_MIN_SUPPORTED; version <= EXTENSION_API_VERSION; version++) {
+      expect(issues(app(version))).toBe('');
+    }
+    const future = EXTENSION_API_VERSION + 1;
+    expect(issues(app(future))).toBe(`apiVersion: apiVersion ${future} needs a newer gugu (this build supports up to ${EXTENSION_API_VERSION})`);
   });
 });
 
