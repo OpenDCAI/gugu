@@ -1753,7 +1753,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     appVersion: app.getVersion(),
     serverMode: SERVER_MODE,
     openSystemSettings: (url) => shell.openExternal(url),
-    // #7199 电脑控制:agent 不许操作咕咕自己;屏幕底部的「正在操作 · 停止」小条。
+    // 电脑控制:agent 不许操作咕咕自己;提示跟随实际目标窗口。
     selfApp: () => selfAppForComputerControl(),
     // #7317 电脑控制的开关是 Computer Use 这个 App(behavior tab-extensions):它开着这台电脑才有电脑控制。
     appSwitch: { group: 'computer', app: 'Computer Use', on: () => computerUseOn() },
@@ -1761,7 +1761,8 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     ...(SERVER_MODE
       ? {}
       : {
-          computerControlView: createComputerControlWindow({
+          computerControlView: (cua) => createComputerControlWindow({
+            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
               const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
@@ -4500,7 +4501,15 @@ app.whenReady().then(async () => {
           name: String(record.name ?? ''),
           args: { ...(record.args && typeof record.args === 'object' ? record.args as Record<string, unknown> : {}), ...((record.name === 'recordings.read' || record.name === 'photos.read') ? { _phone_file_transport: 1 } : {}) },
         }
-        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}) } : undefined
+        const taskTitle = call.name.startsWith('computer.')
+          ? await emdash.emdashSessionpageSessionFacts().then(
+            (rows) => rows.find((row) => row.sessionId === (context.sourceSessionId ?? context.sessionId))?.title,
+            (error: unknown) => {
+              createLogger('device-actions').warn({ err: String(error) }, 'device_call task title unavailable')
+              return undefined
+            },
+          ) : undefined
+        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}), ...(taskTitle ? { task_title: taskTitle } : {}) } : undefined
         // A side chat's steps are its task's: the task's 「电脑」 tab shows them (the side chat is a view of it).
         const ended = computerStepStarted({ projectId: context.projectId, sessionId: context.sourceSessionId ?? context.sessionId,
           cursorSession: computerSessionOf({ caller }),

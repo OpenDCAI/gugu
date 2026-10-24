@@ -1,15 +1,19 @@
-import type { RefObject } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useTranslation } from 'react-i18next'
 import { useChatStore } from '../../store/chatContext'
 import { useChatFolderName } from './chatFolderName'
-import { Bell, LayoutGrid, MoreHorizontal, Search, Settings, Users } from '@/lib/icons'
+import { Bell, Folder, LayoutGrid, MoreHorizontal, Search, Settings, Users } from '@/lib/icons'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { IconButton } from '../ui/IconButton'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
 import { OpenAppMenuItems } from './OpenAppMenuItems'
 import { openApp } from '../appSlot/useOpenApp'
-import { WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
+import { installedExtensionsStore, WORKSPACE_APP_ID } from '../../session/renderer/features/extensions/installed-extensions-store'
+import { RailAppIcon } from '../RailAppIcon'
+import { GroupAppsPicker } from './GroupAppsPicker'
+import { useChatAppPins } from './useChatAppPins'
+import { useHeaderAppCapacity } from './useHeaderAppCapacity'
 
 
 // #1234 消息头右上的 action icon。
@@ -74,13 +78,29 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
     onOpenWorkspacePanel()
     if (activeChatId) openApp(WORKSPACE_APP_ID, activeChatId)
   }
-  const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/工作区收进 ⋯。
+  const compactRoom = Boolean(mobile && isRoomChat) // 手机群聊页头只留成员 + ⋯,搜索/文件夹/群 Apps 收进 ⋯。
+  const groupId = isGroupChat ? activeChatId : null
+  const pins = useChatAppPins(groupId)
+  const apps = installedExtensionsStore.openableApps
+  const pinnedApps = pins.ids.flatMap((id) => apps.find((app) => app.extensionId === id) ?? [])
+  const { ref: pinsRef, capacity } = useHeaderAppCapacity(pinnedApps.length, compactRoom || !groupId, Boolean(moreInTabMenu), moreButtonRef)
+  const overflow = pinnedApps.slice(capacity)
+  const appsButton = useRef<HTMLButtonElement>(null)
+  const [picker, setPicker] = useState({ chatId: activeChatId, open: false })
+  if (picker.chatId !== activeChatId) setPicker({ chatId: activeChatId, open: false })
+  const openApps = () => { onCloseHeaderMenu(); setPicker({ chatId: activeChatId, open: true }) }
   return (
     <>
+      {groupId && !compactRoom && <>
+        <IconButton ref={appsButton} data-testid={AUTOMATION_TEST_IDS.chatHeaderAppsButton} aria-label={t('header.groupApps')} title={t('header.groupApps')} aria-haspopup="dialog" aria-expanded={picker.open} on={picker.open || undefined} onClick={openApps}><LayoutGrid /></IconButton>
+        <span ref={pinsRef} className="flex items-center gap-[2px]">
+          {pinnedApps.slice(0, capacity).map((app) => <IconButton key={app.extensionId} data-testid={AUTOMATION_TEST_IDS.chatHeaderPinnedApp} data-app-id={app.extensionId} aria-label={app.name} title={app.name} onClick={() => openApp(app.extensionId, groupId)}><RailAppIcon app={app} className="gg-sidebar-launch-icon" /></IconButton>)}
+        </span>
+      </>}
       {/* @@@1161 会话头右上 action icon 行(aria-label key 在 chatHeader 命名空间):
             searchMessages(在对话中搜索) · widgetList(工作区) · memberList(成员列表) · moreActions(更多操作)。
           全部走 Solar 图标族(@/lib/icons):
-            Search(放大镜) / LayoutGrid(嵌套圆角矩形=工作区) / Users(双人) / MoreHorizontal(三描边圆点)。
+            LayoutGrid(群 Apps) / pins / Search / Folder(文件夹) / Users / MoreHorizontal。
           #1102 曾把搜索塞进 ⋯,搜索应是头栏顶层 icon,故恢复为顶层。 */}
       {/* 搜索 — #1323 模块2:顶栏搜索 icon 仅场所型会话保留,DM 的「搜索聊天」放在 ⋯ 下拉里。 */}
       {isRoomChat && !compactRoom && (
@@ -95,7 +115,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           <Search />
         </IconButton>
       )}
-      {/* 工作区 — widgetList(Solar LayoutGrid)。群、话题、私聊都有(主人 10-05「私聊也是得有面板的」):
+      {/* 文件夹。群、话题、私聊都有(主人 10-05「私聊也是得有面板的」):
           每个对话都有自己的云端文件和右栏。手机群聊收进 ⋯(见 compactRoom),手机私聊图标少,留在页头。 */}
       {!compactRoom && (
         <IconButton
@@ -108,7 +128,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
             else openFolder()
           }}
         >
-          <LayoutGrid />
+          <Folder />
         </IconButton>
       )}
       {/* 成员列表 — memberList(Solar Users)。
@@ -139,7 +159,7 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
       {/* ⋯ 更多操作 — @@@1161 moreActions 下拉。搜索/成员已升为头栏顶层 icon,故移出菜单。
           群聊 = 群公告 + 设置;单聊 = 设置。「设置」只开这个聊天自己的(群设置 / 会话设置),agent 私聊也一样 —— Agent 设置从点页头名字进。
           契约 moreActions 含「分享」,但 gugu 暂无会话分享能力,不放空壳占位(反 fake),作 gap 标注。 */}
-      {!moreInTabMenu && (
+      {(!moreInTabMenu || overflow.length > 0) && (
       <DropdownMenu.Root
         open={showHeaderMenu}
         modal={false}
@@ -173,9 +193,10 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
           >
             {compactRoom && (<>
               <MenuItem data-testid={AUTOMATION_TEST_IDS.chatHeaderSearchButton} onClick={onEnterSearchMode} icon={<Search size={16} />}>{t('header.searchConversation')}</MenuItem>
-              <MenuItem onClick={openFolder} icon={<LayoutGrid size={16} />}>{folderName}</MenuItem>
+              <MenuItem onClick={openFolder} icon={<Folder size={16} />}>{folderName}</MenuItem>
             </>)}
-            {isGroupChat ? (
+            {groupId && compactRoom && <MenuItem onClick={openApps} icon={<LayoutGrid size={16} />}>{t('header.groupApps')}</MenuItem>}
+            {!moreInTabMenu && (isGroupChat ? (
               <>
                 <MenuItem
                   render={<button type="button" />}
@@ -210,13 +231,14 @@ export const ChatHeaderActions = observer(function ChatHeaderActions({
                   icon={<Settings size={16} />}
                 >{t('common.settings')}</MenuItem>
               </>
-            )}
+            ))}
             {/* 「在本群打开」的常驻入口:话题的分栏与手机整页同一份(OpenAppMenuItems)。 */}
-            {activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
+            {groupId ? <OpenAppMenuItems chatId={groupId} apps={overflow} separated /> : activeChatId && <OpenAppMenuItems chatId={activeChatId} separated />}
           </DropdownMenu.Content>
         )}
       </DropdownMenu.Root>
       )}
+      {groupId && picker.open && <GroupAppsPicker chatId={groupId} pins={pins} mobile={mobile} anchor={compactRoom ? moreButtonRef : appsButton} onClose={() => setPicker({ chatId: activeChatId, open: false })} />}
     </>
   )
 })

@@ -262,13 +262,13 @@ export default {
       "recentOsPermission": "Not done: the system hasn't given 咕咕 permission for \"{{group}}\"",
       "recentUnsupported": "Not done: this computer can't do this",
       "computerBar": {
-        "drivingApp": "{{name}} is using {{app}}",
+        "drivingApp": "{{name}} is working",
         "drivingComputer": "{{name}} is looking at this computer",
-        "pausedApp": "You took over {{app}} — {{name}} won't touch it",
+        "pausedApp": "{{name}} has paused here",
         "pausedComputer": "{{name}} has stopped using this computer",
         "someApp": "an app",
         "stop": "Stop",
-        "resume": "Let it continue",
+        "resume": "Continue",
         "someone": "An assistant"
       },
       "recentRunning": "Running…",
