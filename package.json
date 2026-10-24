@@ -233,6 +233,7 @@
     "jszip": "3.10.1",
     "katex": "^0.16.45",
     "lib0": "0.2.117",
+    "libsodium-wrappers": "0.8.4",
     "lucide-react": "^0.564.0",
     "mobx": "^6.15.0",
     "mobx-react-lite": "^4.1.1",
