@@ -163,8 +163,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: node_modules/.experimental-vitest-cache
-          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-partition-${{ env.GUGU_CI_EXPERIMENT == 'duration-shards' && 'duration' || 'hash' }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-partition-${{ env.GUGU_CI_EXPERIMENT == 'duration-shards' && 'duration' || 'hash' }}-shard-${{ matrix.shard }}-
+          key: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'scripts/vitest-*.mts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-partition-${{ env.GUGU_CI_EXPERIMENT == 'duration-shards' && 'duration' || 'hash' }}-shard-${{ matrix.shard }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: vitest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', 'vitest.config.ts', 'tsconfig*.json', 'scripts/vitest-*.ts', 'scripts/vitest-*.mts', 'apps/desktop/electron/sessionpage/emdash-aliases.mjs') }}-partition-${{ env.GUGU_CI_EXPERIMENT == 'duration-shards' && 'duration' || 'hash' }}-shard-${{ matrix.shard }}-
       - run: pnpm exec vitest run --project gugu --project session-packages --project session-main --project session-chat-ui --shard=${{ matrix.shard }}/4
         env:
           GUGU_VITEST_JSON_REPORT: timing-results/unit-${{ matrix.shard }}.json
@@ -172,7 +172,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: unit-timings-${{ matrix.shard }}
+          name: unit-timings-${{ matrix.shard }}-${{ github.run_attempt }}
           path: timing-results/
           retention-days: 7
   renderer-build:
@@ -307,7 +307,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: session-browser-timings
+          name: session-browser-timings-${{ github.run_attempt }}
           path: timing-results/
           retention-days: 7
   web-smoke:
