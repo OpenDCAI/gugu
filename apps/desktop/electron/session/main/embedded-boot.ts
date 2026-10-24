@@ -16,6 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 export { readCurrentActivityInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
 import { openLink } from './core/extensions/gugu-links'
@@ -973,9 +974,10 @@ export async function injectEmdashPromptDetached(
   opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
 ): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
   const client = await getAcpRuntimeClient()
+  // Plain user text keeps its manual queue policy; only an existing delivery envelope may be merged as one.
   const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
     sessionId,
-    prompt: { text: prepared, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    prompt: { text: prepared, origin: readDeliveryEnvelope(prepared) ? 'communication' : 'manual', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
     ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
   // A replaceable queued prompt must not take ownership of unrelated App context.
   }), Boolean(opts?.deferredDispatch || opts?.coalesceKey))

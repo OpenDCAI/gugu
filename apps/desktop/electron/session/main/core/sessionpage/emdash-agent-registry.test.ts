@@ -373,18 +373,19 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
     return { injectEmdashPromptDetached }
   }
 
-  it('steers a busy codex acp session (declared next-tool-call) through the detached admission path', async () => {
-    const { injectEmdashPromptDetached } = bridgeFor('codex')
+  it.each(['codex', 'claude'])('steers a busy %s acp session through detached admission without wrapping the user text', async (providerId) => {
+    const { injectEmdashPromptDetached } = bridgeFor(providerId)
+    const sessionId = `conv-${providerId}-acp`
+    const text = 'Check this result.\nKeep the original wording.'
 
-    const receipt = await emdashAgentRegistry.tryInjectSessionMessage('conv-codex-acp', {
+    const receipt = await emdashAgentRegistry.tryInjectSessionMessage(sessionId, {
       id: 'count-off-1',
-      text: 'COUNTOFF 1',
+      text,
       kind: 'session-direct',
     })
 
-    expect(injectEmdashPromptDetached).toHaveBeenCalledTimes(1)
-    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toEqual({ steerIfBusy: true })
-    expect(receipt).toMatchObject({ turnId: 'turn-codex' })
+    expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith(sessionId, text, { steerIfBusy: true })
+    expect(receipt).toMatchObject({ turnId: `turn-${providerId}` })
   })
 
   it('preserves the deferred queue claim marker across the host bridge without another context claim', async () => {
