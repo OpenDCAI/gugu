@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle, Zap } from '@/lib/icons'
-import { downloadAttachment, openAttachmentImage } from '@/lib/attachmentBytes'
+import { downloadAttachment } from '@/lib/attachmentBytes'
 import { createSessionpageChatSendPreflight } from '@/lib/sessionpage-session-recovery'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
@@ -1254,10 +1254,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                     setHistoryPanelOpen(false)
                     void topicSurface.openTopicFromMessage(latestMessageIdForTopic)
                   } : undefined}
-                  onOpenFile={(f) => {
-                    if (f.kind === 'image') void openAttachmentImage(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else openFilePreview(f)
-                  }}
+                  onOpenFile={openFilePreview}
                   onDownloadFile={(f) => {
                     void downloadAttachment(f.source, f.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
                   }}
@@ -1289,10 +1286,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
                     />
                   )}
                   loading={historyFilesLoading}
-                  onOpenFile={(file) => {
-                    if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-                    else openFilePreview(file)
-                  }}
+                  onOpenFile={openFilePreview}
                   onDownloadFile={(file) => {
                     void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
                   }}
@@ -1381,8 +1375,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             focusComposerToken={splitFocusToken}
             memberReadSeqs={topicSurface.splitLine.memberReadSeqs}
             onOpenFile={(file) => {
-              if (file.kind === 'image') void openAttachmentImage(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
-              else { const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined) }
+              const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
             }}
             onDownloadFile={(file) => {
               void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))

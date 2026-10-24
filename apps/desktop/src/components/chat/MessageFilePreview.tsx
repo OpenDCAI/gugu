@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import { downloadBlob } from '../../lib/download'
-import { attachmentBytes, attachmentResolver, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentResolver, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
@@ -55,8 +55,8 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   useEffect(() => {
     let live = true
     setRead(null)
-    if (kind !== 'unsupported') void readPreview(file, kind).then(
-      (done) => live && setRead(done),
+    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(file.source, file.fileName) : readPreview(file, kind)).then(
+      (done) => { if (live) { if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) } },
       (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
     )
     return () => { live = false }
@@ -71,5 +71,6 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   }
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch(() => toast(downloadFailed, 'error'))
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
+  if (kind === 'image' && !read?.error) return null
   return <MessageFilePreviewPanel fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }
