@@ -11,7 +11,7 @@ import { isSelfAddress, shownSender, useSelfIdentity } from '@session-chat/lib/s
 import { useSenderAvatar } from '@session-chat/lib/sender-avatar';
 import { useAppName } from '@session-chat/lib/app-name';
 import { useChatName } from '@session-chat/lib/chat-name';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels';
 import type { ChatMessage } from '@session-chat/model';
 import { pxTokens } from '@session-chat/styles/px-tokens';

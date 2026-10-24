@@ -18,7 +18,8 @@
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 export { readCurrentActivityInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
-import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
+import { openLink } from './core/extensions/gugu-links'
+import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
 import { appKey } from '@shared/extensions/app-identity'
@@ -933,8 +934,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
-export async function openEmdashExtensionLink(url: string): Promise<ExtensionLinkOutcome> {
-  return await openExtensionLink(url)
+export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
+  return await openLink(url)
 }
 
 /** #4320 —— 唤醒超过它就把分段整份 warn 出来(沿用 #4181 报 still-running 的 30s 节拍)。 */

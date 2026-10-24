@@ -38,7 +38,7 @@ export function framedHost(): GuguHost & Record<string, unknown> {
 const PHONE: ReadonlySet<HostMember> = new Set<HostMember>([
   'modal.open', 'modal.close', 'modal.key', 'onModalFocus',
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'send', 'messages.history', 'messages.search',
-  'chats.list', 'chats.members',
+  'chats.list', 'chats.members', 'linkTo', 'openLink',
   'forum.list', 'forum.read', 'forum.post', 'forum.reply', 'forum.react', 'forum.remove', 'forum.block', 'forum.assign', 'forum.award',
   'forum.subscribe', 'forum.unsubscribe', 'onForumChanged',
   'setTabTitle', 'setTabBadge', 'onCommand', 'onLink', 'showMessage', 'showSession', 'compose', 'clipboard.writeText',
@@ -51,7 +51,7 @@ const IN_SESSION: ReadonlySet<HostMember> = new Set<HostMember>(['callProgram', 
 /** What main answers an App's MCP program (F16): its files and messages, an agent's word — no page, no data folder of a page. */
 const PROGRAM: ReadonlySet<HostMember> = new Set<HostMember>([
   'getContext', 'onContextChanged', 'onFilesChanged', 'reportError', 'openBrowserTab', 'send', 'messageAgent', 'messages.history', 'messages.search',
-  'chats.list', 'chats.members', 'projects.list',
+  'chats.list', 'chats.members', 'projects.list', 'linkTo',
   'appFiles.open', 'appFiles.reopen', 'appFiles.close', 'appFiles.list', 'appFiles.search', 'appFiles.recent', 'appFiles.create',
   'appFiles.remove', 'appFiles.rename', 'appFiles.mkdir', 'appFiles.move', 'appFiles.watch', 'appFiles.replace',
   'appFiles.versions', 'appFiles.readVersion', 'appFiles.upload',

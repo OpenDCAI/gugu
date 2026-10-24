@@ -1,3 +1,4 @@
+import { openLinkTarget } from '@/lib/guguLinks';
 import { rpc } from '@renderer/lib/ipc';
 import { desktopIpc } from '@/platform/desktopIpc';
 import { EXTENSION_BRIDGE_CHANNEL, type ExtensionBridgeResponse } from '@shared/extensions/bridge-protocol';
@@ -18,6 +19,7 @@ import {
   EXTENSION_PICK_COMPOSE_TARGET_METHOD,
   INSTALL_CONSENT_HUMAN_WINDOW_MS,
   type ExtensionHostAction,
+  type ExtensionHostActionResult,
   type ExtensionHostActionCommand,
   type ExtensionInstallConsentRequest,
   type ExtensionInstallConsentResult,
@@ -25,15 +27,12 @@ import {
 import {
   APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
-  APP_OPEN_IN_CHAT_EVENT,
   APP_OPEN_WITH_EVENT,
-  APP_SHOW_MESSAGE_EVENT,
-  GROUP_FILE_OPEN_EVENT,
   type AppComposeDetail,
-  type AppOpenInChatDetail,
 } from '@shared/extensions/app-runtime-protocol';
 import type { ComposePickAsk } from '@shared/extensions/app-send-core';
 import { openApp } from './app-dock';
+import { installedExtensionsStore } from './installed-extensions-store';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 import { extensionSurfaceStore } from './extension-surface-store';
 import { peekStore } from './peek-store';
@@ -85,34 +84,28 @@ function blockOnScreen(sessionId: string): string | null {
   return screenLayout.blockOfSession(sessionId) ?? null;
 }
 
-export function applyExtensionHostAction(command: ExtensionHostActionCommand): void | Promise<void> {
+export function applyExtensionHostAction(command: ExtensionHostActionCommand): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   const { origin, action } = command;
   // A link's or a banner's click has no page behind it: only what names its own target is done for it.
   if (!origin) return runInAction(() => openForClick(action));
   return runInAction(() => perform(origin.sessionId, origin.tabId, action));
 }
 
-function openForClick(action: ExtensionHostAction): void {
+function openForClick(action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   switch (action.kind) {
     case 'openApp':
-      // A chat named: the chat shell brings it up and its panel opens the App. None: where it is (#7052), as its rail icon.
-      if (action.chatId) {
-        window.dispatchEvent(new CustomEvent<AppOpenInChatDetail>(APP_OPEN_IN_CHAT_EVENT, { detail: { chatId: action.chatId, extensionId: action.extensionId } }));
-      } else {
-        openApp(action.extensionId);
-        revealSessionpage();
-      }
-      return;
+      if (action.chatId) return openLinkTarget({ kind: 'app', extensionId: action.extensionId, tab: action.tab ?? installedExtensionsStore.mainTabOf(action.extensionId)?.kind.slice(action.extensionId.length + 1) ?? '', path: '', query: {}, place: { chat: action.chatId } });
+      { const opened = openApp(action.extensionId, action.tab); revealSessionpage(); return opened; }
     case 'openChatFile':
-      // As a link to the file opens it: its chat comes up, its panel opens the file.
-      window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail: { chatId: action.chatId, itemId: action.itemId }, cancelable: true }));
-      return;
+      return openLinkTarget({ kind: 'file', itemId: action.itemId });
+    case 'openLinkTarget':
+      return openLinkTarget(action.target);
     default:
       throw new Error(`${action.kind} is a page's: no page asked for it`);
   }
 }
 
-function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): void | Promise<void> {
+function perform(sessionId: string | null, tabId: string, action: ExtensionHostAction): ExtensionHostActionResult | Promise<ExtensionHostActionResult> {
   // What a page says about itself: a task's tab or a group's slot (sessionId null), kept by page (extensionSurfaceStore.say).
   switch (action.kind) {
     case 'openAppModal': {
@@ -204,8 +197,7 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     }
     // The chat shell takes them (MainLayout: another chat comes up first), as the phone's page gives them.
     case 'showMessage':
-      window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail: action.detail }));
-      return;
+      return openLinkTarget({ kind: 'chat', chatId: action.detail.chatId, messageId: action.detail.messageId });
     case 'openWith':
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;
@@ -223,14 +215,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     }
     case 'openApp':
     case 'openChatFile':
+    case 'openLinkTarget':
       return openForClick(action);
   }
 }
 
 export const extensionHostActionHandlers: RendererRpcHandlers = {
   [EXTENSION_HOST_ACTION_METHOD]: async (params: unknown) => {
-    await applyExtensionHostAction(params as ExtensionHostActionCommand);
-    return { ok: true };
+    const opened = await applyExtensionHostAction(params as ExtensionHostActionCommand);
+    return { ok: true, opened };
   },
   /**
    * 已装的集合变了 —— 重新登记 tab,新装的扩展这才在 tab 栏里出现。

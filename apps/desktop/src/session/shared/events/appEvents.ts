@@ -1,3 +1,4 @@
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
 import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload';
@@ -86,6 +87,7 @@ export const sessionOpenBrowserInPaneChannel = defineEvent<{
   projectId: string;
   sessionId: string;
   url: string;
+  linkTarget?: GuguLinkTarget;
   intent: 'preview' | 'pinned';
   /** Browser Use resolves a persisted tab before restoring its page; ordinary open_in_tab still opens a URL. */
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };

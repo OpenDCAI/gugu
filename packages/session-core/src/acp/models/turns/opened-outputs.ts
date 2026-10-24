@@ -1,3 +1,4 @@
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 /**
  * agent 用 `session_open_in_tab` 给人打开过的文件与网页 —— 这一轮的「产出」(#7193)。
  *
@@ -52,7 +53,7 @@ export function openedOutputOf(item: TranscriptItem): OpenedOutput | null {
   const input = parseObject(item.rawInput);
   const answer = parseObject(item.outputText) ?? parseObject(item.rawOutput);
   const url = stringField(answer, 'url') ?? stringField(input, 'url');
-  if (url) return url.startsWith('gugu-file://') ? null : { kind: 'page', url };
+  if (url) return parseGuguLink(url) !== null ? null : { kind: 'page', url };
   const path = stringField(answer, 'path') ?? absolutePath(stringField(input, 'path'));
   return path ? { kind: 'file', path } : null;
 }

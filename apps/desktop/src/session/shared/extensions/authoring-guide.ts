@@ -180,10 +180,9 @@ the dock/background have neither chat nor session. Read context before drawing.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
-  programs (a session's tab calls its computer's), \`linkTo\`, agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
-- \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
-  entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
-- A chat's shared side panel opens 520 px wide: lay out for narrow first, widen with a media or container query.
+  programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
+- \`gugu.clipboard.writeText\`: click/key only, including your \`menu\` / \`toolbar\` entries (\`onCommand\`), drawn on the tab/panel header.
+- Chat panels open at 520 px: design narrow first, widen with a media/container query.
 - No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
 
 ## Custom modals (apiVersion 11)
@@ -194,7 +193,7 @@ The page stays sandboxed with the opener's context/grants; \`(await gugu.getCont
 Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
 The host handles Escape, Tab traversal, Back and focus restoration.
 
-Free (they only concern your own tab):
+Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
@@ -211,26 +210,22 @@ Free (they only concern your own tab):
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
-- \`sendToBackground(message)\` → view → your own background page (none: rejects); the host stamps \`from\`.
-- \`onBackgroundMessage(fn)\` → what the background broadcast; views paint from this.
-- \`broadcastToViews(message)\` → background → every live view of this App; resolves
-  \`{ delivered }\` (0 is normal).
-- \`onViewMessage(fn)\` → \`(message, from)\`: \`from\` is the sending page's context, as the host knows it; the
-  background hears its views here.
+- \`sendToBackground(message)\` → your background page (none: rejects); host stamps \`from\`.
+- \`onBackgroundMessage(fn)\` → paint the background's broadcasts.
+- \`broadcastToViews(message)\` → background → live views, resolves \`{ delivered }\` (0 is normal).
+- \`onViewMessage(fn)\` → background hears \`(message, from)\`; \`from\`: host-stamped sender context.
 
 Needs \`chat:relay\`:
 
-- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: tells an agent — or another person ("tell me when it is
-  full") — the moment something happens in your App, no @ needed: a whisper in the operator's name, from your App,
-  in the chat you name — \`{ chat: ctx.chat.id }\`, or the one its \`refs\` point into (pills under the
-  text). \`text\` says only what happened ("your move"); the state stays in the file. \`to\` is the
-  one it concerns (a card's owner, who asked), never everyone: a \`user:<uuid>\` from \`chat.members\`. One of your
-  agents here: \`messageAgent\` (\`apps-agents\`).
-  Refused: \`not-found\` — \`to\` cannot get it (left, never was, yourself): drop it from what you keep; \`denied\` —
-  no capability; \`rate-limited\` — over 30 a minute per person and App: send less, later; \`invalid\` — fix the call. For agents to follow what happens, give them a
-  tool (\`apps-programs\`): gugu tells it which agent calls, which no agent can fake — never a
-  list they write their own ids into. Keep followers in your data; in \`onContextChanged\` drop
-  the ones no longer in \`chat.members\`.
+- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: one whisper in the operator's name, from your App, no @ needed.
+  Name \`{ chat: ctx.chat.id }\` or the chat its \`refs\` point into (pills below the text). Tell only the person concerned
+  what happened ("your move"); keep state in the file. \`to\`: a \`user:<uuid>\` from \`chat.members\`, never everyone.
+  Your own agents: \`messageAgent\` (\`apps-agents\`).
+  Refused: \`not-found\` — recipient left, was never there, or is yourself: remove it from followers;
+  \`denied\` — no capability; \`rate-limited\` — over 30/minute per person and App: send less, later;
+  \`invalid\` — fix the call. To let agents follow changes, give them a tool (\`apps-programs\`): gugu supplies its
+  caller's identity, never trust an agent-written id list. Keep followers in your data; on \`onContextChanged\`, drop
+  anyone no longer in \`chat.members\`.
 
 Free, from a click or key (they read and write no data):
 
@@ -258,18 +253,22 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo({ tab?, path?, query?, chat? | session? })\` → a link, from anywhere outside gugu (a README, an
-  email), that opens your \`tab\` (default: your first) in that session, you in that chat's panel, or your own
-  page. Never spell the scheme: it differs per build.
+- \`linkTo(target)\` (API 13), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
+  \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
+  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
+  App defaults: yourself, your first tab; at most one chat/session. Stored chat/file links are build-independent;
+  \`external: true\` uses the build scheme for OS invocation (email/browser), as App/session/project links do. Never spell schemes.
+- \`openLink(url)\` (API 13), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
+  programs/background pages only generate links.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)
   a task chat's \`path#k=v\` link (\`file\`: path), also if it opens your page; phones too.
 
 ## Every one of these can reject — let it show
 
-Show failures inline, disable the control with its reason, or call \`reportError\`.
-Never hide failures as empty states with \`.catch(() => {})\`; an intentional ignore needs a comment explaining why.
+Show rejections inline, disable the control with its reason, or call \`reportError\`.
+❌ Bare \`.catch(() => {})\` hides failures as empty states; intentional ignores need a comment explaining why.
 
-❌ Top-level \`const gugu = window.gugu\`: the host already defines that global; redeclaring it stops the whole script.
+❌ Top-level \`const gugu = window.gugu\` redeclares the host's global: SyntaxError, no script or error UI runs.
 Use \`window.gugu.x\` or another name.
 `;
 
@@ -832,10 +831,9 @@ md.render(element, f.text, { density: 'comfortable', frontmatter: true, file: f.
 \`density\`: \`'compact'\` (the default, a chat's rhythm) or \`'comfortable'\` (a document). \`frontmatter: true\` shows a
 file's leading \`---\` YAML block as code instead of reading it as text. \`sourceLines: true\` marks each block with the
 lines it was written on (\`data-line="3-5"\`), to find a line's block. \`trust: 'chat'\` (the default) is for others'
-words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links go the ways a page has:
-\`#…\` in place, http(s) a browser tab, a chat file or a relative link (beside \`file\`) \`gugu.files.openWith\`, which
-needs \`files:read\` — without it that click does nothing. There is no HTML string to put through \`innerHTML\` — never
-write others' text in as markup.
+words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links: \`#…\` in place,
+http(s) a browser tab, gugu resources through \`openLink\` (API 13, no capability), relative files beside \`file\`
+through \`gugu.files.openWith\` (needs \`files:read\`). Failures call \`reportError\`. Never put others' text through \`innerHTML\`.
 
 ## Drawing your own
 

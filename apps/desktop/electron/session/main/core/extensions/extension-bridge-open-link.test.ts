@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
-import { openExtensionLinkWith } from './extension-links';
+import { openLinkWith } from '@shared/extensions/open-link';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 
 /**
  * App 页面里人点了一条咕咕自己的链接(linkTo 造的):preload 把它交给宿主(`openLink`),宿主按链接的结构认出它是咕咕的
@@ -39,10 +40,10 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 }));
 const opened: string[] = [];
 let outcome: Record<string, unknown> = { kind: 'opened', extensionId: 'chess', tab: 'main' };
-vi.mock('@main/core/extensions/extension-links', async (original) => ({
-  ...(await original<typeof import('./extension-links')>()),
+vi.mock('@main/core/extensions/gugu-links', async (original) => ({
+  ...(await original<typeof import('./gugu-links')>()),
   currentLinkScheme: () => 'gugu-dev',
-  openExtensionLink: async (url: string) => { opened.push(url); return outcome; },
+  openLink: async (url: string) => { opened.push(url); return parseGuguLink(url) ? outcome : { kind: 'not-gugu-link' }; },
 }));
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id === TOPIC ? CHAT : id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -69,15 +70,16 @@ describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
       id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
       entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Main' }] },
     });
-    const openApp = vi.fn(async () => {});
+    const openApp = vi.fn(async () => ({ chat: CHAT }));
     const event: ExtensionHostEvent = { type: 'link', tab: 'main', path: 'game/7', query: { move: 'e4' }, file: null };
-    await expect(openExtensionLinkWith({
-      scheme: 'gugu-dev', installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
+    await expect(openLinkWith({
+      installed: () => [{ manifest }], isEnabled: () => true, locale: () => 'en',
       sessionProject: async () => null, reveal: async () => {}, openApp, deliver: deliverToExtension,
+      resourceChat: async (id) => id === TOPIC ? CHAT : id, openResource: async () => {},
     }, `gugu-dev://ext/chess/main/game/7?move=e4&gugu.chat=${TOPIC}`))
-      .resolves.toEqual({ kind: 'opened', extensionId: 'chess', tab: 'main' });
+      .resolves.toMatchObject({ kind: 'opened', target: { kind: 'app', extensionId: 'chess', tab: 'main', place: { chat: CHAT } } });
     expect(received.filter((entry) => entry.type === 'link')).toEqual([event]);
-    expect(openApp).toHaveBeenCalledWith('chess', CHAT);
+    expect(openApp).toHaveBeenCalledWith('chess', 'main', CHAT);
   });
 
   it('opens through the one opener, the link as it was', async () => {
@@ -86,11 +88,18 @@ describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
   });
 
   it('any other link is refused and nothing is opened: by the link\'s structure, not its prefix', async () => {
-    for (const url of ['https://example.com/', 'gugu-dev://chat/123', 'gugu://ext/radar/radar', 'gugu-dev://ext/', 'gugu-dev://ext-x/radar/radar', 42]) {
+    for (const url of ['https://example.com/', 'gugu-dev://chat/123', 'gugu-dev://ext/', 'gugu-dev://ext-x/radar/radar', 42]) {
       const result = await open(PAGE, url) as { ok: boolean; code?: string };
       expect([url, result.ok, result.code]).toEqual([url, false, 'invalid']);
     }
-    expect(opened).toEqual([]);
+    expect(opened).toEqual(['https://example.com/', 'gugu-dev://chat/123', 'gugu-dev://ext/', 'gugu-dev://ext-x/radar/radar', '']);
+  });
+
+  it('accepts all resource kinds through that same opener, independently of channel', async () => {
+    for (const url of [`gugu-chat://${CHAT}`, `gugu-file://${CHAT}#slide=3`, `gugu-beta://chat/${CHAT}`, 'gugu://session/s1', 'gugu://project/p1', 'gugu://ext/chess/main']) {
+      expect(await open(PAGE, url)).toEqual({ ok: true, value: undefined });
+      expect(opened.at(-1)).toBe(url);
+    }
   });
 
   it('when the opener cannot open it, the page hears why', async () => {

@@ -1,3 +1,4 @@
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';
@@ -7,7 +8,6 @@ import { extensionsService } from '@main/core/extensions/extensions-root';
 import { AppModalSessions } from '@shared/extensions/app-modal';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
-import type { LinkPlace } from '@main/core/extensions/extension-links';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -50,7 +50,7 @@ import type {
 import { fileSync } from '@main/core/extensions/file-sync';
 import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
 import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/core/extensions/app-files';
@@ -223,7 +223,7 @@ async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, 
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {
-      page.shown.push({ verb, detail: `gugu-file://${found.target.itemId}` });
+      page.shown.push({ verb, detail: groupFileLink(found.target.itemId) });
       return;
     }
   }
@@ -621,7 +621,8 @@ function flushQueuedSurfaceEvents(webContentsId: number, binding: SurfaceBinding
   for (let i = 0; i < queuedSurfaceEvents.length; ) {
     const queued = queuedSurfaceEvents[i]!;
     const mine = queued.extensionId === binding.extensionId && queued.where === where
-      && (queued.item === null ? !itemsOnly : queued.item === fileOf(binding));
+      && (queued.event.type !== 'link' || queued.event.tab === binding.tabName)
+      && (queued.item === null ? !itemsOnly && (queued.event.type !== 'link' || queued.event.file !== null || fileOf(binding) === null) : queued.item === fileOf(binding));
     if (queued.expiresAt < now || mine) {
       queuedSurfaceEvents.splice(i, 1);
       if (queued.expiresAt >= now) due.push(queued.event);
@@ -658,6 +659,7 @@ export function deliverToExtension(
     const where = whereKey(opened);
     for (const [webContentsId, binding] of bindings) {
       if (binding.extensionId !== extensionId || whereOf(binding) !== where) continue;
+      if (event.type === 'link' && (event.tab !== binding.tabName || (event.file === null && fileOf(binding) !== null))) continue;
       const contents = webContents.fromId(webContentsId);
       if (!contents || contents.isDestroyed()) continue;
       sendEvent(contents, event);
@@ -1741,19 +1743,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'linkTo': {
-      const { extensionLink } = await import('@main/core/extensions/extension-links');
-      const tab = typeof args.tab === 'string' ? args.tab : undefined;
-      const named = (value: unknown) => value !== undefined && value !== null;
-      // Where it opens, as the call names it: a session's tab, the App in a chat's panel, or its own page.
-      if (named(args.chat) && named(args.session)) throw Object.assign(new Error('A link opens in one place: { chat } or { session }'), { code: 'invalid' });
-      const place = named(args.chat) || named(args.session) ? (placeOf(named(args.chat) ? { chat: args.chat } : { session: args.session }) as LinkPlace) : null;
-      return extensionLink({
-        extensionId,
-        ...(tab ? { tab } : {}),
-        path: typeof args.path === 'string' ? args.path : '',
-        query: (args.query ?? {}) as Record<string, unknown>,
-        place,
-      });
+      const { linkTo } = await import('./gugu-links');
+      const { linkTargetOf } = await import('@gugu/core/shared/ui/guguLink');
+      return linkTo(linkTargetOf(args, extensionsService().get(extensionId).manifest), args.external === true);
     }
 
     case 'filesOpen':
@@ -1869,16 +1861,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'openLink': {
-      // The gesture was checked in the preload. Only a link of gugu's own, by its structure (scheme, `ext`, an App, one
-      // of its tabs) — and then the very opener a link from outside gugu goes through.
-      const { currentLinkScheme, openExtensionLink, parseExtensionLink } = await import('@main/core/extensions/extension-links');
-      const url = typeof args.url === 'string' ? args.url : '';
-      if (!parseExtensionLink(url, currentLinkScheme())) {
-        throw Object.assign(new Error('Only links of gugu\'s own (gugu.linkTo) open from a page; open others with gugu.openBrowserTab(url).'), { code: 'invalid' });
-      }
-      const outcome = await openExtensionLink(url);
-      if (outcome.kind === 'failed') {
-        throw Object.assign(new Error(`That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}`), { code: 'failed' });
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink(typeof args.url === 'string' ? args.url : '');
+      if (outcome.kind !== 'opened') {
+        throw Object.assign(new Error(outcome.kind === 'failed' ? `That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}` : 'Only gugu resource links open here; use gugu.openBrowserTab for a web page.'), { code: outcome.kind === 'failed' ? 'failed' : 'invalid' });
       }
       return undefined;
     }

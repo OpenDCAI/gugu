@@ -88,7 +88,7 @@ export function ProjectsPage({
   /** 页头右上角的 +:去选在哪台机器上新建(建会话要在那台机器上起进程,选机器那一步照旧)。 */
   onCreate?: () => void
   /** 一条点不开的行被点名(gugu.showSession):展开它所在的分区、滚到它;不给 = 照常从头看。 */
-  reveal?: { deviceId: string; sessionId: string }
+  reveal?: { deviceId: string; sessionId: string } | { projectId: string }
   /** 滚动位置的存放处:进时间线再回来要还在原处,页面自己在返回时是重新挂的。 */
   scrollMemo: MutableRefObject<number>
 }) {
@@ -140,26 +140,26 @@ export function ProjectsPage({
 
   // ── 点名定位:展开它所在的分区与父会话,再滚到它 ───────────────────────
   const bodyRef = useRef<HTMLDivElement>(null)
-  const located = useMemo(
-    () => (reveal
-      ? locateSession(sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: ALL_OPEN, online }), reveal.sessionId)
-      : null),
-    [reveal, sectionMachines, rows, assistantId, homeIds, online],
-  )
+  const located = useMemo(() => {
+    if (!reveal) return null
+    const all = sessionSections(sectionMachines, rows, { assistantId, homeIds }, { expanded: ALL_OPEN, online })
+    if ('projectId' in reveal) { const section = all.find((item) => item.project?.id === reveal.projectId); return section ? { section, ancestors: [] } : null }
+    return locateSession(all, reveal.sessionId)
+  }, [reveal, sectionMachines, rows, assistantId, homeIds, online])
   const revealed = useRef<typeof reveal>(undefined)
-  const [scrollTarget, setScrollTarget] = useState<string | null>(null)
+  const [scrollTarget, setScrollTarget] = useState<{ attribute: string; id: string } | null>(null)
   useEffect(() => {
     if (!reveal || !located || revealed.current === reveal) return
     revealed.current = reveal
     setCollapsed([located.section.key, ...located.ancestors], false)
     // 它在被「展开显示」收起的家族里 ⇒ 把这一格点开。
-    if (!locateSession(sections, reveal.sessionId)) setMore([located.section.key], true)
-    setScrollTarget(reveal.sessionId)
+    if ('projectId' in reveal || !locateSession(sections, reveal.sessionId)) setMore([located.section.key], true)
+    setScrollTarget('projectId' in reveal ? { attribute: 'data-project-id', id: reveal.projectId } : { attribute: 'data-session-id', id: reveal.sessionId })
   }, [reveal, located, sections, setCollapsed, setMore])
   useEffect(() => {
     if (!scrollTarget) return
-    const row = [...(bodyRef.current?.querySelectorAll('[data-session-id]') ?? [])]
-      .find((el) => el.getAttribute('data-session-id') === scrollTarget)
+    const row = [...(bodyRef.current?.querySelectorAll(`[${scrollTarget.attribute}]`) ?? [])]
+      .find((el) => el.getAttribute(scrollTarget.attribute) === scrollTarget.id)
     if (!row) return
     if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' })
     setScrollTarget(null)
@@ -328,6 +328,7 @@ export function ProjectsPage({
             key={key}
             className="gg-aw-list"
             data-testid={section.pinned ? 'agent-watch-pinned-section' : 'agent-watch-session-group'}
+            data-project-id={section.project?.id}
             data-collapsed={isCollapsed ? 'true' : 'false'}
             data-assistant={section.assistant ? 'true' : undefined}
           >

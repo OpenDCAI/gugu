@@ -2,13 +2,13 @@ import { withSessionAttachments, type SessionAttachmentRef } from '@gugu/core/cl
 import { isActivityAction, runActivityAction, type ActivityAction } from '../activity/actions';
 import { tabHygiene, type TabHygieneResult } from './tab-hygiene';
 import type { SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { readCurrentActivitySource } from './session-activity-source';
 import { receiveAssistantWorkReport, workReportSchema, type WorkReport } from '../../../../sessionpage/assistant-work';
 import { isProjectAgentAction, runProjectAgentAction, type ProjectAgentAction } from '../projects/project-agent-actions';
 import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } from '../app/user-library';
 import { randomUUID } from 'node:crypto';
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { resolveSessionPermissionMode, type SessionSummary } from '@gugu/session-core/acp';
 import { and, eq, inArray } from 'drizzle-orm';
 import { getAcpRuntimeClient } from '@main/core/acp/controller';
@@ -1516,14 +1516,14 @@ async function openBrowserInTab(
   // A file of a group (`gugu-file://<itemId>`, 摩擦单 F10) is no page to load: the window opens it in its group, where
   // the person is taken — the same as a click on that link in the chat. It goes the browser request's way there, with the
   // place a pill's link points at (`?v=`, `#…`) kept: the App that opens it is taken there too.
-  const groupFile = parseGroupFileLink(action.url);
-  const url = groupFile ? groupFileLink(groupFile.itemId, groupFile) : normalizeOpenInTabUrl(action.url);
+  const resource = parseGuguLink(action.url);
+  const url = resource ? action.url : normalizeOpenInTabUrl(action.url);
   if (remotePaneOpener) {
     // localhost 的端口由桌面那一格经 SSH 转过去(remote-browser-tab);公网地址直接加载;
     // `file:` 网页由桌面那一格经会话工作区的读文件动词取来渲染 —— 只认工作目录里的文件,先在这里核清楚。
     if (url.startsWith('file:')) await requireRemotePageFile(workspace, url, signal);
-    const outcome = await remotePaneOpener.open(context.sessionId, { kind: 'browser', url }, action.intent, signal);
-    if (!groupFile) await recordSessionOutput(context.sessionId, { kind: 'page', url });
+    const outcome = await remotePaneOpener.open(context.sessionId, { kind: 'browser', url, ...(resource ? { linkTarget: resource } : {}) }, action.intent, signal);
+    if (!resource) await recordSessionOutput(context.sessionId, { kind: 'page', url });
     return 'queued' in outcome
       ? { opened: false, queued: true, url, intent: action.intent, note: remotePaneQueuedNote(outcome) }
       : { opened: true, url, intent: action.intent, ...tabHygiene(outcome.tabs) };
@@ -1534,11 +1534,12 @@ async function openBrowserInTab(
       projectId: context.projectId,
       sessionId: context.sessionId,
       url,
+      ...(resource ? { linkTarget: resource } : {}),
       intent: action.intent,
     });
   }, signal);
   // 群文件夹里的文件开在它的群里,它在那里有自己的位置,❌ 记成这条会话的产出。
-  if (!groupFile) await recordSessionOutput(context.sessionId, { kind: 'page', url });
+  if (!resource) await recordSessionOutput(context.sessionId, { kind: 'page', url });
   return { opened: true, url, intent: action.intent, ...tabHygiene(ack.tabs) };
 }
 

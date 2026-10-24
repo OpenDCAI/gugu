@@ -4,7 +4,7 @@
 //   · Only a group or its topic: in a direct chat the agent's chat page already shows the question under the conversation.
 //   · The message id is the question's own uuid, so a retried ask converges on the same message.
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 import { serializeComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { makeChatClient } from '../supabase'
 

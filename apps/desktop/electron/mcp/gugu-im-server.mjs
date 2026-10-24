@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { conversationLink, groupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
@@ -637,7 +638,7 @@ async function workspaceRpcItem(deps, name, body, label) {
  */
 export function workspaceFileLink(item) {
   const name = String(item.filename ?? '').replace(/[[\]\\]/g, (c) => `\\${c}`)
-  return `[${name}](gugu-file://${item.id})`
+  return `[${name}](${groupFileLink(item.id)})`
 }
 function summarizeWorkspaceItem(item) {
   return {
@@ -2157,7 +2158,7 @@ async function handleFile(args, deps) {
     }
     const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
     return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName,
-      source_link: `gugu-chat://${chatId}/${String(message.id).replace(/^msg:/, '')}` })
+      source_link: conversationLink(chatId, String(message.id).replace(/^msg:/, '')) })
   }
   if (args.action === 'download-attachment') {
     if (args.source_attachment_id) {

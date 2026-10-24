@@ -52,7 +52,7 @@ function land(chatId: string, text = '  登录页闪一下，看看为什么  ')
     projectId: 'project-1',
     agentUserId: 'agent-7',
     chatId,
-    messageId: 'msg-card-1',
+    messageId: '00000000-0000-4000-8000-000000000004',
     text,
     deviceId: 'device-1',
     machineLabel: 'Mac Studio',
@@ -70,12 +70,12 @@ beforeEach(() => {
 
 describe('task card first turn (gugu-dev#181)', () => {
   it('writes the owner\'s card once the identity settled, names nobody, and hands the agent the group envelope', async () => {
-    chats.set('group-1', { kind: 'group', public_id: 4242, name: '官网', members: ['owner-1', 'agent-7'] })
-    const turn = await land('group-1')
+    chats.set('00000000-0000-4000-8000-000000000001', { kind: 'group', public_id: 4242, name: '官网', members: ['owner-1', 'agent-7'] })
+    const turn = await land('00000000-0000-4000-8000-000000000001')
     expect(awaited).toEqual(['agent-7'])
     expect(writes).toHaveLength(1)
     const write = writes[0]!
-    expect(write).toMatchObject({ p_message_id: 'msg-card-1', p_chat_id: 'group-1', p_sender_user_id: 'owner-1', p_to_user_ids: [], p_content_type: 'card' })
+    expect(write).toMatchObject({ p_message_id: '00000000-0000-4000-8000-000000000004', p_chat_id: '00000000-0000-4000-8000-000000000001', p_sender_user_id: 'owner-1', p_to_user_ids: [], p_content_type: 'card' })
     expect(parseComposerCard(write.p_content as string)).toEqual({
       v: 1, type: 'task', text: '登录页闪一下，看看为什么', agentUserId: 'agent-7', agentName: 'Claude 7',
       // Who took it, as everyone who sees the card draws it (80e: a colleague could not look the agent up yet).
@@ -83,25 +83,25 @@ describe('task card first turn (gugu-dev#181)', () => {
       sessionId: 'session-1', projectId: 'project-1', deviceId: 'device-1', machineLabel: 'Mac Studio',
     })
     expect(turn.envelope).toBe(true)
-    expect(turn.chatId).toBe('group-1')
-    expect(turn.firstTurn).toContain('msg:msg-card-1')
+    expect(turn.chatId).toBe('00000000-0000-4000-8000-000000000001')
+    expect(turn.firstTurn).toContain('msg:00000000-0000-4000-8000-000000000004')
     expect(turn.firstTurn).toContain('登录页闪一下，看看为什么')
     expect(turn.firstTurn).not.toContain(TASK_CARD_NOT_MEMBER_HINT)
   })
 
   it('an agent not in the group yet (approval pending) is told to answer in its own session', async () => {
-    chats.set('group-2', { kind: 'group', public_id: 7, name: '别人的群', members: ['owner-1'] })
-    const turn = await land('group-2')
+    chats.set('00000000-0000-4000-8000-000000000002', { kind: 'group', public_id: 7, name: '别人的群', members: ['owner-1'] })
+    const turn = await land('00000000-0000-4000-8000-000000000002')
     expect(writes).toHaveLength(1)
     expect(turn.envelope).toBe(true)
     expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
   })
 
   it('in a direct chat with a person the card stays there and the agent gets the plain words', async () => {
-    chats.set('dm-1', { kind: 'dm', public_id: null, name: null, members: ['owner-1', 'friend-1'] })
-    const turn = await land('dm-1')
+    chats.set('00000000-0000-4000-8000-000000000003', { kind: 'dm', public_id: null, name: null, members: ['owner-1', 'friend-1'] })
+    const turn = await land('00000000-0000-4000-8000-000000000003')
     expect(writes).toHaveLength(1)
-    expect(turn).toEqual({ chatId: 'dm-1', firstTurn: '登录页闪一下，看看为什么', envelope: false })
+    expect(turn).toEqual({ chatId: '00000000-0000-4000-8000-000000000003', firstTurn: '登录页闪一下，看看为什么', envelope: false })
   })
 
   it('fails loud when the chat is not visible to the owner, before writing anything', async () => {

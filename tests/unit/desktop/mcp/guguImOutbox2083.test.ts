@@ -11,7 +11,7 @@ vi.hoisted(() => {
 import { callTool as callToolImpl, RpcHttpError, RpcTransportError } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
 
 const SESSION_CONTEXT = {
-  supabaseUrl: '', anonKey: '', agentId: 'agent-1', chatId: 'c1', threadRootId: null,
+  supabaseUrl: '', anonKey: '', agentId: 'agent-1', chatId: '00000000-0000-4000-8000-000000000001', threadRootId: null,
   guguHome: '/tmp/gugu-im-outbox-test',
   getAccessToken: async () => process.env.GUGU_ACCESS_TOKEN || '',
 }
@@ -46,7 +46,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       rpcs.push([name, body])
       // @@@5856 kind 与成员名单改走 actor-aware 的 RPC 读(话题要按调用者判可见性),
       // 所以这两条读在任何发帖路径上都会发生 —— 桩子得答,否则测的是「名单读不到」而非本意。
-      if (name === 'chat_facts') return [{ id: 'c1', kind: 'group', source_chat_id: null, group_prompt: null }]
+      if (name === 'chat_facts') return [{ id: '00000000-0000-4000-8000-000000000001', kind: 'group', source_chat_id: null, group_prompt: null }]
       if (name === 'list_member_ids') return MEMBERS.map((user_id) => ({ user_id, role: 'member' }))
       return null
     },
@@ -63,7 +63,7 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
       restInsert: async () => { throw new RpcTransportError() },
     })
     await expect(
-      callTool('message_send', { chat_id: 'c1', text: 'not queued' }, deps),
+      callTool('message_send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'not queued' }, deps),
     ).rejects.toThrow(/transport failed/)
     expect(inserted).toEqual([])
     expect('enqueueOutbox' in deps).toBe(false)
@@ -80,7 +80,7 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
       },
     })
     await expect(
-      callTool('message_send', { chat_id: 'c1', text: 'retry exhausted' }, deps),
+      callTool('message_send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'retry exhausted' }, deps),
     ).rejects.toThrow(/500/)
     expect(attempts).toBe(1)
   })
@@ -96,7 +96,7 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
       restGet: async (path: string) => path.includes('chat_members') ? [{ user_id: 'agent-1' }] : [],
     })
     await expect(
-      callTool('message_send', { chat_id: 'c1', text: 'hi', to_user_ids: ['user:ghost'] }, deps),
+      callTool('message_send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:ghost'] }, deps),
     ).rejects.toThrow(/收件人不在本 chat/)
     expect(inserted).toEqual([])
   })
@@ -110,9 +110,9 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
   })()
   // #4191:gugu_widget 已裁撤,widget 行随之删除;file 走 message_send_file。
   test.each([
-    ['message', 'message_send', { chat_id: 'c1', text: 'message', to_user_ids: ['user:ghost'] }],
+    ['message', 'message_send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'message', to_user_ids: ['user:ghost'] }],
     ['file', 'message_send_file', {
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       file_name: 'proof.txt',
       file_path: proofPath,
       mime_type: 'text/plain',
@@ -135,7 +135,7 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
         : [],
     })
     const receipt = JSON.parse(await callTool('message_send_file', {
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       file_name: 'proof.txt',
       file_path: proofPath,
       mime_type: 'text/plain',
@@ -145,9 +145,9 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
     expect(uploads).toHaveLength(1)
     expect(inserted, 'the message is the commit\'s, not a direct insert').toHaveLength(0)
     expect(commits).toHaveLength(1)
-    expect(commits[0]).toMatchObject({ chat_id: 'c1', sender_user_id: 'agent-1', to_user_ids: ['member-1'], file_name: 'proof.txt', content_type: 'text/plain' })
+    expect(commits[0]).toMatchObject({ chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'agent-1', to_user_ids: ['member-1'], file_name: 'proof.txt', content_type: 'text/plain' })
     expect(String(commits[0]!.message_id)).toMatch(/^[0-9a-f-]{36}$/)
-    expect(receipt.source_link).toBe(`gugu-chat://c1/${commits[0]!.message_id}`)
+    expect(receipt.source_link).toBe(`gugu-chat://00000000-0000-4000-8000-000000000001/${commits[0]!.message_id}`)
   })
 
   test.each([403, 409, 422])('DB HTTP %s from the durable insert is semantic/terminal — fails loud, single attempt', async (status) => {
@@ -159,7 +159,7 @@ describe('#2051 command-authored message delivery (S2b: spontaneous stable-id in
       },
     })
     await expect(
-      callTool('message_send', { chat_id: 'c1', text: 'blocked' }, deps),
+      callTool('message_send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'blocked' }, deps),
     ).rejects.toThrow(String(status))
     expect(attempts).toBe(1)
   })

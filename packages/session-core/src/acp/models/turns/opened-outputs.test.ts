@@ -65,7 +65,7 @@ describe('openedOutputOf', () => {
     ['a failed open', { status: 'error' as const, input: { path: '/missing.html' } }],
     ['a call still running', { status: 'running' as const, input: { path: '/a.html' } }],
     ['an App tab with no file', { input: { app_tab: 'paper-desk:main' }, answer: { opened: true, app_tab: 'paper-desk:main' } }],
-    ['a group file', { input: { url: 'gugu-file://item-1' }, answer: { opened: true, url: 'gugu-file://item-1' } }],
+    ['a group file', { input: { url: 'gugu-file://00000000-0000-4000-8000-000000000001' }, answer: { opened: true, url: 'gugu-file://00000000-0000-4000-8000-000000000001' } }],
   ])('does not count %s', (_label, over) => {
     expect(openedOutputOf(openCall(over))).toBeNull();
   });

@@ -31,6 +31,7 @@ describe('an App written for apiVersion 1 or 2', () => {
   });
 
   it('control: the same App on the current version parses', () => {
+    expect(EXTENSION_API_VERSION).toBe(13);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 

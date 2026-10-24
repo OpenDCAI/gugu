@@ -34,7 +34,7 @@ import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDeliver
 const AGENT = 'agent-0000-0000-0000-000000005003'
 const HUMAN = 'human-0000-0000-0000-000000005003'
 const CONV = 'conv-5003'
-const CHAT = 'chat-5003'
+const CHAT = '00000000-0000-4000-8000-000000005003'
 
 function unreadRow(id: string, seq: number): AgentInboxUnreadRow {
   return {
@@ -109,20 +109,20 @@ describe('#5003 合批归队列属主:TUI keystroke 腿不由 gugu 预合批', (
   it('同一次 pull 的三条无附件行到 local-session 腿逐条立即提交', async () => {
     const { submissions } = bindFakePty()
     const router = new SessionpageLocalDeliveryRouter([localSessionDeliveryTarget])
-    const rows = [unreadRow('m1', 1), unreadRow('m2', 2), unreadRow('m3', 3)]
+    const rows = [unreadRow('10000000-0000-4000-8000-000000000001', 1), unreadRow('10000000-0000-4000-8000-000000000002', 2), unreadRow('10000000-0000-4000-8000-000000000003', 3)]
 
     const result = await pullAgentInbox(AGENT, readerDeps(router, [rows]))
 
     expect(result).toMatchObject({ pulled: 3, injected: 3, verdict: 'accepted' })
     expect(submissions).toHaveLength(3)
     expect(submissions.map(envelopeSegments)).toEqual([1, 1, 1])
-    expect(submissions.map((text) => /msg="msg:(m\d)"/.exec(text)?.[1])).toEqual(['m1', 'm2', 'm3'])
+    expect(submissions.map((text) => /msg="msg:([^"]+)"/.exec(text)?.[1])).toEqual(['10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000003'])
   })
 
   it('对照:同三条各在自己的 pull 里到达 ⇒ 三次提交 —— 批是 pull 的,不是这条腿的', async () => {
     const { submissions } = bindFakePty()
     const router = new SessionpageLocalDeliveryRouter([localSessionDeliveryTarget])
-    const deps = readerDeps(router, [[unreadRow('m1', 1)], [unreadRow('m2', 2)], [unreadRow('m3', 3)]])
+    const deps = readerDeps(router, [[unreadRow('10000000-0000-4000-8000-000000000001', 1)], [unreadRow('10000000-0000-4000-8000-000000000002', 2)], [unreadRow('10000000-0000-4000-8000-000000000003', 3)]])
 
     await pullAgentInbox(AGENT, deps)
     await pullAgentInbox(AGENT, deps)
@@ -130,7 +130,7 @@ describe('#5003 合批归队列属主:TUI keystroke 腿不由 gugu 预合批', (
 
     expect(submissions).toHaveLength(3)
     expect(submissions.map(envelopeSegments)).toEqual([1, 1, 1])
-    expect(submissions.map((text) => /msg="msg:(m\d)"/.exec(text)?.[1])).toEqual(['m1', 'm2', 'm3'])
+    expect(submissions.map((text) => /msg="msg:([^"]+)"/.exec(text)?.[1])).toEqual(['10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000003'])
   })
 
   it('一次注入 = 一次立即提交:三次直注中间没有任何回合末事件,三条按序全部写出', async () => {

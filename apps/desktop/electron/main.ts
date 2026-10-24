@@ -383,7 +383,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '../src/session/shared/extensions/link-scheme'
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
 import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -3121,7 +3121,7 @@ app.on('open-url', (event, url) => {
 
 /**
  * #6387 这个版本认的链接前缀:正式版 gugu://,Beta gugu-beta://,源码起的开发版 gugu-dev://。
- * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(link-scheme.ts)。
+ * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */
@@ -3135,7 +3135,7 @@ function handleGuguLink(url: string): void {
     return
   }
   focusMainWindow()
-  void emdashBridge.openEmdashExtensionLink(url).then(
+  void emdashBridge.openEmdashLink(url).then(
     (outcome) => {
       if (outcome.kind !== 'failed') return
       // 人点了链接、在等:打不开要当面说清为什么,❌ 只记日志。
@@ -3987,7 +3987,8 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
-        await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id)
+        const result = await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id) as { opened?: import('../src/session/shared/extensions/host-actions').ExtensionHostActionResult }
+        return result.opened
       },
       isHostWindowFullScreen,
       onHostWindowFullScreenChange,

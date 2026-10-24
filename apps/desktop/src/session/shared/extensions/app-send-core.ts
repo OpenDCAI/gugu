@@ -1,5 +1,5 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { groupFileLink } from '@gugu/core/shared/ui/fileLink';
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
 

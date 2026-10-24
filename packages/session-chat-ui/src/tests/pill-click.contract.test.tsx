@@ -1,13 +1,13 @@
 /** @jsxImportSource solid-js */
 /**
  * App 引用 pill (148 17:03): a file pill in the transcript is read the way a link is. One pointing at a group's file
- * (`gugu-file://<id>?v=…#<at>`) opens there with its place, through the same `classifyLink` → `onOpenGroupFile` a link
+ * (`gugu-file://<id>?v=…#<at>`) opens there with its place, through the same `onOpenLink` a link
  * takes; a pill naming a path on this computer still goes to the host as a file mention. Clicked for real, on the
  * product's own parse → html block → click chain (link-sim.contract.test.tsx's mount, copied: it is private there).
  */
 import { describe, expect, it } from 'vitest'
 import { parseMarkdownToBlocks } from '../core/markdown/parse'
-import { classifyFileLink } from '@gugu/core/shared/ui/fileLink'
+import { parseGuguLink, type GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
 import { stringifyMention } from '@gugu/session-shared/markdown'
 import { htmlBlockDef } from '@session-chat/components/rows/markdown/html/html.def'
 import { makeContractCtx } from './contract'
@@ -58,17 +58,16 @@ async function clickChips(markdown: string, commands: ChatCommands): Promise<num
 
 describe('a file pill opens the way its link does (App 引用 pill)', () => {
   it('one pointing at a group file opens there, with its place; one naming a local path stays the host’s mention', async () => {
-    const groupOpens: { itemId: string; at?: Record<string, string> }[] = []
+    const groupOpens: GuguLinkTarget[] = []
     const mentions: { id: string; kind: string }[] = []
     const commands: ChatCommands = {
-      classifyLink: (href: string) => classifyFileLink(href),
-      onOpenGroupFile: (arg) => groupOpens.push(arg),
+      onOpenLink: (href) => { const target = parseGuguLink(href); if (!target) return false; groupOpens.push(target); return true },
       onClickMention: (arg) => mentions.push({ id: arg.id, kind: arg.kind }),
     }
     const pill = stringifyMention({ label: '演示稿 · 第 3 页 · 标题', target: `gugu-file://${ITEM}?v=7#slide=3&shape=12`, kind: 'file' })
     const local = stringifyMention({ label: 'a.ts', target: '/work/a.ts', kind: 'file' })
     expect(await clickChips(`改这里 ${pill} 和 ${local}`, commands)).toBe(2)
-    expect(groupOpens).toEqual([{ itemId: ITEM, at: { slide: '3', shape: '12' } }])
+    expect(groupOpens).toEqual([{ kind: 'file', itemId: ITEM, version: 7, at: { slide: '3', shape: '12' } }])
     expect(mentions).toEqual([{ id: '/work/a.ts', kind: 'file' }])
   })
 

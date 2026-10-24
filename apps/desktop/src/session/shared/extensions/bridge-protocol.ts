@@ -53,8 +53,9 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
  * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
  * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
+ * 13: common resource linkTo/openLink on desktop, phone and programs (generation only).
  */
-export const EXTENSION_API_VERSION = 12;
+export const EXTENSION_API_VERSION = 13;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -818,7 +819,7 @@ export const BRIDGE_VERBS = {
   showSession: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
   /**
    * The person clicked a link of gugu's own in the page (what `linkTo` makes): it opens through the one opener a link
-   * from outside gugu takes (`openExtensionLink`). Not on `window.gugu`: the preload sends it from a real click on an
+   * from outside gugu takes. Public on `window.gugu`; the runtime also sends a real click on an
    * `<a>`; a page script that moves `location` is still stopped at `will-navigate`, and any other link is still refused.
    */
   openLink: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },

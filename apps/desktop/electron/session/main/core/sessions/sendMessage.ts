@@ -8,7 +8,7 @@ import { log } from '@main/lib/logger';
 import { taskExchangeRecorded } from '../session-timeline/task-exchanges';
 import { activitySignal } from '../activity/signals';
 import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
-import { conversationLink, parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { conversationLink, parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import {
   acceptSessionMessage,
   enqueueSessionMessage,

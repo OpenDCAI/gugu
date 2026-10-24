@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { FileText, X } from '@/lib/icons'
 import { IconButton } from '../ui/IconButton'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'

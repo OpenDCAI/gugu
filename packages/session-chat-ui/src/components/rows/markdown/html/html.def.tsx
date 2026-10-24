@@ -107,11 +107,7 @@ function HtmlBlockView(props: { node: Measured<HtmlLeafLayout> }) {
     if (mention) {
       // A file pill is read the way a link is (App 引用 pill, 148 17:03): one pointing at a group's file — `gugu-file://`,
       // maybe with a place — opens there, as that link's click does; only a path on this computer is the host's file.
-      const groupFile = mention.dataset.mentionKind === 'file' ? commands().classifyLink?.(mention.dataset.mentionId ?? '') : undefined;
-      if (groupFile?.kind === 'group-file') {
-        commands().onOpenGroupFile?.({ itemId: groupFile.itemId, ...(groupFile.at ? { at: groupFile.at } : {}) });
-        return;
-      }
+      if (mention.dataset.mentionKind === 'file' && commands().onOpenLink?.(mention.dataset.mentionId ?? '')) return;
       commands().onClickMention?.({
         id: mention.dataset.mentionId ?? '',
         label: mention.dataset.mentionLabel ?? mention.textContent ?? '',
@@ -126,17 +122,10 @@ function HtmlBlockView(props: { node: Measured<HtmlLeafLayout> }) {
     event.preventDefault();
     const href = link.getAttribute('href') ?? '';
     if (href.startsWith('#')) return;
+    if (commands().onOpenLink?.(href)) return;
     const kind = commands().classifyLink?.(href);
-    if (kind?.kind === 'conversation') {
-      commands().onOpenConversationLink?.(kind.href);
-      return;
-    }
     if (kind?.kind === 'workspace-file') {
       commands().onOpenFile?.({ path: kind.path, itemId: props.node.layout.id, source: 'prose-link', ...(kind.at ? { at: kind.at } : {}) });
-      return;
-    }
-    if (kind?.kind === 'group-file') {
-      commands().onOpenGroupFile?.({ itemId: kind.itemId, ...(kind.at ? { at: kind.at } : {}) });
       return;
     }
     window.open(href, '_blank', 'noopener,noreferrer');

@@ -51,7 +51,7 @@ function start(capabilities: PhoneAppBinding['capabilities']) {
   host?.dispose()
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
     {
       showMessage: vi.fn(),
       showSession: (sessionId: string) => {
@@ -210,7 +210,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(1)
     // A new theme rebinds the frame (update): what the word covers stays.
-    host!.update({ extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
+    host!.update({ extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(2)
   })

@@ -120,6 +120,8 @@ function readBundleReadme(rootDir: string): string | null {
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
 export const extensionsController = createRPCController({
+  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
+    (await import('./gugu-links')).openLink(args.target),
   list: async () => {
     try {
       const { extensions, invalid } = extensionsService().list();
