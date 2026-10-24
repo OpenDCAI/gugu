@@ -11,7 +11,7 @@ const f = vi.hoisted(() => ({ message: vi.fn(), metadata: vi.fn(), cached: vi.fn
 vi.mock('@/lib/chat', () => ({ chatService: { getMessageById: f.message } }))
 vi.mock('@/lib/attachmentBytes', () => ({ attachmentResolver: { metadata: f.metadata, forget: f.forget, resolve: f.signed }, cachedAttachmentCopy: f.cached }))
 vi.mock('@/components/chat/sendAttachmentBatch', () => ({ sendAttachmentBatch: f.send }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('react-i18next', async (importOriginal) => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
 
 const original = { id: 'message', chat_id: 'group', sender_user_id: 'user-1', to_user_ids: ['private-reader'],
   is_whisper: true, thread_root_id: 'thread', is_thread_root: false, retracted_at: null,
