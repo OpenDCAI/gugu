@@ -16,6 +16,7 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
+export { readCurrentActivityInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
 import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
 import * as path from 'node:path'
@@ -388,7 +389,7 @@ function installSessionClearDataShim(): void {
 /** 咕咕 server(server-entry.ts):同一份主进程,没有窗口、没有渲染层。 */
 const HEADLESS_SERVER = process.env.GUGU_SERVER_MODE === '1'
 
-export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
+export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<SessionHostBootOptions, 'scheduleDiscovery'>): Promise<void> {
   // #6264 没有窗口:会话里的 open_in_tab 送到正看着这条会话的桌面,❌ 问一个不存在的渲染层干等超时(remote-pane.ts)。
   if (HEADLESS_SERVER) setRemotePaneOpener(sharedRemotePaneRoute())
   const electronIpc = createElectronHostIpc({ ipcMain, BrowserWindow, MessageChannelMain })
@@ -403,6 +404,7 @@ export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
   await bootSessionHostCore({
     hostIpc: composeHostIpc(devWs ? [electronIpc, deviceHost, devWs] : [electronIpc, deviceHost]),
     browserFeatures: true,
+    ...discovery,
   })
 }
 
@@ -424,6 +426,8 @@ export type SessionHostBootOptions = {
   hostIpc: HostIpc
   /** 只有 Electron 窗口宿主为 true:<webview> 准入、扩展桥、内置浏览器分区。无头宿主 false。 */
   browserFeatures: boolean
+  /** The host owns the first-request boundary; ordinary desktop hosts discover immediately. */
+  scheduleDiscovery?: (work: () => Promise<void>) => Promise<void>
 }
 
 /**
@@ -714,7 +718,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
   // --- Post-registration reconcilers (index.ts:185-215). Fire-and-forget. ---
   void reconcileResourceSampler()
-  localDependencyManager.probeAll().catch((e: unknown) => {
+  const discover = () => localDependencyManager.probeAll()
+  const discovery = options.scheduleDiscovery ? options.scheduleDiscovery(discover) : discover()
+  discovery.catch((e: unknown) => {
     log.error('Failed to probe dependencies:', e)
   })
   // @@@3130 GitHub 账号对账**不在这里跑**。它三步里任何一步碰到已有数据都会写加密存储 →

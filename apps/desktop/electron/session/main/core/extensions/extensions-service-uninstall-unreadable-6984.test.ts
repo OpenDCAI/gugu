@@ -13,7 +13,7 @@ function setup() {
   mkdirSync(source, { recursive: true });
   writeFileSync(path.join(source, 'index.html'), '<p>demo</p>');
   writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({
-    id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
   }));
   const root = path.join(work, 'installed');

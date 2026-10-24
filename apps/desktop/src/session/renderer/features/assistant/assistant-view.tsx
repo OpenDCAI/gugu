@@ -131,8 +131,8 @@ export const AssistantMainPanel = observer(function AssistantMainPanel() {
     );
   }
   // 新用户 / 还没有它:整页是给它安家的引导(欢迎 → 起名选色 → 你的称呼 → 安家;壳画进格子)。
-  // 管家正在云上开它(会员一键领取之后)也在这一页:那几步的进度由壳画。
-  if (shell.setup === 'shell' || (!shell.assistant && shell.assistantState === 'none')) {
+  const waitingForCloudSetup = shell.setup !== null && (snapshot?.state === 'provisioning' || snapshot?.state === 'error');
+  if (waitingForCloudSetup || shell.setup === 'shell' || (!shell.assistant && shell.assistantState === 'none')) {
     return (
       <div className="ta-app ta-centered" data-testid="assistant-onboarding">
         <ShellSlot name="onboarding" className="ta-skin ta-onb-slot" />

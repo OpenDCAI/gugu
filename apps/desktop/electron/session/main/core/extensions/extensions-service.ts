@@ -17,6 +17,7 @@ import {
 import { EXTENSION_ORIGINS, keptRevocations, type ExtensionOrigin } from '@shared/extensions/upgrade';
 import { appIdentityOf, appKey, type AppIdentity } from '@shared/extensions/app-identity';
 import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-settings';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 
 export type { ExtensionOrigin };
 
@@ -250,6 +251,7 @@ export class ExtensionsService {
    */
   installFromDirectory(sourceDir: string, consentedDigest: string, origin: ExtensionOrigin, publisher?: ExtensionPublisher): InstalledExtension {
     const { source, manifest, manifestDigest } = this.validateSource(sourceDir);
+    requireAppPlatform(manifest, 'desktop');
     // Read the withdrawal record up front. It is written after the bundle lands,
     // and reading it can throw — doing that afterwards would report a failed
     // install for one that already happened: the new bundle on disk, the caller
