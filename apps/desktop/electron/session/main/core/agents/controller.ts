@@ -137,7 +137,7 @@ export const agentsController = createRPCController({
   // 份全员未安装的名单;composer 的「尚未安装」标签读的就是这个,会当场说谎。
   //
   // `ensureAgentDependenciesProbed` 在所有 agent 都已有状态时立即返回,所以开机探测跑完之后
-  // 这一行是零成本;只有那个竞态窗口里会多跑一遍探测。多探一次远好过报一个编出来的结论。
+  // 这一行无需重探;开机与查询共用同一轮完成结果,不把未知状态编成未安装。
   list: async () => {
     const mgr = await getDependencyManager();
     await ensureAgentDependenciesProbed(mgr);
