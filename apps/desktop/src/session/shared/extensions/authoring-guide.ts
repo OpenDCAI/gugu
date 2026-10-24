@@ -180,8 +180,7 @@ the dock/background have neither chat nor session. Read context before drawing.
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
   or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
   programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
-- \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
-  entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
+- \`gugu.clipboard.writeText\`: click/key only, including your \`menu\` / \`toolbar\` entries (\`onCommand\`), drawn on the tab/panel header.
 - Chat panels open at 520 px: design narrow first, widen with a media/container query.
 - No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
 
@@ -193,7 +192,7 @@ The page stays sandboxed with the opener's context/grants; \`(await gugu.getCont
 Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
 The host handles Escape, Tab traversal, Back and focus restoration.
 
-Free (they only concern your own tab):
+Free:
 
 - \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
   \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
@@ -210,12 +209,10 @@ Free (they only concern your own tab):
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
-- \`sendToBackground(message)\` → view → your own background page (none: rejects); the host stamps \`from\`.
-- \`onBackgroundMessage(fn)\` → what the background broadcast; views paint from this.
-- \`broadcastToViews(message)\` → background → every live view of this App; resolves
-  \`{ delivered }\` (0 is normal).
-- \`onViewMessage(fn)\` → \`(message, from)\`: \`from\` is the sending page's context, as the host knows it; the
-  background hears its views here.
+- \`sendToBackground(message)\` → your background page (none: rejects); host stamps \`from\`.
+- \`onBackgroundMessage(fn)\` → paint the background's broadcasts.
+- \`broadcastToViews(message)\` → background → live views, resolves \`{ delivered }\` (0 is normal).
+- \`onViewMessage(fn)\` → background hears \`(message, from)\`; \`from\`: host-stamped sender context.
 
 Needs \`chat:relay\`:
 
