@@ -329,6 +329,9 @@ export default {
     "fileExpired": "文件已过期",
     "reupload": "重新上传",
     "selectOriginal": "选择原文件",
+    "storageWarning": "群文件存储空间即将用尽（{{used}} / {{limit}}）。",
+    "storageFull": "群文件存储空间已满（{{used}} / {{limit}}），暂时无法上传新文件。",
+    "usageUnavailable": "文件用量暂不可用。",
 
     "fileUnavailable": "文件暂时打不开",
     "imageUnavailable": "图片暂时打不开",
