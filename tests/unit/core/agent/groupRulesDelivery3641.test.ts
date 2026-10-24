@@ -195,7 +195,7 @@ describe('读者随投递送达群规', () => {
 
   it('私聊与没立规矩的群:不读、不带任何群规格子', async () => {
     const h = harness({ facts: { [OTHER_GROUP]: group(null) } })
-    h.unread.push(row('d1', 1, { chatId: 'dm1', chatKind: 'dm' }), row('m1', 1, { chatId: OTHER_GROUP }))
+    h.unread.push(row('d1', 1, { chatId: '00000000-0000-4000-8000-000000000005', chatKind: 'dm' }), row('m1', 1, { chatId: OTHER_GROUP }))
     await pullAgentInbox(AGENT, h.deps)
     expect(h.factReads).toEqual([OTHER_GROUP])
     for (const input of h.injected) {

@@ -236,7 +236,7 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
   it('injects senderless system events once, under the system identity', async () => {
     const rows: AgentInboxUnreadRow[] = [
       { ...base, id: '10000000-0000-4000-8000-00000000001e', seq: 1, senderUserId: null, senderType: null, contentType: 'system', content: '已转为被动模式' },
-      { ...base, id: 'direct-system', seq: 4, senderUserId: null, senderType: null, contentType: 'system', listenMode: 'passive', toUserIds: [AGENT] },
+      { ...base, id: '10000000-0000-4000-8000-000000000021', seq: 4, senderUserId: null, senderType: null, contentType: 'system', listenMode: 'passive', toUserIds: [AGENT] },
     ]
     const injected: AgentInboxInjectionInput[] = []
     const read = new Set<string>()
@@ -250,10 +250,10 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
     }
     const result = await pullAgentInbox(AGENT, deps)
     expect(result).toMatchObject({ pulled: 2, injected: 2, verdict: 'accepted' })
-    expect([...read]).toEqual(['10000000-0000-4000-8000-00000000001e', 'direct-system'])
+    expect([...read]).toEqual(['10000000-0000-4000-8000-00000000001e', '10000000-0000-4000-8000-000000000021'])
     const delivered = injected.map((input) => input.text).join('\n')
     expect(delivered).toContain('from="咕咕系统" from_id="system:gugu"')
-    expect(delivered).toContain('msg="msg:system-active"')
+    expect(delivered).toContain('msg="msg:10000000-0000-4000-8000-00000000001e"')
     expect(delivered).not.toContain('user:null')
     // Nudge storms and a restarted reader use the existing exact read markers.
     await Promise.all([pullAgentInbox(AGENT, deps), pullAgentInbox(AGENT, deps)])
@@ -773,7 +773,7 @@ describe('入群门:agent 只收在场之后的消息(#5258)', () => {
     cloud.post({ chatId: '00000000-0000-4000-8000-00000000000b', id: '10000000-0000-4000-8000-000000000014', seq: 4, senderUserId: HUMAN, senderType: 'human', content: 'four' })
     await pullAgentInbox(AGENT, deps)
     // 投递过的那一条有精确读行(人看得到「agent 读了这条」);没投递过的三条一条都没有。
-    expect([...cloud.readRows]).toEqual([`new-4:${AGENT}`])
+    expect([...cloud.readRows]).toEqual([`10000000-0000-4000-8000-000000000014:${AGENT}`])
   })
 
   it('创群就在场的 agent 不受影响:开张后的每一条都收', async () => {
@@ -792,7 +792,7 @@ describe('入群门:agent 只收在场之后的消息(#5258)', () => {
     groupWithHistory(cloud, '00000000-0000-4000-8000-00000000000b')
     // 变异只动被测的那一格:把 agent 的入群位置挪回第一条入库之前,门就等于不存在。
     // (门按入库序判,#6327 —— 挪 joinedAt 已经挪不动它。)
-    cloud.members.get(`chat-late:${AGENT}`)!.joinedIngestSeq = 0
+    cloud.members.get(`00000000-0000-4000-8000-00000000000b:${AGENT}`)!.joinedIngestSeq = 0
     const { deps, injections } = makeDeps(cloud)
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 3 })
     expect(injections.map((entry) => entry.messageId)).toEqual(['old-1', 'old-2', 'old-3'])
@@ -947,8 +947,8 @@ describe('P-E6 已读回执:逐条精确读行 + 顺序消费下水位前进;水
     const { deps } = makeDeps(cloud)
     await pullAgentInbox(AGENT, deps)
     expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
-    expect(cloud.readRows.has(`m1:${AGENT}`)).toBe(true)
-    expect(cloud.readRows.has(`m2:${AGENT}`)).toBe(true)
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-00000000000f:${AGENT}`)).toBe(true)
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-000000000010:${AGENT}`)).toBe(true)
     expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(2)
   })
 
@@ -964,7 +964,7 @@ describe('P-E6 已读回执:逐条精确读行 + 顺序消费下水位前进;水
     await pullAgentInbox(AGENT, deps)
     expect(injections).toHaveLength(1)
     expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(0) // 水位被 gap 卡住 —— 这就是「顺序消费下永不触发」不成立的读数。
-    expect(cloud.readRows.has(`m2:${AGENT}`)).toBe(true)
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-000000000010:${AGENT}`)).toBe(true)
     // 若去重只靠水位,这里会重注入;精确读行必须防住。
     resetAgentInboxReaderStateForTests()
     await pullAgentInbox(AGENT, deps)
@@ -1280,7 +1280,7 @@ describe('#6036 unread scan pagination', () => {
     let fail = true
     const { deps } = makeDeps(cloud, {
       inject: async ({ messageId }) => {
-        if (messageId === 'row-81' && fail) throw new Error('second page failure')
+        if (messageId === '30000000-0000-4000-8000-000000000081' && fail) throw new Error('second page failure')
         accepted.push(messageId!)
         return 'accepted'
       },
