@@ -34,11 +34,13 @@ div.phone-app-product {
 .phone-app-product .mk-primary-action {
   width: 100%;
 }
-.phone-app-product .mk-back,
-.phone-app-product .mk-primary-action,
+.phone-app-product button,
 .phone-app-market [data-lifecycle],
 .phone-app-market .mk-chipbar [data-slot='toggle-group-item'] {
   min-height: var(--control-h-touch);
+}
+.phone-app-product [data-testid='app-product-more'] {
+  min-width: var(--control-h-touch);
 }
 .phone-app-product .mk-facts {
   display: grid;
