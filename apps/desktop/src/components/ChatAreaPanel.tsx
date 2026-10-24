@@ -462,7 +462,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     if (!isRoomChatSurface) void loadImportedHistories(activeChatId)
   }, [activeChatId, isRoomChatSurface, loadHistoryFiles, loadImportedHistories, closeRightSurfaces])
 
-  useTopicsPanelRequest(activeChatId, openNonce, handleOpenHistoryPanel)
+  useTopicsPanelRequest(surfaceVisible ? activeChatId : null, openNonce, handleOpenHistoryPanel)
   const handleCloseHistoryPanel = useCallback(() => setHistoryPanelOpen(false), [])
 
   const topicSurface = useTopicSurface({
@@ -868,9 +868,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         searchMode={searchMode}
         workspacePanelOpen={workspaceForm !== 'closed'}
         memberListOpen={memberListOpen}
-        historyPanelOpen={historyPanelOpen}
         showHeaderMenu={showHeaderMenu}
-        mobile={mobile} modeButton={sessionpageAgent.openAction !== null}
+        mobile={mobile}
         // 块里没有标题后面那个「(N)」,人数挂在成员按钮上(原型「👥 4」)。
         memberCount={blockHost && roomMemberTotal > 0 ? roomMemberTotal : undefined}
         moreInTabMenu={Boolean(blockHost)}
@@ -881,8 +880,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         onOpenSettingsDrawer={handleOpenSettingsDrawer}
         onOpenMemberList={handleOpenMemberList}
         onCloseRightSurfaces={closeRightSurfaces}
-        onOpenHistoryPanel={handleOpenHistoryPanel}
-        onCloseHistoryPanel={handleCloseHistoryPanel}
         onToggleHeaderMenu={() => setShowHeaderMenu((v) => !v)}
         onCloseHeaderMenu={() => setShowHeaderMenu(false)}
         onOpenAnnouncement={handleOpenAnnounce}
