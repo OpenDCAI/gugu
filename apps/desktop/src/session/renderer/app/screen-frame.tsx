@@ -30,6 +30,7 @@ import {
 import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { ChatTabMenuItems } from '@renderer/features/chats/chat-tab-menu-items';
 import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
+import { requestTopicSplit } from '@/lib/topicSplitRequest';
 import { ComposerVerbDock } from '@renderer/features/sessions/task-dispatch-composer';
 import { ProjectBlock } from './project-block';
 import { screenLayout } from './screen-layout';
@@ -463,6 +464,7 @@ export function screenDropHandlers(enabled: boolean) {
       event.preventDefault();
       event.stopPropagation();
       dropOnScreen(hit.drop, hit.content);
+      if (hit.content.kind === 'chat' && hit.content.topic) requestTopicSplit({ ...hit.content.topic, sourceChatId: hit.content.chatId, focusComposer: true });
     },
     onDragLeave: (event: DragEvent<HTMLElement>) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBlockDropPreview(null);

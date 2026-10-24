@@ -32,6 +32,7 @@ describe('drag-screen-content', () => {
   it.each<DraggedScreenContent>([
     { kind: 'session', projectId: 'p', sessionId: 's', title: 'Task' },
     { kind: 'chat', chatId: 'c', title: 'Chat' },
+    { kind: 'chat', chatId: 'c', title: 'Topic', topic: { chatId: 't', name: 'Topic' } },
     { kind: 'app', tabKind: 'app-test', title: 'App' },
     { kind: 'project', projectId: 'p', title: 'Project' },
   ])('carries $kind through the same-window and serialized paths', (content) => {
@@ -47,6 +48,8 @@ describe('drag-screen-content', () => {
 
   it.each([
     '{', 'null', '"chat"',
+    JSON.stringify({ kind: 'chat', chatId: 'c', title: 'Topic', topic: null }),
+    JSON.stringify({ kind: 'session', sessionId: 's', projectId: 'p', title: 'Task', topic: { chatId: 't', name: 'Topic' } }),
     JSON.stringify({ sessionId: 'old', title: 'Old payload' }),
     JSON.stringify({ kind: 'session', sessionId: 's', title: 'Missing project' }),
     JSON.stringify({ kind: 'chat', title: 'Missing chat id' }),

@@ -4,7 +4,7 @@ import type { ScreenBlockContent } from '@renderer/app/screen-layout';
  * would insert it beside a task mention. Chromium can lose custom MIME data at drop, so keep
  * the same-window payload until dragend; the MIME marker still guards against stale drags. */
 export const SCREEN_CONTENT_DRAG_TYPE = 'application/x-gugu-screen-content';
-export type DraggedScreenContent = ScreenBlockContent & { title: string };
+export type DraggedScreenContent = ScreenBlockContent & { title: string; topic?: { chatId: string; name: string } };
 let draggedContent: DraggedScreenContent | null = null;
 
 /**
@@ -61,6 +61,7 @@ function isDraggedContent(value: unknown): value is DraggedScreenContent {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<DraggedScreenContent>;
   if (typeof candidate.title !== 'string') return false;
+  if (candidate.topic !== undefined && (candidate.kind !== 'chat' || typeof candidate.topic?.chatId !== 'string' || typeof candidate.topic?.name !== 'string')) return false;
   switch (candidate.kind) {
     case 'session': return typeof candidate.sessionId === 'string' && typeof candidate.projectId === 'string';
     case 'app': return typeof candidate.tabKind === 'string';

@@ -8,6 +8,7 @@ import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from '@renderer/app/screen-layout';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
+import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 
 // #7052 一屏几块:真组件(ScreenFrame + react-resizable-panels)、真几何。判据钉的是 2026-10-09 实机撞过的几件:
@@ -21,6 +22,7 @@ let host: HTMLDivElement | null = null;
 const s = (sessionId: string) => ({ projectId: 'p', sessionId });
 
 beforeEach(async () => {
+  vi.stubGlobal('electronAPI', { invoke: async (channel: string) => { if (channel !== 'viewState.save') throw new Error(`unexpected IPC: ${channel}`); }, eventOn: () => () => {} });
   await page.viewport(1200, 700);
   document.body.style.margin = '0';
   host = document.createElement('div');
@@ -46,6 +48,26 @@ const blockWidths = () =>
 const separator = () => document.querySelector<HTMLElement>('[data-screen-frame] [data-slot="resizable-handle"]');
 
 describe('一屏几块的骨架 (#7052)', () => {
+  it('opens a topic only after its source chat lands in a workspace split', async () => {
+    screenLayout.show(s('a'));
+    root!.render(<ScreenFrame />);
+    await until('one block', () => blockWidths().length === 1);
+    const rect = host!.querySelector('[data-screen-block]')!.getBoundingClientRect();
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'chat', chatId: 'group', title: 'Topic', topic: { chatId: 'topic', name: 'Topic' } });
+    const handlers = screenDropHandlers(true);
+    const event = { dataTransfer, target: host, clientX: rect.left + 5, clientY: rect.top + rect.height / 2, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    const composer = document.createElement('div');
+    composer.dataset.slot = 'composer-bar';
+    handlers.onDropCapture({ ...event, target: composer } as never);
+    expect(drainTopicSplitRequest('group')).toBeNull();
+    handlers.onDropCapture(event as never);
+    expect(screenLayout.order).toHaveLength(2);
+    expect(drainTopicSplitRequest('group')).toEqual({ chatId: 'topic', name: 'Topic', sourceChatId: 'group', focusComposer: true });
+    screenLayout.close(screenLayout.order.find((id) => screenLayout.blocks.get(id)?.kind === 'chat')!);
+    clearDraggedScreenContent();
+  });
+
   it('can move an existing block beside its neighbour using the space its old block releases', async () => {
     host!.style.width = '800px';
     screenLayout.show(s('a'));
