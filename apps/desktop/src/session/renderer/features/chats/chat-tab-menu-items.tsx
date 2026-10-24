@@ -7,9 +7,8 @@ import { installedExtensionsStore } from '@renderer/features/extensions/installe
 import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-menu';
 
 /**
- * 块第一枚页签右键菜单里这个对话的那几行(gugu-dev#181:页签条右端没有 ⋯,原来 ⋯ 里的东西都在这里):
- * 群公告(群才有)、设置、在本群打开 App。公告和设置是壳那块面上的抽屉,点名对话发过去(只有那块面答);
- * App 走「在本群打开」同一条 openApp。
+ * The tab's context menu shares its conversation actions with More. Requests name
+ * the source conversation so only its panel answers; Apps use the same openApp path.
  */
 export const ChatTabMenuItems = observer(function ChatTabMenuItems({ chatId }: { chatId: string }) {
   const ask = (page: ChatDetailsRequest['page']) =>
