@@ -609,6 +609,13 @@ export default {
     }
   },
   "header": {
+    "groupApps": "Group Apps",
+    "personalPins": "Only you",
+    "pinGroupApp": "Pin {{name}} to this group header",
+    "unpinGroupApp": "Remove {{name}} from this group header",
+    "appPinsLoadFailed": "Could not load pinned Apps.",
+    "appPinsSaveFailed": "Could not save pinned Apps.",
+    "noGroupApps": "No Apps available on this device.",
     "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
     "history": "History",
