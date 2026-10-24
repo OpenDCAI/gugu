@@ -14,8 +14,7 @@ import { useLocale } from "@/i18n";
 import { useTheme } from "../../store/theme";
 
 /**
- * 附件三件套。附件块就是电脑输入框那枚 `ComposerAttachmentChip`(进度、失败原因、重传、移除),两端长一个样;
- * 这里只把 assistant-ui 的 `attachment.status` 翻成它的入参。适配器见 mobile/agent-watch/composer-attachments.ts。
+ * 消息里的附件沿用共享 ComposerAttachmentChip；输入框的附件由 ChatComposer 统一渲染。
  */
 
 const CHIP_KEYS: Record<string, string> = {

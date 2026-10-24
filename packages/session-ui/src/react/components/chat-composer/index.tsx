@@ -999,6 +999,7 @@ export function ChatComposer({
                   className={styles.sendButtonRound}
                   data-composer-action="stop"
                   disabled={disabled || stopDisabled}
+                  aria-busy={stopDisabled || undefined}
                   onClick={onStop}
                   aria-label={translate('composer.stopGeneration')}
                 >

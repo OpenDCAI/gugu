@@ -204,10 +204,6 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean; submitOnEnter: bool
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-bg" as string]: "var(--color-card)",
-        // @@@radius-thread (Refs #6105) — 官方默认 1.5rem(24px) 正是 design.md「a rounded-3xl composer」
-        // 点名禁的那个形状。composer 与用户气泡同属 thread 档(16px)。
-        ["--composer-radius" as string]: "var(--radius-thread)",
-        ["--composer-padding" as string]: "8px",
       }}
     >
       {/* 跟到底(官方默认锚)。❌ turnAnchor="top":它关掉跟底,改在 isRunning 期间把用户那句钉顶,
@@ -413,7 +409,7 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
   return (
     <ThemeProvider theme={theme} target="documentElement">
       <MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-        <input ref={picker} type="file" multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+        {capabilities.attachments && <input ref={picker} type="file" multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />}
         <ChatComposer editorApiRef={editor} mobile={mobile} placeholder={placeholder}
           editorOptions={{ enterBehavior: submitOnEnter ? 'submit' : 'newline', clearOnSubmit: false }}
           disabled={isDisabled} canSubmit={!sendDisabled && canSend && (!isRunning || capabilities.queue)}
@@ -421,7 +417,7 @@ function Composer({ autoFocus, submitOnEnter, sendDisabled }: { autoFocus: boole
           onStop={hostStop?.onStop} onInputChange={(value) => composer.setText(value)} onSubmit={() => composer.send()}
           onAttach={capabilities.attachments ? () => picker.current?.click() : undefined}
           onFilesDropped={capabilities.attachments ? addFiles : undefined} onImageFilesDropped={capabilities.attachments ? addFiles : undefined}
-          attachments={chips} onAttachmentsChange={(next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove(); }}
+          attachments={chips} onAttachmentsChange={capabilities.attachments ? (next) => { for (const attachment of attachments) if (!next.some((chip) => chip.id === attachment.id)) void composer.attachment({ id: attachment.id }).remove(); } : undefined}
           onRetryAttachment={(id) => { const file = attachments.find((attachment) => attachment.id === id)?.file; if (file) void composer.attachment({ id }).remove().then(() => composer.addAttachment(file)); }}
           toolbarExtra={<ComposerExtras />} mentionProvider={mentionProvider} renderMentionIcon={renderMentionIcon}
           dataDropTypes={dataDropTypes} onDataDropped={onDataDropped} />
