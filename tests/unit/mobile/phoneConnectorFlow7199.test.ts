@@ -700,17 +700,20 @@ describe('startGithubSetup —— GitHub 设备码', () => {
 })
 
 describe('等回跳的时限', () => {
-  it('默认五分钟:四分五十九秒还在等,到五分钟超时', async () => {
-    const auth = await startAuthServer()
+  it('默认五分钟:到期前一毫秒还在等,到五分钟超时', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    const h = harness()
-    startOauthSetup(h.deps, { serverUrl: auth.serverUrl }, (state) => h.states.push(state))
-    // 准备走真网络:等它到「等回跳」。
-    for (let i = 0; i < 200 && !h.states.some((state) => state.phase === 'awaiting'); i += 1) await vi.advanceTimersByTimeAsync(5)
+    // 真 HTTP / SDK 的准备过程由上面的用例覆盖;虚拟时钟只测等回跳的时限。
+    const h = harness({ begin: async () => ({ authorizationUrl: 'https://auth.example/authorize', complete: async () => ({}) }) })
+    await new Promise<void>((resolve) => {
+      startOauthSetup(h.deps, { serverUrl: 'https://mcp.example/mcp' }, (state) => {
+        h.states.push(state)
+        if (state.phase === 'awaiting') resolve()
+      })
+    })
     expect(h.states.at(-1)?.phase).toBe('awaiting')
-    await vi.advanceTimersByTimeAsync(OAUTH_TIMEOUT_MS - 1000)
+    await vi.advanceTimersByTimeAsync(OAUTH_TIMEOUT_MS - 1)
     expect(h.states.at(-1)?.phase).toBe('awaiting')
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(h.states.at(-1)).toMatchObject({ phase: 'failed', failure: { reason: 'timeout' } })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(h.states.at(-1)).toEqual({ phase: 'failed', failure: { step: 'authorize', reason: 'timeout' } })
   })
 })
