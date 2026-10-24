@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComputerControlHooks, FamilyDeps } from '../../../../apps/desktop/electron/device-actions/catalog'
 import { createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
-import { COMPUTER_TOOLS, createComputerFamily, cuaOutcome, parseTreeRows, sessionOf } from '../../../../apps/desktop/electron/device-actions/families/computer'
+import { COMPUTER_TOOLS, createAppDirectory, createComputerFamily, cuaOutcome, parseTreeRows, sessionOf } from '../../../../apps/desktop/electron/device-actions/families/computer'
 import { createDeviceActionGrantsStore } from '../../../../apps/desktop/electron/device-actions/grants-store'
 import type { CuaToolResult } from '../../../../apps/desktop/electron/device-actions/native/cua-client'
 import { NativeCallError } from '../../../../apps/desktop/electron/device-actions/native/mac-helper-client'
@@ -74,7 +74,7 @@ function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; h
   store.setGroup('computer', true)
   store.setGroup('screen', true)
   const p = createDeviceActionsProvider({ store, families: [createComputerFamily(dir)], deps })
-  const invoke = async (action: string, args: Record<string, unknown>, caller?: { agent_user_id?: string; name?: string }) => {
+  const invoke = async (action: string, args: Record<string, unknown>, caller?: { agent_user_id?: string; name?: string; task_title?: string }) => {
     const permit = await p.provider.permit(action)
     if (!permit.ok) return permit
     const pre = await p.provider.preflight?.(action, args)
@@ -87,6 +87,31 @@ function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; h
 const forwarded = (callTool: ReturnType<typeof setup>['callTool'], i = 0) => callTool.mock.calls[i] as unknown as [string, Record<string, unknown>]
 
 describe('电脑控制:登记', () => {
+  it('keeps the exact window with a snapshot token and isolates it by caller lane and PID', () => {
+    const apps = createAppDirectory()
+    apps.learn('a', { pid: 77, snapshot_id: 's1', window_id: 501 })
+    apps.learn('b', { snapshot_id: 's1' }, { pid: 88, window_id: 601 })
+    expect(apps.pidOf('a', { element_token: 's1:3' })).toBe(77)
+    expect(apps.windowOf('a', { element_token: 's1:3' })).toBe(501)
+    expect(apps.windowOf('b', { element_token: 's1:3' })).toBe(601)
+    expect(apps.windowOf('c', { element_token: 's1:3' })).toBeUndefined()
+    expect(apps.windowOf('a', { pid: 88, element_token: 's1:3' })).toBeUndefined()
+    expect(apps.windowOf('a', { target: { pid: 77, window_id: 502 }, element_token: 's1:3' })).toBe(502)
+  })
+
+  it('passes an explicit or token-derived window identity to the real control boundary', async () => {
+    const begin = vi.fn(() => ({ signal: new AbortController().signal, end: vi.fn() }))
+    const { invoke } = setup({ control: { begin }, callTool: async (name) => name === 'get_window_state'
+      ? { structuredContent: { pid: 77, snapshot_id: 's1', window_id: 501 } }
+      : { structuredContent: {} } })
+    await invoke('computer.get_window_state', { pid: 77, window_id: 501 }, { name: 'Agent A', task_title: 'Task one' })
+    expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 501, callerName: 'Agent A', taskTitle: 'Task one' })
+    await invoke('computer.click', { element_token: 's1:3', x: 1, y: 1 }, { name: 'Agent A' })
+    expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 501, callerName: 'Agent A' })
+    await invoke('computer.click', { target: { pid: 77, window_id: 502 }, x: 1, y: 1 }, { name: 'Agent A' })
+    expect(begin).toHaveBeenLastCalledWith({ pid: 77, windowId: 502, callerName: 'Agent A' })
+  })
+
   it('forwards the trusted execution budget through the provider and computer family without putting it in tool args', async () => {
     const { p, callTool } = setup()
     let left = 60_000

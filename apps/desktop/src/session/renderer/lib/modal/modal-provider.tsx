@@ -1,13 +1,10 @@
 import { runInAction } from 'mobx';
 import { useObserver } from 'mobx-react-lite';
-import { useCallback, type ReactNode } from 'react';
+import { useCallback } from 'react';
 import { type modalRegistry } from '@renderer/app/modal-registry';
 import { modalStore } from './modal-store';
 
-export interface BaseModalProps<TResult = unknown> {
-  onSuccess: (result: TResult) => void;
-  onClose: () => void;
-}
+export type { BaseModalProps, ModalComponent } from '@/components/ui/modal-registry';
 
 type UserArgs<MId extends ModalId> = Omit<ModalArgs<MId>, 'onSuccess' | 'onClose'> & {
   onSuccess?: (
@@ -15,10 +12,6 @@ type UserArgs<MId extends ModalId> = Omit<ModalArgs<MId>, 'onSuccess' | 'onClose
   ) => void;
   onClose?: () => void;
 };
-
-export type ModalComponent<TProps = unknown, TResult = unknown> = (
-  props: TProps & BaseModalProps<TResult>
-) => ReactNode | Promise<ReactNode>;
 
 type ModalId = keyof typeof modalRegistry;
 

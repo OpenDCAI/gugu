@@ -26,12 +26,12 @@ function issues(raw: unknown): string {
 describe('an App written for apiVersion 1 or 2', () => {
   it.each([1, 2])('%i: refused in one sentence that says what to do — and nothing about what changed', (version) => {
     expect(issues(app(version))).toBe(
-      `apiVersion: apiVersion ${version} is an older App interface; ask an agent to rewrite the App for apiVersion 10 as app_create writes Apps.`,
+      `apiVersion: apiVersion ${version} is an older App interface; ask an agent to rewrite the App for apiVersion 11 as app_create writes Apps.`,
     );
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(10);
+    expect(EXTENSION_API_VERSION).toBe(11);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 
@@ -46,7 +46,9 @@ describe('an App written for apiVersion 1 or 2', () => {
     expect(issues(app(7))).toBe('');
     expect(issues(app(8))).toBe('');
     expect(issues(app(9))).toBe('');
-    expect(issues(app(11))).toBe('apiVersion: apiVersion 11 needs a newer gugu (this build supports up to 10)');
+    expect(issues(app(10))).toBe('');
+    expect(issues(app(11))).toBe('');
+    expect(issues(app(12))).toBe('apiVersion: apiVersion 12 needs a newer gugu (this build supports up to 11)');
   });
 });
 

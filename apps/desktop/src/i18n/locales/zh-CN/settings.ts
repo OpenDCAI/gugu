@@ -262,13 +262,13 @@ export default {
       "recentOsPermission": "没做成：系统没给咕咕「{{group}}」的权限",
       "recentUnsupported": "没做成：这台电脑做不了",
       "computerBar": {
-        "drivingApp": "{{name}} 正在操作「{{app}}」",
+        "drivingApp": "{{name}} 正在操作",
         "drivingComputer": "{{name}} 正在查看这台电脑",
-        "pausedApp": "你接过了「{{app}}」，{{name}} 不会再动它",
+        "pausedApp": "{{name}} 已暂停操作",
         "pausedComputer": "{{name}} 已停下，不会再动这台电脑",
         "someApp": "某个 App",
         "stop": "停止",
-        "resume": "让它继续",
+        "resume": "继续",
         "someone": "助理"
       },
       "recentRunning": "正在做…",
