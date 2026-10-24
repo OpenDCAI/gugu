@@ -8,7 +8,8 @@ import { ASSISTANT_INDEX_LIMIT } from './assistant-index-format'
 import { refreshAssistantContext } from './assistant-instructions'
 export { refreshAssistantContext } from './assistant-instructions'
 import type { Materialization } from '../capability-bundle'
-import { assistantStartupIndex, type AssistantStartupIndexDeps } from './assistant-startup-index'
+import type { AssistantStartupIndexDeps } from './assistant-startup-index'
+import { openingAssistantIndex } from './assistant-index-cache'
 import { assistantRecoveryHook, assistantResourceHook } from './assistant-resource-hook'
 import { assistantPendingHook } from './assistant-pending-hook'
 import { assistantNoteWriteHook } from './assistant-note-hook'
@@ -34,12 +35,12 @@ export async function preparePersonalAssistantContext(
   capabilities: Materialization, cwd: string, guguHome: string, kind: AssistantHomeKind,
   deps: AssistantStartupIndexDeps, home = homedir(),
 ): Promise<Materialization> {
-  const [, index] = await Promise.all([
+  const [, opening] = await Promise.all([
     refreshAssistantContext(cwd, guguHome, kind, home),
-    assistantStartupIndex(deps),
+    openingAssistantIndex(guguHome, cwd, kind, deps),
   ])
   const memoryDir = assistantHomePaths(home, cwd, kind).memoryDir
-  return personalAssistantContext(capabilities, kind, { index, guguHome,
+  return personalAssistantContext(capabilities, kind, { index: opening.index, guguHome,
     recoveryContext: assistantRecoveryContext(memoryDir), workingContextPath: join(memoryDir, 'working-context.md') })
 }
 

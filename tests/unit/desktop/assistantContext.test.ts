@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { assistantGuide, assistantHomePaths, assistantRecoveryContext } from '@gugu/core/shared/assistantPolicy'
 import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION } from '@gugu/core/shared/assistantWorkflow'
+import { openingAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-cache'
 import { boundedAssistantIndex } from '../../../apps/desktop/electron/sessionpage/assistant-index-format'
 import type { Materialization } from '../../../apps/desktop/electron/capability-bundle'
 import { assistantHomeTaskContext, personalAssistantContext, preparePersonalAssistantContext, refreshAssistantContext } from '../../../apps/desktop/electron/sessionpage/assistant-context'
@@ -196,7 +197,7 @@ it('retains an explicit reasoning choice', () => {
   expect(actual.options.systemPrompt).toBe('explicit system instructions')
 })
 
-it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through native SessionStart, including on resume', async kind => {
+it.each(['computer', 'cloud'] as const)('opens %s with an honest snapshot while fresh discovery continues, including on resume', async kind => {
   const root = await mkdtemp(join(tmpdir(), 'assistant-start-'))
   vi.stubEnv('GUGU_CLOUD_COMPUTER', kind === 'cloud' ? '1' : '0')
   try {
@@ -215,20 +216,28 @@ it.each(['computer', 'cloud'] as const)('delivers fresh %s summaries through nat
     const start = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
     const options = (start.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
     expect(options.systemPrompt).not.toContain('first-project')
-    expect(hookIndex(start)).toContain('first-project')
-    const devices = hookIndex(start).split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
-    expect(devices[0].execution_environment).toBe(kind === 'cloud' ? 'cloud' : 'user_device')
+    expect(hookIndex(start)).toContain('not_loaded')
+    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
+    const warm = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    expect(hookIndex(warm)).toContain('first-project')
+    const devices = hookIndex(warm).split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    expect(devices.find(row => row.account)?.execution_environment).toBe(kind === 'cloud' ? 'cloud' : 'user_device')
     const executionHost = devices.find(row => row.device_id === 'device:execution-host')
     expect(executionHost).toMatchObject({ this_machine: true })
     if (kind === 'cloud') expect(executionHost).toHaveProperty('cloud_computer', 'awake')
     else expect(executionHost).not.toHaveProperty('cloud_computer')
     expect(options.systemPrompt).toContain('identity and product rules')
     expect(start.sessionPrompt).toBe('identity and product rules')
+    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
     name = 'renamed-project'
     const resumed = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
     const next = (resumed.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-    expect(hookIndex(resumed)).toContain('renamed-project')
-    expect(hookIndex(resumed)).not.toContain('first-project')
+    expect(hookIndex(resumed)).toContain('first-project')
+    expect(hookIndex(resumed)).toContain('cached')
+    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
+    const refreshed = await preparePersonalAssistantContext(fixture(), cwd, root, kind, deps, root)
+    expect(hookIndex(refreshed)).toContain('renamed-project')
+    await (await openingAssistantIndex(root, cwd, kind, deps)).refreshed
     expect(hookIndex(resumed).match(/<gugu_resource_index>/g)).toHaveLength(1)
     expect(next.plugins).not.toEqual(options.plugins)
     expect(start.artifacts!.find(file => file.path.endsWith('/hooks/hooks.json'))?.content).toContain('SessionStart')
