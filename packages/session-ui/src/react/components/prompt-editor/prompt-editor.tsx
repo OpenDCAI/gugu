@@ -266,8 +266,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     refresh();
     return mentionProvider.onResultsChanged?.(refresh);
   }, [mentionProvider]);
-  const renderMentionIconRef = useRef(renderMentionIcon);
-  renderMentionIconRef.current = renderMentionIcon;
   const queryMentionsRef = useRef(queryMentions);
   queryMentionsRef.current = queryMentions;
   const queryCommandsRef = useRef(queryCommands);
@@ -337,9 +335,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
           .run();
         onMentionInsertRef.current?.(item);
       },
-    },
-    {
-      renderMentionIcon: (attrs) => renderMentionIconRef.current?.(attrs) ?? null,
     }
   );
 

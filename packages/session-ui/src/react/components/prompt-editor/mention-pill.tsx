@@ -2,7 +2,7 @@
  * MentionPill
  *
  * React NodeView for the TipTap `mention` atom node. Participant targets retain
- * their @ prefix and host-owned avatar; file targets render
+ * their @ prefix without an avatar; file targets render
  * as a real pill with a file glyph (slash-command pill treatment) — the dropped-
  * folder path reference must read as an object, and its hover ✕ lives over the
  * icon slot only, never stretched across the text:
@@ -17,7 +17,7 @@
 import { cx } from '@session-ui/styles/utilities/cx';
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { File, X } from '../../../icons'
-import type { MentionKind, MentionRole, RenderMentionIcon } from './types';
+import type { MentionKind, MentionRole } from './types';
 import * as styles from './mention-pill.css';
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -25,9 +25,7 @@ import * as styles from './mention-pill.css';
 export function MentionPill({
   node,
   deleteNode,
-  renderMentionIcon,
-}: NodeViewProps & { renderMentionIcon?: RenderMentionIcon }) {
-  const id = (node.attrs.id as string | null) ?? '';
+}: NodeViewProps) {
   const label = (node.attrs.label as string | null) ?? (node.attrs.id as string | null) ?? '';
   const rawName = (node.attrs.name as string | null) ?? null;
   const name = rawName ?? label;
@@ -41,7 +39,6 @@ export function MentionPill({
   const agentTitle = isAgent
     ? ((node.attrs.title as string | null)?.trim() || name)
     : null;
-  const icon = renderMentionIcon?.({ id, label, name, kind, role, engine }) ?? null;
   const pending = node.attrs.pending === true;
 
   // Hover-x: overlaid over the icon area on pill-hover
@@ -78,11 +75,9 @@ export function MentionPill({
         title={agentTitle ?? undefined}
       >
         {/* Icon area — relative so the ✕ overlay is positioned inside it */}
-        {isFile || icon ? (
-          <span className={icon ? styles.pillAgentIconArea : styles.pillIconArea}>
-            <span aria-hidden className={styles.pillAgentIcon}>
-              {icon ?? <File style={{ width: '0.75rem', height: '0.75rem' }} />}
-            </span>
+        {isFile ? (
+          <span className={styles.pillIconArea}>
+            <File aria-hidden style={{ width: '0.75rem', height: '0.75rem' }} />
             {removeBtn}
           </span>
         ) : (

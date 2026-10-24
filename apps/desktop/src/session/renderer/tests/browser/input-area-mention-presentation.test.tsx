@@ -71,7 +71,7 @@ describe('participant mention presentation', () => {
     { name: 'Alice', id: 'human-alice' },
     { name: 'Claude', id: 'agent-claude' },
     { name: 'Everyone', id: '*' },
-  ].map((member) => ({ ...member, width }))))('shows an avatar and an @ prefix for $name at $width px', async ({ name, id, width }) => {
+  ].map((member) => ({ ...member, width }))))('shows an avatar in suggestions and an avatar-free @$name pill at $width px', async ({ name, id, width }) => {
     await page.viewport(width, 720)
     const input = page.getByTestId('chat-composer')
     await input.click()
@@ -79,18 +79,18 @@ describe('participant mention presentation', () => {
     const option = page.getByRole('option', { name: new RegExp(name) })
     await until('participant option is available', () => option.elements().length === 1)
     expect(option.element().querySelector('img, svg[role="img"]'), 'use the participant avatar, not a first initial').not.toBeNull()
+    if (id === 'human-alice') expect(option.element().querySelector('img')?.getAttribute('src')).toBe(customAvatar)
     if (id === '*') expect(option.element().textContent?.replace('↵', '')).toBe('Everyone')
 
     await option.click()
     await until('participant pill is inserted', () => input.element().querySelector(`[data-mention-id="${id}"]`) !== null)
     const pill = input.element().querySelector(`[data-mention-id="${id}"]`)!
     expect(pill.textContent).toBe(`@${name}`)
-    expect(pill.querySelector('img, svg[role="img"]'), 'keep the same avatar after selection').not.toBeNull()
-    if (id === 'human-alice') expect(pill.querySelector('img')?.getAttribute('src')).toBe(customAvatar)
+    expect(pill.querySelector('img, svg[role="img"]'), 'selected mentions only show @name').toBeNull()
     expect(page.getByRole('button', { name: `Remove @${name}` }).elements()).toHaveLength(1)
   })
 
-  it('uses the same identity avatar and @ prefix for a task reference', async () => {
+  it('shows the task identity avatar in suggestions and only @name in its pill', async () => {
     root!.render(<LocalizationProvider><TaskEditor /></LocalizationProvider>)
     const input = page.getByTestId('task-mention-editor')
     await input.click()
@@ -102,16 +102,16 @@ describe('participant mention presentation', () => {
     await until('task peer pill is inserted', () => input.element().querySelector('[data-mention-id="aid:agent-claude"]') !== null)
     const pill = input.element().querySelector('[data-mention-id="aid:agent-claude"]')!
     expect(pill.textContent).toBe('@Claude')
-    expect(pill.querySelector('[data-agent-avatar-boring="agent-claude"]')).not.toBeNull()
+    expect(pill.querySelector('img, svg[role="img"]')).toBeNull()
   })
 
-  it('keeps an avatar and @ prefix when a member is inserted from their profile', async () => {
+  it('shows only @name when a member is inserted from their profile', async () => {
     root!.render(<LocalizationProvider><ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat groupMembers={members}
       mentionToInsert={{ id: 'agent-claude', name: 'Claude' }} onMentionInserted={vi.fn()} /></LocalizationProvider>)
     const input = page.getByTestId('chat-composer')
     await until('profile mention is inserted', () => document.querySelector('[data-testid="chat-composer"] [data-mention-id="agent-claude"]') !== null)
     const pill = input.element().querySelector('[data-mention-id="agent-claude"]')!
     expect(pill.textContent).toBe('@Claude')
-    expect(pill.querySelector('[data-agent-avatar-boring="agent-claude"]')).not.toBeNull()
+    expect(pill.querySelector('img, svg[role="img"]')).toBeNull()
   })
 })

@@ -32,7 +32,7 @@ export interface MentionItem {
   name?: string;
   /**
    * Host-owned icon rendered in the suggestion popup. When absent, the popup
-   * and pill use the same identity resolver, `renderMentionIcon`.
+   * uses the identity resolver, `renderMentionIcon`.
    */
   icon?: ReactNode;
   /** Optional secondary description shown in the popup row. For agent peers, this is the sidebar title. */
@@ -185,7 +185,7 @@ export interface PromptEditorProps {
    */
   mentionProvider?: ContextMentionProvider;
   /**
-   * Optional host renderer for mention pill icons. Used when the host owns
+   * Optional host renderer for mention suggestion icons. Used when the host owns
    * provider-specific assets that this package cannot import directly.
    */
   renderMentionIcon?: RenderMentionIcon;
