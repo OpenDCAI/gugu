@@ -111,6 +111,7 @@ describe('device cloud helpers', () => {
     }
     const device = normalizeDeviceRow({
       device_id: 'device-1', label: 'Mac', hostname: 'fixture', platform: 'darwin', status: 'online',
+      last_seen_at: '2026-10-24T00:00:00Z',
       capabilities: { terminals: ['terminal'], runtimes: ['codex'], actions },
     })
     expect(device.capabilities.actions).toEqual(actions)
