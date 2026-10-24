@@ -16,15 +16,15 @@ type NativeAcpSpawnResult = Omit<AcpSpawnResult, 'command'> & {
   command?: string;
 };
 
-// The v1 SDK rejects these negotiated extensions before its notification callback.
-// Route them directly to domain decoding; never fabricate a tool notification.
+// Negotiated extensions require their own identity fields; malformed frames
+// retain the SDK error path. Every valid session update is decoded in wire order.
 const LEGACY_SESSION_UPDATES = new Set([
   'subagent_spawned', 'subagent_state_update', 'async_task_spawned',
   'async_task_progress', 'async_task_state_update', 'compaction_update',
   'compaction_summary_chunk', 'notice',
 ]);
 
-export function routeLegacySessionUpdates(
+export function routeSessionUpdates(
   source: ReadableStream<Uint8Array>,
   deliver: (notification: SessionNotification) => void,
 ): ReadableStream<Uint8Array> {
@@ -35,12 +35,12 @@ export function routeLegacySessionUpdates(
     try { message = JSON.parse(line) as typeof message; } catch { return line; }
     const params = message.params;
     const update = params?.update as unknown as Record<string, unknown> | undefined;
-    if (message.method !== 'session/update' || !params || !update
-      || !LEGACY_SESSION_UPDATES.has(String(update.sessionUpdate))) return line;
+    if (message.method !== 'session/update' || !params || !update) return line;
     const id = update.subagentSessionId ?? update.asyncTaskId ?? update.compactionId;
     // Malformed frames keep the SDK's loud rejection rather than becoming ignored events.
     if (typeof params.sessionId !== 'string'
-      || (update.sessionUpdate !== 'notice' && (typeof id !== 'string' || !id))) return line;
+      || (LEGACY_SESSION_UPDATES.has(String(update.sessionUpdate))
+        && update.sessionUpdate !== 'notice' && (typeof id !== 'string' || !id))) return line;
     deliver(params);
     return null;
   };
@@ -76,12 +76,12 @@ export function connectStdioAcp(io: AcpProcessIo, toClient: AcpClientFactory, op
   };
   const stream = ndJsonStream(
     Writable.toWeb(io.stdin) as WritableStream<Uint8Array>,
-    routeLegacySessionUpdates(nodeReadableToWeb(io.stdout), deliver),
+    routeSessionUpdates(nodeReadableToWeb(io.stdout), deliver),
   );
   new ClientSideConnection((agent) => {
     boundary = createRequestActivity(agent as ClientSideConnection, params => client.sessionEvent(params), options);
     client = toClient(boundary.agent);
-    return { ...client, sessionUpdate: deliver, requestPermission: params => client.requestPermission(decodePermissionRequest(params)) };
+    return { ...client, sessionUpdate: () => { throw new Error('Session update bypassed ingress decoding'); }, requestPermission: params => client.requestPermission(decodePermissionRequest(params)) };
   }, stream);
   const api = boundary!.agent;
   const initialize = api.initialize;

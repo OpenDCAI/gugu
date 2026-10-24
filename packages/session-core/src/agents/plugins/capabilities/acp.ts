@@ -203,11 +203,11 @@ export interface AcpProcessIo {
  */
 export interface AcpAgentApi {
   initialize(params: InitializeRequest): Promise<InitializeResponse>;
-  newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
+  newSession(params: NewSessionRequest): Promise<NewSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
-  loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
+  loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
-  unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse>;
+  unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Dispatch/acceptance only. Foreground completion arrives independently as a domain event. */
   prompt(params: PromptRequest, dispatch?: {
     requestId: string;

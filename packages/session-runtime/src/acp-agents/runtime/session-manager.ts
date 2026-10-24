@@ -1,8 +1,8 @@
+import type { SessionCommandDefinition } from '@gugu/session-core/acp';
 import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import { readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type {
-  AvailableCommand,
   CreateTerminalRequest,
   CreateTerminalResponse,
   ForkSessionRequest,
@@ -165,9 +165,9 @@ interface SessionRecordBase {
   /** 回合结束钩子连续要求「继续」的次数(见 `runTurnEndHook`)。 */
   stopHookContinuations?: number;
   /** 这一家自己报的最后一张命令表(见 `IAcpBehavior.discoverCommands`)。未到 = undefined。 */
-  providerCommands?: readonly AvailableCommand[];
+  providerCommands?: readonly SessionCommandDefinition[];
   /** 宿主按这一家的目录约定补出来的命令;合并时同名让位给 `providerCommands`。 */
-  supplementalCommands?: readonly AvailableCommand[];
+  supplementalCommands?: readonly SessionCommandDefinition[];
   queuePersistenceError: unknown | null;
   queuePersistenceFailure: () => Result<never, InvalidStateError> | null;
   /**
@@ -802,9 +802,11 @@ export class SessionManager implements InboundRouter {
         record.cell.setAcpSessionId(response.sessionId);
         // 路由必须在**拿到 sessionId 的那一刻**就登记 —— 见下面 newSession 分支的说明。
         this.registerRoute(connection.key, response.sessionId, input.sessionId);
+        if (response.availableCommands) record.providerCommands = response.availableCommands;
         record.cell.applySessionMeta({
           modes: response.modes,
           configOptions: response.configOptions,
+          availableCommands: response.availableCommands && mergeCommands(response.availableCommands, record.supplementalCommands),
         });
         const forkModelResult = await this.applyInitialModel(record, input, 'existing-provider-session', response.configOptions);
         if (!forkModelResult.success) {
@@ -836,9 +838,11 @@ export class SessionManager implements InboundRouter {
           const response = await connection.agent.loadSession(
             this.buildLoadSessionRequest(input, loadProviderSessionId)
           );
+          if (response.availableCommands) record.providerCommands = response.availableCommands;
           record.cell.applySessionLoaded({
             modes: response.modes,
             configOptions: response.configOptions,
+            availableCommands: response.availableCommands && mergeCommands(response.availableCommands, record.supplementalCommands),
           });
           const modelResult = await this.applyInitialModel(record, input, 'existing-provider-session', response.configOptions);
           if (!modelResult.success) {
@@ -1033,11 +1037,14 @@ export class SessionManager implements InboundRouter {
             sessionId: response.sessionId,
             modes: response.modes,
             configOptions: response.configOptions,
+            availableCommands: response.availableCommands,
           },
         });
+        if (response.availableCommands) record.providerCommands = response.availableCommands;
         record.cell.applySessionMeta({
           modes: response.modes,
           configOptions: response.configOptions,
+          availableCommands: response.availableCommands && mergeCommands(response.availableCommands, record.supplementalCommands),
         });
         const modelResult = await this.applyInitialModel(record, input, 'new-session', response.configOptions);
         if (!modelResult.success) {
@@ -1741,7 +1748,7 @@ export class SessionManager implements InboundRouter {
     const terminals = this.getTerminals(sessionId);
     publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
     record.lastSynced.terminals = terminals;
-    this.emitCommittedTurns(record);
+    this.emitCommittedTurns(record, terminals);
   }
 
   killAllTerminals(): void {
@@ -1755,11 +1762,7 @@ export class SessionManager implements InboundRouter {
   ): void {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
     if (!sessionId) {
-      // #5143 的第二半:**根因是登记太晚,而它能藏一整天是因为这里太安静。**
-      // 一条本该到达的会话通知被丢掉,产品只留一行 warn ⇒ 症状("命令表是空的")与原因
-      // 之间隔着一整条链,只能靠人倒推。路由登记提前之后,走到这里就**不再是正常时序**,
-      // 而是一条真的对不上号的通知 ⇒ 按 error 记,并说清丢了什么。
-      // ❌ 不抛:这是通知回调,抛出去会带走整条连接 —— 响亮不等于把别的东西也弄死。
+      // A missing route loses a real update; report it at the routing boundary.
       this.deps.logger.error('SessionManager: dropped a session update with no known session', {
         providerSessionId: params.sessionId,
         processKey: connection.key,
@@ -1779,14 +1782,12 @@ export class SessionManager implements InboundRouter {
       this.registerRoute(connection.key, params.sessionId, sessionId);
     }
     if (params.trace !== undefined) {
-      // Opaque diagnostics only. Projection and config changes consume the domain event below.
       record.cell.recordRaw({ kind: 'session_update', sessionId: params.sessionId, update: params.trace });
     }
     const scoped = this.terminalLiveRegistry.route(sessionId, connection.key, params.sessionId, event);
     if (!scoped) return;
     event = scoped;
-    // 子智能体派生了:它自己的会话号从此路由回本会话(#5117)。路由随本会话一起注销
-    // (`unregisterRoutes` 按 conversationId 清)。
+    // Child routes belong to the parent record and are removed with it.
     if (event.kind === 'subagent' && event.subagentSessionId) {
       record.childProviderSessionIds.add(event.subagentSessionId);
       this.registerRoute(connection.key, event.subagentSessionId, sessionId);
@@ -1935,7 +1936,9 @@ export class SessionManager implements InboundRouter {
   ): Promise<RequestPermissionResponse> {
     const sessionId = this.resolveSessionForProviderSession(connection.key, params.sessionId);
     const record = sessionId ? this.cells.get(sessionId) : undefined;
-    if (!record) return Promise.resolve({ outcome: { outcome: 'cancelled' } });
+    if (!record || (record.connectionLease && record.connectionLease.value.process !== connection.process)) {
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } });
+    }
     const response = record.cell.requestPermission(params);
     this.syncRecord(record);
     return response;
@@ -2360,11 +2363,11 @@ export class SessionManager implements InboundRouter {
   }
 
   /** Push new turns and in-place revisions to the single durable history writer. */
-  private emitCommittedTurns(record: SessionRecord): void {
+  private emitCommittedTurns(record: SessionRecord, terminals = this.getTerminals(record.input.sessionId)): void {
     // Later replayed child records can revise an earlier parent turn. Publish the complete
     // replay at endReplay; intermediate replay turns cannot safely revise existing storage.
     if (record.replaying && record.cell.sessionState.lifecycle === 'replaying') return;
-    record.cell.transcript.pushEvent({ kind: 'terminal_snapshots', terminals: this.getTerminals(record.input.sessionId) });
+    record.cell.push({ kind: 'terminal_snapshots', terminals });
     const emit = this.deps.onTurnCommitted;
     if (!emit) return;
     // 运行时视图(侧边对话,由运行时分叉实现)不落盘。它的 `conversationId` 是个**视图 id**,
@@ -2806,9 +2809,9 @@ type IAcpBehaviorDiscover = NonNullable<
 
 /** 合并两张命令表:这一家自己报的排前、同名以它为准;补出来的只补它没有的名字。 */
 export function mergeCommands(
-  provider: readonly AvailableCommand[],
-  supplemental: readonly AvailableCommand[] | undefined
-): AvailableCommand[] {
+  provider: readonly SessionCommandDefinition[],
+  supplemental: readonly SessionCommandDefinition[] | undefined
+): SessionCommandDefinition[] {
   if (!supplemental?.length) return [...provider];
   const taken = new Set(provider.map((command) => command.name));
   return [...provider, ...supplemental.filter((command) => !taken.has(command.name))];

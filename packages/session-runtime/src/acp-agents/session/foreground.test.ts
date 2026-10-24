@@ -36,11 +36,11 @@ describe('one foreground cycle authority', () => {
       if (action === 'e') p.echo();
       if (action === 'i') {
         p.state('idle', { stopReason: 'max_tokens', usage: { totalTokens: 7 } });
-        // This wait must finish even when the native receipt has not arrived yet.
-        expect(await sent.completion).toMatchObject({ success: true });
+        // Idle closes the foreground; caller completion also needs its native identity.
         expect(p.cell.sessionState.lifecycle).toBe('ready');
       }
     }
+    expect(await sent.completion).toMatchObject({ success: true });
     const history = p.cell.history();
     expect(history.active).toBeNull();
     expect(history.committed).toHaveLength(1);
@@ -57,17 +57,54 @@ describe('one foreground cycle authority', () => {
     p.state('running'); p.echo('u1', 'first');
     await p.cell.queueBehindTurn({ text: 'second', origin: 'manual' });
     p.state('idle', { stopReason: 'end_turn' });
+    expect(p.prompt).toHaveBeenCalledTimes(1);
+    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'u1' });
     await first.completion;
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(2));
     p.state('running'); p.echo('u2', 'second');
-    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'u1' });
-    await p.receipts[0].promise;
     expect(p.cell.sessionState.lifecycle).toBe('working');
     expect(p.cell.history().committed).toHaveLength(1);
     p.state('idle', { stopReason: 'end_turn' });
     p.receipts[1].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[1][1].requestId, messageId: 'u2' });
     await p.receipts[1].promise;
     expect(p.cell.history().committed).toHaveLength(2);
+  });
+
+  it.each(['idle', 'exit', 'close'])('settles an accepted request with no echo at %s', async boundary => {
+    const p = nativeCell();
+    const sent = p.cell.promptDetached({ text: 'not inserted' });
+    await sent.admission;
+    await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
+    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'missing' });
+    await p.receipts[0].promise;
+    if (boundary === 'idle') p.state('idle', { stopReason: 'end_turn' });
+    if (boundary === 'exit') p.cell.processClosed({ exitCode: 1, signal: null, stderrTail: '' });
+    if (boundary === 'close') p.cell.dispose();
+    expect(await sent.completion).toMatchObject({ success: false });
+  });
+
+  it('two inserted messages can share a cycle without the second receipt completing the first', async () => {
+    const p = nativeCell();
+    const first = p.cell.promptDetached({ text: 'first' });
+    await first.admission;
+    await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
+    p.state('running'); p.echo('u1', 'first');
+    const second = p.cell.promptDetached({ text: 'second' }, { steerIfBusy: true });
+    await second.admission;
+    await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(2));
+    p.echo('u2', 'second');
+    p.receipts[1].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[1][1].requestId, messageId: 'u2' });
+    await second.completion;
+    let completed = false;
+    void first.completion.then(() => { completed = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(completed).toBe(false);
+    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'u1' });
+    await p.receipts[0].promise;
+    p.state('idle', { stopReason: 'end_turn' });
+    expect(await first.completion).toMatchObject({ success: true });
+    expect(p.cell.history().committed).toHaveLength(1);
+    expect(p.cell.history().committed[0].items.filter(item => item.kind === 'message' && item.role === 'user')).toHaveLength(2);
   });
 
   it('unsolicited cycles need no prompt and replayed state cannot revive them', () => {
@@ -97,9 +134,9 @@ describe('one foreground cycle authority', () => {
     await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
     p.state('running'); p.echo('second', 'continue');
     p.state('idle', { stopReason: 'end_turn' });
+    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'second' });
     await next.completion;
     expect(p.cell.sessionState.backgroundAgentCount).toBe(1);
-    p.receipts[0].resolve({ status: 'accepted', requestId: p.prompt.mock.calls[0][1].requestId, messageId: 'second' });
   });
 
   it('unknown reasons and full native errors survive independently of receipts', async () => {
@@ -137,6 +174,19 @@ describe('one foreground cycle authority', () => {
     expect(await sent.completion).toMatchObject({ success: false });
     expect(p.cell.history().committed[0].outcome).toMatchObject({ kind: 'error' });
     expect(p.cell.history().committed[0].foreground).toBeUndefined();
+  });
+
+  it('cancel after dispatch and before running retains the native cancellation outcome', async () => {
+    const p = nativeCell();
+    const sent = p.cell.promptDetached({ text: 'cancel before insertion' });
+    await sent.admission;
+    await vi.waitFor(() => expect(p.prompt).toHaveBeenCalledTimes(1));
+    await p.cell.cancel();
+    p.receipts[0].reject(Object.assign(new Error('Request cancelled'), { code: -32800 }));
+    await sent.completion;
+    expect(p.cell.history().committed[0].outcome).toEqual({ kind: 'cancelled', reason: 'cancelled' });
+    expect(p.cell.history().committed[0].foreground).toBeUndefined();
+    expect(p.cell.sessionState.lifecycle).toBe('ready');
   });
 
   it('a late refusal cannot close running native work; idle still owns the cycle boundary', async () => {

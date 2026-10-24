@@ -28,10 +28,10 @@ export function decodeClaudeSessionUpdate(raw: unknown): NormalizedEvent {
     const parentToolCallId = typeof claude?.parentToolUseId === 'string'
       ? claude.parentToolUseId : event.parentToolCallId ?? null;
     const name = event.toolName ?? claude?.toolName;
-    if (name === 'Agent' || name === 'Task') {
+    const result = claude?.toolResponse;
+    if (name === 'Agent' || name === 'Task' || (name === undefined && typeof result?.agentId === 'string')) {
       // The standard child update names its session; only the native Agent result identifies
       // the launching tool call. This is lineage/model metadata, not a second child lifecycle.
-      const result = claude?.toolResponse;
       const input = (raw as { rawInput?: { description?: unknown; model?: unknown } }).rawInput;
       const title = typeof result?.description === 'string' ? result.description
         : event.title && event.title !== 'Agent' && event.title !== 'Task' ? event.title : undefined;

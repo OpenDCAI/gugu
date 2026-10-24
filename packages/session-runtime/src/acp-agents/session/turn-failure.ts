@@ -181,6 +181,9 @@ export function refusedTurnOutcome(code: string | null | undefined): TranscriptT
 export function classifyTurnFailure(fact: TurnFailureFact): ClassifiedTurnFailure {
   switch (fact.at) {
     case 'prompt': {
+      if (fact.cause.code === -32800) {
+        return { outcome: { kind: 'cancelled', reason: 'cancelled' }, provisional: false };
+      }
       // 线是我们自己断的、provider 没说话 ⇒ 这一轮被停下,与它在 close 时答 `cancelled` 同一个结局。
       // provider 说过话的那一条仍是它的话(final),❌ 被「我们在关」盖掉。
       if (fact.closeRequested && !providerAuthored(fact.cause)) {

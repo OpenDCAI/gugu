@@ -127,13 +127,13 @@ export type DomainEvent =
   | { type: 'WorkStarted' }
   /** agent 停下了(working/cancelling → ready):记下怎么停的,抽干队列。 */
   | { type: 'WorkEnded'; outcome: TurnOutcome; dequeueQueuedPrompt?: boolean }
-  | { type: 'AgentsChanged'; runningCount: number }
+  | { type: 'AgentsChanged'; runningCount: number; dequeueQueuedPrompt?: boolean }
   | { type: 'BackgroundCommandsChanged'; taskIds: readonly string[] }
   | { type: 'CancellationRequested' }
   | { type: 'PermissionRequested'; request: AcpPermissionRequest }
   | { type: 'PermissionResolved'; requestId: string }
   /** A live setting was confirmed; release prompts held at the next-turn barrier. */
-  | { type: 'SettingsReady' }
+  | { type: 'AdmissionReady' }
   | { type: 'ProcessClosed'; exit: AdapterExit; abnormal?: boolean };
 
 export type TurnOutcome = { kind: 'stopped'; stopReason: StopReason } | { kind: 'errored' };
@@ -417,7 +417,7 @@ export function evolve(
 
     case 'AgentsChanged': {
       const { queuedPrompts, effects: queueEffects } =
-        ev.runningCount === 0 && s.phase.kind === 'ready'
+        ev.runningCount === 0 && s.phase.kind === 'ready' && ev.dequeueQueuedPrompt !== false
           ? dequeuePromptEffects(s.queuedPrompts)
           : { queuedPrompts: s.queuedPrompts, effects: [] as Effect[] };
       return {
@@ -473,8 +473,8 @@ export function evolve(
         effects: [{ type: 'permissionResolved', requestId: ev.requestId, cancelled: false }],
       };
 
-    case 'SettingsReady': {
-      if (s.phase.kind !== 'ready') return warn(s, `SettingsReady in phase '${s.phase.kind}'`);
+    case 'AdmissionReady': {
+      if (s.phase.kind !== 'ready') return warn(s, `AdmissionReady in phase '${s.phase.kind}'`);
       const { queuedPrompts, effects: queueEffects } = dequeuePromptEffects(s.queuedPrompts);
       return {
         state: { ...s, queuedPrompts },

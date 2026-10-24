@@ -353,10 +353,6 @@ function toAgentStatus(
 /**
  * 后台任务的原生 lane(`async_task_*`)→ 那张命令卡(#5117)。
  *
- * 这是**谈成 AIR `asyncTasks` 之后**才有的路。以前同样的信息靠仓里给适配器打的补丁伪造
- * 一条 `_meta.claudeCode.taskStarted` 塞进来,而那条补丁认不出归属:它拿子会话里的
- * `tool_use_id` 发到根会话,根转录不认识 ⇒ 凭空多一行、停也停不中。现在归属由协议给。
- *
  * ⚠️ **`toolCallId` 缺席 = 还不知道,不是「没有父调用」**(协议原文:correlation becomes
  * known after spawn)。所以缺席时什么都不做,等后续 progress/state 带上它再落地 ——
  * ❌ 别为了「先显示出来」造一条顶层行,那正是 #5117 里那条凭空多出来的卡。
@@ -467,7 +463,7 @@ function reduceSubagentStream(
       : { kind: 'subagent_done', ...ids,
           status: inner.state === 'unknown' ? 'disconnected' : inner.state === 'idle' && inner.stopReason === 'cancelled' ? 'stopped'
             : inner.state === 'idle' && inner.stopReason === 'error' ? 'failed' : 'completed',
-          ...(inner.state === 'idle' && typeof inner._meta?.summary === 'string' ? { summary: inner._meta.summary } : {}) };
+          ...(inner.state === 'idle' && inner.summary !== undefined ? { summary: inner.summary } : {}) };
     return reduce(s, { kind: 'event', event, at }, deps);
   }
   if (inner.kind === 'config') {

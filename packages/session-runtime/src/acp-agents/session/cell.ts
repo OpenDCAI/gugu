@@ -69,6 +69,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { acceptPromptMessage, reconcilePromptEcho, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -161,8 +162,7 @@ export class SessionCell {
   private closeRequested = false;
   private reverting = false;
   private activeTurnCompletion: Promise<Result<SessionPromptResult, AcpSendPromptError>> | null = null;
-  private readonly requests = new Map<string, { messageId: string; prompt: QueuedPrompt; steered: boolean; cycle: Promise<Result<SessionPromptResult, AcpSendPromptError>> | null }>();
-  private readonly acceptedMessages = new Map<string, { localId: string; message: Extract<NormalizedEvent, { kind: 'message' }> }>();
+  private readonly requests = new Map<string, PromptRequest>();
   /** 发出去的句数(含回放):转录行 id 与回合信封的序号用它,❌ 不是状态。 */
   private promptSequence = 0;
   private dequeueAfterFailure = true;
@@ -342,6 +342,7 @@ export class SessionCell {
   applySessionReady(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.applyEvent({ type: 'SessionReady' });
     this.seedTranscriptMeta(meta);
@@ -350,6 +351,7 @@ export class SessionCell {
   applySessionLoaded(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.applyEvent({ type: 'SessionLoaded' });
     this.seedTranscriptMeta(meta);
@@ -358,6 +360,7 @@ export class SessionCell {
   applySessionMeta(meta: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.seedTranscriptMeta(meta);
   }
@@ -399,6 +402,10 @@ export class SessionCell {
 
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
+    if (event.kind === 'terminal_snapshots') {
+      this.transcript.pushEvent(event);
+      return; // Materialization consumes a snapshot; it cannot notify its own producer.
+    }
     if (event.kind === 'agent_state') {
       this.onAgentState(event);
       return;
@@ -413,6 +420,7 @@ export class SessionCell {
     if (event.kind === 'prompt_result') {
       this.applyReceiptMetadata(event.requestId, event._meta);
       const request = this.requests.get(event.requestId);
+      const dequeueAfterFailure = this.dequeueAfterFailure;
       if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
         const queued = this.dispatch({ type: 'QueuePrompt', prompt: request.prompt });
         if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
@@ -426,16 +434,15 @@ export class SessionCell {
         this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, requestId: event.requestId, cause: event.error });
         this.endWork(classified.outcome, { dequeueQueuedPrompt: this.dequeueAfterFailure });
       }
-      this.requests.delete(event.requestId);
+      if (event.error && request && !request.dispatched) {
+        request.completion.resolve(acpErr.promptFailed(event.error));
+        this.requests.delete(event.requestId);
+        if (dequeueAfterFailure) this.releaseDispatch();
+      }
       return;
     }
     if (!this.replayingHistory && event.kind === 'message' && event.role === 'user') {
-      const submitted = event.messageId ? this.acceptedMessages.get(event.messageId) : undefined;
-      if (submitted && event.messageId) {
-        this.acceptedMessages.delete(event.messageId);
-        if (submitted.localId !== event.messageId) this.transcript.removeSubmittedMessage(submitted.localId);
-        event = { ...event, ...submitted.message, messageId: event.messageId };
-      }
+      event = reconcilePromptEcho(this.requests, this.transcript, event);
       // Multiple inserted user messages can belong to the same foreground cycle.
       if (this.transcript.activeTurn && this.activeTurnCompletion) event = { ...event, steering: true };
     }
@@ -502,7 +509,7 @@ export class SessionCell {
     }
   }
 
-  /** Wait for the cycle reserved by this dispatch; queued/steered inputs return admission. */
+  /** Wait for the native message’s cycle; queued/steered inputs return admission. */
   async prompt(
     input: PromptInput,
     opts?: { steerIfBusy?: boolean },
@@ -645,7 +652,7 @@ export class SessionCell {
   private releaseQueueAfterEdit(): void {
     if (this.machine.phase.kind === 'ready' && this.settingsInFlight === 0
       && this.settingsBlockedReason === null && this.machine.pendingPermissions.length === 0) {
-      this.applyEvent({ type: 'SettingsReady' });
+      this.applyEvent({ type: 'AdmissionReady' });
     }
   }
 
@@ -756,10 +763,6 @@ export class SessionCell {
 
   /**
    * 停掉这一会话里的**一个后台任务**(后台命令),❌ 不动这一轮,也❌ 不管子智能体(#5117)。
-   *
-   * 走 claude 适配器的扩展方法 `_session/async_task/stop` → SDK `stop_task`。这条 lane 由
-   * `initialize` 里声明的 AIR `asyncTasks` 能力打开:不声明,适配器整条不发,连任务都不会
-   * announce,这个方法自然也停不了任何东西。
    *
    * 停成了供应商会来 `async_task_state_update state:'stopped'`,转录/登记册按那条落定;
    * 这里只报「送到了没有」。适配器没有这个方法(非 claude)时 ACP 回 method-not-found
@@ -1007,7 +1010,7 @@ export class SessionCell {
   private finishSetting(): void {
     this.settingsInFlight = Math.max(0, this.settingsInFlight - 1);
     if (this.settingsInFlight !== 0 || this.settingsBlockedReason) return;
-    if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'SettingsReady' });
+    if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'AdmissionReady' });
   }
 
   private async applyLiveSetting<E extends AcpSetModeOptionError | AcpSetModelOptionError>(
@@ -1248,10 +1251,17 @@ export class SessionCell {
     };
   }
 
+  private releaseDispatch(): void {
+    if (this.machine.phase.kind === 'ready' && this.settingsInFlight === 0 && !this.settingsBlockedReason) {
+      this.applyEvent({ type: 'AdmissionReady' });
+    }
+  }
+
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
+      settleAcceptedRequests(this.requests, this.transcript, true);
       this.closeTurnCompletion();
       return false;
     }
@@ -1260,6 +1270,7 @@ export class SessionCell {
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.settleTurn(outcome, Date.now(), opts?.foreground);
+    settleAcceptedRequests(this.requests, this.transcript, true);
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
     // Detach this exact cycle before a queue drain can create its successor.
@@ -1268,7 +1279,7 @@ export class SessionCell {
     this.closeTurnCompletion();
     try {
       if (working) this.applyEvent({ type: 'WorkEnded', outcome: machineOutcome(outcome),
-        ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}) });
+        ...((opts?.dequeueQueuedPrompt === false || this.context().dispatchPending) ? { dequeueQueuedPrompt: false } : {}) });
       resolve?.(opts?.result ?? (outcome.kind === 'error'
         ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
         : ok({ queued: false })));
@@ -1402,6 +1413,8 @@ export class SessionCell {
         }
       }
     }
+    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP process closed' }));
+    this.requests.clear();
     this.applyEvent({ type: 'ProcessClosed', exit, abnormal });
   }
 
@@ -1411,8 +1424,8 @@ export class SessionCell {
         : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
       { dequeueQueuedPrompt: false });
     }
+    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP session closed' }));
     this.requests.clear();
-    this.acceptedMessages.clear();
     this.permissions.drain(this.machine.pendingPermissions);
   }
 
@@ -1434,6 +1447,7 @@ export class SessionCell {
   }
 
   private applyEvent(event: DomainEvent): void {
+    if (event.type === 'AdmissionReady' && this.context().dispatchPending) return;
     this.interpretEffects(this.machine.apply(event));
   }
 
@@ -1627,14 +1641,10 @@ export class SessionCell {
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
-    // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
-    // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
-    // 下面的设置闸认的也是这一个:闸扣着人话时,后到的投递同样扣在它后面。
+    // Preserve input order; explicit queue steering may bypass waiting inputs.
     const steerIfBusy = opts?.steerIfBusy === true
       && (opts.fromQueue === true || this.machine.queuedPrompts.length === 0);
-    // A setting request and the next prompt share one linearization point. If a prompt arrives
-    // while a setting is being confirmed (or remains unconfirmed), keep it in the runtime queue;
-    // the queue drain is released only by a confirmed `SettingsReady` event.
+    // Settings and receipt admission release the same next-input barrier.
     if (
       !opts?.skipAdmission
       && !steerIfBusy
@@ -1689,15 +1699,13 @@ export class SessionCell {
       });
     }
     const cycle = this.activeTurnCompletion;
-    // 出队消息沿用队列里的稳定 id,让 queue → transcript 的同一条消息可关联。steer 不推进
-    // promptSequence,也不能借用那个序号编 id(会与下一句的 user message 撞 id),所以仍用 prompt id 编。
+    // Queued inputs keep their stable ID; steering uses its own input ID.
     const messageId = opts?.fromQueue
       ? prompt.id
       : steered
         ? `${this.sessionId}-steer-${prompt.id}-user`
         : `${this.sessionId}-${this.promptSequence}-user`;
-    // #6387 扩展的「附带」只随**新开的一轮**进去:插进在飞那一轮的消息(可能是别的 agent / 别的扩展的)
-    // ❌ 把它带走 —— 附带承诺的是「不打断、下一轮」。同步取走 —— 并发的下一轮不会再带上它。
+    // Consume attached context only for a new dispatch, never for steering.
     const turnContext = started && !steered ? this.takeTurnContext() : null;
     // A communication prompt that hit the provider's transient token boundary can be
     // admitted again from the target queue. Keep one transcript row for that stable prompt id.
@@ -1731,9 +1739,7 @@ export class SessionCell {
       this.push(submittedMessage);
     };
     if (!nativeSteer) recordUserMessage();
-    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
-    // 转录里画成它自己的一行(来自哪个扩展由信封写明),跟在这一句后面、同属这一轮 ——
-    // `steering` 让它不另开一轮(一轮只由人/投递的那一句开),请求里它是一个块(见 turnContextBlocks)。
+    // Native steering is recorded only after the agent accepts its insertion.
     if (turnContext) {
       this.transcript.pushEvent({
         kind: 'message',
@@ -1745,7 +1751,9 @@ export class SessionCell {
       this.emitTranscriptChanged();
     }
     const requestId = started ? this.latestTurnEnvelope!.requestId : crypto.randomUUID();
-    this.requests.set(requestId, { messageId, prompt, steered, cycle });
+    const request = { messageId, prompt, steered, cycle, submitted: submittedMessage,
+      accepted: false, dispatched: false, completion: Promise.withResolvers<PromptResult>() };
+    this.requests.set(requestId, request);
     try {
       // 按路径带的图(`local-file`:另一台机器发来的附件、首轮随启动队列带的附件)只在 agent
       // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
@@ -1823,22 +1831,26 @@ export class SessionCell {
       const receipt = agent.prompt(promptRequest, { requestId, message: submittedMessage }).then(receipt => {
         if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') return ok({ queued: false });
         if (receipt.status === 'accepted') {
-          const inserted = { ...submittedMessage, messageId: receipt.messageId, contentMode: 'replace' as const };
-          this.requests.set(requestId, { messageId: receipt.messageId, prompt, steered, cycle });
-          if (this.transcript.hasEntity(inserted)) {
-            if (messageId !== receipt.messageId) this.transcript.removeSubmittedMessage(messageId);
-            this.push(inserted);
-          } else this.acceptedMessages.set(receipt.messageId, { localId: messageId, message: inserted });
+          acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event));
           this.applyReceiptMetadata(requestId, receipt._meta);
-          this.requests.delete(requestId);
+          settleAcceptedRequests(this.requests, this.transcript);
+          const owner = this.transcript.entityOwner({ ...submittedMessage, messageId: receipt.messageId });
+          if (!opts?.fromQueue || owner?.outcome?.kind !== 'error') this.releaseDispatch();
+        } else {
+          // Request-activity transports identify their aggregate cycle on dispatch acknowledgement.
+          request.dispatched = true;
+          void (cycle ?? Promise.resolve(ok({ queued: false }))).then(result => {
+            request.completion.resolve(result);
+            this.requests.delete(requestId);
+            if (result.success && !result.data.queued) this.releaseDispatch();
+          });
         }
         return ok({ queued: false });
       }, error => {
         if (this._agent === agent) this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
         return acpErr.promptFailed(toSerializedError(error));
       });
-      // Completion belongs to this immutable foreground cycle, independently of the RPC receipt.
-      return !steered && cycle ? cycle : receipt;
+      return steered ? receipt : request.completion.promise;
     } catch (error) {
       recordUserMessage();
       this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
@@ -1858,8 +1870,10 @@ export class SessionCell {
   private seedTranscriptMeta(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     if (!meta) return;
+    if (meta.availableCommands !== undefined) this.push({ kind: 'commands', commands: meta.availableCommands });
     if (meta.configOptions !== undefined) {
       this.transcript.pushEvent({
         kind: 'config',
@@ -1919,7 +1933,7 @@ export class SessionCell {
     ).length;
     if (nextRunningAgentCount === previousRunningAgentCount) return;
     this.lastRunningAgentCount = nextRunningAgentCount;
-    this.applyEvent({ type: 'AgentsChanged', runningCount: nextRunningAgentCount });
+    this.applyEvent({ type: 'AgentsChanged', runningCount: nextRunningAgentCount, dequeueQueuedPrompt: !this.context().dispatchPending });
   }
 
   /**
@@ -2014,7 +2028,7 @@ export class SessionCell {
 
   private context(): SessionMachineContext {
     return {
-      dispatchPending: this.activeTurnCompletion !== null,
+      dispatchPending: [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
       modeIds: this.transcript.config.modeOptions?.available.map((mode) => mode.id) ?? [],
       configOptionIds: [
         ...(['model', 'effort'] as const)

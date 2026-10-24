@@ -472,11 +472,12 @@ function decodeNoticeSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | nu
  * agent 自己报的状态(ACP v2 的 `state_update`)。
  */
 function decodeStateSessionUpdate(wrapped: SessionUpdate): NormalizedEvent | null {
-  const update = wrapped as unknown as { sessionUpdate?: string; state?: unknown };
+  const update = wrapped as unknown as { sessionUpdate?: string; state?: unknown; _meta?: { summary?: unknown } };
   if (update.sessionUpdate !== 'state_update') return null;
   const { sessionUpdate: _, ...fields } = update;
   return update.state === 'running' || update.state === 'requires_action' || update.state === 'idle' || update.state === 'unknown'
-    ? { ...fields, kind: 'agent_state', source: 'agent' } as NormalizedEvent
+    ? { ...fields, kind: 'agent_state', source: 'agent',
+        ...(typeof update._meta?.summary === 'string' ? { summary: update._meta.summary } : {}) } as NormalizedEvent
     : { kind: 'ignored' };
 }
 

@@ -38,7 +38,11 @@ export class AcpTranscriptParser {
   }
 
   hasEntity(event: NormalizedEvent): boolean {
-    return findEntityOwner(this.state.transcript, event) !== undefined;
+    return this.entityOwner(event) !== undefined;
+  }
+
+  entityOwner(event: NormalizedEvent): TranscriptTurn | undefined {
+    return findEntityOwner(this.state.transcript, event);
   }
 
   /** Drop a local submitted row only after a receipt identifies its native echo. */
@@ -46,7 +50,8 @@ export class AcpTranscriptParser {
     const update = (turn: TranscriptTurn): TranscriptTurn => {
       const items = turn.items.filter(item => item.kind !== 'message'
         || !(item.id === messageId || item.id.endsWith(`:${messageId}`)));
-      return items.length === turn.items.length ? turn : { ...turn, items };
+      return items.length === turn.items.length ? turn : { ...turn, items,
+        initiator: items.some(item => item.kind === 'message' && item.role === 'user') ? 'user' : 'agent' };
     };
     this.state = { ...this.state, transcript: { committed: this.state.transcript.committed.map(update),
       active: this.state.transcript.active ? update(this.state.transcript.active) : null } };

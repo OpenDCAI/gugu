@@ -56,7 +56,6 @@ export function connectStdioAcpV2(
         ...rest,
         mcpServers: mcpServers.map(v2McpServer),
       });
-      announceCommands(response.sessionId, response.availableCommands);
       return { sessionId: response.sessionId, ...setupResponse(response) };
     },
     async loadSession(params) {
@@ -66,7 +65,6 @@ export function connectStdioAcpV2(
         mcpServers: mcpServers.map(v2McpServer),
         replayFrom: { type: 'start' },
       });
-      announceCommands(params.sessionId, response.availableCommands);
       return setupResponse(response);
     },
     async unstable_forkSession(params) {
@@ -75,7 +73,6 @@ export function connectStdioAcpV2(
         ...rest,
         ...(mcpServers ? { mcpServers: mcpServers.map(v2McpServer) } : {}),
       });
-      announceCommands(response.sessionId, response.availableCommands);
       return { sessionId: response.sessionId, ...setupResponse(response) };
     },
     listSessions: (params) => agent.request(v2.methods.agent.session.list, params),
@@ -105,21 +102,13 @@ export function connectStdioAcpV2(
   // The handlers above run only once messages arrive, after this line.
   const client = toClient(api);
 
-  /** v2 lists the session's commands in the setup response; the host takes them as an update. */
-  function announceCommands(sessionId: string, commands: v2.AvailableCommand[] | null | undefined): void {
-    if (!commands?.length) return;
-    // Setup has established the route before this domain fact is delivered.
-    setTimeout(() => {
-      deliver(sessionId, { sessionUpdate: 'available_commands_update', availableCommands: commands });
-    }, 0);
-  }
-
   return api;
 }
 
-function setupResponse(response: { configOptions?: v2.SessionConfigOption[] | null; _meta?: Record<string, unknown> | null }) {
+function setupResponse(response: { configOptions?: v2.SessionConfigOption[] | null; availableCommands?: v2.AvailableCommand[] | null; _meta?: Record<string, unknown> | null }) {
   return {
     ...(response.configOptions ? { configOptions: decodeConfigOptions(response.configOptions) } : {}),
+    ...(response.availableCommands ? { availableCommands: response.availableCommands } : {}),
     ...(response._meta ? { _meta: response._meta } : {}),
   };
 }

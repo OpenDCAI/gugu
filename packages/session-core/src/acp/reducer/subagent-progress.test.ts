@@ -27,3 +27,14 @@ it('native children retain progress after the parent moves on, and a follow-up r
   expect(p.agents).toHaveLength(1);
   expect(p.agents[0].output).toBeUndefined();
 });
+
+it('child summaries are domain fields; opaque metadata cannot supply them in the reducer', () => {
+  const p = new AcpTranscriptParser({ sessionId: 'parent' });
+  p.pushEvent({ kind: 'subagent', toolCallId: 'launch', title: 'Child', status: 'in_progress',
+    parentToolCallId: null, subagentSessionId: 'child' });
+  p.pushEvent({ kind: 'subagent_stream', subagentSessionId: 'child', event: {
+    kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn',
+    summary: 'canonical answer', _meta: { summary: 'must stay opaque' },
+  } });
+  expect(p.agents[0].summary).toBe('canonical answer');
+});

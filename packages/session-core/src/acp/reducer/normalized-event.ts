@@ -9,12 +9,11 @@
  */
 
 import type {
-  AvailableCommand,
   SessionConfigOption,
   ToolCallLocation,
 } from '@agentclientprotocol/sdk';
 import type { AttachmentRef } from '../models/attachments';
-import type { SessionUsage } from '../models/config';
+import type { SessionCommandDefinition, SessionUsage } from '../models/config';
 import type { PlanEntryInput } from '../models/plan';
 import type { SessionNoticeCode } from '../models/turns/session-notice';
 import type { ToolImage } from '../models/turns/tool-calls';
@@ -222,10 +221,6 @@ export type NormalizedEvent =
       /**
        * 一个**后台任务**开跑了(`async_task_spawned`,#5117)。
        *
-       * 这一族只在谈成 AIR `asyncTasks` 能力后才会来:适配器的这条 lane 由
-       * `clientSupportsAsyncTasks(clientCapabilities)` 把关,不声明就整条不发。
-       * ⇒ 这三个变体缺席**不等于**「没有后台任务」,可能只是没握手。
-       *
        * ⚠️ 它和 `subagent` 是**两种东西**,别合并:后台任务是「跑一条命令」,子智能体是
        * 「派一个人」。协议也把它们分在两条 lane 上,连取消的方法都不同(见 `canStop`)。
        */
@@ -417,7 +412,7 @@ export type NormalizedEvent =
   | {
       /** Full available command list from available_commands_update. */
       kind: 'commands';
-      commands: ReadonlyArray<AvailableCommand>;
+      commands: ReadonlyArray<SessionCommandDefinition>;
     }
   | {
       /** Usage figures from usage_update. */
@@ -497,5 +492,6 @@ export type NormalizedEvent =
        * ⚠️ 不是转录里的东西,也不属于哪一轮:谁开的工都一样 —— cell 拿它判「在不在跑」,别处不碰。
        */
       kind: 'agent_state';
+      summary?: string;
     } & import('../session-protocol').SessionForegroundState
   | { kind: 'ignored' };

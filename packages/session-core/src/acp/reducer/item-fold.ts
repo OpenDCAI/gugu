@@ -345,7 +345,7 @@ function upsertSpecialEvent(
       // 这一支原来每次都**从头重建**条目,于是「字段缺席」被当成了「字段被清空」——
       // 而 ACP 的约定恰恰相反(见 normalized-event 里 locations 那条:undefined = 保持不变)。
       // 真机后果:claude 的首条 tool_call 带 `rawInput: {}`,派活的描述在随后的
-      // tool_call_update 才到,而**完成**那条又不带 rawInput ⇒ enrich 算出的
+      // tool_call_update 才到,而**完成**那条又不带 rawInput ⇒ 入口解码的
       // inputSummary 是 undefined,把先前那句描述抹掉。行上就只剩一句「Agent 已完成」,
       // 并行派几个就是几行一模一样的(owner 验收 2026-09-05,一屏 8 行)。
       const prior = existing?.kind === 'spawn-subagent-tool-call' ? existing : undefined;

@@ -24,15 +24,15 @@ describe('Claude vendor facts at ingress', () => {
     expect(parser.agents[0]).toMatchObject({ status: 'completed' });
   });
 
-  it('keeps actual launch identity and background ownership across a sparse call result', () => {
+  it.each(['Agent', 'Task'])('keeps %s launch facts when only the first bridge frame has a name', name => {
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
-    const raw = { sessionUpdate: 'tool_call', toolCallId: 'launch', name: 'Agent', title: 'Audit',
+    const raw = { sessionUpdate: 'tool_call', toolCallId: 'launch', name, title: 'Audit',
       kind: 'think', status: 'in_progress', rawInput: { prompt: 'FULL_REQUEST' } };
     parser.pushEvent(decodeClaudeSessionUpdate(raw));
-    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', name: 'Agent',
-      _meta: { claudeCode: { toolResponse: { agentId: 'native-child', isAsync: true, resolvedModel: 'native-model' } } } }));
-    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', name: 'Agent', status: 'completed' }));
+    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', status: 'completed',
+      _meta: { claudeCode: { toolResponse: { agentId: 'native-child', isAsync: true, resolvedModel: 'native-model', outputFile: '/work/child.output' } } } }));
+    parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', status: 'completed' }));
     expect(parser.agents).toHaveLength(1);
-    expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running', model: 'native-model' });
+    expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running', model: 'native-model', outputFile: '/work/child.output' });
   });
 });

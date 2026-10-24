@@ -78,6 +78,11 @@ const fixtures: { name: string; update: unknown; event: NormalizedEvent }[] = [
     event: { kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'error', error: { code: -32603, message: 'failed' } },
   },
   {
+    name: 'child summary is decoded from transport metadata into its domain field',
+    update: { sessionUpdate: 'state_update', state: 'idle', _meta: { summary: 'child answer', opaque: 7 } },
+    event: { kind: 'agent_state', source: 'agent', state: 'idle', summary: 'child answer', _meta: { summary: 'child answer', opaque: 7 } },
+  },
+  {
     name: 'unknown state remains an explicit foreground fact',
     update: { sessionUpdate: 'state_update', state: 'unknown' },
     event: { kind: 'agent_state', source: 'agent', state: 'unknown' },

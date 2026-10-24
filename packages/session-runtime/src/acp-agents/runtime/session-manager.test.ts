@@ -1386,6 +1386,18 @@ describe('AcpRuntime session manager', () => {
    * 判据用 raw ACP log:被丢弃时 `onSessionUpdate` 在 `recordRaw` **之前**就 return 了,
    * 所以「日志里有没有这条」正好把「收到了」与「被丢了」分开。
    */
+  it.each(['new', 'load'])('seeds commands from the actual %s setup response without a notification', async method => {
+    const h = makeAcpHarness();
+    const rt = new AcpRuntime(h.deps);
+    const response = { sessionId: 'session-1', availableCommands: [{ name: 'review', description: 'Review', input: { hint: '<pr>' } }] };
+    if (method === 'new') h.agent.newSession.mockResolvedValueOnce(response);
+    else h.agent.loadSession.mockResolvedValueOnce(response);
+    await rt.startSession(makeStartInput({ sessionId: 'setup-commands', ...(method === 'load' ? { providerSessionId: 'session-1' } : {}) }));
+    expect(rt.sessionLiveModels('setup-commands')?.states.config.snapshot().data.availableCommands)
+      .toMatchObject([{ name: 'review', description: 'Review', inputHint: '<pr>' }]);
+    await rt.dispose();
+  });
+
   it('#5143 keeps a session update that arrives before session/new finishes wiring up', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
@@ -2989,6 +3001,9 @@ describe('AcpRuntime session manager', () => {
     await untilSessionSummary(rt, 'replacement', 'adapter exited', summary => summary?.lifecycle === 'lost');
     await rt.startSession(makeStartInput({ sessionId: 'replacement', providerSessionId: 'session-1' }));
     const client = h.client();
+    const permission = { sessionId: 'session-1', toolCall: { toolCallId: 'stale', title: 'Old connection', kind: 'other' as const }, options: [] };
+    expect(await oldClient.requestPermission(decodePermissionRequest(permission))).toEqual({ outcome: { outcome: 'cancelled' } });
+    expect(rt.sessionLiveModels('replacement')?.states.state.snapshot().data.pendingPermissions).toEqual([]);
     await client.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'running' } as never) });
     await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'state_update', state: 'idle', stopReason: 'end_turn' } as never) });
     await oldClient.sessionEvent({ sessionId: 'session-1', event: decodeSessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old connection' } }) });

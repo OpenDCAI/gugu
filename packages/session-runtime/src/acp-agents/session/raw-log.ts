@@ -52,7 +52,7 @@ export interface RawAcpSessionNewEvent {
     cwd: string;
     mcpServerNames: string[];
   };
-  response: Pick<NewSessionResponse, 'sessionId' | 'modes' | 'configOptions'>;
+  response: Pick<NewSessionResponse, 'sessionId' | 'modes' | 'configOptions'> & { availableCommands?: Extract<import('@gugu/session-core/acp').NormalizedEvent, { kind: 'commands' }>['commands'] };
 }
 
 export interface RawAcpSessionConfigOptionRequestEvent {

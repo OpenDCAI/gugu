@@ -1,6 +1,6 @@
 import { decodeSessionUpdate } from '@gugu/session-core/acp';
 import { describe, expect, it } from 'vitest';
-import { routeLegacySessionUpdates } from './acp-stdio';
+import { routeSessionUpdates } from './acp-stdio';
 
 async function route(messages: unknown[]) {
   const text = messages.map(message => JSON.stringify(message)).join('\n');
@@ -11,7 +11,7 @@ async function route(messages: unknown[]) {
     for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7));
     controller.close();
   } });
-  const output = await new Response(routeLegacySessionUpdates(source, params => delivered.push(params))).text();
+  const output = await new Response(routeSessionUpdates(source, params => delivered.push(params))).text();
   return { delivered, output: output.split('\n').filter(Boolean).map(line => JSON.parse(line) as unknown) };
 }
 const notification = (update: unknown) => ({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'root', update } });
@@ -34,11 +34,12 @@ describe('v1 negotiated extensions are decoded at the transport boundary', () =>
     expect(decodeSessionUpdate(update).kind).not.toBe('tool_update');
   });
 
-  it('preserves normal SDK traffic and malformed extension frames for loud validation', async () => {
-    const messages = [notification({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '正常' } }),
+  it('decodes ordinary updates in the same path and preserves malformed extensions for loud validation', async () => {
+    const ordinary = notification({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '正常' } });
+    const messages = [ordinary,
       notification({ sessionUpdate: 'subagent_spawned' }),
       { ...notification({ sessionUpdate: 'notice' }), params: { sessionId: 17, update: { sessionUpdate: 'notice' } } },
       { jsonrpc: '2.0', id: 1, result: {} }];
-    expect(await route(messages)).toEqual({ delivered: [], output: messages });
+    expect(await route(messages)).toEqual({ delivered: [ordinary.params], output: messages.slice(1) });
   });
 });

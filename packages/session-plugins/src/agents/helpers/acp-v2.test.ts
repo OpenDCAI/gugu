@@ -104,9 +104,11 @@ describe('connectStdioAcpV2', () => {
         options: [{ group: 'g', name: 'Group', options: [{ value: 'a', name: 'A' }] }],
       },
     ]);
-    await vi.waitFor(() => expect(updates).toHaveLength(1));
-    expect(updates).toMatchObject([{ sessionId: 's1', event: { kind: 'commands',
-      commands: [{ name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } }] } }]);
+    expect(session.availableCommands).toMatchObject([
+      { name: 'review', description: 'Review', input: { type: 'text', hint: '<pr>' } },
+    ]);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(updates).toEqual([]);
   });
 
   it('sets a config option with the v2 tag of its value, which the agent validates', async () => {
