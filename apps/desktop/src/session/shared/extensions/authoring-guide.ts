@@ -57,7 +57,7 @@ More \`guide_read\` topics:
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
-  "platforms": ["desktop"],       // human UI: desktop, phone, or both
+  "platforms": ["desktop"],       // desktop, phone, or both
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
   "permissions": {
