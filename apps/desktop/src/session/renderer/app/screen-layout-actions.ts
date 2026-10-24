@@ -1,4 +1,4 @@
-import { observable, reaction, runInAction } from 'mobx';
+import { comparer, observable, reaction, runInAction } from 'mobx';
 import { appPlacementStore } from '@renderer/features/extensions/app-placement-store';
 import type { PaneEdge } from '@renderer/features/tabs/pane-layout-tree';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -114,58 +114,40 @@ export function ensureScreenLayoutSync(): void {
     (groups) => sidebarStore.setJoinedGroups(groups),
     { fireImmediately: true }
   );
-  reaction(
-    () => {
-      const navigation = appState.navigation;
-      return navigation.currentViewId === 'session'
-        ? (navigation.viewParamsStore.session as Partial<ScreenSession> | undefined)
-        : undefined;
-    },
-    (params) => {
-      if (!params?.projectId || !params.sessionId) return;
-      // 它开在单独的窗口里:把那扇窗提到前面,这屏不动(一个会话只在一处)。
-      const windowed = auxWindows.windowOfSession(params.sessionId);
-      if (windowed) {
-        if (auxWindows.focusedWindowId !== windowed.id) windowed.handle?.focus();
-        return;
-      }
-      screenLayout.show({ projectId: params.projectId, sessionId: params.sessionId });
-    },
-    { fireImmediately: true }
-  );
-  // 看一个项目(点左边项目那一行、新建项目落地)= 这屏把它那一块摆出来,和看一条会话同一个规矩。
-  // 几台机器上的同一个项目在左边是一行(绑在同一个群上):认那一行,❌ 同一个项目摆两块。
-  reaction(
-    () => {
-      const navigation = appState.navigation;
-      return navigation.currentViewId === 'project'
-        ? (navigation.viewParamsStore.project as { projectId?: string } | undefined)?.projectId
-        : undefined;
-    },
-    (projectId) => {
-      if (projectId) screenLayout.show({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
-    },
-    { fireImmediately: true }
-  );
-  // 看一条对话(点左边对话那一行、通知、链接)= 这屏把它那一块摆出来,同上。
-  reaction(
-    () => {
-      const navigation = appState.navigation;
-      return navigation.currentViewId === 'chat'
-        ? (navigation.viewParamsStore.chat as { chatId?: string } | undefined)?.chatId
-        : undefined;
-    },
-    (chatId) => {
-      if (chatId) screenLayout.show({ kind: 'chat', chatId });
-    },
-    { fireImmediately: true }
-  );
+  // 导航是进入某块的意图;启动时先由整屏快照决定摆法和焦点,不能把旧视图参数再当一次点击。
+  if (screenLayout.layout) {
+    if (isScreenView(appState.navigation.currentViewId)) returnToScreen();
+  } else {
+    showNavigationBlock(navigationBlock());
+  }
+  reaction(navigationBlock, showNavigationBlock, { equals: comparer.structural });
   // 回到主窗:导航跟回这屏正看着的那块(焦点在子窗时,导航指着窗里那条会话)。
   window.addEventListener('focus', () => {
     if (auxWindows.focusedWindowId === null) return;
     auxWindows.setFocused(null);
     followFocus();
   });
+}
+
+/** 导航当前明确指向的块;项目的多台机器认左边同一行。 */
+function navigationBlock(): ScreenBlockContent | undefined {
+  const { currentViewId, viewParamsStore: params } = appState.navigation;
+  switch (currentViewId) {
+    case 'session':
+      return params.session?.projectId && params.session.sessionId ? { kind: 'session', projectId: params.session.projectId, sessionId: params.session.sessionId } : undefined;
+    case 'project':
+      return params.project?.projectId ? { kind: 'project', projectId: sidebarStore.rowProjectIdOf(params.project.projectId) } : undefined;
+    case 'chat':
+      return params.chat?.chatId ? { kind: 'chat', chatId: params.chat.chatId } : undefined;
+  }
+}
+
+function showNavigationBlock(content: ScreenBlockContent | undefined): void {
+  if (!content) return;
+  const windowed = content.kind === 'session' ? auxWindows.windowOfSession(content.sessionId) : undefined;
+  if (windowed) {
+    if (auxWindows.focusedWindowId !== windowed.id) windowed.handle?.focus();
+  } else screenLayout.show(content);
 }
 
 /**
@@ -192,7 +174,10 @@ function followFocus(): void {
   const onScreen = navigation.currentViewId === 'session' && !!current?.sessionId && !!screenLayout.blockOfSession(current.sessionId);
   const focusedId = screenLayout.focusedBlockId;
   const session = screenLayout.focusedSession ?? (onScreen ? undefined : screenLayout.recentSession);
-  if (!session) return;
+  if (!session) {
+    if (focusedBlock?.kind === 'app' && !onScreen && navigation.currentViewId !== 'screen') navigation.navigate('screen');
+    return;
+  }
   if (navigation.currentViewId === 'session' && current?.sessionId === session.sessionId) return;
   navigation.navigate('session', session);
   if (focusedId && screenLayout.focusedBlockId !== focusedId && screenLayout.blocks.has(focusedId)) screenLayout.focus(focusedId);
