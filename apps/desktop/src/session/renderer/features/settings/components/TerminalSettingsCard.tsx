@@ -378,7 +378,6 @@ const TerminalSettingsCard: React.FC = () => {
       />
       <SettingsRow
         title={translate('terminal.autoCopy')}
-        description={translate('terminal.autoCopyDescription')}
         control={
           <Switch
             checked={autoCopyOnSelection}

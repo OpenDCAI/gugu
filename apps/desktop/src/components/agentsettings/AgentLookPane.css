@@ -598,6 +598,11 @@
   line-height: 1.5;
 }
 
+.gg-look-outfit-note:empty {
+  min-height: 0;
+  margin: 0;
+}
+
 .gg-look-outfit-group + .gg-look-outfit-group {
   margin-top: var(--spacing-md);
 }

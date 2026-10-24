@@ -47,7 +47,7 @@ export function AgentLookOutfits({
 
   return (
     <div className="gg-look-outfits">
-      <p className="gg-look-outfit-note" aria-live="polite" hidden={!note}>
+      <p className="gg-look-outfit-note" aria-live="polite">
         {note}
       </p>
       {SLOT_ORDER.map((slot) => {

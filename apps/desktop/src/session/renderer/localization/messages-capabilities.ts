@@ -14,8 +14,6 @@ export const enUSCapabilityMessages = {
 
   // ── settings · task defaults ───────────────────────────────────────────────
   'taskDefaults.autoGenerateName': 'Auto-generate task names',
-  'taskDefaults.autoGenerateNameDescription':
-    'Automatically suggests a task name when creating a new task.',
   'taskDefaults.titleModel': 'Name tasks with a model',
   'taskDefaults.titleModelDescription':
     'When a new task starts, this model reads the first message and gives the task a short name. Billed in credits; without credits the first message stays as the name.',
@@ -67,8 +65,6 @@ export const enUSCapabilityMessages = {
   'terminal.fontSizeDecrease': 'Decrease terminal font size',
   'terminal.fontSizeIncrease': 'Increase terminal font size',
   'terminal.autoCopy': 'Auto-copy selected text',
-  'terminal.autoCopyDescription':
-    'Automatically copy text to clipboard when you select it in the terminal.',
   'terminal.optionAsMeta': 'Use Option as Meta key',
 
   // ── settings · left sidebar metadata ───────────────────────────────────────
@@ -143,14 +139,12 @@ export const enUSCapabilityMessages = {
   'notifications.previewSound': 'Preview sound',
   'notifications.preview': 'Preview',
   'notifications.customSound': 'Custom sound',
-  'notifications.customSoundDescription': 'Use an audio file instead of the built-in cue.',
   'notifications.chooseSoundDialogTitle': 'Choose custom sound',
   'notifications.chooseSoundDialogMessage': 'Select an audio file to play for agent events',
   'notifications.changeCustomSound': 'Change custom sound',
   'notifications.chooseCustomSound': 'Choose custom sound',
   'notifications.chooseFile': 'Choose file…',
   'notifications.soundTiming': 'Sound timing',
-  'notifications.soundTimingDescription': 'When to play sounds.',
   'notifications.soundAlways': 'Always',
   'notifications.soundUnfocused': 'Only when unfocused',
   'notifications.osNotifications': 'OS notifications',
@@ -873,7 +867,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
 
   // ── 设置 · 任务默认值 ───────────────────────────────────────────────────────
   'taskDefaults.autoGenerateName': '自动生成会话名',
-  'taskDefaults.autoGenerateNameDescription': '新建会话时自动给出会话名建议。',
   'taskDefaults.titleModel': '用模型给会话起名',
   'taskDefaults.titleModelDescription':
     '新会话开始后，用这个模型读第一句话、起一个短名，按积分计费；没有积分时保留第一句话作标题。',
@@ -920,7 +913,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'terminal.fontSizeDecrease': '减小终端字号',
   'terminal.fontSizeIncrease': '增大终端字号',
   'terminal.autoCopy': '自动复制选中文本',
-  'terminal.autoCopyDescription': '在终端中选中文本时自动复制到剪贴板。',
   'terminal.optionAsMeta': '把 Option 作为 Meta 键',
 
   // ── 设置 · 左侧栏信息 ───────────────────────────────────────────────────────
@@ -993,14 +985,12 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'notifications.previewSound': '试听提示音',
   'notifications.preview': '试听',
   'notifications.customSound': '自定义提示音',
-  'notifications.customSoundDescription': '使用音频文件代替内置提示音。',
   'notifications.chooseSoundDialogTitle': '选择自定义提示音',
   'notifications.chooseSoundDialogMessage': '选择一个用于智能体事件的音频文件',
   'notifications.changeCustomSound': '更换自定义提示音',
   'notifications.chooseCustomSound': '选择自定义提示音',
   'notifications.chooseFile': '选择文件…',
   'notifications.soundTiming': '提示音时机',
-  'notifications.soundTimingDescription': '何时播放提示音。',
   'notifications.soundAlways': '始终',
   'notifications.soundUnfocused': '仅在未聚焦时',
   'notifications.osNotifications': '系统通知',

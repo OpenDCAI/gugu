@@ -430,8 +430,6 @@ export default {
       "about": "关于"
     },
     "page": {
-      "general": "语言、主题和通知这类整个咕咕通用的选项。",
-      "activity": "会话数、Token 与使用节奏:你和智能体都忙了什么。"
     },
     "nav": {
       "about": "关于",

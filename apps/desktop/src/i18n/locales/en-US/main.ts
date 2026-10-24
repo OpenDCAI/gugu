@@ -436,8 +436,6 @@ export default {
       "about": "About"
     },
     "page": {
-      "general": "Language, theme and notifications that apply across all of Gugu.",
-      "activity": "Sessions, tokens and rhythm: what you and your agents have been busy with."
     },
     "nav": {
       "assistant": "Profile",
