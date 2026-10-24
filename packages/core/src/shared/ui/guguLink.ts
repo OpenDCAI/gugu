@@ -293,8 +293,10 @@ export function parseGuguLink(raw: string, options: { scheme?: string; supabaseU
   }
   const id = url.pathname.slice(1)
   if (!id || id.includes('/') || url.search || url.hash) return null
-  if (url.hostname === 'session') return { kind: 'session', sessionId: decodeURIComponent(id) }
-  if (url.hostname === 'project') return { kind: 'project', projectId: decodeURIComponent(id) }
+  try {
+    if (url.hostname === 'session') return { kind: 'session', sessionId: decodeURIComponent(id) }
+    if (url.hostname === 'project') return { kind: 'project', projectId: decodeURIComponent(id) }
+  } catch { return null }
   return null
 }
 
@@ -341,6 +343,7 @@ export function linkTargetOf(args: Record<string, unknown>, own: { id: string; c
     case 'app': {
       const extensionId = args.app === undefined ? own.id : text(args.app, 'app')
       const tab = args.tab ?? (extensionId === own.id ? own.contributes.tabs[0]?.name : undefined)
+      if (extensionId === own.id && !own.contributes.tabs.some((entry) => entry.name === tab)) throw new Error(`this App has no tab named: ${String(tab)}`)
       const place = args.place as LinkPlace | undefined
       // The existing App-specific form also names its placement with chat/session.
       if ((args.chat != null && args.session != null) || (place && 'chat' in place && 'session' in place)) throw new Error('An App link opens in one place')

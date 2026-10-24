@@ -3118,7 +3118,7 @@ app.on('open-url', (event, url) => {
 
 /**
  * #6387 这个版本认的链接前缀:正式版 gugu://,Beta gugu-beta://,源码起的开发版 gugu-dev://。
- * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(link-scheme.ts)。
+ * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */

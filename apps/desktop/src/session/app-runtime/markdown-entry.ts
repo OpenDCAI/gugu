@@ -23,6 +23,7 @@ type RenderOptions = { trust: MarkdownTrust; density: Density; frontmatter: bool
 /** What a link needs of `gugu` (create-gugu.ts hands its own object). */
 type LinkVerbs = {
   openLink(url: string): Promise<unknown>;
+  reportError(message: string): Promise<unknown>;
   openBrowserTab(url: string): Promise<unknown>;
   files: { openWith?(file: unknown, options?: { at?: Record<string, string> }): Promise<unknown> };
 };
@@ -147,13 +148,14 @@ function followLink(root: HTMLElement, gugu: LinkVerbs, file: unknown, href: str
     revealMarkdownAnchor(root, href.slice(1));
     return;
   }
+  const failed = (error: unknown) => gugu.reportError(error instanceof Error ? error.message : String(error));
   if (/^https?:\/\//i.test(href)) {
-    void gugu.openBrowserTab(href).catch(() => undefined);
+    void gugu.openBrowserTab(href).catch(failed);
     return;
   }
   const sibling = siblingOf(file, href);
-  if (sibling) void gugu.files.openWith?.(sibling)?.catch(() => undefined);
-  else void gugu.openLink(href).catch(() => undefined);
+  if (sibling) void gugu.files.openWith?.(sibling)?.catch(failed);
+  else void gugu.openLink(href).catch(failed);
 }
 
 // ── render ──

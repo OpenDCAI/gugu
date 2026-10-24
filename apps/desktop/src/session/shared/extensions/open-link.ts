@@ -36,7 +36,7 @@ export type LinkOpenOutcome =
       detail?: string;
     };
 
-/** Open a link the OS handed us. URLs that are not extension links are left alone. */
+/** Open one resolved resource, whether a click inside gugu or a URL handed to us by the OS. */
 export async function openLinkWith(deps: LinkOpenDeps, raw: string | GuguLinkTarget): Promise<LinkOpenOutcome> {
   const link = typeof raw === 'string' ? parseGuguLink(raw, { supabaseUrl: deps.supabaseUrl }) : raw;
   if (!link) return { kind: 'not-gugu-link' };

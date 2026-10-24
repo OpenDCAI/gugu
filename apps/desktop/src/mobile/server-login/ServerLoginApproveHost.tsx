@@ -12,7 +12,7 @@ const log = rendererLogger('mobile/server-login')
 
 /**
  * 「批准机器」页的宿主,挂在登录后的整棵树上(与 ShareIntakeHost 同一处)。只在手机壳里接:桌面上点那条链接照旧开浏览器。
- * 两个入口都经 openAppLink:聊天里点的链接(chatLinks)、系统交给 App 的链接(安卓 App Links → subscribeOpenedLinks;
+ * 两个入口都经统一 openLink:聊天里点的链接、系统交给 App 的链接(安卓 App Links → subscribeOpenedLinks;
  * 没登录时到的那一条由平台留着,登录后订阅时补发)。后来的那一条为准:人最后点的才是他此刻要批的。
  */
 export function ServerLoginApproveHost({ active }: { active: boolean }) {

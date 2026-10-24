@@ -6,6 +6,7 @@ import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { useLinkNavigation } from '../../../../apps/desktop/src/hooks/useLinkNavigation'
 import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink'
+import { until } from '../../../support/awaitCondition'
 
 const mocked = vi.hoisted(() => ({ lookup: vi.fn(), file: vi.fn(), reveal: vi.fn(), task: null as unknown }))
 vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }))
@@ -102,8 +103,10 @@ describe('file links use the same shell request', () => {
     const held = new Map<string, () => void>()
     mocked.file.mockImplementation((id: string) => new Promise((resolve) => held.set(id, () => resolve({ data: { chat_id: assistantChat } }))))
     let openedA!: ReturnType<typeof request>, openedB!: ReturnType<typeof request>
-    await act(async () => { openedA = request({ kind: 'file', itemId: a }); openedB = request({ kind: 'file', itemId: b }) })
-    await vi.waitFor(() => expect(mocked.file.mock.calls).toEqual([[a], [b]]))
+    await act(async () => { openedA = request({ kind: 'file', itemId: a }) })
+    await until('first file lookup started', () => held.has(a))
+    await act(async () => { openedB = request({ kind: 'file', itemId: b }) })
+    await until('second file lookup started', () => held.has(b))
     await act(async () => { held.get(first)!(); await (first === a ? openedA : openedB) })
     await act(async () => { held.get(second)!(); await (second === a ? openedA : openedB) })
     expect(openFile).toHaveBeenCalledOnce()
@@ -121,7 +124,7 @@ describe('file links use the same shell request', () => {
     mocked.file.mockReturnValue(new Promise((resolve) => { finish = () => resolve({ data: { chat_id: assistantChat } }) }))
     let opened!: ReturnType<typeof request>
     await act(async () => { opened = request({ kind: 'file', itemId: a }) })
-    await vi.waitFor(() => expect(mocked.file).toHaveBeenCalled())
+    await until('file lookup started', () => mocked.file.mock.calls.length > 0)
     await act(async () => { await click(assistantChat); finish(); await opened })
     expect(openFile).not.toHaveBeenCalled()
     expect(mocked.reveal).toHaveBeenCalledWith(assistantChat, messageId, 'assistant:chat')
