@@ -38,13 +38,14 @@ afterEach(() => {
 })
 
 describe('the session composer\'s box', () => {
-  it.each([false, true])('grows from one line to its existing cap and then scrolls (mobile=%s)', async (mobile) => {
+  it.each([false, true])('grows from its desktop or mobile minimum to the existing cap (mobile=%s)', async (mobile) => {
+    const minimum = mobile ? 46 : sessionComposerBox.editorMinHeightPx
     const editorApiRef: { current: PromptEditorRef | null } = { current: null }
     root!.render(<SessionLocalizationProvider><ChatComposer mobile={mobile} editorApiRef={editorApiRef} onSubmit={() => {}} /></SessionLocalizationProvider>)
     const area = () => container!.querySelector<HTMLElement>('[data-slot="composer-input"]')!
-    await until('one-line editor', () => !!editorApiRef.current && area()?.clientHeight === sessionComposerBox.editorMinHeightPx)
+    await until('editor at its minimum', () => !!editorApiRef.current && area()?.clientHeight === minimum)
     editorApiRef.current!.setText('One\nTwo\nThree\nFour')
-    await until('four lines grow the input', () => area().clientHeight > sessionComposerBox.editorMinHeightPx)
+    await until('four lines grow the input', () => area().clientHeight > minimum)
     expect(area().clientHeight).toBeLessThan(sessionComposerBox.editorMaxHeightPx)
     expect(area().scrollHeight).toBe(area().clientHeight)
     editorApiRef.current!.setText(Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`).join('\n'))
@@ -52,7 +53,7 @@ describe('the session composer\'s box', () => {
     expect(area().scrollHeight).toBeGreaterThan(area().clientHeight)
     expect(getComputedStyle(area()).overflowY).toBe('auto')
     editorApiRef.current!.clear()
-    await until('clearing shrinks to one line', () => area().clientHeight === sessionComposerBox.editorMinHeightPx)
+    await until('clearing shrinks to its minimum', () => area().clientHeight === minimum)
   })
 
   it('is the box the group box in a block draws: its height, where the words start, where the bottom row sits', async () => {
