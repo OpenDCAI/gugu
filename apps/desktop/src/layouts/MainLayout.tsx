@@ -92,7 +92,6 @@ import { addFilePills } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
 import { assistantSlotKey } from '../lib/assistantShellBridge'
-import { askReveal } from '../hooks/useSourceMessageReveal'
 import { resourceChatIdOf } from '../session/shared/extensions/app-files-core'
 import { getRendererAccessToken } from '../lib/sessionPublication'
 import { resolveQrScanRoute, type QrScanRoute } from '../lib/qrScanRoute'
@@ -821,10 +820,6 @@ function InnerLayout({
   }, [focusComposerForUserEntry, openChatBlock, setActiveChatId])
 
 
-  // A chat a link or an App's call named (摩擦单 F10, 真源原则 13) comes up as the chat list brings it (a topic: its source
-  // line with the topic as the split), and what was asked of it is left with
-  // the view that shows it (`UI_EVENTS.chatAsked`): a file (groupSlotMemory.askFile), a message (askReveal), the text for
-  // its composer (its draft). A chat the person is not in is said so, not opened into nothing.
   // 群成员面板的「新建 Agent 并加入本群」:桌面与对话页「新建 Agent」同一个创建页、手机与联系人页「新建 Agent」
   // 同一条(会话页选机器),只是都带上这个群。
   useEffect(() => {
@@ -888,15 +883,13 @@ function InnerLayout({
         focusComposerForUserEntry('quote-attached', chat?.kind === 'topic' ? chat.source_chat_id ?? undefined : detail.chatId)
       }
     }
-    // gugu.showMessage: a message of the chat on screen is its list's to show (useSourceMessageReveal), and an App slot over it
-    // makes way (useSlotMakesWay); another chat's comes up first, and its list goes to the message when it shows the chat.
     // gugu.files.openWith, wherever the page is (a chat's panel, an App's own page, a session's tab): the file's chat comes
     // up — the one on screen stays — and its panel opens it as the host resolved it, the way a link to it opens.
     const onOpenWith = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenWithDetail>).detail
       if (detail) bringUp(detail.chatId, (chatId) => groupSlotMemory.askFile(chatId, detail.itemId, undefined, detail), true)
     }
-    // A link's or a banner's click naming a chat: it comes up, and its panel opens the App (useOpenApp takes it).
+    // A card's Open action names a chat: it comes up, and its panel opens the App (useOpenApp takes it).
     const onOpenInChat = (event: Event) => {
       const detail = (event as CustomEvent<AppOpenInChatDetail>).detail
       const named = detail?.chatId ?? activeChatIdRef.current
