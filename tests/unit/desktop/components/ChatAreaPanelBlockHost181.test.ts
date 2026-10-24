@@ -11,6 +11,8 @@ import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automation
 import { chat, clickElement, createNode, createReactHarness, displayIdentity, renderWithAppProviders } from '../../../support/testHarness'
 import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
+import { InChatSlot } from '../../../../apps/desktop/src/lib/shellSlots'
+import { publishChatSummaries } from '../../../../apps/desktop/src/lib/chatSummariesBridge'
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
 
@@ -67,8 +69,9 @@ afterEach(() => {
   title.remove()
 })
 
-async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false) {
-  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile }), {
+async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false) {
+  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile })
+  await renderWithAppProviders(harness, project ? createNode(InChatSlot.Provider, { value: { projectName: 'Settings project' } }, panel) : panel, {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'group-1',
@@ -83,6 +86,16 @@ const header = () => harness.container.querySelector('[data-chat-area-header]')
 const membersButtonIn = (root: ParentNode) => root.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMembersButton}"]`)
 
 describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
+  it('an empty project keeps its home in the chat column while group settings can open beside it', async () => {
+    publishChatSummaries([{ id: 'group-1', kind: 'group', name: 'Settings project', last_message_at: null }])
+    await renderPanel({ actions, title, tabs: null }, 'group', false, true)
+    const home = harness.container.querySelector('[data-chat-part="empty"]')
+    expect(home, 'the project home has a place inside the same conversation surface').not.toBeNull()
+    await clickElement(actions.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderMoreButton}"]`)!)
+    await clickElement(document.querySelector<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.groupMenuSettings}"]`)!)
+    expect(harness.container.querySelector('[data-testid="chat-settings-panel"]')).not.toBeNull()
+    expect(harness.container.contains(home)).toBe(true)
+  })
   it('without blockHost keeps its own header with the title and the action icons', async () => {
     await renderPanel()
     expect(header(), 'chat page / phone / web: the header row is still there').not.toBeNull()

@@ -63,7 +63,7 @@ export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
  * `tabs` = 第一枚页签后面那几枚(开着的话题,和群对话并排成一对)。
  * 和 `chat:` 那格一起由 ChatSlotHost 交给同一个群聊组件,❌ 单独画。
  */
-export type ChatPart = 'actions' | 'title' | 'tabs'
+export type ChatPart = 'actions' | 'title' | 'tabs' | 'empty'
 export const chatPartSlotKey = (part: ChatPart, chatId: string) => `chat-${part}:${chatId}`
 
 /**

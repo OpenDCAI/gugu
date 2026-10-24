@@ -9,11 +9,10 @@ import { TabChip, TabSlot } from '@renderer/features/tabs/tab-bar/tab-chip';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
+import { ChatEmptyContent, ChatPartSlot, ChatSlot } from '@renderer/lib/chat-slot';
 import { cancelComposerVerb, composerVerbLook } from '@renderer/features/sessions/composer-verb-tag';
 import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
-import { useChatHasMessages } from '@/lib/chatSummariesBridge';
 import { requestShellChatAction } from '@/lib/sidebarChatsBridge';
 import { setComposerVerb, takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
@@ -46,7 +45,6 @@ export const ProjectBlock = observer(function ProjectBlock({
   const focused = screenLayout.focusedBlockId === blockId;
   const label = projectDisplayName(getProjectStore(projectId)) ?? translate('projects.fallbackName');
   const chatId = projectGroupsStore.chatIdOf(projectId);
-  const hasMessages = useChatHasMessages(chatId);
   const verb = useComposerVerb(chatId);
   // 项目就是群(gugu-dev#181):项目一摆上屏,它的群就该在 —— 新建的项目一进来就建好(只有自己一个人),
   // 老项目没有群的也在这时补上。幂等;建好了由绑定变更事件刷新各处。
@@ -61,34 +59,34 @@ export const ProjectBlock = observer(function ProjectBlock({
         reserveShellRestoreLane={corners.topLeft && !isLeftOpen}
         actionsSlot={
           <TabBarActionRow atWindowEdge={corners.topRight}>
-            {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
+            {chatId ? <ChatPartSlot chatId={chatId} part="actions" className="flex items-center" /> : null}
             {blockActions}
           </TabBarActionRow>
         }
       >
         <TabSlot data-project-block-tab={projectId}>
-          <ProjectTabMenu projectId={projectId} chatId={chatId && hasMessages !== false ? chatId : null}>
+          <ProjectTabMenu projectId={projectId} chatId={chatId ?? null}>
             <TabChip
               isActive
               isFocusedPane={focused}
               label={label}
               // 点群这一枚 = 右边让开、群占满(右边开着的照旧是页签,gugu-dev#181 第 ⑥ 步)。
-              onClick={chatId && hasMessages !== false ? () => requestShellChatAction({ kind: 'show-chat-alone', chatId }) : undefined}
+              onClick={chatId ? () => requestShellChatAction({ kind: 'show-chat-alone', chatId }) : undefined}
             />
           </ProjectTabMenu>
         </TabSlot>
-        {chatId && hasMessages !== false ? <ChatPartSlot chatId={chatId} part="tabs" className="contents" /> : null}
+        {chatId ? <ChatPartSlot chatId={chatId} part="tabs" className="contents" /> : null}
       </TabStripShell>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-project-block={projectId}>
-        {/* 正中摆群还是首页:只有确知群里没消息(或确知没有群)才摆首页;还不知道时摆群(多数项目群里有消息),
-            连有没有群都还不知道就先空着 —— ❌ 把「还没读到」当成「没有」先画一帧首页。 */}
-        {chatId && hasMessages !== false ? (
+        {/* The conversation owns the header and right panels even before its first message. */}
+        {chatId ? (
           <>
             <ChatSlot chatId={chatId} className="flex min-h-0 min-w-0 flex-1 flex-col" />
+            <ChatEmptyContent chatId={chatId}><ProjectMainPanel projectId={projectId} /></ChatEmptyContent>
             {/* gugu-dev#181 群里输入框选了「新任务」:那个框收起,这里换上新任务的框(建在这个项目里)。 */}
             {verb === 'task' ? <ProjectTaskDock chatId={chatId} projectId={projectId} /> : null}
           </>
-        ) : chatId || projectGroupsStore.bindingKnown(projectId) ? (
+        ) : projectGroupsStore.bindingKnown(projectId) ? (
           <ProjectMainPanel projectId={projectId} />
         ) : null}
       </div>
