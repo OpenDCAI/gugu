@@ -40,7 +40,7 @@ card — the others install it from that card, or when they open one of its file
 It is a folder: \`manifest.json\` plus its files. HTML tabs open in tasks or, with \`opensFiles.chat\`,
 in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host settings page.
 
-More guides — \`guide_read\` each when you get there:
+More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
 - \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
 - \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
@@ -53,11 +53,11 @@ More guides — \`guide_read\` each when you get there:
 
 \`\`\`json
 {
-  "id": "csv-lens",              // lowercase, digits, dashes. NO dots.
+  "id": "csv-lens",              // [a-z0-9-]+; no dots
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
-  "platforms": ["desktop"],       // human UI: desktop, phone, or both (required to install)
+  "platforms": ["desktop"],       // human UI: desktop, phone, or both
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
   "permissions": {
@@ -68,7 +68,7 @@ More guides — \`guide_read\` each when you get there:
     "tabs": [
       {
         "name": "main",          // stable machine name, lowercase
-        "title": "CSV",          // shown to the person, <= 48 chars
+        "title": "CSV",          // <= 48 chars
         "opensFiles": { "session": [".csv"] },  // claim: a session's .csv opens THIS tab
         "fileIcons": { ".csv": "csv.png" },  // icon per claim (else generic)
         "menu":    [{ "id": "reload",  "title": "Reload" }],   // <= 8
@@ -82,9 +82,6 @@ More guides — \`guide_read\` each when you get there:
   }
 }
 \`\`\`
-
-\`platforms\` needs API 11. Phone UIs may declare agent capabilities; those features run only on computers.
-Phone cannot grant \`notifications\`. Declare phone only when the human page works there.
 
 1-8 tabs. \`menu\` and \`toolbar\` are DECLARED, drawn by the host; picking one fires
 \`onCommand\` with your id. No menu API.
@@ -175,6 +172,9 @@ When one of these tools is not in your tool list, it is in \`catalog_list\`.
 export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
+
+Declare human UI hosts in \`platforms\` (API 11): desktop, phone, or both. A phone UI may declare agent
+capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
 
 Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
 A session's tab has \`session\`; a chat's side panel (a group's or DM's; a phone's too) has \`chat\`;
