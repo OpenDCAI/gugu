@@ -32,7 +32,7 @@ export function PhoneVoiceNotes(props: PhonePageProps) {
     <div className="ta-page" data-testid={id ? 'assistant-voice-note' : 'assistant-voice-notes'}>
       <PageHead title={t('title')} />
       <PhoneMachineView readiness={props.readiness} machine={props.machine} name={name}>
-        {(machine) => (id ? null : <VoiceNotesList machine={machine} name={name} go={props.go} />)}
+        {(machine) => (id ? null : <VoiceNotesList machine={machine} go={props.go} />)}
       </PhoneMachineView>
     </div>
   )
@@ -92,7 +92,7 @@ function itemTitle(t: (key: string) => string, item: { title: string | null; vie
   return item.view.kind === 'processing' ? t('preparing') : t('untitled')
 }
 
-function VoiceNotesList({ machine, name, go }: { machine: AssistantMachine; name: string; go: PhonePageProps['go'] }) {
+function VoiceNotesList({ machine, go }: { machine: AssistantMachine; go: PhonePageProps['go'] }) {
   const { t } = useTranslation('voiceNotes')
   const { t: ta } = useTranslation('assistant')
   const time = useNoteTime()
