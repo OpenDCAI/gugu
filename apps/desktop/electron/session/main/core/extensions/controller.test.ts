@@ -192,6 +192,18 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it('refuses a folder with no platform declaration or only a phone interface before asking for consent', async () => {
+    for (const platforms of [undefined, ['phone']]) {
+      const source = writeBundle([]);
+      const file = join(source, 'manifest.json');
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), platforms }));
+      const result = await extensionsController.installFromFolder({ sourceDir: source, consent: { kind: 'return' } });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(platforms ? /does not support desktop/ : /declare desktop, phone, or both/);
+      expect(extensionsService().list().extensions).toEqual([]);
+    }
+  });
+
   it('refuses to activate an extension that is switched off, and lists it as off', async () => {
     await installViaController([]);
     const off = await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false });
