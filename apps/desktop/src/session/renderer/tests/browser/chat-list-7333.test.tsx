@@ -76,7 +76,7 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
       { members: ['chat:grp-1', 'chat:dm-1'], anchor: 'chat:grp-1', onScreen: true },
     ] });
     const root = await renderList('grp-1', vi.fn(), false, null, 'sidebar');
-    expect(root.querySelector('[data-chat-row="grp-1"]')?.getAttribute('data-join')).toBe('first');
+    expect(root.querySelector('[data-chat-row="grp-1"]')?.closest('[data-join]')?.getAttribute('data-join')).toBe('first');
     expect(root.querySelector('[data-chat-row="dm-1"]')?.getAttribute('data-join')).toBe('last');
     expect(root.querySelector('[data-chat-row="dm-1"]')?.hasAttribute('data-join-on')).toBe(true);
     const target = document.createElement('div');
