@@ -31,9 +31,8 @@ export interface MentionItem {
    */
   name?: string;
   /**
-   * Optional icon rendered in the suggestion popup. Agent entries also expose
-   * `engine` so the pill host can resolve the same catalog asset after selection.
-   * Pass a React element, e.g. a catalog-backed image or lucide icon.
+   * Host-owned icon rendered in the suggestion popup. When absent, the popup
+   * and pill use the same identity resolver, `renderMentionIcon`.
    */
   icon?: ReactNode;
   /** Optional secondary description shown in the popup row. For agent peers, this is the sidebar title. */
@@ -54,6 +53,8 @@ export type RenderMentionIcon = (attrs: {
   id: string;
   label: string;
   kind: MentionKind;
+  name?: string;
+  role?: MentionRole | null;
   engine?: string | null;
 }) => ReactNode | null;
 

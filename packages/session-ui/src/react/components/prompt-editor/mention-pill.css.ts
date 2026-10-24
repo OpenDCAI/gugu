@@ -91,17 +91,6 @@ globalStyle(`${pillAgentIcon} > img, ${pillAgentIcon} > svg`, {
   objectFit: 'contain',
 });
 
-export const pillAgentFallback = style({
-  display: 'inline-flex',
-  width: '100%',
-  height: '100%',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: tokenVars.textSm,
-  fontWeight: 600,
-  lineHeight: 1,
-});
-
 export const pillRemoveBtn = style({
   position: 'absolute',
   inset: 0,

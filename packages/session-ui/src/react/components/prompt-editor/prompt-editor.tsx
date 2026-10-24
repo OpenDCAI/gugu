@@ -47,16 +47,14 @@ import type {
   MentionItem,
   PromptEditorProps,
   PromptEditorRef,
+  RenderMentionIcon,
 } from './types';
 import * as styles from './prompt-editor.css';
 
-function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
+function mentionToPopupItem(item: MentionItem, renderMentionIcon?: RenderMentionIcon): ComboboxPopupItem {
   if (item.disabled) return { id: item.id, label: item.name ?? item.label, disabled: true };
-  // Human/file/issue rows keep the assistant-ui initial avatar. Agent session
-  // peers may project their canonical harness icon; an absent icon deliberately
-  // falls back to the same initial avatar instead of leaving an empty slot.
   const name = item.name ?? item.label;
-  const icon = item.role === 'agent' ? item.icon : undefined;
+  const icon = item.icon ?? renderMentionIcon?.({ id: item.id, label: item.label, name, kind: item.kind, role: item.role, engine: item.engine });
   const agentTitle = item.role === 'agent' ? item.description?.trim() ?? '' : '';
   const isStackedAgent = item.role === 'agent' && agentTitle.length > 0;
   const isFile = item.kind === 'file';
@@ -75,7 +73,7 @@ function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
       ? isStackedAgent
         ? `${name} · agent`
         : undefined
-      : item.role ?? item.description ?? (item.name ? item.label : undefined),
+      : item.role ?? item.description ?? (item.name && item.label !== item.name ? item.label : undefined),
     stacked: isStackedAgent || isFile,
     descriptionMono: isStackedAgent || isFile,
   };
@@ -516,7 +514,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   }), [editor]);
 
   // Convert suggestion items to ComboboxPopupItem shape.
-  const mentionPopupItems = mentionSuggestion.items.map(mentionToPopupItem);
+  const mentionPopupItems = mentionSuggestion.items.map((item) => mentionToPopupItem(item, renderMentionIcon));
   const commandPopupItems = commandSuggestion.items.map(commandToPopupItem);
 
   const mentionActive = mentionSuggestion.items.length > 0 || Boolean(mentionProvider?.emptyLabel && mentionSuggestion.rect);

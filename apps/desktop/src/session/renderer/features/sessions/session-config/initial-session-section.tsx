@@ -117,8 +117,8 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import {
   createLocalSessionMentionProvider,
   localSessionMentionHiddenContext,
-  useSessionAgentCreationTools,
 } from '@renderer/lib/chat/local-session-mention-provider';
+import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -1541,7 +1541,7 @@ export function InitialSessionField({
   // 只在真在读时画(isLoading):那台机器没连上就不问,❌ 一直转到它回来(原因由机器的提示说)。
   const remoteCreateForActions = useLibraryHost().remote !== null;
   const agentOptionsLoading = remoteCreateForActions && agentsLoading;
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
+  const { tools: agentCreationTools, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const agentCreationToolsByEngine = useMemo(
     () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
     [agentCreationTools],
@@ -1663,16 +1663,14 @@ export function InitialSessionField({
     }
   }, [linkedIssueMention, state.issueContext, state.prompt]);
 
-  const renderMentionIcon = useCallback<RenderMentionIcon>(({ id, kind, engine }) => {
-    if (kind === 'custom' && engine) {
-      const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-      return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-    }
+  const renderMentionIcon = useCallback<RenderMentionIcon>((attrs) => {
+    const { id, kind } = attrs;
+    if (kind === 'custom') return renderAgentMentionIcon(attrs);
     if (kind !== 'issue') return null;
     const target = parseIssueMentionToken(id);
     if (!target) return null;
     return <IntegrationIcon provider={target.provider} size={12} />;
-  }, [agentCreationToolsByEngine]);
+  }, [renderAgentMentionIcon]);
 
   // Automation prompts use this field as a plain text input. Keep their existing contract while
   // the normal New task composer shares the session mention provider with in-session ACP chat.
@@ -1681,10 +1679,9 @@ export function InitialSessionField({
       enableMentions
         ? createLocalSessionMentionProvider({
             creationToolsByEngine: agentCreationToolsByEngine,
-            creationToolsError: agentCreationToolsError,
           })
         : null,
-    [agentCreationToolsByEngine, agentCreationToolsError, enableMentions]
+    [agentCreationToolsByEngine, enableMentions]
   );
 
   // 侧栏会话行拖进来 = 与 @ 弹层同一枚 pill(behavior session-page「把会话拖成 @」)。这里还要**先记账**:

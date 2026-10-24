@@ -1,8 +1,8 @@
 /**
  * MentionPill
  *
- * React NodeView for the TipTap `mention` atom node. Human/issue targets render
- * as plain name text; agent targets keep their harness icon; file targets render
+ * React NodeView for the TipTap `mention` atom node. Participant targets retain
+ * their @ prefix and host-owned avatar; file targets render
  * as a real pill with a file glyph (slash-command pill treatment) — the dropped-
  * folder path reference must read as an object, and its hover ✕ lives over the
  * icon slot only, never stretched across the text:
@@ -17,13 +17,8 @@
 import { cx } from '@session-ui/styles/utilities/cx';
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { File, X } from '../../../icons'
-import type { MentionKind, RenderMentionIcon } from './types';
+import type { MentionKind, MentionRole, RenderMentionIcon } from './types';
 import * as styles from './mention-pill.css';
-
-function firstInitial(value: string): string {
-  const initial = Array.from(value.trim()).find((character) => /\p{L}|\p{N}/u.test(character));
-  return initial ? initial.toLocaleUpperCase() : '?';
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -37,7 +32,7 @@ export function MentionPill({
   const rawName = (node.attrs.name as string | null) ?? null;
   const name = rawName ?? label;
   const kind = ((node.attrs.kind as string | null) ?? 'custom') as MentionKind;
-  const role = (node.attrs.role as string | null) ?? null;
+  const role = (node.attrs.role as MentionRole | null) ?? null;
   const engine = (node.attrs.engine as string | null)?.trim() || null;
   const isAgent = role === 'agent';
   // file 引用 = 斜杠命令 pill 同款:真 pill + 文件图标。旧的 bare-文本处理里 ✕ 覆盖层
@@ -46,9 +41,7 @@ export function MentionPill({
   const agentTitle = isAgent
     ? ((node.attrs.title as string | null)?.trim() || name)
     : null;
-  const icon = isAgent
-    ? renderMentionIcon?.({ id, label, kind, engine }) ?? null
-    : null;
+  const icon = renderMentionIcon?.({ id, label, name, kind, role, engine }) ?? null;
   const pending = node.attrs.pending === true;
 
   // Hover-x: overlaid over the icon area on pill-hover
@@ -85,23 +78,11 @@ export function MentionPill({
         title={agentTitle ?? undefined}
       >
         {/* Icon area — relative so the ✕ overlay is positioned inside it */}
-        {isFile || isAgent ? (
-          <span className={isAgent ? styles.pillAgentIconArea : styles.pillIconArea}>
-            {isAgent ? (
-              icon ? (
-                <span aria-hidden className={styles.pillAgentIcon}>
-                  {icon}
-                </span>
-              ) : (
-                <span aria-hidden className={styles.pillAgentFallback}>
-                  {firstInitial(name)}
-                </span>
-              )
-            ) : (
-              <span aria-hidden className={styles.pillAgentIcon}>
-                <File style={{ width: '0.75rem', height: '0.75rem' }} />
-              </span>
-            )}
+        {isFile || icon ? (
+          <span className={icon ? styles.pillAgentIconArea : styles.pillIconArea}>
+            <span aria-hidden className={styles.pillAgentIcon}>
+              {icon ?? <File style={{ width: '0.75rem', height: '0.75rem' }} />}
+            </span>
             {removeBtn}
           </span>
         ) : (
@@ -111,7 +92,7 @@ export function MentionPill({
           </span>
         )}
         {/* Display name */}
-        <span className={styles.pillName}>{name}</span>
+        <span className={styles.pillName}>{kind === 'custom' ? '@' : ''}{name}</span>
         {node.attrs.annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(node.attrs.annotation)}</small>}
       </span>
     </NodeViewWrapper>

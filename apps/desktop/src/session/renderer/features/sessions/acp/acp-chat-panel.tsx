@@ -168,8 +168,8 @@ import { useFindBar, type FindBackend } from '@renderer/lib/ui/use-find-bar';
 import { enUSMessages, type SessionMessageKey } from '@renderer/localization/messages';
 import {
   createLocalSessionMentionProvider,
-  useSessionAgentCreationTools,
 } from '@renderer/lib/chat/local-session-mention-provider';
+import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { hasDraggedSession } from '@renderer/lib/drag-session';
 import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens';
@@ -798,7 +798,7 @@ const ComposerForStore = observer(function ComposerForStore({
     };
   });
   const { connectedProviders, isProviderUsable } = useConnectedIssueProviders(issueProviderContext);
-  const { byEngine: agentCreationToolsByEngine, error: agentCreationToolsError, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
+  const { byEngine: agentCreationToolsByEngine, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const issueProvider = useMemo(() => {
     const selected = issueProviderContext.selectedIssueProvider;
     if (selected && isProviderUsable(selected)) return selected;
@@ -811,9 +811,8 @@ const ComposerForStore = observer(function ComposerForStore({
         excludeSessionId: store.sessionId,
         mentionUri: store.chatState.uri ?? store.sessionId,
         creationToolsByEngine: agentCreationToolsByEngine,
-        creationToolsError: agentCreationToolsError,
       }),
-    [agentCreationToolsByEngine, agentCreationToolsError, store],
+    [agentCreationToolsByEngine, store],
   );
 
   // Transcript parsing is synchronous, so seed the task-scoped mention registry as soon as
@@ -960,7 +959,6 @@ const ComposerForStore = observer(function ComposerForStore({
     issueProviderContext.projectPath,
     issueProviderContext.repositoryUrl,
     agentCreationToolsByEngine,
-    agentCreationToolsError,
     localSessionMentionProvider,
   ]);
 
@@ -1517,8 +1515,9 @@ const ComposerForStore = observer(function ComposerForStore({
     ? (harnessCatalog.state.selectedEffort ?? undefined)
     : undefined;
   const renderMentionIcon = useCallback(
-    ({ id, label, kind, engine }: { id: string; label: string; kind: string; engine?: string | null }) => {
-      if (kind === 'custom' && engine) return renderAgentMentionIcon({ id, label, kind, engine });
+    (attrs: Parameters<typeof renderAgentMentionIcon>[0]) => {
+      const { id, kind } = attrs;
+      if (kind === 'custom') return renderAgentMentionIcon(attrs);
       if (kind !== 'issue') return null;
       const target = parseIssueMentionToken(id);
       if (!target) return null;
