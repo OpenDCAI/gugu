@@ -193,7 +193,7 @@ describe('owner DMs with friends (#84)', () => {
       const { out, db } = await download('00000000-0000-4000-8000-0000000000f1')
       expect(db.signedAs).toEqual([OWNER])
       expect(db.rpcs.filter(([name]) => name === 'can_read_message').map(([, body]) => body.p_user_id)).toEqual([AGENT, OWNER])
-      const path = out.match(/to (\S+)$/)?.[1] ?? ''
+      const { file_path: path } = JSON.parse(out)
       expect(await readFile(path, 'utf8')).toBe('bytes')
     })
 

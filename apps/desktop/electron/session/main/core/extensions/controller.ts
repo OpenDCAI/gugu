@@ -338,21 +338,6 @@ export const extensionsController = createRPCController({
   },
 
   /**
-   * #7199 健康 —— the 助理 App's health page: the last `days` days (1–14, health.summary's range) from the owner's own phone (Health Connect), asked through
-   * device actions like the cloud assistant's device_call (phone-health.ts). Every "can't" comes back as a state, not an error.
-   */
-  readPhoneHealth: async (args: { days?: number }) => {
-    try {
-      const { readPhoneHealth } = await import('@main/core/extensions/phone-health');
-      const days = typeof args?.days === 'number' && Number.isInteger(args.days) ? Math.min(Math.max(args.days, 1), 14) : 7;
-      return { success: true as const, data: await readPhoneHealth(days) };
-    } catch (error) {
-      log.warn('Failed to read health from the phone:', error);
-      return { success: false as const, error: error instanceof Error ? error.message : String(error) };
-    }
-  },
-
-  /**
    * The account revision bus named these files of these groups (the shell passes it on, `useExtensionWorkspaceRevisions`);
    * pages drawn for them hear those files as they are now (#7257).
    */

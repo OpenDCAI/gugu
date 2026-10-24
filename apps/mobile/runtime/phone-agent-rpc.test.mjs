@@ -17,6 +17,7 @@ function fixture({ autoSubscribe = () => true, onCommand = async () => undefined
   const warnings = []
   const invocations = []
   let ticks = 0
+  let deviceRuns = 0
   const cloud = {
     token: async () => 'owner-token',
     client: {
@@ -46,11 +47,11 @@ function fixture({ autoSubscribe = () => true, onCommand = async () => undefined
   const starting = startPhoneAgentRpc({
     cloud, ownerId, deviceId,
     invoke: async (...args) => { invocations.push(args); return { accepted: true } },
-    provider: { manifest: () => [], permit: () => ({ ok: true }), run: async () => ({ ok: true }) },
+    provider: { manifest: () => [], permit: () => ({ ok: true }), run: async () => { deviceRuns++; return { ok: true } } },
     onCommand: async () => { ticks++; return onCommand() },
     onConnectivity: (connected) => connectivity.push(connected), warn: (message) => warnings.push(message),
   })
-  return { cloud, channels, connectivity, warnings, invocations, starting, ticks: () => ticks, named: (name) => channels.filter((channel) => channel.name === name) }
+  return { cloud, channels, connectivity, warnings, invocations, starting, deviceRuns: () => deviceRuns, ticks: () => ticks, named: (name) => channels.filter((channel) => channel.name === name) }
 }
 
 test('terminal CLOSED rebuilds both persistent channels once and ignores retired/duplicate callbacks', async (t) => {
@@ -227,5 +228,25 @@ test('recovery tick and ready-broadcast failures are logged without losing the r
     assert.equal(fx.warnings.some((message) => message.includes('tick unavailable')), true)
     assert.equal(fx.warnings.some((message) => message.includes('ready send unavailable')), true)
     assert.equal(fx.ticks(), 1)
+  } finally { await rpc.close() }
+})
+
+
+test('remote actions and result acknowledgments cannot reuse a control reply or reach the local provider',async()=>{
+  const fx=fixture(),rpc=await fx.starting
+  try {
+    fx.named(sharedName)[0].broadcast({type:'taskhost.attach',request_id:'attach',user_id:ownerId,payload:{asker:'remoteAgent123',protocol:REMOTE_PROTOCOL_VERSION}})
+    await flush();await flush()
+    const peer=fx.named(sharedName+':remoteAgent123')[0]
+    peer.broadcast({type:'taskhost.call',request_id:'reused',user_id:ownerId,payload:{channel:'agentSession.get',args:[]}})
+    await flush();await flush()
+    assert.equal(fx.invocations.length,1,'control traffic is still allowed')
+    for(const type of ['device.action','device.action.result_ack']) {
+      peer.broadcast({type,request_id:'reused',user_id:ownerId,payload:{v:1,call_id:'x',action:'calendar.events.list',caller:{deviceId}}})
+      await flush();await flush()
+      assert.equal(peer.sent.at(-1).payload.error.code,'device_scope_mismatch')
+      assert.match(peer.sent.at(-1).payload.error.message,new RegExp('device:'+deviceId))
+    }
+    assert.equal(fx.deviceRuns(),0)
   } finally { await rpc.close() }
 })
