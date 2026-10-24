@@ -50,7 +50,7 @@ type Row =
   | { kind: 'lookup'; number: string }
 
 /** 命中的字满墨、其余降到 muted:靠前景填充度区分,不加粗、不换色相。 */
-function Marked({ text, hits }: { text: string; hits: number[] }) {
+export function Marked({ text, hits }: { text: string; hits: number[] }) {
   if (hits.length === 0) return <>{text}</>
   const on = new Set(hits)
   const runs: { at: number; hit: boolean; text: string }[] = []
