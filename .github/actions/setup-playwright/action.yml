@@ -1,6 +1,10 @@
 name: Set up Playwright Chromium
 description: Restore the Playwright browser cache for the installed Playwright version, then install Chromium
 inputs:
+  container-image:
+    description: Pull a pinned official image for run-in-container.sh instead of installing browsers on the host.
+    required: false
+    default: ''
   with-deps:
     description: Also install the browser's system packages (Linux runners).
     required: false
@@ -12,7 +16,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - id: playwright
+    - if: inputs.container-image != ''
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.container-image }}
+      run: docker pull "$IMAGE"
+    - if: inputs.container-image == ''
+      id: playwright
       shell: bash
       run: |
         echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
@@ -21,18 +31,19 @@ runs:
         else
           echo "browsers=$HOME/.cache/ms-playwright" >> "$GITHUB_OUTPUT"
         fi
-    - if: inputs.save-cache == 'true'
+    - if: inputs.container-image == '' && inputs.save-cache == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ steps.playwright.outputs.browsers }}
         key: playwright-chromium-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-    - if: inputs.save-cache != 'true'
+    - if: inputs.container-image == '' && inputs.save-cache != 'true'
       uses: actions/cache/restore@v4
       with:
         path: ${{ steps.playwright.outputs.browsers }}
         key: playwright-chromium-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
     # With the browsers restored this only verifies them (and, with deps, installs the apt packages).
-    - shell: bash
+    - if: inputs.container-image == ''
+      shell: bash
       env:
         WITH_DEPS: ${{ inputs.with-deps }}
       run: |
