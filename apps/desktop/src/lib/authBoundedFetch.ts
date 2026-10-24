@@ -30,9 +30,13 @@ async function fetchWithSignals(
   init: RequestInit | undefined,
   signals: AbortSignal[],
 ): Promise<Response> {
-  if (signals.length === 1) return fetch(input, { ...init, signal: signals[0] })
+  // PostgREST reads the finite body after fetch resolves; keep that read inside the same deadline and signal cleanup.
+  const complete = async (response: Response): Promise<Response> => requestPath(input).startsWith('/rest/v1/') && response.body
+    ? new Response(await response.arrayBuffer(), response)
+    : response
+  if (signals.length === 1) return fetch(input, { ...init, signal: signals[0] }).then(complete)
   if (typeof AbortSignal.any === 'function') {
-    return fetch(input, { ...init, signal: AbortSignal.any(signals) })
+    return fetch(input, { ...init, signal: AbortSignal.any(signals) }).then(complete)
   }
 
   const controller = new AbortController()
@@ -47,7 +51,7 @@ async function fetchWithSignals(
     listeners.push(() => signal.removeEventListener('abort', listener))
   }
   try {
-    return await fetch(input, { ...init, signal: controller.signal })
+    return await fetch(input, { ...init, signal: controller.signal }).then(complete)
   } finally {
     listeners.forEach((remove) => remove())
   }
