@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createRef } from 'react'
+import { act, createRef } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../../support/testHarness'
@@ -8,6 +8,8 @@ const io = vi.hoisted(() => ({
   rows: new Map<string, Record<string, unknown>>(),
   failWrite: false,
   readWait: null as Promise<void> | null,
+  writeWait: null as Promise<void> | null,
+  writing: false,
   listeners: [] as { userId: string; event: string; receive: (payload: unknown) => void; options?: { onSubscribed?: () => void } }[],
   stop: vi.fn(),
 }))
@@ -20,6 +22,8 @@ vi.mock('@/lib/supabase', async (original) => ({ ...await original<typeof import
   } }) }) }),
   upsert: (row: Record<string, unknown>) => ({ select: () => ({ single: async () => {
     if (io.failWrite) return { data: null, error: { message: 'write refused' } }
+    io.writing = true
+    if (io.writeWait) await io.writeWait
     io.rows.set(`${row.user_id}/${row.scope}`, structuredClone(row))
     return { data: row, error: null }
   } }) }),
@@ -48,7 +52,7 @@ function row(userId: string, chatId: string, ids: string[]) {
   io.rows.set(`${userId}/chat:${chatId}`, { scope: `chat:${chatId}`, config: { pinnedAppIds: ids }, updated_at: '2026-10-24T00:00:00Z' })
 }
 beforeEach(() => {
-  io.rows.clear(); io.listeners.length = 0; io.failWrite = false; io.readWait = null; io.stop.mockClear()
+  io.rows.clear(); io.listeners.length = 0; io.failWrite = false; io.readWait = null; io.writeWait = null; io.writing = false; io.stop.mockClear()
   queryClient.clear()
   harness = createReactHarness()
   runInAction(() => {
@@ -163,6 +167,24 @@ describe('personal group App shortcuts', () => {
       release()
       await header()
       expect(document.querySelector('[data-testid="chat-header-menu-app"] .gg-menu-item-label')?.textContent).toBe('calendar')
+    } finally { release() }
+  })
+
+  it('finishes a pending pin in its original group after the person switches groups', async () => {
+    row('user-1', 'g2', ['calendar'])
+    let release!: () => void
+    io.writeWait = new Promise<void>((resolve) => { release = resolve })
+    try {
+      await header(); await picker()
+      const pin = () => document.querySelector<HTMLButtonElement>('button[aria-label="将board固定到本群头栏"]')!
+      await vi.waitFor(() => expect(pin().disabled).toBe(false))
+      await clickElement(pin())
+      await vi.waitFor(() => expect(io.writing).toBe(true))
+      await header('g2')
+      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g2'])).toEqual(['calendar']))
+      await act(async () => { release(); await io.writeWait })
+      await vi.waitFor(() => expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g1'])).toEqual(['board']))
+      expect(queryClient.getQueryData(['chat-app-pins', 'user-1', 'g2'])).toEqual(['calendar'])
     } finally { release() }
   })
 })

@@ -31,12 +31,12 @@ export function useChatAppPins(chatId: string | null) {
   const mutation = useMutation({
     networkMode: 'always',
     scope: { id: `chat-app-pins:${userId}:${chatId}` },
-    mutationFn: ({ appId, pinned }: { appId: string; pinned: boolean }) => {
+    mutationFn: ({ userId, chatId, appId, pinned }: { userId: string | undefined; chatId: string | null; appId: string; pinned: boolean }) => {
       if (!userId || !chatId) throw new Error('A signed-in chat is required')
       return setChatAppPin(userId, chatId, appId, pinned)
     },
-    onSuccess: (ids) => { queryClient.setQueryData(key, ids) },
+    onSuccess: (ids, { userId, chatId }) => { queryClient.setQueryData(['chat-app-pins', userId, chatId], ids) },
     onError: () => { toast(t('header.appPinsSaveFailed'), 'error') },
   }, queryClient)
-  return { ids: query.data ?? [], ready: query.isSuccess, error: query.isError, saving: mutation.isPending, retry: () => { void query.refetch() }, set: mutation.mutate }
+  return { ids: query.data ?? [], ready: query.isSuccess, error: query.isError, saving: mutation.isPending, retry: () => { void query.refetch() }, set: ({ appId, pinned }: { appId: string; pinned: boolean }) => mutation.mutate({ userId, chatId, appId, pinned }) }
 }
