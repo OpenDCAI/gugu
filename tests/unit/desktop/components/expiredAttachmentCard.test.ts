@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { notifyManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { notifyManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { formatAttachmentMetadata, parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
@@ -8,6 +8,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { ExpiredAttachmentCard } from '../../../../apps/desktop/src/components/chat/ExpiredAttachmentCard'
 import { MediaAttachmentBubble } from '../../../../apps/desktop/src/components/chat/MediaAttachmentBubble'
 import type { ToastContextValue } from '../../../../apps/desktop/src/components/toastContext'
+import { attachmentQueryClient } from '../../../../apps/desktop/src/lib/attachmentQueryClient'
 
 const f = vi.hoisted(() => ({ message: vi.fn(), metadata: vi.fn(), cached: vi.fn(), send: vi.fn(), forget: vi.fn(), signed: vi.fn() }))
 vi.mock('@/lib/chat', () => ({ chatService: { getMessageById: f.message } }))
@@ -26,9 +27,10 @@ const original = { id: 'message', chat_id: 'group', sender_user_id: 'user-1', to
 } as MessageItem
 const meta = parseAttachmentContent(original.content, original)!
 describe('expired attachment re-upload', () => {
-  let harness: ReturnType<typeof createReactHarness>, queries: QueryClient, toast: ReturnType<typeof vi.fn<ToastContextValue['toast']>>
+  let harness: ReturnType<typeof createReactHarness>, toast: ReturnType<typeof vi.fn<ToastContextValue['toast']>>
   beforeEach(() => {
-    harness = createReactHarness(); queries = new QueryClient(); toast = vi.fn()
+    harness = createReactHarness(); toast = vi.fn()
+    attachmentQueryClient.clear()
     vi.clearAllMocks()
     f.message.mockResolvedValue(original)
     f.metadata.mockResolvedValue({ status: 'expired', sha256: 'ab'.repeat(32) })
@@ -41,10 +43,9 @@ describe('expired attachment re-upload', () => {
       disconnect() {}
     })
   })
-  afterEach(() => { harness.cleanup(); queries.clear(); notifyManager.setNotifyFunction(callback => { callback() }); vi.unstubAllGlobals() })
+  afterEach(() => { harness.cleanup(); attachmentQueryClient.clear(); notifyManager.setNotifyFunction(callback => { callback() }); vi.unstubAllGlobals() })
   async function render(isMine = true) {
-    await renderWithAppProviders(harness, createElement(QueryClientProvider, { client: queries },
-      createElement(ExpiredAttachmentCard, { meta, messageId: 'message', isMine })), { toast })
+    await renderWithAppProviders(harness, createElement(ExpiredAttachmentCard, { meta, messageId: 'message', isMine }), { toast })
   }
   async function click() {
     const button = [...harness.container.querySelectorAll('button')].find(el => el.textContent === 'attachmentView.reupload')!
@@ -58,8 +59,7 @@ describe('expired attachment re-upload', () => {
   })
   it.each(['ready', 'expired'])('displays a visible %s file using only read-only metadata, without signing or reading bytes', async status => {
     f.metadata.mockResolvedValue({ status, sha256: 'ab'.repeat(32) })
-    await renderWithAppProviders(harness, createElement(QueryClientProvider, { client: queries },
-      createElement(MediaAttachmentBubble, { meta, messageId: 'message', isMine: true })), { toast })
+    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta, messageId: 'message', isMine: true }), { toast })
     await vi.waitFor(async () => {
       await act(async () => {})
       expect(harness.container.textContent).toContain(status === 'expired' ? 'attachmentView.fileExpired' : 'large.bin')

@@ -6,6 +6,7 @@ import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { attachmentBytes, attachmentResolver, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
 import { useAuth } from '../../store/auth'
+import { attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { ExtensionBundleCard } from '../extensionBundle/ExtensionBundleCard'; import { isExtensionBundle } from '../extensionBundle/summarizeExtensionBundle'
 import { openImageFromThumb, registerFullImage } from '../../lib/imageViewer'
 import { Button } from '../ui/Button'
@@ -33,7 +34,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
     queryFn: () => attachmentResolver.metadata(meta.source),
     enabled: near && !!user && (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType),
-  })
+  }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
