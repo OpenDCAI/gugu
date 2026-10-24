@@ -27,6 +27,7 @@ import {
   unreadRowFromRpc,
   combineCoalescedPulls,
   isSaidInChat,
+  postDeliveryDisclosureRow,
 } from '@gugu/core/local/agent/agentInboxReader'
 import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
@@ -225,9 +226,9 @@ beforeEach(() => {
 // 这里只留 reader 自己的行为:RPC 交来的每一行都注入。
 describe('reader 对 RPC 交来的行不做资格判断', () => {
   const base: AgentInboxUnreadRow = {
-    chatId: 'c1', chatKind: 'group', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
+    chatId: '00000000-0000-4000-8000-000000000001', chatKind: 'group', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
     listenMode: 'active', notificationLevel: 'all', lastReadSeq: 0,
-    id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
+    id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
     senderGuguNumber: null, content: 'hi', contentType: 'text', toUserIds: null, isWhisper: false,
     replyToMessageId: null, replyToSenderUserId: null, replyToContent: null,
     threadRootId: null, isThreadRoot: false, createdAt: '2026-08-29T10:00:00.000Z',
@@ -235,8 +236,8 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
 
   it('injects senderless system events once, under the system identity', async () => {
     const rows: AgentInboxUnreadRow[] = [
-      { ...base, id: 'system-active', seq: 1, senderUserId: null, senderType: null, contentType: 'system', content: '已转为被动模式' },
-      { ...base, id: 'direct-system', seq: 4, senderUserId: null, senderType: null, contentType: 'system', listenMode: 'passive', toUserIds: [AGENT] },
+      { ...base, id: '10000000-0000-4000-8000-00000000001e', seq: 1, senderUserId: null, senderType: null, contentType: 'system', content: '已转为被动模式' },
+      { ...base, id: '10000000-0000-4000-8000-000000000021', seq: 4, senderUserId: null, senderType: null, contentType: 'system', listenMode: 'passive', toUserIds: [AGENT] },
     ]
     const injected: AgentInboxInjectionInput[] = []
     const read = new Set<string>()
@@ -250,10 +251,10 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
     }
     const result = await pullAgentInbox(AGENT, deps)
     expect(result).toMatchObject({ pulled: 2, injected: 2, verdict: 'accepted' })
-    expect([...read]).toEqual(['system-active', 'direct-system'])
+    expect([...read]).toEqual(['10000000-0000-4000-8000-00000000001e', '10000000-0000-4000-8000-000000000021'])
     const delivered = injected.map((input) => input.text).join('\n')
     expect(delivered).toContain('from="咕咕系统" from_id="system:gugu"')
-    expect(delivered).toContain('msg="msg:system-active"')
+    expect(delivered).toContain('msg="msg:10000000-0000-4000-8000-00000000001e"')
     expect(delivered).not.toContain('user:null')
     // Nudge storms and a restarted reader use the existing exact read markers.
     await Promise.all([pullAgentInbox(AGENT, deps), pullAgentInbox(AGENT, deps)])
@@ -292,12 +293,12 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
 describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () => {
   it.each([null, 'thread-root'])('preserves body and mention context with thread %s', async (threadRootId) => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-mention', 'dm')
-    cloud.join('chat-mention', AGENT)
-    cloud.join('chat-mention', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-00000000000c', 'dm')
+    cloud.join('00000000-0000-4000-8000-00000000000c', AGENT)
+    cloud.join('00000000-0000-4000-8000-00000000000c', HUMAN)
     cloud.post({
-      chatId: 'chat-mention',
-      id: 'mention-1',
+      chatId: '00000000-0000-4000-8000-00000000000c',
+      id: '10000000-0000-4000-8000-000000000013',
       threadRootId,
       seq: 1,
       senderUserId: HUMAN,
@@ -331,11 +332,11 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   // said): the transcript's delivery card shows that name, not a bare user id (gugu-dev#181).
   it('names the sender of the quoted message, the receiving agent included', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-quote', 'group')
-    cloud.join('chat-quote', AGENT)
-    cloud.join('chat-quote', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-00000000000d', 'group')
+    cloud.join('00000000-0000-4000-8000-00000000000d', AGENT)
+    cloud.join('00000000-0000-4000-8000-00000000000d', HUMAN)
     cloud.post({
-      chatId: 'chat-quote', id: 'q-1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '先不建', toUserIds: [AGENT],
+      chatId: '00000000-0000-4000-8000-00000000000d', id: '10000000-0000-4000-8000-000000000019', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '先不建', toUserIds: [AGENT],
       replyToMessageId: 'mine-1', replyToSenderUserId: AGENT, replyToContent: '要不要建 README？',
     })
     const asked: string[][] = []
@@ -354,11 +355,11 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   // #6835 悄悄话:库里的 is_whisper 行到信封上就是一格 whisper_to,agent 知道这句只有它和发信人看得见。
   it('marks a whisper with whisper_to naming its recipient, and an ordinary group line with nothing', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-whisper', 'group')
-    cloud.join('chat-whisper', AGENT)
-    cloud.join('chat-whisper', HUMAN)
-    cloud.post({ chatId: 'chat-whisper', id: 'w-1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'psst', isWhisper: true, toUserIds: [AGENT] })
-    cloud.post({ chatId: 'chat-whisper', id: 'g-2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'hello all', toUserIds: [AGENT] })
+    cloud.addChat('00000000-0000-4000-8000-000000000010', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000010', AGENT)
+    cloud.join('00000000-0000-4000-8000-000000000010', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000010', id: '10000000-0000-4000-8000-00000000001f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'psst', isWhisper: true, toUserIds: [AGENT] })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000010', id: '10000000-0000-4000-8000-000000000007', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'hello all', toUserIds: [AGENT] })
     const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 2 })
@@ -370,12 +371,12 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
   it('tells the receiving agent that a mention of itself is itself — no route to message itself', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-self-mention', 'group')
-    cloud.join('chat-self-mention', AGENT)
-    cloud.join('chat-self-mention', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-00000000000e', 'group')
+    cloud.join('00000000-0000-4000-8000-00000000000e', AGENT)
+    cloud.join('00000000-0000-4000-8000-00000000000e', HUMAN)
     cloud.post({
-      chatId: 'chat-self-mention',
-      id: 'self-mention-1',
+      chatId: '00000000-0000-4000-8000-00000000000e',
+      id: '10000000-0000-4000-8000-00000000001a',
       seq: 1,
       senderUserId: HUMAN,
       senderType: 'human',
@@ -537,14 +538,14 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
   it('跨 ≥2 chat 的积压逐条 admission,游标推进到各 chat 的 max(seq)', async () => {
     const cloud = new FakeCloud()
-    for (const chat of ['chat-a', 'chat-b']) {
+    for (const chat of ['00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000006']) {
       cloud.addChat(chat, 'group')
       cloud.join(chat, AGENT, { listenMode: 'active' })
       cloud.join(chat, HUMAN)
     }
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'one' })
-    cloud.post({ chatId: 'chat-a', id: 'm2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'two' })
-    cloud.post({ chatId: 'chat-b', id: 'm3', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'three' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'one' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000010', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'two' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000006', id: '10000000-0000-4000-8000-000000000011', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'three' })
     const batches: Array<{ agentUserId: string; rows: number; units: number }> = []
     const { deps, injections } = makeDeps(cloud, { onBatch: (batch) => batches.push(batch) })
 
@@ -556,8 +557,8 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     for (const injection of injections) {
       expect(injection.text).toContain('<gugu_delivery route="chat"')
     }
-    expect(cloud.watermark('chat-a', AGENT)).toBe(2)
-    expect(cloud.watermark('chat-b', AGENT)).toBe(1)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(2)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000006', AGENT)).toBe(1)
 
     // 追赶完成后再拉 = idle,零注入。
     const second = await pullAgentInbox(AGENT, deps)
@@ -567,15 +568,15 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
   it('inbox entries are admitted one by one while attachments remain solo', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-attachment', 'group')
-    cloud.join('chat-attachment', AGENT, { listenMode: 'active' })
-    cloud.join('chat-attachment', HUMAN)
-    cloud.post({ chatId: 'chat-attachment', id: 'plain-1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'plain-1' })
+    cloud.addChat('00000000-0000-4000-8000-000000000005', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000005', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000005', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000005', id: '10000000-0000-4000-8000-000000000017', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '10000000-0000-4000-8000-000000000017' })
     cloud.post({
-      chatId: 'chat-attachment', id: 'image-1', seq: 2, senderUserId: HUMAN, senderType: 'human',
+      chatId: '00000000-0000-4000-8000-000000000005', id: '10000000-0000-4000-8000-000000000008', seq: 2, senderUserId: HUMAN, senderType: 'human',
       content: '[附件] one.png (image/png)\n[URL] https://example.test/one.png\n[Size] 3\n[Kind] image',
     })
-    cloud.post({ chatId: 'chat-attachment', id: 'plain-2', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'plain-2' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000005', id: '10000000-0000-4000-8000-000000000018', seq: 3, senderUserId: HUMAN, senderType: 'human', content: '10000000-0000-4000-8000-000000000018' })
     const batches: Array<{ agentUserId: string; rows: number; units: number }> = []
     const { deps, injections } = makeDeps(cloud, {
       onBatch: (batch) => batches.push(batch),
@@ -584,7 +585,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3, verdict: 'accepted' })
     expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: 3 }])
-    expect(injections.map((entry) => entry.messageId)).toEqual(['plain-1', 'image-1', 'plain-2'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-000000000017', '10000000-0000-4000-8000-000000000008', '10000000-0000-4000-8000-000000000018'])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([0, 1, 0])
     expect(injections.every((entry) => entry.text.includes('<gugu_delivery route="chat"'))).toBe(true)
   })
@@ -592,14 +593,14 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   // #7290 新式附件:正文没有 [URL],字节由行上的 file_item_id / file_version 指着;条目删了就只交正文。
   it('folder-backed image: downloads by its file pointer; a deleted file delivers the text without bytes', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-folder', 'group')
-    cloud.join('chat-folder', AGENT, { listenMode: 'active' })
-    cloud.join('chat-folder', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-000000000009', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000009', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000009', HUMAN)
     const envelope = '[附件] two.png (image/png)\n[Size] 3\n[Kind] image'
-    cloud.post({ chatId: 'chat-folder', id: 'image-new', seq: 1, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: 'item-2', fileVersion: 4 })
-    cloud.post({ chatId: 'chat-folder', id: 'image-gone', seq: 2, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: null, fileVersion: 4 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000b', seq: 1, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: 'item-2', fileVersion: 4 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000a', seq: 2, senderUserId: HUMAN, senderType: 'human', content: envelope, fileItemId: null, fileVersion: 4 })
     // 悄悄话的附件:不进群文件夹,消息直接指字节 ⇒ 按这条消息签(能读这条消息的人才签得到)。
-    cloud.post({ chatId: 'chat-folder', id: 'image-whisper', seq: 3, senderUserId: HUMAN, senderType: 'human', content: envelope, fileBlobId: 'blob-9' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000009', id: '10000000-0000-4000-8000-00000000000c', seq: 3, senderUserId: HUMAN, senderType: 'human', content: envelope, fileBlobId: 'blob-9' })
     const asked: unknown[] = []
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async (source) => {
@@ -608,7 +609,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       },
     })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3 })
-    expect(asked).toEqual([{ kind: 'item', itemId: 'item-2', version: 4 }, { kind: 'message', messageId: 'image-whisper' }])
+    expect(asked).toEqual([{ kind: 'item', itemId: 'item-2', version: 4 }, { kind: 'message', messageId: '10000000-0000-4000-8000-00000000000c' }])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([1, 0, 1])
     expect(injections[1]!.text).toContain('[附件] two.png (image/png)')
   })
@@ -617,13 +618,13 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   // 老式的正文里有 [URL],照旧不下;条目删了只交正文。
   it('new-style file: saved locally and the text says where; an old file keeps its [URL]; a deleted file delivers the text alone', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-files', 'group')
-    cloud.join('chat-files', AGENT, { listenMode: 'active' })
-    cloud.join('chat-files', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-000000000008', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000008', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000008', HUMAN)
     const pkg = '[附件] poll-0.1.0.guguext (application/vnd.gugu.extension+zip)\n[Size] 1200\n[Kind] file'
-    cloud.post({ chatId: 'chat-files', id: 'file-new', seq: 1, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: 'item-7', fileVersion: 1 })
-    cloud.post({ chatId: 'chat-files', id: 'file-old', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] a.pdf (application/pdf)\n[URL] https://example.test/a.pdf\n[Size] 3\n[Kind] file' })
-    cloud.post({ chatId: 'chat-files', id: 'file-gone', seq: 3, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: null, fileVersion: 1 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000005', seq: 1, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: 'item-7', fileVersion: 1 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000006', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] a.pdf (application/pdf)\n[URL] https://example.test/a.pdf\n[Size] 3\n[Kind] file' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000008', id: '10000000-0000-4000-8000-000000000004', seq: 3, senderUserId: HUMAN, senderType: 'human', content: pkg, fileItemId: null, fileVersion: 1 })
     const asked: unknown[] = []
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async (source) => {
@@ -644,12 +645,12 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   // 文件下不下来(签不到、CDN 回错、超时):这一行照交、照实说没存下,同一批的别的行也照样送到 —— 收件不卡在这一行上。
   it('a file that cannot be saved: its text goes with the reason, and the other rows of the batch are delivered too', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-fail', 'group')
-    cloud.join('chat-fail', AGENT, { listenMode: 'active' })
-    cloud.join('chat-fail', HUMAN)
-    cloud.post({ chatId: 'chat-fail', id: 'before', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before the file' })
-    cloud.post({ chatId: 'chat-fail', id: 'file-broken', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] deck.pptx (application/vnd.openxmlformats-officedocument.presentationml.presentation)\n[Size] 9\n[Kind] file', fileItemId: 'item-9', fileVersion: 2 })
-    cloud.post({ chatId: 'chat-fail', id: 'after', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after the file' })
+    cloud.addChat('00000000-0000-4000-8000-000000000007', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000007', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000007', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000002', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'before the file' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000003', seq: 2, senderUserId: HUMAN, senderType: 'human', content: '[附件] deck.pptx (application/vnd.openxmlformats-officedocument.presentationml.presentation)\n[Size] 9\n[Kind] file', fileItemId: 'item-9', fileVersion: 2 })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000007', id: '10000000-0000-4000-8000-000000000001', seq: 3, senderUserId: HUMAN, senderType: 'human', content: 'after the file' })
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async () => { throw new Error('chat attachment download failed (503)') },
     })
@@ -676,10 +677,10 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     })
     try {
       const cloud = new FakeCloud()
-      cloud.addChat('chat-as', 'group')
-      cloud.join('chat-as', AGENT, { listenMode: 'active' })
-      cloud.join('chat-as', HUMAN)
-      cloud.post({ chatId: 'chat-as', id: 'image-as', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: 'item-2', fileVersion: 4 })
+      cloud.addChat('00000000-0000-4000-8000-000000000004', 'group')
+      cloud.join('00000000-0000-4000-8000-000000000004', AGENT, { listenMode: 'active' })
+      cloud.join('00000000-0000-4000-8000-000000000004', HUMAN)
+      cloud.post({ chatId: '00000000-0000-4000-8000-000000000004', id: '10000000-0000-4000-8000-000000000009', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: 'item-2', fileVersion: 4 })
       const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home } })
       await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 1, injected: 1 })
       expect(asked.map((one) => one.url)).toEqual(['https://db.example.test/functions/v1/attachments/urls', 'https://cdn.example.test/two.png?auth_key=1'])
@@ -693,7 +694,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   it('a pull_agent_inbox_v2 row without file_item_id / file_version / file_blob_id is refused (the database is older than this client)', () => {
-    const row = { chat_id: 'c', id: 'm', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z' }
+    const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z' }
     expect(() => unreadRowFromRpc(row)).toThrow('no file_item_id / file_version / file_blob_id')
     expect(() => unreadRowFromRpc({ ...row, file_item_id: null, file_version: null })).toThrow('database is older than this client')
     expect(unreadRowFromRpc({ ...row, file_item_id: 'item-1', file_version: 2, file_blob_id: null })).toMatchObject({ fileItemId: 'item-1', fileVersion: 2, fileBlobId: null })
@@ -702,11 +703,11 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
 
   it('next-tool-call rows merge at steer admission while idle-only rows stay per-entry', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-steer', 'group')
-    cloud.join('chat-steer', AGENT, { listenMode: 'active' })
-    cloud.join('chat-steer', HUMAN)
-    for (const [id, seq] of [['steer-1', 1], ['steer-2', 2], ['steer-3', 3]] as const) {
-      cloud.post({ chatId: 'chat-steer', id, seq, senderUserId: HUMAN, senderType: 'human', content: id })
+    cloud.addChat('00000000-0000-4000-8000-00000000000f', 'group')
+    cloud.join('00000000-0000-4000-8000-00000000000f', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-00000000000f', HUMAN)
+    for (const [id, seq] of [['10000000-0000-4000-8000-00000000001b', 1], ['10000000-0000-4000-8000-00000000001c', 2], ['10000000-0000-4000-8000-00000000001d', 3]] as const) {
+      cloud.post({ chatId: '00000000-0000-4000-8000-00000000000f', id, seq, senderUserId: HUMAN, senderType: 'human', content: id })
     }
     const batches: Array<{ agentUserId: string; rows: number; units: number }> = []
     const { deps, injections } = makeDeps(cloud, {
@@ -718,17 +719,17 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: 1 }])
     expect(injections).toHaveLength(1)
     expect(injections[0]!.text).toContain('<gugu_deliveries count="3"')
-    for (const id of ['steer-1', 'steer-2', 'steer-3']) expect(injections[0]!.text).toContain(`msg="msg:${id}"`)
+    for (const id of ['10000000-0000-4000-8000-00000000001b', '10000000-0000-4000-8000-00000000001c', '10000000-0000-4000-8000-00000000001d']) expect(injections[0]!.text).toContain(`msg="msg:${id}"`)
   })
 
   it('必失败对照:段级断言能判假 —— 吞掉一段/抹掉一格都必须红', () => {
     const cloud = new FakeCloud()
     void cloud
-    const goodSegment = '<gugu_delivery route="chat" from_id="user:x" chat="42" msg="msg:m1" at="t"><![CDATA[hi]]></gugu_delivery>'
-    expect(() => assertPerMessageAttribution(`<gugu_deliveries count="2">\n${goodSegment}\n</gugu_deliveries>`, ['m1', 'm2']))
+    const goodSegment = '<gugu_delivery route="chat" from_id="user:x" chat="42" msg="msg:10000000-0000-4000-8000-00000000000f" at="t"><![CDATA[hi]]></gugu_delivery>'
+    expect(() => assertPerMessageAttribution(`<gugu_deliveries count="2">\n${goodSegment}\n</gugu_deliveries>`, ['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010']))
       .toThrow(/expected 2 envelope segments/)
     const stripped = goodSegment.replace('from_id="user:x" ', '')
-    expect(() => assertPerMessageAttribution(`<gugu_deliveries count="1">\n${stripped}\n</gugu_deliveries>`, ['m1']))
+    expect(() => assertPerMessageAttribution(`<gugu_deliveries count="1">\n${stripped}\n</gugu_deliveries>`, ['10000000-0000-4000-8000-00000000000f']))
       .toThrow(/lost its from_id/)
   })
 })
@@ -739,7 +740,7 @@ describe('入群门:agent 只收在场之后的消息(#5258)', () => {
     cloud.addChat(chatId, 'group')
     cloud.join(chatId, HUMAN)
     for (const seq of [1, 2, 3]) {
-      cloud.post({ chatId, id: `old-${seq}`, seq, senderUserId: HUMAN, senderType: 'human', content: `history ${seq}` })
+      cloud.post({ chatId, id: `20000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq, senderUserId: HUMAN, senderType: 'human', content: `history ${seq}` })
     }
     cloud.advanceClock('2026-08-29T12:00:00.000Z')
     cloud.join(chatId, AGENT, { listenMode: 'active' })
@@ -747,65 +748,65 @@ describe('入群门:agent 只收在场之后的消息(#5258)', () => {
 
   it('入群前的三条一条都不推,入群后的照常投递', async () => {
     const cloud = new FakeCloud()
-    groupWithHistory(cloud, 'chat-late')
+    groupWithHistory(cloud, '00000000-0000-4000-8000-00000000000b')
     const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 0, injected: 0, verdict: 'idle' })
     expect(injections).toEqual([])
 
-    cloud.post({ chatId: 'chat-late', id: 'new-4', seq: 4, senderUserId: HUMAN, senderType: 'human', content: 'so, what do you think?' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-00000000000b', id: '10000000-0000-4000-8000-000000000014', seq: 4, senderUserId: HUMAN, senderType: 'human', content: 'so, what do you think?' })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1, verdict: 'accepted' })
-    expect(injections.map((entry) => entry.messageId)).toEqual(['new-4'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-000000000014'])
     expect(injections[0]!.text).not.toContain('history 1')
   })
 
   it('入群前的消息不被算成「已读」:游标停在 0,已读只由真投递挣来', async () => {
     const cloud = new FakeCloud()
-    groupWithHistory(cloud, 'chat-late')
+    groupWithHistory(cloud, '00000000-0000-4000-8000-00000000000b')
     const { deps } = makeDeps(cloud)
 
     // 水位是人的聊天页判「agent 已读」的依据之一(deriveReadReceipt 以 水位 ≥ seq 判已读),
     // 所以它 ❌ 不能因为入群就跳到 head —— 那会让故意不投递的三条在人眼里变成 agent 已读。
     await pullAgentInbox(AGENT, deps)
-    expect(cloud.watermark('chat-late', AGENT)).toBe(0)
+    expect(cloud.watermark('00000000-0000-4000-8000-00000000000b', AGENT)).toBe(0)
     expect([...cloud.readRows]).toEqual([])
 
-    cloud.post({ chatId: 'chat-late', id: 'new-4', seq: 4, senderUserId: HUMAN, senderType: 'human', content: 'four' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-00000000000b', id: '10000000-0000-4000-8000-000000000014', seq: 4, senderUserId: HUMAN, senderType: 'human', content: 'four' })
     await pullAgentInbox(AGENT, deps)
     // 投递过的那一条有精确读行(人看得到「agent 读了这条」);没投递过的三条一条都没有。
-    expect([...cloud.readRows]).toEqual([`new-4:${AGENT}`])
+    expect([...cloud.readRows]).toEqual([`10000000-0000-4000-8000-000000000014:${AGENT}`])
   })
 
   it('创群就在场的 agent 不受影响:开张后的每一条都收', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-founder', 'group')
-    cloud.join('chat-founder', AGENT, { listenMode: 'active' })
-    cloud.join('chat-founder', HUMAN)
-    cloud.post({ chatId: 'chat-founder', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
+    cloud.addChat('00000000-0000-4000-8000-00000000000a', 'group')
+    cloud.join('00000000-0000-4000-8000-00000000000a', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-00000000000a', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-00000000000a', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
     const { deps, injections } = makeDeps(cloud)
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
-    expect(injections.map((entry) => entry.messageId)).toEqual(['m1'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f'])
   })
 
   it('必失败对照(变异=摘掉入群门):入群前三条全被推出去,必须红', async () => {
     const cloud = new FakeCloud()
-    groupWithHistory(cloud, 'chat-late')
+    groupWithHistory(cloud, '00000000-0000-4000-8000-00000000000b')
     // 变异只动被测的那一格:把 agent 的入群位置挪回第一条入库之前,门就等于不存在。
     // (门按入库序判,#6327 —— 挪 joinedAt 已经挪不动它。)
-    cloud.members.get(`chat-late:${AGENT}`)!.joinedIngestSeq = 0
+    cloud.members.get(`00000000-0000-4000-8000-00000000000b:${AGENT}`)!.joinedIngestSeq = 0
     const { deps, injections } = makeDeps(cloud)
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 3 })
-    expect(injections.map((entry) => entry.messageId)).toEqual(['old-1', 'old-2', 'old-3'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000003'])
   })
 })
 
 describe('P-E1 游标幂等:崩溃重启重拉,恰好一次注入', () => {
   function seed(): FakeCloud {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'once' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'once' })
     return cloud
   }
 
@@ -821,7 +822,7 @@ describe('P-E1 游标幂等:崩溃重启重拉,恰好一次注入', () => {
     await pullAgentInbox(AGENT, deps)
     expect(injections).toHaveLength(1)
     expect(cloud.markReadCalls).toHaveLength(1)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(1)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(1)
   })
 
   it('必失败对照(变异=游标读缓存):重拉不经真游标 ⇒ 重复注入,必须红', async () => {
@@ -835,7 +836,7 @@ describe('P-E1 游标幂等:崩溃重启重拉,恰好一次注入', () => {
     resetAgentInboxReaderStateForTests()
     await pullAgentInbox(AGENT, deps)
     // 红:同一条稳定 id 被注入了两次 —— 这正是「重拉去重改坏」时判据要抓住的坏结果。
-    expect(injections.map((entry) => entry.messageId)).toEqual(['m1', 'm1'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-00000000000f'])
   })
 })
 
@@ -886,10 +887,10 @@ describe('批失败披露与本机投影行(#4896 overdue 那一格)', () => {
 describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
   it('崩在注入与推进之间:消息不丢,重复以同一稳定 id 显形', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'window' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'window' })
     // 第一轮:注入受理后、游标推进前进程死(markRead 永远没跑到 —— 模拟为抛 SimulatedKill,
     // advanceCursor 收到即停,云端游标保持原位)。
     const kill = new Error('SIGKILL between inject and advance')
@@ -900,7 +901,7 @@ describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
     })
     await expect(pullAgentInbox(AGENT, crashDeps)).rejects.toThrow('SIGKILL between inject and advance')
     expect(firstInjections).toHaveLength(1)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(0)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(0)
     expect(disclosures).toHaveLength(1)
     expect(disclosures[0]!.key).toMatch(/^turn-failure:batch:[0-9a-f]{32}$/)
     expect(outcomes).toEqual([{ ok: false }])
@@ -908,17 +909,17 @@ describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
     resetAgentInboxReaderStateForTests()
     const { deps, injections } = makeDeps(cloud)
     await pullAgentInbox(AGENT, deps)
-    expect(injections.map((entry) => entry.messageId)).toEqual(['m1'])
-    expect([...firstInjections, ...injections].map((entry) => entry.messageId)).toEqual(['m1', 'm1'])
-    expect(cloud.watermark('chat-a', AGENT)).toBe(1)
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f'])
+    expect([...firstInjections, ...injections].map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-00000000000f'])
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(1)
   })
 
   it('必失败对照(变异=推进挪到注入前):同一时序下消息静默丢失,必须红', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'lost?' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'lost?' })
     // 变异体:先推游标、后注入;注入点崩溃。
     const mutantAdvanceFirst = async () => {
       const rows = await cloud.fetchUnread({ agentUserId: AGENT })
@@ -932,39 +933,39 @@ describe('P-E2 推进时机窗口(只落已裁决的 after 支)', () => {
     const result = await pullAgentInbox(AGENT, deps)
     expect(injections).toHaveLength(0)
     expect(result.pulled).toBe(0)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(1) // 云端声称已读,而模型从未见过 —— 丢是静默的。
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(1) // 云端声称已读,而模型从未见过 —— 丢是静默的。
   })
 })
 
 describe('P-E6 已读回执:逐条精确读行 + 顺序消费下水位前进;水位停滞由精确读行兜住', () => {
   it('拉取后逐条精确读行按 seq 序写入,水位到 max(seq)', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'a' })
-    cloud.post({ chatId: 'chat-a', id: 'm2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'b' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'a' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000010', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'b' })
     const { deps } = makeDeps(cloud)
     await pullAgentInbox(AGENT, deps)
-    expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual(['m1', 'm2'])
-    expect(cloud.readRows.has(`m1:${AGENT}`)).toBe(true)
-    expect(cloud.readRows.has(`m2:${AGENT}`)).toBe(true)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(2)
+    expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-000000000010'])
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-00000000000f:${AGENT}`)).toBe(true)
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-000000000010:${AGENT}`)).toBe(true)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(2)
   })
 
   it('对方的 whisper 让水位永久停滞(生产现状),精确读行仍防住重注入', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
     // seq=1 是发给别人的 whisper:对本 agent 不可见,但 gap-guard 计入它。
-    cloud.post({ chatId: 'chat-a', id: 'w1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'psst', isWhisper: true, toUserIds: [OTHER_AGENT] })
-    cloud.post({ chatId: 'chat-a', id: 'm2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'visible' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000020', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'psst', isWhisper: true, toUserIds: [OTHER_AGENT] })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000010', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'visible' })
     const { deps, injections } = makeDeps(cloud)
     await pullAgentInbox(AGENT, deps)
     expect(injections).toHaveLength(1)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(0) // 水位被 gap 卡住 —— 这就是「顺序消费下永不触发」不成立的读数。
-    expect(cloud.readRows.has(`m2:${AGENT}`)).toBe(true)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(0) // 水位被 gap 卡住 —— 这就是「顺序消费下永不触发」不成立的读数。
+    expect(cloud.readRows.has(`10000000-0000-4000-8000-000000000010:${AGENT}`)).toBe(true)
     // 若去重只靠水位,这里会重注入;精确读行必须防住。
     resetAgentInboxReaderStateForTests()
     await pullAgentInbox(AGENT, deps)
@@ -975,10 +976,10 @@ describe('P-E6 已读回执:逐条精确读行 + 顺序消费下水位前进;水
 describe('P-E7 nudge 风暴:恰好一次注入', () => {
   function seed(): FakeCloud {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'storm' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'storm' })
     return cloud
   }
 
@@ -1028,7 +1029,7 @@ describe('P-E7 nudge 风暴:恰好一次注入', () => {
     await both
     // 红:同一稳定 id 双注入(deps.inject 里 push 了一次,makeDeps 默认又 push 一次 —— 这里只看重复)。
     const ids = injections.map((entry) => entry.messageId)
-    expect(ids.filter((id) => id === 'm1').length).toBeGreaterThanOrEqual(2)
+    expect(ids.filter((id) => id === '10000000-0000-4000-8000-00000000000f').length).toBeGreaterThanOrEqual(2)
   })
 
   it('必失败对照②(游标推进被注释):跨触发重复注入,必须红', async () => {
@@ -1041,17 +1042,17 @@ describe('P-E7 nudge 风暴:恰好一次注入', () => {
     // 任何一次重启/另一个触发面就把坏结果显形 —— 这正是「游标才是真值」的证明。
     resetAgentInboxReaderStateForTests()
     await pullAgentInbox(AGENT, deps)
-    expect(injections.map((entry) => entry.messageId)).toEqual(['m1', 'm1'])
+    expect(injections.map((entry) => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f', '10000000-0000-4000-8000-00000000000f'])
   })
 })
 
 describe('三态判决与失败面', () => {
   function seed(): FakeCloud {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT, { listenMode: 'active' })
-    cloud.join('chat-a', HUMAN)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT, { listenMode: 'active' })
+    cloud.join('00000000-0000-4000-8000-000000000003', HUMAN)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
     return cloud
   }
 
@@ -1062,6 +1063,25 @@ describe('三态判决与失败面', () => {
     expect(result.verdict).toBe('not-live')
     expect(wakes).toEqual([AGENT])
     expect(cloud.markReadCalls).toEqual([])
+  })
+
+  it('describes an unaccepted retained message as pending, and a later successful admission consumes it once', async () => {
+    const post = vi.fn<typeof fetch>(async () => new Response('', { status: 201 }))
+    vi.stubGlobal('fetch', post)
+    try {
+      await postDeliveryDisclosureRow({ agentUserId: AGENT, chatId: 'chat-a', key: 'notice', threadRootId: null, reason: 'notAdmitted' }, 'test-token')
+      const body = JSON.parse(post.mock.calls[0]![1]!.body as string)
+      expect(body.content).toBe('消息已保留，助理就绪后回复。')
+      expect(body.content).not.toMatch(/failed|could not hand|失败/)
+    } finally { vi.unstubAllGlobals() }
+    const cloud = seed()
+    const { deps } = makeDeps(cloud, { inject: async () => { throw new Error('runtime not ready') }, postDisclosure: async () => {} })
+    await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('runtime not ready')
+    expect(cloud.markReadCalls).toEqual([])
+    const recovered = makeDeps(cloud)
+    await pullAgentInbox(AGENT, recovered.deps)
+    await pullAgentInbox(AGENT, recovered.deps)
+    expect(recovered.injections.map(entry => entry.messageId)).toEqual(['10000000-0000-4000-8000-00000000000f'])
   })
 
   it('not-now(idle-only 忙):不唤醒、游标不动、等回合末', async () => {
@@ -1075,7 +1095,7 @@ describe('三态判决与失败面', () => {
 
   it('批注入真失败:游标不动、按来源 chat 落批粒度披露(只说原因,❌ 内部编号)、灯记异常、错误上抛', async () => {
     const cloud = seed()
-    cloud.post({ chatId: 'chat-a', id: 'm2', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'boom' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000010', seq: 2, senderUserId: HUMAN, senderType: 'human', content: 'boom' })
     const disclosures: Array<{ chatId: string; key: string; reason: string }> = []
     const { deps, outcomes } = makeDeps(cloud, {
       inject: async () => { throw new Error('provider exploded') },
@@ -1084,7 +1104,7 @@ describe('三态判决与失败面', () => {
     await expect(pullAgentInbox(AGENT, deps)).rejects.toThrow('provider exploded')
     expect(cloud.markReadCalls).toEqual([])
     expect(disclosures).toHaveLength(1)
-    expect(disclosures[0]!.chatId).toBe('chat-a')
+    expect(disclosures[0]!.chatId).toBe('00000000-0000-4000-8000-000000000003')
     // #7103 owner 10-11:这一行给对话里所有人看 ⇒ 只带原因,❌ 内部编号、❌ 上游原文;没受理是咕咕这边的错。
     expect(disclosures[0]!.reason).toBe('notAdmitted')
     expect(outcomes).toEqual([{ ok: false }])
@@ -1092,10 +1112,10 @@ describe('三态判决与失败面', () => {
 
   it('同一群消息的失败按 agent 去重;同一 agent 重拉仍用同一个 key', async () => {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.join('chat-a', AGENT)
-    cloud.join('chat-a', OTHER_AGENT)
-    cloud.post({ chatId: 'chat-a', id: 'm1', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT)
+    cloud.join('00000000-0000-4000-8000-000000000003', OTHER_AGENT)
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', content: 'hello' })
     const keys: string[] = []
     const { deps } = makeDeps(cloud, {
       inject: async () => { throw new Error('provider failed') },
@@ -1143,7 +1163,7 @@ describe('三态判决与失败面', () => {
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 0 })
     fail(new Error("Internal error: You've hit your weekly limit; private trace x123"))
     expect(isSaidInChat(await settled)).toBe(true)
-    expect(notices).toEqual([expect.objectContaining({ chatId: 'chat-a', reason: 'weeklyQuota' })])
+    expect(notices).toEqual([expect.objectContaining({ chatId: '00000000-0000-4000-8000-000000000003', reason: 'weeklyQuota' })])
     expect(cloud.markReadCalls).toHaveLength(1)
   })
 
@@ -1191,15 +1211,15 @@ describe('三态判决与失败面', () => {
     })
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ verdict: 'accepted', injected: 1 })
-    expect(cloud.markReadCalls).toEqual([{ chatId: 'chat-a', messageId: 'm1' }])
-    expect(machineQueue).toEqual(['m1'])
+    expect(cloud.markReadCalls).toEqual([{ chatId: '00000000-0000-4000-8000-000000000003', messageId: '10000000-0000-4000-8000-00000000000f' }])
+    expect(machineQueue).toEqual(['10000000-0000-4000-8000-00000000000f'])
 
     // The ACP machine drains its queued prompt at TurnEnded; the reader already advanced the
     // durable cloud cursor at admission, so the next trigger has nothing to pull.
     machineQueue.shift()
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ verdict: 'idle', injected: 0 })
-    expect(injections).toEqual(['m1'])
-    expect(cloud.markReadCalls).toEqual([{ chatId: 'chat-a', messageId: 'm1' }])
+    expect(injections).toEqual(['10000000-0000-4000-8000-00000000000f'])
+    expect(cloud.markReadCalls).toEqual([{ chatId: '00000000-0000-4000-8000-000000000003', messageId: '10000000-0000-4000-8000-00000000000f' }])
   })
 
   it('kick 入口吞不了错:失败只 loud log,游标滞后留给下一个触发', async () => {
@@ -1225,28 +1245,28 @@ describe('#6036 unread scan pagination', () => {
   // 这一侧不再存在。这里盯的是 reader 自己的分页:一页装满就带着游标接着扫,扫描有界,失败后从未读真值重来。
   function seed(backlog: number): FakeCloud {
     const cloud = new FakeCloud()
-    cloud.addChat('chat-a', 'group')
-    cloud.addChat('chat-z', 'dm')
-    cloud.join('chat-a', AGENT)
-    cloud.join('chat-z', AGENT)
+    cloud.addChat('00000000-0000-4000-8000-000000000003', 'group')
+    cloud.addChat('00000000-0000-4000-8000-000000000011', 'dm')
+    cloud.join('00000000-0000-4000-8000-000000000003', AGENT)
+    cloud.join('00000000-0000-4000-8000-000000000011', AGENT)
     for (let seq = 1; seq <= backlog; seq += 1) {
-      cloud.post({ chatId: 'chat-a', id: `row-${seq}`, seq, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: `request ${seq}` })
+      cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: `30000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: `request ${seq}` })
     }
-    cloud.post({ chatId: 'chat-a', id: 'mention', seq: backlog + 1, senderUserId: OTHER_AGENT, senderType: 'agent', toUserIds: [AGENT], content: '@target' })
-    cloud.post({ chatId: 'chat-z', id: 'dm', seq: 1, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'private request' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000012', seq: backlog + 1, senderUserId: OTHER_AGENT, senderType: 'agent', toUserIds: [AGENT], content: '@target' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000011', id: '40000000-0000-4000-8000-000000000001', seq: 1, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'private request' })
     return cloud
   }
-  const backlogIds = (backlog: number): string[] => Array.from({ length: backlog }, (_, index) => `row-${index + 1}`)
+  const backlogIds = (backlog: number): string[] => Array.from({ length: backlog }, (_, index) => `30000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`)
 
   it.each([80, 161, 80 * 10])('drains a %i-row backlog, the later @ and a lower-seq DM, each exactly once', async (backlog) => {
     const cloud = seed(backlog)
     const { deps, injections } = makeDeps(cloud)
     const result = await pullAgentInbox(AGENT, deps)
-    const expected = [...backlogIds(backlog), 'mention', 'dm']
+    const expected = [...backlogIds(backlog), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001']
     expect(result).toMatchObject({ pulled: backlog + 2, injected: backlog + 2 })
     expect(injections.map((row) => row.messageId)).toEqual(expected)
     expect(cloud.markReadCalls.map((row) => row.messageId)).toEqual(expected)
-    expect(cloud.watermark('chat-a', AGENT)).toBe(backlog + 1)
+    expect(cloud.watermark('00000000-0000-4000-8000-000000000003', AGENT)).toBe(backlog + 1)
     await pullAgentInbox(AGENT, deps)
     expect(injections).toHaveLength(expected.length)
     resetAgentInboxReaderStateForTests()
@@ -1256,7 +1276,7 @@ describe('#6036 unread scan pagination', () => {
 
   it.each(['throw', 'not-live', 'not-now', 'read-failure'] as const)('a %s scan leaves its rows unread; the retry starts from unread truth', async (failure) => {
     const cloud = seed(0)
-    cloud.post({ chatId: 'chat-a', id: 'later', seq: 2, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'follow-up' })
+    cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-00000000000d', seq: 2, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'follow-up' })
     const first = makeDeps(cloud, {
       inject: async () => {
         if (failure === 'throw') throw new Error('provider unavailable')
@@ -1270,8 +1290,8 @@ describe('#6036 unread scan pagination', () => {
     expect(cloud.readRows.size).toBe(0)
     const retry = makeDeps(cloud)
     await pullAgentInbox(AGENT, retry.deps)
-    expect(retry.injections.map((row) => row.messageId)).toEqual(['mention', 'later', 'dm'])
-    expect(cloud.markReadCalls.map((row) => row.messageId)).toEqual(['mention', 'later', 'dm'])
+    expect(retry.injections.map((row) => row.messageId)).toEqual(['10000000-0000-4000-8000-000000000012', '10000000-0000-4000-8000-00000000000d', '40000000-0000-4000-8000-000000000001'])
+    expect(cloud.markReadCalls.map((row) => row.messageId)).toEqual(['10000000-0000-4000-8000-000000000012', '10000000-0000-4000-8000-00000000000d', '40000000-0000-4000-8000-000000000001'])
   })
 
   it('resumes from unread truth after a second-page failure without repeating accepted rows', async () => {
@@ -1280,7 +1300,7 @@ describe('#6036 unread scan pagination', () => {
     let fail = true
     const { deps } = makeDeps(cloud, {
       inject: async ({ messageId }) => {
-        if (messageId === 'row-81' && fail) throw new Error('second page failure')
+        if (messageId === '30000000-0000-4000-8000-000000000081' && fail) throw new Error('second page failure')
         accepted.push(messageId!)
         return 'accepted'
       },
@@ -1290,7 +1310,7 @@ describe('#6036 unread scan pagination', () => {
     expect(accepted).toEqual(backlogIds(80))
     fail = false
     await pullAgentInbox(AGENT, deps)
-    expect(accepted).toEqual([...backlogIds(160), 'mention', 'dm'])
+    expect(accepted).toEqual([...backlogIds(160), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001'])
   })
 
   it('a finite scan excludes new traffic and the next trigger recovers messages behind its chat cursor', async () => {
@@ -1303,19 +1323,19 @@ describe('#6036 unread scan pagination', () => {
         if (requests.length === 1) fenceAtFirstPage = cloud.ingest
         if (requests.length === 2) {
           cloud.advanceClock('2026-08-29T00:01:00.000Z')
-          cloud.post({ chatId: 'chat-a', id: 'new-tail', seq: 82, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'arrived while scanning' })
-          cloud.addChat('chat-0', 'dm')
-          cloud.join('chat-0', AGENT)
-          cloud.post({ chatId: 'chat-0', id: 'new-head', seq: 1, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'behind cursor' })
+          cloud.post({ chatId: '00000000-0000-4000-8000-000000000003', id: '10000000-0000-4000-8000-000000000016', seq: 82, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'arrived while scanning' })
+          cloud.addChat('00000000-0000-4000-8000-000000000002', 'dm')
+          cloud.join('00000000-0000-4000-8000-000000000002', AGENT)
+          cloud.post({ chatId: '00000000-0000-4000-8000-000000000002', id: '10000000-0000-4000-8000-000000000015', seq: 1, senderUserId: HUMAN, senderType: 'human', toUserIds: [AGENT], content: 'behind cursor' })
         }
         return cloud.fetchUnread(input)
       },
     })
     await pullAgentInbox(AGENT, deps)
-    expect(injections.map((row) => row.messageId)).toEqual([...backlogIds(80), 'mention', 'dm'])
-    expect(requests[1]).toMatchObject({ scanAfter: { chatId: 'chat-a', seq: 80 }, scanFence: fenceAtFirstPage })
+    expect(injections.map((row) => row.messageId)).toEqual([...backlogIds(80), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001'])
+    expect(requests[1]).toMatchObject({ scanAfter: { chatId: '00000000-0000-4000-8000-000000000003', seq: 80 }, scanFence: fenceAtFirstPage })
     await pullAgentInbox(AGENT, deps)
-    expect(injections.map((row) => row.messageId)).toEqual([...backlogIds(80), 'mention', 'dm', 'new-head', 'new-tail'])
+    expect(injections.map((row) => row.messageId)).toEqual([...backlogIds(80), '10000000-0000-4000-8000-000000000012', '40000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000015', '10000000-0000-4000-8000-000000000016'])
   })
 
   it('does not count local pending rows toward cloud page fullness', async () => {

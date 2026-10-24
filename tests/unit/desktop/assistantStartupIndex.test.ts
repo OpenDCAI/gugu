@@ -39,7 +39,7 @@ it('injects account devices and registered projects with unambiguous ownership a
   expect(rows.find(row => row.device === 'device:mac' && row.source === 'projects')).toMatchObject({ status: 'read', items: [{ name: '主人的项目', path: '/Users/owner/work',
     read: { tool: 'project_get', args: { project_id: 'project:project-mac', device_id: 'device:mac' } },
   }] })
-  const note = rows.find(row => row.device === 'device:mac' && row.source === 'capabilities')!.items![0]
+  const note = rows.find(row => row.device === 'device:mac' && row.source === 'library_capabilities')!.items![0]
   expect(note).toEqual({ id: 'calendar-note', name: '日历说明', description: '日程安排', group: '生活', modifiedAt: '2026-10-20T12:00:00Z',
     read: { tool: 'library_read', args: { kind: 'capabilities', entry: 'calendar-note', device_id: 'device:mac' } },
   })
@@ -59,8 +59,8 @@ it('distinguishes unavailable/invalid sources from a successfully read empty col
   })
   const rows = records(await assistantStartupIndex(deps))
   expect(rows.find(row => row.device === 'device:mac' && row.source === 'projects')).toMatchObject({ status: 'unavailable' })
-  expect(rows.find(row => row.device === 'device:mac' && row.source === 'capabilities')).toMatchObject({ status: 'unavailable' })
-  expect(rows.find(row => row.device === 'device:mac' && row.source === 'devices')).toMatchObject({ status: 'read', items: [] })
+  expect(rows.find(row => row.device === 'device:mac' && row.source === 'library_capabilities')).toMatchObject({ status: 'unavailable' })
+  expect(rows.find(row => row.device === 'device:mac' && row.source === 'library_devices')).toMatchObject({ status: 'read', items: [] })
   expect(rows.filter(row => row.status === 'unavailable').every(row => !('items' in row))).toBe(true)
 })
 
@@ -163,4 +163,44 @@ it('preserves phone task hosting independently of native file authorization', as
   expect(records(await assistantStartupIndex(deps)).find(row => row.device_id === 'device:phone'))
     .toMatchObject({ task_runtime: { capability: 1, runtimes: ['pi'] }, groups: [{ group: 'files', available: false }],
       delegate: { tool: 'session_spawn', args: { device: 'device:phone' } }, read: { tool: 'session_devices' } })
+})
+
+it('produces the same bounded snapshot for reordered/duplicate discoveries and large catalogs', async () => {
+  const make = (reverse: boolean) => {
+    const deps = fixture()
+    const original = deps.run.getMockImplementation()!
+    deps.run.mockImplementation(async (action, signal) => {
+      if (action.action === 'devices') return reverse ? [mac, host, mac] : [host, mac, mac]
+      if (action.action === 'device_actions') return { devices: (reverse ? [phone, mac, host] : [host, mac, phone]).map(device => ({ ...device, groups: [] })) }
+      if (action.action === 'project_list') {
+        const items = Array.from({ length: 200 }, (_, i) => ({ project_id: String(i), name: `项目${i}`, path: `/p/${i}` }))
+        return reverse ? items.reverse() : items
+      }
+      return original(action, signal)
+    })
+    return deps
+  }
+  const forward = make(false); const backward = make(true)
+  const index = await assistantStartupIndex(forward)
+  expect(await assistantStartupIndex(backward)).toBe(index)
+  expect(index.length).toBeLessThanOrEqual(6_000)
+  const rows = records(index)
+  expect(rows.filter(row => row.device_id).map(row => row.device_id)).toEqual(['device:host', 'device:mac', 'device:phone'])
+  expect(rows.some(row => Number(row.omitted_items) > 0)).toBe(true)
+  expect(forward.run.mock.calls.filter(([action]) => action.action === 'project_list' && action.device === 'mac')).toHaveLength(1)
+})
+
+it('omits complete records with discovery pointers when even device summaries exceed the budget', async () => {
+  const deps = fixture()
+  const original = deps.run.getMockImplementation()!
+  deps.run.mockImplementation((action, signal) => {
+    if (action.action === 'devices') return Promise.resolve(Array.from({ length: 80 }, (_, i) => ({ ...mac, device_id: `computer-${i}`, online: false })))
+    return original(action, signal)
+  })
+  const index = await assistantStartupIndex(deps)
+  expect(index.length).toBeLessThanOrEqual(6_000)
+  const omission = records(index).find(row => row.source === 'index_budget')!
+  expect(omission).toMatchObject({ complete: false, read: expect.arrayContaining(['session_devices']) })
+  expect(omission.omitted_records).toBeDefined()
+  expect(index.endsWith('</gugu_resource_index>')).toBe(true)
 })

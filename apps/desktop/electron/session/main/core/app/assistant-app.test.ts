@@ -29,6 +29,7 @@ vi.mock('@main/core/extensions/extension-send', async () => {
 vi.mock('@main/core/extensions/extension-programs', () => ({ notifyFromNativeProgram: notified }));
 const { callAssistantApp } = await import('./assistant-app');
 const { setUserLibraryOwner, readUserLibraryVolume, runLibraryAgentAction } = await import('./user-library');
+const { AssistantWorkStore, assistantWorkBinding } = await import('../../../../sessionpage/assistant-work');
 let home: string;
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'assistant-app-'));
@@ -87,4 +88,17 @@ it('does not emit a successful notification for a rejected save or accept arbitr
   await expect(callAssistantApp('callProgram', { name: 'shell_exec' })).rejects.toMatchObject({ code: 'invalid' });
   await expect(callAssistantApp('spawnAgent', { prompt: 'x' })).rejects.toMatchObject({ code: 'denied' });
   expect(notified).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+});
+it('lists and clears only this owner’s assistant recovery entries without messaging or stopping executors', async () => {
+  const binding = assistantWorkBinding('personal-session', join(home, 'assistant'), 'computer', 'assistant');
+  const store = new AssistantWorkStore(binding.memoryDir);
+  const id = store.begin({ kind: 'executor' }); store.confirm(id, ['session:active-child'], []);
+  const result = await callAssistantApp('callProgram', { name: 'assistant_work_list' }, 'owner') as { structuredContent: { result: { items: unknown[] } } };
+  expect(result.structuredContent.result.items).toHaveLength(1);
+  await expect(callAssistantApp('callProgram', { name: 'assistant_work_clear' })).rejects.toMatchObject({ code: 'denied' });
+  await expect(callAssistantApp('callProgram', { name: 'assistant_work_clear' }, 'other')).rejects.toMatchObject({ code: 'denied' });
+  expect(store.list()).toHaveLength(1);
+  await callAssistantApp('callProgram', { name: 'assistant_work_clear' }, 'owner');
+  expect(store.list()).toEqual([]);
+  expect(send).not.toHaveBeenCalled();
 });

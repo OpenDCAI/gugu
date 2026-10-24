@@ -74,10 +74,9 @@ export function buildSlashCommandExtension(
     suggestion: {
       char: '/',
       allowSpaces: false,
-      // Slash commands are available from any cursor position in the prompt.
-      // The host decides which commands are available; the editor should not
-      // silently hide that catalog just because the prompt already has text.
-      allowedPrefixes: null,
+      // TipTap interpolates these prefixes into a character class. A command
+      // starts a whitespace-delimited token; slashes inside paths are text.
+      allowedPrefixes: ['\\s'],
       startOfLine: false,
       pluginKey: slashCommandPluginKey,
       // Wrap the command handler so 'execute' items don't insert a node.

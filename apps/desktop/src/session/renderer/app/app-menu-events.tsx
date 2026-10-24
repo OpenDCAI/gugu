@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
-import { openGroupFileLink } from '@/components/markdown/fileLinks';
+import { openLink } from '@/lib/guguLinks';
 import { GROUP_FILE_NOT_OPENED } from '@shared/extensions/app-runtime-protocol';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
@@ -144,7 +144,7 @@ export function AppMenuEvents() {
     });
     const unlisten = events.on(sessionOpenBrowserInPaneChannel, (request) => {
       // A group's file (session_open_in_tab with a gugu-file link, 摩擦单 F10): opened in its group, as a chat link is.
-      const groupFileOpened = openGroupFileLink(request.url);
+      const groupFileOpened = openLink(request.linkTarget ?? request.url);
       if (groupFileOpened !== null) {
         void groupFileOpened.then(
           (opened) =>

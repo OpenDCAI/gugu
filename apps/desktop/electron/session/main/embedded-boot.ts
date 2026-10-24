@@ -16,8 +16,10 @@
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
 import type { BirthGroup } from '@shared/core/sessions/create-session';
+export { readCurrentActivityInput } from './core/sessions/session-activity-source'
 import { installActivityCollector } from '@main/core/activity/collector'
-import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
+import { openLink } from './core/extensions/gugu-links'
+import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
 import { appKey } from '@shared/extensions/app-identity'
@@ -388,7 +390,7 @@ function installSessionClearDataShim(): void {
 /** 咕咕 server(server-entry.ts):同一份主进程,没有窗口、没有渲染层。 */
 const HEADLESS_SERVER = process.env.GUGU_SERVER_MODE === '1'
 
-export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
+export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<SessionHostBootOptions, 'scheduleDiscovery'>): Promise<void> {
   // #6264 没有窗口:会话里的 open_in_tab 送到正看着这条会话的桌面,❌ 问一个不存在的渲染层干等超时(remote-pane.ts)。
   if (HEADLESS_SERVER) setRemotePaneOpener(sharedRemotePaneRoute())
   const electronIpc = createElectronHostIpc({ ipcMain, BrowserWindow, MessageChannelMain })
@@ -403,6 +405,7 @@ export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
   await bootSessionHostCore({
     hostIpc: composeHostIpc(devWs ? [electronIpc, deviceHost, devWs] : [electronIpc, deviceHost]),
     browserFeatures: true,
+    ...discovery,
   })
 }
 
@@ -424,6 +427,8 @@ export type SessionHostBootOptions = {
   hostIpc: HostIpc
   /** 只有 Electron 窗口宿主为 true:<webview> 准入、扩展桥、内置浏览器分区。无头宿主 false。 */
   browserFeatures: boolean
+  /** The host owns the first-request boundary; ordinary desktop hosts discover immediately. */
+  scheduleDiscovery?: (work: () => Promise<void>) => Promise<void>
 }
 
 /**
@@ -714,7 +719,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
   // --- Post-registration reconcilers (index.ts:185-215). Fire-and-forget. ---
   void reconcileResourceSampler()
-  localDependencyManager.probeAll().catch((e: unknown) => {
+  const discover = () => localDependencyManager.probeAll()
+  const discovery = options.scheduleDiscovery ? options.scheduleDiscovery(discover) : discover()
+  discovery.catch((e: unknown) => {
     log.error('Failed to probe dependencies:', e)
   })
   // @@@3130 GitHub 账号对账**不在这里跑**。它三步里任何一步碰到已有数据都会写加密存储 →
@@ -927,8 +934,8 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
-export async function openEmdashExtensionLink(url: string): Promise<ExtensionLinkOutcome> {
-  return await openExtensionLink(url)
+export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
+  return await openLink(url)
 }
 
 /** #4320 —— 唤醒超过它就把分段整份 warn 出来(沿用 #4181 报 still-running 的 30s 节拍)。 */

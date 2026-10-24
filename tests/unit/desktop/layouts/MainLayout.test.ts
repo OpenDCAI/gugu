@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MainLayout } from '../../../../apps/desktop/src/layouts/MainLayout'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
-import { openConversationLink } from '../../../../apps/desktop/src/lib/conversationLinks'
-import { conversationLink } from '@gugu/core/shared/ui/conversationLink'
+import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
+import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
 import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
-import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT, GROUP_FILE_OPEN_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { APP_OPEN_WITH_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_COMPOSE_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assistantTaskChat'
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
@@ -23,6 +23,20 @@ const revealRoute = vi.hoisted(() => ({ asked: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useSourceMessageReveal', async (original) => {
   const actual = await original<typeof import('../../../../apps/desktop/src/hooks/useSourceMessageReveal')>()
   return { ...actual, askReveal: (chat: string, message: string, viewport?: string) => { revealRoute.asked(chat, message, viewport); actual.askReveal(chat, message, viewport) } }
+})
+const clickLink = (href: string) => openLinkTarget(parseGuguLink(href)!)
+const fileOwner = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/lib/supabase', async (original) => {
+  const actual = await original<typeof import('../../../../apps/desktop/src/lib/supabase')>()
+  return { ...actual, chatDb: new Proxy(actual.chatDb, { get(client, key) {
+    if (key !== 'from') return Reflect.get(client, key)
+    return (table: string) => {
+      if (table !== 'workspace_items') return client.from(table)
+      let id = ''
+      const query = { select: () => query, eq: (_key: string, value: string) => { id = value; return query }, maybeSingle: () => fileOwner(id) }
+      return query
+    }
+  } }) }
 })
 const resourceChat = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', async (original) => ({
@@ -190,14 +204,19 @@ vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
 })
 vi.mock('../../../../apps/desktop/src/components/SettingsPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useBackLayer } = await vi.importActual<typeof import('../../../../apps/desktop/src/components/ui/sheetStack')>('../../../../apps/desktop/src/components/ui/sheetStack')
   return {
     // 有状态的替身,与真 SettingsPanel 同一个口径:给了 section 就受控(弹窗),否则是本地 state、只在挂载时读 initialSection(「我的」)。
-    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange }: {
+    SettingsPanel: ({ onClose, initialSection, section: controlled, onSectionChange, mobile, pane, onPaneChange }: {
       onClose?: () => void
       initialSection?: string
       section?: string
       onSectionChange?: (section: string) => void
+      mobile?: boolean
+      pane?: 'nav' | 'detail'
+      onPaneChange?: (pane: 'nav' | 'detail') => void
     }) => {
+      useBackLayer(() => onPaneChange?.('nav'), mobile && pane === 'detail')
       const [local, setLocal] = React.useState(initialSection)
       const section = controlled ?? local
       const setSection = onSectionChange ?? setLocal
@@ -282,6 +301,7 @@ beforeEach(() => {
     },
   })
   taskRoute.contacts = []
+  fileOwner.mockResolvedValue({ data: { chat_id: 'personal-dm' }, error: null })
   activationProbe.calls.length = 0
   chatAreaProbe.mounts = 0
   agentWatchProbe.rootMounts = 0
@@ -912,7 +932,8 @@ describe('MainLayout: files.openWith', () => {
     chatStoreMock.chats = [{ id: 'source', kind: 'group' }, { id: 'topic-file', kind: 'topic', source_chat_id: 'source', name: 'Topic' }] as never
     const restore = vi.fn()
     await renderMainLayoutWithToast()
-    await act(async () => { window.dispatchEvent(new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'topic-file', itemId: 'F1', restore } })) })
+    fileOwner.mockResolvedValue({ data: { chat_id: 'topic-file' }, error: null })
+    await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { restore }) })
     if (blocks) expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source', false)
     else expect(chatStoreMock.setActiveChatId).toHaveBeenCalledWith('source')
     expect(drainTopicSplitRequest('source')).toBeNull()
@@ -934,9 +955,8 @@ describe('MainLayout: files.openWith', () => {
     const message = { id: 'message-origin', content: 'attachment', retracted_at: null }
     await renderMainLayoutWithToast()
     const restore = vi.fn()
-    const event = new CustomEvent('gugu:open-group-file', { cancelable: true, detail: { chatId: 'g-open', itemId: 'F1', message, restore } })
-    await act(async () => { window.dispatchEvent(event) })
-    expect(event.defaultPrevented).toBe(true)
+    fileOwner.mockResolvedValue({ data: { chat_id: 'g-open' }, error: null })
+    await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'F1' }, { message: message as never, restore }) })
     expect(groupSlotMemory.takeFile('g-open')).toEqual({ itemId: 'F1', message, restore })
   })
 
@@ -962,7 +982,7 @@ describe('MainLayout: personal assistant destinations', () => {
   afterEach(() => { publishAssistantShell({ ...shell, assistant: null, assistantState: 'none', chatId: null }) })
 
   it.each([
-    [GROUP_FILE_OPEN_EVENT, { chatId: 'personal-dm', itemId: 'personal-file' }],
+    ['resource-file', { chatId: 'personal-dm', itemId: 'personal-file' }],
     [APP_OPEN_WITH_EVENT, { chatId: 'personal-dm', itemId: 'personal-file', name: 'budget.md', typedName: 'budget.md', choice: { kind: 'none' } }],
     [APP_COMPOSE_EVENT, { chatId: 'personal-dm', text: 'follow-up' }],
     [UI_EVENTS.notificationClicked, { chatId: 'personal-dm' }],
@@ -973,7 +993,8 @@ describe('MainLayout: personal assistant destinations', () => {
       await renderMainLayoutWithToast()
       await act(async () => {
         publishAssistantShell(shell)
-        window.dispatchEvent(new CustomEvent(name, { detail }))
+        if (name === 'resource-file' && 'itemId' in detail) await openLinkTarget({ kind: 'file', itemId: detail.itemId })
+        else window.dispatchEvent(new CustomEvent(name, { detail }))
       })
       expect(navigate).toHaveBeenCalledWith('assistant')
       expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
@@ -990,7 +1011,7 @@ describe('MainLayout: personal assistant destinations', () => {
     phoneAssistantMock.state.chatId = 'personal-dm'
     chatStoreMock.chats = [{ id: 'personal-dm', kind: 'dm' } as never]
     await renderMainLayoutWithToast()
-    await act(async () => { window.dispatchEvent(new CustomEvent(GROUP_FILE_OPEN_EVENT, { detail: { chatId: 'personal-dm', itemId: 'phone-file' } })) })
+    await act(async () => { await openLinkTarget({ kind: 'file', itemId: 'phone-file' }) })
     expect(harness.container.querySelector('[data-mobile-tab-page="assistant"]')?.hasAttribute('inert')).toBe(false)
     expect(harness.container.querySelector('nav')).not.toBeNull()
     expect(groupSlotMemory.takeFile('personal-dm')?.itemId).toBe('phone-file')
@@ -1004,7 +1025,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const SRC = '0b1e7c1a-0000-4000-8000-000000000001'
   const TOPIC = '0b1e7c1a-0000-4000-8000-000000000002'
   const ways: Array<[string, () => void, string]> = [
-    ['a conversation link', () => { openConversationLink(conversationLink(TOPIC)) }, SRC],
+    ['a conversation link', () => { clickLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
@@ -1032,7 +1053,7 @@ describe('MainLayout: an App requested from a topic uses the shared source slot'
     })
     expect(resourceChat).toHaveBeenLastCalledWith('layout-token', 'topic-app', 'user-1')
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('source-app', false)
-    expect(groupSlotMemory.takeApp('source-app')).toBe('board')
+    expect(groupSlotMemory.takeApp('source-app')).toEqual({ extensionId: 'board' })
     expect(groupSlotMemory.takeApp('topic-app')).toBeNull()
     expect(drainTopicSplitRequest('source-app')).toBeNull()
   })
@@ -1046,7 +1067,7 @@ describe('MainLayout: message link presentation identity', () => {
     chatServiceMock.getMessageById.mockResolvedValue({ id: MESSAGE_ID, chat_id: topic })
     chatStoreMock.chats = [{ id: source, kind: 'group' }, { id: topic, kind: 'topic', source_chat_id: source }] as never
     await renderMainLayoutWithToast()
-    await act(async () => { openConversationLink(conversationLink(topic, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
+    await act(async () => { clickLink(conversationLink(topic, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
     expect(revealRoute.asked).toHaveBeenLastCalledWith(topic, MESSAGE_ID, phone ? 'chats:topic' : `chat:${source}:topic`)
     expect(drainTopicSplitRequest(source)).toMatchObject({ chatId: topic, sourceChatId: source })
   })
@@ -1061,7 +1082,7 @@ describe('MainLayout: message link presentation identity', () => {
     chatStoreMock.chats = [{ id: taskChat, kind: 'dm', peer_user_id: 'task-agent' }] as never
     chatServiceMock.getMessageById.mockResolvedValue({ id: MESSAGE_ID, chat_id: taskChat })
     await renderMainLayoutWithToast()
-    await act(async () => { openConversationLink(conversationLink(taskChat, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
+    await act(async () => { clickLink(conversationLink(taskChat, MESSAGE_ID)); for (let i = 0; i < 5; i++) await Promise.resolve() })
     expect(revealRoute.asked).toHaveBeenLastCalledWith(taskChat, MESSAGE_ID, 'assistant:task-chat')
   })
 

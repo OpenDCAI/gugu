@@ -20,6 +20,10 @@ if (!(guguTier in ["production", "beta"])) {
     throw new GradleException("Unknown GUGU_TIER '${guguTier}' — 安卓只出 production / beta 两种包")
 }
 def guguIsBeta = guguTier == "beta"
+def guguLinkScheme = providers.exec {
+    workingDir rootProject.file("../../..")
+    commandLine "node", "--input-type=module", "-e", "import { guguLinkScheme } from './packages/core/src/shared/ui/linkScheme.mjs'; console.log(guguLinkScheme({tier: process.env.GUGU_TIER, devLaunch: false}))"
+}.standardOutput.asText.get().trim()
 def guguApplicationId = guguIsBeta ? "app.gugu.chat.beta" : "app.gugu.chat"
 def guguAppLabel = guguIsBeta ? "咕咕 Beta" : "咕咕"
 
@@ -103,6 +107,7 @@ android {
         // 系统「打开方式」里那一项(AndroidManifest 的 VIEW intent-filter):跟着档位走,beta 与正式版同机时分得清发给谁。
         resValue "string", "share_target_open_with", "发送到${guguAppLabel}"
         // App Links 的 <data android:host> 不带端口(本地库 127.0.0.1:54321 那种只是没有可验证的链接,不影响别的)。
+        manifestPlaceholders.guguLinkScheme = guguLinkScheme
         manifestPlaceholders.guguDbHost = guguDbHost.replaceFirst(/:\d+$/, "")
         buildConfigField "String", "GUGU_UPDATE_CHANNEL", "\"${guguUpdateChannel}\""
         buildConfigField "String", "GUGU_UPDATE_MANIFEST_URL", "\"${guguUpdateManifestUrl}\""

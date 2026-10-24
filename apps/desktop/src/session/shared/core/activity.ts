@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AGENT_STATUSES, AGENT_STATUS_DETAILS } from '@gugu/core/shared/agentStatus';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import { sessionLifecycleSchema } from '@gugu/session-core/acp/client';
 
 // Deliberately closed: no generic payload, title, message body or tool arguments in this index.

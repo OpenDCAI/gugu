@@ -63,6 +63,8 @@ import type {
 } from '@shared/extensions/market';
 import { marketDownloadProgressChannel, marketRefreshedChannel } from '@shared/extensions/marketEvents';
 import type { MarketRefreshed } from '@shared/extensions/market-snapshot';
+import { marketHome } from '@shared/extensions/market-home';
+import { chatDb } from '@/lib/supabase';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 
@@ -112,7 +114,7 @@ const GROUP_LABEL = {
   disabled: 'extensions.groupDisabled',
 } as const satisfies Record<InstalledGroup, string>;
 
-type StoreTab = 'market' | 'installed';
+type StoreTab = 'market' | 'newest' | 'popular' | 'all' | 'installed';
 
 export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard() {
   const { translate, locale } = useSessionMessages();
@@ -284,7 +286,16 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       current.status === 'ready' && current.query === search && !current.errorKind ? current : { status: 'loading' }
     );
     try {
-      const result = await api.market({ page: 0, query: search });
+      const ranking = search === ''
+        ? Promise.resolve(chatDb.rpc('market_install_ranking')).then(({ data, error }) => {
+            if (error) throw error;
+            return new Map(((data ?? []) as { app_id: string; score: number }[]).map((row) => [row.app_id, row.score]));
+          }).catch((error: unknown) => {
+            log.warn('market install ranking unreadable:', error);
+            return null;
+          })
+        : Promise.resolve(new Map<string, number>());
+      const [result, scores] = await Promise.all([api.market({ page: 0, query: search }), ranking]);
       if (ticket !== shelfRequest.current) return;
       // The market answers every call (unreachable is `errorKind`); only a call that did not get there lands here.
       if (!result.success || !result.data) throw new Error('market unreadable');
@@ -299,15 +310,19 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       }
       let items = result.data.extensions;
       let last = result.data;
-      for (let page = 1; page < pages && last.hasMore; page += 1) {
+      for (let page = 1; last.hasMore && (search === '' || page < pages); page += 1) {
         const next = await api.market({ page, query: search });
         if (ticket !== shelfRequest.current) return;
-        // 后面那几页没读到:前面的照样换上,底部的「加载更多」还在。
-        if (!next.success || !next.data || next.data.errorKind) break;
+        // 推荐与完整排序页必须读齐;搜索保留分页重试。
+        if (!next.success || !next.data || next.data.errorKind) {
+          if (search === '') throw new Error('The complete market catalog could not be read');
+          break;
+        }
         const seen = new Set(items.map((item) => item.manifest.id));
         items = [...items, ...next.data.extensions.filter((item) => !seen.has(item.manifest.id))];
         last = next.data;
       }
+      const { featured, ...home } = marketHome(items.map((item) => ({ ...item, ...item.cloud })), scores);
       shelfFetchedAt.current = result.data.fetchedAt;
       const ready: Extract<ShelfState, { status: 'ready' }> = {
         status: 'ready',
@@ -318,14 +333,14 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
         total: last.total,
         page: last.page,
         hasMore: last.hasMore,
-        featured: result.data.featured,
-        home: result.data.home,
+        featured,
+        home,
         loadingMore: false,
       };
       setShelf(ready);
-      // 下次打开先画的那份:第 0 页(翻到的那几页下次再翻)。
+      // 下次打开先画这份完整目录与编排。
       if (search === '' && !ready.errorKind) {
-        lastShelf.set(host.key, { ...ready, page: 0, items: result.data.extensions, hasMore: result.data.hasMore });
+        lastShelf.set(host.key, ready);
       }
     } catch (error) {
       if (ticket !== shelfRequest.current) return;
@@ -1173,12 +1188,15 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
             aria-label={translate('extensions.title')}
             value={[tab]}
             onValueChange={([value]) => {
-              if (value === 'market' || value === 'installed') setTab(value);
+              if (value === 'market' || value === 'newest' || value === 'popular' || value === 'all' || value === 'installed') setTab(value);
             }}
           >
             {(
               [
-                ['market', translate('extensions.tabMarket'), undefined],
+                ['market', translate('extensions.recommended'), undefined],
+                ['newest', translate('extensions.newest'), undefined],
+                ['popular', translate('extensions.popular'), undefined],
+                ['all', translate('extensions.allApps'), undefined],
                 ['installed', translate('extensions.tabInstalled'), installedCount],
               ] as const
             ).map(([value, label, count]) => (
@@ -1194,7 +1212,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
           </Button>
         </div>
 
-        {tab === 'market' && (
+        {tab !== 'installed' && (
           <div className="pb-14" data-testid="extensions-market-panel">
             {/* 那台机器此刻连不上:清单问不了(问了只会挂满超时),照实说,❌ 一直转骨架。 */}
             {/* 那台机器连不上时只有这一句:下面读清单的几种结果(转圈、出错、连不上下载站)都不画,❌ 两条「连不上」叠在一起。 */}
@@ -1232,6 +1250,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
                 </div>
               ) : (
                 <AppMarketContent
+                    view={tab} onRetry={() => void readShelf(debouncedQuery)}
                   shelf={shelf}
                   chip={chip}
                   onChipChange={setChip}

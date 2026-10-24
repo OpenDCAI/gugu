@@ -101,6 +101,8 @@ export interface BrowserAgentGrantContext {
   sessionId: string
   ownerUserId: string
   subjectId: string
+  /** Explicit host role, never inferred from the workspace or the prompt. */
+  personalAssistant?: true
 }
 
 export type BrowserAgentMcpHost = GuguMcpHost<BrowserAgentGrantContext>
@@ -444,7 +446,7 @@ export function createBrowserAgentMcpHost(
       server.server.setRequestHandler(ListToolsRequestSchema, async () =>
         trackRequest(
           (async () => {
-            return { tools: [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
+            return { tools: getContext().personalAssistant ? [] : [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
           })(),
           'tools/list',
         ),
@@ -452,6 +454,7 @@ export function createBrowserAgentMcpHost(
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
         trackRequest(
           (async (): Promise<CallToolResult> => {
+            if (getContext().personalAssistant) return refused('Browser actions require a task agent on this device: session_spawn device=<device>.')
             return callBrowserTool(bridge, getContext().sessionId, request.params, AbortSignal.any([grantSignal, extra.signal]))
           })(),
           request.params.name,
@@ -462,7 +465,9 @@ export function createBrowserAgentMcpHost(
     (context) => ({
       ownerId: context.ownerUserId,
       subjectId: context.subjectId,
-      toolScope: GUGU_BROWSER_MCP_SERVER_NAME,
+      // Two fixed role surfaces, shared by all assistants / all executors respectively.
+      // Like the Gugu grant, a key cannot change role without revocation.
+      toolScope: GUGU_BROWSER_MCP_SERVER_NAME + (context.personalAssistant ? ':assistant' : ''),
     }),
     persistence,
   )
@@ -478,10 +483,12 @@ export async function buildBrowserAgentBridge(
   sessionId: string,
   ownerUserId: string,
   subjectId: string,
+  personalAssistant?: true,
 ): Promise<AcpMcpServer[]> {
   try {
     await host.start()
-    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId })
+    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId, ...(personalAssistant ? { personalAssistant } : {}) })
+    if (personalAssistant) return []
     return [{
       name: GUGU_BROWSER_MCP_SERVER_NAME,
       transport: 'http',

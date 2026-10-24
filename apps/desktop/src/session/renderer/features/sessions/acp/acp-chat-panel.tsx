@@ -2,7 +2,8 @@ import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
-import { openConversationLink } from '@/lib/conversationLinks';
+import { followLink } from '@/lib/guguLinks';
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
   ChatComposer,
@@ -19,7 +20,7 @@ import type {
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
 import { observer, useObserver } from 'mobx-react-lite';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
@@ -113,8 +114,6 @@ import { resolveVisualEvidenceAttachmentDataUrl } from './acp-chat-resource-mana
 import { useOpenedOutputMenu } from './opened-output-menu';
 import type { AcpChatTabResource } from './acp-chat-tab-resource';
 import { chatViewCommandForShortcut, executeChatViewCommand } from './acp-chat-view-commands';
-import { classifySessionChatLink } from './session-chat-link';
-import { openGroupFile } from '@/components/markdown/fileLinks';
 import {
   effortSourceFor,
   localizeEffortOptions,
@@ -391,6 +390,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 const ComposerForStore = observer(function ComposerForStore({
   store,
+  editorApiRef,
   composerSlot,
   onViewAttachment,
   onScrollToBottom,
@@ -398,6 +398,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onMembershipLockChange,
 }: {
   store: AcpChatStore;
+  editorApiRef: RefObject<PromptEditorRef | null>;
   composerSlot: HTMLElement;
   /** 面板要把模型菜单打开(「这个模型要会员」那一行上的「换模型」):每变一次开一次。 */
   modelMenuRequest: number;
@@ -420,7 +421,6 @@ const ComposerForStore = observer(function ComposerForStore({
     const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
     if (back) store.setDraftText(back);
   }, [verb, store]);
-  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
@@ -1770,6 +1770,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const [composerSlot, setComposerSlot] = useState<HTMLElement | null>(null);
   const [heroSlot, setHeroSlot] = useState<HTMLElement | null>(null);
@@ -2192,10 +2193,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
-      classifyLink: classifySessionChatLink,
-      onOpenConversationLink: (href) => { openConversationLink(href); },
-      // 摩擦单 F10: a file of a group, linked in the transcript — opened in that group, where the person is taken.
-      onOpenGroupFile: ({ itemId, at }) => void openGroupFile(itemId, at),
+      classifyLink: classifyFileLink,
+      onOpenLink: followLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
@@ -2220,6 +2219,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: (arg) => {
         if (!store) return;
         store.setDraftText(arg.text);
+        editorApiRef.current?.setText(arg.text);
+        editorApiRef.current?.focus('end');
       },
       // 「继续」——上游 stopped-run 的 Continue。与上面那颗**刚好相反**：这颗是真发送。
       // 能这么接是因为 `cancel` 之后会话还活着，且 agent 的上下文里带着刚被切断的那半截输出
@@ -2448,6 +2449,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         <ComposerForStore
           key={store.sessionId}
           store={store}
+          editorApiRef={editorApiRef}
           composerSlot={composerSlot}
           onViewAttachment={handleAttachmentView}
           onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}

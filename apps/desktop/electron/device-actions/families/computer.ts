@@ -12,7 +12,7 @@
  * 3. **抢焦点前先问**:delivery_mode = foreground / foreground_fallback 会短暂把目标切到前台,前台 HID 鼠标输入还会移动人的真实指针;
  *    bring_to_front 会把目标一直留在前台,
  *    Windows 上普通启动的 App 可能自己跳到前台(start_minimized 除外),都先回 needs_confirmation。
- * 4. **人随时接管那个 App**:每个动作先告诉 computerControl 它针对哪个 App(屏幕底部的小条:<谁> 正在操作「<App>」 · 停止);
+ * 4. **人随时接管那个 App**:每个动作先告诉 computerControl 它针对哪个窗口(窗口内的小条:<谁> 正在操作「<App>」 · 停止);
  *    人按停止 ⇒ 这个 App 上在途的动作中断、之后再动它一律拒,直到人点「让它继续」;别的 App 照常。人自己用电脑(连同点进那个 App)不打断它。
  *
  * 浏览器类(page / browser_*)不开:咕咕有自己的浏览器页签;接管人已登录的浏览器在 cua 里也要额外授权。
@@ -394,7 +394,7 @@ export function createAppDirectory() {
   const titles = new Map<number, string>()
   const fileNames = new Map<number, string>()
   const listed = new Map<number, string>()
-  const snapshots = new Map<string, number>()
+  const snapshots = new Map<string, { pid: number; windowId?: number }>()
   const askedWindows = new Set<number>()
   const askedDescription = new Set<number>()
   const isFileName = (name: string) => /\.exe$/i.test(name)
@@ -415,7 +415,15 @@ export function createAppDirectory() {
       if (pid !== undefined) return pid
       const token = typeof args.element_token === 'string' ? args.element_token : ''
       const snapshot = token.includes(':') ? token.slice(0, token.lastIndexOf(':')) : ''
-      return snapshot ? snapshots.get(`${session}|${snapshot}`) : undefined
+      return snapshot ? snapshots.get(`${session}|${snapshot}`)?.pid : undefined
+    },
+    windowOf(session: string, args: Args): number | undefined {
+      const target = isRecord(args.target) ? args.target : args
+      if (isNum(target.window_id)) return target.window_id
+      const token = typeof args.element_token === 'string' ? args.element_token : ''
+      const snapshot = token.includes(':') ? token.slice(0, token.lastIndexOf(':')) : ''
+      const known = snapshots.get(`${session}|${snapshot}`)
+      return known && (targetPid(args) === undefined || targetPid(args) === known.pid) ? known.windowId : undefined
     },
     nameOf: (pid: number) => described.get(pid) ?? windowNames.get(pid) ?? titles.get(pid) ?? fileNames.get(pid) ?? listed.get(pid),
     /** 还没从窗口上读到过系统语言的名字、也还没问过:该问 cua 一次它的窗口(顺带拿到窗口标题)。 */
@@ -425,9 +433,12 @@ export function createAppDirectory() {
     describe(pid: number, description: string) {
       if (description) described.set(pid, description)
     },
-    learn(session: string, data: unknown) {
+    learn(session: string, data: unknown, args: Args = {}) {
       if (!isRecord(data)) return
-      if (isNum(data.pid) && typeof data.snapshot_id === 'string') snapshots.set(`${session}|${data.snapshot_id}`, data.pid)
+      const pid = isNum(data.pid) ? data.pid : targetPid(args)
+      const target = isRecord(args.target) ? args.target : args
+      const windowId = isNum(data.window_id) ? data.window_id : isNum(target.window_id) ? target.window_id : undefined
+      if (pid !== undefined && typeof data.snapshot_id === 'string') snapshots.set(`${session}|${data.snapshot_id}`, { pid, ...(windowId !== undefined ? { windowId } : {}) })
       learnOne(data)
       for (const list of [data.windows, data.apps]) if (Array.isArray(list)) list.forEach(learnOne)
     },
@@ -489,10 +500,13 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       const session = sessionOf(ctx)
       const control = ctx.deps.computerControl
       const pid = apps.pidOf(session, forward)
+      const windowId = apps.windowOf(session, forward)
       const appName = control && pid !== undefined ? await appNameOf(ctx, apps, pid) : undefined
       const handle = control?.begin({
         ...(ctx.caller?.name ? { callerName: ctx.caller.name } : {}),
+        ...(ctx.caller?.task_title ? { taskTitle: ctx.caller.task_title } : {}),
         ...(pid !== undefined ? { pid } : {}),
+        ...(windowId !== undefined ? { windowId } : {}),
         ...(appName ? { appName } : {}),
       })
       if (handle && 'refused' in handle) return fail('revoked', handle.refused)
@@ -501,7 +515,7 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {
         const outcome = await callCua(ctx, name, t.cua, takesSession ? { ...forward, session } : forward, t.timeoutMs?.(args), signal)
-        if (outcome.ok) apps.learn(session, outcome.data)
+        if (outcome.ok) apps.learn(session, outcome.data, forward)
         return stopped() ?? outcome
       } catch (error) {
         const byPerson = stopped()

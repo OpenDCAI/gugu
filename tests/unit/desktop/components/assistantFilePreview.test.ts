@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { FilePreviewHost } from '../../../../apps/desktop/src/components/chat/filePreviewHost'
 
-const { openGroupFile, readBytes } = vi.hoisted(() => ({
-  openGroupFile: vi.fn(async () => true),
+const { openResource, readBytes } = vi.hoisted(() => ({
+  openResource: vi.fn(async () => undefined),
   readBytes: vi.fn(async () => ({ status: 'ready', blob: { text: async () => '# 预算\n余量260元', arrayBuffer: async () => new ArrayBuffer(0) } })),
 }))
-vi.mock('@/components/markdown/fileLinks', () => ({ openGroupFile }))
+vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: openResource }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: readBytes, sourceKeyOf: () => 'budget', attachmentResolver: { resolve: vi.fn(), forget: vi.fn() }, openAttachmentInSystemApp: vi.fn(),
@@ -38,7 +38,7 @@ describe('personal assistant file preview', () => {
     const onOpenChange = vi.fn()
     await harness.render(createElement(FilePreviewHost.Provider, { value: { target: pane, onOpenChange } }, createElement(Conversation)))
     await act(async () => { harness.container.querySelector('button')!.click() })
-    expect(openGroupFile).not.toHaveBeenCalled()
+    expect(openResource).not.toHaveBeenCalled()
     expect(readBytes).toHaveBeenCalledTimes(1)
     expect(pane.textContent).toContain('余量260元')
     expect(pane.querySelector('aside')?.getAttribute('data-fill')).toBe('true')
@@ -55,14 +55,14 @@ describe('personal assistant file preview', () => {
     await act(async () => { harness.container.querySelector('button')!.click() })
     expect(onOpenChange).toHaveBeenLastCalledWith(true)
     expect(harness.container.querySelector('aside')).toBeNull()
-    expect(openGroupFile).not.toHaveBeenCalled()
+    expect(openResource).not.toHaveBeenCalled()
   })
 
   it('keeps the existing App opener and message return for ordinary chat attachments', async () => {
     const restore = vi.fn()
     await harness.render(createElement(Conversation, { restore }))
     await act(async () => { harness.container.querySelector('button')!.click() })
-    expect(openGroupFile).toHaveBeenCalledWith('budget', undefined, undefined, restore)
+    expect(openResource).toHaveBeenCalledWith({ kind: 'file', itemId: 'budget' }, { message: undefined, restore })
     expect(readBytes).not.toHaveBeenCalled()
   })
 })

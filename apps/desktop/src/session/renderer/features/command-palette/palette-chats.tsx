@@ -1,9 +1,9 @@
 import { Command } from 'cmdk';
 import { Users } from '@/lib/icons';
 import { useChatSummaries, useContactSummaries } from '@/lib/chatSummariesBridge';
-import { openConversationLink } from '@/lib/conversationLinks';
+import { followLink } from '@/lib/guguLinks';
 import { UI_EVENTS } from '@/lib/uiEvents';
-import { conversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { conversationLink } from '@gugu/core/shared/ui/guguLink';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
@@ -25,7 +25,7 @@ export function PaletteChatGroups({ query, groupClassName, onClose }: {
         <Command.Group heading={translate('palette.groups')} className={groupClassName}>
           {groups.map(([id, chat]) => (
             <Command.Item key={id} value={`chat:${id}`} className={PALETTE_ITEM_CLASS}
-              onSelect={() => { onClose(); openConversationLink(conversationLink(id)); }}>
+              onSelect={() => { onClose(); followLink(conversationLink(id)); }}>
               <Users size={14} className="shrink-0 text-foreground/40" /><span className="flex-1 truncate">{chat.name}</span>
             </Command.Item>
           ))}

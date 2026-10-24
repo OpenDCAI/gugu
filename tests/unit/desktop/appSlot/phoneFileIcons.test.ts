@@ -64,7 +64,7 @@ beforeEach(() => {
   Object.defineProperty(frame.contentWindow!, 'postMessage', { value: posted, configurable: true })
   host = hostAppFrame(
     frame,
-    { extensionId: 'workspace', tabId: 'tab-1', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'workspace', tabId: 'tab-1', tabName: 'main', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' },
     { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn() },
   )
 })

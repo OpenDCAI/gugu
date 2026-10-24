@@ -42,7 +42,7 @@ let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
 const binding = (extensionId: string, chatId: string, itemId: string) =>
-  ({ extensionId, tabId: 'tab-1', chatId, itemId, capabilities: ['files:read'] as const, locale: 'en-US', themeMode: 'light' as const })
+  ({ extensionId, tabId: 'tab-1', tabName: 'main', chatId, itemId, capabilities: ['files:read'] as const, locale: 'en-US', themeMode: 'light' as const })
 function start(extensionId: string, chatId: string, itemId = 'item-1') {
   host?.dispose()
   host = hostAppFrame(

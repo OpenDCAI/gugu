@@ -76,7 +76,7 @@ export interface GroupAppSlotProps {
   full?: boolean
   onToggleFull?: () => void
   /** The App whose card's 「Open」 brought the panel up (摩擦单 F51): its one file opens, or its files are listed first. */
-  appToOpen?: { chatId: string; extensionId: string; request: number; fromChat?: boolean } | null
+  appToOpen?: { chatId: string; extensionId: string; tab?: string; request: number; fromChat?: boolean } | null
   /** A file of this group asked for by a link (摩擦单 F10): it opens in the App that opens it — at the place a pill points at. */
   fileToOpen?: FileToOpen | null
 }
@@ -378,7 +378,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
     answeredOpens.add(ask.request)
     // 「在本群打开」(app-redesign §5): an App with a page of its own opens that page here, this group its context; one that
     // only opens files opens where its files are (摩擦单 F51).
-    const page = installedExtensionsStore.mainTabOf(ask.extensionId)
+    const page = ask.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.kind === `${ask.extensionId}.${ask.tab}`) : installedExtensionsStore.mainTabOf(ask.extensionId)
     // Asked after any file before it: an answer to one of those coming back later does not open over this.
     const asked = ++asking.current
     // The folder entry names the root, rather than restoring the App or file previously shown here.

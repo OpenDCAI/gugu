@@ -72,7 +72,7 @@ export default {
       "changeModel": "切换模型",
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
-      "notAdmitted": "咕咕这边出错了，这批消息没能交给 Agent，请稍后重试。",
+      "notAdmitted": "消息已保留，助理就绪后回复。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
@@ -610,6 +610,13 @@ export default {
     }
   },
   "header": {
+    "groupApps": "群 Apps",
+    "personalPins": "仅自己",
+    "pinGroupApp": "将{{name}}固定到本群头栏",
+    "unpinGroupApp": "从本群头栏移除{{name}}",
+    "appPinsLoadFailed": "无法读取固定的 App。",
+    "appPinsSaveFailed": "无法保存固定的 App。",
+    "noGroupApps": "本设备暂无可用的 App。",
     "openInGroup": "在这个群里打开…",
     "announcement": "群公告",
     "memberList": "成员列表",

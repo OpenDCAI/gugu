@@ -46,8 +46,6 @@ import { installExtensionFromMarket, type MarketInstall } from '@main/core/exten
 import { autoUpdateApps } from '@main/core/extensions/auto-update-apps';
 import { appService } from '@main/core/app/service';
 import { cloudExtensionMarket } from '@main/core/extensions/market-catalog-root';
-import { readMarketRanking } from '@main/core/extensions/market-ranking';
-import type { MarketCategory } from '@shared/extensions/catalog';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
@@ -122,6 +120,8 @@ function readBundleReadme(rootDir: string): string | null {
  * the first thing that happens to a bundle the user has not agreed to. Refs #2374.
  */
 export const extensionsController = createRPCController({
+  openLink: async (args: { target: import('@gugu/core/shared/ui/guguLink').GuguLinkTarget }) =>
+    (await import('./gugu-links')).openLink(args.target),
   list: async () => {
     try {
       const { extensions, invalid } = extensionsService().list();
@@ -485,16 +485,7 @@ export const extensionsController = createRPCController({
     const page = Math.max(0, args.page ?? 0);
     const query = (args.query ?? '').trim();
     try {
-      // 首页精选和「热门」那一排按近期安装量排(只随第一页、不带搜索词):分数读不到时精选只按索引上的 `featured`、
-      // 不画「热门」,市场照常打开(owner 10-19)。
-      const scores =
-        page === 0 && !query
-          ? await readMarketRanking().catch((error: unknown) => {
-              log.error(`market install ranking unreadable: ${error instanceof Error ? error.message : String(error)}`);
-              return undefined;
-            })
-          : undefined;
-      const listing = await cloudExtensionMarket().list({ page, search: query, scores });
+      const listing = await cloudExtensionMarket().list({ page, search: query });
       const asItem = ({ manifest, ...cloud }: CloudMarketEntry): MarketListItem => ({
         manifest,
         ref: { extensionId: manifest.id, version: cloud.version },
@@ -505,13 +496,6 @@ export const extensionsController = createRPCController({
         success: true,
         data: {
           extensions,
-          // 首页精选那一排和下面那几排(只随第一页、不带搜索词)。
-          featured: listing.featured.map(asItem),
-          home: {
-            newest: listing.home.newest.map(asItem),
-            popular: listing.popular.map(asItem),
-            shelves: listing.home.shelves.map((shelf) => ({ category: shelf.category, items: shelf.entries.map(asItem) })),
-          },
           invalid: listing.invalid.map((entry) => ({ dirName: entry.extensionId, reason: entry.reason })),
           // `errorKind` 是给界面看的(它决定文案),`error` 是原话、只进日志 ——
           // 用户可见文案里 ❌ 不拼内部失败描述(CI policy: copy-leaks-raw-error-slot)。
@@ -531,8 +515,6 @@ export const extensionsController = createRPCController({
         success: true,
         data: {
           extensions: [] as MarketListItem[],
-          featured: [] as MarketListItem[],
-          home: { newest: [] as MarketListItem[], popular: [] as MarketListItem[], shelves: [] as { category: MarketCategory; items: MarketListItem[] }[] },
           invalid: [] as { dirName: string; reason: string }[],
           errorKind,
           error: reason as string | null,

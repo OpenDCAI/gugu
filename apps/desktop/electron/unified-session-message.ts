@@ -12,6 +12,7 @@
 // 本模块只做寻址解析、预检次序与结果合并;投递归编排层,❌ 不在这里长出第二套投递。
 
 import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
+import { workReportSchema, type WorkReport } from '../src/session/shared/assistant-work'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '@gugu/core/shared/typedId.mjs'
 
 export type UnifiedRecipientResult = {
@@ -19,11 +20,12 @@ export type UnifiedRecipientResult = {
   to: string
   status: 'delivered' | 'failed'
   message_id?: string
+  session_id?: string
   error?: { code: string; message: string }
 }
 
 /** What the sender says about this message besides its text — carried to the recipient's envelope as given (see the orchestration's message action). */
-export type SessionMessageSaid = { attachments?: SessionAttachmentRef[]; then?: string; reply_to_message_id?: string; source_link?: string }
+export type SessionMessageSaid = { attachments?: SessionAttachmentRef[]; then?: string; reply_to_message_id?: string; source_link?: string; work_result?: WorkReport }
 
 export type UnifiedSessionMessageDeps = {
   prepareFiles?: (files: SessionFileInput[], targets: Array<{ sessionId: string; deviceId?: string }>) => Promise<SessionAttachmentRef[]>
@@ -85,6 +87,7 @@ export async function handleUnifiedSessionMessage(
   if (!text.trim()) throw new Error('message text is required')
   // 取值由收件那台机器的编排层判(远端调用者不经过本机 schema),这里只原样带过去。
   const said: SessionMessageSaid = {
+    ...(record.work_result !== undefined ? { work_result: workReportSchema.parse(record.work_result) } : {}),
     ...(record.source_link !== undefined ? { source_link: record.source_link as string } : {}),
     ...(record.then !== undefined ? { then: record.then as string } : {}),
     ...(record.reply_to_message_id !== undefined ? { reply_to_message_id: record.reply_to_message_id as string } : {}),
@@ -248,7 +251,7 @@ export async function handleUnifiedSessionMessage(
   // 身份写法换来的会话,结果照旧按 Agent ID 回报。
   for (const entry of recipients) {
     const userId = named.get(decodeTypedId('session', entry.to, 'to'))
-    if (userId) entry.to = encodeTypedId('user', userId)
+    if (userId) { entry.session_id = entry.to; entry.to = encodeTypedId('user', userId) }
   }
   return { route: 'session-direct', recipients }
 }

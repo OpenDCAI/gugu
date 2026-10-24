@@ -3,6 +3,7 @@
 // beta coexist on one machine: each gets its own single-instance lock, userData, and dock identity.
 // The desktop main bundle reads the SAME GUGU_TIER (via vite define) to pick its default home
 // (~/.gugu vs ~/.gugu-beta); core's resolveGuguHome is untouched so the standalone CLI default stays ~/.gugu.
+const { guguLinkScheme } = require('./packages/core/src/shared/ui/linkScheme.mjs')
 const tier = process.env.GUGU_TIER || 'production'
 const buildDistribution = process.env.GUGU_BUILD_DISTRIBUTION || 'local'
 if (buildDistribution !== 'local' && buildDistribution !== 'published') {
@@ -252,7 +253,7 @@ module.exports = {
   artifactName: t.artifactPrefix + '-${version}-${arch}.${ext}',
   // #6387 一条通道一个链接前缀(与 src/session/shared/extensions/link-scheme.ts 同一条规则):
   // 正式版与 Beta 同机并存,两家都认 gugu:// 时,系统把链接交给谁取决于谁最后启动过。
-  protocols: [{ name: 'gugu', schemes: [tier === 'production' ? 'gugu' : `gugu-${String(tier).toLowerCase().replace(/[^a-z0-9-]/g, '-')}`] }],
+  protocols: [{ name: 'gugu', schemes: [guguLinkScheme({ tier, devLaunch: false })] }],
   // @@@native-abi-owner (#2282) - native ABI 的唯一 rebuild owner = 下方 beforePack 里的
   // @electron/rebuild(electron 44 ABI 149,按 context.arch 逐架构重建后再打该架构的包)。
   // electron-builder 自带的 npmRebuild 阶段在本仓不可用,必须关:#2274 把 node-pty/better-sqlite3/

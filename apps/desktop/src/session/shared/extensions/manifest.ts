@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EXTENSION_API_VERSION } from './bridge-protocol';
 import { networkHostAllowed } from './partition';
+import { APP_PLATFORMS } from './app-platforms';
 
 /**
  * Extension (App) manifest — the `manifest.json` at the root of an
@@ -68,7 +69,7 @@ function isBundleRelativePath(value: string): boolean {
   return segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
-const bundlePathSchema = z
+export const bundlePathSchema = z
   .string()
   .min(1)
   .max(256)
@@ -434,6 +435,8 @@ export const extensionManifestSchema = z
     }),
     /** Human-facing extension name. */
     name: z.string().trim().min(1).max(64),
+    /** Required when publishing or installing; installed older Apps remain readable at runtime. */
+    platforms: z.array(z.enum(APP_PLATFORMS)).optional(),
     /**
      * What it does, for the market card and the detail sheet. Optional: every
      * bundle that exists predates it, and a manifest is not less valid for not

@@ -1,6 +1,6 @@
 import { readDeliveryEnvelope, type DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
 import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/session-chat-ui';
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
 /**
  * Who a delivered turn came from. The rail paints these ticks differently from

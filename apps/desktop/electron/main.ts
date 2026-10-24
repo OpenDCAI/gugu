@@ -358,6 +358,8 @@ import { connectedCliSkills } from './session/main/core/integrations/cli/cli-int
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
 import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import { assistantWorkBinding } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -381,7 +383,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '../src/session/shared/extensions/link-scheme'
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
 import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -797,11 +799,11 @@ function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
  * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
  * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
  */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string }): Promise<AcpMcpServer[]> {
+async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string; personalAssistant?: true }): Promise<AcpMcpServer[]> {
   if (!authProvider || !loadEmdashBridge()) return []
   try {
     const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId)
+    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId, session.personalAssistant)
   } catch (error) {
     createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
     return []
@@ -1753,7 +1755,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     appVersion: app.getVersion(),
     serverMode: SERVER_MODE,
     openSystemSettings: (url) => shell.openExternal(url),
-    // #7199 电脑控制:agent 不许操作咕咕自己;屏幕底部的「正在操作 · 停止」小条。
+    // 电脑控制:agent 不许操作咕咕自己;提示跟随实际目标窗口。
     selfApp: () => selfAppForComputerControl(),
     // #7317 电脑控制的开关是 Computer Use 这个 App(behavior tab-extensions):它开着这台电脑才有电脑控制。
     appSwitch: { group: 'computer', app: 'Computer Use', on: () => computerUseOn() },
@@ -1761,7 +1763,8 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     ...(SERVER_MODE
       ? {}
       : {
-          computerControlView: createComputerControlWindow({
+          computerControlView: (cua) => createComputerControlWindow({
+            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
               const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
@@ -3118,7 +3121,7 @@ app.on('open-url', (event, url) => {
 
 /**
  * #6387 这个版本认的链接前缀:正式版 gugu://,Beta gugu-beta://,源码起的开发版 gugu-dev://。
- * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(link-scheme.ts)。
+ * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */
@@ -3132,7 +3135,7 @@ function handleGuguLink(url: string): void {
     return
   }
   focusMainWindow()
-  void emdashBridge.openEmdashExtensionLink(url).then(
+  void emdashBridge.openEmdashLink(url).then(
     (outcome) => {
       if (outcome.kind !== 'failed') return
       // 人点了链接、在等:打不开要当面说清为什么,❌ 只记日志。
@@ -3984,7 +3987,8 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
-        await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id)
+        const result = await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id) as { opened?: import('../src/session/shared/extensions/host-actions').ExtensionHostActionResult }
+        return result.opened
       },
       isHostWindowFullScreen,
       onHostWindowFullScreenChange,
@@ -4500,7 +4504,15 @@ app.whenReady().then(async () => {
           name: String(record.name ?? ''),
           args: { ...(record.args && typeof record.args === 'object' ? record.args as Record<string, unknown> : {}), ...((record.name === 'recordings.read' || record.name === 'photos.read') ? { _phone_file_transport: 1 } : {}) },
         }
-        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}) } : undefined
+        const taskTitle = call.name.startsWith('computer.')
+          ? await emdash.emdashSessionpageSessionFacts().then(
+            (rows) => rows.find((row) => row.sessionId === (context.sourceSessionId ?? context.sessionId))?.title,
+            (error: unknown) => {
+              createLogger('device-actions').warn({ err: String(error) }, 'device_call task title unavailable')
+              return undefined
+            },
+          ) : undefined
+        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}), ...(taskTitle ? { task_title: taskTitle } : {}) } : undefined
         // A side chat's steps are its task's: the task's 「电脑」 tab shows them (the side chat is a view of it).
         const ended = computerStepStarted({ projectId: context.projectId, sessionId: context.sourceSessionId ?? context.sessionId,
           cursorSession: computerSessionOf({ caller }),
@@ -5217,7 +5229,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
-        const assistantResourceOwner = info.providerId === 'claude' ? (await getSessionpageAuth())?.userId : null
+        const assistantResourceOwner = (await getSessionpageAuth())?.userId ?? null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5234,9 +5246,7 @@ app.whenReady().then(async () => {
             provisioned.guguAgentUserId,
             provisioned.agentIdentityFacts,
           )),
-          timed('assistant-role', info.providerId === 'claude'
-            ? isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)
-            : Promise.resolve(false)),
+          timed('assistant-role', isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
         const readAssistantResources = assistantRole ? async () => {
@@ -5292,7 +5302,10 @@ app.whenReady().then(async () => {
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
             grantKey: sessionpageSurfaceKey(info.sessionId),
-            ...(assistantRole ? { personalAssistant: true as const } : {}),
+            ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
+              ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
+              currentInput: () => emdashBridge?.readCurrentActivityInput(persistedSessionId) ?? Promise.resolve(undefined),
+            } } : {}),
             ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
@@ -5309,7 +5322,7 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        const capabilities = assistantRole ? await preparePersonalAssistantContext(
+        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
           loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
             accountId: async () => {
               const owner = (await getSessionpageAuth())?.userId
@@ -5712,7 +5725,9 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain)
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+      scheduleDiscovery: (work) => startupDiscovery.schedule(work),
+    })
     // 认回重启前留在 tmux 里的平台会话(#7120):它读 tmux 名与平台票账本,两样都是 boot 里段 2 迁移改的
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。

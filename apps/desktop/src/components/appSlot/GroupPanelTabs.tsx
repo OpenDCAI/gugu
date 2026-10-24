@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutGrid, Maximize2, Minimize2, Paperclip, Plus } from '@/lib/icons'
+import { Folder, Maximize2, Minimize2, Paperclip, Plus } from '@/lib/icons'
 import { subscribeShellChatActions, takeShellChatAction, type ShellChatAction } from '@/lib/sidebarChatsBridge'
 import { extensionSurfaceStore, extensionTabTitle } from '../../session/renderer/features/extensions/extension-surface-store'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
@@ -77,7 +77,7 @@ export const GroupPanelTabs = observer(function GroupPanelTabs({ chatId, onShowP
       {menuOpen ? (
         <Menu anchor={plusRef} onClose={() => setMenuOpen(false)}>
           <MenuItem
-            icon={<LayoutGrid size={16} />}
+            icon={<Folder size={16} />}
             onClick={() => {
               groupSlotMemory.activate(chatId, null)
               onShowPanel(form === 'full' ? 'full' : 'side')
@@ -125,7 +125,7 @@ const PanelTab = observer(function PanelTab({ chatId, item, active, full, onPick
         label={label}
         hint={hint}
         title={tooltip}
-        preSlot={item === null ? <LayoutGrid size={14} /> : app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />}
+        preSlot={item === null ? <Folder size={14} /> : app ? <RailAppIcon app={app} className="size-4" /> : <Paperclip size={14} />}
         closeLabel={`${closeLabel} ${label}`}
         onClose={onClose}
         onClick={() => onPick()}

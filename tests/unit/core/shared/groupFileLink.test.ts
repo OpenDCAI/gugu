@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyFileLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { classifyFileLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 /**
  * 摩擦单 F10 / F112: `gugu-file://<itemId>` — how the MCP tools and `gugu.send` name a file of a group or topic. Only the

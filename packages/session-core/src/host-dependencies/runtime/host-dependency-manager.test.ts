@@ -7,6 +7,38 @@ import { nextHostDependency, probeAndSettle } from './test-support';
 import { normalizeSelection } from './types';
 import type { DependencyDescriptor, InstallRecord, Provenance } from './types';
 
+describe('bounded inventory probes', () => {
+  it.each(['all', 'category'] as const)('limits %s discovery, including installation enumeration, to two runtimes', async (kind) => {
+    const dependencies = Array.from({ length: 5 }, (_, index): DependencyDescriptor => ({
+      id: `runtime-${index}`, name: `Runtime ${index}`, category: 'agent', commands: [`runtime-${index}`],
+    }));
+    const manager = new HostDependencyManager(makeCtx(async () => ({ stdout: '', stderr: '' })), { dependencies });
+    const gates = dependencies.map(() => Promise.withResolvers<void>());
+    const started: string[] = [];
+    let active = 0;
+    let maximum = 0;
+    vi.spyOn(manager, 'probe').mockImplementation(async (id, options) => {
+      expect(options?.waitForInstallations).toBe(true);
+      started.push(id);
+      maximum = Math.max(maximum, ++active);
+      try { await gates[Number(id.split('-')[1])]!.promise; }
+      finally { active -= 1; }
+      return { id, category: 'agent', status: 'missing', version: null, path: null, checkedAt: Date.now() };
+    });
+    const done = kind === 'all' ? manager.probeAll() : manager.probeCategory('agent');
+    await vi.waitFor(() => expect(started).toHaveLength(2));
+    gates[0]!.resolve();
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    // One failed runtime must not stop discovery of the remaining runtimes.
+    gates[1]!.reject(new Error('unavailable runtime'));
+    await vi.waitFor(() => expect(started).toHaveLength(4));
+    for (const gate of gates.slice(2)) gate.resolve();
+    await done;
+    expect(started).toEqual(dependencies.map(dependency => dependency.id));
+    expect(maximum).toBe(2);
+  });
+});
+
 const TEST_DEPENDENCIES: DependencyDescriptor[] = [
   {
     id: 'git',

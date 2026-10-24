@@ -334,7 +334,7 @@ describe('开机认回排在 boot 的迁移之后 (#7120)', () => {
     const main = readFileSync(join(process.cwd(), 'apps/desktop/electron/main.ts'), 'utf8')
     const calls = [...main.matchAll(/restorePlatformRelaySessions\(\{/g)].map((match) => match.index!)
     expect(calls).toHaveLength(1)
-    const boot = main.indexOf('const emdashBoot = emdash.bootEmdashModule(ipcMain)')
+    const boot = main.indexOf('const emdashBoot = emdash.bootEmdashModule(ipcMain')
     expect(boot).toBeGreaterThan(-1)
     expect(calls[0]).toBeGreaterThan(boot)
     expect(main.slice(boot, calls[0])).toContain('void emdashBoot.catch(() => undefined)')

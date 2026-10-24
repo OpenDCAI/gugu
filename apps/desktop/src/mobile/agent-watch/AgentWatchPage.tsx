@@ -37,9 +37,9 @@ export type AgentWatchRoute =
    * 根:账号名下所有机器上的项目与会话,一页(机器是项目分区的属性,#7199)。
    * `reveal` = 点名定位:一条打不开的行被 App 点名(gugu.showSession),落在它所在的分区、滚到它。
    */
-  | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } }
+  | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } | { projectId: string } }
   /** `deviceId` = 会话所在的机器(跨机器的子会话在它自己那台上打开)。 */
-  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string }
+  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string; appKind?: string }
   /**
    * 新建会话的两步(owner 2026-09-06:「新建任务应该是先选择设备再新建任务」):
    * 根页的 + → `pick-machine`(「在哪台机器上」,离线的点不动)→ `create`。
@@ -145,9 +145,10 @@ export function AgentWatchPage({
     if (!openRequest || openRequest === seenOpenRequest.current) return
     seenOpenRequest.current = openRequest
     // A row that does not open (an offline machine's, from its heartbeat): the person lands where it is listed, as a tap leaves them.
-    const { deviceId, session } = openRequest
+    if ('projectId' in openRequest) { setRoute({ name: 'projects', reveal: openRequest }); return }
+    const { deviceId, session, tabKind } = openRequest
     setRoute(rowOpens(session)
-      ? { name: 'timeline', deviceId, session }
+      ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}) }
       : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } })
   }, [openRequest, setRoute])
 
@@ -159,8 +160,9 @@ export function AgentWatchPage({
     const liveSession = here?.cached ? undefined : here?.sessions.find((s) => s.conversationId === route.session.conversationId)
     return (
       <SessionTimelinePage
-        key={`${device.device_id}:${route.session.conversationId}`}
+        key={`${device.device_id}:${route.session.conversationId}:${route.appKind ?? ''}`}
         device={device}
+        initialAppKind={route.appKind}
         session={liveSession ?? route.session}
         agent={agentOfSession(liveSession ?? route.session, agentNames)}
         firstPrompt={route.firstPrompt}

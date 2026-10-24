@@ -1,6 +1,7 @@
 import { compatOf, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from '../../session/shared/extensions/market-entries'
 import { marketSnapshotSource, type MarketRefreshed, type MarketSnapshotStore } from '../../session/shared/extensions/market-snapshot'
+import { appPlatformDeclarationProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
 
 /**
  * The App market as the phone reads it (L9; 161 10-15: the phone installs market Apps). The same `market/index.json` the
@@ -23,7 +24,7 @@ export interface MarketPackage {
 
 export interface PhoneMarket {
   /** Every App the market offers this phone (the index taken now when `fresh`, else the one in hand). */
-  entries(fresh?: boolean): Promise<(CloudMarketEntry & { firstPublishedAt: string })[]>
+  entries(fresh?: boolean): Promise<CloudMarketEntry[]>
   /** This published version's README, including its market screenshot URLs. */
   readme(extensionId: string, version: string): Promise<string | null>
   /** Every version of one App, newest first, each with whether this phone can install it — the desktop's version history. */
@@ -50,8 +51,7 @@ export function phoneMarket(
   return {
     entries: async (fresh = false) => {
       const apps = (await index(fresh)).apps
-      const first = new Map(apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']))
-      return marketEntriesFrom(apps, host(), urlOf).extensions.map((entry) => ({ ...entry, firstPublishedAt: first.get(entry.manifest.id) ?? entry.publishedAt }))
+      return marketEntriesFrom(apps, host(), urlOf).extensions
     },
     readme: async (extensionId, version) => {
       const path = (await index(false)).apps.find((app) => app.id === extensionId)?.versions.find((entry) => entry.version === version)?.readme
@@ -66,9 +66,10 @@ export function phoneMarket(
       if (!app) throw new Error(`The market has no App "${extensionId}"`)
       const row: MarketIndexVersion | null = version
         ? (app.versions.find((entry) => entry.version === version) ?? null)
-        : pickForHost(app.versions, host()).chosen
+        : pickForHost(app.versions.filter((entry) => appPlatformDeclarationProblems(entry.manifest, 'phone').length === 0), host()).chosen
       if (!row) throw new Error(`${extensionId}${version ? `@${version}` : ''} is no longer available in the market`)
       if (row.yanked) throw new Error(`${extensionId}@${row.version} was withdrawn: ${row.yanked.reason}`)
+      requireAppPlatform(row.manifest, 'phone')
       const compat = compatOf(row, host())
       if (compat) {
         throw new Error(

@@ -17,6 +17,9 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  'modal.open': { verb: 'modalOpen' },
+  'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
+  'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
@@ -57,6 +60,7 @@ export const HOST_CALLS = {
     pack: (tool: string, args?: Record<string, unknown>, server?: string) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(server === undefined ? {} : { server }) }),
   },
   notify: { verb: 'notify' },
+  openLink: { verb: 'openLink', pack: (url: string) => ({ url }) },
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },
   setTabTitle: { verb: 'setTabTitle', pack: (title: string) => ({ title }) },
   setTabBadge: { verb: 'setTabBadge', pack: (badge: number | string | null) => ({ badge }) },
@@ -107,6 +111,7 @@ interface HostEvent {
 
 /** The events a host hands on, one row per `on…` member: which event, and what the handler gets of it. */
 export const HOST_EVENTS = {
+  onModalFocus: { event: 'modalFocus', only: 'page', pick: (event: Event<'modalFocus'>) => [event.edge] },
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
   onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.watchId, event.change] },

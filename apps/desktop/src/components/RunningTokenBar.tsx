@@ -11,6 +11,7 @@ import { useMobileShell } from '../hooks/useMobileShell'
 import { resolveAgentRunningDisplayName } from '../lib/agentRunningStatusModels'
 import type { AgentRunningStateKey } from '../lib/agentRunningVerb'
 import { Popover } from './ui/Popover'
+import { Chip } from './ui/Chip'
 import { MessagePreviewCard } from './MessagePreviewCard'
 
 export interface RunningToken {
@@ -38,11 +39,12 @@ export interface RunningTokenBarProps {
 
 // 自包含样式（:hover 卡 + 流光 + 展开卡入场需 CSS，注入一次；同时只有一个运行条实例=DM 或群聊，不重复）。
 const STYLE = `
-.rtb-bar{display:flex;align-items:center;gap:16px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
+.rtb-bar{display:flex;align-items:center;gap:8px;padding:4px 14px 2px 24px;font-size:var(--font-caption);color:var(--faint-fg);white-space:nowrap;flex-shrink:0}
 .rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
 .rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-tok[data-clickable=true]{cursor:pointer}
+.rtb-pill{height:auto;gap:7px;padding:4px 8px;background:var(--bg-elevated);color:inherit;font-weight:inherit}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
 .rtb-nm{color:var(--faint-fg)}
 .rtb-state{background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
@@ -98,11 +100,13 @@ function RunningTokenItem({
       {...pressHandlers}
       onClick={() => onTokenClick?.(token.id)}
     >
-      <Avatar name={displayName} avatarUrl={token.avatarUrl} seed={token.avatarSeed} size={overflow ? 16 : 'xs'} isAgent statusLabel="running" />
-      <span className="rtb-nm">{displayName}</span>
-      <span className={overflow ? 'rtb-v' : 'rtb-state'} style={overflow ? undefined : { animationDelay: `${index * 0.5}s` }}>
-        {stateWord}
-      </span>
+      <Chip appearance="filled" className="rtb-pill">
+        <Avatar name={displayName} avatarUrl={token.avatarUrl} seed={token.avatarSeed} size={overflow ? 16 : 'xs'} isAgent statusLabel="running" />
+        <span className="rtb-nm">{displayName}</span>
+        <span className={overflow ? 'rtb-v' : 'rtb-state'} style={overflow ? undefined : { animationDelay: `${index * 0.5}s` }}>
+          {stateWord}
+        </span>
+      </Chip>
     </Popover.Trigger>
   )
 }
@@ -137,7 +141,7 @@ function MoreOverflow({
         onMouseEnter={openNow}
         onMouseLeave={closeSoon}
       >
-        +{tokens.length}
+        <Chip appearance="filled" className="rtb-pill">+{tokens.length}</Chip>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner side="top" align="end" sideOffset={8} collisionPadding={8}>
