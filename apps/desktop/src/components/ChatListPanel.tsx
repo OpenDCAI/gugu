@@ -862,14 +862,9 @@ export function ChatListPanel({
           (node.matches('input, textarea, [contenteditable="true"], [role="textbox"]') ||
             node.closest('input, textarea, [contenteditable="true"], [role="textbox"]')),
       )
-      if (insideOtherTextControl && !insideChatComposer && shortcut.kind !== 'search') return
+      if (insideOtherTextControl && !insideChatComposer) return
 
       event.preventDefault()
-      if (shortcut.kind === 'search') {
-        searchInputRef.current?.focus()
-        searchInputRef.current?.select()
-        return
-      }
 
       const targetId =
         shortcut.kind === 'select'

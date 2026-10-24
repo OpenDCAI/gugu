@@ -59,7 +59,7 @@ export const AcpChatTabBarItem = observer(function AcpChatTabBarItem({
                 id: 'session:rename',
                 label: 'Rename',
                 group: 'edit',
-                shortcut: 'tabRename',
+                shortcut: 'session.tabRename',
                 run: () => host.requestRename(tab.tabId),
               },
             ]

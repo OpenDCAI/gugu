@@ -83,7 +83,7 @@ export const TerminalDrawerSidebar = observer(function TerminalDrawerSidebar({
               } />
               <TooltipContent>
                 {translate('session.newTerminal')}{' '}
-                <BoundShortcut settingsKey="newTerminal" variant="keycaps" />
+                <BoundShortcut commandId="session.newTerminal" variant="keycaps" />
               </TooltipContent>
             </Tooltip>
             <DropdownMenu onOpenChange={(open) => open && onShellMenuOpen()}>

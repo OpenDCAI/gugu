@@ -2,11 +2,12 @@
 // #6158 聊天面在别的 tab 上由 MainLayout 隐藏而非卸载。这里钉住 ChatAreaPanel 自己那三条:
 //   ① 别的 tab 上不换成空态(树留着,分栏/右栏/滚动才在);
 //   ② 隐藏态不算「看见」:IntersectionObserver 那条已读路径按 activeTab 门控,切回时重新数一遍;
-//   ③ 隐藏态不接全局快捷键(Alt+F 搜索)。
+//   ③ 隐藏态不接全局快捷键(Mod+F 搜索)。
 // jsdom 没有 IntersectionObserver ⇒ MessageList 一挂载就同步调 onVisible(产品自己的降级分支),
 // 所以「隐藏态 0 次调用」是门控的真读数,不是观察器没装。每条都带同场景的阳性对照。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act } from 'react'
+import { act, Fragment } from 'react'
+import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { chat, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
@@ -15,6 +16,7 @@ import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localS
 
 const { getImRepositoryMock } = vi.hoisted(() => ({ getImRepositoryMock: vi.fn() }))
 
+vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }))
 vi.mock('../../../../apps/desktop/src/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/topics', () => ({
   topicService: {
@@ -59,7 +61,7 @@ afterEach(() => {
 const PEER_MESSAGE = message({ id: 'peer-msg-1', chat_id: 'chat-1', seq: 7, sender_user_id: 'peer-1', content: '隐藏期间到达的一条' })
 
 async function renderPanel(activeTab: 'chats' | 'tasks', markMessageVisible = vi.fn()) {
-  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab, openNonce: 0 }), {
+  await renderWithAppProviders(harness, createNode(Fragment, null, createNode(CommandShortcutBinder), createNode(ChatAreaPanel, { activeTab, openNonce: 0 })), {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'chat-1',
@@ -75,9 +77,11 @@ async function renderPanel(activeTab: 'chats' | 'tasks', markMessageVisible = vi
 const composer = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`)
 const searchInput = () => harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatHeaderSearchInput}"]`)
 
-async function pressAltF() {
+async function pressFind() {
   await act(async () => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { altKey: true, code: 'KeyF', key: 'f', bubbles: true, cancelable: true }))
+    const input = composer() as HTMLElement
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, code: 'KeyF', key: 'f', bubbles: true, cancelable: true }))
     await Promise.resolve()
   })
 }
@@ -107,12 +111,12 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
     expect(markMessageVisible).toHaveBeenCalled()
   })
 
-  it('ignores the Alt+F search shortcut while hidden, and honours it on the chats tab', async () => {
+  it('ignores the Mod+F search shortcut while hidden, and honours it on the chats tab', async () => {
     await renderPanel('tasks')
-    await pressAltF()
+    await pressFind()
     expect(searchInput(), 'a global shortcut must not act on a hidden surface').toBeNull()
     await renderPanel('chats')
-    await pressAltF()
+    await pressFind()
     expect(searchInput(), 'positive control: the same shortcut opens search on the chats tab').not.toBeNull()
   })
 })

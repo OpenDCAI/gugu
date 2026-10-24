@@ -9,7 +9,7 @@ import {
 } from '@shared/core/terminals/terminal-settings';
 import { openInAppIdSchema } from '@shared/openInApps';
 import { SESSION_TITLE_INSTRUCTIONS_MAX } from '@shared/core/sessions/session-title-namer';
-import { APP_SHORTCUTS } from '@shared/shortcuts';
+import { COMMANDS } from '@shared/commands';
 import { isValidProviderId } from '../agents/plugin-registry';
 import { isGuguPermissionMode, type GuguPermissionMode } from '@gugu/session-core/acp/client';
 
@@ -106,8 +106,8 @@ export const keyboardSettingsSchema = z
   .optional(
     z.object(
       Object.fromEntries(
-        Object.keys(APP_SHORTCUTS).map((k) => [k, z.string().nullable().optional()])
-      ) as Record<keyof typeof APP_SHORTCUTS, z.ZodOptional<z.ZodNullable<z.ZodString>>>
+        Object.keys(COMMANDS).map((k) => [k, z.string().nullable().optional()])
+      ) as Record<keyof typeof COMMANDS, z.ZodOptional<z.ZodNullable<z.ZodString>>>
     )
   )
   .default({});

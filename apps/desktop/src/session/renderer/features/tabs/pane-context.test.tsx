@@ -1,3 +1,4 @@
+import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -30,6 +31,7 @@ describe('PaneProvider: tab shortcuts listen on the document, so only the page o
     vi.stubGlobal('document', dom.window.document);
     vi.stubGlobal('navigator', dom.window.navigator);
     vi.stubGlobal('KeyboardEvent', dom.window.KeyboardEvent);
+    vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
     root = createRoot(dom.window.document.getElementById('root')!);
   });
   afterEach(() => {
@@ -43,6 +45,7 @@ describe('PaneProvider: tab shortcuts listen on the document, so only the page o
     act(() =>
       root.render(
         <>
+          <CommandShortcutBinder />
           <PageShownContext.Provider value={false}>
             <PaneProvider group={hidden.group} isFocusedPane>
               <div />

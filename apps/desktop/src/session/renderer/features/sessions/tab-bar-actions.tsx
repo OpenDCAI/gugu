@@ -1,4 +1,4 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from 'lucide-react'
 import { observer } from 'mobx-react-lite';
@@ -6,16 +6,11 @@ import { useState } from 'react';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import {
   useSessionViewContext,
   useWorkspaceViewModel
 } from '@renderer/features/sessions/session-view-context';
-import {
-  getEffectiveHotkey,
-  getHotkeyRegistration
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
@@ -48,16 +43,10 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
   const { navigate } = useNavigate();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
   const [open, setOpen] = useState(false);
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  // ⌘T = 打开聚焦着的那一格的「+」,照浏览器的新页签。
-  useHotkey(
-    getHotkeyRegistration('openAddMenu', keyboard),
-    (e) => {
-      e.preventDefault();
-      setOpen(true);
-    },
-    { enabled: isFocusedPane && getEffectiveHotkey('openAddMenu', keyboard) !== null, conflictBehavior: 'allow' }
-  );
+  useCommandProvider({
+    scopeId: 'session-sub',
+    getCommands: () => !isFocusedPane ? [] : [{ id: 'session.openAddMenu', execute: () => setOpen(true) }],
+  });
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -139,7 +128,7 @@ function renderWorkspaceActionMenuItem(
         >
           <GitFork className="size-3.5" /> {translate('workspace.sideTask')}
           <span className="ml-auto">
-            <BoundShortcut settingsKey="sideSession" variant="keycaps" />
+            <BoundShortcut commandId="session.sideSession" variant="keycaps" />
           </span>
         </DropdownMenuItem>
       );
@@ -187,7 +176,6 @@ function renderWorkspaceActionMenuItem(
         <DropdownMenuItem key={actionId} onClick={actions.openFiles}>
           <FileText className="size-3.5" /> {translate('workspace.files')}
           <span className="ml-auto">
-            <BoundShortcut settingsKey="openFile" variant="keycaps" />
           </span>
         </DropdownMenuItem>
       );
@@ -201,17 +189,9 @@ function renderWorkspaceActionMenuItem(
  */
 export const SplitPaneHotkey = observer(function SplitPaneHotkey() {
   const { pane, isFocusedPane } = usePaneContext();
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  useHotkey(
-    getHotkeyRegistration('splitPane', keyboard),
-    (e) => {
-      e.preventDefault();
-      pane.toggleSplit();
-    },
-    {
-      enabled: isFocusedPane && pane.inSplitLayout && getEffectiveHotkey('splitPane', keyboard) !== null,
-      conflictBehavior: 'allow'
-    }
-  );
+  useCommandProvider({
+    scopeId: 'session-sub',
+    getCommands: () => !isFocusedPane || !pane.inSplitLayout ? [] : [{ id: 'session.splitPane', execute: () => pane.toggleSplit() }],
+  });
   return null;
 });
