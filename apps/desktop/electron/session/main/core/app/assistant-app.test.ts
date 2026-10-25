@@ -42,22 +42,22 @@ afterEach(async () => { setUserLibraryOwner(null); vi.unstubAllEnvs(); await rm(
 
 it('uses the shared App message delivery with a host-owned sender, fixed personal recipient and defer semantics', async () => {
   expect(await callAssistantApp('listAgents', {})).toEqual({ agents: [{ agentId: 'user:assistant' }], unreached: [] });
-  expect(await callAssistantApp('messageAgent', { agentId: 'user:assistant', text: 'saved operation', defer: true, extensionId: 'forged' }, 'owner'))
-    .toEqual({ id: 'durable-message', deferred: true });
+  expect(await callAssistantApp('dispatch', { text: 'saved operation', to: { agent: 'user:assistant' }, delivery: 'defer', extensionId: 'forged' }, 'owner'))
+    .toEqual({ to: { agent: 'user:assistant' }, id: 'durable-message', deferred: true });
   expect(send).toHaveBeenCalledWith({ extensionId: 'gugu.assistant', extensionName: '个人助理面板' }, 'all-machines',
     { agentId: 'user:assistant', text: 'saved operation', defer: true });
 });
 it('refuses task agents, unknown roles, account switches and wake/replacement requests', async () => {
   await expect(callAssistantApp('listAgents', {}, 'previous-account')).rejects.toMatchObject({ code: 'denied' });
   state.role = false;
-  await expect(callAssistantApp('messageAgent', { agentId: 'user:task', text: 'x', defer: true }, 'owner')).rejects.toMatchObject({ code: 'denied' });
+  await expect(callAssistantApp('dispatch', { text: 'x', to: { agent: 'user:task' }, delivery: 'defer' }, 'owner')).rejects.toMatchObject({ code: 'denied' });
   state.role = true; state.queryError = true;
-  await expect(callAssistantApp('messageAgent', { agentId: 'user:assistant', text: 'x', defer: true }, 'owner')).rejects.toMatchObject({ code: 'failed' });
+  await expect(callAssistantApp('dispatch', { text: 'x', to: { agent: 'user:assistant' }, delivery: 'defer' }, 'owner')).rejects.toMatchObject({ code: 'failed' });
   state.queryError = false; state.swapDuringQuery = true;
-  await expect(callAssistantApp('messageAgent', { agentId: 'user:assistant', text: 'x', defer: true }, 'owner')).rejects.toMatchObject({ code: 'denied' });
+  await expect(callAssistantApp('dispatch', { text: 'x', to: { agent: 'user:assistant' }, delivery: 'defer' }, 'owner')).rejects.toMatchObject({ code: 'denied' });
   state.owner = 'owner'; state.swapDuringQuery = false;
-  for (const options of [{}, { defer: true, queue: true }, { defer: true, key: 'replace-all' }]) {
-    await expect(callAssistantApp('messageAgent', { agentId: 'user:assistant', text: 'x', ...options }, 'owner')).rejects.toMatchObject({ code: 'invalid' });
+  for (const options of [{}, { delivery: 'queue' }, { delivery: 'defer', key: 'replace-all' }]) {
+    await expect(callAssistantApp('dispatch', { text: 'x', to: { agent: 'user:assistant' }, ...options }, 'owner')).rejects.toMatchObject({ code: 'invalid' });
   }
   expect(send).not.toHaveBeenCalled();
 });
@@ -83,7 +83,7 @@ it('calls the real library program, preserves both A→B→A commits and emits t
   expect(send).not.toHaveBeenCalled();
 });
 it('does not emit a successful notification for a rejected save or accept arbitrary tools/verbs', async () => {
-  await expect(callAssistantApp('messageAgent', { agentId: 'user:assistant', text: 'x', defer: true })).rejects.toMatchObject({ code: 'denied' });
+  await expect(callAssistantApp('dispatch', { text: 'x', to: { agent: 'user:assistant' }, delivery: 'defer' })).rejects.toMatchObject({ code: 'denied' });
   await expect(callAssistantApp('callProgram', { name: 'library_write', arguments: { kind: 'capabilities', name: '' } }, 'owner')).rejects.toThrow();
   await expect(callAssistantApp('callProgram', { name: 'shell_exec' })).rejects.toMatchObject({ code: 'invalid' });
   await expect(callAssistantApp('spawnAgent', { prompt: 'x' })).rejects.toMatchObject({ code: 'denied' });
