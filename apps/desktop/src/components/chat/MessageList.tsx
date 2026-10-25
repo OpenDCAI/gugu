@@ -346,7 +346,7 @@ export function MessageList({
   /** 这条消息流在哪一栏。只决定布局与自动化选择器;未读定位确认使用本视口 ref。 */
   surface?: 'main' | 'aside'
   /** @@@6530 这次打开时的第一条未读:在视口上方时右上角出「↑ N 条新消息」,点了跳过去。 */
-  unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void } | null
+  unreadAbove?: { messageId: string; messageSeq: number; label: string; onJump: () => void; onSeen?: () => void } | null
   /** 接在最后一条后面、随消息流一起滚的那一格(助理聊天里它在处理时的打字气泡);窗口没到最新处时不画。 */
   footer?: ReactNode
 }): ReactNode {
@@ -361,7 +361,7 @@ export function MessageList({
   // 未读行不在窗口里:比窗口最早一条还早 = 在上方(-1);否则是尾部对账还没回来,先不判(null)。
   const unreadIndex = unreadAbove ? rows.findIndex((row) => row.message.id === unreadAbove.messageId) : -1
   const unreadAt = !unreadAbove ? null : unreadIndex >= 0 ? unreadIndex : rows.length > 0 && rows[0].message.seq > unreadAbove.messageSeq ? -1 : null
-  const showUnreadAbove = useRowAboveViewport(ownScrollerRef, unreadAbove?.messageId, unreadAt, true)
+  const showUnreadAbove = useRowAboveViewport(ownScrollerRef, unreadAbove?.messageId, unreadAt, initialTopMostItemIndex !== null, unreadAbove?.onSeen)
   const scrollerStyle = useMemo<CSSProperties>(() => (topInset ? { ...LIST_SCROLLER_STYLE, paddingTop: topInset } : LIST_SCROLLER_STYLE), [topInset])
   const frameStyle = useMemo<CSSProperties>(() => ({ minHeight: 0, ...(style ?? { flex: 1 }), ...LIST_FRAME_STYLE, visibility: initialTopMostItemIndex === null ? 'hidden' : undefined }), [style, initialTopMostItemIndex])
   return (

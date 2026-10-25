@@ -989,7 +989,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           rows={chatListRows}
           rowProps={rowProps} footer={chrome?.typing}
           initialTopMostItemIndex={openLocation()} topInset={agentHero && !mobile && isAgentHeroBird(activeChatAvatar, assistantPeer) ? AGENT_HERO_OVERHANG_PX : 0}
-          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+          followTail={!unreadNavigationPending && !messageWindow?.hasNewer && messageWindow?.change !== 'newer'} unreadAbove={unreadEntry ? { messageId: unreadEntry.locator.message_id, messageSeq: unreadEntry.locator.message_seq, label: t('chatArea.unreadAbove', { count: unreadEntry.locator.unread_count }), onSeen: unreadEntry.onSeen, onJump: () => void jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
           onAtBottomChange={onAtBottomChange}
           onTotalListHeightChanged={onTotalListHeightChanged}
         />
