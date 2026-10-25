@@ -26,5 +26,5 @@ export async function quoteChatFile(itemId: string, version: number, selection: 
       ...(selection ? { at: selection.at, label: [selectionPosition(selection), selection.text].filter(Boolean).join(' · ') } : {}),
     }],
   });
-  window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail }));
+  document.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail, bubbles: true }));
 }

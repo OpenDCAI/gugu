@@ -3,8 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu'
 import { type FileViewerMenuRequest } from '@/session/shared/preview/file-viewer-menu'
 import { fileViewerMenuTemplate, viewerActionScript, viewerContextScript } from '../../../apps/desktop/electron/file-viewer-context-menu'
+import { quoteChatFile } from '@/components/preview/quote-preview-file'
+import { composeInChat } from '@/session/shared/extensions/app-send-core'
+import { getRendererSession } from '@/lib/sessionPublication'
+import { APP_COMPOSE_EVENT } from '@/session/shared/extensions/app-runtime-protocol'
 
 vi.mock('electron', () => ({ BrowserWindow: {}, clipboard: {}, Menu: {} }))
+vi.mock('@/session/shared/extensions/app-send-core', () => ({ composeInChat: vi.fn() }))
+vi.mock('@/lib/sessionPublication', () => ({ getRendererSession: vi.fn() }))
 
 const labels = { copy: 'Copy', selectAll: 'Select all', quoteSelection: 'Quote selection', quoteFile: 'Quote file', undo: 'Undo', redo: 'Redo', cut: 'Cut', paste: 'Paste' }
 const execute = (script: string) => Function(`return ${script}`)()
@@ -24,6 +30,26 @@ function viewer() {
 }
 
 describe('native file viewer menu', () => {
+  it('flushes pending composer input in capture before delivering the existing file-reference payload', async () => {
+    vi.mocked(getRendererSession).mockReturnValue({ access_token: 'test-token', user: { id: 'owner' } } as ReturnType<typeof getRendererSession>)
+    const detail = { chatId: 'chat', text: '> beta', refs: [{ label: 'file.md', link: 'gugu-file://file?v=2' }] }
+    vi.mocked(composeInChat).mockResolvedValue(detail)
+    const order: string[] = []
+    const append = vi.fn((event: Event) => { order.push('append'); return event })
+    const flush = () => order.push('flush')
+    // The draft receiver may mount before the active composer's capture listener.
+    window.addEventListener(APP_COMPOSE_EVENT, append)
+    window.addEventListener(APP_COMPOSE_EVENT, flush, true)
+    try {
+      await quoteChatFile('file', 2, { text: 'beta' })
+      expect(order).toEqual(['flush', 'append'])
+      expect((append.mock.calls[0][0] as CustomEvent).detail).toBe(detail)
+    } finally {
+      window.removeEventListener(APP_COMPOSE_EVENT, append)
+      window.removeEventListener(APP_COMPOSE_EVENT, flush, true)
+    }
+  })
+
   it('keeps the source file and editor selection captured before native focus changes', () => {
     const root = viewer()
     const quoteFirst = vi.fn(), quoteSecond = vi.fn()
