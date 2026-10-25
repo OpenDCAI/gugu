@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { confirmOpenExternalLink, openExternalLinkInBrowser } from './open-external-link';
+import { confirmOpenExternalLink, copyExternalLink, openExternalLinkInBrowser } from './open-external-link';
 
 const mocks = vi.hoisted(() => ({
   clipboardWriteText: vi.fn(),
@@ -77,16 +77,15 @@ describe('confirmOpenExternalLink', () => {
     expect(mocks.toast).toHaveBeenCalledWith({ title: 'Link copied' });
   });
 
-  it('reports when the clipboard request rejects', async () => {
+  it.each(['https://example.com/docs', 'http://localhost:5173/'])('shows the clipboard rejection for %s, including forwarded ports', async (url) => {
     mocks.clipboardWriteText.mockRejectedValue(new Error('IPC unavailable'));
-
-    confirmOpenExternalLink('https://example.com/docs');
-
-    await expect(getModalArgs().onCopy()).resolves.toBe(false);
+    await expect(copyExternalLink(url)).resolves.toBe(false);
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith(url);
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'IPC unavailable',
       variant: 'destructive',
     });
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
   });
 
   // #7052 会话页没有可收起的面板:浏览器页签开进这个会话自己的页签条,开了就在前面。
