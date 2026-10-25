@@ -649,6 +649,9 @@ export default {
     "actions": {
       "comingSoon": "Coming soon",
       "copy": "Copy text",
+      "copyLink": "Copy link",
+      "openLink": "Open link",
+      "selectText": "Select text",
       "delete": "Delete",
       "edit": "Edit",
       "forward": "Forward",

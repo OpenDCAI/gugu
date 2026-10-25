@@ -39,6 +39,58 @@ describe('MessageBubble touch menu', () => {
       expect(document.querySelector('[role="group"][aria-label="快速回应"]')?.querySelectorAll('button')).toHaveLength(7)
     })
   })
+  it('copies a text selection made inside the existing mobile action panel', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast)
+    await longPress()
+    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
+    expect(text.textContent).toBe('hello from mobile')
+    selectTextIn(text, 'from mobile')
+    await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
+    expect(writeText).toHaveBeenCalledWith('from mobile')
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+  it('routes native in-panel Copy through the same clipboard feedback', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast)
+    await longPress()
+    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
+    selectTextIn(text, 'hello')
+    const event = new Event('copy', { bubbles: true, cancelable: true })
+    await act(async () => { text.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+    expect(writeText).toHaveBeenCalledWith('hello')
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+  it('copies only the URL when long-pressing a link', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
+    await longPress(messageBubble().querySelector('a')!)
+    expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    expect(writeText).toHaveBeenCalledWith('https://example.com/path?copy=1025')
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+  it('opens a link through its existing anchor action', async () => {
+    await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
+    const link = messageBubble().querySelector('a')!
+    const open = vi.spyOn(link, 'click').mockImplementation(() => {})
+    await longPress(link)
+    await clickElement(document.querySelector('[data-testid="message-action-openLink"]')!)
+    expect(open).toHaveBeenCalledOnce()
+  })
+  it('does not offer link actions for an ordinary message press', async () => {
+    await renderMessage()
+    await longPress()
+    expect(document.querySelector('[data-testid="message-action-copyLink"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-openLink"]')).toBeNull()
+  })
   it('replies from the desktop context menu through the existing quote action', async () => {
     const onQuote = vi.fn()
     await renderMessage(undefined, false, vi.fn(), { onQuote })
@@ -350,6 +402,7 @@ async function renderMessage(
   compactMobile = true,
   onReaction = vi.fn(),
   options: {
+    content?: string
     isMine?: boolean
     isAgent?: boolean
     isGroup?: boolean
@@ -366,7 +419,7 @@ async function renderMessage(
     createNode(MessageBubble, {
       msg: message({
         id: 'msg-1',
-        content: 'hello from mobile',
+        content: options.content ?? 'hello from mobile',
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',
@@ -388,9 +441,9 @@ async function renderMessage(
     toast ? { toast } : undefined,
   )
 }
-async function longPress() {
+async function longPress(target = messageBubble()) {
   await act(async () => {
-    messageBubble().dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
+    target.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
     vi.advanceTimersByTime(550)
   })
   await act(async () => { await vi.dynamicImportSettled() })
@@ -407,7 +460,10 @@ function menuItem(label: string) {
   return item!
 }
 function selectMessageText(text: string) {
-  const node = messageBubble().querySelector('p')!.firstChild!
+  selectTextIn(messageBubble().querySelector('p')!, text)
+}
+function selectTextIn(element: Element, text: string) {
+  const node = element.firstChild!
   const start = node.textContent!.indexOf(text)
   expect(start).toBeGreaterThanOrEqual(0)
   const range = document.createRange()
