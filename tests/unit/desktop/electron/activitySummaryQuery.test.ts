@@ -42,6 +42,36 @@ describe('activity summaries are complete facts before presentation pagination',
     expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'sleep', statement: '设备休眠，期间没有任务在运行' }))
     expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'uncollected', statement: '未采集，不能断定在不在工作' }))
   })
+  it.each([
+    { name: 'sleep only', segments: [[-150, -90], [-39, 0]], sleep: true,
+      summary: '助理：已记录，1 条事件；休眠 1 段共 51 分钟，期间没有任务在运行。' },
+    { name: 'uncollected only', segments: [], sleep: false,
+      summary: '助理：已记录，1 条事件；未采集 1 段共 2 小时 30 分钟，不能断定在不在工作。' },
+    { name: 'sleep and uncollected', segments: [], sleep: true,
+      summary: '助理：已记录，1 条事件；休眠 1 段共 51 分钟，期间没有任务在运行；未采集 2 段共 1 小时 39 分钟，不能断定在不在工作。' },
+    { name: 'complete coverage', segments: [[-150, 0]], sleep: false,
+      summary: '助理：已记录，1 条事件。' },
+  ])('summarizes $name without zero-count categories', async ({ segments, sleep, summary }) => {
+    const source = { ...deps(), query: vi.fn(async () => ({ ...page([event('turn')]), coverage: { ...page([]).coverage,
+      segments: segments.map(([start, end]) => ({ started_at: at + start * 60_000, last_seen_at: at + end * 60_000,
+        ended_at: at + end * 60_000 })),
+      sleep_intervals: sleep ? [{ since: at - 90 * 60_000, until: at - 39 * 60_000, source: 'fc-confirmed' }] : [],
+    } })) }
+    const result = await run()({ action: 'activity_list', since: new Date(at - 150 * 60_000).toISOString() }, source, signal())
+    expect(result.devices[0].summary).toBe(summary)
+    expect(result.note.includes('休眠时段没有任务在运行，不算未采集。')).toBe(sleep)
+  })
+  it('totals gaps by device and does not round a short unknown interval down to zero', async () => {
+    const source = { ...deps(), devices: async () => [device, { ...device, device_id: 'mac', label: 'Mac', this_machine: false }],
+      query: vi.fn(async (d: ActivityDevice) => ({ ...page([]), coverage: { ...page([]).coverage,
+        segments: [], sleep_intervals: d.this_machine ? [{ since: at - 30_000, until: at, source: 'fc-confirmed' }] : [],
+      } })) }
+    const result = await run()({ action: 'activity_list', since: new Date(at - 30_000).toISOString() }, source, signal())
+    expect(result.devices.map(d => d.summary)).toEqual([
+      '助理：已记录，0 条事件；休眠 1 段共 不足 1 分钟，期间没有任务在运行。',
+      'Mac：已记录，0 条事件；未采集 1 段共 不足 1 分钟，不能断定在不在工作。',
+    ])
+  })
   it('defaults to midnight in the declared host zone, reports local bounds and hides raw events', async () => {
     const source = deps()
     const result = await run()({ action: 'activity_list' }, source, signal())
