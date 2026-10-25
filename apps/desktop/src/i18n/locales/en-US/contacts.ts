@@ -315,7 +315,6 @@ export default {
     "myAgentLabel": "My agent",
     "agentOwnerUnavailable": "Owner unavailable",
     "agentOwnerLabel": "{{owner}}'s agent",
-    "agentType": "Agent type",
     "alias": "Alias",
     "aliasLabel": "Alias",
     "bio": "Bio",

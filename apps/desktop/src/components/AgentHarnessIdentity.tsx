@@ -81,8 +81,3 @@ function HarnessGlyph({ type, icon, label, size }: { type: string; icon: (typeof
     </span>
   )
 }
-
-export function AgentHarnessLabel({ agentId }: { agentId: string }) {
-  const { type, label } = useHarness(agentId)
-  return <span data-agent-harness-label={type}>{label}</span>
-}

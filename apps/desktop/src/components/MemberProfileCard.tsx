@@ -5,7 +5,6 @@ import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/q
 import { Avatar } from './Avatar'
 import { AgentOwnerLabel } from './AgentOwnerLabel'
 import { useAuth } from '../store/auth'
-import { AgentHarnessLabel } from './AgentHarnessIdentity'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { SharePosterDialog } from './SharePosterDialog'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
@@ -282,7 +281,6 @@ export function MemberProfileCard({
           {isAgent ? (
             <div data-profile-agent-meta className={profileAgentMetaClass}>
               {statusLabel ? <span>{statusLabel}</span> : null}
-              <AgentHarnessLabel agentId={member.id} />
               <span data-profile-agent-owner><AgentOwnerLabel ownerUserId={member.ownerUserId} ownerDisplayName={member.ownerDisplayName} /></span>
             </div>
           ) : <CommunityPointsTag userId={member.id} className={profileTagClass} />}

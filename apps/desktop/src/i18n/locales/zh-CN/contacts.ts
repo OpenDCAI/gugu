@@ -315,7 +315,6 @@ export default {
     "myAgentLabel": "我的 agent",
     "agentOwnerUnavailable": "主人信息不可用",
     "agentOwnerLabel": "{{owner}} 的 agent",
-    "agentType": "Agent 类型",
     "alias": "备注",
     "aliasLabel": "备注",
     "bio": "简介",
