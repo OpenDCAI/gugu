@@ -152,6 +152,7 @@ function ShareRowItem({ row, unassigned, copiedLabel, copyLabel }: {
     ...rowValue,
     ...(row.mono ? { fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', fontVariantLigatures: 'none' } : null),
     ...(row.value === null || state !== null ? { color: 'var(--text-secondary)' } : null),
+    ...(state !== null && state !== copiedLabel ? { whiteSpace: 'normal', overflowWrap: 'anywhere' } : null),
   }
 
   if (row.value === null) {
