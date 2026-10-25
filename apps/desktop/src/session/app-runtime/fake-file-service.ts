@@ -295,6 +295,7 @@ export function fileOpened(type: 'text' | 'json'): AppFileOpened {
       createdAt: null,
       updatedAt: null,
       createdBy: null,
+      updatedBy: null,
       sourceMessageIds: [],
     },
     docName: 'item-1@1',

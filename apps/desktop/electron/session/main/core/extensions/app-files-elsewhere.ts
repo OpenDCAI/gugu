@@ -70,6 +70,7 @@ export async function readElsewhere(
       createdAt: null,
       updatedAt: null,
       createdBy: null,
+      updatedBy: null,
       sourceMessageIds: [],
     },
   };

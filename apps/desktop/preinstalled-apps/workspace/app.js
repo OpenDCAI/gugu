@@ -81,6 +81,7 @@ const STRINGS = {
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
     createdBy: '{who} 创建 · {time}',
+    editedBy: '{who} 编辑 · {time}',
     editedAt: '已编辑 · {time}',
     agent: 'Agent',
     system: '系统',
@@ -153,6 +154,7 @@ const STRINGS = {
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
     createdBy: 'Created by {who} · {time}',
+    editedBy: 'Edited by {who} · {time}',
     editedAt: 'Edited · {time}',
     agent: 'agent',
     system: 'System',
@@ -352,7 +354,7 @@ function relativeTime(iso) {
   return rtf.format(seconds, 'second')
 }
 
-// When a file last changed: its last edit, else its making. The folder does not provide the last editor.
+// When a file last changed: its last edit, else its making.
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
@@ -564,7 +566,10 @@ function activityOf(entry) {
   if (!entry) return []
   return [
     entry.createdBy && !entry.systemRole ? fmt(state.t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) }) : relativeTime(entry.createdAt),
-    entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt) ? fmt(state.t.editedAt, { time: relativeTime(entry.updatedAt) }) : '',
+    entry.updatedAt && (entry.updatedBy || entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt))
+      ? fmt(entry.updatedBy ? state.t.editedBy : state.t.editedAt, {
+        who: entry.updatedBy ? who(entry.updatedBy) : '', time: relativeTime(entry.updatedAt),
+      }) : '',
   ].filter(Boolean)
 }
 

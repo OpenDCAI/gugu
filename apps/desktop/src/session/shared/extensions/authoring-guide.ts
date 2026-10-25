@@ -481,7 +481,7 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  * `gugu.files` — the platform runtime's shared files (L3; notes/2026-09-29-app-platform/workspace-app/
  * L3-runtime-interface.md). The page an agent reads before writing a vote, a game or an editor.
  */
-export const EXTENSION_GUIDE_FILES = `# gugu.files — an App's chat files, edited live by people and agents together
+export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
 Claim an existing data file's name or suffix and open it live; never copy it into your bundle
 (\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
@@ -522,8 +522,9 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- An entry: \`{ id, chat | session | project, name, contentType, type (text|json|binary|folder), parentId, path, systemRole, size,
-  version, createdAt, updatedAt, createdBy: { id, name, kind: human|agent|system }, sourceMessageIds, canDelete }\`.
+- Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete}\`.
+  Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
 
 ## A text file (markdown)
 
