@@ -566,7 +566,7 @@ export function hostAppFrame(
           },
           hosted.binding.extensionId,
           args,
-          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, current: null },
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null },
         )
       case 'messagesHistory':
         return messagesForApp.history(args)
