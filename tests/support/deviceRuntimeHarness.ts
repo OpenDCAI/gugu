@@ -199,11 +199,13 @@ export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
           select: async () => ({ ...result, data: result.error ? null : [{ runtimes: [] }] }),
         })
       },
-      update: (value: { status: 'offline'; updated_at: string }) => ({
-        eq: async (_column: 'device_id', deviceId: string) => {
-          if (this.errorMessage) return { error: { message: this.errorMessage } }
-          this.offlineUpdates.push({ deviceId, value })
-          return { error: null }
+      update: (value: { status: 'online' | 'offline'; updated_at: string }) => ({
+        eq: (_column: 'device_id', deviceId: string) => {
+          const error = this.errorMessage ? { message: this.errorMessage } : null
+          if (!error && value.status === 'offline') this.offlineUpdates.push({ deviceId, value: { ...value, status: 'offline' } })
+          return Object.assign(Promise.resolve({ error }), {
+            select: async () => ({ error, data: error ? null : [{ runtimes: [] }] }),
+          })
         },
       }),
       select: (_columns: string) => ({
