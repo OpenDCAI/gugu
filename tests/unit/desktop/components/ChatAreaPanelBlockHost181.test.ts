@@ -155,19 +155,19 @@ describe('ChatAreaPanel hosted in a block (gugu-dev#181)', () => {
     expect(composer.style.padding).toBe('0px')
     const dock = composer.closest('[data-chat-bottom-dock]')!
     expect(dock.classList.contains(composerSlotClass)).toBe(true)
-    // 回复条 + 输入框那一层:同一个 ACP 框,底色与聊天栏同一个 token。
-    const backing = dock.lastElementChild!
-    expect(backing.contains(composer)).toBe(true)
-    expect(backing.classList.contains(composerSlotInnerClass)).toBe(true)
-    expect(backing.classList.contains('bg-[var(--bg-primary)]')).toBe(true)
+    // 回复条 + 输入框那一层:同一个 ACP 框,自己没有底(owner 10-25),底只在卡上。
+    const layer = dock.lastElementChild!
+    expect(layer.contains(composer)).toBe(true)
+    expect(layer.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(layer.className).not.toMatch(/\bbg-/)
   })
 
-  // owner 10-25:运行条那一行在可能有 agent 跑的会话里始终占位(透明、固定高),所以运行条出现、消失不改变布局;
-  // 底部那一摞排在消息流下面,不浮在消息流上。和真人的私聊没有运行条,不留这一行。
+  // owner 10-25:运行条那一行在可能有 agent 跑的会话里始终占位(固定高、没有底),所以运行条出现、消失不改变布局;
+  // 底部那一摞浮在消息流上,消息从它后面滚过。和真人的私聊没有运行条,不留这一行。
   it.each([['group', true], ['ai', true], ['dm', false]] as const)('reserves the running bar row in a %s chat: %s', async (kind, reserved) => {
     await renderPanel(undefined, kind)
     const dock = harness.container.querySelector<HTMLElement>('[data-chat-bottom-dock]')!
-    expect(dock.classList.contains('absolute!')).toBe(false)
+    expect(dock.classList.contains('absolute!')).toBe(true)
     const row = dock.querySelector('[data-running-bar-slot]')
     expect(row !== null).toBe(reserved)
     if (row) expect(dock.firstElementChild!.contains(row)).toBe(true)
