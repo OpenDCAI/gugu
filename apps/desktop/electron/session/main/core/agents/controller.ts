@@ -158,7 +158,9 @@ export const agentsController = createRPCController({
     await ensureAgentDependenciesProbed(mgr);
     if (!listPlugins().some((provider) => provider.metadata.id === id)) {
       for (const program of agentProgramsOf(getPlugin(id))) {
-        await mgr.probe(program.dependencyId as DependencyId, { waitForInstallations: true });
+        if (!await mgr.isPathResolutionConsistent(program.dependencyId as DependencyId)) {
+          await mgr.probe(program.dependencyId as DependencyId, { waitForInstallations: true });
+        }
       }
     }
     return buildAgentPayload(id, mgr.platform, mgr, enrichHostDep);

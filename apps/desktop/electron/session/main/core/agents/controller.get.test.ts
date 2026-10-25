@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  manager: { platform: 'macos', probe: vi.fn() },
+  manager: { platform: 'macos', probe: vi.fn(), isPathResolutionConsistent: vi.fn() },
   ensureProbed: vi.fn(),
   buildPayload: vi.fn(),
 }));
@@ -30,7 +30,10 @@ vi.mock('./harness-model-catalog-wiring', () => ({ wireHarnessModelCatalog: vi.f
 
 import { agentsController } from './controller';
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.manager.isPathResolutionConsistent.mockResolvedValue(false);
+});
 
 describe('single registered harness queries', () => {
   it('waits for a withheld harness probe before building its installation payload', async () => {
@@ -52,5 +55,12 @@ describe('single registered harness queries', () => {
     expect(mocks.ensureProbed).toHaveBeenCalledWith(mocks.manager);
     expect(mocks.manager.probe).not.toHaveBeenCalled();
     expect(mocks.buildPayload).toHaveBeenCalledWith('claude', 'macos', mocks.manager, expect.any(Function));
+  });
+
+  it('does not repeat a consistent withheld probe when status events refetch the row', async () => {
+    mocks.manager.isPathResolutionConsistent.mockResolvedValueOnce(false).mockResolvedValue(true);
+    await agentsController.get('gemini');
+    await agentsController.get('gemini');
+    expect(mocks.manager.probe).toHaveBeenCalledTimes(1);
   });
 });
