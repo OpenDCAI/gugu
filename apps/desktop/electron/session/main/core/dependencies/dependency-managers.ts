@@ -1,5 +1,6 @@
 import type { Platform } from '@gugu/session-core/deps';
 import {
+  CORE_DEPENDENCIES,
   createInstallMethodDetector,
   HostDependencyManager,
   resolveActiveInstallation,
@@ -13,14 +14,19 @@ import { resolveLocalAgentSpawnEnv } from '@main/core/agents/agent-run-context';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { setGitExecutableOverride } from '@main/core/utils/exec';
 import { log } from '@main/lib/logger';
+import { listPlugins } from '../agents/plugin-registry';
 import { agentUpdateService } from './agent-update-service';
 import { hostDependencyLedgerFor, localManagedInstallDirs } from './host-dependency-ledger';
 import { createLocalInstallCommandRunner } from './install-runner';
 import { readManagedLauncherRelease } from './mise-installer';
 import { ensureUserBinDirsInPath } from '@main/utils/userEnv';
-import { DEPENDENCIES, AGENT_DEPENDENCIES, getDependencyDescriptor } from './registry';
+import { AGENT_DEPENDENCIES, getDependencyDescriptor } from './registry';
 
 type DesktopDependencyManager = HostDependencyManager<LocalExecutionContext>;
+
+const offeredAgentDependencies = AGENT_DEPENDENCIES.filter((dependency) =>
+  listPlugins().some((provider) => provider.metadata.id === (dependency.ownerId ?? dependency.id))
+);
 
 function syncGitExecutable(event: DependencyStatusUpdatedEvent): void {
   if (event.id !== 'git' || !event.hostDependency) return;
@@ -78,7 +84,7 @@ export const localDependencyManager = new HostDependencyManager(localExecutionCo
   // 这台机器那一本账(#6101)。worker 与远端读的是同一本 —— 主进程是它的属主。
   ledger: hostDependencyLedgerFor('local'),
   logger: log,
-  dependencies: DEPENDENCIES,
+  dependencies: [...CORE_DEPENDENCIES, ...offeredAgentDependencies],
   getDependencyDescriptor,
   // 量一家 agent 的版本,用的就是它真跑起来时那份环境(#5702)。从前用的是通用外部工具环境 ——
   // 于是「面板上显示装没装 / 什么版本」和按下开始之后的那次运行,各在一个环境里,而且不报错。
@@ -125,7 +131,7 @@ async function agentPathsStillConsistent(manager: DesktopDependencyManager): Pro
   if (Date.now() - entry.checkedAt < REVALIDATE_INTERVAL_MS) return true;
 
   entry.inFlight = Promise.all(
-    AGENT_DEPENDENCIES.map((dependency) => revalidate.call(manager, dependency.id))
+    offeredAgentDependencies.map((dependency) => revalidate.call(manager, dependency.id))
   )
     .then((consistent) => consistent.every(Boolean))
     .finally(() => {
@@ -144,7 +150,7 @@ export async function getDependencyManager(): Promise<DesktopDependencyManager> 
 export async function ensureAgentDependenciesProbed(
   manager: DesktopDependencyManager
 ): Promise<void> {
-  if (AGENT_DEPENDENCIES.every((dependency) => manager.get(dependency.id) !== undefined)) {
+  if (offeredAgentDependencies.every((dependency) => manager.get(dependency.id) !== undefined)) {
     // A defined state is only a cache entry, not proof that the executable is
     // still on disk. Revalidate the cheap PATH presence bit so removing or
     // restoring a CLI while the app is running cannot leave a stale row marked
@@ -160,7 +166,7 @@ export async function ensureAgentDependenciesProbed(
 
   const promise = manager.probeAll().finally(() => {
     agentProbePromises.delete(manager);
-    // 全量探测刚把每一行都重新量过,紧接着再扫一轮 PATH 只是重复劳动。
+    // 本轮刚把当前上架的每一行重新量过,紧接着再扫一轮 PATH 只是重复劳动。
     agentRevalidations.set(manager, { checkedAt: Date.now(), inFlight: null });
   });
   agentProbePromises.set(manager, promise);
