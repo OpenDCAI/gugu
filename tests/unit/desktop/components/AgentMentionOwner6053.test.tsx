@@ -45,7 +45,7 @@ describe('#6053 agent owners in the mention popup', () => {
     const textarea = await typeMention('@')
     const options = Array.from(document.body.querySelectorAll('[role="option"]'))
     expect(options).toHaveLength(5)
-    for (const [index, label] of ['所有人', 'Reader', 'Solver（Alice 的 agent）当前不在线，可能无法及时回复', 'Solver（Bob 的 agent）', 'Other'].entries()) {
+    for (const [index, label] of ['Reader', 'Solver（Alice 的 agent）当前不在线，可能无法及时回复', 'Solver（Bob 的 agent）', 'Other', '所有人'].entries()) {
       expect(options[index].textContent).toContain(label)
     }
 
