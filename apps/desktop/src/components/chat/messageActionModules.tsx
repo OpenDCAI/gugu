@@ -3,20 +3,23 @@ import { useEffect, useState, type ComponentProps } from 'react'
 const loadQuickPicker = () => import('./EmojiQuickPicker')
 const loadFullPicker = () => import('../EmojiPickerPanel')
 const loadActionSheet = () => import('./MessageActionSheet')
+const readyModules = new Map<() => Promise<unknown>, unknown>()
 
 // Keep secondary surfaces out of the startup path without Suspense's cold reveal delay.
 function useMessageActionModule<T>(load: () => Promise<T>) {
+  const ready = readyModules.get(load) as T | undefined
   const [result, setResult] = useState<{ module: T } | { error: unknown }>()
   useEffect(() => {
+    if (ready) return
     let mounted = true
     void load().then(
-      (module) => { if (mounted) setResult({ module }) },
+      (module) => { readyModules.set(load, module); if (mounted) setResult({ module }) },
       (error: unknown) => { if (mounted) setResult({ error }) },
     )
     return () => { mounted = false }
-  }, [load])
+  }, [load, ready])
   if (result && 'error' in result) throw result.error
-  return result?.module
+  return ready ?? result?.module
 }
 
 export function DeferredEmojiQuickPicker(props: ComponentProps<typeof import('./EmojiQuickPicker').EmojiQuickPicker>) {
