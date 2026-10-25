@@ -21,6 +21,17 @@ beforeEach(async () => {
 afterEach(() => { fixture?.close(); });
 
 describe('activity journal: real SQLite, no transcript storage or reader', () => {
+  it('reads current session titles separately from immutable events, without retaining deleted titles', () => {
+    fixture.sqlite.exec(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p1', 'P1', '/p1', 0, 0);
+      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'Old title');`);
+    journal.append(event('created'));
+    fixture.sqlite.exec(`UPDATE sessions SET title = '新名称' WHERE id = 's1'`);
+    const current = journal.list({ since, until });
+    expect(current.session_titles).toEqual({ s1: '新名称' });
+    expect(current.events[0]).not.toHaveProperty('title');
+    fixture.sqlite.exec('DELETE FROM sessions');
+    expect(journal.list({ since, until }).session_titles).toEqual({});
+  });
   it('deduplicates receipts across restarts and preserves nullable source time', () => {
     journal.append(event('receipt', { occurred_at: null }));
     journal.append(event('receipt'));

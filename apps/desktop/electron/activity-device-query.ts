@@ -3,8 +3,9 @@ import { setImmediate as yieldToLoop } from 'node:timers/promises'
 import { z } from 'zod'
 import { activityEventSchema, activityQuerySchema, type ActivityQuery } from '@shared/core/activity'
 
-export type ActivityDevice = { device_id: string; label: string | null; online: boolean; this_machine: boolean }
-type QueryDeps = {
+export type ActivityDevice = { device_id: string; label: string | null; online: boolean; this_machine: boolean;
+  session_titles?: Record<string, string> }
+export type ActivityQueryDeps = {
   scope: string
   devices(): Promise<ActivityDevice[]>
   query(device: ActivityDevice, query: ActivityQuery, signal: AbortSignal): Promise<unknown>
@@ -12,6 +13,7 @@ type QueryDeps = {
 const pageSchema = z.object({
   events: z.array(activityEventSchema.extend({ sequence: z.number().int().nonnegative() })).max(200),
   next_cursor: z.string().nullable(),
+  session_titles: z.record(z.string(), z.string()).optional(),
   coverage: z.object({
     queried_at: z.number(), collector_running: z.boolean(),
     segments: z.array(z.object({ started_at: z.number(), last_seen_at: z.number(), ended_at: z.number().nullable() })),
@@ -19,11 +21,12 @@ const pageSchema = z.object({
   }),
 })
 type Page = z.infer<typeof pageSchema>
-type DeviceResult = { device: ActivityDevice; events: Page['events']; coverage?: Page['coverage'];
+type DeviceResult = { device: ActivityDevice; events: Page['events']; titles?: Record<string, string>; coverage?: Page['coverage'];
   status: 'recorded' | 'offline' | 'timeout' | 'error'; error?: { code: string; message: string } }
 type Gap = { device_id: string; device_label: string | null; since: string; until: string;
   reason: 'uncollected' | 'offline' | 'timeout' }
 type Snapshot = { scope: string; signature: string; devices: string[]; expires: number;
+  session_titles: Record<string, Record<string, string>>;
   events: Array<Page['events'][number] & { device_id: string; device_label: string | null }>;
   coverage: { scope: 'account_devices'; queried_at: number; note: string; devices: Array<Record<string, unknown>>; gaps: Gap[] } }
 
@@ -59,7 +62,7 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
   const timeoutMs = options.timeoutMs ?? 5_000
   const ttl = options.snapshotTtlMs ?? 300_000
 
-  async function readDevice(device: ActivityDevice, query: ActivityQuery, deps: QueryDeps, signal: AbortSignal): Promise<DeviceResult> {
+  async function readDevice(device: ActivityDevice, query: ActivityQuery, deps: ActivityQueryDeps, signal: AbortSignal): Promise<DeviceResult> {
     signal.throwIfAborted()
     if (!device.this_machine && !device.online) return { device, events: [], status: 'offline' }
     const controller = new AbortController()
@@ -72,6 +75,7 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
     try {
       const read = async (): Promise<DeviceResult> => {
         const events: Page['events'] = []
+        const titles: Record<string, string> = { ...device.session_titles }
         let cursor: string | undefined
         let coverage: Page['coverage'] | undefined
         const seen = new Set<string>()
@@ -79,6 +83,10 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
           controller.signal.throwIfAborted()
           const page = pageSchema.parse(await deps.query(device, { ...query, limit: 200, ...(cursor ? { cursor } : {}) }, controller.signal))
           events.push(...page.events)
+          if (page.session_titles) {
+            for (const event of page.events) if (event.session_id) delete titles[event.session_id]
+            Object.assign(titles, page.session_titles)
+          }
           coverage ??= page.coverage
           if (page.next_cursor && seen.has(page.next_cursor)) throw new Error('Activity source repeated its cursor')
           if (page.next_cursor) seen.add(page.next_cursor)
@@ -86,7 +94,7 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
           // Local SQLite pages can resolve synchronously; let deadlines/cancellation run between pages too.
           if (cursor) await yieldToLoop(undefined, { signal: controller.signal })
         } while (cursor)
-        return { device, events, coverage, status: 'recorded' }
+        return { device, events, titles, coverage, status: 'recorded' }
       }
       const deadline = new Promise<DeviceResult>(resolve => {
         timer = setTimeout(() => {
@@ -108,7 +116,7 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
     }
   }
 
-  return async (action: Record<string, unknown>, deps: QueryDeps, signal: AbortSignal) => {
+  return async (action: Record<string, unknown>, deps: ActivityQueryDeps, signal: AbortSignal) => {
     signal.throwIfAborted()
     const { action: _, device, ...input } = action
     const q = activityQuerySchema.parse(input)
@@ -139,6 +147,7 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
       signal.throwIfAborted()
       const since = Date.parse(q.since), until = Date.parse(q.until)
       snapshot = { scope: deps.scope, signature, devices: devices.map(d => d.device_id).sort(), expires: now() + ttl,
+        session_titles: Object.fromEntries(results.map(r => [r.device.device_id, r.titles ?? {}])),
         events: results.flatMap(r => r.events.map(event => ({ ...event, device_id: r.device.device_id, device_label: r.device.label })))
           .sort((a, b) => (a.occurred_at ?? a.observed_at) - (b.occurred_at ?? b.observed_at)
             || a.device_id.localeCompare(b.device_id) || a.sequence - b.sequence),
@@ -156,6 +165,6 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
     return { events: snapshot.events.slice(offset, offset + limit), order: 'event_time_then_device_sequence',
       next_cursor: offset + limit < snapshot.events.length
         ? Buffer.from(JSON.stringify({ id, offset: offset + limit })).toString('base64url') : null,
-      coverage: snapshot.coverage }
+      coverage: snapshot.coverage, session_titles: snapshot.session_titles }
   }
 }
