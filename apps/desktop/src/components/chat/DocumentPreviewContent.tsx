@@ -1,8 +1,9 @@
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { ChevronLeft, ChevronRight, Maximize2, MinusCircle, Plus } from '@/lib/icons'
 import { useEffect, useRef, useState } from 'react'
-import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+import pdfViewerCss from 'pdfjs-dist/web/pdf_viewer.css?inline'
 import { useTranslation } from 'react-i18next'
 import { usePinchZoom } from '../../hooks/usePinchZoom'
 import { Button } from '../ui/Button'
@@ -161,6 +162,7 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
   const { t } = useTranslation('messaging')
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const textLayerRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<PDFDocumentProxy>()
   const [pageNumber, setPageNumber] = useState(1)
   const [zoom, setZoom] = useState(1)
@@ -212,8 +214,11 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
     let active = true
     let page: PDFPageProxy | undefined
     let renderTask: RenderTask | undefined
-    void document.getPage(pageNumber).then((loadedPage) => {
-      if (!active) return
+    let textLayer: TextLayer | undefined
+    const textContainer = textLayerRef.current
+    textContainer?.replaceChildren()
+    void Promise.all([document.getPage(pageNumber), import('pdfjs-dist/legacy/build/pdf.mjs')]).then(async ([loadedPage, pdfjs]) => {
+      if (!active) { loadedPage.cleanup(); return }
       page = loadedPage
       const natural = page.getViewport({ scale: 1 })
       const cssScale = (availableWidth / natural.width) * zoom
@@ -226,13 +231,22 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
       canvas.style.width = `${Math.floor(viewport.width / outputScale)}px`
       canvas.style.height = `${Math.floor(viewport.height / outputScale)}px`
       renderTask = page.render({ canvas, viewport })
-      return renderTask.promise
+      if (!textContainer) { await renderTask.promise; return }
+      textContainer.style.setProperty('--total-scale-factor', String(cssScale))
+      textLayer = new pdfjs.TextLayer({
+        textContentSource: page.streamTextContent(),
+        container: textContainer,
+        viewport: page.getViewport({ scale: cssScale }),
+      })
+      await Promise.all([renderTask.promise, textLayer.render()])
     }).catch((cause) => {
       if (active && cause instanceof Error && cause.name !== 'RenderingCancelledException') setError(cause.message)
     })
     return () => {
       active = false
       renderTask?.cancel()
+      textLayer?.cancel()
+      textContainer?.replaceChildren()
       page?.cleanup()
     }
   }, [availableWidth, document, pageNumber, zoom])
@@ -254,7 +268,11 @@ function PdfPreview({ data }: { data: ArrayBuffer }) {
       </div>
       <div ref={viewportRef} className="document-preview-pdf-viewport">
         {error ? <PreviewStatus error>{error}</PreviewStatus> : !document ? <PreviewStatus><LoadingIndicator size="inline" />{t('chatArea.filePreview.rendering')}</PreviewStatus> : null}
-        <canvas ref={canvasRef} aria-label={t('chatArea.filePreview.pdfPage', { page: pageNumber })} />
+        <div className="document-preview-pdf-page">
+          <style>{`@scope (.document-preview-pdf-page) { ${pdfViewerCss} }`}</style>
+          <canvas ref={canvasRef} aria-label={t('chatArea.filePreview.pdfPage', { page: pageNumber })} />
+          <div ref={textLayerRef} className="textLayer" data-file-selection />
+        </div>
       </div>
     </div>
   )

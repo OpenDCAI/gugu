@@ -881,6 +881,7 @@ async function openHanded() {
     }
     const current = { entry: file.entry, file, view: null, unbind: null, offs: [] }
     state.current = current
+    bindFileMenu(current)
     showDoc(file.entry)
     if (file.type === 'text') await mountText(current)
     else mountJson(current)
@@ -986,18 +987,47 @@ function refOf(current, { text, lines }) {
 // Cite: the places kept (＋), then the selection's, each a pill into this chat's composer (gugu.compose refs) — the person
 // says what to do with them, @s whom they like and sends it. A JSON file's view is not its text: its cite stays as it was,
 // each range quoted with the lines it is shown on, and a pill to the file. Called inside the click, as compose needs.
-async function cite() {
-  const current = state.current
-  if (!current || !(state.held.length || state.picks.length)) return
+async function cite(current = state.current, picks = state.picks, held = state.held, whole = false) {
+  if (!current || (!whole && !(held.length || picks.length))) return
   const quoted = ({ text, lines: [first, last] }) =>
     `${fmt(first === last ? state.t.line : state.t.lines, { first, last })}\n${text.replace(/\s+$/, '').split('\n').map((line) => `> ${line}`).join('\n')}`
   try {
-    if (current.file.type === 'text') await gugu.compose('', { refs: [...state.held, ...state.picks.map((pick) => refOf(current, pick))] })
-    else await gugu.compose(state.picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
+    if (whole) await gugu.compose('', { refs: [{ file: current.entry }] })
+    else if (current.file.type === 'text') await gugu.compose('', { refs: [...held, ...picks.map((pick) => refOf(current, pick))] })
+    else await gugu.compose(picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
     state.held = []
     renderHeld()
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// Register each file surface with the host's native menu. Cite keeps the App's existing refs/line fingerprints.
+function bindFileMenu(current) {
+  for (const id of ['editor', 'preview']) {
+    const root = $(id)
+    root.dataset.guguFileViewer = crypto.randomUUID()
+    let pending = null
+    const receive = ({ detail }) => {
+      if (detail.action === 'snapshot') {
+        const picks = (id === 'editor' ? !picksInPreview : picksInPreview) ? [...state.picks] : []
+        pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
+        detail.selection = { text: picks.map(pick => pick.text).join('\n') }
+        detail.editable = false
+        detail.customSelectAll = id === 'editor'
+      } else if (pending?.requestId === detail.requestId) {
+        const captured = pending
+        pending = null
+        if (detail.action === 'select-all') {
+          current.view?.dispatch({ selection: { anchor: 0, head: current.view.state.doc.length } })
+          current.view?.focus()
+        } else if (detail.action === 'quote-selection' || detail.action === 'quote-file') {
+          void cite(captured.source, captured.picks, captured.held, detail.action === 'quote-file')
+        }
+      }
+    }
+    root.addEventListener('gugu:file-viewer-menu', receive)
+    current.offs.push(() => { root.removeEventListener('gugu:file-viewer-menu', receive); delete root.dataset.guguFileViewer })
   }
 }
 

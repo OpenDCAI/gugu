@@ -8,6 +8,8 @@ export interface ImageViewerItem {
   thumb?: HTMLElement | null
   /** 气泡里画的是缩略图时:取原图(object URL)。查看器先用 url 打开,翻到这一张再换成原图。 */
   full?: () => Promise<string>
+  /** File previews keep their existing citation producer when opening the shared image viewer. */
+  quote?: () => Promise<void> | void
 }
 
 /** 缩略图 <img> → 取它原图的办法(附件进群文件夹 ③:气泡用 CDN 缩略图,原图到看的时候才下)。 */

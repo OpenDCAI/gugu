@@ -135,6 +135,23 @@ beforeEach(() => {
 })
 
 describe('Cite: pills to the picked lines, no quote', () => {
+  test('the native menu keeps its picked lines after focus changes and quotes a whole file without selection', async () => {
+    select([line(3).from, line(4).to])
+    const root = $('editor')
+    expect(root.dataset.guguFileViewer).toBeTruthy()
+    const request = { action: 'snapshot', requestId: 'native', selection: { text: '' } }
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: request }))
+    expect(request.selection.text).toBe('目标：十月上线\n负责人：小王')
+    select([0, 0])
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'quote-selection' } }))
+    await until('native Cite composed', () => gugu.compose.mock.calls.length > 0)
+    expect(refsOfLastCompose()).toEqual([{ file: entry, at: { lines: '3-4', h: fingerprint('目标：十月上线\n负责人：小王') }, label: 'Lines 3–4 · 目标：十月上线 负责人：小王' }])
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'snapshot', requestId: 'whole' } }))
+    root.dispatchEvent(new CustomEvent('gugu:file-viewer-menu', { detail: { ...request, action: 'quote-file', requestId: 'whole' } }))
+    await until('whole file composed', () => gugu.compose.mock.calls.length === 2)
+    expect(refsOfLastCompose()).toEqual([{ file: entry }])
+  })
+
   test('each range of the selection is one pill: its lines and their fingerprint, the lines then its words', async () => {
     select([line(3).from, line(4).to], [line(7).from + 2, line(7).from + 6])
     $('cite-sel').click()

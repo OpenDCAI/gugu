@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
@@ -628,6 +629,9 @@ enableOverlayScrollbars(app.commandLine)
 installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
   devtoolsLockLogger.error({ url }, 'DevTools 在锁定态下被打开,已强制关闭')
+})
+registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
+  processGoneLogger.error({ error: String(error) }, 'File context menu failed')
 })
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
