@@ -46,7 +46,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
     let cancelled = false
     readOccupation(user.id)
       .then((saved) => { if (!cancelled) setOccupation({ kind: 'ready', saved, draft: saved }) })
-      .catch((e: unknown) => { log.error({ error: e }, 'read occupation failed'); if (!cancelled) setOccupation({ kind: 'error'; message: string }) })
+      .catch((e: unknown) => { log.error({ error: e }, 'read occupation failed'); if (!cancelled) setOccupation({ kind: 'error', message: messageForUser(e) }) })
     return () => { cancelled = true }
   }, [user?.id])
   const occupationDirty = occupation.kind === 'ready' && JSON.stringify(occupation.draft) !== JSON.stringify(occupation.saved)
