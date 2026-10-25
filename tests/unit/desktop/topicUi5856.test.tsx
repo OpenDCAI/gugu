@@ -8,7 +8,7 @@
 import { askReveal } from '../../../apps/desktop/src/hooks/useSourceMessageReveal'
 import { topicHistoryStub } from '../../support/chatWindowStub'
 import { readFile } from 'node:fs/promises'
-import { composerSlotClass, composerSlotInnerClass, composerSlotInnerBottomClass } from '@gugu/session-chat-ui/composer-layout'
+import { composerSlotClass, composerSlotInnerClass } from '@gugu/session-chat-ui/composer-layout'
 import { act, createElement, useEffect, useCallback, useState } from 'react'
 import { runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -407,14 +407,25 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
     expect(harness.container.querySelector('[data-testid="topic-split-send"]')).toBeNull()
   })
 
+  // owner 10-25:有运行条的地方,那一行始终占位(透明、固定高),运行条出现、消失不改变布局。
+  it('reserves the running bar row above the composer when the pane shows running agents', async () => {
+    await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps, runningTokens: [] }))
+    const dock = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!.closest('[data-chat-bottom-dock]')!
+    expect(dock.firstElementChild?.querySelector('[data-running-bar-slot]')).not.toBeNull()
+  })
+
   it('uses the same ACP desktop frame as the main composer without a second padding layer', async () => {
     await renderWithAppProviders(harness, createNode(TopicSplitPane, { ...baseProps }))
     const wrapper = harness.container.querySelector<HTMLElement>('[data-topic-split-composer]')!
     expect(wrapper.style.padding).toBe('0px')
     const dock = wrapper.closest('[data-chat-bottom-dock]')!
     expect(dock.classList.contains(composerSlotClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerClass)).toBe(true)
-    expect(dock.firstElementChild?.classList.contains(composerSlotInnerBottomClass)).toBe(true)
+    // 桌面分栏不传 runningTokens(旁边群里那一条一直看得见)⇒ 不留运行条那一行;回复条 + 输入框底色与聊天栏同一个 token。
+    expect(dock.querySelector('[data-running-bar-slot]')).toBeNull()
+    const backing = dock.lastElementChild!
+    expect(backing.contains(wrapper)).toBe(true)
+    expect(backing.classList.contains(composerSlotInnerClass)).toBe(true)
+    expect(backing.classList.contains('bg-[var(--bg-primary)]')).toBe(true)
   })
 
   // 找茵第九轮 —— 「用的是同一个组件」不等于「那个组件被接全了」。

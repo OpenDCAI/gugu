@@ -2,7 +2,7 @@
 // DM = 1 个 token（退化态）；群聊 = 多 token 单行，手机横滚，桌面排不下 → +N。
 // 消除 DM 三跳点 vs GroupAgentStatusBar(群聊竖排文字+工具名) 双轨(两者都已删)。
 // 设计 SSOT: design/agent-running-group-1687.html（.bar/.tok/.state/.pop/.more/.ov/.otok/.opop）。
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MouseEvent } from 'react'
 import { Avatar } from './Avatar'
@@ -43,21 +43,37 @@ const STYLE = `
 .rtb-bar[data-mobile=false]{padding:var(--spacing-sm) 0}
 .rtb-bar[data-mobile=true]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity}
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
-.rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
+.rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;min-width:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-tok[data-clickable=true]{cursor:pointer}
-.rtb-pill{height:auto;gap:7px;padding:4px 8px;background:var(--bg-elevated);color:inherit;font-weight:inherit}
+.rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);color:inherit;font-weight:inherit}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
-.rtb-nm{color:var(--faint-fg)}
-.rtb-state{background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
+.rtb-nm{color:var(--faint-fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rtb-state{flex-shrink:0;background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
 /* @@@float-one-edge (Refs #6104) — 浮条去掉 1px 描边:浮层只留 lift 那一层。 */
 .rtb-mp{outline:none}
-.rtb-more{color:var(--text-tertiary);flex-shrink:0;border:0;padding:2px 3px;background:transparent;font:inherit;cursor:pointer}
+.rtb-more{color:var(--text-tertiary);flex-shrink:0;border:0;padding:0;background:transparent;font:inherit;cursor:pointer}
 .rtb-ov{pointer-events:auto;white-space:nowrap;display:flex;align-items:center;gap:16px;background:var(--bg-elevated);border-radius:var(--radius-xl);box-shadow:var(--shadow-lift);padding:8px 12px}
 .rtb-otok{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-otok[data-clickable=true]{cursor:pointer}
 .rtb-otok .rtb-v{color:var(--text-secondary)}
 .rtb-tok,.rtb-otok{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 `
+
+/**
+ * 运行条那一行(owner 10-25:「running pill 还是在下面,但是预先留空,它的出现和消失任何情况下不改变 layout」)。
+ * 在可能有 agent 跑的会话里它始终占同一个高度、完全透明:里面有没有 pill、有几个、名字多长,都不改变它的高度。
+ * 单行不换行:pill 最宽 168px(.rtb-pill),名字截断;桌面按这一行的宽度算放几个,其余进 +N。
+ */
+const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
+export function RunningBarSlot({ children }: { children: ReactNode }) {
+  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center overflow-hidden">{children}</div>
+}
+// 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
+function fitCount(width: number, count: number, cap: number): number {
+  const all = Math.min(count, cap)
+  if (all * (PILL_MAX_PX + PILL_GAP_PX) - PILL_GAP_PX <= width && all === count) return all
+  return Math.max(1, Math.min(cap, Math.floor((width - MORE_PX) / (PILL_MAX_PX + PILL_GAP_PX))))
+}
 
 type PreviewControl = ReturnType<typeof Popover.createHandle<RunningToken>>
 
@@ -168,12 +184,23 @@ function MoreOverflow({
 export function RunningTokenBar({ tokens, cap, onTokenClick, testId, previewChatId }: RunningTokenBarProps) {
   const [handle] = useState(() => Popover.createHandle<RunningToken>())
   const mobile = useMobileShell()
-  if (tokens.length === 0) return null
-  const visible = mobile ? tokens.length : cap
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(Number.POSITIVE_INFINITY)
+  const empty = tokens.length === 0
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    observer.observe(el)
+    setWidth(el.clientWidth)
+    return () => observer.disconnect()
+  }, [empty])
+  if (empty) return null
+  const visible = mobile ? tokens.length : fitCount(width, tokens.length, cap)
   const shown = tokens.slice(0, visible)
   const overflow = tokens.slice(visible)
   return (
-    <div data-testid={testId} style={{ flexShrink: 0 }}>
+    <div ref={boxRef} data-testid={testId} style={{ flexShrink: 0, width: '100%', minWidth: 0 }}>
       <style>{STYLE}</style>
       <Popover.Root handle={handle} modal={false} onOpenChange={(_open, details) => {
         // 单击仍然是 @;预览只由悬停、键盘焦点或手机长按打开。
