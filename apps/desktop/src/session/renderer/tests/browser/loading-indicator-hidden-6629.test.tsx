@@ -31,11 +31,9 @@ async function canvasWritesOver(surface: HTMLElement, n: number): Promise<number
 
 const hide = (el: HTMLElement) => {
   Object.assign(el.style, RETAINED_SURFACE_HIDDEN_STYLE);
-  el.setAttribute('inert', '');
 };
 const show = (el: HTMLElement) => {
   el.removeAttribute('style');
-  el.removeAttribute('inert');
 };
 
 let root: Root | null = null;

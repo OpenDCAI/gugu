@@ -14,6 +14,7 @@ import { FileContentRenderer } from './file-content-renderer';
 import { FileContentToolbar } from './file-content-toolbar';
 import { FILE_CONTENT_TYPES } from './file-content-types';
 import type { FileTabResource } from './stores/file-tab-resource';
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
 /**
  * Mounts EditorProvider unconditionally so the Monaco instance persists across
@@ -89,7 +90,7 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
         <ResizablePanel id="file-tab-content" minSize="140px" className="relative min-w-0 overflow-hidden">
           <div
             className="absolute inset-0"
-            style={{ visibility: showSource ? undefined : 'hidden' }}
+            style={showSource ? undefined : RETAINED_SURFACE_HIDDEN_STYLE}
           >
             <FileContentRenderer />
           </div>
@@ -99,8 +100,7 @@ const FileContent = observer(function FileContent({ host, ctx }: TabContentProps
               <div
                 key={t.tabId}
                 className="absolute inset-0"
-                style={{ visibility: visible ? undefined : 'hidden' }}
-                inert={!visible}
+                style={visible ? undefined : RETAINED_SURFACE_HIDDEN_STYLE}
               >
                 <FileContentPreview tab={t.resource} ctx={ctx as SessionTabContext} />
               </div>

@@ -5,11 +5,9 @@ import type { UnreadMessageRevealRequest } from '../lib/chatUnreadLocator'
 
 function isVisibleWithinSurface(row: HTMLElement, surface: HTMLElement): boolean {
   if (!row.isConnected || !surface.isConnected || row.getClientRects().length === 0 || surface.getClientRects().length === 0) return false
-  const rowStyle = window.getComputedStyle(row)
-  const surfaceStyle = window.getComputedStyle(surface)
-  if (rowStyle.display === 'none' || rowStyle.visibility === 'hidden'
-    || surfaceStyle.display === 'none' || surfaceStyle.visibility === 'hidden'
-    || Number.parseFloat(surfaceStyle.opacity || '1') < 0.99) return false
+  // checkVisibility 认 display / visibility / content-visibility(藏起来的常驻面,lib/retainedSurface.ts)整条祖先链。
+  if (!row.checkVisibility({ visibilityProperty: true })
+    || Number.parseFloat(window.getComputedStyle(surface).opacity || '1') < 0.99) return false
   const rowRect = row.getBoundingClientRect()
   const surfaceRect = surface.getBoundingClientRect()
   return rowRect.width > 0 && rowRect.height > 0
