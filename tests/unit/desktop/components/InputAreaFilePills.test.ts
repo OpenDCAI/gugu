@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer, selectComposer, writeComposer } from '../../../support/composerEditor'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
-import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
+import { ChatStoreProvider, useTextDraftStore, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
 import { chatStore } from '../../../support/testHarness'
 import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { filePillText } from '../../../../apps/desktop/src/components/markdown/filePills'
@@ -25,11 +25,10 @@ let root: Root
 let store: { drafts: Record<string, string>; setDraft: (chatId: string, text: SetStateAction<string>) => void }
 type ComposerProps = Parameters<typeof ChatMessageComposer>[0]
 
-function Host({ chatId, onSend, quoteContent }: Pick<ComposerProps, 'chatId' | 'onSend' | 'quoteContent'>) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
+function Host({ chatId, onSend, quoteContent, surface }: Pick<ComposerProps, 'chatId' | 'onSend' | 'quoteContent' | 'surface'>) {
+  const { drafts, setDraft } = useTextDraftStore()
   const [draftMentions, setDM] = useState<Record<string, DraftMention[]>>({})
   const [draftAttachments, setDA] = useState<Record<string, DraftAttachment[]>>({})
-  const setDraft = useCallback((id: string, update: SetStateAction<string>) => setDrafts((p) => ({ ...p, [id]: typeof update === 'function' ? update(p[id] ?? '') : update })), [])
   const setDraftMentions = useCallback((id: string, m: DraftMention[]) => setDM((p) => ({ ...p, [id]: m })), [])
   const setDraftAttachments = useCallback((id: string, a: DraftAttachment[]) => setDA((p) => ({ ...p, [id]: a })), [])
   // The App host appends to the authoritative draft slot, as MainLayout does.
@@ -46,7 +45,7 @@ function Host({ chatId, onSend, quoteContent }: Pick<ComposerProps, 'chatId' | '
     () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments }),
     [drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments],
   )
-  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, quoteContent, isGroupChat: true, groupMembers: [] }))
+  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, quoteContent, surface, isGroupChat: true, groupMembers: [] }))
 }
 
 async function flush() {
@@ -151,12 +150,13 @@ describe('file citations share the composer document with the words', () => {
     expect(pills().map((pill) => pill.getAttribute('data-mention-id'))).toEqual([DECK, SHEET, DECK])
   })
 
-  it('keeps pending typing and consecutive App citations before the draft debounce flushes', async () => {
-    await mount(vi.fn(async () => {}))
+  it.each(['main', 'aside'] as const)('keeps pending typing and consecutive App citations in the %s composer', async (surface) => {
+    await act(async () => root.render(createElement(Host, { chatId: 'group-1', onSend: vi.fn(async () => {}), surface })))
+    await flush()
     await type('Fresh instructions')
     await act(async () => {
-      for (const ref of [deckPill, sheetPill]) window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, {
-        detail: { chatId: 'group-1', text: '', refs: [ref] },
+      for (const ref of [deckPill, sheetPill]) document.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, {
+        bubbles: true, detail: { chatId: 'group-1', text: '', refs: [ref] },
       }))
     })
     expect(readComposer(textarea())).toBe(`Fresh instructions\n${deckToken}\n${sheetToken}`)

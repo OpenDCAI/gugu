@@ -120,17 +120,17 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       const files = (event as CustomEvent<{ files?: unknown }>).detail?.files
       if (Array.isArray(files)) enqueueFiles(files.filter((file): file is File => file instanceof File))
     }
-    // App composition appends through the store; preserve typing still waiting for the draft debounce.
+    window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
+    return () => window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
+  }, [isMain, enqueueFiles])
+  useEffect(() => {
+    // App composition appends through the store; preserve typing in either composer surface first.
     const beforeCompose = (event: Event) => {
       if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) flush()
     }
-    window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
     window.addEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
-    return () => {
-      window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
-      window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
-    }
-  }, [isMain, enqueueFiles, chatId, flush])
+    return () => window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
+  }, [chatId, flush])
 
   const composerAttachments: ComposerAttachment[] = attachments.map((attachment) => ({
     id: attachment.id, name: attachment.file.name, kind: attachment.kind === 'image' ? 'image' : 'file',
