@@ -27,8 +27,9 @@ export function useChatSearch(chatId: string | null, enabled: boolean, messages:
     return () => { window.removeEventListener(UI_EVENTS.openChatSearch, onOpen) }
   }, [chatId, enabled, open, surface, viewportKey])
   useCommandProvider({
-    scopeId: 'session-sub',
-    isActive: (element) => enabled && !!element && !!surface.current?.contains(element),
+    // The visible chat also answers from the sidebar; focused terminal/editor commands take precedence.
+    scopeId: 'app',
+    isActive: (element) => enabled && !!chatId && isChatSearchTarget(surface.current, chatId, element),
     getCommands: () => !chatId ? [] : [{
       id: 'app.find', hideFromPalette: true,
       execute: open,

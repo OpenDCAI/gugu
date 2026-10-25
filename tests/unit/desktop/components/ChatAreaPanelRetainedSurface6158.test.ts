@@ -119,4 +119,15 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
     await pressFind()
     expect(searchInput(), 'positive control: the same shortcut opens search on the chats tab').not.toBeNull()
   })
+
+  it('opens the visible chat search when focus remains outside the composer', async () => {
+    await renderPanel('chats')
+    const sidebarRow = document.createElement('button')
+    harness.container.prepend(sidebarRow)
+    await act(async () => {
+      sidebarRow.focus()
+      sidebarRow.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, code: 'KeyF', key: 'f', bubbles: true, cancelable: true }))
+    })
+    expect(searchInput()).not.toBeNull()
+  })
 })
