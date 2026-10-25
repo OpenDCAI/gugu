@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { setImmediate as yieldToLoop } from 'node:timers/promises'
 import { z } from 'zod'
 import { activityEventSchema, activityQuerySchema, type ActivityQuery } from '@shared/core/activity'
 
@@ -82,6 +83,8 @@ export function createActivityDeviceQuery(options: { timeoutMs?: number; now?: (
           if (page.next_cursor && seen.has(page.next_cursor)) throw new Error('Activity source repeated its cursor')
           if (page.next_cursor) seen.add(page.next_cursor)
           cursor = page.next_cursor ?? undefined
+          // Local SQLite pages can resolve synchronously; let deadlines/cancellation run between pages too.
+          if (cursor) await yieldToLoop(undefined, { signal: controller.signal })
         } while (cursor)
         return { device, events, coverage, status: 'recorded' }
       }

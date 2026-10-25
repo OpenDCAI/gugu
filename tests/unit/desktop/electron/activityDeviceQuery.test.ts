@@ -56,6 +56,13 @@ describe('device activity aggregation on the Agent control path', () => {
       since: new Date(start).toISOString(), until: new Date(end).toISOString() }))
     expect(query.mock.calls.find(([d]) => d.device_id === 'mac')?.[2]?.aborted).toBe(true)
   })
+  it('lets deadlines run while a local source keeps returning immediately resolved pages', async () => {
+    let next = 0
+    const query = async () => page([], undefined, `more-${++next}`)
+    const result = await createActivityDeviceQuery({ timeoutMs: 20 })({ ...action, device: 'cloud' }, deps(query), signal())
+    expect(result.coverage.devices).toContainEqual(expect.objectContaining({ device_id: 'cloud', query_status: 'timeout' }))
+    expect(result.coverage.gaps).toContainEqual(expect.objectContaining({ device_id: 'cloud', reason: 'timeout' }))
+  })
   it('calculates half-open gaps from clipped, overlapping coverage instead of asking the model to infer them', async () => {
     const query = async () => page([], [segment(start - 50, start + 10), segment(start + 5, start + 20),
       segment(start + 30, start + 40), segment(end, end + 10)])
