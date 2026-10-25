@@ -50,6 +50,8 @@ export interface SessionpagePlatformRecoveryDeps {
   isTurnInFlight?(target: SessionpagePlatformRecoveryTarget): boolean | Promise<boolean>
   /** Resolve the static descriptor capability; the coordinator never imports the plugin registry. */
   credentialLifecycleFor?(target: SessionpagePlatformRecoveryTarget): SessionCredentialLifecycle | null
+  /** A live local proxy validates the current lease before forwarding any model request. */
+  requestCredentialsManaged?(target: SessionpagePlatformRecoveryTarget): boolean
   onStateChange?(target: SessionpagePlatformRecoveryTarget, state: SessionpagePlatformRecoveryState): void
   currentGeneration?(sessionId: string): string | null
 }
@@ -60,7 +62,8 @@ export interface SessionpagePlatformRecoveryDeps {
  * This class deliberately does not know how a message is stored or delivered. Callers ask for a
  * ready conversation first, then pass the original message to their existing owner. A failed gate
  * therefore cannot advance an inbox cursor, acknowledge a session-direct row, or mark a composer
- * send as delivered.
+ * send as delivered. A local credential proxy instead owns that check at request time, so its
+ * provider can receive messages while the same credential rotation continues in parallel.
  */
 export class SessionpagePlatformRecoveryCoordinator {
   private readonly states = new Map<string, SessionpagePlatformRecoveryState>()
@@ -131,8 +134,9 @@ export class SessionpagePlatformRecoveryCoordinator {
       this.forget(sessionId)
       return { status: 'failed', error: 'platform credential recovery target was released' }
     }
+    const requestManaged = this.deps.requestCredentialsManaged?.(target) === true
     const activeFlight = this.flights.get(sessionId)
-    if (activeFlight) return activeFlight
+    if (activeFlight) return requestManaged ? { status: 'ready' } : activeFlight
     this.targets.set(sessionId, target)
     const previous = this.states.get(sessionId)
     if (previous?.credentialGeneration && previous.credentialGeneration !== target.credentialGeneration
@@ -162,8 +166,8 @@ export class SessionpagePlatformRecoveryCoordinator {
     }
 
     const current = this.states.get(sessionId)
-    if (current?.status === 'failed') return { status: 'failed', error: current.error ?? 'platform credential recovery failed' }
-    if (current?.status === 'reopening') return this.waitForFlight(sessionId)
+    if (current?.status === 'failed') return requestManaged ? { status: 'ready' } : { status: 'failed', error: current.error ?? 'platform credential recovery failed' }
+    if (current?.status === 'reopening') return requestManaged ? { status: 'ready' } : this.waitForFlight(sessionId)
     if (this.deps.isExpired(sessionId)) this.markExpired(target)
 
     const next = this.states.get(sessionId)
@@ -182,17 +186,24 @@ export class SessionpagePlatformRecoveryCoordinator {
     }
 
     const existing = this.flights.get(sessionId)
-    if (existing) return this.waitForFlight(sessionId)
+    if (existing) return requestManaged ? { status: 'ready' } : this.waitForFlight(sessionId)
     const run = Symbol(sessionId)
     this.runs.set(sessionId, run)
     const flight = this.reopenOne(target, run, lifecycle)
     this.flights.set(sessionId, flight)
-    try {
-      return await flight
-    } finally {
+    const completed = flight.finally(() => {
       if (this.flights.get(sessionId) === flight) this.flights.delete(sessionId)
       if (this.runs.get(sessionId) === run) this.runs.delete(sessionId)
+    })
+    if (requestManaged) {
+      // Start the existing shared rotation immediately, but let the retained
+      // provider consume the message now. Its proxy waits before upstream I/O.
+      void completed.catch((error: unknown) => {
+        this.publish(target, { status: 'failed', error: error instanceof Error ? error.message : String(error) })
+      })
+      return { status: 'ready' }
     }
+    return completed
   }
 
   async retry(sessionId: string): Promise<SessionpageSessionReadyResult> {
@@ -202,7 +213,8 @@ export class SessionpagePlatformRecoveryCoordinator {
     const current = this.states.get(sessionId)
     if (current?.status === 'reopening') return this.waitForFlight(sessionId)
     this.publish(target, { status: 'expired' })
-    return this.ensureReady(sessionId, 'retry')
+    const result = await this.ensureReady(sessionId, 'retry')
+    return this.flights.has(sessionId) ? this.waitForFlight(sessionId) : result
   }
 
   forget(sessionId: string): void {

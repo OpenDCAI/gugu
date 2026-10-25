@@ -57,6 +57,48 @@ describe('SessionpagePlatformRecoveryCoordinator', () => {
     })
   })
 
+  it.each([
+    { requestManaged: true, retry: false },
+    { requestManaged: false, retry: false },
+    { requestManaged: true, retry: true },
+  ])('admits proxy messages during rotation while explicit retry still waits ($requestManaged/$retry)', async ({ requestManaged, retry }) => {
+    let generation = 'generation-1'
+    let release!: () => void
+    let began!: () => void
+    let finished!: () => void
+    const rotating = new Promise<void>(resolve => { began = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const recovered = new Promise<void>(resolve => { finished = resolve })
+    const refresh = vi.fn(async () => { began(); await gate; generation = 'generation-2' })
+    const coordinator = new SessionpagePlatformRecoveryCoordinator({
+      isExpired: () => generation === 'generation-1',
+      resolveTarget: () => ({ ...target, credentialGeneration: generation }),
+      currentGeneration: () => generation,
+      credentialLifecycleFor: () => ({ ...lifecycle, originalProcessRefresh: 'supported' }),
+      requestCredentialsManaged: () => requestManaged,
+      reopen: vi.fn(), refresh, waitUntilReady: async () => undefined,
+      onStateChange: (_target, state) => { if (state.status === 'live') finished() },
+    })
+    let admitted = false
+    const first = (retry ? coordinator.retry(target.sessionId) : coordinator.ensureReady(target.sessionId))
+      .then(result => { admitted = true; return result })
+    await rotating
+    await Promise.resolve()
+    expect(admitted).toBe(requestManaged && !retry)
+    expect(coordinator.stateFor(target.sessionId)?.status).toBe('reopening')
+    let nextAdmitted = false
+    const second = coordinator.ensureReady(target.sessionId).then(result => { nextAdmitted = true; return result })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(nextAdmitted).toBe(requestManaged)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    release()
+    await expect(first).resolves.toEqual({ status: 'ready' })
+    await expect(second).resolves.toEqual({ status: 'ready' })
+    await recovered
+    expect(coordinator.stateFor(target.sessionId)).toMatchObject({ status: 'live', credentialGeneration: 'generation-2' })
+  })
+
   it('does not revive a forgotten recovery or release its message', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })

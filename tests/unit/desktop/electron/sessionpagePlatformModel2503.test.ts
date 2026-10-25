@@ -78,6 +78,7 @@ const {
   claudeCredentialHelperFile,
   dynamicClaudeSettings,
   heldPlatformModelForSession,
+  platformRequestsUseCredentialProxy,
   assertUserModelAllowed,
   codexPlatformInjection,
   platformModelForSession,
@@ -185,6 +186,7 @@ describe('#2503 session-page sessions carry the designated model', () => {
       platformLaunch('glm-5.2-claude', 60_000, undefined, [], 'old-session', relayUrl, 'raw-old-platform-token')
       const platform = await platformModelForSession({ surface, sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
       const local = platform.platformProvider!
+      expect(platformRequestsUseCredentialProxy(SESSION)).toBe(true)
       expect(local.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//)
       expect(local.apiKey).not.toBe('raw-old-platform-token')
       expect(JSON.stringify(platform)).not.toContain('raw-old-platform-token')
@@ -215,6 +217,7 @@ describe('#2503 session-page sessions carry the designated model', () => {
     } finally {
       vi.useRealTimers()
       await releasePlatformModelForSession(SESSION)
+      expect(platformRequestsUseCredentialProxy(SESSION)).toBe(false)
       upstream.closeAllConnections()
       await new Promise<void>(resolve => upstream.close(() => resolve()))
     }
@@ -237,6 +240,15 @@ describe('#2503 session-page sessions carry the designated model', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
+  })
+  it('does not treat a legacy Claude helper as a request-time proxy', async () => {
+    legacyHelper.enabled = true
+    agentOnThisSession()
+    loadEngine.mockResolvedValue({ id: 'claude', modelConfigInjection: 'provider-env' })
+    platformLaunch('glm-5.2-claude')
+    await platformModelForSession({ surface: 'tui', sessionId: SESSION, providerId: 'claude', authProvider, env: CLAUDE_TEST_ENV })
+    expect(platformRequestsUseCredentialProxy(SESSION)).toBe(false)
+    expect(platformRequestsUseCredentialProxy('not-a-platform-session')).toBe(false)
   })
   it('reports the model the quota designated, not the one the composer picked', async () => {
     agentOnThisSession()

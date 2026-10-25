@@ -278,6 +278,7 @@ import {
   heldPlatformModelForSession,
   expiredPlatformModelSessions,
   platformCredentialGenerationForSession,
+  platformRequestsUseCredentialProxy,
   reissueExpiredPlatformModelForSession,
   sweepStalePlatformSettingsFiles,
   releasePlatformModelsAtExit,
@@ -4717,6 +4718,7 @@ app.whenReady().then(async () => {
       isExpired: (sessionId) => expiredPlatformModelSessions().includes(sessionId),
       resolveTarget: (sessionId) => sessionpagePlatformRecoveryHooks?.targetForSession(sessionId) ?? null,
       currentGeneration: platformCredentialGenerationForSession,
+      requestCredentialsManaged: (target) => platformRequestsUseCredentialProxy(target.sessionId),
       credentialLifecycleFor: (target) => resolveSessionpageCredentialLifecycle(target.providerId, target.surface),
       refresh: async (target) => {
         if (!await reissueExpiredPlatformModelForSession(target.sessionId)) {

@@ -2014,6 +2014,12 @@ export function heldPlatformModelForSession(sessionId: string): SessionpagePlatf
   return activeAccessSessions.get(sessionId)?.launch ?? null
 }
 
+/** Only a real relay route, not a legacy helper, owns request-time credential admission. */
+export function platformRequestsUseCredentialProxy(sessionId: string): boolean {
+  const held = activeAccessSessions.get(sessionId)
+  return Boolean(held?.credentialRoute && !held.credentialConfigPath)
+}
+
 /** A held platform generation is usable only while its server expiry is still in the future. */
 export function platformModelIsExpired(
   platform: Pick<SessionpagePlatformModel, 'expiresAt'>,
