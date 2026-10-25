@@ -17,8 +17,8 @@ import { observer } from 'mobx-react-lite';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { PageShownContext, useRecentSessions, type SessionParams } from './recent-session-pages';
 import { ScreenBlockContext } from './screen-block-context';
-import { anchoredToBlock, BlockDropPreviewLayer, hasDraggedAppBlock, ScreenFrame, screenDropHandlers } from './screen-frame';
-import { hasDraggedSession } from '@renderer/lib/drag-session';
+import { anchoredToBlock, BlockDropPreviewLayer, ScreenFrame, screenDropHandlers } from './screen-frame';
+import { hasDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from './screen-layout';
 import { ensureScreenLayoutSync, focusScreenBlock, isScreenView, putBackFromWindow, setBlockDropPreview } from './screen-layout-actions';
@@ -116,7 +116,7 @@ const ScreenArea = observer(function ScreenArea({
     () =>
       shieldNativeDrags(
         document,
-        (dataTransfer) => hasDraggedSession(dataTransfer) || hasDraggedAppBlock(dataTransfer),
+        hasDraggedScreenContent,
         () => setBlockDropPreview(null)
       ),
     []

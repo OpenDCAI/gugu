@@ -5,7 +5,7 @@ import {
 } from '@renderer/features/tabs/pane-dimension-provider';
 import { createLocalSessionMentionProvider } from '@renderer/lib/chat/local-session-mention-provider';
 import { getDraggedWorkspaceFile } from '@renderer/lib/drag-files';
-import { getDraggedSession } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { terminalSessionMentionInput } from '@renderer/lib/chat/use-session-mention-drop';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
@@ -332,8 +332,8 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
         // 会一声不响地什么都不发生(owner 2026-09-16 实撞:他那两条会话都是终端形态)。
         // 写进去的是**寻址名**(Codex 1 / Claude 1),不是 uuid:spec session-page-comm ⑨ 定的
         // 就是「可读名即寻址名,agent 到通讯录里按名字查回 ID」,而终端里没有 pill 能替 uuid 挡脸。
-        const draggedSession = getDraggedSession(dt);
-        if (draggedSession) {
+        const draggedSession = getDraggedScreenContent(dt);
+        if (draggedSession?.kind === 'session') {
           void (async () => {
             try {
               const mention = await createLocalSessionMentionProvider().resolveSession(

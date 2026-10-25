@@ -5,6 +5,7 @@
 // `gugu-bundle-emdash-taskpage` esbuild plugin (vite.config.mts) has a stable entry point to bundle
 // → dist-electron/taskpage/emdash-main-bridge.cjs. The host (gugu main.ts) requires that .cjs and calls
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
+export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
 export {
   bootEmdashModule,
   readCurrentActivityInput,
@@ -13,7 +14,6 @@ export {
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
   // live session-page conversation (inter-agent messaging in the 任务 tab) + reads live-session summaries for
   // a liveness pre-check. Both fail-loud; never a pty write.
-  injectEmdashPromptDetached,
   cancelEmdashTurn,
   ensureEmdashSession,
   reloadEmdashSession,

@@ -6,6 +6,7 @@ import {
   minExtent,
   neighbourInOrder,
   paneLeaf,
+  paneExtent,
   paneOrder,
   removePane,
   setSplitSizes,
@@ -30,6 +31,15 @@ describe('一棵格子最少要多大 (#7052 窄格子)', () => {
 });
 
 describe('pane layout tree (#7052)', () => {
+  it('measures the target after a moved pane releases its old share, including nested dividers', () => {
+    const nested = insertBeside(insertBeside(paneLeaf('a'), 'a', 'b', 'right'), 'b', 'c', 'bottom');
+    expect(paneExtent(nested, 'b', 'width', 800)).toBe(399.5);
+    const withoutA = removePane(nested, 'a');
+    expect(paneExtent(withoutA, 'b', 'width', 800)).toBe(800);
+    expect(paneExtent(withoutA, 'b', 'height', 600)).toBe(299.5);
+    expect(paneExtent(withoutA, 'missing', 'width', 800)).toBeUndefined();
+  });
+
   it('分在一格的边上:左右 = 并排,上下 = 叠着;新格在拖到的那一边', () => {
     expect(shape(insertBeside(paneLeaf('a'), 'a', 'b', 'right'))).toEqual({ row: ['a', 'b'], sizes: [50, 50] });
     expect(shape(insertBeside(paneLeaf('a'), 'a', 'b', 'left'))).toEqual({ row: ['b', 'a'], sizes: [50, 50] });

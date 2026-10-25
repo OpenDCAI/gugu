@@ -160,10 +160,6 @@ export const enUSProjectMessages = {
   'projects.pending.genericError': 'An error occurred',
   'projects.pending.dismiss': 'Dismiss',
 
-  // ── projects: add-project modal ────────────────────────────────────────
-  'projects.add.configImported': '{label} config imported',
-  'projects.add.configImportedDetail': '{files} was imported successfully.',
-
   // ── projects: directory browser ────────────────────────────────────────
   'projects.remoteDir.empty': 'Empty directory',
   'projects.remoteDir.listLabel': 'Directory contents',
@@ -224,72 +220,6 @@ export const enUSProjectMessages = {
   // ── projects: pull requests ────────────────────────────────────────────
   // PR titles, branches, numbers and author logins are raw GitHub data.
 
-  // ── projects: settings view ────────────────────────────────────────────
-  // ".gugu.json" is the real file name and stays literal in both locales.
-  'projects.settings.detectedExternalConfig': 'Detected external project config.',
-  'projects.settings.importInto': 'Import into {appName}',
-  'projects.settings.importTitle': 'Import project config',
-  'projects.settings.selectConfig': 'Select config',
-  'projects.settings.settingsToImport': 'Settings to import',
-  'projects.settings.saveTo': 'Save to',
-  'projects.settings.destinationLocal': 'Settings',
-  'projects.settings.destinationLocalHint': '– local to this machine',
-  'projects.settings.destinationSharedHint': '– commit to share with team',
-  'projects.settings.shareWithTeam': 'Share with team',
-  'projects.settings.shareTooltip':
-    'Writes selected settings to .gugu.json. Commit that file to share these defaults with your team.',
-  'projects.settings.resetChanges': 'Reset changes',
-  'projects.settings.shareTitle': 'Share settings with your team',
-  'projects.settings.shareDescription':
-    'This writes the selected settings to .gugu.json in the chosen working directory. Commit that file so teammates get the same project defaults after pulling.',
-  'projects.settings.writeTo': 'Write to',
-  'projects.settings.settingsToShare': 'Settings to share',
-  'projects.settings.cancel': 'Cancel',
-  'projects.settings.teamConfigShared': 'Team config shared',
-  'projects.settings.teamConfigSharedDetail': '.gugu.json was written successfully.',
-  'projects.settings.overriding': 'Overriding',
-  'projects.settings.overridesIn': 'This overrides {teamConfigLabel} in {count}.',
-  'projects.settings.useTeamSettingsFor': 'Use team settings for {label}',
-  'projects.settings.useTeamSettings': 'Use team settings',
-
-  // ── projects: settings fields ──────────────────────────────────────────
-  'projects.settings.githubAccount': 'GitHub account',
-  'projects.settings.githubAccountDescription': 'Used for pull requests and issues in this project.',
-  'projects.settings.githubAccountUnavailable': 'Unavailable GitHub account',
-  'projects.settings.githubAccountDisconnected': 'No longer connected',
-  'projects.settings.noGithubAccount': 'No GitHub account',
-  'projects.settings.defaultBranch': 'Default branch',
-  'projects.settings.defaultBranchDescription': 'The branch new tasks are created from by default.',
-  'projects.settings.baseRemote': 'Base remote',
-  'projects.settings.baseRemoteDescription':
-    'Used for fetching remote branches, choosing task base branches and targeting pull requests.',
-  'projects.settings.pushRemote': 'Push remote',
-  'projects.settings.pushRemoteDescription':
-    'Used when publishing task branches and pushing commits.',
-  'projects.settings.sameAsBaseRemote': 'Same as base remote',
-  'projects.settings.enableTmux': 'Enable tmux',
-  'projects.settings.enableTmuxDescription': 'Run the agent task inside a tmux session.',
-  'projects.settings.lifecycleScripts': 'Lifecycle scripts',
-  'projects.settings.lifecycleScriptsDescription':
-    'Shell commands run at each stage of the worktree lifecycle. One command per line. When both are set to auto-run, the Run script waits for Setup to complete.',
-  'projects.settings.autoRunOnTaskCreation': 'Auto-run on task creation',
-
-  // ── projects: shareable field descriptors ──────────────────────────────
-  // The placeholders stay literal: they are runnable command / glob examples.
-  'projects.settings.field.preservePatterns': 'Preserve patterns',
-  'projects.settings.field.preservePatternsLeaf': 'preserve patterns',
-  'projects.settings.field.preservePatternsDescription':
-    'Gitignored and untracked files matching these glob patterns are copied from the main repo into each worktree. One pattern per line.',
-  'projects.settings.field.shellSetup': 'Shell setup',
-  'projects.settings.field.shellSetupLeaf': 'shell setup',
-  'projects.settings.field.shellSetupDescription':
-    'Shell commands run before the agent starts in each worktree task',
-  'projects.settings.field.scriptSetup': 'Setup script',
-  'projects.settings.field.scriptSetupLeaf': 'setup',
-  'projects.settings.field.scriptRun': 'Run script',
-  'projects.settings.field.scriptRunLeaf': 'run',
-  'projects.settings.field.scriptTeardown': 'Teardown script',
-  'projects.settings.field.scriptTeardownLeaf': 'teardown',
 } as const;
 
 type ProjectMessageKey = keyof typeof enUSProjectMessages;
@@ -445,10 +375,6 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   'projects.pending.genericError': '发生错误',
   'projects.pending.dismiss': '关闭',
 
-  // ── projects: add-project modal ────────────────────────────────────────
-  'projects.add.configImported': '已导入 {label} 配置',
-  'projects.add.configImportedDetail': '已成功导入 {files}。',
-
   // ── projects: directory browser ────────────────────────────────────────
   'projects.remoteDir.empty': '空目录',
   'projects.remoteDir.listLabel': '目录内容',
@@ -502,68 +428,4 @@ export const zhCNProjectMessages: Record<ProjectMessageKey, string> = {
   // ── projects: pull requests ────────────────────────────────────────────
   // PR titles, branches, numbers and author logins are raw GitHub data.
 
-  // ── projects: settings view ────────────────────────────────────────────
-  // ".gugu.json" is the real file name and stays literal in both locales.
-  'projects.settings.detectedExternalConfig': '检测到外部项目配置。',
-  'projects.settings.importInto': '导入到 {appName}',
-  'projects.settings.importTitle': '导入项目配置',
-  'projects.settings.selectConfig': '选择配置',
-  'projects.settings.settingsToImport': '要导入的设置',
-  'projects.settings.saveTo': '保存到',
-  'projects.settings.destinationLocal': '设置',
-  'projects.settings.destinationLocalHint': '— 仅本机',
-  'projects.settings.destinationSharedHint': '— 提交后与团队共享',
-  'projects.settings.shareWithTeam': '与团队共享',
-  'projects.settings.shareTooltip':
-    '把所选设置写入 .gugu.json。提交该文件即可与团队共享这些默认配置。',
-  'projects.settings.resetChanges': '重置更改',
-  'projects.settings.shareTitle': '与团队共享设置',
-  'projects.settings.shareDescription':
-    '这会把所选设置写入所选工作目录下的 .gugu.json。提交该文件，队友拉取后即可获得相同的项目默认配置。',
-  'projects.settings.writeTo': '写入到',
-  'projects.settings.settingsToShare': '要共享的设置',
-  'projects.settings.cancel': '取消',
-  'projects.settings.teamConfigShared': '团队配置已共享',
-  'projects.settings.teamConfigSharedDetail': '.gugu.json 已成功写入。',
-  'projects.settings.overriding': '覆盖中',
-  'projects.settings.overridesIn': '这会覆盖 {count} 中的 {teamConfigLabel}。',
-  'projects.settings.useTeamSettingsFor': '对 {label} 使用团队设置',
-  'projects.settings.useTeamSettings': '使用团队设置',
-
-  // ── projects: settings fields ──────────────────────────────────────────
-  'projects.settings.githubAccount': 'GitHub 账号',
-  'projects.settings.githubAccountDescription': '用于此项目的拉取请求和议题。',
-  'projects.settings.githubAccountUnavailable': 'GitHub 账号不可用',
-  'projects.settings.githubAccountDisconnected': '已断开连接',
-  'projects.settings.noGithubAccount': '没有 GitHub 账号',
-  'projects.settings.defaultBranch': '默认分支',
-  'projects.settings.defaultBranchDescription': '新会话默认从该分支创建。',
-  'projects.settings.baseRemote': '基础远程仓库',
-  'projects.settings.baseRemoteDescription':
-    '用于拉取远程分支、选择会话基础分支以及指定拉取请求的目标。',
-  'projects.settings.pushRemote': '推送远程仓库',
-  'projects.settings.pushRemoteDescription': '用于发布会话分支和推送提交。',
-  'projects.settings.sameAsBaseRemote': '与基础远程仓库相同',
-  'projects.settings.enableTmux': '启用 tmux',
-  'projects.settings.enableTmuxDescription': '在 tmux 会话中运行 agent 会话。',
-  'projects.settings.lifecycleScripts': '生命周期脚本',
-  'projects.settings.lifecycleScriptsDescription':
-    '在 worktree 生命周期各阶段运行的 shell 命令，每行一条。两者都设为自动运行时，Run 脚本会等待 Setup 完成。',
-  'projects.settings.autoRunOnTaskCreation': '创建会话时自动运行',
-
-  // ── projects: shareable field descriptors ──────────────────────────────
-  // The placeholders stay literal: they are runnable command / glob examples.
-  'projects.settings.field.preservePatterns': '保留文件模式',
-  'projects.settings.field.preservePatternsLeaf': '保留文件模式',
-  'projects.settings.field.preservePatternsDescription':
-    '匹配这些 glob 模式的、被 gitignore 或未跟踪的文件，会从主仓库复制到每个 worktree。每行一条模式。',
-  'projects.settings.field.shellSetup': 'Shell 初始化',
-  'projects.settings.field.shellSetupLeaf': 'shell 初始化',
-  'projects.settings.field.shellSetupDescription': '在每个 worktree 会话中 agent 启动前运行的 shell 命令',
-  'projects.settings.field.scriptSetup': 'Setup 脚本',
-  'projects.settings.field.scriptSetupLeaf': 'setup',
-  'projects.settings.field.scriptRun': 'Run 脚本',
-  'projects.settings.field.scriptRunLeaf': 'run',
-  'projects.settings.field.scriptTeardown': 'Teardown 脚本',
-  'projects.settings.field.scriptTeardownLeaf': 'teardown',
 };

@@ -2,7 +2,6 @@
   "apps/desktop/src/components/AddFriendSearch.tsx",
   "apps/desktop/src/components/AgentPresetsPanel.tsx",
   "apps/desktop/src/components/AppErrorBoundary.tsx",
-  "apps/desktop/src/components/BuildAgentWizard.tsx",
   "apps/desktop/src/components/ChatAreaPanel.tsx",
   "apps/desktop/src/components/CopyValue.tsx",
   "apps/desktop/src/components/FeedbackModal.tsx",

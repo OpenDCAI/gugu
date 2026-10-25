@@ -18,14 +18,14 @@ import { log } from '@main/lib/logger';
  * 写侧：把「发一条用户消息」「回答一个权限请求」这两件事接到**本仓真实存在的**入口上。
  *
  * 读侧（时间线）是 harness 自己的记录，与咕咕怎么把它拉起来无关；写侧不是 —— 它必须走
- * 这条会话当初被拉起来的那条腿。两条腿的入口在本仓是分开的：
+ * 这条会话当初被拉起来的那条腿：
  *
- *  · ACP 腿：`getAcpRuntimeClient()`（`core/acp/runtime-process/host.ts`）拿到 ACP 运行时进程的
- *    client，`promptDetached` / `resolvePermission` 就是主进程侧的那两个动词。
- *  · TUI(pty) 腿：`sendMessage`（`core/sessions/sendMessage.ts`）—— 桌面端自己发消息的同一条路
- *    —— ❌ 不直接 `ptyController.sendInput(text + '\r')`：那会绕开
+ *  · 用户消息：ACP 与 TUI 都走 `sendMessage`（`core/sessions/sendMessage.ts`），由既有路由按
+ *    harness 的能力决定忙时插话；不在手机写侧另写一条 ACP 准入/唤醒/排队链路。
+ *    TUI ❌ 不直接 `ptyController.sendInput(text + '\r')`：那会绕开
  *    `buildPromptInjectionPayload`（换行/括号粘贴按家转义）与各家声明的 `submitSequence`/`submitDelayMs`，
  *    也绕开 `prompt.kind: 'none'` 那条 fail loud。同一段字节两处编码，迟早分叉。
+ *  · ACP 审批：`getAcpRuntimeClient().resolvePermission`。
  *
  * 权限请求在 TUI 腿上**没有通道**：那是画在终端里的一屏文字，没有 item id、没有结算口。
  * 这里如实抛 `no_permission_channel`，❌ 不按 optionId 猜一个按键写进 pty 冒充「已回答」。
@@ -125,20 +125,6 @@ export async function deliverSessionText(
   const body = text.trim();
   if (!body) throw new SessionWriteError('empty_text', '消息是空的');
 
-  if (target.runtime === 'acp') {
-    // 先确认引擎活着,不活先唤醒 —— 桌面端点进会话时做的就是这件事,手机端不能少这一步。
-    await ensureAcpSessionLive(target.id);
-    const client = await getAcpRuntimeClient();
-    // `sendPrompt` 的 promise 要等**整轮**跑完（可能几分钟），拿它当 RPC 应答等于必超时；
-    // `promptDetached` 是宿主专用的受理路径：受理即返回，轮的结果另行结算。
-    // 人在手机输入框里写的话,与会话页输入框同一类来源(`manual`)。❌ 不带:会话忙时这句要排队,队列拒收没有来源的 prompt。
-    const result = await client.promptDetached({ sessionId: target.id, prompt: { text: body, origin: 'manual' } });
-    if (result.declined) {
-      throw new SessionWriteError('session_busy', '这条会话此刻不收新消息（provider 当场拒收）');
-    }
-    return { accepted: result.queued ? 'queued' : 'started' };
-  }
-
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
   // 直接判 `=== 'pty'` 会把活着的终端会话漏到下面的 unsupported_runtime。
   //
@@ -149,7 +135,7 @@ export async function deliverSessionText(
   //    在 conversation provider 自己的 `sessions` 里。两张表都用 makePtySessionId 造 key、
   //    长得一模一样,查错了不报错 —— 只会永远 `session_not_live`。实测:一条刚建的、
   //    桌面上正在跑的会话也被判成死的,手机端给 TUI 腿发消息从来没成功过。
-  if (target.runtime === 'pty' || target.runtime === null) {
+  if (target.runtime === 'acp' || target.runtime === 'pty' || target.runtime === null) {
     const params = {
       projectId: target.projectId,
       sessionId: target.id,

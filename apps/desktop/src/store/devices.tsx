@@ -37,8 +37,8 @@ const devicesLog = rendererLogger('devices')
 export function DevicesProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser, loading: authLoading } = useAuth()
   const { subscribeAccountRevision } = useChatStore('subscribeAccountRevision')
-  const user = active ? authenticatedUser : null
-  const assistant = useMyAssistant(user?.id, null)
+  const userId = active ? authenticatedUser?.id ?? null : null
+  const assistant = useMyAssistant(userId, null)
   const appMachine = useMemo(() => assistant.provisionDeviceId ? { rpc: machineRpc(assistant.provisionDeviceId) } : null, [assistant.provisionDeviceId])
   // 第一帧就用上次那份铺开,❌ 不是空列表 + 转圈;下面的 refresh 一返回就换成此刻的事实。
   const [devices, setDevices] = useState<Device[]>(() => sortDevices(readCachedDevices()))
@@ -49,7 +49,7 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async (options: { throwOnError?: boolean } = {}) => {
-    if (!user) return
+    if (!userId) return
     setLoading(true)
     setError(null)
     try {
@@ -65,9 +65,9 @@ export function DevicesProvider({ children, active = true }: { children: React.R
       ])
       const rows = withDeviceProjects(listed, projects, devicesRef.current)
       setDevices(sortDevices(rows))
-      writeCachedDevices(user.id, rows)
+      writeCachedDevices(userId, rows)
       // #6264 在别的电脑上被移除的远程 SSH 机器,这台电脑也忘掉它(只凭刚成功读到的完整名单对账)。
-      void desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.reconcile, { owner: user.id, present: rows.map((row) => row.device_id) }).catch(() => undefined)
+      void desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.reconcile, { owner: userId, present: rows.map((row) => row.device_id) }).catch(() => undefined)
     } catch (err) {
       if (isLifecycleCancellation(err)) {
         if (options.throwOnError) throw err
@@ -82,28 +82,27 @@ export function DevicesProvider({ children, active = true }: { children: React.R
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [userId])
 
   useEffect(() => {
     /*
      * 三档的判据在 `deviceCacheAction`(纯函数,带用例)。
-     * ❌ 没有「清缓存」这一档 —— user 为空有四种来由(会话没恢复完 / 界面不活跃 active=false /
+     * ❌ 没有「清缓存」这一档 —— userId 为空有四种来由(会话没恢复完 / 界面不活跃 active=false /
      * 断网刷不动 token / 真登出),清一次就把刚要用上的那份删干净,而界面看上去只是「又在读取」。
      * 换账号那件事靠**对名字**解决:缓存写着别人的名字才丢。
      */
-    const action = deviceCacheAction({ user, authLoading, cachedAccountId: cachedDevicesAccount() })
+    const action = deviceCacheAction({ user: userId ? { id: userId } : null, authLoading, cachedAccountId: cachedDevicesAccount() })
     if (action === 'hold') return
     if (action === 'drop-foreign') {
       setDevices([])
-      writeCachedDevices(user?.id ?? null, [])
+      writeCachedDevices(userId, [])
     }
     refresh()
-  }, [user, authLoading, refresh])
+  }, [userId, authLoading, refresh])
 
   // #7199 云电脑此刻怎样:管家的 /state 是事实源。换账号就清掉上一个账号的;登录后问一次。
   const cloudComputer = useSyncExternalStore(subscribeCloudComputerState, getCloudComputerState, getCloudComputerState)
-  const userId = user?.id ?? null
-  // 只在真换了账号时清:冷启动、刷新令牌时 user 会短暂为 null(见 devicesCache.ts),那一下清掉会让云电脑闪成「离线」、
+  // 只在真换了账号时清:冷启动、刷新令牌时 userId 会短暂为 null(见 devicesCache.ts),那一下清掉会让云电脑闪成「离线」、
   // 作废在途的叫醒进度,还会让会话页把它当成「又睡着了」再叫一次。退出登录后设备列表本来就空了。
   const cloudAccountRef = useRef<string | null>(null)
   useEffect(() => {
@@ -118,12 +117,12 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   // gugu_devices 任何增删改都落账号 revision journal。初始拉取 + durable cursor 覆盖订阅建立前与离线期间的变更。
   // 云电脑睡下 / 醒来,它那一行的在线与否就会翻 ⇒ 顺带再问一次管家(❌ 让它拖住设备列表的游标)。
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
     return subscribeAccountRevision('device_changed', () => {
       void refreshCloudComputer().catch(() => undefined)
       return refresh({ throwOnError: true })
     })
-  }, [user, refresh, subscribeAccountRevision])
+  }, [userId, refresh, subscribeAccountRevision])
 
   // 切回窗口时再问一次(别的端开通 / 关掉了,或它在后台睡下了)。
   useEffect(() => {
@@ -136,22 +135,22 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   }, [userId])
 
   const rename = useCallback(async (deviceId: string, label: string) => {
-    const ownerId = user?.id ?? cachedDevicesAccount()
+    const ownerId = userId ?? cachedDevicesAccount()
     await chatService.renameDevice(deviceId, label)
     if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
       resource: 'devices', operation: 'edited', id: deviceId, deviceId, after: { name: label },
     }, ownerId)
     await refresh()
-  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, userId])
 
   const remove = useCallback(async (deviceId: string, options: { cascade?: boolean } = {}) => {
-    const ownerId = user?.id ?? cachedDevicesAccount()
+    const ownerId = userId ?? cachedDevicesAccount()
     await chatService.removeDevice(deviceId, options)
     if (assistant.agentId || assistant.loading || assistant.error) await reportAssistantAppChange(appMachine, assistant.agentId ?? undefined, {
       resource: 'devices', operation: 'removed', id: deviceId, deviceId,
     }, ownerId)
     await refresh()
-  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, user?.id])
+  }, [refresh, assistant.agentId, assistant.loading, assistant.error, appMachine, userId])
 
   // #6264 这台电脑用远程 SSH 添加的机器(清单随装上 / 移除一台跟着变):在不在线只看 SSH 设备连接(❌ 看咕咕云心跳),
   // 侧栏、选择器、设置 → 设备同一个说法。别的机器照常读心跳。

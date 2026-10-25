@@ -1,8 +1,8 @@
 import { useState, type DragEvent } from 'react';
-import { getDraggedSession } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent, type DraggedScreenContent } from '@renderer/lib/drag-screen-content';
 
 /** 被拖的那条会话(左边一行、⋮⋮),项目一定在:挂父会话要在它所在的机器上做。 */
-export type DraggedSessionRef = { projectId: string; sessionId: string; title: string };
+export type DraggedSessionRef = Extract<DraggedScreenContent, { kind: 'session' }>;
 
 /**
  * 侧栏里接一条拖来的会话的那一行:会话行(挂到它下面)、项目行与「任务」分区头(回到根)。
@@ -13,10 +13,9 @@ export function useSessionDropTarget() {
   const [over, setOver] = useState(false);
   const bind = (accepts: (dragged: DraggedSessionRef) => boolean, onDrop: (dragged: DraggedSessionRef) => void) => {
     const taken = (event: DragEvent<HTMLElement>): DraggedSessionRef | null => {
-      const dragged = getDraggedSession(event.dataTransfer);
-      if (!dragged?.projectId) return null;
-      const ref = { projectId: dragged.projectId, sessionId: dragged.sessionId, title: dragged.title };
-      return accepts(ref) ? ref : null;
+      const dragged = getDraggedScreenContent(event.dataTransfer);
+      if (dragged?.kind !== 'session') return null;
+      return accepts(dragged) ? dragged : null;
     };
     return {
       onDragOver: (event: DragEvent<HTMLElement>) => {

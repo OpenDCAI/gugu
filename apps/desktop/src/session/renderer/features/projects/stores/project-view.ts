@@ -3,9 +3,6 @@ import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import type { IssueProviderType } from '@shared/issue-providers';
 import type { ProjectViewSnapshot } from '@shared/view-state';
 
-// 「项目设置」入口 2026-09-10 下线(owner:现有这几项基本不是我们想要的,先不展示;将来留哪些还没想清楚)。
-// 表单与读写代码原样留在 features/projects/components/settings-view/ 下,只是没有任何入口通向它;
-// 底层默认值(默认分支 / 远程 / 保留文件模式 / Shell 初始化 / tmux)照旧生效,这里下线的只是那张表。
 export type ProjectView = 'tasks' | 'pull-request';
 
 export class ProjectViewStore implements Snapshottable<ProjectViewSnapshot> {

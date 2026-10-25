@@ -26,7 +26,7 @@ type RevisionRefreshOptions = { throwOnError?: boolean }
 
 export function ContactsProvider({ children, active = true }: { children: React.ReactNode; active?: boolean }) {
   const { user: authenticatedUser } = useAuth()
-  const user = active ? authenticatedUser : null
+  const userId = active ? authenticatedUser?.id ?? null : null
   const { identitiesById, getImRepository, subscribeAccountRevision, refreshChats, chats, loadingChats, chatsLoadFailed, deleteChat, patchChat } = useChatStore('identitiesById', 'getImRepository', 'subscribeAccountRevision', 'refreshChats', 'chats', 'loadingChats', 'chatsLoadFailed', 'deleteChat', 'patchChat')
   // @@@1877 会话列表即时乐观移除走 chat store 既有 API(deleteChat/patchChat)——ref 存最新引用,避免把
   // 常变的 chats/随 activeChatId 变的 deleteChat 塞进 removeOwnedAgent 的 deps 造成 context 频繁重建。
@@ -43,7 +43,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const groupChats = useMemo(() => derivedGroupChats, [groupChatsSignature])
   // 群里别人的 agent(不是我的、也不在通讯录里):身份就在投影带回来的那份里。
-  const sharedGroupAgents = useMemo(() => sharedGroupAgentsOf(groupChats, identitiesById, user?.id ?? null), [groupChats, identitiesById, user])
+  const sharedGroupAgents = useMemo(() => sharedGroupAgentsOf(groupChats, identitiesById, userId), [groupChats, identitiesById, userId])
   const [receivedRequests, setReceivedRequests] = useState<FriendRequest[]>([])
   const [groupInvitations, setGroupInvitations] = useState<GroupInvitation[]>([])
   const [requestsStatus, setRequestsStatus] = useState<ContactsLoadStatus>('idle')
@@ -60,7 +60,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
   // #2118 — contacts / groupChats 各自的加载三态(见 ContactsLoadStatus)。空态 CTA 只在 ready 且为空时出现。
   const [contactsStatus, setContactsStatus] = useState<ContactsLoadStatus>('idle')
   // #2118 投影读失败 = error(旧行照常画,空着不冒充「没有群」);冷启还没有一行 = loading。
-  const groupChatsStatus: ContactsLoadStatus = !user ? 'idle' : chatsLoadFailed ? 'error' : loadingChats && groupChats.length === 0 ? 'loading' : 'ready'
+  const groupChatsStatus: ContactsLoadStatus = !userId ? 'idle' : chatsLoadFailed ? 'error' : loadingChats && groupChats.length === 0 ? 'loading' : 'ready'
   const [searchResults, setSearchResults] = useState<ContactRelation[]>([])
   const [isSearching, setIsSearching] = useState(false)
   // 联系人刷新可能由初始加载、revision bus 和显式 refresh 同时触发。只允许最新一代请求
@@ -69,13 +69,13 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   // ── Load contacts ──────────────────────────────────────────────────────────
   const loadContacts = useCallback(async (options: RevisionRefreshOptions = {}) => {
-    if (!user) return
+    if (!userId) return
     const generation = ++contactsLoadGenerationRef.current
     setLoadingContacts(true)
     // #2118 — 首次/无权威快照时进 loading(不闪假空);已 ready 的刷新保持 ready(不闪加载态)。
     setContactsStatus((prev) => (prev === 'ready' ? 'ready' : 'loading'))
     try {
-      const data = await contactsService.getContacts(user.id)
+      const data = await contactsService.getContacts(userId)
       if (generation !== contactsLoadGenerationRef.current) return
       const repository = await getImRepository()
       if (generation !== contactsLoadGenerationRef.current) return
@@ -103,13 +103,13 @@ export function ContactsProvider({ children, active = true }: { children: React.
     } finally {
       if (generation === contactsLoadGenerationRef.current) setLoadingContacts(false)
     }
-  }, [getImRepository, user])
+  }, [getImRepository, userId])
 
   const loadGroups = useCallback(async (options: RevisionRefreshOptions = {}) => {
-    if (!user) return
+    if (!userId) return
     setLoadingGroups(true)
     try {
-      const data = await contactsService.getContactGroups(user.id)
+      const data = await contactsService.getContactGroups(userId)
       setGroups(data)
     } catch (err) {
       if (isLifecycleCancellation(err)) {
@@ -121,17 +121,17 @@ export function ContactsProvider({ children, active = true }: { children: React.
     } finally {
       setLoadingGroups(false)
     }
-  }, [user])
+  }, [userId])
 
   // ── Load requests ──────────────────────────────────────────────────────────
   const loadRequests = useCallback(async (options: RevisionRefreshOptions = {}) => {
-    if (!user) return
+    if (!userId) return
     const generation = ++requestsGenerationRef.current
     setRequestsStatus((previous) => previous === 'ready' ? 'ready' : 'loading')
     try {
       const [received, sent, invitations] = await Promise.all([
-        contactsService.getReceivedRequests(user.id),
-        contactsService.getSentRequests(user.id),
+        contactsService.getReceivedRequests(userId),
+        contactsService.getSentRequests(userId),
         listGroupInvitations(),
       ])
       if (generation !== requestsGenerationRef.current) return
@@ -150,12 +150,12 @@ export function ContactsProvider({ children, active = true }: { children: React.
       }
       if (options.throwOnError) throw err
     }
-  }, [getImRepository, user])
+  }, [getImRepository, userId])
 
   const groupChatsRef = useRef(groupChats)
   groupChatsRef.current = groupChats
   const loadGroupJoinRequests = useCallback(async (options: RevisionRefreshOptions = {}) => {
-    if (!user) return
+    if (!userId) return
     const generation = ++groupJoinRequestsGenerationRef.current
     try {
       const rows = await listManagedGroupJoinRequests(managedGroupChats(groupChatsRef.current))
@@ -171,12 +171,12 @@ export function ContactsProvider({ children, active = true }: { children: React.
       }
       if (options.throwOnError) throw err
     }
-  }, [getImRepository, user])
+  }, [getImRepository, userId])
   // 管理的群集合变了(新建群、被设为管理员、群解散)才重读;同一组群的其它字段变化不触发。
   const managedGroupKey = managedGroupChats(groupChats).map((group) => group.id).sort().join(',')
   useEffect(() => {
-    if (user) void loadGroupJoinRequests()
-  }, [user, managedGroupKey, loadGroupJoinRequests])
+    if (userId) void loadGroupJoinRequests()
+  }, [userId, managedGroupKey, loadGroupJoinRequests])
   const refreshAllRequests = useCallback(async () => {
     await Promise.all([loadRequests(), loadGroupJoinRequests()])
   }, [loadGroupJoinRequests, loadRequests])
@@ -186,7 +186,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
     contactsLoadGenerationRef.current += 1
     requestsGenerationRef.current += 1
     groupJoinRequestsGenerationRef.current += 1
-    if (user) {
+    if (userId) {
       loadContacts()
       loadGroups()
       loadRequests()
@@ -205,11 +205,11 @@ export function ContactsProvider({ children, active = true }: { children: React.
       setLoadingContacts(false)
       setContactsStatus('idle')
     }
-  }, [user, loadContacts, loadGroups, loadRequests])
+  }, [userId, loadContacts, loadGroups, loadRequests])
 
   // ── Durable account revision consumers ─────────────────────────────────────
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
 
     const strict = { throwOnError: true }
     // @@@chat-projection I7 — 会话列表只有一个属主(chat store 的投影)。本域从前在这几条
@@ -251,15 +251,15 @@ export function ContactsProvider({ children, active = true }: { children: React.
       window.removeEventListener(UI_EVENTS.ownedAgentRenamed, handleOwnedAgentRenamed)
       for (const unsubscribe of unsubscribes) unsubscribe()
     }
-  }, [user, loadContacts, loadGroups, loadRequests, loadGroupJoinRequests, subscribeAccountRevision])
+  }, [userId, loadContacts, loadGroups, loadRequests, loadGroupJoinRequests, subscribeAccountRevision])
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const searchUsers = useCallback(
     async (query: string) => {
-      if (!user) return
+      if (!userId) return
       setIsSearching(true)
       try {
-        const results = await contactsService.searchUsers(query, user.id)
+        const results = await contactsService.searchUsers(query, userId)
         await (await getImRepository()).putIdentities(results)
         setSearchResults(results.map(({ id, alias, agent_type, project_path }) => ({ id, alias, agent_type, project_path })))
       } catch (err) {
@@ -270,7 +270,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
         setIsSearching(false)
       }
     },
-    [getImRepository, user],
+    [getImRepository, userId],
   )
 
   const clearSearch = useCallback(() => {
@@ -279,11 +279,11 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const sendRequest = useCallback(
     async (targetUserId: string, message?: string | null) => {
-      if (!user) return
-      await contactsService.sendRequest(user.id, targetUserId, message)
+      if (!userId) return
+      await contactsService.sendRequest(userId, targetUserId, message)
       await loadRequests()
     },
-    [user, loadRequests],
+    [userId, loadRequests],
   )
 
   const acceptRequest = useCallback(
@@ -310,12 +310,12 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const createGroup = useCallback(
     async (name: string) => {
-      if (!user) return null
-      const group = await contactsService.createContactGroup(user.id, name)
+      if (!userId) return null
+      const group = await contactsService.createContactGroup(userId, name)
       setGroups((current) => [...current, group])
       return group.id
     },
-    [user],
+    [userId],
   )
 
   const renameGroup = useCallback(async (groupId: string, name: string) => {
@@ -343,15 +343,15 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const updateContactAlias = useCallback(
     async (contactId: string, alias: string) => {
-      if (!user) return
+      if (!userId) return
       const nextAlias = alias.trim() || null
-      await contactsService.updateContactAlias(user.id, contactId, alias)
+      await contactsService.updateContactAlias(userId, contactId, alias)
       setContacts((current) => current.map((contact) => (
         contact.id === contactId ? { ...contact, alias: nextAlias } : contact
       )))
       await refreshChats()
     },
-    [user, refreshChats],
+    [userId, refreshChats],
   )
 
   const setAgentPublic = useCallback(async (agentId: string, agentPublic: boolean) => {
@@ -368,7 +368,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   // #1228: update an owned agent's name + bio together (真接 bio — was dropped before).
   const updateAgentProfile = useCallback(async (agentId: string, fields: { name?: string; bio?: string; avatar?: string | null }) => {
-    const ownerId = user?.id ?? null
+    const ownerId = userId
     const personal = isMyAssistant(ownerId, agentId)
     const updated = await contactsService.updateOwnedAgentProfile(agentId, {
       ...(fields.name !== undefined ? { display_name: fields.name } : {}),
@@ -385,7 +385,7 @@ export function ContactsProvider({ children, active = true }: { children: React.
     // 只在名字真的改了时才动本机(改 bio / 头像不该碰花名册)。
     if (fields.name !== undefined) await platform.renameOwnedAgentLocalFootprint?.(agentId, updated.display_name)
     await refreshChats()
-  }, [applyAgentProfileUpdate, refreshChats, user?.id])
+  }, [applyAgentProfileUpdate, refreshChats, userId])
 
   // Every name entry uses the profile path, including its canonical identity and local roster publication.
   const renameAgent = useCallback(async (agentId: string, name: string) => {
@@ -458,10 +458,10 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const getCommonGroupChats = useCallback(
     async (contactId: string) => {
-      if (!user) return []
-      return contactsService.getCommonGroupChats(user.id, contactId)
+      if (!userId) return []
+      return contactsService.getCommonGroupChats(userId, contactId)
     },
-    [user],
+    [userId],
   )
 
   // 值只在它自己的输入变了时才换:从前每次渲染新建一份(连同按身份投影的几百个联系人),每个读通讯录的组件跟着重渲染。
