@@ -271,8 +271,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   }, [focusComposerToken, mobile])
   const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string } | null>(null)
   const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
-  // @@@5856 话题的附件列表。全宽形态拿掉之后头栏那颗 🕐 只对来源线生效 ⇒ 话题自己的附件
-  // 一个入口都不剩。这一栏自带一颗 🕐,与 👥 同一个槽位(互斥),开的是同一份 HistoryPanel 的话题支。
+  // Attachments stay in the topic pane, alongside its members entry.
   const [filesForChatId, setFilesForChatId] = useState<string | null>(null)
   const filesOpen = filesForChatId === topic.chatId
   const [files, setFiles] = useState<HistoryFileItem[]>([])
@@ -490,7 +489,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           // 这份面板自带的头嵌进来时由 .gg-topic-split-members 收掉;它不定宽,撑满这一栏。
           <div className="gg-topic-split-members" style={TOPIC_SPLIT_MEMBERS_STYLE}>
             <HistoryPanel
-              mode="topic"
               mobile={mobile}
               attachments={files}
               loading={filesLoading}

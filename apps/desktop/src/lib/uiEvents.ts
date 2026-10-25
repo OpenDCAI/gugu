@@ -29,7 +29,6 @@ export const UI_EVENTS = {
   // @@@5856 有一条「开成分栏」的请求待取(请求本体在 topicSplitRequest.ts 的盒子里)。
   // 事件只负责叫醒**已经挂着的**聊天区;没挂载的那种情况靠它挂载时自己去取。
   openTopicSplit: '__chat_open_topic_split',
-  openTopicsPanel: '__chat_open_topics_panel',
   // @@@5856 分栏现在显示的是哪条话题(关掉时 chatId 为 null)。会话列表据此给话题子行高亮。
   // 只有这一个方向(聊天区 → 列表):「打开一条话题」不走事件,它就是普通的选中会话,
   // 由聊天区那个收口当场换成「来源线 + 分栏」(见 ChatAreaPanel 的话题收口)。
