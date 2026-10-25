@@ -44,7 +44,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
       }
       const missing = [request.taskAgentId, request.assistantId].filter(id => !contacts.some(contact => contact.id === id))
       if (missing.length === 0) {
-        try { show(contacts) } catch (error) { console.error(error); toast(messageForUser(error), 'error') }
+        try { show(contacts) } catch (error) { log.error({ error: error }, 'action failed'); toast(messageForUser(error), 'error') }
         return
       }
       // A newly created agent reaches the session directory before the contacts snapshot.

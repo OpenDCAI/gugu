@@ -124,7 +124,7 @@ export function useAgentSessionpagePresentation(
     } finally {
       setRecoveryRetrying(false)
     }
-  }, [projection.context?.sessionId, recoveryRetrying, t, toast])
+  }, [projection.context?.sessionId, recoveryRetrying, toast])
 
   // 状态就是那张 agent 状态表给的那一个(宿主写下的读数 × 可达),与头像、列表、通讯录同一个词。审阅门与
   // provider 阻塞只有宿主知道,也在本机那一条里;它们对状态的影响(等你 / 出错)宿主写读数时已经算过,

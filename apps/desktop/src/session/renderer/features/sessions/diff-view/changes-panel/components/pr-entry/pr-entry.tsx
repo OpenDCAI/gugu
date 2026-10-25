@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { ExternalLink } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
@@ -167,7 +168,7 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
             setIsMarkingReady(true);
             prStore
               .markReadyForReview(pr.url)
-              .catch((error) => { console.error(error);
+              .catch((error) => { rendererLogger('actions/pr-entry').error({ error: error }, 'action failed');
                 toast({
                   title: messageForUser(error),
                   description: translate('pr.markReadyFailedHint'),

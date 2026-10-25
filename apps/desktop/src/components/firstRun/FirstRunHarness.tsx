@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -40,7 +41,7 @@ export function FirstRunHarness({ userId, onDone }: { userId: string; onDone: ()
       installInBackground(selected)
       onDone()
     } catch (error) {
-      console.error(error)
+      rendererLogger('actions/FirstRunHarness').error({ error: error }, 'action failed')
       setError(messageForUser(error))
     } finally {
       setSaving(false)

@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
@@ -300,7 +301,7 @@ function LogDisclosure({ lines, open, onToggle }: { lines: string[]; open: boole
           {open ? t('devices.addServer.hideDetails') : t('devices.addServer.details')}
         </Button>
         {open && lines.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={() => void platform.writeClipboardText(lines.join('\n')).catch((error) => { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); })}>
+          <Button size="sm" variant="ghost" onClick={() => void platform.writeClipboardText(lines.join('\n')).catch((error) => { rendererLogger('actions/InstallProgress').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); })}>
             {t('devices.addServer.copyLog')}
           </Button>
         )}

@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useSyncExternalStore } from 'react'
 import type { AgentAttention } from '@gugu/core/shared/agentStatus'
@@ -232,7 +233,7 @@ const AppsOnRail = observer(function AppsOnRail({ sessionsShown, showSessions }:
     if (appId) openApp(appId)
     else appState.navigation.navigate('apps')
   }
-  const dockFailed = (error: unknown) => { console.error(error); toast(messageForUser(error), 'error') }
+  const dockFailed = (error: unknown) => { rendererLogger('actions/Sidebar').error({ error: error }, 'action failed'); toast(messageForUser(error), 'error') }
   const reorder = ({ active, over }: DragEndEvent) => {
     const dock = installedExtensionsStore.dock
     if (!over || active.id === over.id) return
@@ -279,7 +280,7 @@ const AppsOnRail = observer(function AppsOnRail({ sessionsShown, showSessions }:
                   onOpen={() => open(app.extensionId)}
                   onOpenInWindow={() => openAppInWindow(app.extensionId)}
                   onUnpin={() => void unpinFromDock(app.extensionId).catch(dockFailed)}
-                  onQuit={() => void quitApp(app.extensionId).catch((error) => { console.error(error); return toast(messageForUser(error), 'error'); })}
+                  onQuit={() => void quitApp(app.extensionId).catch((error) => { rendererLogger('actions/Sidebar').error({ error: error }, 'action failed'); return toast(messageForUser(error), 'error'); })}
                 />
               ))}
             </div>

@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { readCachedDevices } from '@/store/devicesCache';
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
@@ -269,7 +270,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                             id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
                           toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
                         },
-                        onError: (error) => { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); },
+                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); },
                       }
                     )
                   }
@@ -307,7 +308,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },
-                      onError: (error) => { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); },
+                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); },
                     }),
                 })
               }

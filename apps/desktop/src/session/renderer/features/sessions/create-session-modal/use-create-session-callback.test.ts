@@ -32,7 +32,6 @@ vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: m
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
 const { useCreateSessionCallback } = await import('./use-create-session-callback');
-const { translateSessionMessage } = await import('@renderer/localization/locale-store');
 
 type HookResult = ReturnType<typeof useCreateSessionCallback>;
 let latest: HookResult | undefined;

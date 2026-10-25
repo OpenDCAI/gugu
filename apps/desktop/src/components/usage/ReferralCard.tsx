@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 // 邀请返利。原在「会员与额度」页,#6334 该页并入「用量」后搬到这里,版式是图标徽章 + 标题头的卡片。
@@ -26,7 +27,7 @@ export function ReferralCard() {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch (error) {
-      console.error(error)
+      rendererLogger('actions/ReferralCard').error({ error: error }, 'action failed')
       toast({ title: messageForUser(error), tier: 'error' })
     }
   }, [inviteUrl])

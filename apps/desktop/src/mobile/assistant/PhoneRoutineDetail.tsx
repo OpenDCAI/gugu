@@ -52,10 +52,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
     if (!automation || !homeDeviceId || toggling.current) return
     toggling.current = true
     setPending(on)
-    let updated = false
     try {
       await machineRpc(homeDeviceId).automations.setAutomationEnabled(automation.id, on)
-      updated = true
       await reportAssistantAppChange({ rpc: machineRpc(homeDeviceId) }, assistant.id, { resource: 'schedules', operation: 'edited',
         id: automation.id, deviceId: homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: on } })
       await read.refresh()

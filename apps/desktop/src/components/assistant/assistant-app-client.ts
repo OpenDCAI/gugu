@@ -8,7 +8,6 @@ import { assistantAppChangeText, type AssistantAppChange } from '../../session/s
 import { libraryHost } from './assistant-library-client';
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge';
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core';
-import { i18n } from '../../i18n';
 import { toast } from '../../session/renderer/lib/hooks/use-toast';
 import { rendererLogger } from '../../lib/log';
 import { cachedDevicesAccount } from '../../store/devicesCache';

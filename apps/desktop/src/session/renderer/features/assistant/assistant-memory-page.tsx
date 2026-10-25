@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -134,7 +135,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       await invalidate('memory');
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     }
   };
@@ -216,7 +217,7 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path }, after: { name } });
       await invalidate('dir');
       toast({ title: t('files.renamed') });
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     }
   };
@@ -227,7 +228,7 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path } });
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     }
   };
@@ -363,7 +364,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       setFolderName('');
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     }
   };

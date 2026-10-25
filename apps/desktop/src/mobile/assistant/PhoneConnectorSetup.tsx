@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import type { IntegrationCredentials } from '@gugu/session-plugins/integrations'
@@ -54,7 +55,7 @@ async function copyText(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text)
     return true
   } catch (error) {
-    console.error(error)
+    rendererLogger('actions/PhoneConnectorSetup').error({ error: error }, 'action failed')
     toast({ title: messageForUser(error), tier: 'error' })
     return false
   }

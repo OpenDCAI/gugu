@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -166,7 +167,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
     try {
       const tail = await platform.readLogTail()
       setAttachedLog({ text: tail.text, lines: tail.lines, truncated: tail.truncated })
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/FeedbackModal').error({ error: error }, 'action failed');
       setAttachedLog(null)
       toast(messageForUser(error), 'error')
     } finally {

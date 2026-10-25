@@ -136,7 +136,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
             setPreview({ file, kind, blob: null, content: null, loading: false, error: describeFailure(error) })
           })
       },
-    [deviceId, sessionId, releaseBlobUrl, describeFailure, t, toast],
+    [deviceId, sessionId, releaseBlobUrl, describeFailure, toast],
   )
 
   const copy = useCallback(

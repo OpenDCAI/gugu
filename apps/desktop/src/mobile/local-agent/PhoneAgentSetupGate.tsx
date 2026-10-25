@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
@@ -38,14 +39,14 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
         setError(null)
         setVisible(!progress.dismissed && !progress.completed)
       } catch (error) {
-        console.error(error)
+        rendererLogger('actions/PhoneAgentSetupGate').error({ error: error }, 'action failed')
         // Corrupt presentation progress never authorizes tools. Let a deliberate next/finish save it again.
         setSetup({ ownerId, request: retry, installId, progress: { step: 'host', dismissed: false, completed: false } })
         setError(messageForUser(error))
         setVisible(true)
       }
     }).catch((error) => {
-      console.error(error)
+      rendererLogger('actions/PhoneAgentSetupGate').error({ error: error }, 'action failed')
       if (alive) { setError(messageForUser(error)); setVisible(true) }
     })
     return () => { alive = false }
@@ -67,7 +68,7 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
       setError(null)
       return true
     } catch (error) {
-      console.error(error)
+      rendererLogger('actions/PhoneAgentSetupGate').error({ error: error }, 'action failed')
       setError(messageForUser(error))
       return false
     }

@@ -4,7 +4,6 @@ import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useState } from 'react';
 import type { SessionpageListeningPort } from '@gugu/session-core/session-record/contract';
 import type { TabContentProps } from '@renderer/features/tabs/core/tab-provider';
-import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, rpc, rpcOn } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { EmptyState } from '@renderer/lib/ui/empty-state';

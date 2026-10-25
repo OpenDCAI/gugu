@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { CheckCircle, Copy, ExternalLink, Eye, EyeOff, Info } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -281,7 +282,7 @@ function IntegrationCliLogin({
     if (mountedRef.current) setError(failure instanceof Error ? failure.message : String(failure));
   });
   const copyUrl = async (url: string) => {
-    try { await navigator.clipboard.writeText(url); } catch (failure) { console.error(failure); setError(messageForUser(failure)); return; }
+    try { await navigator.clipboard.writeText(url); } catch (failure) { rendererLogger('actions/integration-setup-modal').error({ error: failure }, 'action failed'); setError(messageForUser(failure)); return; }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };

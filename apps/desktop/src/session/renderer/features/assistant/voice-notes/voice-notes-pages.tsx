@@ -227,7 +227,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       await invalidate('voice');
       toast({ title: t('deleted') });
       context.go({ tab: 'memory', sub: VOICE_NOTE_SUB });
-    } catch (error) { console.error(error);
+    } catch (error) { log.error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     }
   };
@@ -244,7 +244,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     try {
       await retryVoiceNote(id);
       await invalidate('voice');
-    } catch (error) { console.error(error);
+    } catch (error) { log.error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     } finally {
       setRetrying(false);

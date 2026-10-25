@@ -12,7 +12,6 @@ import { shellPort } from '@renderer/lib/shell-port';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { log } from '@renderer/utils/logger';
 import { toast } from '@renderer/lib/hooks/use-toast';
-import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { sessionpageLegOfView } from '@shared/core/sessions/sessions';
 import type { SessionpageAgentAddress } from '@shared/sessionpage-message-host';
 import { sessionpageMessageHost } from '@renderer/lib/sessionpage-message-host';

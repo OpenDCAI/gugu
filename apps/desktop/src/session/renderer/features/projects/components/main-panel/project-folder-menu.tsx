@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import type { ReactElement } from 'react';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
@@ -27,13 +28,13 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
           onClick: () => { void restore(folder); },
         },
       });
-    } catch (error) { console.error(error); toast({ tier: 'error', title: messageForUser(error) }); }
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: messageForUser(error) }); }
   };
   const restore = async (detached: ProjectFolder) => {
     try {
       const result = await rpc.projects.attachProjectFolder(detached.projectId, detached.path);
       if (!result.success) throw new Error(result.error.message);
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed');
       toast({ tier: 'error', title: messageForUser(error) });
     }
   };

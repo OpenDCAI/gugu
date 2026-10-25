@@ -251,7 +251,7 @@ export function usePty(
     const selection =
       termRef.current?.getSelection() || getRecentSelection(lastSelectionRef.current);
     if (selection) {
-      void navigator.clipboard.writeText(selection).catch((error) => { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); });
+      void navigator.clipboard.writeText(selection).catch((error) => { log.error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); });
     }
   }, []);
 

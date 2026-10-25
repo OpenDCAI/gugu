@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react'
@@ -23,7 +24,7 @@ export function CommandBlock({ command, testId, copyButtonRef }: {
     if (timer.current) clearTimeout(timer.current)
   }, [])
   const copy = useCallback(async () => {
-    try { await platform.writeClipboardText(command) } catch (error) { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); return }
+    try { await platform.writeClipboardText(command) } catch (error) { rendererLogger('actions/CommandBlock').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); return }
     setCopied(true)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setCopied(false), 1500)

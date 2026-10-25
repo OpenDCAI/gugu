@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 
@@ -111,7 +112,7 @@ export const AgentSourceList = observer(function AgentSourceList({
     void toast.promise(vm.uninstall(), {
       loading: translate('agentsPage.uninstalling', { name }),
       success: translate('agentsPage.uninstalled', { name }),
-      error: (error) => { console.error(error); return messageForUser(error); },
+      error: (error) => { rendererLogger('actions/AgentSourceList').error({ error: error }, 'action failed'); return messageForUser(error); },
     });
   };
 

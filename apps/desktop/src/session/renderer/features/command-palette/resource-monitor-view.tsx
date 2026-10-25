@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
 import { GitBranch } from 'lucide-react'
@@ -42,7 +43,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
     setChangingDiagnostics(true);
     try {
       await store.setInternals(!store.internals);
-    } catch (error) { console.error(error);
+    } catch (error) { rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
     } finally {
       setChangingDiagnostics(false);
@@ -368,7 +369,7 @@ function CopyReportButton({
         resetRef.current = null;
       }, 1500);
     } catch (error) {
-      console.error(error);
+      rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
       toast({ title: messageForUser(error), tier: 'error' });
       setCopied(false);
     }

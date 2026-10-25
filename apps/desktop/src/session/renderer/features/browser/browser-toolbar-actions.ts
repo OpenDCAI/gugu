@@ -1,3 +1,4 @@
+import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -30,7 +31,7 @@ export async function captureBrowserScreenshot(
   try {
     const result = await rpc.browser.captureScreenshot(session.browserId);
     if (result.success) toast({ title: translate('browser.screenshotCopied') });
-  } catch (error) { console.error(error); toast({ title: messageForUser(error), variant: 'destructive' }); }
+  } catch (error) { rendererLogger('actions/browser-toolbar-actions').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), variant: 'destructive' }); }
 
 }
 
