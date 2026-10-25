@@ -17,12 +17,11 @@ import { isAppFocused } from './app-focus';
  * - 只有 `busy` / `waiting` → `idle` 是打断;`shell` → `idle` 是后台跑完(它走 harness 自己注入的那一轮),不报。
  *   正常做完时 Stop hook 先到(同步 hook,harness 等它跑完才收尾),写入者已经停下,这条被翻译器丢掉。
  * - 声明了却读不出(没出现、缺字段、不认识的取值、不是这个进程的)⇒ `onFault(原因)`,❌ 默默退回「Esc 不更新」。
+ * - 文件按 harness 会话 id 找,找到后锁定进程号;❌ 按 pty 的进程号找。pty 的子进程不一定是写文件的那个:
+ *   tmux 里是 tmux 客户端;Windows 上 Claude 的自重启(relaunch)没有 execve,是起一个
+ *   `claude --resume <同一会话 id>` 子进程、自己在原地等,文件由子进程按它自己的进程号写。
+ *   锁定的文件没了(进程换了)就按会话 id 重新找;进程已经不在的文件(崩溃留下的)不认。
  */
-export type PresenceLocation =
-  /** 咕咕直接起的进程:pty 的子进程就是 harness 本身。 */
-  | { kind: 'pid'; pid: number }
-  /** tmux 里接回的会话:咕咕不知道里面的进程号,按 harness 会话 id 找一次,找到后锁定进程号。 */
-  | { kind: 'session'; sessionId: string };
 
 export interface PresenceWatchFs {
   readFile(path: string): Promise<string>;
@@ -42,20 +41,23 @@ export function watchPresenceInterrupt(options: {
   presence: HarnessPresenceFile;
   /** 这次 spawn 的配置目录(`presence.configDirEnvVar` 或 `<HOME>/<defaultConfigDirName>`)。 */
   configRoot: string;
-  location: PresenceLocation;
+  /** 这次 spawn 的 harness 会话 id;还不知道(fork 的子 id 等 hook 报上来)= `undefined`。 */
+  harnessSessionId: () => string | undefined;
   isActive: () => boolean;
   onInterrupted: () => void;
   /** 读不出的原因;`null` = 又读得出了。只在变化时调。 */
   onFault: (message: string | null) => void;
   fs?: PresenceWatchFs;
+  isAlive?: (pid: number) => boolean;
   now?: () => number;
   intervalMs?: number;
 }): () => void {
-  const { presence, location, isActive, onInterrupted } = options;
+  const { presence, harnessSessionId, isActive, onInterrupted } = options;
   const fs = options.fs ?? nodeFs;
+  const isAlive = options.isAlive ?? processIsAlive;
   const now = options.now ?? Date.now;
   const directory = join(options.configRoot, presence.directory);
-  let pid: number | null = location.kind === 'pid' ? location.pid : null;
+  let pid: number | null = null;
   let last: HarnessPresenceStatus | null = null;
   let activeSince: number | null = null;
   let fault: string | null = null;
@@ -78,7 +80,7 @@ export function watchPresenceInterrupt(options: {
       if (text === null) continue;
       try {
         const record = presence.parse(text);
-        if (record.sessionId === sessionId) return record.pid;
+        if (record.sessionId === sessionId && isAlive(record.pid)) return record.pid;
       } catch {
         // 别人的、正写到一半的文件不是这条会话的证据;这条会话自己的文件读不出会在锁定之后报。
       }
@@ -96,10 +98,15 @@ export function watchPresenceInterrupt(options: {
     } else {
       activeSince ??= now();
     }
-    if (pid === null && location.kind === 'session') {
-      pid = await findBySession(location.sessionId);
+    if (pid === null) {
+      const sessionId = harnessSessionId();
+      pid = sessionId === undefined ? null : await findBySession(sessionId);
       if (pid === null) {
-        if (overdue()) setFault(`no ${presence.directory}/<pid>.json for session ${location.sessionId} under ${options.configRoot}`);
+        if (overdue()) {
+          setFault(sessionId === undefined
+            ? 'the harness has not reported its session id for this spawn'
+            : `no ${presence.directory}/<pid>.json for session ${sessionId} under ${options.configRoot}`);
+        }
         return;
       }
     }
@@ -108,8 +115,14 @@ export function watchPresenceInterrupt(options: {
     try {
       text = await fs.readFile(path);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') setFault(`${path}: ${String(error)}`);
-      else if (overdue()) setFault(`${path} did not appear`);
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        setFault(`${path}: ${String(error)}`);
+        return;
+      }
+      // 进程换了(Windows 上的自重启):按会话 id 重新找,新进程照样有一段宽限去写它的文件。
+      pid = null;
+      last = null;
+      if (activeSince !== null) activeSince = now();
       return;
     }
     let status: HarnessPresenceStatus;
@@ -139,6 +152,15 @@ export function watchPresenceInterrupt(options: {
   return () => clearInterval(timer);
 }
 
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /**
  * 一次 spawn 的会话在场读者:这一家声明了 `hooks.presence` 且这一次的版本够,才起(版本不够也是读不出,照实标)。打断翻成已有的
  * `stop outcome=cancelled` 送进 hook 总线;读不出就记 log.error,并经写入者在会话上标出状态来源失效 ——
@@ -149,7 +171,7 @@ export function startPresenceInterrupt(input: {
   plugin: { capabilities: { hooks: HooksDescriptor }; behavior: { hooks?: { presence?: HarnessPresenceFile } } };
   harnessVersion: string | null;
   spawnEnv: Record<string, string | undefined>;
-  location: PresenceLocation;
+  harnessSessionId: () => string | undefined;
   sessionId: string;
   projectId: string;
   providerId: string;
@@ -179,16 +201,12 @@ export function startPresenceInterrupt(input: {
     fault(`writes session presence since ${declared.sinceVersion}; this spawn is ${input.harnessVersion}, so Esc will not update the status`);
     return undefined;
   }
-  if (input.location.kind === 'pid' && !Number.isInteger(input.location.pid)) {
-    fault('the pty reports no pid to find its presence file by');
-    return undefined;
-  }
   const configRoot = input.spawnEnv[presence.configDirEnvVar]?.trim()
     || join(input.spawnEnv.HOME?.trim() || homedir(), presence.defaultConfigDirName);
   return watchPresenceInterrupt({
     presence,
     configRoot,
-    location: input.location,
+    harnessSessionId: input.harnessSessionId,
     isActive: () => agentStatusWriter.isWorkingOrWaiting(sessionId),
     onInterrupted: () => {
       agentHookService.emitAgentEvent(
