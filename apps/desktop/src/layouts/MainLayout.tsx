@@ -1592,8 +1592,6 @@ function InnerLayout({
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}
-      {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。 */}
-      {!mobile && sessionHostAvailable && <ChatListSlotHost activeTab={activeTab} />}
 
     </div>
   )
@@ -1606,6 +1604,7 @@ export function MainLayout({
   effectsActive = true,
   onShellCommitted,
 }: MainLayoutProps) {
+  const mobile = useMobileShell()
   return (
     <ContactsProvider active={effectsActive}>
       <DevicesProvider active={effectsActive}>
@@ -1614,6 +1613,9 @@ export function MainLayout({
           effectsActive={effectsActive}
           onShellCommitted={onShellCommitted}
         />
+        {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。
+            在 InnerLayout 外面:切 tab 时 InnerLayout 整个重画,这张表不跟着重画。 */}
+        {!mobile && platform.capabilities.sessionHost && <ChatListSlotHost />}
       </DevicesProvider>
     </ContactsProvider>
   )
