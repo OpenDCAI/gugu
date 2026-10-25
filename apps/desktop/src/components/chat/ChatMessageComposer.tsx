@@ -6,7 +6,8 @@ import { ThemeProvider } from '@gugu/session-ui/react/primitives'
 import { useLocale } from '@/i18n'
 import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { activeMentionPicks, MENTION_ALL_USER_ID, type MentionCandidate } from '@/lib/mention'
-import { filterMentionCandidates, isMentionQueryActive } from '@/lib/mentionMatch'
+import { isMentionQueryActive } from '@/lib/mentionMatch'
+import { rankMentionCandidates } from '@/lib/mentionRanking'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { SLASH_COMMANDS } from '@/lib/slashCommands'
@@ -34,12 +35,13 @@ export type { ComposerAttachAction } from './ComposerAttachButton'
 
 const EMPTY_MEMBERS: NonNullable<ChatMessageComposerProps['groupMembers']> = []
 const EMPTY_STATUSES: NonNullable<ChatMessageComposerProps['agentStatuses']> = {}
+const EMPTY_MESSAGES: NonNullable<ChatMessageComposerProps['messages']> = []
 
 /** Chat-specific delivery and context around the same editor used by ACP tasks. */
 export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { chatId, isGroupChat, groupMembers = EMPTY_MEMBERS, currentUserId, agentStatuses = EMPTY_STATUSES, disabled = false, disabledReason,
     placeholder, attachGlyph, attachMenu, mentionToInsert, onMentionInserted, quoteContent,
-    whisperTarget, surface = 'main', hidden = false } = props
+    whisperTarget, messages = EMPTY_MESSAGES, participantIds, surface = 'main', hidden = false } = props
   const { t } = useTranslation('messaging')
   const { resolvedLocale } = useLocale()
   const { theme } = useTheme()
@@ -76,7 +78,8 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     isQueryActive: (query: string) => !!isGroupChat && !whisperTarget && isMentionQueryActive(query, members),
     async search(query: string) {
       if (!isGroupChat || whisperTarget || !isMentionQueryActive(query, members)) return []
-      return filterMentionCandidates(members, query).map((member): MentionItem => ({
+      return rankMentionCandidates(members, query, { chatId, currentUserId, messages, participantIds,
+        replyToMessageId: quoteContent?.messageId, now: Date.now() }).map((member): MentionItem => ({
         id: member.type === 'all' ? MENTION_ALL_USER_ID : member.id,
         label: member.name, name: member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
         optionLabel: <span {...mentionOptionStatusProps(member, agentStatuses)}><AgentMentionOptionLabel member={member} status={agentStatuses[member.id]} /></span>,
@@ -90,7 +93,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       const item = await localProvider.resolveSession(id)
       return item ? decorate(item) : null
     },
-  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t])
+  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, quoteContent?.messageId])
   const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, currentUserId, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
