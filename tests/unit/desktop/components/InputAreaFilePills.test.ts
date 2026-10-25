@@ -2,49 +2,40 @@
 import { act, createElement, useCallback, useMemo, useState, type SetStateAction } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readComposer, writeComposer } from '../../../support/composerEditor'
+import { readComposer, selectComposer, writeComposer } from '../../../support/composerEditor'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
-import { ChatStoreProvider, type DraftAttachment, type DraftMention, type DraftRef } from '../../../../apps/desktop/src/store/chatContext'
+import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
 import { chatStore } from '../../../support/testHarness'
-import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
-
-/**
- * App 引用 pill, the group composer (owner 10-14, A): the pills a compose's refs make — or a pasted one — sit in the row
- * above the input, beside the files; ✕ takes one out whole; on send they go under the words, as the bubble draws them;
- * a send that fails gives them back to the row, not to the words. The chat's store holds them per chat (`draftRefs`).
- */
 
 const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: toastMock }) }))
 
 const DECK = 'gugu-file://0c000000-0000-4000-8000-0000000000a1?v=7#slide=3&shape=12'
 const SHEET = 'gugu-file://0c000000-0000-4000-8000-0000000000a2?v=2#range=销售!B2:D4'
-const deckPill: DraftRef = { label: '演示稿 · 第 3 页 · 标题', link: DECK }
-const sheetPill: DraftRef = { label: '预算 · 销售!B2:D4 · 3×3', link: SHEET }
+const deckPill = { label: '演示稿 · 第 3 页 · 标题', link: DECK }
+const sheetPill = { label: '预算 · 销售!B2:D4 · 3×3', link: SHEET }
 const deckToken = `@[演示稿 · 第 3 页 · 标题](${DECK})`
 const sheetToken = `@[预算 · 销售!B2:D4 · 3×3](${SHEET})`
 
 let container: HTMLDivElement
 let root: Root
-/** The store's per-chat pills, as the chat shell sees them (MainLayout writes a compose's here). */
-let store: { refs: Record<string, DraftRef[]>; setRefs: (chatId: string, refs: DraftRef[]) => void }
+let store: { drafts: Record<string, string>; setDraft: (chatId: string, text: SetStateAction<string>) => void }
+type ComposerProps = Parameters<typeof ChatMessageComposer>[0]
 
-function Host({ chatId, onSend }: { chatId: string; onSend: (content: string, opts?: unknown) => Promise<void> }) {
+function Host({ chatId, onSend, quoteContent }: Pick<ComposerProps, 'chatId' | 'onSend' | 'quoteContent'>) {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [draftMentions, setDM] = useState<Record<string, DraftMention[]>>({})
   const [draftAttachments, setDA] = useState<Record<string, DraftAttachment[]>>({})
-  const [draftRefs, setDR] = useState<Record<string, DraftRef[]>>({})
   const setDraft = useCallback((id: string, update: SetStateAction<string>) => setDrafts((p) => ({ ...p, [id]: typeof update === 'function' ? update(p[id] ?? '') : update })), [])
   const setDraftMentions = useCallback((id: string, m: DraftMention[]) => setDM((p) => ({ ...p, [id]: m })), [])
   const setDraftAttachments = useCallback((id: string, a: DraftAttachment[]) => setDA((p) => ({ ...p, [id]: a })), [])
-  const setDraftRefs = useCallback((id: string, r: DraftRef[]) => setDR((p) => ({ ...p, [id]: r })), [])
-  store = { refs: draftRefs, setRefs: setDraftRefs }
+  store = { drafts, setDraft }
   const value = useMemo(
-    () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, draftRefs, setDraft, setDraftMentions, setDraftAttachments, setDraftRefs }),
-    [drafts, draftMentions, draftAttachments, draftRefs, setDraft, setDraftMentions, setDraftAttachments, setDraftRefs],
+    () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments }),
+    [drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments],
   )
-  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, isGroupChat: true, groupMembers: [] }))
+  return createElement(ChatStoreProvider, { value }, createElement(ChatMessageComposer, { onSend, chatId, quoteContent, isGroupChat: true, groupMembers: [] }))
 }
 
 async function flush() {
@@ -53,7 +44,7 @@ async function flush() {
     await Promise.resolve()
   })
 }
-const pills = () => [...container.querySelectorAll<HTMLElement>(`[data-testid="${AUTOMATION_TEST_IDS.composerFilePill}"]`)]
+const pills = () => [...textarea().querySelectorAll<HTMLElement>('[data-mention-kind="file"]')]
 const textarea = () => container.querySelector('[contenteditable]') as HTMLElement
 const sendButton = () => [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === '发送消息') as HTMLButtonElement
 async function type(value: string) {
@@ -69,10 +60,12 @@ async function send() {
   })
   await flush()
 }
-async function mount(onSend: (content: string, opts?: unknown) => Promise<void>) {
-  await act(async () => {
-    root.render(createElement(Host, { chatId: 'group-1', onSend }))
-  })
+async function mount(onSend: ComposerProps['onSend'], chatId = 'group-1', quoteContent?: ComposerProps['quoteContent']) {
+  await act(async () => { root.render(createElement(Host, { chatId, onSend, quoteContent })) })
+  await flush()
+}
+async function draft(text: string) {
+  await act(async () => store.setDraft('group-1', text))
   await flush()
 }
 
@@ -89,77 +82,101 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('the group composer holds an App’s pills in the row above the input', () => {
-  it('a compose’s pills show in the row, each whole, with what the App called it; the words stay the person’s', async () => {
+describe('file citations share the composer document with the words', () => {
+  it('restores multiple inline atoms in order, including their full label and picked version', async () => {
     await mount(vi.fn(async () => {}))
-    await act(async () => store.setRefs('group-1', [deckPill, sheetPill]))
-    await flush()
+    const text = `先改 ${deckToken}，再改 ${sheetToken}，最后检查。`
+    await draft(text)
     expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label, sheetPill.label])
-    // The version it was picked on, on hover — the bubble's words.
     expect(pills()[0]!.title).toBe(`${deckPill.label} · 第 7 版上选的`)
-    expect(readComposer(textarea())).toBe('')
-    // Pills alone can be sent.
-    expect(sendButton().disabled).toBe(false)
+    expect(pills()[1]!.getAttribute('data-mention-id')).toBe(SHEET)
+    expect(readComposer(textarea())).toBe(text)
   })
 
-  it('send: the words, then the pills under them as the bubble draws them; the row empties', async () => {
+  it('sends the exact mixed order instead of collecting references at the end', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
     await mount(onSend)
-    await act(async () => store.setRefs('group-1', [deckPill, sheetPill]))
-    await type('把这两处改成蓝色')
+    const text = `把 ${deckToken} 改成蓝色\n${sheetToken} 保持不变`
+    await draft(text)
     await send()
     expect(onSend).toHaveBeenCalledTimes(1)
-    expect(onSend.mock.calls[0]![0]).toBe(`把这两处改成蓝色\n\n${deckToken} ${sheetToken}`)
+    expect(onSend.mock.calls[0]![0]).toBe(text)
     expect(pills()).toHaveLength(0)
-    expect(store.refs['group-1']).toEqual([])
+    expect(store.drafts['group-1']).toBe('')
   })
 
-  it('pills alone go as they are', async () => {
+  it('allows a citation alone to be sent', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
     await mount(onSend)
-    await act(async () => store.setRefs('group-1', [deckPill]))
+    await draft(deckToken)
+    expect(sendButton().disabled).toBe(false)
     await send()
     expect(onSend.mock.calls[0]![0]).toBe(deckToken)
   })
 
-  it('✕ takes a pill out whole: the other stays, and is what goes', async () => {
+  it('removes one whole atom while preserving the other citation and surrounding words', async () => {
     const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
     await mount(onSend)
-    await act(async () => store.setRefs('group-1', [deckPill, sheetPill]))
-    await flush()
-    const remove = pills()[0]!.querySelector('button') as HTMLButtonElement
-    expect(remove.getAttribute('aria-label')).toBe(`移除 ${deckPill.label}`)
-    await act(async () => remove.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    await flush()
+    await draft(`看 ${deckToken} 和 ${sheetToken} 这两处`)
+    const remove = pills()[0]!.querySelector('button')!
+    expect(remove.getAttribute('aria-label')).toBe(`Remove @${deckPill.label}`)
+    await act(async () => { remove.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })) })
     expect(pills().map((pill) => pill.textContent)).toEqual([sheetPill.label])
-    await type('看这一格')
     await send()
-    expect(onSend.mock.calls[0]![0]).toBe(`看这一格\n\n${sheetToken}`)
+    expect(onSend.mock.calls[0]![0]).toBe(`看  和 ${sheetToken} 这两处`)
   })
 
-  it('a pill pasted into the words (a bubble copied) goes to the row; a second copy of one held is not added', async () => {
+  it('pastes repeated references at the selection without moving or deduplicating them', async () => {
     await mount(vi.fn(async () => {}))
-    await act(async () => store.setRefs('group-1', [deckPill]))
-    await type(`看 ${deckToken} 和 ${sheetToken} 这两处`)
-    expect(readComposer(textarea())).toBe('看 和 这两处')
-    expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label, sheetPill.label])
-    // Control: an @[…](…) that is no group file's stays in the words (the session page's own mentions).
-    await type('问 @[Claude 1](aid:abc) 一下')
-    expect(readComposer(textarea())).toBe('问 @[Claude 1](aid:abc) 一下')
+    await type('前后')
+    await act(async () => {
+      selectComposer(textarea(), 1)
+      const event = new Event('paste', { bubbles: true, cancelable: true })
+      const text = `${deckToken} 和 ${sheetToken} 再看 ${deckToken}`
+      Object.defineProperty(event, 'clipboardData', { value: { files: [], items: [], types: ['text/plain'], getData: (type: string) => type === 'text/plain' ? text : '' } })
+      textarea().dispatchEvent(event)
+    })
+    expect(readComposer(textarea())).toBe(`前${deckToken} 和 ${sheetToken} 再看 ${deckToken}后`)
+    expect(pills().map((pill) => pill.getAttribute('data-mention-id'))).toEqual([DECK, SHEET, DECK])
+  })
+
+  it('restores the inline order after a failed send', async () => {
+    const onSend = vi.fn(async () => { throw new Error('offline') })
+    await mount(onSend)
+    const text = `改 ${deckToken}，保留 ${sheetToken}`
+    await draft(text)
+    await send()
+    expect(readComposer(textarea())).toBe(text)
+    expect(pills()).toHaveLength(2)
+    expect(toastMock).toHaveBeenCalledWith('发送失败：offline', 'error')
+  })
+
+  it('restores a failed send to its original chat without leaking into another draft', async () => {
+    let reject!: (reason: Error) => void
+    const onSend = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail }))
+    await mount(onSend)
+    const text = `改 ${deckToken}，保留 ${sheetToken}`
+    await draft(text)
+    await send()
+    await mount(onSend, 'group-2')
+    await type('第二个群的草稿')
+    await act(async () => { reject(new Error('offline')); await Promise.resolve() })
+    await flush()
+    expect(readComposer(textarea())).toBe('第二个群的草稿')
+    expect(pills()).toHaveLength(0)
+    expect(store.drafts['group-1']).toBe(text)
+    await mount(onSend)
+    expect(readComposer(textarea())).toBe(text)
     expect(pills()).toHaveLength(2)
   })
 
-  it('a send that fails gives the pills back to the row, not to the words', async () => {
-    const onSend = vi.fn(async (_content: string, _opts?: unknown) => {
-      throw new Error('offline')
-    })
-    await mount(onSend)
-    await act(async () => store.setRefs('group-1', [deckPill]))
-    await type('改一下')
+  it('keeps the reply above the editor and sends its relation alongside inline file citations', async () => {
+    const onSend = vi.fn(async (_content: string, _opts?: unknown) => {})
+    await mount(onSend, 'group-1', { messageId: 'message-1', senderName: 'Alice', content: '原消息' })
+    await draft(deckToken)
+    expect(container.textContent).toContain('原消息')
+    expect(textarea().textContent).not.toContain('原消息')
     await send()
-    expect(onSend).toHaveBeenCalledTimes(1)
-    expect(readComposer(textarea())).toBe('改一下')
-    expect(pills().map((pill) => pill.textContent)).toEqual([deckPill.label])
-    expect(toastMock).toHaveBeenCalledWith('发送失败：offline', 'error')
+    expect(onSend.mock.calls[0]).toEqual([deckToken, expect.objectContaining({ replyToMessageId: 'message-1' })])
   })
 })

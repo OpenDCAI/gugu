@@ -229,7 +229,6 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     drafts: {},
     draftMentions: {},
     draftAttachments: {},
-    draftRefs: {},
     activeThreadRootId: null,
     threadMessages: [],
     loadingThread: false,
@@ -263,7 +262,6 @@ export function chatStore(overrides: Partial<ChatContextValue> = {}): ChatContex
     setDraft: vi.fn(),
     setDraftMentions: vi.fn(),
     setDraftAttachments: vi.fn(),
-    setDraftRefs: vi.fn(),
     ...overrides,
   }
   // @@@1577 M3 — keep threadScope consistent with (possibly overridden) granular fields unless a test

@@ -36,7 +36,7 @@ export function MentionPill({
   // file 引用 = 斜杠命令 pill 同款:真 pill + 文件图标。旧的 bare-文本处理里 ✕ 覆盖层
   // (surfaceHover 色块)被拉满整枚 pill,悬浮时文字整段被吞(#5736 试玩反馈);✕ 只许盖图标位。
   const isFile = !isAgent && kind === 'file';
-  const agentTitle = isAgent
+  const title = isAgent || isFile
     ? ((node.attrs.title as string | null)?.trim() || name)
     : null;
   const pending = node.attrs.pending === true;
@@ -70,9 +70,9 @@ export function MentionPill({
         data-mention-kind={kind}
         data-mention-role={role ?? undefined}
         data-mention-engine={engine ?? undefined}
-        data-mention-title={agentTitle ?? undefined}
+        data-mention-title={title ?? undefined}
         data-mention-pending={pending || undefined}
-        title={agentTitle ?? undefined}
+        title={title ?? undefined}
       >
         {/* Icon area — relative so the ✕ overlay is positioned inside it */}
         {isFile ? (

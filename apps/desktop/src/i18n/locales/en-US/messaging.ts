@@ -372,7 +372,6 @@ export default {
     "mobilePlaceholder": "Message",
     "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
-    "removeFilePill": "Remove {{label}}",
     "sendFailed": "Could not send: {{reason}}",
     "slashCommands": "Slash commands",
     "verb": {

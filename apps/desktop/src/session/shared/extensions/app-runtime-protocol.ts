@@ -501,7 +501,7 @@ export interface AppComposeDetail {
   text: string;
   /** G3 Images beside the text, as attachments of the draft: the person sends them, or not. */
   images?: AppComposeImage[];
-  /** App 引用 pill: the pills its `refs` made, held by the composer beside the text and sent under it. */
+  /** File references inserted as inline mention tokens in the draft text. */
   refs?: AppComposeRef[];
 }
 
