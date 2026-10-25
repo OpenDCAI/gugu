@@ -268,7 +268,7 @@ export const MessageBubble = memo(function MessageBubble({
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const reactButtonRef = useRef<HTMLButtonElement>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
-  const menuSelection = useRef('')
+  const [menuSelection, setMenuSelection] = useState('')
   const { user } = useAuth()
   const voiceAttachment = msg.content_type === 'attachment'
     ? parseVoiceAttachmentContent(msg.content)
@@ -296,8 +296,8 @@ export const MessageBubble = memo(function MessageBubble({
     isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
-    onQuoteSelection: menuSelection.current && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection.current }); close() } : undefined,
-    onCopy: () => { void handleCopyText(menuSelection.current || undefined); close() },
+    onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
+    onCopy: () => { void handleCopyText(menuSelection || undefined); close() },
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
@@ -307,7 +307,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const captureMenuSelection = () => {
     const selection = window.getSelection()
-    menuSelection.current = selection && bubbleRef.current?.contains(selection.anchorNode) && bubbleRef.current.contains(selection.focusNode) ? selection.toString() : ''
+    setMenuSelection(selection && bubbleRef.current?.contains(selection.anchorNode) && bubbleRef.current.contains(selection.focusNode) ? selection.toString() : '')
   }
 
   const openMenuAt = (x: number, y: number) => {
@@ -809,4 +809,3 @@ function HoverActionBar({
     </div>
   )
 }
-
