@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitPreparedChatAttachment, prepareChatAttachment, sendFileToChat } from '../../../../apps/desktop/src/lib/attachmentsEndpoint'
+import { i18n } from '../../../../apps/desktop/src/i18n'
 const f = vi.hoisted(() => ({ upload: vi.fn(), commit: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => 'published-test-token' }))
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: f.upload, commitAttachment: f.commit,
@@ -57,9 +58,9 @@ describe('project composer attachments use the group-file publisher', () => {
   it('propagates a host fence or atomic message refusal without falling back to cloud', async () => {
     const n = native(), prepared = await prepareChatAttachment(endpoint, file(), { chat_id: 'group', as: 'owner' })
     n.invoke.mockRejectedValueOnce(new Error('outside workspace'))
-    await expect(commitPreparedChatAttachment(endpoint, prepared, args)).rejects.toThrow('outside workspace')
+    await expect(commitPreparedChatAttachment(endpoint, prepared, args)).rejects.toThrow(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' }))
     n.invoke.mockRejectedValueOnce(new Error('not a member'))
-    await expect(commitPreparedChatAttachment(endpoint, prepared, args)).rejects.toThrow('not a member')
+    await expect(commitPreparedChatAttachment(endpoint, prepared, args)).rejects.toThrow(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' }))
     expect(f.upload).not.toHaveBeenCalled(); expect(f.commit).not.toHaveBeenCalled()
   })
   it.each([{ ...message, file_item_id: 'other' }, { ...message, file_version: 4 }, { ...message, sender_user_id: 'other' }, { ...message, chat_id: 'other' }, { ...message, id: 'other' }, undefined])('rejects a substituted message or version receipt', async value => {
