@@ -334,7 +334,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   // gugu-dev#181 任务卡自己就是一个面,❌ 再套一层气泡。
   const card = msg.content_type === 'card' ? parseComposerCard(msg.content) : null
-  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile)
+  const bubbleStyle = card ? { maxWidth: '100cqw' } : buildBubbleStyle(msg.is_mine, !!msg.is_whisper, compactMobile, groupedWithPrev)
 
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
@@ -479,7 +479,7 @@ export const MessageBubble = memo(function MessageBubble({
           <div
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
-            style={bubbleStyle}
+            style={bubbleStyle} data-bubble-tail={!card && !msg.is_whisper && !groupedWithNext ? (msg.is_mine ? 'mine' : 'other') : undefined}
             {...longPress}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
