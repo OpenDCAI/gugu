@@ -123,8 +123,8 @@ describe('the folder file an agent reads', () => {
     deps.restRpc = async (name: string, body: Record<string, unknown>) => (name === 'message_history_as' ? rows : restRpc(name, body))
     const read = JSON.parse(await callTool('message_history', { chat_id: CHAT }, deps))
     expect(read).toEqual([
-      { id: 'm1', content: envelope(5), content_type: 'attachment', file: `gugu-file://${ITEM}?v=2` },
-      { id: 'm2', content: 'hello', content_type: 'text' },
+      { id: 'msg:m1', content: envelope(5), content_type: 'attachment', file: `gugu-file://${ITEM}?v=2` },
+      { id: 'msg:m2', content: 'hello', content_type: 'text' },
     ])
   })
 
