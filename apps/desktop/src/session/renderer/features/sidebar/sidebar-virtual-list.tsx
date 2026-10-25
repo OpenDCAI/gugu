@@ -40,6 +40,8 @@ import { SidebarProjectItem } from './project-item';
 import { SidebarSessionItem } from './sidebar-session-item';
 import { SidebarMoreRow } from './sidebar-more-row';
 import { SidebarStateHeader } from './sidebar-state-header';
+import { ProjectTopicsSlot } from '@renderer/lib/chat-slot';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 
 // @@@sidebar-row-height — 必须与行自己写的 h-8 (32px) 相等。虚拟滚动用它算每行的偏移,
 // 两边分叉不会报错,只会让长列表越滚越错位(行与它的点击区、右键菜单对不上)。
@@ -285,12 +287,13 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                 top: vItem.start - scrollMargin,
                 left: 0,
                 width: '100%',
-                height: `${vItem.size}px`,
+                height: row.kind === 'project' ? undefined : `${vItem.size}px`,
               };
               if (row.kind === 'project') {
                 return (
-                  <SortableRow key={row.projectId} dndId={rowToDndId(row)} style={vStyle}>
+                  <SortableRow key={row.projectId} dndId={rowToDndId(row)} style={vStyle} index={vItem.index} measure={virtualizer.measureElement}>
                     <SidebarProjectItem projectId={row.projectId} />
+                    {sidebarStore.expandedProjectIds.has(row.projectId) && projectGroupsStore.chatIdOf(row.projectId) ? <ProjectTopicsSlot chatId={projectGroupsStore.chatIdOf(row.projectId)!} /> : null}
                   </SortableRow>
                 );
               }
@@ -438,9 +441,11 @@ interface SortableRowProps {
   dndId: string;
   style: React.CSSProperties;
   children: React.ReactNode;
+  index: number;
+  measure: (element: HTMLDivElement | null) => void;
 }
 
-function SortableRow({ dndId, style, children }: SortableRowProps) {
+function SortableRow({ dndId, style, children, index, measure }: SortableRowProps) {
   const { setNodeRef, transform, transition, isDragging, listeners } = useSortable({
     id: dndId,
   });
@@ -454,7 +459,7 @@ function SortableRow({ dndId, style, children }: SortableRowProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={combinedStyle} {...listeners}>
+    <div ref={(element) => { setNodeRef(element); measure(element); }} data-index={index} style={combinedStyle} {...listeners}>
       {children}
     </div>
   );
