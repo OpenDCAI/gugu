@@ -73,9 +73,8 @@ export async function openPathWithFailureToast(
 ): Promise<void> {
   const result = await rpc.app.openPath(filePath, workspace);
   if (!result.success) {
-    // @@@4891 result.error 是 shell 层的原文,用户读不懂也用不上 —— 进日志。
     sessionLog.error({ err: result.error, filePath }, 'openPath failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+    toast.error(messageForUser(result.error));
   }
 }
 
@@ -87,7 +86,7 @@ async function openDirectoryInFileManager(dirPath: string): Promise<void> {
   const result = await rpc.app.openIn({ app: 'finder', path: dirPath });
   if (!result?.success) {
     sessionLog.error({ err: result?.error, dirPath }, 'openIn(finder) failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: dirPath }));
+    toast.error(messageForUser(result?.error));
   }
 }
 

@@ -61,10 +61,10 @@ export function openExternalLinkInBrowser(url: string, onError?: (error: unknown
   });
 }
 
-export async function copyExternalLink(url: string): Promise<boolean> {
+export async function copyExternalLink(url: string, done = translateSessionMessage('externalLink.linkCopied')): Promise<boolean> {
   try {
     await rpc.app.clipboardWriteText(url);
-    toast({ title: translateSessionMessage('externalLink.linkCopied') });
+    toast({ title: done });
     return true;
   } catch (error) {
     log.error('clipboard copy failed', { error });

@@ -15,10 +15,9 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
   children: ReactElement;
 }) {
   const { translate } = useSessionMessages();
-  const reportFailure = () => toast({ tier: 'error', title: translate('projects.folders.errorDetach') });
   const detach = async () => {
     try {
-      if (!await state.detach(folder)) { reportFailure(); return; }
+      await state.detach(folder);
       toast({
         title: translate('projects.folders.detached', { path: folder.path, projectName }),
         duration: 8000,
@@ -28,7 +27,7 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
           onClick: () => { void restore(folder); },
         },
       });
-    } catch { reportFailure(); }
+    } catch (error) { console.error(error); toast({ tier: 'error', title: messageForUser(error) }); }
   };
   const restore = async (detached: ProjectFolder) => {
     try {

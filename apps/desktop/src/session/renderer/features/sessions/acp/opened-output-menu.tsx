@@ -68,7 +68,7 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
         toast({ title: messageForUser(result.error), variant: 'destructive' });
       }
     },
-    [translate]
+    []
   );
 
   const openWithApp = useCallback(
@@ -79,7 +79,7 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
         toast({ title: messageForUser(result.error), variant: 'destructive' });
       }
     },
-    [translate]
+    []
   );
 
   const openInBrowser = useCallback(async (url: string) => {

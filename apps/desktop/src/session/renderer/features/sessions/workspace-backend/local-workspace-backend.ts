@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 // 这台电脑上的会话工作区:动词就是 `rpc.workspace` 本身,其余几格照此前本机的做法。
 // 与别的机器那一份(remote-hosts/workspace/remote-workspace-backend.ts)同形 —— 界面只认 WorkspaceBackend。
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -59,9 +60,8 @@ async function importLocalFiles(scope: WorkspaceTreeScope, srcPaths: string[], d
       });
       return;
     }
-    // 原话进日志,给人的只是一句能照做的话。
-    log.warn('[file-tree] copying dropped files failed', { destDirPath, error: resultErrorMessage(error) });
-    toast({ title: translateSessionMessage('fileTree.importFailed'), description: translateSessionMessage('fileTree.importFailedDetail'), variant: 'destructive' });
+    log.error('[file-tree] copying dropped files failed', { destDirPath, error: resultErrorMessage(error) });
+    toast({ title: messageForUser(resultErrorMessage(error)), variant: 'destructive' });
   };
 
   try {
@@ -74,7 +74,7 @@ async function importLocalFiles(scope: WorkspaceTreeScope, srcPaths: string[], d
   } catch (error) {
     await handleFailure({
       type: 'fs_error',
-      message: error instanceof Error ? error.message : translateSessionMessage('fileTree.importFailedDetail'),
+      message: messageForUser(error),
     });
   }
 }

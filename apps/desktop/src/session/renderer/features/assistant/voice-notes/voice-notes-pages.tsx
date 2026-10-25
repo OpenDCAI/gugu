@@ -260,11 +260,11 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     }
   };
   const exportNote = async () => {
-    const saved = await rpc.app
-      .saveTextFile({ title: t('exportTitle'), defaultPath: exportFileName(title), content: exportMarkdown({ title, summary: data?.summary ?? null, lines: data?.lines ?? [] }) })
-      .catch(() => null);
-    if (!saved?.success) toast({ title: t('exportFailed'), tier: 'error' });
-    else if (saved.path) toast({ title: t('exported') });
+    try {
+      const saved = await rpc.app.saveTextFile({ title: t('exportTitle'), defaultPath: exportFileName(title), content: exportMarkdown({ title, summary: data?.summary ?? null, lines: data?.lines ?? [] }) });
+      if (!saved.success) { log.error('voice note export failed', { error: saved.error }); toast({ title: messageForUser(saved.error), tier: 'error' }); }
+      else if (saved.path) toast({ title: t('exported') });
+    } catch (error) { log.error('voice note export failed', { error }); toast({ title: messageForUser(error), tier: 'error' }); }
   };
 
   const sub = [

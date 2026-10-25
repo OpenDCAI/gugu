@@ -1372,7 +1372,7 @@ function denied(message: string): ExtensionBridgeResponse {
  */
 function failure(extensionId: string, method: string, error: unknown): ExtensionBridgeResponse {
   const failed = bridgeFailure(error);
-  log.warn('Extension bridge call failed', { extensionId, method, message: failed.message });
+  log.error('Extension bridge call failed', { extensionId, method, message: failed.message });
   return { ok: false, ...failed };
 }
 

@@ -60,7 +60,7 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
  */
 function copyTextFireAndForget(text: string): void {
   void clipboard.writeText(text).catch((error: unknown) => {
-    log.warn('clipboard.writeText failed', { error: String(error) });
+    log.error('clipboard.writeText failed', { error: String(error) });
   });
 }
 

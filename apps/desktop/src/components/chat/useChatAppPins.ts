@@ -1,7 +1,6 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect } from 'react'
 import { skipToken, useMutation, useQuery } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
 import { queryClient } from '../../session/renderer/lib/query-client'
 import { readChatAppPins, setChatAppPin, watchChatAppPins } from '../../lib/chatAppPins'
 import { useAuth } from '../../store/auth'
@@ -10,7 +9,6 @@ import { useToast } from '../toastContext'
 export function useChatAppPins(chatId: string | null) {
   const { user } = useAuth()
   const { toast } = useToast()
-  const { t } = useTranslation('messaging')
   const userId = user?.id
   const key = ['chat-app-pins', userId, chatId] as const
   const query = useQuery({

@@ -9,7 +9,6 @@ import { formatBytes } from '@renderer/utils/formatBytes';
 import { log } from '@renderer/utils/logger';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { remoteErrorCode } from '../remote-failure-copy';
-import { LOCAL_WRITE_FAILED } from './remote-transfer-wiring';
 import { REMOTE_DOWNLOAD_MAX_FILES, type RemoteTransfer, type RemoteTransfers, type UploadItem } from './remote-transfers';
 
 const PLATFORM = detectPlatform();
@@ -18,23 +17,18 @@ const REVEAL_LABEL_KEY =
   PLATFORM === 'mac' ? 'fileTree.revealFinder' : PLATFORM === 'windows' ? 'fileTree.revealExplorer' : 'fileTree.revealFileManager';
 
 /** 一次传输没成:原因说人话(原因码只进日志)。 */
-function transferFailure(transfer: RemoteTransfer, describe: (error: unknown) => string): string {
+function transferFailure(transfer: RemoteTransfer): string {
   const code = remoteErrorCode(transfer.error);
   if (code === 'too_many_files') return translateSessionMessage('remoteFiles.tooManyFiles', { count: REMOTE_DOWNLOAD_MAX_FILES });
   if (code === 'changing') return translateSessionMessage('remoteFiles.keptChanging');
-  if (code === LOCAL_WRITE_FAILED) {
-    // 这台电脑这一侧落盘出的错(磁盘满、没权限):原文进日志,标题那句「没下载下来」就够了。
-    log.warn('[remote-files] 下载落盘失败', { error: String(transfer.error) });
-    return '';
-  }
-  return describe(transfer.error);
+
+  return messageForUser(transfer.error);
 }
 
 /** 下载一个文件 / 文件夹到这台电脑;结束时说一句(下好了带「在访达中显示」)。 */
 export async function downloadEntry(
   transfers: RemoteTransfers,
-  entry: Pick<SessionpageWorkspaceEntry, 'name' | 'path' | 'isDirectory' | 'size'>,
-  describe: (error: unknown) => string
+  entry: Pick<SessionpageWorkspaceEntry, 'name' | 'path' | 'isDirectory' | 'size'>
 ): Promise<void> {
   let transfer: RemoteTransfer | null;
   try {
@@ -59,7 +53,7 @@ export async function downloadEntry(
   } else if (transfer.status === 'failed') {
     toast({
       title: translateSessionMessage('remoteFiles.downloadFailed', { name: entry.name }),
-      description: transferFailure(transfer, describe) || undefined,
+      description: transferFailure(transfer) || undefined,
       tier: 'error',
     });
   }
@@ -93,7 +87,7 @@ export async function uploadItems(
   } else if (transfer.status === 'failed') {
     toast({
       title: translateSessionMessage('remoteFiles.uploadFailed', { name: label, device }),
-      description: transferFailure(transfer, describe) || skipped,
+      description: transferFailure(transfer) || skipped,
       tier: 'error',
     });
   }

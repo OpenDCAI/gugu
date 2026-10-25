@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, type ReactNode } from 'react';
 import { getProjectStore, projectDisplayName } from '@renderer/features/projects/stores/project-selectors';
 import { useMachineCreateContext } from '@renderer/features/sessions/use-machine-create-target';
@@ -83,16 +84,15 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
       case 'belongs-to-other-project':
         return translate('projects.folders.errorOtherProject', { projectName: error.projectName });
       default:
-        // 没挂上的原因(那台机器答不上、项目没了)进日志;文案只说没挂上、可以再试。
-        log.warn('[project-home] 挂文件夹失败', { projectId, error });
-        return translate('projects.folders.errorAttach');
+        log.error('[project-home] 挂文件夹失败', { projectId, error });
+        return messageForUser(error);
     }
   };
   const sessionCountOf = (id: string) =>
     (sidebarStore.placement.entries.get(id) ?? []).filter((entry) => entry.projectId === id).length;
   const failLinking = (error: unknown) => {
-    log.warn('[project-home] 把别的机器上的文件夹接进这个项目失败', { projectId, error });
-    toast({ tier: 'error', title: translate('projects.folders.errorAttach') });
+    log.error('[project-home] 把别的机器上的文件夹接进这个项目失败', { projectId, error });
+    toast({ tier: 'error', title: messageForUser(error) });
   };
 
   // 挂到这个项目在那台机器上已有的本地项目下(与第一步同一条路)。
@@ -119,7 +119,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
         onClick: () => {
           void folders.detach(attached).then((ok) => {
             if (ok) toast({ title: translate('projects.folders.detached', { path: shortHome(attached.path), projectName: displayName }) });
-          });
+          }).catch(failLinking);
         },
       },
       duration: 8000,

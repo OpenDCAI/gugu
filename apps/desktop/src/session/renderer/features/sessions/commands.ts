@@ -1,4 +1,3 @@
-import { messageForUser } from '@/lib/userFacingError';
 import { browserControlsRegistry } from '@renderer/features/browser/browser-controls-registry';
 import { sessionKeyboardNav } from '@renderer/features/sidebar/session-keyboard-nav';
 import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-resource';
@@ -13,7 +12,7 @@ import {
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
 import type { CommandProvider } from '@renderer/lib/commands/types';
-import { toast } from '@renderer/lib/hooks/use-toast';
+import { copyExternalLink } from '@renderer/lib/open-external-link';
 import { rpc } from '@renderer/lib/ipc';
 import { normalizeBrowserUrl } from '@shared/browser';
 import { COMMANDS, type CommandId } from '@shared/commands';
@@ -187,14 +186,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
                     allowSearchQueries: false,
                   });
                   if (!normalized.ok) return;
-                  void navigator.clipboard
-                    .writeText(normalized.url)
-                    .then(() => {
-                      toast({ title: 'Browser URL copied' });
-                    })
-                    .catch((error) => { console.error(error);
-                      toast({ title: messageForUser(error), variant: 'destructive' });
-                    });
+                  void copyExternalLink(normalized.url, 'Browser URL copied');
                 },
               },
             ]
