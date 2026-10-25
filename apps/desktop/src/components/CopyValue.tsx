@@ -49,9 +49,9 @@ export function CopyValue({
       const reason = String((error as Error)?.message ?? error)
       rendererLogger('clipboard').error({ error: reason }, 'clipboard copy failed')
       if (feedback === 'inline') flash(safeFailureLine(reason))
-      else toast(safeFailureLine(reason), 'error')
+      else toast(t('actions.copyFailed'), 'error', safeFailureLine(reason))
     }
-  }, [value, message, toast, feedback, flash])
+  }, [value, message, toast, feedback, flash, t])
 
   return (
     <span

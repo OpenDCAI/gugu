@@ -44,7 +44,7 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
     try {
       await store.setInternals(!store.internals);
     } catch (error) { rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: translate('resourceMonitor.diagnosticsFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setChangingDiagnostics(false);
     }
@@ -370,7 +370,7 @@ function CopyReportButton({
       }, 1500);
     } catch (error) {
       rendererLogger('actions/resource-monitor-view').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: translate('task.copyFailed'), description: messageForUser(error), tier: 'error' });
       setCopied(false);
     }
   }, [snapshot, groups]);

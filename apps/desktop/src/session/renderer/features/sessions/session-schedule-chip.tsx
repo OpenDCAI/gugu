@@ -145,7 +145,13 @@ function ScheduleItem({ schedule, machine }: { schedule: SessionSchedule; machin
       log.error('session schedule action failed', { kind, scheduleId: schedule.id, error: String(error) });
       const code = error instanceof Error ? error.message : '';
       toast({
-        title: code.includes('schedule_too_soon')
+        title: translate(
+          code.includes('schedule_too_soon')
+            ? 'sessionSchedule.tooSoon'
+            : code.includes('cron_invalid') || code.includes('schedule_never_fires')
+              ? 'sessionSchedule.ruleInvalid'
+              : 'sessionSchedule.actionFailed'
+        ), description: code.includes('schedule_too_soon')
           ? translate('sessionSchedule.tooSoon')
           : code.includes('cron_invalid') || code.includes('schedule_never_fires')
             ? translate('sessionSchedule.ruleInvalid')

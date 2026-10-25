@@ -111,7 +111,7 @@ export const UnavailableTabPlaceholder = observer(function UnavailableTabPlaceho
     } catch (error) {
       log.error('extension enable refused:', error);
       toast({
-        title: messageForUser(error),
+        title: translate('extensions.switchFailed'), description: messageForUser(error),
         tier: 'error',
         action: { label: translate('extensions.retry'), onClick: () => void enable() },
       });

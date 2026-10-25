@@ -28,14 +28,14 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
           onClick: () => { void restore(folder); },
         },
       });
-    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: messageForUser(error) }); }
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: translate('projects.folders.detach'), description: messageForUser(error) }); }
   };
   const restore = async (detached: ProjectFolder) => {
     try {
       const result = await rpc.projects.attachProjectFolder(detached.projectId, detached.path);
       if (!result.success) throw new Error(result.error.message);
     } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed');
-      toast({ tier: 'error', title: messageForUser(error) });
+      toast({ tier: 'error', title: translate('projects.folders.errorAttach'), description: messageForUser(error) });
     }
   };
   return (

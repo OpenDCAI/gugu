@@ -35,7 +35,7 @@ function SendingAgentLink({ source }: { source: NonNullable<MessageItem['agent_s
       setActiveChatId(chatId)
       await refreshChats()
     } catch (error) { rendererLogger('actions/AgentSentBadge').error({ error: error }, 'action failed');
-      toast(messageForUser(error), 'error')
+      toast(t('message.openSendingAgentFailed'), 'error', messageForUser(error))
     } finally {
       setOpening(false)
     }

@@ -68,7 +68,7 @@ export async function copyExternalLink(url: string, done = translateSessionMessa
     return true;
   } catch (error) {
     log.error('clipboard copy failed', { error });
-    toast({ title: messageForUser(error), variant: 'destructive' });
+    toast({ title: translateSessionMessage('externalLink.copyFailed'), description: messageForUser(error), variant: 'destructive' });
     return false;
   }
 }

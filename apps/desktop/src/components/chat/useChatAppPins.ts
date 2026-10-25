@@ -36,7 +36,7 @@ export function useChatAppPins(chatId: string | null) {
       return setChatAppPin(userId, chatId, appId, pinned)
     },
     onSuccess: (ids, { userId, chatId }) => { queryClient.setQueryData(['chat-app-pins', userId, chatId], ids) },
-    onError: (error) => { rendererLogger('actions/useChatAppPins').error({ error: error }, 'action failed'); toast(messageForUser(error), 'error') },
+    onError: (error) => { rendererLogger('actions/useChatAppPins').error({ error: error }, 'action failed'); toast(t('header.appPinsSaveFailed'), 'error', messageForUser(error)) },
   }, queryClient)
   return { ids: query.data ?? [], ready: query.isSuccess, error: query.isError, saving: mutation.isPending, retry: () => { void query.refetch() }, set: ({ appId, pinned }: { appId: string; pinned: boolean }) => mutation.mutate({ userId, chatId, appId, pinned }) }
 }

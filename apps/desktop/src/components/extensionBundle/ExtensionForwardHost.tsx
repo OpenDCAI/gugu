@@ -84,7 +84,7 @@ export function ExtensionForwardHost() {
     const result = await rpc.extensions.packInstalled({ extensionId: request.extensionId, save: true })
     if (!result.success) {
       log.error({ extensionId: request.extensionId, error: result.error }, 'exporting an extension failed')
-      toast(messageForUser(result.error), 'error')
+      toast(t('extensions.exportFailed'), 'error', messageForUser(result.error))
     } else if (result.data?.saved) {
       toast(t('extensions.exported', { path: result.data.saved }), 'success')
     }

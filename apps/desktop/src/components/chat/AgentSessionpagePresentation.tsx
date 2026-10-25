@@ -120,7 +120,7 @@ export function useAgentSessionpagePresentation(
         { error: error instanceof Error ? error.message : String(error) },
         'platform credential recovery retry failed',
       )
-      toast(messageForUser(error), 'error')
+      toast(t('agent.taskpage.recoveryFailed.retryError'), 'error', messageForUser(error))
     } finally {
       setRecoveryRetrying(false)
     }

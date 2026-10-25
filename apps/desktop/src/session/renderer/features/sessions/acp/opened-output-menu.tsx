@@ -54,10 +54,10 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
         toast({ title: done });
       } catch (error) {
         log.error({ error }, 'opened-output copy failed');
-        toast({ title: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
+        toast({ title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
       }
     },
-    []
+    [translate]
   );
 
   const reveal = useCallback(
@@ -65,10 +65,10 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
       const result = await rpc.app.showItemInFolder(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
         log.error({ error: result.error, path }, 'opened-output reveal failed');
-        toast({ title: messageForUser(result.error), variant: 'destructive' });
+        toast({ title: translate('fileTree.showFailed'), description: messageForUser(result.error), variant: 'destructive' });
       }
     },
-    []
+    [translate]
   );
 
   const openWithApp = useCallback(
@@ -76,10 +76,10 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
       const result = await rpc.app.openPath(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
         log.error({ error: result.error, path }, 'opened-output openPath failed');
-        toast({ title: messageForUser(result.error), variant: 'destructive' });
+        toast({ title: translate('transcript.outputMenu.app'), description: messageForUser(result.error), variant: 'destructive' });
       }
     },
-    []
+    [translate]
   );
 
   const openInBrowser = useCallback(async (url: string) => {

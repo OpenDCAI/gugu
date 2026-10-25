@@ -44,7 +44,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
       }
       const missing = [request.taskAgentId, request.assistantId].filter(id => !contacts.some(contact => contact.id === id))
       if (missing.length === 0) {
-        try { show(contacts) } catch (error) { log.error({ error: error }, 'action failed'); toast(messageForUser(error), 'error') }
+        try { show(contacts) } catch (error) { log.error({ error: error }, 'action failed'); toast(t('tasks.chatUnavailable'), 'error', messageForUser(error)) }
         return
       }
       // A newly created agent reaches the session directory before the contacts snapshot.
@@ -54,7 +54,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
         if (alive && current === generation) show([...contacts, ...identities])
       }).catch((error: unknown) => {
         log.error({ error, taskAgentId: request.taskAgentId }, 'task identity read failed')
-        if (alive && current === generation) toast(messageForUser(error), 'error')
+        if (alive && current === generation) toast(t('tasks.chatUnavailable'), 'error', messageForUser(error))
       }).finally(() => { if (current === generation) pending = null })
     }
     window.addEventListener(OPEN_ASSISTANT_TASK_CHAT, open)

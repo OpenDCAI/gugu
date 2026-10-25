@@ -1,3 +1,4 @@
+import { i18n } from '@/i18n';
 import { messageForUser } from '@/lib/userFacingError';
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import {
@@ -73,7 +74,7 @@ async function readClipboardFiles(): Promise<File[]> {
     }
     return files;
   } catch (error) {
-    log.error({ error }, 'terminal clipboard files failed'); toast({ title: messageForUser(error), tier: 'error' }); return [];
+    log.error({ error }, 'terminal clipboard files failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' }); return [];
   }
 }
 
@@ -137,7 +138,7 @@ async function pasteClipboardImageOrText(args: {
     const text = await navigator.clipboard.readText();
     if (text) args.sendInput(text);
   } catch (error) {
-    log.error({ error }, 'terminal paste failed'); toast({ title: messageForUser(error), tier: 'error' });
+    log.error({ error }, 'terminal paste failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' });
   }
   return false;
 }
@@ -295,7 +296,7 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
                 fallbackText,
               });
             } catch (error) {
-              log.error({ error }, 'Terminal image paste failed'); toast({ title: messageForUser(error), tier: 'error' });
+              log.error({ error }, 'Terminal image paste failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' });
             }
           })();
           return;

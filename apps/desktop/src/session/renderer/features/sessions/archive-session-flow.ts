@@ -111,8 +111,8 @@ async function undoArchive(archived: ArchivedSessionRef[]): Promise<void> {
     // 撤销没成的话,东西还在归档里 —— 出路是会话历史,提示里指过去。
     log.error('[gugu-archive] 撤销归档失败', { archived, error: String(error) });
     toast({
-      title: messageForUser(error),
-      description: translateSessionMessage('task.archiveUndoFailedHint'),
+      title: translateSessionMessage('task.archiveUndoFailed'),
+      description: messageForUser(error),
       variant: 'destructive',
     });
   }

@@ -137,7 +137,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
       downloadDataUrl(dataUrl, safeName)
       toast(t('groupInvite.qrSaved'), 'success')
     } catch (error) {
-      toast(messageForUser(error), 'error')
+      toast(t('groupInvite.qrExportFailed'), 'error', messageForUser(error))
       console.error('QR image export failed:', error)
     }
   }, [payloadText, group.name, t, toast])
@@ -255,7 +255,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
                     await navigator.clipboard.writeText(payloadText)
                     toast(t('groupInvite.linkCopied'), 'success')
                   } catch (error) {
-                    toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+                    toast(t('groupInvite.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
                   }
                 }}
               >

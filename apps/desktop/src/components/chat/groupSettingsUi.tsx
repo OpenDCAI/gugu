@@ -181,7 +181,7 @@ export function GroupInviteLinkBlock({ inviteLink, onOpenPoster }: { inviteLink:
               await navigator.clipboard.writeText(inviteLink)
               toast(t('group.settings.inviteCopied'), 'success')
             } catch (error) {
-              toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+              toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
             }
           }}
         >

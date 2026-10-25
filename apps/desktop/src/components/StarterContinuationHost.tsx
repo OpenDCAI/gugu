@@ -21,7 +21,7 @@ export function StarterContinuationHost({ active = true }: { active?: boolean })
     void landPendingStarters(setDraft, undefined, undefined, () => current).catch((error) => {
       if (!current) return
       starterLog.error({ err: error instanceof Error ? error.message : String(error) }, 'starter recovery failed')
-      toast(messageForUser(error), 'error')
+      toast(t('wizard.starterRecoveryFailed'), 'error', messageForUser(error))
     })
     return () => { current = false }
   }, [active, setDraft, toast])

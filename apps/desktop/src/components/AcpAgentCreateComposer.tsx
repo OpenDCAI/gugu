@@ -409,7 +409,7 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
       if (!progress.promptDelivered) restoreUndelivered(prompt)
       createLog.error({ err: message }, 'acp agent create failed')
       setError(messageForUser(reason))
-      toast(messageForUser(reason), 'error')
+      toast(t('create.toast.createFailed'), 'error', messageForUser(reason))
     } finally {
       setSubmitting(false)
     }

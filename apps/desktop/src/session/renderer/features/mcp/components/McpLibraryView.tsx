@@ -43,7 +43,7 @@ export const McpLibraryView: React.FC = () => {
   }
   const fail = (failure: unknown) => {
     log.error('library MCP action failed', { error: String(failure) });
-    toast({ title: messageForUser(failure), variant: 'destructive' });
+    toast({ title: translate('mcpLibrary.saveFailed'), description: messageForUser(failure), variant: 'destructive' });
   };
 
   const openAdd = () =>

@@ -977,7 +977,7 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; error?: string } | undefined
       if (!detail?.agentUserId) return
-      toast(messageForUser(detail.error), 'error')
+      toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
@@ -1074,7 +1074,7 @@ function InnerLayout({
     } catch (err) {
       // 点了「发消息」却开不了会话(断网、库拒绝…):❌ 留一个没人接的 rejection 让按钮看着像坏了(#6832)。
       openChatLog.error({ targetId: target.id, error: String(err) }, 'getOrCreateDM failed')
-      toast(messageForUser(err), 'error')
+      toast(t('shell.toast.openChatFailed'), 'error', messageForUser(err))
     } finally {
       switchingRef.current = false
     }

@@ -83,7 +83,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       setPreviewUrl(null)
       setPendingFile(null)
       console.error('[AgentProfilePane] failed to save agent profile', err)
-      toast(messageForUser(err), 'error')
+      toast(t('settings.profile.saveFailed'), 'error', messageForUser(err))
     } finally {
       setSaving(false)
     }
@@ -101,7 +101,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       onClose?.()
     } catch (err) {
       profileLog.error({ err: String((err as Error)?.message ?? err) }, 'delete agent failed')
-      toast(messageForUser(err), 'error')
+      toast(t('settings.profile.deleteFailed'), 'error', messageForUser(err))
       setRemoving(false)
     }
   }

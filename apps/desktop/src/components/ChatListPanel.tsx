@@ -178,7 +178,7 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
           .then(({ failedChats }) => { if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error') })
           .catch((error: unknown) => {
             chatListLog.error({ error: String(error) }, 'mark all read failed')
-            toast(messageForUser(error), 'error')
+            toast(t('chatList.markAllReadFailed'), 'error', messageForUser(error))
           })
       },
     },

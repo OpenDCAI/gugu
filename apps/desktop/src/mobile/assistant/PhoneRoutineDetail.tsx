@@ -60,7 +60,7 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
       toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
     } catch (error) {
       log.error({ error: errorText(error) }, 'set routine enabled failed')
-      toast(messageForUser(error), 'error')
+      toast(t(updated ? 'routines.loadFailed' : 'routines.updateFailed'), 'error', messageForUser(error))
     } finally {
       toggling.current = false
       setPending(null)

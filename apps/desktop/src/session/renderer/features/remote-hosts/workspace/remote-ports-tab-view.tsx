@@ -270,7 +270,7 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
           {forwarded ? (
             <RowAction
               label={translate('remotePorts.stop')}
-              onClick={() => void rpc.remotePorts.stop({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: messageForUser(error), tier: 'error' }); })}
+              onClick={() => void rpc.remotePorts.stop({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: translate('remotePorts.stop'), description: messageForUser(error), tier: 'error' }); })}
             >
               <Unplug />
             </RowAction>
@@ -278,7 +278,7 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
             row.sources.some((source) => source === 'terminal' || source === 'agent') && (
               <RowAction
                 label={translate('remotePorts.remove')}
-                onClick={() => void rpc.remotePorts.forget({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: messageForUser(error), tier: 'error' }); })}
+                onClick={() => void rpc.remotePorts.forget({ deviceId, remotePort: row.remotePort }).then((result) => { if (!result.success) throw result.error; }).catch((error: unknown) => { log.error({ error }, 'port action failed'); toast({ title: translate('remotePorts.remove'), description: messageForUser(error), tier: 'error' }); })}
               >
                 <X />
               </RowAction>

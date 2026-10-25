@@ -510,8 +510,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       } catch (error) {
         log.error('extension market install failed:', error);
         toast({
-          title: messageForUser(error),
-          description: translateRef.current('extensions.marketPrepareFailed'),
+          title: translateRef.current('extensions.installFailed'),
+          description: messageForUser(error),
           tier: 'error',
           action: {
             label: translateRef.current('extensions.retry'),
@@ -649,8 +649,8 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       log.error('extension market install on another computer failed:', { deviceId, error });
       toast({
-        title: messageForUser(error),
-        description: translateRef.current('extensions.marketPrepareFailed'),
+        title: translateRef.current('extensions.installFailedOn', { machine: label }),
+        description: messageForUser(error),
         tier: 'error',
         action: { label: translateRef.current('extensions.retry'), onClick: () => void installOnAlso(deviceId, label, ask) },
       });
@@ -782,7 +782,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
     } catch (error) {
       log.error('extension switch refused:', error);
       toast({
-        title: messageForUser(error),
+        title: translateRef.current('extensions.switchFailed'), description: messageForUser(error),
         tier: 'error',
         action: {
           label: translateRef.current('extensions.retry'),
@@ -804,14 +804,14 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       : () =>
           void (store.dock.includes(manifest.id) ? unpinFromDock : pinToDock)(manifest.id).catch((error: unknown) => {
             log.error('dock change refused:', error);
-            toast({ title: messageForUser(error), tier: 'error' });
+            toast({ title: translateRef.current('extensions.dockFailed'), description: messageForUser(error), tier: 'error' });
           });
   const setDisclosure = async (manifest: ExtensionManifest, level: ExtensionDisclosureLevel) => {
     try {
       await store.setDisclosure(manifest.id, level);
     } catch (error) {
       log.error('extension disclosure refused:', error);
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: translateRef.current('extensions.disclosureFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
 
@@ -970,7 +970,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard()
       onToggle: (next: boolean) =>
         void store.setAutoUpdate(manifest.id, next).catch((error: unknown) => {
           log.error('auto-update switch refused:', error);
-          toast({ title: messageForUser(error), tier: 'error' });
+          toast({ title: translateRef.current('extensions.switchFailed'), description: messageForUser(error), tier: 'error' });
         }),
     };
   };

@@ -1,3 +1,4 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
@@ -295,7 +296,7 @@ export class FrontendPty {
 
       void rpc.app.clipboardWriteText(text).catch((error) => {
         log.error('FrontendPty: failed to write OSC 52 clipboard payload', { error });
-        toast({ title: messageForUser(error), tier: 'error' });
+        toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' });
       });
       return true;
     });

@@ -1,3 +1,4 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
@@ -56,7 +57,7 @@ async function copyText(text: string): Promise<boolean> {
     return true
   } catch (error) {
     rendererLogger('actions/PhoneConnectorSetup').error({ error: error }, 'action failed')
-    toast({ title: messageForUser(error), tier: 'error' })
+    toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' })
     return false
   }
 }

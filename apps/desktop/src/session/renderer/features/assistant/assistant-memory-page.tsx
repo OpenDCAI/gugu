@@ -136,7 +136,7 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('memory.deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   return (
@@ -218,7 +218,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: t('files.renamed') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.renameFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -229,7 +229,7 @@ function ResourceRow({
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   if (renaming)
@@ -365,7 +365,7 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
     } catch (error) { rendererLogger('actions/assistant-memory-page').error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('files.folderCreateFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
 

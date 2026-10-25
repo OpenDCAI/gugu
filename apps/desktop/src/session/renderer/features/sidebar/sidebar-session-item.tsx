@@ -202,7 +202,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       toast({ title: translate('sidebar.sessionIdCopied') });
     } catch (error) {
       log.error({ error, sessionId }, 'sidebar copy session id failed');
-      toast({ title: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
+      toast({ title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
     }
   };
 

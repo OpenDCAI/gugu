@@ -82,10 +82,10 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
     void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
       fileOpenLog.error({ error }, 'system app handoff failed')
-      toast(messageForUser(error), 'error')
+      toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
   }
-  const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(messageForUser(error), 'error') })
+  const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
   return <MessageFilePreviewPanel contentRef={contentRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />

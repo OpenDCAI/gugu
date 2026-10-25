@@ -271,9 +271,9 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
     } catch (error) {
       rendererLogger('chat/file-open').error({ error }, 'image download failed')
-      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+      toast(t('shell.imagePreview.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
-  }, [current, toast])
+  }, [current, t, toast])
 
   const handleCopy = useCallback(async () => {
     if (copying) return
@@ -287,7 +287,7 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       await writeImageBlobToClipboard(await fetchImageAsPngBlob(current.full ? await current.full() : current.url))
       toast(t('shell.imagePreview.copied'), 'success')
     } catch (error) {
-      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+      toast(t('shell.imagePreview.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     } finally {
       setCopying(false)
     }
@@ -373,7 +373,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
         })
         .catch((error: unknown) => {
           log.error({ error: String(error), count: request.items.length }, 'failed to open image viewer')
-          latest.current.toast(messageForUser(error), 'error')
+          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error', messageForUser(error))
         })
     })
     return () => {

@@ -270,7 +270,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                             id: automation.id, deviceId: context.homeDeviceId, before: { name: automation.name, active: automation.enabled }, after: { name: automation.name, active: enabled } });
                           toast({ title: enabled ? t('routines.enabledToast') : t('routines.disabledToast') });
                         },
-                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); },
+                        onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.updateFailed'), description: messageForUser(error), tier: 'error' }); },
                       }
                     )
                   }
@@ -308,7 +308,7 @@ const RoutineDetail = observer(function RoutineDetail({ context, id }: { context
                         toast({ title: t('routines.deleted') });
                         context.go({ tab: 'tasks' });
                       },
-                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); },
+                      onError: (error) => { rendererLogger('actions/assistant-tasks').error({ error: error }, 'action failed'); toast({ title: t('routines.deleteFailed'), description: messageForUser(error), tier: 'error' }); },
                     }),
                 })
               }

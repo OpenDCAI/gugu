@@ -186,7 +186,7 @@ export function AgentWatchPage({
           const phone = isPhoneDevice(device)
           if (phone && result?.birthGroup?.status === 'failed') {
             log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
-            toast(messageForUser(result.birthGroup.error), 'error')
+            toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
           }
           const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
           if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {

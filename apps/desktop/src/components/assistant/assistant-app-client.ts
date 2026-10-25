@@ -66,6 +66,6 @@ export async function reportAssistantAppChange(
   try { await publishAssistantAppChange(machine, change, assistantId, expectedOwnerId); }
   catch (error) {
     rendererLogger('assistant/app').error({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
-    toast({ title: messageForUser(error), tier: 'warning' });
+    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), description: messageForUser(error), tier: 'warning' });
   }
 }

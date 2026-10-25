@@ -183,7 +183,7 @@ export function AgentLookEditor({
       later(() => setCelebrating(false), 2600)
     } catch (err) {
       log.error({ err: String((err as Error)?.message ?? err) }, 'saving agent look failed')
-      toast(messageForUser(err), 'error')
+      toast(t('settings.look.saveFailed'), 'error', messageForUser(err))
     } finally {
       setSaving(false)
     }

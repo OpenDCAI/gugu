@@ -34,7 +34,7 @@ export function AgentPermissionBand({ pending, respond }: {
   }
   const failed = (error: unknown) => {
     permissionLog.error({ itemId: pending.itemId, error: error instanceof Error ? error.message : String(error) }, 'chat-page permission answer failed')
-    toast(messageForUser(error), 'error')
+    toast(t('agent.taskpage.permission.failed'), 'error', messageForUser(error))
   }
   // D-31 An App install the host asks for this agent: this window's own sheet first, then the session (with its places).
   const install = appInstallAskOf(pending.host)

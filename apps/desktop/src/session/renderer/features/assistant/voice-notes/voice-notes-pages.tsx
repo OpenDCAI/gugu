@@ -228,7 +228,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       toast({ title: t('deleted') });
       context.go({ tab: 'memory', sub: VOICE_NOTE_SUB });
     } catch (error) { log.error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('deleteFailed'), description: messageForUser(error), tier: 'error' });
     }
   };
   const confirmRemove = () =>
@@ -245,7 +245,7 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       await retryVoiceNote(id);
       await invalidate('voice');
     } catch (error) { log.error({ error: error }, 'action failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: t('retryFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setRetrying(false);
     }
@@ -256,15 +256,15 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       toast({ title: t('summaryCopied') });
     } catch (error) {
       log.error({ error }, 'voice note summary copy failed');
-      toast({ title: safeFailureLine(String((error as Error)?.message ?? error)), tier: 'error' });
+      toast({ title: t('copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), tier: 'error' });
     }
   };
   const exportNote = async () => {
     try {
       const saved = await rpc.app.saveTextFile({ title: t('exportTitle'), defaultPath: exportFileName(title), content: exportMarkdown({ title, summary: data?.summary ?? null, lines: data?.lines ?? [] }) });
-      if (!saved.success) { log.error('voice note export failed', { error: saved.error }); toast({ title: messageForUser(saved.error), tier: 'error' }); }
+      if (!saved.success) { log.error('voice note export failed', { error: saved.error }); toast({ title: t('exportFailed'), description: messageForUser(saved.error), tier: 'error' }); }
       else if (saved.path) toast({ title: t('exported') });
-    } catch (error) { log.error('voice note export failed', { error }); toast({ title: messageForUser(error), tier: 'error' }); }
+    } catch (error) { log.error('voice note export failed', { error }); toast({ title: t('exportFailed'), description: messageForUser(error), tier: 'error' }); }
   };
 
   const sub = [

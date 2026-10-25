@@ -1,3 +1,4 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';
@@ -24,7 +25,7 @@ export function CommandBlock({ command, testId, copyButtonRef }: {
     if (timer.current) clearTimeout(timer.current)
   }, [])
   const copy = useCallback(async () => {
-    try { await platform.writeClipboardText(command) } catch (error) { rendererLogger('actions/CommandBlock').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'error' }); return }
+    try { await platform.writeClipboardText(command) } catch (error) { rendererLogger('actions/CommandBlock').error({ error: error }, 'action failed'); toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' }); return }
     setCopied(true)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setCopied(false), 1500)

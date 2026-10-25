@@ -110,7 +110,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
               setPreview(null)
               await downloadBlob(blob, plan.name).catch((error: unknown) => {
                 log.error({ error, path: plan.path }, 'opened file save failed')
-                toast(messageForUser(error), 'error')
+                toast(t('agentWatch.output.saveFailed'), 'error', messageForUser(error))
               })
               return
             }
@@ -145,7 +145,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         () => toast(t('agentWatch.output.copied')),
         (error: unknown) => {
           log.error({ error }, 'opened-output copy failed')
-          toast(messageForUser(error), 'error')
+          toast(t('agentWatch.output.copyFailed'), 'error', messageForUser(error))
         },
       )
     },
@@ -215,7 +215,7 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         onClose={close}
         actions={messageActionItems({ isMine: false, isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
           log.error({ error, name: preview.file.fileName }, 'opened file save failed')
-          toast(messageForUser(error), 'error')
+          toast(t('agentWatch.output.saveFailed'), 'error', messageForUser(error))
         }) : undefined }, messageT)}
       /> : null}
     </Sheet>

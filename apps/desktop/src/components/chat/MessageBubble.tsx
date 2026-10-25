@@ -244,7 +244,7 @@ export const MessageBubble = memo(function MessageBubble({
       await navigator.clipboard.writeText(content)
       toast(t('message.copied'), 'success')
     } catch (error) {
-      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+      toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
   }
   const [showMenu, setShowMenu] = useState(false)
@@ -289,7 +289,7 @@ export const MessageBubble = memo(function MessageBubble({
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
     onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
-    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')); close() } : undefined,
+    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,

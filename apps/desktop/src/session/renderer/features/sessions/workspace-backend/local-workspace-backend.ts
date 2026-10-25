@@ -61,7 +61,7 @@ async function importLocalFiles(scope: WorkspaceTreeScope, srcPaths: string[], d
       return;
     }
     log.error('[file-tree] copying dropped files failed', { destDirPath, error: resultErrorMessage(error) });
-    toast({ title: messageForUser(resultErrorMessage(error)), variant: 'destructive' });
+    toast({ title: translateSessionMessage('fileTree.importFailed'), description: messageForUser(resultErrorMessage(error)), variant: 'destructive' });
   };
 
   try {

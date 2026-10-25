@@ -105,7 +105,7 @@ export function AgentFloodThresholdSetting({
       .catch((error: unknown) => {
         floodLog.error({ error, chatId }, 'agent flood threshold save failed')
         setDraft(null)
-        toast(messageForUser(error), 'error')
+        toast(t('group.settings.agentFloodSaveFailed'), 'error', messageForUser(error))
       })
       .finally(() => { saving.current = false; setBusy(false) })
   }, [chatId, draft, value, editable, onSaved, toast])

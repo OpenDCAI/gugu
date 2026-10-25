@@ -93,8 +93,8 @@ export function useSidebarDrop() {
           } catch (err) {
             log.error('Failed to add dropped project:', err);
             toast({
-              title: messageForUser(err),
-              description: `Failed to add ${basenameFromAnyPath(filePath)} as a project.`,
+              title: 'Cannot add project',
+              description: messageForUser(err),
               variant: 'destructive',
             });
             return null;

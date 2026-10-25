@@ -101,7 +101,7 @@ function DeepSampleButton() {
       if (res.success && res.data) toast({ title: translate('palette.deepSampleSaved'), description: res.data, tier: 'success' });
     } catch (error) {
       log.error({ error: String(error) }, 'deep sample failed');
-      toast({ title: messageForUser(error), tier: 'error' });
+      toast({ title: translate('palette.deepSampleFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setRunning(false);
     }

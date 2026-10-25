@@ -191,7 +191,7 @@ export function DevicesSection({
 
   const copyAddress = useCallback(async (address: string) => {
     try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
-    catch (error) { log.error({ error }, 'device address copy failed'); toast(messageForUser(error), 'error') }
+    catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
 
   const actionsDevice = actionsFor ? devices.find((d) => d.device_id === actionsFor) ?? null : null

@@ -31,7 +31,7 @@ export async function captureBrowserScreenshot(
   try {
     const result = await rpc.browser.captureScreenshot(session.browserId);
     if (result.success) toast({ title: translate('browser.screenshotCopied') });
-  } catch (error) { rendererLogger('actions/browser-toolbar-actions').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), variant: 'destructive' }); }
+  } catch (error) { rendererLogger('actions/browser-toolbar-actions').error({ error: error }, 'action failed'); toast({ title: translate('browser.screenshotFailed'), description: messageForUser(error), variant: 'destructive' }); }
 
 }
 

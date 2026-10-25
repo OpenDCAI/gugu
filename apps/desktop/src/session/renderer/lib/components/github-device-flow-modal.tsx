@@ -141,8 +141,8 @@ function GithubDeviceFlowModalBody({ onSuccess, onClose, onError }: Omit<GithubD
         log.error('Failed to copy:', err);
         if (!isAutomatic) {
           toast({
-            title: messageForUser(err),
-            description: 'Please copy the code manually',
+            title: 'Copy failed',
+            description: messageForUser(err),
             variant: 'destructive',
           });
         }

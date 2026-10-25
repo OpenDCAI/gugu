@@ -35,7 +35,7 @@ export async function downloadEntry(
     transfer = await transfers.download(entry);
   } catch (error) {
     log.error('[remote-files] 下载没开始', { error: String(error) });
-    toast({ title: messageForUser(error), tier: 'error' });
+    toast({ title: translateSessionMessage('remoteFiles.downloadFailed', { name: entry.name }), description: messageForUser(error), tier: 'error' });
     return;
   }
   if (!transfer) return;

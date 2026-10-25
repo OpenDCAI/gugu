@@ -75,7 +75,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
     } catch (err) {
       // 原因进日志,提示复用去敏后的同一原因。
       joinGroupLog.error({ publicId: parsedId, error: String(err) }, 'lookup public group failed')
-      toast(messageForUser(err), 'error')
+      toast(t('joinGroup.lookupFailed'), 'error', messageForUser(err))
     } finally {
       setLooking(false)
     }

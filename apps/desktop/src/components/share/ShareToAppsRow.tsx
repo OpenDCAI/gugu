@@ -31,7 +31,7 @@ export function ShareToAppsRow({ messages, onClose }: {
     onClose()
     resolveSharePlan(plan, attachmentResolver.resolve).then((payload) => platform.shareToApps(payload)).catch((error: unknown) => {
       log.error({ detail: error instanceof Error ? error.message : String(error) }, 'share to other apps failed')
-      toast(messageForUser(error), 'error')
+      toast(t('forward.shareFailed'), 'error', messageForUser(error))
     })
   }
   const onKeyDown = (event: KeyboardEvent) => {

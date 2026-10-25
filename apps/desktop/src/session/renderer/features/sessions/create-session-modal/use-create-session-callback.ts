@@ -338,7 +338,7 @@ export function useCreateSessionCallback({
       // retry needs no second write.
       void initialSession.rememberStartedConfiguration().catch((error: unknown) => {
         log.error('remember the started configuration failed', { error: error instanceof Error ? error.message : String(error) });
-        toast({ title: messageForUser(error), tier: 'warning' });
+        toast({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), description: messageForUser(error), tier: 'warning' });
       });
       // 字节早就落好了,库里那一行要等会话真的存在(外键)。补登记失败不阻断这一轮:附件照样
       // 到得了 agent(mention 指的是盘上那个真文件),只是少一行记录 —— 那种目录下次启动会被

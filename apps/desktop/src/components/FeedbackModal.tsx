@@ -169,7 +169,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
       setAttachedLog({ text: tail.text, lines: tail.lines, truncated: tail.truncated })
     } catch (error) { rendererLogger('actions/FeedbackModal').error({ error: error }, 'action failed');
       setAttachedLog(null)
-      toast(messageForUser(error), 'error')
+      toast(t('feedback.attachLog.unavailable'), 'error', messageForUser(error))
     } finally {
       setReadingLog(false)
     }

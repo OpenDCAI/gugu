@@ -92,7 +92,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
     (sidebarStore.placement.entries.get(id) ?? []).filter((entry) => entry.projectId === id).length;
   const failLinking = (error: unknown) => {
     log.error('[project-home] 把别的机器上的文件夹接进这个项目失败', { projectId, error });
-    toast({ tier: 'error', title: messageForUser(error) });
+    toast({ tier: 'error', title: translate('projects.folders.errorAttach'), description: messageForUser(error) });
   };
 
   // 挂到这个项目在那台机器上已有的本地项目下(与第一步同一条路)。

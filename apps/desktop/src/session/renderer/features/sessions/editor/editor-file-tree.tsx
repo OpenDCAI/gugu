@@ -312,14 +312,14 @@ const FileTreeRow = observer(function FileTreeRow({
       const result = await workspaceRpc(projectId).files.readFile(projectId, workspaceId, node.path, MAX_COPY_FILE_BYTES);
       if (!result.success) {
         toast({
-          title: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
+          title: translate('task.copyFailed'), description: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
           variant: 'destructive',
         });
         return;
       }
       if (result.data.truncated || result.data.binary) {
         toast({
-          title: translate(result.data.binary ? 'fileTree.cantShow' : 'fileTree.fileTooLarge'),
+          title: translate('task.copyFailed'), description: translate(result.data.binary ? 'fileTree.cantShow' : 'fileTree.fileTooLarge'),
           variant: 'destructive',
         });
         return;
@@ -329,7 +329,7 @@ const FileTreeRow = observer(function FileTreeRow({
     } catch (error) {
       log.error({ error }, 'file tree copy failed');
       toast({
-        title: safeFailureLine(String((error as Error)?.message ?? error)),
+        title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)),
         variant: 'destructive',
       });
     }
@@ -342,7 +342,7 @@ const FileTreeRow = observer(function FileTreeRow({
     } catch (error) {
       log.error({ error }, 'file tree copy failed');
       toast({
-        title: safeFailureLine(String((error as Error)?.message ?? error)),
+        title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)),
         variant: 'destructive',
       });
     }
@@ -352,7 +352,7 @@ const FileTreeRow = observer(function FileTreeRow({
     const result = await workspaceRpc(projectId).files.getAbsolutePath(projectId, workspaceId, node.path);
     if (!result.success) {
       toast({
-        title: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
+        title: translate('task.copyFailed'), description: safeFailureLine(resultErrorMessage(result.error, translate('fileTree.unknownError'))),
         variant: 'destructive',
       });
       return;

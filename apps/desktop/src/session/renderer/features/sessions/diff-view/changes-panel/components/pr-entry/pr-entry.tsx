@@ -170,8 +170,8 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
               .markReadyForReview(pr.url)
               .catch((error) => { rendererLogger('actions/pr-entry').error({ error: error }, 'action failed');
                 toast({
-                  title: messageForUser(error),
-                  description: translate('pr.markReadyFailedHint'),
+                  title: translate('pr.markReadyFailed'),
+                  description: messageForUser(error),
                   variant: 'destructive',
                 });
               })

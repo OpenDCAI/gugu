@@ -376,7 +376,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     userId: user?.id ?? null,
     closeRightSurfaces,
     subscribeAccountRevision,
-    onCreateFailed: (error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'),
+    onCreateFailed: (error) => toast(t('topic.openFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))),
   })
   topicSurfaceRef.current = topicSurface
   useEffect(() => { groupSlotMemory.setForm(activeChatId, workspaceForm); groupSlotMemory.showTopic(activeChatId, topicSurface.splitTopic) }, [activeChatId, workspaceForm, topicSurface.splitTopic]) // 摩擦单 F29;⑥ 右边正显示哪样
@@ -537,8 +537,8 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: returnToLatestMessages, onError: onHistoryError })
 
   const handleReaction = useCallback((messageId: string, emoji: string) => {
-    void toggleReaction(messageId, emoji).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))
-  }, [toggleReaction, toast])
+    void toggleReaction(messageId, emoji).catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
+  }, [toggleReaction, toast, t])
 
   // Stable rowProps — only changes when underlying data does, so visible rows are
   // not remounted on unrelated ChatAreaPanel re-renders.
@@ -1191,7 +1191,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
               const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
             }}
             onDownloadFile={(file) => {
-              void downloadAttachment(file.source, file.fileName).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))
+              void downloadAttachment(file.source, file.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))
             }}
             mentionMembers={splitMentionMembers}
             onSend={topicSurface.sendInSplit}
@@ -1208,10 +1208,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             currentUserId={user?.id ?? null}
             mobile={mobile}
             onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
-              .catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))}
+              .catch((error) => toast(t('message.actions.react'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
             onForward={handleForward} visible={surfaceVisible}
             onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
-              .catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))}
+              .catch((error) => toast(t('message.actions.delete'), 'error', safeFailureLine(String((error as Error)?.message ?? error))))}
           />
         )}
 

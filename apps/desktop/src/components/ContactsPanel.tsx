@@ -1814,7 +1814,7 @@ export function ContactsPanel({
         else await leaveGroup(g.id)
         toast(isOwner ? ct('toast.dissolvedGroup') : ct('toast.leftGroup'), 'success')
       } catch (error) {
-        toast(messageForUser(error), 'error')
+        toast(isOwner ? ct('toast.dissolveFailed') : ct('toast.leaveFailed'), 'error', messageForUser(error))
       }
     },
     [deleteChat, leaveGroup, toast]
@@ -1979,9 +1979,9 @@ export function ContactsPanel({
       toast(isOwnedAgent ? ct('toast.deletedAgent') : ct('toast.deletedContact'), 'success')
     } catch (error) {
       toast(
-        messageForUser(error),
+        isOwnedAgent ? ct('toast.deleteAgentFailed') : ct('toast.deleteContactFailed'),
         'error'
-      )
+      , messageForUser(error))
     }
   }
 
