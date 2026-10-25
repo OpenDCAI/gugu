@@ -17,10 +17,11 @@ const emojiData = data as unknown as EmojiMartData
 const emojiIds = new Map(Object.values(emojiData.emojis).flatMap((entry) => entry.skins.map(({ native }) => [native, entry.id] as const)))
 
 /** 桌面回应浮层与手机长按面板共用:一行常用 + 完整选择器,在原面板内切换。 */
-export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled = false, menu = false }: {
+export function EmojiQuickPicker({ anchor, onPick, onClose, onExpand, children, disabled = false, menu = false }: {
   anchor?: Element | RefObject<Element | null>
   onPick: (emoji: string) => void
   onClose: () => void
+  onExpand?: () => void
   children?: ReactNode
   disabled?: boolean
   menu?: boolean
@@ -53,7 +54,7 @@ export function EmojiQuickPicker({ anchor, onPick, onClose, children, disabled =
     <>
       <div role={menu ? 'group' : 'toolbar'} aria-label={t('emoji.quickReactions')} onKeyDown={handleToolbarKeyDown} className="grid grid-cols-7 justify-items-center pb-2">
         {emojis.map((emoji) => <QuickReactionButton key={emoji} menu={menu} title={reactionLabel(emoji, i18n.language) ?? emoji} label={t('emoji.reactWith', { emoji: `${emoji} ${reactionLabel(emoji, i18n.language) ?? ''}`.trim() })} onClick={() => pickQuick(emoji)}>{emoji}</QuickReactionButton>)}
-        <QuickReactionButton menu={menu} label={t('emoji.moreReactions')} onClick={() => setExpanded(true)}><Plus size={20} /></QuickReactionButton>
+        <QuickReactionButton menu={menu} label={t('emoji.moreReactions')} onClick={() => { setExpanded(true); onExpand?.() }}><Plus size={20} /></QuickReactionButton>
       </div>
       {children}
     </>
