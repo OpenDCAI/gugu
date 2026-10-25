@@ -9,6 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ showPage: vi.fn(), open: vi.fn(), clipboard: vi.fn(), toast: vi.fn() }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
+vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({ getSessionView: vi.fn() }));
+vi.mock('@renderer/lib/modal/modal-provider', () => ({ showModal: vi.fn() }));
+vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { currentViewId: 'home' } } }));
+vi.mock('@renderer/localization/locale-store', () => ({ translateSessionMessage: (key: string) => key }));
 
 vi.mock('@renderer/features/sessions/session-view-context', () => ({
   useWorkspaceSurface: () => ({ unreachableLabel: null }),
