@@ -464,6 +464,11 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
           || Number(b.online) - Number(a.online)
           || Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at))
     },
+    async activityDevices() {
+      const { thisDeviceId, rows } = await devices()
+      return rows.filter(isAgentHostDevice).map(d => ({ device_id: d.device_id, label: d.label,
+        online: d.is_online, this_machine: d.device_id === thisDeviceId }))
+    },
     thisDevice,
     isThisDevice: async (deviceId: string) => deviceId === await deps.thisDeviceId(),
     call,

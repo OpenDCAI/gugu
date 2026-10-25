@@ -446,6 +446,7 @@ import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe, type SharedSshLinks } fro
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
+import { createActivityDeviceQuery } from './activity-device-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
 import { computerName, ensureGuguKey, guguKeyComment, guguKeyDir } from './server/ssh-key-install'
 import {
@@ -4460,6 +4461,7 @@ app.whenReady().then(async () => {
         remote: crossMachine().messageDeps(() => remoteCaller(auth, context), signal),
       })
     }
+    const listActivity = createActivityDeviceQuery()
     localSessionActionDispatcher = async (auth, context, action, signal) => {
       signal.throwIfAborted()
       if (!action || typeof action !== 'object') {
@@ -4474,6 +4476,15 @@ app.whenReady().then(async () => {
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
+      if (record.action === 'activity_list') {
+        const caller = await remoteCaller(auth, context)
+        return listActivity(record, { scope: `${auth.userId}:${context.sessionId}`,
+          devices: () => crossMachine().activityDevices(),
+          query: (device, query, stepSignal) => device.this_machine
+            ? emdash.runSessionAction(context, { action: 'activity_list', ...query }, stepSignal)
+            : crossMachine().runOnDevice(device.device_id, caller, { action: 'activity_list', ...query }, stepSignal),
+        }, signal)
+      }
       // gugu-dev#181 ⑨ 问自群里的那一句,问题卡也进那个群(question-card.ts)。
       if (record.action === 'ask_user') {
         const asked = await emdash.runSessionAction(context, record as SessionAction, signal)
