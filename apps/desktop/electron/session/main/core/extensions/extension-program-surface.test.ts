@@ -77,10 +77,9 @@ vi.mock('@main/core/projects/operations/getProjects', () => ({
     { id: '00000000-0000-4000-8000-000000000001', name: '任务工作区', path: '/home/.gugu/tasks' },
   ],
 }));
-const sendFromApp = vi.fn(async () => ({ id: 'm-1' }));
-const messageAgentFromApp = vi.fn(async () => ({ id: 'm-2' }));
+const dispatchForApp = vi.fn(async (_id: string, args: { to?: unknown }) => ({ to: args.to, id: 'm-1' }));
 const messagesHistory = vi.fn(async () => ({ messages: [], next: null }));
-vi.mock('@main/core/extensions/extension-send', () => ({ sendFromApp, messageAgentFromApp, messagesForApp: { history: messagesHistory, search: vi.fn() } }));
+vi.mock('@main/core/extensions/extension-send', () => ({ dispatchForApp, messagesForApp: { history: messagesHistory, search: vi.fn() } }));
 
 const { attachProgramSurface } = await import('./extension-program-surface');
 const { notifyGroupWorkspaceChanged, setExtensionBridgeHost } = await import('./extension-bridge');
@@ -362,11 +361,8 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('files:write');
     expect(await call(child, 21, 'filesUpload', { place: { chat: BOARD_CHAT }, files })).toMatchObject({ ok: true, value: [{ id: 'new-file' }] });
     expect(uploadAppFiles).toHaveBeenCalledWith(expect.objectContaining({ handed: null }), { chat: BOARD_CHAT }, files, undefined);
-    expect(await call(child, 22, 'filesUpload', { place: { chat: BOARD_CHAT }, pick: true })).toMatchObject({
-      ok: false,
-      code: 'invalid',
-      message: expect.stringMatching(/a program uploads the bytes it has; only a page opens the picker/),
-    });
+    // The picker is a page's, in its gesture: refused at the door, before the verb.
+    expect(await call(child, 22, 'filesUpload', { place: { chat: BOARD_CHAT }, pick: true })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });
     expect(uploadAppFiles).toHaveBeenCalledTimes(1);
   });
 
@@ -480,17 +476,19 @@ describe('an App program as a caller of its App (F16)', () => {
     });
   });
 
-  it('send whispers in the chat of the file it is about (chat:relay at the door); messageAgent tells one of the person\'s agents', async () => {
+  it('dispatch to a member (chat:relay at the door) or one of the person\'s agents (agents:control); never the sheet', async () => {
     const child = fakeChild();
     attachProgramSurface('board', child as unknown as ChildProcess);
-    const args = { to: 'user:a', text: 'card 17 was marked doubtful', refs: [{ file: { id: 'item-board' } }] };
-    expect(await call(child, 7, 'send', args)).toMatchObject({ ok: false, code: 'denied' });
+    const MEMBER = 'user:0a000000-0000-4000-8000-0000000000a4';
+    const args = { to: { chat: BOARD_CHAT, member: MEMBER }, text: 'card 17 was marked doubtful', refs: [{ file: { id: 'item-board' } }] };
+    expect(await call(child, 7, 'dispatch', args)).toMatchObject({ ok: false, code: 'denied' });
     granted.add('chat:relay');
-    expect(await call(child, 8, 'send', args)).toMatchObject({ ok: true, value: { id: 'm-1' } });
-    expect(sendFromApp).toHaveBeenCalledWith('board', args, {});
+    expect(await call(child, 8, 'dispatch', args)).toMatchObject({ ok: true, value: { to: args.to, id: 'm-1' } });
+    // A program's call is the person's: no page, no chat drawn, nobody working a page.
+    expect(dispatchForApp).toHaveBeenCalledWith('board', args, { chat: null, current: null }, expect.objectContaining({ pick: expect.any(Function) }));
     granted.add('agents:control');
-    expect(await call(child, 9, 'messageAgent', { agentId: 'user:a', text: 'run it' })).toMatchObject({ ok: true, value: { id: 'm-2' } });
-    expect(messageAgentFromApp).toHaveBeenCalledWith('board', { agentId: 'user:a', text: 'run it' }, {});
+    expect(await call(child, 9, 'dispatch', { to: { agent: MEMBER }, text: 'run it' })).toMatchObject({ ok: true, value: { to: { agent: MEMBER } } });
+    expect(await call(child, 10, 'dispatch', { text: 'whom?' })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });
   });
 
   // Control (the parent commit a770f2e40d): `files.onChanged` was on a program's gugu and never fired.

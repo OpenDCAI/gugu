@@ -469,9 +469,9 @@ describe('group-json template: app.js is the agent\'s part, gugu\'s glue.js the 
   });
 
   // L6 S7: the App sent each event to every agent of the group, and owner and non-owner did the same work twice.
-  it('send is shown to one agent, the one the event concerns — never all agents of the group', () => {
+  it('a dispatch is shown to one agent, the one the event concerns — never all agents of the group', () => {
     const { files } = extensionTemplate('group-json', { id: 'board', name: 'Board' });
-    expect(files['app.js']).toContain("gugu.send(card.owner, 'Card \"…\" is yours', { refs: [{ file: f.entry }] })");
+    expect(files['app.js']).toContain("gugu.dispatch('Card \"…\" is yours', { to: { chat, member: card.owner }, refs: [{ file: f.entry }] })");
     expect(files['app.js']).toContain('never every agent');
     expect(files['app.js']).not.toMatch(/kind === 'agent'\)\.forEach|for \(const \w+ of members/);
   });

@@ -215,22 +215,20 @@ Free:
 - \`broadcastToViews(message)\` → background → live views, resolves \`{ delivered }\` (0 is normal).
 - \`onViewMessage(fn)\` → background hears \`(message, from)\`; \`from\`: host-stamped sender context.
 
-Handing something to someone — one call (\`apiVersion\` 15):
+Handing something to someone (\`apiVersion\` 15):
 
-- \`dispatch(text, { to?, draft?, refs?, images?, visible?, delivery?, key?, spawn?, offer? })\` →
-  \`{ to, id?, deferred? }\` or \`{ cancelled: true }\`. \`to\`: \`{ chat, member }\` a member of a chat (a whisper in the
-  operator's name; \`visible: true\`: the chat sees it, @ them), \`{ agent }\` one of the person's agents (as
-  \`session_message\`; \`delivery: 'queue' | 'defer'\`, \`key\` replaces your waiting one), \`{ new: true }\` a new agent
-  (\`spawn\`: \`session_spawn\`'s words; answers \`{ to: { agent } }\`). \`draft: true\`: only into \`{ chat }\`'s or
-  \`{ agent }\`'s composer (or the chat \`refs\` point into; \`images: [blob]\` a chat's) — they send it, or not.
-- No \`to\`, from a click or key: gugu's sheet shows the text (theirs to edit), every pill and whom — the chat's agents and
-  people, their tasks, a new agent (\`offer\` narrows: \`chat\`, \`agent-in-chat\`, \`person-in-chat\`, \`my-agent\`,
-  \`new-agent\`) — and their press is the consent: no capability. Never a list, picker or composer of your own.
-- Naming \`to\` sends straight away: \`{ chat, member }\` needs \`chat:relay\`, \`{ agent }\` / \`{ new }\` \`agents:control\`
-  (reach: \`apps-agents\`). A program or the background page can only name it. Tell only whom it concerns ("your move");
-  keep state in the file; drop anyone no longer in \`chat.members\`. Refused: \`not-found\` (left, never there, yourself,
-  not reachable here — a phone reaches no agent yet), \`denied\`, \`rate-limited\` (30/minute per person and App to a
-  chat), \`invalid\`. To let agents follow changes, give them a tool (\`apps-programs\`): gugu supplies its caller's id.
+- \`dispatch(text, { to?, draft?, refs?, images?, visible?, delivery?, key?, spawn?, offer? })\` → \`{ to, id?, deferred? }\` |
+  \`{ cancelled: true }\`. \`to\`: \`{ chat, member }\` (a whisper as the operator; \`visible: true\`: the chat sees it),
+  \`{ agent }\` (as \`session_message\`; \`delivery: 'queue' | 'defer'\`, \`key\` replaces your waiting one), \`{ new: true }\`
+  (\`spawn\`: \`session_spawn\`'s words; answers \`{ to: { agent } }\`). \`draft: true\`: only into \`{ chat }\`'s / \`{ agent }\`'s
+  composer (or \`refs\`' chat; \`images: [blob]\` a chat's) — they send it, or not.
+- No \`to\` (a click or key): gugu's sheet shows the text (theirs to edit), the pills and whom — the chat's agents and people,
+  their tasks, a new agent (\`offer\`: \`chat\` \`agent-in-chat\` \`person-in-chat\` \`my-agent\` \`new-agent\`); their press is the
+  consent, no capability. Never a picker of your own.
+- Naming \`to\` sends at once: \`{ chat, member }\` needs \`chat:relay\`, \`{ agent }\` / \`{ new }\` \`agents:control\`
+  (\`apps-agents\`); a program or background page must name it. Tell only whom it concerns; keep state in the file.
+  Refused: \`not-found\` (left, yourself, not reachable — a phone reaches no agent yet), \`denied\`, \`rate-limited\`
+  (30/minute to a chat), \`invalid\`. Agents following changes: a tool (\`apps-programs\`), gugu stamps its caller.
 
 Free, from a click or key (they read and write no data):
 
@@ -410,7 +408,7 @@ export const follow = {
   serves every session; gugu starts it on first use and stops it when idle (never while it holds a chat file open).
   A program on \`node\` has the global \`gugu\` — a page's, but for the page's own verbs; a \`worker_threads\`
   worker has none (relay through the main thread yourself). It opens a chat file it
-  is handed by its id, \`{ id }\`, and \`gugu.dispatch(text, { to: { chat, member }, refs: [{ file: f.entry }] })\` whispers in that file's chat.
+  is handed by its id, \`{ id }\`, and \`gugu.dispatch(text, { to: { chat, member }, refs })\` whispers in that file's chat.
   A file it makes goes in with \`gugu.files.upload(place, file)\` (\`files:write\`) — into the chat of a file an agent
   handed it, as that agent, judged by the agent's membership; a stored file it is handed
   gets its next version with \`gugu.files.replace(file, blob, { expectedVersion: entry.version })\` (needed;

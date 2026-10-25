@@ -38,7 +38,6 @@ import {
   verbFacts,
   needsGesture,
   callRefusal,
-  CALLER_WORDS,
 } from '@shared/extensions/bridge-protocol';
 import {
   watchWorkspaceForSurface,
@@ -1766,11 +1765,8 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const files = await import('@main/core/extensions/app-files');
       const page = asCallingAgent(caller, await resourcePage(caller, args), args);
       const place = placeOf(args.place);
-      // `pick` only ever arrives from the preload's gesture-checked path — a page's: a background page or a program
-      // uploads bytes it has (G5), it never opens the person's picker.
-      if (args.pick === true && caller.kind !== 'page') {
-        throw Object.assign(new Error(`files.upload(place, file): ${CALLER_WORDS[caller.kind]} uploads the bytes it has; only a page opens the picker`), { code: 'invalid' });
-      }
+      // `pick` is a page's, in its gesture (the door refuses it from anyone else): a background page or a program uploads
+      // the bytes it has (G5), it never opens the person's picker.
       // The window the page is drawn in: the picker sits on it.
       const shown = args.pick === true ? thePage(caller) : null;
       const owner = shown?.embedderId == null ? null : (webContents.fromId(shown.embedderId) ?? null);
