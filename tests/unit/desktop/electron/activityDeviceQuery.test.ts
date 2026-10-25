@@ -22,6 +22,15 @@ const deps = (query: (device: ActivityDevice, q: Record<string, unknown>, signal
 afterEach(() => vi.useRealTimers())
 
 describe('device activity aggregation on the Agent control path', () => {
+  it('uses current published titles for old hosts, while an authoritative empty title set removes stale names', async () => {
+    const source = { ...deps(async () => page([event('metadata', start + 1)])),
+      devices: async () => [{ ...devices[0], session_titles: { s: 'Published name' } }] }
+    const first = await createActivityDeviceQuery()(action, source, signal())
+    expect(first.session_titles.cloud).toEqual({ s: 'Published name' })
+    const missing = await createActivityDeviceQuery()(action, { ...source,
+      query: async () => ({ ...page([event('deleted', start + 1)]), session_titles: {} }) }, signal())
+    expect(missing.session_titles.cloud).toEqual({})
+  })
   it('queries all task hosts, labels and sorts events, and explicitly includes offline devices in gaps', async () => {
     const query = vi.fn(async (d: ActivityDevice) => d.device_id === 'cloud'
       ? page([event('cloud-event', start + 20)]) : page([event('mac-event', start + 10)]))

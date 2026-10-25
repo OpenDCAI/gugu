@@ -467,7 +467,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     async activityDevices() {
       const { thisDeviceId, rows } = await devices()
       return rows.filter(isAgentHostDevice).map(d => ({ device_id: d.device_id, label: d.label,
-        online: d.is_online, this_machine: d.device_id === thisDeviceId }))
+        online: d.is_online, this_machine: d.device_id === thisDeviceId,
+        session_titles: Object.fromEntries((d.session_digest ?? []).map(s => [s.conversationId, s.title])) }))
     },
     thisDevice,
     isThisDevice: async (deviceId: string) => deviceId === await deps.thisDeviceId(),

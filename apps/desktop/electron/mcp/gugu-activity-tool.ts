@@ -7,7 +7,8 @@ const device_id = z.string().min(1).describe('device:<id> from session_devices.'
 export const ACTIVITY_TOOL_DEFS: readonly SessionpageToolDef[] = [
   { name: 'activity_list', action: 'activity_list',
     description: 'Metadata for what agents did and when. Chat claims are not executor records. All task devices unless device_id selects one. Gaps mean no record, not no work. Turn done is not acceptance; external CLI must enroll. activity_context reads sources.',
-    schema: z.object({ device_id, since: z.string().datetime({ offset: true }), until: z.string().datetime({ offset: true }),
+    schema: z.object({ device_id, since: z.string().datetime({ offset: true }).optional(), until: z.string().datetime({ offset: true }).optional(),
+      time_zone: z.string().min(1).optional(), details: z.boolean().optional(),
       session_id: z.string().min(1).optional(), project_id: z.string().min(1).optional(),
       limit: z.number().int().min(1).max(200).optional(), cursor: z.string().optional() }).strict() },
   { name: 'activity_context', action: 'activity_context',

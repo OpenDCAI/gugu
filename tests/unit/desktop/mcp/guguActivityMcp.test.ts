@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createActivityDeviceQuery } from '../../../../apps/desktop/electron/activity-device-query';
+import { createActivitySummaryQuery } from '../../../../apps/desktop/electron/activity-summary-query';
 import { createCrossMachineSessions } from '../../../../apps/desktop/electron/cross-machine-sessions';
 import type { Device } from '@gugu/core/shared/types/chat';
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract';
@@ -31,7 +31,7 @@ describe('activity tools at the real MCP boundary', () => {
     const since = '2026-10-25T00:00:00Z', until = '2026-10-25T01:00:00Z';
     const start = Date.parse(since), end = Date.parse(until);
     const source = (id: string) => ({ events: [{ event_id: id, kind: 'session.created', occurred_at: start + 1,
-      observed_at: start + 1, sequence: 1, session_id: 's1' }], next_cursor: null,
+      observed_at: start + 1, sequence: 1, session_id: 's1' }], session_titles: { s1: '工作会话' }, next_cursor: null,
       coverage: { queried_at: end, collector_running: true, segments: [{ started_at: start, ended_at: end, last_seen_at: end }],
         untracked: [], note: 'Metadata only' } });
     const devices = ['cloud', 'mac', 'offline'].map(id => ({ device_id: id, label: id, platform: 'darwin',
@@ -42,7 +42,7 @@ describe('activity tools at the real MCP boundary', () => {
     const request = vi.fn(async () => ({ result: { value: source('mac-event') } }));
     const cross = createCrossMachineSessions({ thisDeviceId: async () => 'cloud', listDevices: async () => devices,
       lookupAgents: async () => [], requester: { call: request } });
-    const aggregate = createActivityDeviceQuery();
+    const aggregate = createActivitySummaryQuery();
     const server = new McpServer({ name: 'aggregate-test', version: '1' });
     registerGuguActivityTools(server, (action, signal) => aggregate(action as Record<string, unknown>, {
       scope: 'owner:caller', devices: () => cross.activityDevices(),
@@ -55,9 +55,10 @@ describe('activity tools at the real MCP boundary', () => {
     try {
       const result = await client.callTool({ name: 'activity_list', arguments: { since, until } });
       const value = JSON.parse((result.content as Array<{ text: string }>)[0].text);
-      expect(value.events.map((e: { device_id: string }) => e.device_id)).toEqual(['device:cloud', 'device:mac']);
-      expect(value.events[0].session_id).toBe('session:s1');
-      expect(value.coverage.gaps).toContainEqual(expect.objectContaining({ device_id: 'device:offline', reason: 'offline' }));
+      expect(value.sessions.map((e: { device_id: string }) => e.device_id)).toEqual(['device:cloud', 'device:mac']);
+      expect(value.sessions[0]).toMatchObject({ session_id: 'session:s1', session_name: '工作会话' });
+      expect(value).not.toHaveProperty('events');
+      expect(value.gaps).toContainEqual(expect.objectContaining({ device_id: 'device:offline', reason: 'offline', statement: '未采集，不能断定在不在工作' }));
       expect(request).toHaveBeenCalledOnce();
       expect(request).toHaveBeenCalledWith('mac', 'taskhost.call', { channel: 'agentSession.activity_list',
         args: [caller, expect.objectContaining({ action: 'activity_list', since, until })] }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
