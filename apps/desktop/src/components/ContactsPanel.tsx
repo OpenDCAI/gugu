@@ -40,7 +40,6 @@ import {
   Users,
   X, Zap
 } from '@/lib/icons'
-import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useContactsStore } from '../store/contactsContext'
 import { useChatStore } from '../store/chatContext'
@@ -56,10 +55,11 @@ import { ContactsPersonSectionState, ContactsGroupSectionState } from './contact
 import { ContactsDeviceSections } from './contacts/ContactsDeviceSections'
 import { ContactGroupAvatar, ContactSearch, SelectionCheckbox } from './contacts/ContactSearch'
 import { ContactsListDock } from './contacts/ContactsListDock'
+import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { Button } from './ui/Button'
 import { useToast } from './toastContext'
 import type { ContactGroup, ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
-import { getAgentTypeLabel, isCloudAgentMarked } from '@gugu/core/shared/enums/agentTypeModels'
+import { isCloudAgentMarked } from '@gugu/core/shared/enums/agentTypeModels'
 import { chatService } from '../lib/chat'
 import { persistableGroupRoster, replaceGroupRoster } from '../lib/imRepository'
 import { rendererLogger } from '../lib/log'
@@ -68,7 +68,7 @@ import { getGroupRoleLabel } from '@gugu/core/shared/enums/groupRoleModels'
 import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { platform } from '../platform'
-import type { AgentType, GroupMemberItem } from '@gugu/core/shared/types/chat'
+import type { GroupMemberItem } from '@gugu/core/shared/types/chat'
 import type { QrScanRoute } from '../lib/qrScanRoute'
 // @@@1397 群邀请 QR 与可复制链接同口径：都走 buildGroupInviteShareUrl(VITE_GUGU_WEB_URL/invite 落地页)，
 // 不再让 QR 单独编码 Android 下载页基址 → 扫码/点链都落同一 env 域名(app.gugu.nextmind.space)。
@@ -173,12 +173,6 @@ function formatDateTime(value?: string | null): string {
     hour: '2-digit',
     minute: '2-digit'
   })
-}
-
-function getAgentTypeText(contact: ContactUser): string {
-  if (contact.agent_type) return getAgentTypeLabel(contact.agent_type as AgentType)
-  const match = contact.bio?.match(/Agent 类型：\s*([^·]+)/)
-  return resolveOrLoud(match?.[1]?.trim(), `agent type for ${contact.id}`)
 }
 
 function getAgentProjectPath(contact: ContactUser): string | null {
@@ -1064,8 +1058,6 @@ function AgentDetail({
   getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
 }) {
   const { user } = useAuth()
-  const { renameAgent } = useContactsStore()
-  const [renaming, setRenaming] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [visibilitySaving, setVisibilitySaving] = useState(false)
   const { status, presence, opening, openRuntime: handleOpenRuntime } = useAgentDisplayStatus(contact.id)
@@ -1083,7 +1075,6 @@ function AgentDetail({
   const canOpenCommonGroup = Boolean(!isOwned && commonGroup && onOpenGroupChat)
   useEffect(() => {
     if (allowsLiveActions) return
-    setRenaming(false)
     setShowShareModal(false)
   }, [allowsLiveActions])
   const togglePublic = async () => {
@@ -1110,27 +1101,13 @@ function AgentDetail({
       <div className="flex items-start gap-4">
         <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size="lg" isAgent />
         <div className="min-w-0 flex-1">
-          {renaming ? (
-            <div className="max-w-[280px]">
-              <GroupNameEditor
-                value={contact.display_name}
-                placeholder={ct('panel.agentSectionTitle')}
-                onSave={async (name) => { await renameAgent(contact.id, name); setRenaming(false) }}
-                onCancel={() => setRenaming(false)}
-              />
-            </div>
-          ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className={detailTitleClass}>{contact.display_name}</h2>
+            <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={detailTitleClass}>
+              <h2>{contact.display_name}</h2>
+            </OwnedAgentNameEditor>
             <Chip>{ct('common.agent')}</Chip>
             <AgentContactStatusChip agentId={contact.id} tone={statusTone} label={statusLabel} />
-            {isOwned && allowsLiveActions ? (
-              <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
-                {ct('common.edit')}
-              </Button>
-            ) : null}
           </div>
-          )}
           {contact.bio ? (
             <p className="!mt-2 max-w-[620px] text-sm text-[var(--muted-fg)]">
               {contact.bio}
@@ -1214,7 +1191,6 @@ function AgentDetail({
         {allowsLiveActions ? <FieldRow label={ct('profile.desiredStatus')} value={desiredStatus === 'offline' ? ct('profile.manualOffline') : ct('profile.online')} /> : null}
         <FieldRow label={ct('profile.source')} value={sourceText} />
         <FieldRow label={ct('profile.createdAt')} value={formatDateTime(contact.created_at)} />
-        {allowsLiveActions ? <FieldRow label={ct('profile.agentType')} value={getAgentTypeText(contact)} /> : null}
         {allowsLiveActions ? (
           <FieldRow
             label={ct('profile.publicStatus')}

@@ -127,11 +127,10 @@ export function AgentContactProfileCard({
       <div className={avatarClass()}>
         <Avatar name={contact.display_name} avatarUrl={contact.avatar} seed={contact.id} size={96} isAgent />
       </div>
-      <div className={styles.name}>
+      <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} className={styles.name}>
         {contact.display_name}
         <span className={styles.bolt}><Zap size={13} /></span>
-      </div>
-      <OwnedAgentNameEditor key={contact.id} agentId={contact.id} name={contact.display_name} ownerUserId={contact.owner_user_id} status={status} />
+      </OwnedAgentNameEditor>
       {tone ? (
         <div className={statusClass(tone)}>
           {tone === 'needs_user' ? (
