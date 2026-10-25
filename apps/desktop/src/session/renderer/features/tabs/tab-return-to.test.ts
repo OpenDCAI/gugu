@@ -129,11 +129,11 @@ describe('tab return navigation', () => {
     const { layout, pane, open } = setup();
     const origin = open('origin');
     const child = open('child', { returnTo: { tabId: origin } });
-    const windowId = layout.detachToWindow(child, pane.id);
+    const windowId = layout.detachToWindow(child);
     expect(windowId).toBeTruthy();
     const windowPane = layout.windowPanes.get(windowId!)!.pane;
     expect(windowPane.returnToOf(child)).toEqual({ tabId: origin });
-    layout.returnWindowPane(windowId!);
+    layout.returnFromWindow(windowId!);
     expect(layout.focusedPane.returnToOf(child)).toEqual({ tabId: origin });
   });
 });
