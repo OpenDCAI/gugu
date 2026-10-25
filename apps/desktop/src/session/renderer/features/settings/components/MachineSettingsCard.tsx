@@ -32,7 +32,6 @@ export function MachineSettingsCard() {
       <DeviceSettingsNotice error={localProjectError} hasData={localProject !== undefined} />
       <SettingsRow
         title={translate('repository.defaultProjectsDirectory')}
-        description={translate('repository.defaultProjectsDirectoryDescription')}
         control={
           <Input
             key={defaultProjectsDirectory}

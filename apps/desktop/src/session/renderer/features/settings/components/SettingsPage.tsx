@@ -43,7 +43,6 @@ function GeneralSettingsPage() {
     <SettingsPage>
       <PageHeader
         title={translate('settings.general')}
-        description={translate('settings.generalDescription')}
       />
       <SettingsGroup>
         <AutoGenerateSessionNamesRow />
@@ -67,7 +66,6 @@ function InterfaceSettingsPage() {
     <SettingsPage>
       <PageHeader
         title={translate('settings.interface')}
-        description={translate('settings.interfaceDescription')}
       />
       <SettingsGroup>
         <SidebarTintRow />
@@ -92,7 +90,6 @@ function BrowserSettingsPage() {
     <SettingsPage>
       <PageHeader
         title={translate('settings.browser')}
-        description={translate('settings.browserDescription')}
       />
       <BrowserSettingsCard />
     </SettingsPage>

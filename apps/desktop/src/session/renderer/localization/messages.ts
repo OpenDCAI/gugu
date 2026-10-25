@@ -111,12 +111,9 @@ const enUSCoreMessages = {
   'palette.deepSampleSaved': 'Deep sample saved',
   'palette.deepSampleFailed': 'Deep sample failed',
   'settings.general': 'General',
-  'settings.generalDescription': 'Task defaults and notifications.',
   'settings.agents': 'Agents',
-  'settings.agentsDescription': 'Manage agents and model configurations.',
   'settings.refreshAgents': 'Refresh agent detection',
   'settings.integrations': 'Integrations',
-  'settings.integrationsDescription': 'Connect external services and tools.',
   // ── extensions: sandboxed tab surfaces ─────────────────────────────────
   'extensions.preparing': 'Preparing App',
   'extensions.activationFailed': 'This App could not be started',
@@ -461,9 +458,7 @@ const enUSCoreMessages = {
 
   'settings.extensions': 'Apps',
   'settings.interface': 'Interface',
-  'settings.interfaceDescription': 'Customize the appearance and behavior of gugu.',
   'settings.browser': 'Browser',
-  'settings.browserDescription': 'Manage browser profiles and their stored logins.',
   'settings.keyboardShortcuts': 'Keyboard shortcuts',
   'settings.tools': 'Tools',
   'settings.contextBar': 'Context bar',
@@ -477,8 +472,6 @@ const enUSCoreMessages = {
   'settings.confirmBeforeCancelAndSendDescription':
     'When you send a queued prompt while a turn is running, confirm before cancelling that turn. Turning it off cancels and sends right away — the dialog’s “Don’t ask again” lands here, and this row is how you get the question back.',
   'settings.chatView': 'Conversation view',
-  'settings.chatViewDescription':
-    'How agent conversations are laid out on the task page. Two columns puts your messages in a right-aligned pill with a left gutter; single column keeps every row full width.',
   'settings.chatViewSingle': 'Single column',
   'settings.chatViewDouble': 'Two columns',
   'update.version': 'Version',
@@ -1036,12 +1029,9 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'palette.deepSampleSaved': '已保存深度采样',
   'palette.deepSampleFailed': '深度采样失败',
   'settings.general': '通用',
-  'settings.generalDescription': '会话默认行为与通知。',
   'settings.agents': '智能体',
-  'settings.agentsDescription': '管理智能体和模型配置。',
   'settings.refreshAgents': '刷新智能体检测',
   'settings.integrations': '集成',
-  'settings.integrationsDescription': '连接外部服务和工具。',
   // ── extensions: sandboxed tab surfaces ─────────────────────────────────
   'extensions.preparing': '正在准备 App',
   'extensions.activationFailed': '这个 App 没能启动',
@@ -1345,9 +1335,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
 
   'settings.extensions': 'App',
   'settings.interface': '界面',
-  'settings.interfaceDescription': '自定义咕咕的外观和行为。',
   'settings.browser': '浏览器',
-  'settings.browserDescription': '管理浏览器配置及其已保存的登录状态。',
   'settings.keyboardShortcuts': '键盘快捷键',
   'settings.tools': '工具',
   'settings.contextBar': '上下文栏',
@@ -1361,8 +1349,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'settings.confirmBeforeCancelAndSendDescription':
     '回合进行中立即发送排队提示时，先确认是否取消当前回合。关掉就直接取消并发送 —— 确认框里的「不再询问」落的就是这一项，这一行是把它调回来的地方。',
   'settings.chatView': '对话视图',
-  'settings.chatViewDescription':
-    '项目页里 agent 对话的排版。双栏把你的消息收成右侧胶囊、左边留白；单栏每一行都占满整宽。',
   'settings.chatViewSingle': '单栏',
   'settings.chatViewDouble': '双栏',
   'update.version': '版本',

@@ -455,7 +455,6 @@ export default {
     },
     "topicInvite": {
       "title": "添加话题成员",
-      "hint": "从来源对话选择成员。添加后会在话题中发送邀请消息。",
       "search": "搜索成员",
       "message": "{{names}} 邀请你们加入话题。",
       "confirm": "添加（{{count}}）",
@@ -585,7 +584,6 @@ export default {
       "rules": "协作规则",
       "rulesPlaceholder": "群协作规则：核心原则、方向确认、协作约定…",
       "rulesUnset": "未设置协作规则",
-      "shareLinkHint": "分享此链接邀请他人加入群",
       "sharePoster": "分享本群（生成海报）",
       "title": "群设置",
       "unavailable": "不可用",
@@ -747,7 +745,6 @@ export default {
       "participantCount": "{{count}} 人参与",
       "participantCount_one": "{{count}} 人参与",
       "observer": "只看得见",
-      "observerHint": "你看得见这条话题，但它的消息不会通知你",
       "openedBy": "{{name}}开的",
       "quiet": "还没有人说话"
     },

@@ -124,7 +124,6 @@ const NotificationSettingsCard: React.FC = () => {
         <SettingsRow
           className={dimmed}
           title={translate('notifications.sound')}
-          description={translate('notifications.soundDescription')}
           control={
             <>
               <ResetToDefaultButton
@@ -146,7 +145,6 @@ const NotificationSettingsCard: React.FC = () => {
         <SettingsRow
           className={dimmed}
           title={translate('notifications.customSound')}
-          description={translate('notifications.customSoundDescription')}
           control={
             <>
               <ResetToDefaultButton
@@ -196,7 +194,6 @@ const NotificationSettingsCard: React.FC = () => {
         <SettingsRow
           className={dimmed}
           title={translate('notifications.soundTiming')}
-          description={translate('notifications.soundTimingDescription')}
           control={
             <>
               <ResetToDefaultButton

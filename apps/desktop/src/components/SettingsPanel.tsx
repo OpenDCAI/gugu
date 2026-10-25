@@ -8,7 +8,6 @@ import { AboutSection } from './settings/AboutSection'
 import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
 import { ConnectorsSection } from './settings/ConnectorsSection'
-import { SettingsNote } from './settings/SettingsPrimitives'
 import { DevicesSection } from './settings/DevicesSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
@@ -58,7 +57,6 @@ const MOBILE_SECTIONS_FOR_PLATFORM = sectionsFor(true)
 const DESKTOP_SECTIONS_FOR_PLATFORM = sectionsFor(false)
 const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant', 'connectors']
 /** 内页自己没有一句话说明的几页:由这里补在最上面(其余各页自己有,❌ 重复)。 */
-const PAGE_LEDE_SECTIONS: readonly ActiveSection[] = ['general', 'activity']
 const MobileAppsSection = lazy(() => import('./settings/MobileAppsSection').then((module) => ({ default: module.MobileAppsSection })))
 
 /**
@@ -195,7 +193,6 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
             />
             {/* @@@6436 内页排版(桌面与手机的内边距差别也在内)全在 settings/settings.css。 */}
             <div className="gg-settings-body window-no-drag-region">
-              {PAGE_LEDE_SECTIONS.includes(activeSection) ? <SettingsNote className="gg-settings-lede">{t(`settings.page.${activeSection}`)}</SettingsNote> : null}
               {renderSection()}
             </div>
           </Pane>

@@ -205,7 +205,7 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
     expect(container.querySelector('[data-testid="machine-picker"]')?.getAttribute('data-size')).toBe('compact');
   });
 
-  it('模块层挂一份:模块里每一页的标题右边都是同一个选择器、同一份选择,说明写出机器名', async () => {
+  it('模块层挂一份:模块里每一页的标题右边都是同一个选择器、同一份选择', async () => {
     mocks.hosts.set('d22', { device: host('d22', { hostKind: 'server', directTerminal: true }) });
     const library = new DeviceScopeStore('gugu.library.device', memoryStorage());
     const automations = new DeviceScopeStore('gugu.automations.device', memoryStorage());
@@ -219,13 +219,9 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
             null,
             React.createElement(PageHeader, {
               title: '提示词',
-              description: '管理提示词。',
-              remoteDescription: (device: string) => `管理 ${device} 上的提示词。`,
             }),
             React.createElement(PageHeader, {
               title: '智能体',
-              description: '管理智能体。',
-              remoteDescription: (device: string) => `管理 ${device} 上的智能体。`,
             })
           ),
         }
@@ -236,8 +232,6 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
           store: automations,
           children: React.createElement(PageHeader, {
             title: '已安排',
-            description: '按计划运行。',
-            remoteDescription: (device: string) => `按计划在 ${device} 上运行。`,
           }),
         }
       )
@@ -253,20 +247,14 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
     const selectedOf = (i: number) =>
       rows[i]?.querySelector('[data-testid="machine-picker"]')?.getAttribute('data-selected-id');
     expect([selectedOf(0), selectedOf(1), selectedOf(2)]).toEqual([LOCAL_DEVICE_SCOPE, LOCAL_DEVICE_SCOPE, LOCAL_DEVICE_SCOPE]);
-    // 本机时说明照旧。
-    expect(container.textContent).toContain('管理提示词。');
 
     // 在「提示词」页头上切到 d22:整个资源库(两页)都跟着,已安排仍是本机。
     const d22Row = rows[0]?.parentElement?.parentElement?.querySelector('[data-device-id="d22"]') as HTMLButtonElement;
     await act(async () => d22Row.click());
     expect([selectedOf(0), selectedOf(1), selectedOf(2)]).toEqual(['d22', 'd22', LOCAL_DEVICE_SCOPE]);
-    expect(container.textContent).toContain('管理 d22 上的提示词。');
-    expect(container.textContent).toContain('管理 d22 上的智能体。');
-    expect(container.textContent).toContain('按计划运行。');
-    expect(container.textContent).not.toContain('按计划在 d22 上运行。');
   });
 
-  it('资源库:模块层一个选择器在左栏列头下,子页标题旁不画,说明照样写出机器名', async () => {
+  it('资源库:模块层一个选择器在左栏列头下,子页标题旁不画,切换机器仍然生效', async () => {
     mocks.hosts.set('d22', { device: host('d22') });
     const library = new DeviceScopeStore('gugu.library.device', memoryStorage());
     const { PageSidebarMenu } = await import('@renderer/lib/components/page-layout');
@@ -284,8 +272,6 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
         inTitle: false,
         children: React.createElement(PageHeader, {
           title: '提示词',
-          description: '管理提示词。',
-          remoteDescription: (device: string) => `管理 ${device} 上的提示词。`,
         }),
       })
     );
@@ -295,28 +281,6 @@ describe('机器选择器:一个组件、一个位置(#6264)', () => {
     expect(container.querySelector('[data-slot="page-title-row"] [data-testid="machine-picker"]')).toBeNull();
     await act(async () => (container.querySelector('[data-device-id="d22"]') as HTMLButtonElement).click());
     expect(pickers[0]?.getAttribute('data-selected-id')).toBe('d22');
-    expect(container.textContent).toContain('管理 d22 上的提示词。');
-  });
-
-  it('整页按机器:看别的机器时说明换成把机器名写进句子的那一句', async () => {
-    mocks.hosts.set('d22', { device: host('d22') });
-    const store = new DeviceScopeStore('gugu.settings.device', memoryStorage());
-    store.select('d22');
-    await render(
-      React.createElement(
-        DeviceScopeProvider,
-        {
-          store,
-          children: React.createElement(PageHeader, {
-            title: '仓库',
-            description: '配置项目的存放方式。',
-            remoteDescription: (device: string) => `配置项目在 ${device} 上的存放方式。`,
-          }),
-        }
-      )
-    );
-    expect(container.textContent).toContain('配置项目在 d22 上的存放方式。');
-    expect(container.textContent).not.toContain('配置项目的存放方式。');
   });
 });
 
@@ -348,17 +312,7 @@ describe('每个按机器的页面都挂在模块层、没有第二个选择器(
     expect(read('features/sessions/composer-context-tray.tsx')).not.toContain('ComposerDevicePicker');
   });
 
-  it.each([
-    ['features/library/prompts/prompt-library-view.tsx', 'prompts'],
-    ['features/settings/agents-page/AgentsSettingsPage.tsx', 'agents'],
-    ['features/library/library-view.tsx', 'integrations'],
-    ['features/mcp/components/McpLibraryView.tsx', 'mcp'],
-    ['features/automations/components/AutomationsHeader.tsx', 'automations'],
-  ])('%s 看别的机器时的说明把机器名写进句子(%s)', (file, key) => {
-    expect(read(file)).toContain(`translate('deviceScope.subtitle.${key}', { device })`);
-  });
-
-  it('资源库只有一个选择器:左栏「资源库」列头下,子页标题旁不画(只把机器名写进说明)', () => {
+  it('资源库只有一个选择器:左栏「资源库」列头下,子页标题旁不画', () => {
     const source = read('features/library/library-view.tsx');
     expect(source.match(/<DeviceScopePicker\b/g)).toHaveLength(1);
     expect(source).toContain('header={<DeviceScopePicker store={libraryDeviceStore} variant="sidebar" />}');

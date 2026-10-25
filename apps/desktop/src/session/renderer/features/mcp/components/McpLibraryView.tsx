@@ -74,7 +74,6 @@ export const McpLibraryView: React.FC = () => {
           sticky
           title={translate('mcpLibrary.title')}
           description={translate('mcpLibrary.subtitle')}
-          remoteDescription={(device) => translate('deviceScope.subtitle.mcp', { device })}
         >
           <div className="flex w-full justify-end gap-2">
             <Button onClick={openAdd} disabled={disabled} aria-label={translate('mcpLibrary.add')}>

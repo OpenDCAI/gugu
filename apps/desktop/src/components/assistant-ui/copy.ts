@@ -18,7 +18,6 @@ export function useAuiCopy() {
     // —— 线程 ——
     scrollToBottom: t('assistantUi.thread.scrollToBottom'),
     emptyTitle: t('assistantUi.thread.emptyTitle'),
-    emptyHint: t('assistantUi.thread.emptyHint'),
     placeholder: t('assistantUi.thread.placeholder'),
     composerLabel: t('assistantUi.thread.composerLabel'),
     dictate: t('assistantUi.thread.dictate'),

@@ -236,11 +236,9 @@ export default {
       "cost": "运行成本",
       "costHint": "计入所有者额度的 LLM 与沙箱开销。",
       "custom": "自定义",
-      "description": "查看该 Agent 的收入、付费动作销售与运行成本。",
       "net": "净额",
       "netHint": "已结算收入减去运行成本。",
       "overview": "概览",
-      "overviewHint": "收入、待结算、运行成本与净额。",
       "pending": "待结算",
       "pendingHint": "已创建但尚未完成的收款。",
       "settled": "已结算收入",
@@ -257,7 +255,6 @@ export default {
       "sessions": "历史会话"
     },
     "look": {
-      "colorHint": "只换身体的颜色：叶子翅膀、小橙嘴、小脚和眼睛一直不变，一眼就认得出是咕咕。",
       "colors": {
         "apricot": "杏子",
         "cream": "奶油",
@@ -276,10 +273,7 @@ export default {
       "outfitClear": "全部摘掉",
       "outfitColorway": "配色 {{n}}",
       "outfitDefault": "恢复默认",
-      "outfitDefaultNote": "默认形象不戴装扮",
-      "outfitHint": "喜欢的话可以加上装扮。随机会选一件主件，偶尔加一件点缀。墨镜、披风、背包、滑板、雨伞只在这里手动搭配。",
       "outfitNone": "不戴",
-      "outfitNoneNote": "现在什么都不戴",
       "rollOutfitAria": "只随机换一身装扮，颜色和表情不变",
       "tabOutfit": "装扮",
       "outfits": {
@@ -344,9 +338,7 @@ export default {
         "unimpressed": "无感"
       },
       "facesBold": "个性",
-      "facesBoldHint": "戏多，在列表里很显眼",
       "facesDaily": "日常",
-      "facesDailyHint": "安安静静，适合常驻",
       "kicker": "形象工坊",
       "notOwned": "只有它的主人能改它的形象",
       "number": "No.{{n}}",
@@ -488,9 +480,7 @@ export default {
       "daysLater_other": "{{count}} 天后",
       "delete": "删除任务",
       "deleteFailed": "删除失败",
-      "description": "让 Agent 周期性执行：到点会在你与它的私聊里自动发起一次对话（按下方内容触发 Agent 回合）。",
       "empty": "暂无定时任务",
-      "emptyHint": "创建定时任务，让 Agent 周期性执行",
       "enable": "启用",
       "everyDays": "每 {{count}} 天",
       "everyDays_one": "每 {{count}} 天",

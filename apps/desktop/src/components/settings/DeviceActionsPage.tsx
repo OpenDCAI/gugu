@@ -165,7 +165,6 @@ export function ThisDeviceActions({ onBack, bare = false }: { onBack?: () => voi
   const header = bare ? null : (
     <PageHeader
       title={t('devices.deviceActions.thisTitle')}
-      subtitle={t('devices.deviceActions.thisSubtitle')}
       backLabel={t('devices.deviceActions.back')}
       onBack={onBack}
     />

@@ -65,7 +65,6 @@ describe('TopicAnchorCard 把「可见 / 参与 / 通知」的第三件显形', 
     // 判据能判假:同一份数据只翻 is_participant,下面那次渲染必须拿不到这枚标。
     expect(observer).not.toBeNull()
     expect(observer?.textContent).toBe('只看得见')
-    expect(observer?.getAttribute('title')).toBe('你看得见这条话题，但它的消息不会通知你')
     expect(harness.container.querySelector('[data-testid="topic-anchor-row"]')?.getAttribute('data-topic-participant')).toBe('false')
 
     await harness.render(

@@ -177,11 +177,6 @@ export const enUSRemoteHostMessages = {
   'deviceScope.extensionsOnServer': 'The Gugu server on {device} has no window: Apps installed there open no pages; their tools and skills are for the agents on it.',
   'deviceScope.browserAuthOnDevice': 'Authorize {name} in this computer\'s browser; the connection is saved on {device}.',
   // ── 看别的机器时各页标题下那句说明(把机器名写进句子)────────────────────────────
-  'deviceScope.subtitle.prompts': 'Manage reusable prompts on {device} that can be sent from task prompt menus.',
-  'deviceScope.subtitle.agents': 'Manage agents and model configurations on {device}.',
-  'deviceScope.subtitle.integrations': 'Connect external services and tools on {device}.',
-  'deviceScope.subtitle.mcp': "MCP servers on {device}",
-  'deviceScope.subtitle.automations': 'Run agents on a schedule across projects on {device}',
   // ── 机器选择器(各处同一个):名字后面那一小段 ─────────────────────────────────
   'machinePicker.offline': 'Offline',
   'machinePicker.asleep': 'Asleep',
@@ -362,11 +357,6 @@ export const zhCNRemoteHostMessages: Record<RemoteHostMessageKey, string> = {
   'deviceScope.retry': '再试一次',
   'deviceScope.extensionsOnServer': '「{device}」上的咕咕 server 没有窗口：装在它上面的 App 打不开页面，它们的工具和技能给那台上的 agent 用。',
   'deviceScope.browserAuthOnDevice': '在这台电脑的浏览器里授权 {name}，连接保存在「{device}」上。',
-  'deviceScope.subtitle.prompts': '管理 {device} 上可从会话提示词菜单发送的可复用提示词。',
-  'deviceScope.subtitle.agents': '管理 {device} 上的智能体和模型配置。',
-  'deviceScope.subtitle.integrations': '连接 {device} 上的外部服务和工具。',
-  'deviceScope.subtitle.mcp': '{device} 上的 MCP server',
-  'deviceScope.subtitle.automations': '按计划在 {device} 的项目中运行智能体',
   'machinePicker.offline': '离线',
   'machinePicker.asleep': '休息中',
   'machinePicker.waking': '正在醒来…',

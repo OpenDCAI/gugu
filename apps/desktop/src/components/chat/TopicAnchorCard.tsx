@@ -142,7 +142,7 @@ function TopicAnchorRow({ topic, side, sourceContent, disambiguate, onOpen, memb
         {line.segments.join(t('topic.anchor.separator'))}
       </span>
       {!topic.is_participant && (
-        <Chip data-testid="topic-anchor-observer" title={t('topic.anchor.observerHint')}>
+        <Chip data-testid="topic-anchor-observer">
           {t('topic.anchor.observer')}
         </Chip>
       )}

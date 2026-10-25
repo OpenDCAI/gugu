@@ -244,7 +244,6 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
               style={{ width: THANKS_ART_WIDTH, height: THANKS_ART_HEIGHT, objectFit: 'contain', display: 'block' }}
             />
             <div style={{ fontSize: 'var(--font-heading)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 16 }}>{t('feedback.thanks.title')}</div>
-            <div style={{ fontSize: 'var(--font-body)', lineHeight: 1.7, color: 'var(--faint-fg)', marginTop: 8, maxWidth: 280 }}>{t('feedback.thanks.body')}</div>
           </div>
         ) : (
         <>

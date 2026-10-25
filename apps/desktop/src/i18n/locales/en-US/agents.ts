@@ -236,11 +236,9 @@ export default {
       "cost": "Runtime cost",
       "costHint": "LLM and sandbox usage charged to the owner’s allowance.",
       "custom": "Custom",
-      "description": "View this Agent’s revenue, paid action sales, and runtime costs.",
       "net": "Net",
       "netHint": "Settled revenue minus runtime costs.",
       "overview": "Overview",
-      "overviewHint": "Revenue, pending settlement, runtime costs, and net amount.",
       "pending": "Pending settlement",
       "pendingHint": "Payments created but not yet completed.",
       "settled": "Settled revenue",
@@ -257,7 +255,6 @@ export default {
       "sessions": "Past conversations"
     },
     "look": {
-      "colorHint": "Only the body color changes. The leaf wings, little orange beak, feet, and eyes always stay, so it still reads as Gugu at a glance.",
       "colors": {
         "apricot": "Apricot",
         "cream": "Cream",
@@ -276,10 +273,7 @@ export default {
       "outfitClear": "Take all off",
       "outfitColorway": "Color {{n}}",
       "outfitDefault": "Back to default",
-      "outfitDefaultNote": "The default look has no outfit",
-      "outfitHint": "Add an outfit if you like. Shuffle picks one main item, sometimes with an accent. Sunglasses, capes, backpacks, skateboards and umbrellas are available here for DIY.",
       "outfitNone": "None",
-      "outfitNoneNote": "Wearing nothing right now",
       "rollOutfitAria": "Shuffle only the outfit; color and face stay",
       "tabOutfit": "Outfit",
       "outfits": {
@@ -344,9 +338,7 @@ export default {
         "unimpressed": "Unimpressed"
       },
       "facesBold": "Bold",
-      "facesBoldHint": "Dramatic, stands out in lists",
       "facesDaily": "Everyday",
-      "facesDailyHint": "Calm enough to wear all day",
       "kicker": "Look studio",
       "notOwned": "Only its owner can change its look",
       "number": "No.{{n}}",
@@ -488,9 +480,7 @@ export default {
       "daysLater_other": "In {{count}} days",
       "delete": "Delete task",
       "deleteFailed": "Could not delete task",
-      "description": "Run this Agent on a schedule. At each trigger, Gugu starts a turn in your direct message using the content below.",
       "empty": "No scheduled tasks",
-      "emptyHint": "Create a task to run this Agent on a schedule",
       "enable": "Enable",
       "everyDays": "Every {{count}} days",
       "everyDays_one": "Every {{count}} day",

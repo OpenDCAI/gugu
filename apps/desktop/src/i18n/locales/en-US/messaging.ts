@@ -455,7 +455,6 @@ export default {
     },
     "topicInvite": {
       "title": "Add topic members",
-      "hint": "Choose members from the source chat. An invitation message will be sent in the topic.",
       "search": "Search members",
       "message": "{{names}} You are invited to join this topic.",
       "confirm": "Add ({{count}})",
@@ -585,7 +584,6 @@ export default {
       "rules": "Collaboration rules",
       "rulesPlaceholder": "Core principles, direction, and collaboration agreements…",
       "rulesUnset": "No collaboration rules",
-      "shareLinkHint": "Share this link to invite people to the group",
       "sharePoster": "Share group poster",
       "title": "Group settings",
       "unavailable": "Unavailable",
@@ -747,7 +745,6 @@ export default {
       "participantCount": "{{count}} participants",
       "participantCount_one": "{{count}} participant",
       "observer": "View only",
-      "observerHint": "You can see this topic, but its messages will not notify you",
       "openedBy": "by {{name}}",
       "quiet": "No one has spoken yet"
     },

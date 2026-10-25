@@ -48,7 +48,7 @@ export function AgentLookOutfits({
   return (
     <div className="gg-look-outfits">
       <p className="gg-look-outfit-note" aria-live="polite">
-        {note ?? (isDefault ? t('settings.look.outfitDefaultNote') : worn.length === 0 ? t('settings.look.outfitNoneNote') : '')}
+        {note}
       </p>
       {SLOT_ORDER.map((slot) => {
         const defs = OUTFIT_DEFS.filter((d) => d.slot === slot)
@@ -109,7 +109,6 @@ export function AgentLookOutfits({
           </div>
         )
       })}
-      <p className="gg-look-hint">{t('settings.look.outfitHint')}</p>
       {editable ? (
         <div className="gg-look-outfit-actions">
           <Button variant="ghost" size="sm" disabled={worn.length === 0 && !isDefault} onClick={() => { setNote(null); onChange([]) }}>
