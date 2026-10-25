@@ -306,7 +306,7 @@ function Ledger() {
         <span data-testid="usage-ledger-error" className="gg-usage-muted" title={error}>{t('credits.activityError', { error })}</span>
       )}
       <div className="na-table-wrap" data-busy={busy && rows !== null ? '' : undefined}>
-        <table className="na-table" data-testid="usage-ledger-rows">
+        <table className="na-table na-table--ledger" data-testid="usage-ledger-rows">
           <thead>
             <tr>
               <th>{t('usage.na.colTime')}</th><th>{t('usage.na.colModel')}</th><th>{t('usage.na.colTokens')}</th><th>{t('usage.na.colCost')}</th>
@@ -318,14 +318,14 @@ function Ledger() {
             ))}
             {rows !== null && rows.length > 0 && rows.map((row) => (
               <tr key={row.id}>
-                <td>
+                <td data-field="time" data-label={t('usage.na.colTime')}>
                   <div className="na-cell-stack">
                     <span className="na-mono-xs">{stamp(row.created_at)}</span>
                     <span className="na-type">{t('usage.na.typeConsume')}</span>
                   </div>
                 </td>
-                <td>{row.model ? <ModelBadge model={row.model} /> : <span className="gg-usage-muted">{t('credits.modelUsage')}</span>}</td>
-                <td>
+                <td data-field="model" data-label={t('usage.na.colModel')}>{row.model ? <ModelBadge model={row.model} /> : <span className="gg-usage-muted">{t('credits.modelUsage')}</span>}</td>
+                <td data-field="tokens" data-label={t('usage.na.inputOutputTokens')}>
                   <div className="na-cell-stack">
                     <span className="na-mono-xs">{`${formatNumber(row.input_tokens)} / ${formatNumber(row.output_tokens)}`}</span>
                     {/* 缓存行:读 ↓、写 ↑,为 0 的那项不写。 */}
@@ -339,7 +339,7 @@ function Ledger() {
                     )}
                   </div>
                 </td>
-                <td><span className="na-cost">{formatUsageCredits(row.credits_charged)}</span></td>
+                <td data-field="cost" data-label={t('usage.na.colCost')}><span className="na-cost">{formatUsageCredits(row.credits_charged)}</span></td>
               </tr>
             ))}
           </tbody>
