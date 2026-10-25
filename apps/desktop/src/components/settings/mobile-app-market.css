@@ -13,6 +13,13 @@ div.phone-app-product {
   overflow-y: auto;
   padding: max(var(--spacing-lg), env(safe-area-inset-top)) var(--spacing-lg) max(var(--spacing-2xl), env(safe-area-inset-bottom));
 }
+/* Shelf controls stay inside the phone content instead of widening its scroll area. */
+:is(.phone-app-market, .phone-app-product) .mk-shelf-arrow.is-prev {
+  left: 0;
+}
+:is(.phone-app-market, .phone-app-product) .mk-shelf-arrow.is-next {
+  right: 0;
+}
 /* Keep the phone header's action and facts below its icon, using the same product markup. */
 .phone-app-product .mk-dh-main {
   display: contents;
