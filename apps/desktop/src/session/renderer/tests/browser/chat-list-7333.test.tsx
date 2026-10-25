@@ -73,9 +73,11 @@ describe('the IM chat list in the master\'s roles (#7333)', () => {
   it.each(['dm-1', 'grp-1', 't-live'])('drags grouped sidebar row %s with the shared workspace content identity', async (chatId) => {
     await page.viewport(1000, 800);
     publishSidebarChatView({ focusedChatId: 'grp-1', focusedSessionId: null, groups: [
-      { members: ['chat:grp-1', 'chat:dm-1'], anchor: 'chat:grp-1', onScreen: true },
+      { members: ['chat:grp-1', 'chat:dm-1'], onScreen: true },
     ] });
     const root = await renderList('grp-1', vi.fn(), false, null, 'sidebar');
+    // dm-1 sorts first; the group moves there while retaining its on-screen member order and nested topic.
+    expect([...root.querySelectorAll('[data-chat-row]')].map((row) => row.getAttribute('data-chat-row'))).toEqual(['grp-1', 't-live', 'dm-1']);
     expect(root.querySelector('[data-chat-row="grp-1"]')?.closest('[data-join]')?.getAttribute('data-join')).toBe('first');
     expect(root.querySelector('[data-chat-row="dm-1"]')?.getAttribute('data-join')).toBe('last');
     expect(root.querySelector('[data-chat-row="dm-1"]')?.hasAttribute('data-join-on')).toBe(true);
