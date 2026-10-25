@@ -11,8 +11,7 @@ vi.mock('./use-pty', () => ({ usePty: (options: { onPasteFromClipboard?: PasteFr
   clipboardPaste = options.onPasteFromClipboard;
   return io;
 } }));
-vi.mock('./pane-sizing-context', () => ({ usePaneSizingContext: () => ({}), PaneSizingContextProvider: ({ children }: { children: React.ReactNode }) => children }));
-vi.mock('@renderer/lib/ipc', () => ({ rpc: { pty: { persistClipboardImage: vi.fn() } } }));
+vi.mock('@renderer/lib/ipc', () => ({ rpc: { pty: { persistClipboardImage: vi.fn() } }, events: { on: () => () => {} } }));
 vi.mock('@renderer/lib/chat/local-session-mention-provider', () => ({ createLocalSessionMentionProvider: vi.fn() }));
 
 let root: Root;
