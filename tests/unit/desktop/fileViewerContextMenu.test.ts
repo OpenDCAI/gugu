@@ -35,7 +35,7 @@ describe('native file viewer menu', () => {
     const detail = { chatId: 'chat', text: '> beta', refs: [{ label: 'file.md', link: 'gugu-file://file?v=2' }] }
     vi.mocked(composeInChat).mockResolvedValue(detail)
     const order: string[] = []
-    const append = vi.fn((event: Event) => { order.push('append'); return event })
+    const append = vi.fn((event: Event) => { order.push('append'); return event.eventPhase })
     const flush = () => order.push('flush')
     // The draft receiver may mount before the active composer's capture listener.
     window.addEventListener(APP_COMPOSE_EVENT, append)
@@ -43,6 +43,7 @@ describe('native file viewer menu', () => {
     try {
       await quoteChatFile('file', 2, { text: 'beta' })
       expect(order).toEqual(['flush', 'append'])
+      expect(append.mock.results[0].value).toBe(Event.BUBBLING_PHASE)
       expect((append.mock.calls[0][0] as CustomEvent).detail).toBe(detail)
     } finally {
       window.removeEventListener(APP_COMPOSE_EVENT, append)
