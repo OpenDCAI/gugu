@@ -1,4 +1,4 @@
-import { normalizeDeviceActionsCapability, type DeviceActionsCapability } from '../shared/deviceActions'
+import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
 import { isDeviceOnline } from '../shared/enums/deviceModels'
 import { parseAgentStatusView } from '../shared/agentStatus'
@@ -139,7 +139,7 @@ export async function listDevices(
   if (!ownerId) throw new Error('listDevices requires ownerId (refuse to list devices without an owner scope)')
   const { data, error } = await client
     .from('gugu_devices')
-    .select('device_id, label, hostname, platform, status, last_seen_at, capabilities, machine_id, session_digest')
+    .select('device_id, label, hostname, platform, status, last_seen_at, capabilities:device_list_capabilities, machine_id, session_digest')
     .eq('user_id', ownerId)
     .order('last_seen_at', { ascending: false })
   if (error) throw new Error(error.message)
@@ -282,8 +282,8 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
   }
 }
 
-function withDeviceActions(raw: unknown): { actions?: DeviceActionsCapability } {
-  const actions = normalizeDeviceActionsCapability(raw)
+function withDeviceActions(raw: unknown): { actions?: DeviceActionsSummary } {
+  const actions = normalizeDeviceActionsSummary(raw)
   return actions ? { actions } : {}
 }
 
