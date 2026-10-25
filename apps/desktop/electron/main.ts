@@ -2137,7 +2137,7 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))

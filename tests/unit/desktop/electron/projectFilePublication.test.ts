@@ -20,7 +20,7 @@ function fixture(proactive = false) {
   let accountId = 'owner'
   const rpc = vi.fn(async (name: string, _args: Record<string, unknown>): Promise<unknown> => {
     if (name === 'file_project_policy_for') return { host_device_id: 'device', host_project_id: 'project', proactive_upload: proactive }
-    if (name === 'file_device_publish') return { item_id: 'item' }
+    if (name === 'file_device_publish') return { item_id: 'item', ...(_args.p_message ? { message: { id: 'message', file_item_id: 'item', file_version: 1 } } : {}) }
     if (name === 'workspace_get_as') return [row]
     throw new Error(`Unexpected RPC ${name}`)
   })
@@ -44,6 +44,31 @@ describe('project file publication runs before document conversion or cloud uplo
     expect(f.store).toHaveBeenCalledOnce()
     expect(f.rpc.mock.calls.some(([name]) => name === 'file_device_publish')).toBe(false)
     expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).not.toBeNull()
+  })
+  it('plans without publishing and commits a message in the same existing publication RPC', async () => {
+    const f = fixture(), message = { message_id: 'message', chat_id: 'group', sender_user_id: 'owner', file_name: file.name, to_user_ids: ['member'], caption: 'caption' }
+    await expect(f.publish.local('group', 'owner')).resolves.toBe(true)
+    expect(f.rpc.mock.calls.map(([name]) => name)).toEqual(['file_project_policy_for'])
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
+    await expect(f.publish('group', { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }, null, 'owner', undefined, message))
+      .resolves.toMatchObject({ ...row, message: { id: 'message', file_item_id: 'item', file_version: 1 } })
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_message: message })
+    expect(f.store).not.toHaveBeenCalled()
+  })
+  it('publishes a native selection through the same fence and streamed SHA without transporting its bytes', async () => {
+    const f = fixture(), selected = { name: file.name, path: join(root, file.name), size: data.length, contentType: file.contentType }
+    expect(await f.publish('group', selected, null, 'owner')).toEqual(row)
+    expect(f.rpc.mock.calls.find(([name]) => name === 'file_device_publish')?.[1]).toMatchObject({ p_path: file.name, p_sha: createHash('sha256').update(data).digest('hex'), p_size: data.length })
+    for (const path of [join(home, 'secret'), '', 'relative/file.bin']) {
+      await expect(f.publish('group', { ...selected, path }, null, 'owner')).rejects.toThrow()
+    }
+    await expect(f.publish('group', { ...selected, size: 4 }, null, 'owner')).rejects.toThrow('original file')
+  })
+  it('returns the ordinary provider decision before opening a native selection when cloud upload is enabled', async () => {
+    const f = fixture(true)
+    expect(await f.publish('group', { name: file.name, path: '', size: data.length, contentType: file.contentType }, null, 'owner')).toBeNull()
+    expect(f.store).not.toHaveBeenCalled()
+    expect(f.rpc.mock.calls.map(([name]) => name)).toEqual(['file_project_policy_for'])
   })
   it('leaves non-project uploads with their existing uploader', async () => {
     const f = fixture()

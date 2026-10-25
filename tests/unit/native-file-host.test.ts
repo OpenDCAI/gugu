@@ -20,12 +20,34 @@ async function fixture() {
   const local = vi.fn(async () => ({ revision, open: async () => file }))
   const ssh = vi.fn(async () => file)
   const openPath = vi.fn(async (_path: string) => '')
-  const host = createNativeFileHost({ root, owner: async () => owner, alive: () => true, local, ssh, openPath, published: () => {} })
+  const publish = vi.fn(async (_chat: string, _file: unknown, _actor: string, _message?: unknown): Promise<unknown> => ({ id: 'item', version: 1 }))
+  const publication = vi.fn(async () => true)
+  const host = createNativeFileHost({ publish, publication, root, owner: async () => owner, alive: () => true, local, ssh, openPath, published: () => {} })
   const begin = () => host.stage(1, { op: 'begin', name: '../file.bin', revision: commitment }) as Promise<{ id: string }>
-  return { root, host, local, ssh, file, openPath, begin, account: (value: string | null) => { owner = value } }
+  return { root, host, publish, publication, local, ssh, file, openPath, begin, account: (value: string | null) => { owner = value } }
 }
 
 describe('native file capabilities are scoped and never expose incomplete originals', () => {
+  it('publishes as the authenticated owner and refuses a lost account or closed window', async () => {
+    const f = await fixture(), request = { chatId: 'group', file: { name: 'file.bin', path: join(f.root, 'file.bin'), size: 3, contentType: 'application/octet-stream' } }
+    await expect(f.host.publish(1, request)).resolves.toEqual({ id: 'item', version: 1 })
+    expect(f.publish).toHaveBeenCalledWith('group', request.file, 'owner', undefined)
+    f.account(null)
+    await expect(f.host.publish(1, request)).rejects.toThrow('unavailable')
+    expect(f.publish).toHaveBeenCalledOnce()
+    f.account('owner')
+    let finish!: (value: unknown) => void, entered!: () => void
+    const started = new Promise<void>(done => { entered = done })
+    f.publish.mockImplementationOnce(() => { entered(); return new Promise(done => { finish = done }) })
+    const pending = f.host.publish(1, request); await started; await f.host.drop(1); finish({ id: 'item', version: 1 })
+    await expect(pending).rejects.toThrow('account or window changed')
+  })
+  it('plans a local publication without publishing a file or reading any bytes', async () => {
+    const f = await fixture()
+    await expect(f.host.publish(1, { chatId: 'group' })).resolves.toBe(true)
+    expect(f.publication).toHaveBeenCalledWith('group', 'owner')
+    expect(f.publish).not.toHaveBeenCalled(); expect(f.file.read).not.toHaveBeenCalled()
+  })
   it('keeps handles across a same-account token refresh and revokes them across an account ABA switch', async () => {
     const f = await fixture()
     await f.host.ownerChanged('owner')

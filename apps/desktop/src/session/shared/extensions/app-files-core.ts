@@ -78,7 +78,7 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
-  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store: () => Promise<ItemRow>): Promise<ItemRow | null>;
+  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>): Promise<ItemRow | null>;
   /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
   resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
