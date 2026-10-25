@@ -21,12 +21,12 @@ import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 // @@@6418 群设置抽屉各页共用的小件(页头 / 导航行 / 开关行 / 邀请链接)。几何在 groupSettingsStyles.ts。
 
 const headStyle: CSSProperties = {
-  padding: '34px 24px 14px', fontSize: 'var(--font-heading)', fontWeight: 600, borderBottom: '1px solid var(--border)',
+  height: 'var(--pane-header-h)', padding: '0 24px', fontSize: 'var(--font-heading)', fontWeight: 600, borderBottom: '1px solid var(--border)',
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, flexShrink: 0, color: 'var(--text-primary)',
 }
-const subpageHeadStyle: CSSProperties = { ...headStyle, padding: '30px 24px 12px 14px' }
-// 移动壳:与其它手机页面同一条页头(#1787)—— 44px 返回贴左、紧凑上下距、无桌面抽屉的 34px 顶距。
-const mobileHeadStyle: CSSProperties = { ...headStyle, padding: '6px 12px 6px 4px', gap: 2, borderBottom: '1px solid var(--border)' }
+const subpageHeadStyle: CSSProperties = { ...headStyle, padding: '0 24px 0 14px' }
+// Mobile keeps its natural height and 44px back target; desktop uses the shared pane-header height.
+const mobileHeadStyle: CSSProperties = { ...headStyle, height: 'auto', padding: '6px 12px 6px 4px', gap: 2, borderBottom: '1px solid var(--border)' }
 // 标题区撑满返回与动作之间:成员页的话题改名框(flex:1)要住得下。
 const headTitleStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }
 const headTitleTextStyle: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
