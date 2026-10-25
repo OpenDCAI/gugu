@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { createFileSink } from './fileSnapshot'
+import type { SelectedProjectFile, ProjectFileMessage } from './projectFilePublication'
 import { sanitizeRemoteFileName } from './remoteFileOpen'
 import { fileRefKey, requireFileRange, requireFileRevision, type FileBytes, type FileContext, type FileProviders, type FileRevision, type FileStageCommand } from '@gugu/core/shared/fileResolver'
 
@@ -12,6 +13,8 @@ export function createNativeFileHost(deps: {
   root: string; owner(): Promise<string | null>; alive(scope: number): boolean
   local: FileProviders['local']; ssh: FileProviders['ssh']; openPath(path: string): Promise<string>
   published(directory: string): void; maxBytes?: number
+  publish?(chatId: string, file: SelectedProjectFile, owner: string, message?: ProjectFileMessage): Promise<unknown>
+  publication?(chatId: string, owner: string): Promise<boolean>
 }) {
   type Entry = { scope: number; epoch: number; owner: string; file?: FileBytes; context?: string; name?: string; size?: number; sha?: string;
     sink?: Awaited<ReturnType<typeof createFileSink>>; hash?: ReturnType<typeof createHash>; written?: number; path?: string; busy?: boolean }
@@ -34,6 +37,10 @@ export function createNativeFileHost(deps: {
     await check(scope, entry.owner, entry.epoch); return entry
   }
   return { drop,
+    async publish(scope: number, request: { chatId: string; file?: SelectedProjectFile; message?: ProjectFileMessage }) {
+      const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.publish || !request.file && !deps.publication) throw new Error('File publisher is unavailable')
+      await check(scope, owner, epoch); const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message) : await deps.publication!(request.chatId, owner); await check(scope, owner, epoch); return row
+    },
     async ownerChanged(owner: string | null) { if (owner !== lastOwner) { lastOwner = owner; await drop() } },
     async read(scope: number, context: FileContext, request: { op: string; id?: string; revision?: FileRevision; offset?: number; length?: number }) {
       const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || context.actor.accountId !== owner) throw new Error('File reader is not signed in')
@@ -115,6 +122,7 @@ export function registerNativeFileIpc(ipc: IpcMain, host: ReturnType<typeof crea
     }
     return id
   }
+  ipc.handle('files:publish', (event, row: Parameters<typeof host.publish>[1]) => host.publish(scope(event), row))
   ipc.handle('files:read', (event, row: FileContext & Parameters<typeof host.read>[2]) => host.read(scope(event), { actor: row.actor, ref: row.ref }, row))
   ipc.handle('files:stage', (event, row: FileStageCommand) => host.stage(scope(event), row))
   ipc.handle('files:stage-open', (event, row: { id: string }) => host.open(scope(event), row.id))

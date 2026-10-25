@@ -212,7 +212,7 @@ describe('project publication dispatch', () => {
     expect(rpcs.some(call => call.name === 'workspace_insert_document_as')).toBe(false);
   });
   it('uses the same existing uploader for an explicitly cloud-stored project text file', async () => {
-    publishFile = async (_chat, _file, _parent, _actor, store) => store();
+    publishFile = async (_chat, _file, _parent, _actor, store) => store!();
     await files.upload(CHAT, [{ name: 'report.html', bytes: bytesOf('<h1>Cloud</h1>'), contentType: 'text/html' }]);
     expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
     expect(bucketed).toHaveLength(1); expect(places).toHaveLength(1);

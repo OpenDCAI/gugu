@@ -10,7 +10,7 @@ const { uploadMock, commitMock, getByIdMock } = vi.hoisted(() => ({
   getByIdMock: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: { getMessageById: getByIdMock } }))
-vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async importOriginal => ({ ...await importOriginal<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: uploadMock, commitAttachment: commitMock }))
 const threadGate = vi.hoisted(() => vi.fn(async (_chatId: string, operation: string) => { if (_chatId.startsWith('dm-')) throw new Error(`${operation}: private chats do not support threads`) }))
 vi.mock('../../../../apps/desktop/src/lib/chatThreadGate', () => ({ requireThreadCapableChat: threadGate }))
@@ -29,7 +29,7 @@ function arrange() {
     sendAttachmentBatch({ files, chatId: 'chat-1', senderId: 'user-1', toUserIds: null, onSent, appendMessage })
   return { onSent, appendMessage, run }
 }
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 describe('sendAttachmentBatch', () => {
   it('happy path: per-file onSent after verified insert, returns first inserted id', async () => {
     const { onSent, appendMessage, run } = arrange()
@@ -41,6 +41,16 @@ describe('sendAttachmentBatch', () => {
     expect(uploadMock.mock.calls.map(call=>call[2])).toEqual([{chat_id:'chat-1',as:'user-1'},{chat_id:'chat-1',as:'user-1'}])
     expect(commits().map((c) => c.staging_key), 'each file commits its own upload').toEqual(['staging/u/a.txt', 'staging/u/b.txt'])
     expect(commitMock.mock.calls[0]![1]).toMatchObject({ chat_id: 'chat-1', sender_user_id: 'user-1', to_user_ids: [], is_whisper: false })
+  })
+  it('a failed first local commit never publishes later prepared files', async () => {
+    const { run, onSent, appendMessage } = arrange()
+    const invoke = vi.fn(async (_channel: string, request: { file?: unknown }) => { if (request.file) throw new Error('message denied'); return true })
+    vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: (selected: File) => `/project/${selected.name}` } })
+    await expect(run([file('a.txt'), file('b.txt'), file('c.txt')])).rejects.toThrow('message denied')
+    expect(invoke.mock.calls.filter(([, request]) => !request.file)).toHaveLength(3)
+    expect(invoke.mock.calls.filter(([, request]) => request.file)).toEqual([['files:publish', expect.objectContaining({ file: expect.objectContaining({ name: 'a.txt' }) })]])
+    expect(uploadMock).not.toHaveBeenCalled(); expect(commitMock).not.toHaveBeenCalled()
+    expect(onSent).not.toHaveBeenCalled(); expect(appendMessage).not.toHaveBeenCalled()
   })
   it('a thread write in a private chat is refused before a byte goes (the gate sendMessage has; the server does not check it)', async () => {
     arrange()
