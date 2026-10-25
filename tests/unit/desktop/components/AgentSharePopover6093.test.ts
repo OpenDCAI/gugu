@@ -90,10 +90,11 @@ describe('AgentSharePopover (#6093)', () => {
   })
 
   it('复制失败就地说,不吞', async () => {
-    writeText.mockRejectedValueOnce(new Error('denied'))
+    writeText.mockRejectedValueOnce(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
     render()
     act(() => { row('guguNumber').click() })
     await flush()
     expect(row('guguNumber').dataset.copyState).toBe('failed')
+    expect(row('guguNumber').textContent).toContain('Clipboard denied [path] [redacted token]')
   })
 })

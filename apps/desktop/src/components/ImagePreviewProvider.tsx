@@ -15,6 +15,7 @@ import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { fetchBlob, downloadRemoteFile } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
 import {
@@ -283,8 +284,8 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       // blob-first(#1892):先 await 拿到 Blob 再写剪贴板
       await writeImageBlobToClipboard(await fetchImageAsPngBlob(current.full ? await current.full() : current.url))
       toast(t('shell.imagePreview.copied'), 'success')
-    } catch {
-      toast(t('shell.imagePreview.copyFailed'), 'error')
+    } catch (error) {
+      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
     } finally {
       setCopying(false)
     }

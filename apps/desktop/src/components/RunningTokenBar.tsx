@@ -45,7 +45,7 @@ const STYLE = `
 .rtb-bar[data-mobile=true]>.rtb-tok{scroll-snap-align:start}
 .rtb-tok{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;min-width:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:default}
 .rtb-tok[data-clickable=true]{cursor:pointer}
-.rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);color:inherit;font-weight:inherit}
+.rtb-pill{height:auto;gap:7px;padding:4px 8px;max-width:168px;min-width:0;background:var(--bg-elevated);box-shadow:var(--shadow-lift);color:inherit;font-weight:inherit}
 .rtb-tok:focus-visible,.rtb-more:focus-visible,.rtb-otok:focus-visible{outline:none}
 .rtb-nm{color:var(--faint-fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
 .rtb-state{flex-shrink:0;background:linear-gradient(100deg,var(--faint-fg) 36%,var(--text-primary) 50%,var(--faint-fg) 64%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:running-shimmer 2s linear infinite;font-weight:500}
@@ -57,6 +57,8 @@ const STYLE = `
 .rtb-otok[data-clickable=true]{cursor:pointer}
 .rtb-otok .rtb-v{color:var(--text-secondary)}
 .rtb-tok,.rtb-otok{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+/* 运行条那一行不接指针(ChatBottomDock),只有 pill 和 +N 接。 */
+.rtb-tok,.rtb-more{pointer-events:auto}
 `
 
 /**
@@ -66,7 +68,7 @@ const STYLE = `
  */
 const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
 export function RunningBarSlot({ children }: { children: ReactNode }) {
-  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center overflow-hidden">{children}</div>
+  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center">{children}</div>
 }
 // 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
 function fitCount(width: number, count: number, cap: number): number {

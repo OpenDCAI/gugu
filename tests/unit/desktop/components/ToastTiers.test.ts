@@ -13,6 +13,8 @@ const sonner = vi.hoisted(() => {
   })
 })
 vi.mock('sonner', () => ({ toast: sonner, Toaster: () => null }))
+const noticeLog = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => noticeLog, hasRendererLogBridge: () => false }))
 
 import { ToastProvider } from '../../../../apps/desktop/src/components/Toast'
 import { ToastContext, type ToastType } from '../../../../apps/desktop/src/components/toastContext'
@@ -30,7 +32,7 @@ beforeEach(() => {
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
     addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: () => true,
   })))
-  for (const fn of [sonner, sonner.success, sonner.error, sonner.warning, sonner.info, sonner.dismiss]) fn.mockClear()
+  for (const fn of [sonner, sonner.success, sonner.error, sonner.warning, sonner.info, sonner.dismiss, noticeLog.warn]) fn.mockClear()
 })
 
 afterEach(() => vi.unstubAllGlobals())
@@ -175,5 +177,20 @@ describe('主 app 的 toast(message, type) 入口', () => {
       await harness.render(createElement(ToastProvider, null, createElement(Emit, { type })))
       expect(sonner[type], type).toHaveBeenCalledWith('主 app 的提示', expect.objectContaining({ duration: TOAST_DWELL_MS[type] }))
     }
+  })
+})
+
+describe('用户读到的失败 / 告警落盘', () => {
+  it('error、warning、destructive 记下原文,success / info 不记', () => {
+    notify({ tier: 'error', key: 'k', title: '发送失败', description: '网络断了' })
+    notify({ tier: 'warning', title: '部分没保存' })
+    notify({ variant: 'destructive', title: '删不掉' })
+    notify({ tier: 'success', title: '已保存' })
+    notify({ tier: 'info', title: '提示' })
+    expect(noticeLog.warn.mock.calls).toEqual([
+      [{ tier: 'error', key: 'k', title: '发送失败', description: '网络断了' }, 'notice shown'],
+      [{ tier: 'warning', key: undefined, title: '部分没保存', description: undefined }, 'notice shown'],
+      [{ tier: 'error', key: undefined, title: '删不掉', description: undefined }, 'notice shown'],
+    ])
   })
 })

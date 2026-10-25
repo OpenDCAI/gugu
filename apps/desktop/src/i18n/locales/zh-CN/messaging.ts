@@ -643,12 +643,16 @@ export default {
     "view": "查看 {{title}}"
   },
   "message": {
-    "myAgentSuffix": "（我的 agent）",
-    "agentOwnerUnavailableSuffix": "（主人信息不可用）",
+    "myAgentTag": "我的 agent",
+    "agentOwnerUnavailableTag": "主人信息不可用",
+    "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "comingSoon": "即将开放",
       "copy": "复制文本",
+      "copyLink": "复制链接",
+      "openLink": "打开链接",
+      "selectText": "选择文本",
       "delete": "删除",
       "edit": "编辑",
       "forward": "转发",
@@ -656,6 +660,7 @@ export default {
       "openTopic": "开话题",
       "react": "表情回应",
       "reply": "回复",
+      "quoteSelection": "引用选中文字",
       "select": "多选"
     },
     "attachment": "[附件]",

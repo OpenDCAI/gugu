@@ -25,7 +25,6 @@ function CapturedCommandKey({ id }: { id: CommandId }) {
       if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, [cmdk-root], [role=menu]'))) return;
-      commandRegistry.setContext(active);
       if (!commandRegistry.dispatch(id)) return;
       event.preventDefault();
       event.stopImmediatePropagation();

@@ -14,6 +14,8 @@ import type { GroupRosterCandidate } from '../../../../apps/desktop/src/lib/ment
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
 }))
+const sendErrorLog = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: sendErrorLog }) }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({
   useToast: () => ({ toast: toastMock }),
 }))
@@ -139,7 +141,7 @@ describe('ChatMessageComposer', () => {
   it('restores pending attachments and reports send failures', async () => {
     const file = new File(['image'], 'avatar.png', { type: 'image/png' })
     const onSendAttachments = vi.fn(async () => {
-      throw new Error('upload denied')
+      throw new Error('upload denied /Users/test/private sk-synthetic-secret\nstack detail')
     })
     await act(async () => {
       root.render(createElement(ChatMessageComposer, {
@@ -169,7 +171,8 @@ describe('ChatMessageComposer', () => {
     expect(container.querySelectorAll('[data-slot="composer-attachment"]')).toHaveLength(1)
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gugu-preview')
-    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied', 'error')
+    expect(toastMock).toHaveBeenCalledWith('发送失败：upload denied [path] [redacted token]', 'error')
+    expect(sendErrorLog).toHaveBeenCalledWith(expect.objectContaining({ error: 'upload denied /Users/test/private sk-synthetic-secret\nstack detail' }), 'message send failed')
   })
   it('#2188 restores only the text when every attachment committed before the text failed', async () => {
     const file = new File(['report'], 'report.txt', { type: 'text/plain' })

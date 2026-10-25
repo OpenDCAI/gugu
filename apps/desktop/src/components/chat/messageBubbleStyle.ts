@@ -12,6 +12,7 @@ export function buildBubbleStyle(
   compactMobile: boolean
 ): CSSProperties {
   return {
+    position: 'relative', // 右下角的时间(BubbleTime inline)钉在气泡自己身上
     width: 'fit-content',
     maxWidth: '100cqw',
     minWidth: '44px',

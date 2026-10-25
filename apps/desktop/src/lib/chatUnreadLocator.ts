@@ -63,6 +63,8 @@ export type OpenableUnreadTarget = {
   locator: ChatUnreadLocator & { message_id: string; message_seq: number }
 }
 
+export type CapturedUnreadEntry = OpenableUnreadTarget & { onSeen: () => void }
+
 export type UnreadMessageRevealRequest = {
   token: string
   commit?: UnreadLocatorCommit

@@ -167,7 +167,7 @@ const MobileAppsContent = observer(function MobileAppsContent() {
                 onBack={() => setDetail(null)} onLifecycle={() => act(detail)} onInstallVersion={install}
                 backgroundSupported={false}
                 permissionRevocationSupported={false}
-                phoneAgentFeaturesUnavailable={(installed ?? detail.manifest).permissions?.capabilities?.some((capability) => PHONE_CAPABILITY_SUPPORT[capability] === 'agent') ?? false}
+                phoneAgentCapabilities={(installed ?? detail.manifest).permissions?.capabilities?.filter((capability) => PHONE_CAPABILITY_SUPPORT[capability] === 'agent')}
                 menu={installed && !store.isPreinstalled(installed.id) ? {
                   onToggleEnabled: (on) => void change(installed.id, undefined, () => phoneApps.setEnabled(installed.id, on)),
                   ...(store.autoUpdates(installed.id) !== null ? { autoUpdate: { on: store.autoUpdates(installed.id)!, onToggle: (on: boolean) => void change(installed.id, undefined, () => phoneApps.setAutoUpdate(installed.id, on)) } } : {}),
