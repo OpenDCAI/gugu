@@ -136,7 +136,8 @@ export class SessionpagePlatformRecoveryCoordinator {
     }
     const requestManaged = this.deps.requestCredentialsManaged?.(target) === true
     const activeFlight = this.flights.get(sessionId)
-    if (activeFlight) return requestManaged ? { status: 'ready' } : activeFlight
+    if (activeFlight) return requestManaged && this.states.get(sessionId)?.status !== 'failed'
+      ? { status: 'ready' } : activeFlight
     this.targets.set(sessionId, target)
     const previous = this.states.get(sessionId)
     if (previous?.credentialGeneration && previous.credentialGeneration !== target.credentialGeneration
@@ -166,7 +167,7 @@ export class SessionpagePlatformRecoveryCoordinator {
     }
 
     const current = this.states.get(sessionId)
-    if (current?.status === 'failed') return requestManaged ? { status: 'ready' } : { status: 'failed', error: current.error ?? 'platform credential recovery failed' }
+    if (current?.status === 'failed') return { status: 'failed', error: current.error ?? 'platform credential recovery failed' }
     if (current?.status === 'reopening') return requestManaged ? { status: 'ready' } : this.waitForFlight(sessionId)
     if (this.deps.isExpired(sessionId)) this.markExpired(target)
 
