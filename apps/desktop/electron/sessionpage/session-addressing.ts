@@ -55,6 +55,7 @@ export async function resolveSessionpageSenderBinding(
 }
 
 export interface SessionpageSessionPeersDeps {
+  sessionId?: string
   listRoster: SessionpageRosterReader
   ownerUserId: string | null
   lookupIdentities: (agentUserIds: readonly string[]) => Promise<readonly LocalSessionPeerIdentity[]>
@@ -79,7 +80,7 @@ export async function resolveSessionpageSessionPeers(
       sessionId: cachedString(agent, SESSION_CACHE_KEY),
       engine: agent.agent_type,
     }))
-    .filter((binding) => Boolean(binding.sessionId))
+    .filter((binding) => Boolean(binding.sessionId) && (!deps.sessionId || binding.sessionId === deps.sessionId))
   if (!bindings.length) return []
 
   const [identities, sessions] = await Promise.all([

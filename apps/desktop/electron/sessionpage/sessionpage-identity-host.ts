@@ -75,7 +75,7 @@ export interface SessionpageIdentityHost {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
-  sessionPeers(): Promise<SessionShellPeer[]>
+  sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
   /**
    * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
    * 本地元数据，云端认了才跟上。
@@ -98,10 +98,11 @@ function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
 
 export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps): SessionpageIdentityHost {
   const env = deps.env ?? process.env
-  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot) => resolveSessionpageSessionPeers({
+  const peersForAuth = (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => resolveSessionpageSessionPeers({
+    sessionId,
     listRoster: () => listAgents(env, { includeGuests: true }),
     ownerUserId: auth.userId,
-    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds),
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
     listSessionFacts: deps.listSessionFacts,
   })
   const provisionDeps: SessionpageProvisionDeps = {
@@ -151,10 +152,10 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       if (!auth) return []
       return agentNamesFromPeers(await peersForAuth(auth))
     },
-    async sessionPeers() {
+    async sessionPeers(sessionId) {
       const auth = await deps.getAuth()
       if (!auth) throw new Error('Session-page peer directory: owner not authenticated')
-      return peersForAuth(auth)
+      return peersForAuth(auth, sessionId)
     },
     async renameAgent(input) {
       const row = input as Partial<SessionShellRenameAgentInput> | null

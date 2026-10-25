@@ -3179,13 +3179,13 @@ let sessionpageLocalSessionSource: HostLocalSessionSource | null = null
 async function localSessionPeers(
   emdash: EmdashBridgeModule,
   auth: RuntimeAuth,
+  sessionId?: string,
 ): Promise<LocalSessionPeer[]> {
   return resolveSessionpageSessionPeers({
     listRoster: () => listAgents(process.env, { includeGuests: true }),
     ownerUserId: auth.userId,
-    lookupIdentities: async (agentUserIds) => {
-      return loadSessionpageCanonicalAgentIdentities(auth, agentUserIds)
-    },
+    sessionId,
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
     listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
   })
 }
@@ -3598,12 +3598,12 @@ ipcMain.handle(SESSION_SHELL_CHANNELS.fatalBoot, (event, message: unknown) => {
 
 // This machine's rows of the canonical roster (same resolver as session_peers). The renderer adds the
 // other machines' rows from the session directory and never invents a mapping.
-handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async () => {
+handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async (_event, sessionId?: string) => {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken || !auth.userId) throw new Error('任务页本机会话名册不可用：未登录')
   const emdash = loadEmdashBridge()
   if (!emdash) throw new Error('任务页运行时不可用')
-  return localSessionPeers(emdash, auth)
+  return localSessionPeers(emdash, auth, sessionId)
 })
 
 // @@@sessionpage TASKPAGE-FUSION 分享 — 会话页头部的分享入口需要两件事,都在这:

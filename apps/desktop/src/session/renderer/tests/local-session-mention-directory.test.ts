@@ -17,9 +17,13 @@ vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
   remoteHostsStore: { directoryPeers: () => directory(), findListedSession: () => null },
 }));
 vi.mock('@renderer/lib/shell-port', () => ({ shellPort: () => ({ sessionPeers }) }));
-vi.mock('@renderer/localization/locale-store', () => ({
-  translateSessionMessage: (key: string, values: { device?: string }) => `${key}:${values.device}`,
-}));
+vi.mock('@renderer/localization/locale-store', async () => {
+  const { enUSMessages } = await import('@renderer/localization/messages');
+  return {
+    translateSessionMessage: (key: string, values: { device?: string } = {}) =>
+      key === 'chat.mentionDropPrivateAgent' ? enUSMessages[key] : `${key}:${values.device}`,
+  };
+});
 
 const { createLocalSessionMentionProvider } = await import('@renderer/lib/chat/local-session-mention-provider');
 
@@ -62,6 +66,18 @@ describe('@ 弹层读会话目录', () => {
     const pill = await createLocalSessionMentionProvider().resolveSession('remote-1');
     expect(pill).toMatchObject({ label: 'aid:agent-remote', name: 'Codex 8' });
     expect(sessionPeers).toHaveBeenCalled();
+  });
+
+  it('explains a private external Agent refusal without treating an uncreated identity as private', async () => {
+    sessionPeers.mockRejectedValueOnce(new Error('Error invoking remote method: SESSION_PRIVATE_EXTERNAL_AGENT'));
+    const provider = createLocalSessionMentionProvider();
+    expect(await provider.resolveSession('private-task')).toMatchObject({
+      label: '', disabled: true,
+      description: 'This Agent is private to another user and cannot be added.',
+    });
+    expect(sessionPeers).toHaveBeenLastCalledWith('private-task');
+    sessionPeers.mockResolvedValueOnce([]);
+    expect(await provider.resolveSession('unstarted-task')).toBeNull();
   });
 
 });
