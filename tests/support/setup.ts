@@ -70,7 +70,6 @@ beforeEach(async () => {
   const { setLocalePreference } = await import('../../apps/desktop/src/i18n')
   await import('../../apps/desktop/src/i18n/registerMainCatalog')
   await import('../../apps/desktop/src/i18n/registerSettingsCatalog')
-  await import('../../apps/desktop/src/i18n/registerDiscoverCatalog')
   await import('../../apps/desktop/src/i18n/registerMessagingCatalog')
   await import('../../apps/desktop/src/i18n/registerContactsCatalog')
   await import('../../apps/desktop/src/i18n/registerAgentsCatalog')

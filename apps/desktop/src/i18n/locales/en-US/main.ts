@@ -535,7 +535,6 @@ export default {
       "retryDeviceChanged": "You cannot switch devices while retrying this Agent creation",
       "taskBridgeUnavailable": "Tasks cannot be opened in this environment"
     },
-    "explore": "Explore",
     "features": "Features",
     "feedback": "Send feedback",
     "imagePreview": {
