@@ -26,7 +26,7 @@ import {
   type MachineLinkState,
 } from '@renderer/lib/machine-clients';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
-import { machineRegistry } from '@renderer/lib/machine-routing';
+import { machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
@@ -297,9 +297,9 @@ export class RemoteHostsStore {
    */
   sessionsOf(deviceId: string): { sessions: readonly SessionpageSessionSummary[]; live: boolean } {
     const entry = this.directory[deviceId];
-    if (entry && !entry.cached) return { sessions: entry.sessions, live: this.hosts.get(deviceId)?.link === 'open' };
+    if (entry && !entry.cached) return { sessions: machineCodec(deviceId).inbound(entry.sessions), live: this.hosts.get(deviceId)?.link === 'open' };
     const device = this.device(deviceId);
-    return { sessions: sessionListFromDigest(device?.sessionDigest, device?.isOnline).sessions, live: false };
+    return { sessions: machineCodec(deviceId).inbound(sessionListFromDigest(device?.sessionDigest, device?.isOnline).sessions), live: false };
   }
 
   /** #7199 所有别的机器上会话目录里的会话,带是哪台、是不是此刻的读数(助理 App 找它的子 agent 用)。 */
