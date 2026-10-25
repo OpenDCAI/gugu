@@ -510,7 +510,6 @@ export default {
       "agentFloodTopics": "Topic thresholds",
       "agentFloodTopicsFailed": "Could not load topics.",
       "agentFloodPermissionsFailed": "Could not load topic permissions. Read-only for now.",
-      "agentFloodLoadFailed": "Could not load the threshold. Reopen settings to retry.",
       "agentFloodSaveFailed": "Could not save the threshold. Please try again.",
       "agentFloodThreshold": "Turn agents passive past this many",
       "agentFloodThresholdAria": "How many agents before they all turn passive",

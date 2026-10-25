@@ -59,7 +59,7 @@ export function AgentFloodThresholdSetting({
   const saving = useRef(false)
   const readSequence = useRef(0)
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const [value, setValue] = useState<number | null>(null)
   const [effective, setEffective] = useState<number | null>(null)
   // null means no local edit; an empty string is the explicit inheritance draft.
@@ -68,7 +68,7 @@ export function AgentFloodThresholdSetting({
   useEffect(() => {
     let cancelled = false
     const sequence = ++readSequence.current
-    setFailed(false)
+    setFailed('')
     chatService.getGroupChatSettings(chatId)
       .then((settings) => {
         if (cancelled || sequence !== readSequence.current) return
@@ -79,7 +79,7 @@ export function AgentFloodThresholdSetting({
       .catch((error: unknown) => {
         if (cancelled || sequence !== readSequence.current) return
         floodLog.error({ error, chatId }, 'agent flood threshold load failed')
-        setFailed(true)
+        setFailed(messageForUser(error))
       })
     return () => { cancelled = true }
   }, [chatId, revision])
@@ -108,9 +108,9 @@ export function AgentFloodThresholdSetting({
         toast(messageForUser(error), 'error')
       })
       .finally(() => { saving.current = false; setBusy(false) })
-  }, [chatId, draft, value, editable, onSaved, t, toast])
+  }, [chatId, draft, value, editable, onSaved, toast])
 
-  if (failed) return <p role="alert">{t('group.settings.agentFloodLoadFailed')}</p>
+  if (failed) return <p role="alert">{failed}</p>
   if (effective === null) return null
 
   return (
