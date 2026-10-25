@@ -148,7 +148,9 @@ describe('a file tab inside a retained session page that is not on screen', () =
       );
     });
     expect(container.querySelector('[data-preview="/w/a.html"]')).not.toBeNull();
-    const painted = [...container.querySelectorAll('*')].filter((el) => el.checkVisibility({ visibilityProperty: true }));
+    // 藏起来的是面里的内容;面自己的盒子(没有底色、不接点击)留在原位占住尺寸。
+    const surface = container.firstElementChild!;
+    const painted = [...surface.querySelectorAll('*')].filter((el) => el.checkVisibility({ visibilityProperty: true }));
     expect(painted.map((el) => el.outerHTML.slice(0, 120))).toEqual([]);
     expect(focusable('/w/a.html')).toBe(false);
     expect(findable('/w/a.html preview')).toBe(false);
