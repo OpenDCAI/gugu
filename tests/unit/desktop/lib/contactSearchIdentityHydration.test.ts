@@ -32,8 +32,8 @@ describe('contact search canonical identity hydration', () => {
     mocks.readRequiredDisplayIdentities.mockRejectedValue(new Error('Canonical identity candidate-1 was not returned'))
     await expect(contactsService.searchUsers('alice', 'viewer-1')).rejects.toThrow(/candidate-1/)
   })
-  it('keeps the rejected contact RPC message and native cause for the UI', async () => {
-    const error = { message: 'Contact lookup denied /Users/test/private sk-synthetic-secret\nstack detail', code: 'P0001' }
+  it.each(['P0001', '42501', '23505', 'PGRST204'])('keeps the %s contact RPC message and native cause for the UI', async (code) => {
+    const error = { message: 'Contact lookup denied /Users/test/private sk-synthetic-secret\nstack detail', code }
     mocks.rpc.mockResolvedValue({ data: null, error })
     const caught = await contactsService.searchUsers('alice', 'viewer-1').catch((cause) => cause)
     expect(caught).toBeInstanceOf(Error)

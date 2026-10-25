@@ -1,3 +1,5 @@
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({ ...await importOriginal<typeof import('@renderer/lib/hooks/use-toast')>(), toast: notice }))
 /**
  * #5818 侧栏会话行:行尾的置顶 / 归档**只认指针与真焦点** —— 真 Chromium、真 CSS、真组件。
  * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#7334 起卡上只有
@@ -510,4 +512,18 @@ it('shows the sanitized clipboard refusal in the existing identity row', async (
   await until('copy failure is visible', () => row.dataset.copyState === 'failed')
   expect(clipboard).toHaveBeenCalledTimes(1)
   expect(row.querySelector('[aria-live="polite"]')!.textContent).toBe('Clipboard denied [path] [redacted token]')
+})
+
+it('shows the sanitized clipboard refusal when copying the session ID', async () => {
+  const clipboard = stubClipboard().mockRejectedValue(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
+  notice.mockClear()
+  mount()
+  await mounted()
+  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+  row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
+  await until('context menu opens', () => document.querySelector('[data-slot="context-menu-item"]') !== null)
+  const item = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find(el => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))!
+  await userEvent.click(item)
+  await until('session id copy was attempted', () => clipboard.mock.calls.length > 0)
+  expect(notice).toHaveBeenCalledWith({ title: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })
 })
