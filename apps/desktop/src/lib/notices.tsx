@@ -2,6 +2,9 @@ import type { ReactNode } from 'react'
 import { toast as sonner } from 'sonner'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { TOAST_DWELL_MS, isReadableTier, type ToastTier } from './toastTiers'
+import { rendererLogger } from './log'
+
+const noticeLog = rendererLogger('notice')
 
 /**
  * 全 app 唯一的提示出口(#137)。主 app 与会话页两个 React 根共用同一份 sonner 状态
@@ -86,6 +89,11 @@ export function notify({ key, title, description, tier, variant, ongoing, waitin
     className: passthrough ? 'gugu-notice-passthrough' : undefined,
     duration: ongoing ? Infinity : duration,
     closeButton: ongoing ? true : undefined,
+  }
+
+  // 用户读到的失败 / 告警原样落盘(只是本机日志):日志里的错误行说不清用户当时看见了哪一句。
+  if (tier === 'error' || tier === 'warning' || (!tier && variant === 'destructive')) {
+    noticeLog.warn({ tier: tier ?? 'error', key, title, description: typeof description === 'string' ? description : undefined }, 'notice shown')
   }
 
   // 没显式给档位的调用行为一字不变。
