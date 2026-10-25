@@ -28,13 +28,6 @@ it('passes the persisted delivery cause to the existing failed-message menu', as
   await clickElement(trigger)
   expect(document.querySelector('[data-testid="message-send-failed-menu"]')?.textContent).toContain(trigger.title)
 })
-it('preserves a clipboard refusal from the message context action', async () => {
-  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Clipboard permission denied')) } })
-  const toast = vi.fn()
-  await renderWithAppProviders(harness, createNode(MessageBubble, { ...callbacks, msg: message({ is_mine: true }) }), { toast })
-  await chooseAction('复制')
-  expect(toast).toHaveBeenCalledWith('Clipboard permission denied', 'error')
-})
 it('preserves the attachment failure from the message download action', async () => {
   download.mockRejectedValueOnce(new Error('attachment 403'))
   const toast = vi.fn()

@@ -373,12 +373,12 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('copy text clipboard reject → fail-loud toast, not silent (#1123)', async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
     await openMenuAndCopy()
-    expect(toast).toHaveBeenCalledWith('复制失败，请手动选择文本复制', 'error')
+    expect(toast).toHaveBeenCalledWith('clipboard denied [path] [redacted token]', 'error')
   })
   it('exposes working copy, quote and more actions below a private agent answer without hovering', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
