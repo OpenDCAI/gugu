@@ -15,7 +15,7 @@ import { ConsentBody } from './ConsentDetails'
 import { AppPlacesEditor } from './AppPlaces'
 import { applyPlaceChanges } from '../../session/shared/extensions/app-places'
 import { ForumConsent } from './ForumConsent'
-import { ComposeTargetPicker } from '../chat/ComposeTargetPicker'
+import { DispatchSheet } from '../chat/DispatchSheet'
 
 type Ask = Extract<ExtensionConsentEventDetail, { type: 'ask' }>
 
@@ -37,12 +37,12 @@ function RequesterFace({ requester }: { requester: ExtensionConsentRequester }) 
  */
 export function ExtensionConsentSheet() {
   // 论坛 (9): the other things an App asks the person to consent to here — moving a bounty's community points, assigning an agent.
-  // And where a compose goes when the App did not say (`gugu.compose(text)`): the same shell, the same promise.
+  // And whom a dispatch goes to when the App did not say (`gugu.dispatch(text)`): the same shell, the same promise.
   return (
     <>
       <InstallConsentSheet />
       <ForumConsent />
-      <ComposeTargetPicker />
+      <DispatchSheet />
     </>
   )
 }

@@ -32,7 +32,7 @@ import { AgentAnswerActions } from './AgentAnswerActions'
 import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
 /** The composer's quote (`> [SenderName]: QuotedText\nReplyText`, InputArea) into quote + reply parts. Any other `> `
- *  start is a markdown blockquote (one put in by gugu.compose, an agent quoting): rendered as markdown, not taken apart. */
+ *  start is a markdown blockquote (one put in by a gugu.dispatch draft, an agent quoting): rendered as markdown, not taken apart. */
 function parseQuotedContent(
   content: string,
 ): { senderName: string; quoteText: string; replyText: string } | null {

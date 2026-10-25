@@ -16,7 +16,7 @@ import {
   EXTENSION_INSTALLED_CHANGED_METHOD,
   EXTENSION_LISTED_SESSION_METHOD,
   EXTENSION_MEMBER_FACES_METHOD,
-  EXTENSION_PICK_COMPOSE_TARGET_METHOD,
+  EXTENSION_PICK_DISPATCH_TARGET_METHOD,
   INSTALL_CONSENT_HUMAN_WINDOW_MS,
   type ExtensionHostAction,
   type ExtensionHostActionResult,
@@ -30,7 +30,7 @@ import {
   APP_OPEN_WITH_EVENT,
   type AppComposeDetail,
 } from '@shared/extensions/app-runtime-protocol';
-import type { ComposePickAsk } from '@shared/extensions/app-send-core';
+import type { DispatchAsk } from '@shared/extensions/app-dispatch-core';
 import { openApp } from './app-dock';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
@@ -257,10 +257,10 @@ export const extensionHostActionHandlers: RendererRpcHandlers = {
     const { remoteHostsStore } = await import('@renderer/features/remote-hosts/remote-hosts-store');
     return remoteHostsStore.listedProject(sessionId);
   },
-  /** `gugu.compose(text)` naming no place: the person picks one in the shell's sheet (ComposeTargetPicker). */
-  [EXTENSION_PICK_COMPOSE_TARGET_METHOD]: async (params: unknown) => {
-    const { pickComposeTarget } = await import('@/components/chat/composeTargetAsk');
-    return pickComposeTarget(params as ComposePickAsk);
+  /** `gugu.dispatch` naming no target: the person picks one in the shell's sheet (DispatchSheet). */
+  [EXTENSION_PICK_DISPATCH_TARGET_METHOD]: async (params: unknown) => {
+    const { pickDispatchTarget } = await import('@/components/chat/dispatchAsk');
+    return pickDispatchTarget(params as DispatchAsk);
   },
   [EXTENSION_INSTALL_CONSENT_METHOD]: (params: unknown): Promise<ExtensionInstallConsentResult> => {
     if (!params || typeof params !== 'object') throw new Error('Invalid extension consent request');

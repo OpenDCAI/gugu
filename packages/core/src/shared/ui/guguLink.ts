@@ -28,7 +28,7 @@ const GROUP_FILE_LINK = new RegExp(`^gugu-file://(${UUID})/?(?:\\?([^#]*))?(?:#(
 
 /**
  * `gugu-file://<itemId>[?v=<version>][#<place>]` — a file of a group's (or a topic's) workspace, as the MCP tools and
- * `gugu.send` write it (摩擦单 F10). Its id is unique, and which chat it is in is read from it when it opens (F112 — a chat
+ * `gugu.dispatch` write it (摩擦单 F10). Its id is unique, and which chat it is in is read from it when it opens (F112 — a chat
  * id in the link was one more thing an agent had to copy, and got wrong). `?v=` and `#` are what an App reference adds:
  * the version it was picked on, and the place in the file (`k=v&k=v`). A query parameter it does not know is let be, as
  * a `v` that is not a whole number is. The one reading of it: a chat link, `session_open_in_tab`, a pill, anywhere else.

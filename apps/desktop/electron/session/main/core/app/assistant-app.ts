@@ -27,10 +27,10 @@ export async function callAssistantApp(verb: string, input: unknown, expectedOwn
   if (expectedOwnerId && ownerId !== expectedOwnerId) throw new AppSendError('denied', 'Account changed');
   const args = input as Record<string, unknown> | null;
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new AppSendError('invalid', 'App arguments must be an object');
-  if (!expectedOwnerId && (verb === 'messageAgent' || (verb === 'callProgram' && ['library_write', 'assistant_work_clear'].includes(String(args.name))))) {
+  if (!expectedOwnerId && (verb === 'dispatch' || (verb === 'callProgram' && ['library_write', 'assistant_work_clear'].includes(String(args.name))))) {
     throw new AppSendError('denied', 'The App view is not bound to an account');
   }
-  if (verb === 'messageAgent' || verb === 'listAgents') {
+  if (verb === 'dispatch' || verb === 'listAgents') {
     const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } });
     const { data, error } = await client.from('agent_provisions').select('agent_user_id, device_id, member_key, phase, created_at')
       .eq('owner_user_id', ownerId).eq('member_key', 'assistant');
@@ -45,13 +45,14 @@ export async function callAssistantApp(verb: string, input: unknown, expectedOwn
       if (!agents.length) throw new AppSendError('failed', 'The personal assistant is not addressable on its device');
       return { agents, unreached: listed.unreached };
     }
-    if (args.defer !== true || args.queue !== undefined || args.key !== undefined) {
-      throw new AppSendError('invalid', 'Assistant state messages use defer without queue or replacement keys');
+    if (args.delivery !== 'defer' || args.key !== undefined || args.draft !== undefined || args.refs !== undefined) {
+      throw new AppSendError('invalid', 'Assistant state messages are dispatched with delivery defer, no key, draft or refs');
     }
-    const agentId = String(args.agentId ?? '').replace(/^user:/, '');
+    const agentId = String((args.to as { agent?: unknown } | null)?.agent ?? '').replace(/^user:/, '');
     if (personal?.agentId !== agentId) throw new AppSendError('denied', 'This App only messages your personal assistant');
     if ((await account()).ownerId !== ownerId) throw new AppSendError('denied', 'Account changed');
-    return messageAgentFromHostApp(ASSISTANT_PANEL_APP, 'all-machines', { agentId: `user:${agentId}`, text: args.text, defer: true });
+    const receipt = await messageAgentFromHostApp(ASSISTANT_PANEL_APP, 'all-machines', { agentId: `user:${agentId}`, text: args.text, defer: true });
+    return { to: { agent: `user:${agentId}` }, ...receipt };
   }
   if (verb === 'callProgram') {
     if (args.server !== undefined && args.server !== ASSISTANT_PANEL_SERVER) throw new AppSendError('invalid', 'Unknown assistant App program');

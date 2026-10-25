@@ -160,7 +160,8 @@ if (window.gugu) {
     if (id === 'post') {
       // Into the composer of the session it reads (the toolbar click is the person's gesture): they send it.
       try {
-        await window.gugu.compose(summary(), await here());
+        const agent = (await window.gugu.getContext()).session?.agentId;
+        await window.gugu.dispatch(summary(), { draft: true, ...(agent ? { to: { agent } } : {}) });
       } catch (error) {
         $('sub').textContent = `放不进去:${error?.message ?? error}`;
       }

@@ -99,7 +99,7 @@ export interface MessageItem {
   to_user_ids: string[] | null
   // @@@whisper (#820) - true = 定向私密消息（仅 sender + to_user_ids 可见，RLS 强制）；与「@提及定向(公开)」区分。
   is_whisper?: boolean
-  // App 用 gugu.send 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
+  // App 用 gugu.dispatch 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
   via_app?: string | null
   /** Public AI-sent marker; the source identity is visible only to the human sender. */
   sent_by_agent?: boolean
