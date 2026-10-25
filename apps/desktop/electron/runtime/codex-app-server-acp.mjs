@@ -820,10 +820,10 @@ async function startAppOnce(servers) {
     // 可选 server 首次取工具只等 1 秒(codex 的 mcp_optional_startup_grace_ms),慢一步就不在那一轮里。
     // 标 required:开场等它起好,起不来就让开场响亮地失败。
     appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.required`] = true
+    appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.omit_tools_from`] = ['deferred']
   }
-  // 哪些 server 的工具不进 code mode 的 exec 沙箱、直接上模型的工具表:声明了 alwaysLoad 的那几台(咕咕自己那台、
-  // 资源库连上的服务、人选了直接列出的 App),由物化器算好递过来(session-bundle.ts codexDirectNamespaces)。
-  // 咕咕自己那台在里面 —— #3551 当年挂住的那条路靠它挡住。
+  // Library services and full-disclosure Apps keep the materializer's direct-only namespaces.
+  // Gugu's own catalog follows Codex's native execution surface without deferred loading.
   const directNamespaces = process.env.GUGU_CODEX_DIRECT_TOOL_NAMESPACES?.trim()
   if (directNamespaces) {
     const parsed = JSON.parse(directNamespaces)

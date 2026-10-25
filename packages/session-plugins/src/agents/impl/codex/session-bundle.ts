@@ -45,15 +45,13 @@ function extensionSkillRoot(bundle: SessionCapabilityBundle): { root: string; sy
 }
 
 /**
- * `alwaysLoad` in codex's words. codex 0.156's code mode hands the model directly only the namespaces in
- * `features.code_mode.direct_only_tool_namespaces`; every other MCP tool sits in the `exec` sandbox's `ALL_TOOLS`,
- * where the model does not look. The servers declared `alwaysLoad` are gugu's own, the services connected in the
- * library and the Apps the person chose to list up front (10-06: an App listed up front was in neither the model's
- * tools nor the catalog). The person's own MCP servers declare nothing and stay as codex treats them: gugu is a
- * client and made no choice for them. Namespace = `mcp__<config key>` (codex `sanitize_responses_api_tool_name`).
+ * Library services and full-disclosure Apps retain direct-only namespaces. Gugu's own MCP uses Codex's native
+ * execution surface, so its catalog remains callable from code mode. Its native omit_tools_from setting keeps
+ * it out of Codex's deferred loading. The person's own MCP servers retain their native policy.
+ * Namespace = `mcp__<config key>` (codex `sanitize_responses_api_tool_name`).
  */
 function codexDirectNamespaces(bundle: SessionCapabilityBundle): string[] {
-  return bundle.mcpServers.filter((server) => server.alwaysLoad).map((server) => `mcp__${mcpConfigKey(server.name)}`);
+  return bundle.mcpServers.filter((server) => server.alwaysLoad && server.owner !== 'gugu').map((server) => `mcp__${mcpConfigKey(server.name)}`);
 }
 
 /**
@@ -963,7 +961,7 @@ export function materializeCodexSessionBundle(
     env[GUGU_CODEX_REASONING_SUMMARY_ENV] = 'auto';
     env[GUGU_CODEX_REASONING_SUMMARIES_SUPPORTED_ENV] = 'true';
     const direct = codexDirectNamespaces(bundle);
-    if (direct.length > 0) env[GUGU_CODEX_DIRECT_TOOL_NAMESPACES_ENV] = JSON.stringify(direct);
+    if (bundle.mcpServers.some((server) => server.alwaysLoad)) env[GUGU_CODEX_DIRECT_TOOL_NAMESPACES_ENV] = JSON.stringify(direct);
   }
   // gugu server 的 endpoint 走 Codex 原生 thread `config` map。
   //
@@ -976,6 +974,7 @@ export function materializeCodexSessionBundle(
           const key = mcpConfigKey(server.name);
           // 问题 9:咕咕发的 server 不逐次问(Codex 缺省按注解判,没注解就问)。
           entries.push([`mcp_servers.${key}.default_tools_approval_mode`, 'approve']);
+          if (server.owner === 'gugu') entries.push([`mcp_servers.${key}.omit_tools_from`, ['deferred']]);
           if (server.transport === 'stdio') {
             assertSessionMcpStdioEnv(server, bundle, 'Codex');
             entries.push(
@@ -1018,7 +1017,7 @@ export function materializeCodexSessionBundle(
         entries.push(['notify', codexNotifyConfigValue()]);
         // Process-level, so every thread of this app-server has it, the one the TUI creates too.
         const direct = codexDirectNamespaces(bundle);
-        if (direct.length > 0) entries.push(['features.code_mode.direct_only_tool_namespaces', direct]);
+        if (bundle.mcpServers.some((server) => server.alwaysLoad)) entries.push(['features.code_mode.direct_only_tool_namespaces', direct]);
         return Object.fromEntries(entries);
       })()
     : undefined;

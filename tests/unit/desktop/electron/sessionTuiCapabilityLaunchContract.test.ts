@@ -286,7 +286,7 @@ describe('harness tool naming comes only from capabilities.mcp.toolNames (#6192)
   it('Codex chat panel: gugu tools in the mcp__gugu namespace under bare names; the terminal leg keeps its measured form', () => {
     const chat = guguSessionSurfaceBlock('acp', 'codex', true);
     expect(chat).toContain(
-      'Your harness lists 咕咕 tools in its `mcp__gugu` namespace under their bare names (e.g. `message_send` there)',
+      'Your harness exposes 咕咕 tools under `mcp__gugu`; follow each tool definition\'s advertised invocation form.',
     );
     expect(chat).not.toContain('mcp__gugu__');
     // 聊天面板的 app-server 形态读的是同一条腿
