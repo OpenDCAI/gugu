@@ -597,13 +597,13 @@ export class PaneLayoutStore<R extends TabRegistry = TabRegistry> {
         if (!existing) continue;
         if (!previewFlag) existing.isPreview = false;
         if (overrideStateFlag) existing.state = initialState;
-        existing.returnTo = config?.returnTo;
+        if (config?.returnTo) existing.returnTo = config.returnTo;
         if (anchorGroup || (config?.activate ?? true)) this.windowRevealer?.(windowPane.paneId);
         return;
       }
       for (const g of this.groups) {
         const existing = g.pane.findSingleMountEntry(kind, key);
-        if (existing) existing.returnTo = config?.returnTo;
+        if (existing && config?.returnTo) existing.returnTo = config.returnTo;
         if (existing && anchor && anchorGroup) {
           if (!previewFlag) existing.isPreview = false;
           if (overrideStateFlag) existing.state = initialState;

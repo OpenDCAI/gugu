@@ -758,7 +758,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (existing) {
         if (!isPreview) existing.isPreview = false;
         if (opts?.overrideState) existing.state = initialState;
-        existing.returnTo = opts?.returnTo;
+        if (opts?.returnTo) existing.returnTo = opts.returnTo;
         if (activate) this.setActiveTab(existing.tabId);
         return existing.tabId;
       }

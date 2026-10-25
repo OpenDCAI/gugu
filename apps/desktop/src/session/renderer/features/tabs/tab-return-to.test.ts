@@ -103,15 +103,21 @@ describe('tab return navigation', () => {
     expect(pane.ctx.place).toEqual({ kind: 'chat', chatId: 'c1' });
   });
 
-  it('updates navigation on a single-mount hit and clears it on a direct open', () => {
+  it('updates navigation when the same page is opened from a different previous page', () => {
     const { pane, open } = setup();
     const first = open('first');
     const second = open('second');
     const child = open('child', { returnTo: { tabId: first } });
     expect(open('child', { returnTo: { tabId: second } })).toBe(child);
     expect(pane.returnToOf(child)).toEqual({ tabId: second });
-    open('child');
-    expect(pane.returnToOf(child)).toBeUndefined();
+  });
+
+  it('keeps the previous page when an already-open tab is opened directly', () => {
+    const { pane, open } = setup();
+    const origin = open('origin');
+    const child = open('child', { returnTo: { tabId: origin } });
+    expect(open('child')).toBe(child);
+    expect(pane.returnToOf(child)).toEqual({ tabId: origin });
   });
 
   it('retargets a preview with the new resource and its own previous page', () => {
