@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState, useCallback } from 'react'
 import QRCode from 'qrcode'
 import { createSharePosterCanvas, copyPosterToClipboard, downloadPoster } from './sharePosterCanvas'
@@ -47,10 +48,10 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       .then((url) => { if (!cancelled) setQrDataUrl(url) })
       .catch((err) => {
         console.error('[SharePosterDialog] QR gen error', err)
-        if (!cancelled) setGenError(t('sharing.qrFailed'))
+        if (!cancelled) setGenError(messageForUser(err))
       })
     return () => { cancelled = true }
-  }, [qrValue, t])
+  }, [qrValue])
 
   // @@@445 数组 prop 转稳定 key 当 effect 依赖,避免每次渲染新引用触发重画。
   // 用 JSON.stringify(非 join('|')):URL 含字面 '|' 时 split round-trip 会损坏。直接把数组传给 canvas。
@@ -81,11 +82,11 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
       .catch((err) => {
         // @@@445 fail-loud:生成失败显式提示用户(别静默吞→空白海报让人以为成功)。
         console.error('[SharePosterDialog] poster gen error', err)
-        if (!cancelled) setGenError(t('sharing.posterFailed'))
+        if (!cancelled) setGenError(messageForUser(err))
       })
       .finally(() => { if (!cancelled) setGenerating(false) })
     return () => { cancelled = true }
-  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText, t])
+  }, [qrDataUrl, title, subtitle, memberKey, totalMemberCount, qrCaption, ctaText])
 
   const handleCopy = useCallback(async () => {
     const canvas = posterCanvasRef.current

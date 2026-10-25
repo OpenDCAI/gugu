@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
@@ -39,23 +40,23 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
   const now = live ? { cpu: store.totalCpuPercent ?? last?.cpu, memory: store.totalMemoryBytes ?? last?.memory } : { cpu: last?.cpu, memory: last?.memory };
   const ranges = (['15m', '1h', 'all'] as const).map((value) => ({ value, label: t(value === 'all' ? 'resourceMonitor.all' : value === '1h' ? 'resourceMonitor.range1h' : 'resourceMonitor.range15m') }));
   const labels = { cpu: t('resourceMonitor.cpuOneCore'), memory: t('resourceMonitor.memoryRss') };
-  const fail = (e: unknown) => { log.warn({ error: String(e) }, 'resource history request failed'); setError(t('resourceMonitor.historyFailed')); };
+  const fail = (e: unknown) => { log.error({ error: e }, 'resource history request failed'); setError(messageForUser(e)); };
   useEffect(() => {
     let active = true;
     const until = Date.now();
     void rpc.resourceMonitor.history(RANGE_MS[range] ? until - RANGE_MS[range] : 0, until).then((res) => {
-      if (active && res.success) { setHistory(res.data); setError(''); }
+      if (active) { if (!res.success) throw res.error; setHistory(res.data); setError(''); }
     }).catch((e: unknown) => { if (active) fail(e); });
     return () => { active = false; };
   }, [tick, range, revision]);
   const action = async (kind: 'export' | 'clear') => {
     try {
       if (kind === 'export') await rpc.resourceMonitor.exportHistory(t('resourceMonitor.export'));
-      else { await rpc.resourceMonitor.clearHistory(); setHistory(null); setSelected(null); const res = await rpc.resourceMonitor.history(); if (res.success) setHistory(res.data); }
+      else { await rpc.resourceMonitor.clearHistory(); setHistory(null); setSelected(null); const res = await rpc.resourceMonitor.history(); if (!res.success) throw res.error; setHistory(res.data); }
     } catch (e) { fail(e); }
   };
   const select = (id: number) => { void rpc.resourceMonitor.point(id).then((res) => {
-    if (res.success) { setSelected(res.data); if (!res.data) setError(t('resourceMonitor.expired')); }
+    if (!res.success) throw res.error; setSelected(res.data); if (!res.data) setError(t('resourceMonitor.expired'));
   }).catch(fail); };
   const tiles = [
     { key: 'cpu' as const, label: 'CPU', value: cpuText(now.cpu), note: `${t('resourceMonitor.oneCore')} · ${t('resourceMonitor.peak', { value: cpuText(peak.cpu) })}` },

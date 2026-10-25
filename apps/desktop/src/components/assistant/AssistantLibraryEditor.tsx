@@ -24,11 +24,11 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
   const [group, setGroup] = useState(entry?.group ?? '')
   const [content, setContent] = useState(entry?.content ?? '')
   const [saving, setSaving] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const ownerId = useRef(cachedDevicesAccount()).current
   return <form className="ta-page" data-testid="assistant-library-editor" onSubmit={async event => {
     event.preventDefault(); if (!name.trim() || saving) return
-    setSaving(true); setFailed(false)
+    setSaving(true); setFailed('')
     try {
       const saved = await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', { kind, name: name.trim(), description, group: group.trim() || null, content,
         ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }, ownerId)
@@ -40,7 +40,7 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
             : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, assistantId, ownerId)
       } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error: error }, 'action failed'); toast({ title: messageForUser(error), tier: 'warning' }) }
       onSaved()
-    } catch { setFailed(true) }
+    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(messageForUser(error)) }
     finally { setSaving(false) }
   }}>
     <PageHead title={t(entry ? 'library.edit' : 'library.add')} />
@@ -49,7 +49,7 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
     <label>{t('library.entryDescription')}<Input value={description} onChange={e => setDescription(e.target.value)} /></label>
     <label>{t('library.entryContent')}<Textarea rows={8} value={content} onChange={e => setContent(e.target.value)} /></label>
     <p className="ta-page-sub">{t('library.noCredentials')}</p>
-    {failed && <p role="alert">{t('library.saveFailed')}</p>}
+    {failed && <p role="alert">{failed}</p>}
     <div className="flex gap-2"><Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
       <Button type="submit" disabled={saving || !name.trim()}>{t(saving ? 'common.saving' : 'common.save')}</Button></div>
   </form>

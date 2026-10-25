@@ -282,8 +282,8 @@ export function usePty(
       try {
         const text = await navigator.clipboard.readText();
         if (text) sendInput(text);
-      } catch {
-        // Clipboard read denied or unavailable.
+      } catch (error) {
+        log.error({ error }, 'terminal paste failed'); toast({ title: messageForUser(error), tier: 'error' });
       }
     })();
   }, [focus, sendInput]);

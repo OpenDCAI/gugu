@@ -68,13 +68,13 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite token fetch failed', error)
         if (!cancelled) {
           setJoinToken(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [group.id, hasGroupNumber, t])
+  }, [group.id, hasGroupNumber])
 
   const payloadText = useMemo(() => {
     if (!hasGroupNumber || !joinToken) return null
@@ -106,13 +106,13 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite QR generation failed', error)
         if (!cancelled) {
           setQrDataUrl(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [payloadText, t])
+  }, [payloadText])
 
   // @@@qr-share-as-image - "复制二维码内容" used to copy the QR payload as a TEXT LINK, which is
   const handleCopy = useCallback(async () => {

@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../ui/Button'
@@ -19,7 +21,7 @@ export function AssistantNameInline({ name, onCommit, className, activation = 'c
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const committing = useRef(false)
   const ignoreBlur = useRef(false)
 
@@ -29,20 +31,20 @@ export function AssistantNameInline({ name, onCommit, className, activation = 'c
     if (!next || next === name) { setEditing(false); return }
     committing.current = true
     setSaving(true)
-    setFailed(false)
+    setFailed('')
     try {
       await onCommit(next)
       setEditing(false)
-    } catch {
-      setFailed(true)
+    } catch (error) {
+      rendererLogger('actions/AssistantNameInline').error({ error }, 'action failed'); setFailed(messageForUser(error))
     } finally {
       committing.current = false
       setSaving(false)
     }
   }
 
-  const startEditing = () => { ignoreBlur.current = false; setDraft(name); setFailed(false); setEditing(true) }
-  const cancel = () => { if (!committing.current) { ignoreBlur.current = true; setFailed(false); setEditing(false) } }
+  const startEditing = () => { ignoreBlur.current = false; setDraft(name); setFailed(''); setEditing(true) }
+  const cancel = () => { if (!committing.current) { ignoreBlur.current = true; setFailed(''); setEditing(false) } }
 
   return (
     <span className={cn('assistant-name-inline', className)}>
@@ -52,12 +54,12 @@ export function AssistantNameInline({ name, onCommit, className, activation = 'c
             autoFocus
             className="assistant-name-input window-no-drag-region"
             aria-label={t('settingsPage.name')}
-            aria-invalid={failed || undefined}
+            aria-invalid={!!failed || undefined}
             value={draft}
             maxLength={ASSISTANT_NAME_MAX}
             readOnly={saving}
             aria-busy={saving || undefined}
-            onChange={(event) => { setDraft(event.target.value); setFailed(false) }}
+            onChange={(event) => { setDraft(event.target.value); setFailed('') }}
             onBlur={activation === 'click' ? () => void commit() : undefined}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return
@@ -89,7 +91,7 @@ export function AssistantNameInline({ name, onCommit, className, activation = 'c
           data-testid="assistant-name-edit"
         >{name}</Button>
       )}
-      {failed ? <span className="assistant-name-error" role="alert">{t('settingsPage.renameFailed')}</span> : null}
+      {failed ? <span className="assistant-name-error" role="alert">{failed}</span> : null}
     </span>
   )
 }

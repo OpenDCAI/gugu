@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import {
   createPaneDimensionSink,
@@ -8,6 +9,7 @@ import { getDraggedWorkspaceFile } from '@renderer/lib/drag-files';
 import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { terminalSessionMentionInput } from '@renderer/lib/chat/use-session-mention-drop';
 import { rpc } from '@renderer/lib/ipc';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
 import { PaneSizingContextProvider, usePaneSizingContext } from './pane-sizing-context';
@@ -70,8 +72,8 @@ async function readClipboardFiles(): Promise<File[]> {
       files.push(new File([blob], `pasted-image-${Date.now()}.${ext}`, { type }));
     }
     return files;
-  } catch {
-    return [];
+  } catch (error) {
+    log.error({ error }, 'terminal clipboard files failed'); toast({ title: messageForUser(error), tier: 'error' }); return [];
   }
 }
 
@@ -134,8 +136,8 @@ async function pasteClipboardImageOrText(args: {
   try {
     const text = await navigator.clipboard.readText();
     if (text) args.sendInput(text);
-  } catch {
-    // Clipboard read denied or unavailable.
+  } catch (error) {
+    log.error({ error }, 'terminal paste failed'); toast({ title: messageForUser(error), tier: 'error' });
   }
   return false;
 }
@@ -293,7 +295,7 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
                 fallbackText,
               });
             } catch (error) {
-              log.warn('Terminal image paste failed', { error });
+              log.error({ error }, 'Terminal image paste failed'); toast({ title: messageForUser(error), tier: 'error' });
             }
           })();
           return;

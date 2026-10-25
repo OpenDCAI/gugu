@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { GroupRenameContext } from './use-chat-commands'
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,14 +30,14 @@ export function GroupNameInlineEdit({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
 
   const renameCommand = useContext(GroupRenameContext)
   const handledRequest = useRef(0)
   useEffect(() => {
     if (renameCommand?.request && renameCommand.request !== handledRequest.current && canEdit && name !== null) {
       handledRequest.current = renameCommand.request
-      setDraft(name); setFailed(false); setEditing(true)
+      setDraft(name); setFailed(''); setEditing(true)
     }
   }, [renameCommand?.request, canEdit, name])
 
@@ -44,15 +46,12 @@ export function GroupNameInlineEdit({
     const next = draft.trim()
     if (!next || next === name) { setEditing(false); return } // 空 / 未改 → 静默取消,不发请求
     setBusy(true)
-    setFailed(false)
+    setFailed('')
     try {
       await onCommit(next)
       setEditing(false)
-    } catch {
-      // ❌ 原先只有 finally 没有 catch:抛出的 promise 被 void 吞成未处理拒绝,
-      // 输入框照样关掉、名字弹回旧的,用户看到的是「改了个寂寞」且没有任何提示。
-      // 留在编辑态 + 一条看得见的失败标记,让他知道这一下没成、草稿还在。
-      setFailed(true)
+    } catch (error) {
+      rendererLogger('actions/GroupNameInlineEdit').error({ error }, 'action failed'); setFailed(messageForUser(error))
     } finally {
       setBusy(false)
     }
@@ -91,9 +90,9 @@ export function GroupNameInlineEdit({
         }}
         onBlur={() => void commit()}
         placeholder={labels?.placeholder ?? t('group.namePlaceholder')}
-        aria-invalid={failed || undefined}
+        aria-invalid={!!failed || undefined}
         data-rename-failed={failed ? 'true' : undefined}
-        title={failed ? t('group.renameFailed') : undefined}
+        title={failed || undefined}
         style={{
           border: 'none',
           fontSize: 'var(--font-heading)',
@@ -107,7 +106,7 @@ export function GroupNameInlineEdit({
       />
     )
   }
-  const startEditing = () => { if (renameCommand) renameCommand.edit(); else { setDraft(name); setFailed(false); setEditing(true) } }
+  const startEditing = () => { if (renameCommand) renameCommand.edit(); else { setDraft(name); setFailed(''); setEditing(true) } }
   return (
     <div className="flex min-w-0 items-center gap-1">
       <div
