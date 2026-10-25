@@ -186,7 +186,7 @@ export class RemoteHostsStore {
         ...[...appState.projects.projects.values()].flatMap((project) => {
           if (machineRegistry.machineOf(project.id)) return [];
           return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
-            'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).map((session) => ({
+            'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).filter((session) => !session.data.archivedAt).map((session) => ({
               projectId: project.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
             })));
         }),
