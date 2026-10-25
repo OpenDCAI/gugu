@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
@@ -26,36 +27,35 @@ const paneLog = rendererLogger('settings/model-pane')
 export function ModelSection() {
   const { t } = useTranslation('settings')
   const [models, setModels] = useState<PlatformCatalogModel[] | null>(null)
-  const [loadFailed, setLoadFailed] = useState(false)
-  const [saveFailed, setSaveFailed] = useState(false)
+  const [loadFailed, setLoadFailed] = useState('')
+  const [saveFailed, setSaveFailed] = useState('')
   // 列表顶上一格搜索(Cursor 那页同款):按名字或 id 筛,两组一起筛。
   const [query, setQuery] = useState('')
 
   const load = useCallback(() => {
     let live = true
-    setLoadFailed(false)
+    setLoadFailed('')
     fetchPlatformModelCatalog()
       .then((next) => { if (live) setModels(next.filter((model) => model.enabled)) })
-      // 服务端原文(测试库没配网关时是 `model access server is not configured`)只进日志,界面说一句人话。
       .catch((cause: unknown) => {
-        paneLog.warn({ error: String(cause) }, 'platform model catalog unavailable')
-        if (live) setLoadFailed(true)
+        paneLog.error({ error: String(cause) }, 'platform model catalog unavailable')
+        if (live) setLoadFailed(messageForUser(cause))
       })
     return () => { live = false }
   }, [])
   useEffect(load, [load])
 
   const toggle = (model: PlatformCatalogModel, shown: boolean) => {
-    setSaveFailed(false)
+    setSaveFailed('')
     // 先拨过去再存:开关的手感不该等一趟网络。存失败就说一句,并以服务端为准重读一遍 ——
     // ❌ 手动拨回点击那一刻的值:连拨几下时那个值早就旧了;模型刚好下架(404)时重读也让它从列表里消失。
     setModels((current) => current?.map((entry) => (entry.id === model.id ? { ...entry, hidden: !shown } : entry)) ?? current)
     setPlatformModelHidden(model.id, !shown).catch((cause: unknown) => {
-      paneLog.warn({ modelId: model.id, error: String(cause) }, 'saving model visibility failed')
-      setSaveFailed(true)
+      paneLog.error({ modelId: model.id, error: String(cause) }, 'saving model visibility failed')
+      setSaveFailed(messageForUser(cause))
       fetchPlatformModelCatalog()
         .then((next) => setModels(next.filter((entry) => entry.enabled)))
-        .catch((reloadCause: unknown) => paneLog.warn({ error: String(reloadCause) }, 'reloading models after a failed save failed'))
+        .catch((reloadCause: unknown) => paneLog.error({ error: String(reloadCause) }, 'reloading models after a failed save failed'))
     })
   }
 
@@ -71,7 +71,7 @@ export function ModelSection() {
       {loadFailed ? (
         <SettingsGroup title={t('model.provided')}>
           <SettingsRow
-            description={t('model.loadFailed')}
+            description={loadFailed}
             control={<Button variant="secondary" size="sm" onClick={load}>{t('model.retry')}</Button>}
           />
         </SettingsGroup>
@@ -94,7 +94,7 @@ export function ModelSection() {
             <SettingsGroup
               title={t('model.provided')}
               data-testid="settings-model-usable"
-              footer={saveFailed ? <SettingsNote tone="danger">{t('model.saveFailed')}</SettingsNote> : undefined}
+              footer={saveFailed ? <SettingsNote tone="danger">{saveFailed}</SettingsNote> : undefined}
             >
               {usable.map((model) => (
                 <SettingsRow

@@ -35,7 +35,8 @@ export function assistantAppClient(machine: AssistantAppMachine | null | undefin
 
 export async function assistantAppProgram<T>(machine: AssistantAppMachine | null | undefined, name: string, args?: Record<string, unknown>, expectedOwnerId = cachedDevicesAccount()): Promise<T> {
   const result = await assistantAppClient(machine, expectedOwnerId).callProgram(name, args);
-  if (result.isError || !result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
+  if (result.isError) throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), { cause: result });
+  if (!result.structuredContent || !('result' in result.structuredContent)) throw new Error('Assistant App program did not return a result');
   return result.structuredContent.result as T;
 }
 

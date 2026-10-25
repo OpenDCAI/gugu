@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
@@ -103,7 +105,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
-  const [sendFailed, setSendFailed] = useState(false)
+  const [sendFailed, setSendFailed] = useState('')
 
   // 每次摆出来都把光标放进输入框(小窗被叫出来就是要说一句)。
   useEffect(() => {
@@ -120,12 +122,12 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
     const text = draft.trim()
     if (!text) return
     setDraft('')
-    setSendFailed(false)
+    setSendFailed('')
     try {
       await sendMessage(text)
-    } catch {
-      setDraft(text)
-      setSendFailed(true)
+    } catch (error) {
+      rendererLogger('assistant/quick-chat').error({ error }, 'send failed'); setDraft(text)
+      setSendFailed(messageForUser(error))
     }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -152,7 +154,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
         )}
       </div>
       <footer className="qc-compose">
-        {sendFailed ? <span className="qc-error">{t('quickChat.sendFailed')}</span> : null}
+        {sendFailed ? <span className="qc-error">{sendFailed}</span> : null}
         <div className="qc-box">
           <textarea
             ref={input}
@@ -191,7 +193,7 @@ function QuickMessage({ message }: { message: MessageItem }) {
   return (
     <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={message.local_send_state ?? undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
-      {message.local_send_state === 'failed' ? <span className="qc-error">{t('quickChat.notSent')}</span> : null}
+      {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
     </div>
   )
 }

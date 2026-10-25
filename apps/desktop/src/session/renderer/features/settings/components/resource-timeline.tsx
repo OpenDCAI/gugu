@@ -45,18 +45,18 @@ export const ResourceTimeline = observer(function ResourceTimeline({ compact = f
     let active = true;
     const until = Date.now();
     void rpc.resourceMonitor.history(RANGE_MS[range] ? until - RANGE_MS[range] : 0, until).then((res) => {
-      if (active) { if (!res.success) throw res.error; setHistory(res.data); setError(''); }
+      if (active) { setHistory(res.data); setError(''); }
     }).catch((e: unknown) => { if (active) fail(e); });
     return () => { active = false; };
   }, [tick, range, revision]);
   const action = async (kind: 'export' | 'clear') => {
     try {
       if (kind === 'export') await rpc.resourceMonitor.exportHistory(t('resourceMonitor.export'));
-      else { await rpc.resourceMonitor.clearHistory(); setHistory(null); setSelected(null); const res = await rpc.resourceMonitor.history(); if (!res.success) throw res.error; setHistory(res.data); }
+      else { await rpc.resourceMonitor.clearHistory(); setHistory(null); setSelected(null); const res = await rpc.resourceMonitor.history(); setHistory(res.data); }
     } catch (e) { fail(e); }
   };
   const select = (id: number) => { void rpc.resourceMonitor.point(id).then((res) => {
-    if (!res.success) throw res.error; setSelected(res.data); if (!res.data) setError(t('resourceMonitor.expired'));
+    setSelected(res.data); if (!res.data) setError(t('resourceMonitor.expired'));
   }).catch(fail); };
   const tiles = [
     { key: 'cpu' as const, label: 'CPU', value: cpuText(now.cpu), note: `${t('resourceMonitor.oneCore')} · ${t('resourceMonitor.peak', { value: cpuText(peak.cpu) })}` },
