@@ -78,7 +78,7 @@ vi.mock('../../../../apps/desktop/src/lib/chatMemberReadState', async (original)
   ...await original<typeof import('../../../../apps/desktop/src/lib/chatMemberReadState')>(), markStreamRead: vi.fn(async () => {}),
 }))
 const uploads = vi.hoisted(() => ({ bytes: vi.fn(), commit: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({}) }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({}) }))
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ uploadAttachmentBytes: uploads.bytes, commitAttachment: uploads.commit }))
 const { ChatProvider } = await import('../../../../apps/desktop/src/store/chat')
 const { useChatStore } = await import('../../../../apps/desktop/src/store/chatContext')
