@@ -376,7 +376,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     userId: user?.id ?? null,
     closeRightSurfaces,
     subscribeAccountRevision,
-    onCreateFailed: () => toast(t('topic.openFailed'), 'error'),
+    onCreateFailed: (error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'),
   })
   topicSurfaceRef.current = topicSurface
   useEffect(() => { groupSlotMemory.setForm(activeChatId, workspaceForm); groupSlotMemory.showTopic(activeChatId, topicSurface.splitTopic) }, [activeChatId, workspaceForm, topicSurface.splitTopic]) // 摩擦单 F29;⑥ 右边正显示哪样

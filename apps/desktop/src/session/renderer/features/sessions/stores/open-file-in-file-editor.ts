@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { toast } from 'sonner';
 import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
@@ -316,7 +317,7 @@ export function makeFileLinkHandlers(
       // A click on a link: what fails is said with the same toast an open that fails says, not left in the console.
       openFileInSessionEditor(projectId, sessionId, filePath, { ...opts, ...(at ? { at } : {}) }).catch((error: unknown) => {
         sessionLog.error({ err: String(error), filePath }, 'opening a linked file failed');
-        toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+        toast.error(messageForUser(error));
       });
     },
     onOpenExternal: (filePath) => {

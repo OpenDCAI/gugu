@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * 群邀请一族 —— 从 ContactsPanel 抽出。
@@ -136,7 +137,7 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
       downloadDataUrl(dataUrl, safeName)
       toast(t('groupInvite.qrSaved'), 'success')
     } catch (error) {
-      toast(t('groupInvite.qrExportFailed'), 'error')
+      toast(messageForUser(error), 'error')
       console.error('QR image export failed:', error)
     }
   }, [payloadText, group.name, t, toast])

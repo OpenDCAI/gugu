@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
@@ -32,8 +33,8 @@ function SendingAgentLink({ source }: { source: NonNullable<MessageItem['agent_s
       upsertChat(createOptimisticDmChat(chatId, source.id))
       setActiveChatId(chatId)
       await refreshChats()
-    } catch {
-      toast(t('message.openSendingAgentFailed'), 'error')
+    } catch (error) { console.error(error);
+      toast(messageForUser(error), 'error')
     } finally {
       setOpening(false)
     }

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import '../assistant/assistant-onboarding.css'
 import '../../session/renderer/features/assistant/assistant-today.css'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
@@ -67,7 +68,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
       .catch((e: unknown) => {
-        log.warn({ error: String(e) }, 'read first-run progress failed')
+        log.error({ error: String(e) }, 'read first-run progress failed')
         setState({ kind: 'unreadable' })
       })
   }, [user.id, done])
@@ -169,8 +170,8 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
       await writeOccupation(user.id, chosen)
       onDone()
     } catch (e) {
-      log.warn({ error: String(e) }, 'save first-run profile failed')
-      setError(e instanceof NicknameRejected ? e.message : t('firstRun.saveFailed'))
+      log.error({ error: String(e) }, 'save first-run profile failed')
+      setError(messageForUser(e))
     } finally {
       setBusy(null)
     }
@@ -267,8 +268,8 @@ function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void 
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone()
     } catch (e) {
-      log.warn({ error: String(e) }, 'finish first run failed')
-      setError(t('firstRun.saveFailed'))
+      log.error({ error: String(e) }, 'finish first run failed')
+      setError(messageForUser(e))
       setBusy(false)
     }
   }

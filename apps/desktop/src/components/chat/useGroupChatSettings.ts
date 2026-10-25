@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { GroupChatSettings, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
@@ -66,9 +67,8 @@ export function useGroupChatSettings(chatId: string) {
     } catch (err) {
       const owned = ownedKeys()
       setSettings((current) => (current ? { ...current, ...pick(before, owned) } : current))
-      // 原因进日志、不进文案(user-copy-leak):用户能做的只有重试,而屏幕上的值已经回到库里的那个。
-      settingsLog.error({ error: err, chatId, fields: keys }, 'group settings update failed')
-      setError(t('group.settings.saveFailed'))
+            settingsLog.error({ error: err, chatId, fields: keys }, 'group settings update failed')
+      setError(messageForUser(err))
       return false
     }
   }, [chatId, t])

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import type { ReactElement } from 'react';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -33,8 +34,8 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
     try {
       const result = await rpc.projects.attachProjectFolder(detached.projectId, detached.path);
       if (!result.success) throw new Error(result.error.message);
-    } catch {
-      toast({ tier: 'error', title: translate('projects.folders.errorAttach') });
+    } catch (error) { console.error(error);
+      toast({ tier: 'error', title: messageForUser(error) });
     }
   };
   return (

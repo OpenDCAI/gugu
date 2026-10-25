@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../gugu-reason';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { useCallback, useMemo, useState, type ReactElement } from 'react';
@@ -63,8 +64,8 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
     async (path: string) => {
       const result = await rpc.app.showItemInFolder(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
-        log.warn({ error: result.error, path }, 'opened-output reveal failed');
-        toast({ title: translate('fileTree.showFailed'), variant: 'destructive' });
+        log.error({ error: result.error, path }, 'opened-output reveal failed');
+        toast({ title: messageForUser(result.error), variant: 'destructive' });
       }
     },
     [translate]
@@ -74,8 +75,8 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
     async (path: string) => {
       const result = await rpc.app.openPath(path).catch((error: unknown) => ({ success: false as const, error }));
       if (!result.success) {
-        log.warn({ error: result.error, path }, 'opened-output openPath failed');
-        toast({ title: translate('taskError.openFileFailed', { path }), variant: 'destructive' });
+        log.error({ error: result.error, path }, 'opened-output openPath failed');
+        toast({ title: messageForUser(result.error), variant: 'destructive' });
       }
     },
     [translate]
@@ -83,7 +84,7 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
 
   const openInBrowser = useCallback(async (url: string) => {
     const result = await rpc.app.openExternal(url).catch((error: unknown) => ({ success: false as const, error }));
-    if (result && 'success' in result && !result.success) log.warn({ error: result.error, url }, 'opened-output openExternal failed');
+    if (result && 'success' in result && !result.success) log.error({ error: result.error, url }, 'opened-output openExternal failed');
   }, []);
 
   if (!target) return { commands, menu: null };

@@ -1,3 +1,5 @@
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { platform } from '../../../platform'
@@ -21,7 +23,7 @@ export function CommandBlock({ command, testId, copyButtonRef }: {
     if (timer.current) clearTimeout(timer.current)
   }, [])
   const copy = useCallback(async () => {
-    await platform.writeClipboardText(command)
+    try { await platform.writeClipboardText(command) } catch (error) { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); return }
     setCopied(true)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => setCopied(false), 1500)

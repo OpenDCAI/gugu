@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { browserControlsRegistry } from '@renderer/features/browser/browser-controls-registry';
 import { sessionKeyboardNav } from '@renderer/features/sidebar/session-keyboard-nav';
 import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-resource';
@@ -191,8 +192,8 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
                     .then(() => {
                       toast({ title: 'Browser URL copied' });
                     })
-                    .catch(() => {
-                      toast({ title: 'Could not copy browser URL', variant: 'destructive' });
+                    .catch((error) => { console.error(error);
+                      toast({ title: messageForUser(error), variant: 'destructive' });
                     });
                 },
               },

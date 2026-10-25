@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect } from 'react'
 import { skipToken, useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -36,7 +37,7 @@ export function useChatAppPins(chatId: string | null) {
       return setChatAppPin(userId, chatId, appId, pinned)
     },
     onSuccess: (ids, { userId, chatId }) => { queryClient.setQueryData(['chat-app-pins', userId, chatId], ids) },
-    onError: () => { toast(t('header.appPinsSaveFailed'), 'error') },
+    onError: (error) => { console.error(error); toast(messageForUser(error), 'error') },
   }, queryClient)
   return { ids: query.data ?? [], ready: query.isSuccess, error: query.isError, saving: mutation.isPending, retry: () => { void query.refetch() }, set: ({ appId, pinned }: { appId: string; pinned: boolean }) => mutation.mutate({ userId, chatId, appId, pinned }) }
 }

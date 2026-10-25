@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpToLine, Crown, File, Folder, FolderPlus, Heart, Mic, MoreHorizontal, Plus, Sparkles, SquarePen, Trash2 } from '@/lib/icons';
@@ -133,8 +134,8 @@ function MemoryNoteDetail({ context, file }: { context: AssistantContext; file: 
       await invalidate('memory');
       toast({ title: t('memory.deleted') });
       context.go({ tab: 'memory' });
-    } catch {
-      toast({ title: t('memory.deleteFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     }
   };
   return (
@@ -215,8 +216,8 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path }, after: { name } });
       await invalidate('dir');
       toast({ title: t('files.renamed') });
-    } catch {
-      toast({ title: t('files.renameFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     }
   };
   const remove = async () => {
@@ -226,8 +227,8 @@ function ResourceRow({
         id: entry.path, deviceId: context.homeDeviceId, before: { name: entry.name, path: entry.path } });
       await invalidate('dir');
       toast({ title: folder ? t('files.folderDeleted') : t('files.fileDeleted') });
-    } catch {
-      toast({ title: t('files.deleteFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     }
   };
   if (renaming)
@@ -362,8 +363,8 @@ function ResourceFiles({ context, trail }: { context: AssistantContext; trail: s
       setFolderName('');
       await invalidate('dir');
       toast({ title: t('files.folderCreated') });
-    } catch {
-      toast({ title: t('files.folderCreateFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     }
   };
 

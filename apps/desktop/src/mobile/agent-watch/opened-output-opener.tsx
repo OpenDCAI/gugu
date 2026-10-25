@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OPENED_FILE_MAX_BYTES } from '@gugu/session-core/session-record/contract'
@@ -108,8 +109,8 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
               // 读的时候那一页在转,读到就交给下载、页面让位。
               setPreview(null)
               await downloadBlob(blob, plan.name).catch((error: unknown) => {
-                log.warn({ error, path: plan.path }, 'opened file save failed')
-                toast(t('agentWatch.output.saveFailed'), 'error')
+                log.error({ error, path: plan.path }, 'opened file save failed')
+                toast(messageForUser(error), 'error')
               })
               return
             }
@@ -143,8 +144,8 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
       void navigator.clipboard.writeText(text).then(
         () => toast(t('agentWatch.output.copied')),
         (error: unknown) => {
-          log.warn({ error }, 'opened-output copy failed')
-          toast(t('agentWatch.output.copyFailed'), 'error')
+          log.error({ error }, 'opened-output copy failed')
+          toast(messageForUser(error), 'error')
         },
       )
     },
@@ -213,8 +214,8 @@ export function useOpenedOutputOpener({ deviceId, sessionId }: { deviceId: strin
         {...(preview.error ? { error: preview.error } : {})}
         onClose={close}
         actions={messageActionItems({ isMine: false, isRetracted: false, content: null, onDownload: preview.blob ? () => void downloadBlob(preview.blob as Blob, preview.file.fileName).catch((error: unknown) => {
-          log.warn({ error, name: preview.file.fileName }, 'opened file save failed')
-          toast(t('agentWatch.output.saveFailed'), 'error')
+          log.error({ error, name: preview.file.fileName }, 'opened file save failed')
+          toast(messageForUser(error), 'error')
         }) : undefined }, messageT)}
       /> : null}
     </Sheet>

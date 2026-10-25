@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { CheckCircle, Copy, ExternalLink, Eye, EyeOff, Info } from '@/lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -280,7 +281,7 @@ function IntegrationCliLogin({
     if (mountedRef.current) setError(failure instanceof Error ? failure.message : String(failure));
   });
   const copyUrl = async (url: string) => {
-    await navigator.clipboard.writeText(url);
+    try { await navigator.clipboard.writeText(url); } catch (failure) { console.error(failure); setError(messageForUser(failure)); return; }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };

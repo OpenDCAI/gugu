@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Sheet } from '@/components/ui/Sheet'
@@ -36,14 +37,16 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
         setSetup({ ownerId, request: retry, installId, progress })
         setError(null)
         setVisible(!progress.dismissed && !progress.completed)
-      } catch {
+      } catch (error) {
+        console.error(error)
         // Corrupt presentation progress never authorizes tools. Let a deliberate next/finish save it again.
         setSetup({ ownerId, request: retry, installId, progress: { step: 'host', dismissed: false, completed: false } })
-        setError('读取原有设置进度失败。可以重新选择或稍后设置，已有授权不会改变。')
+        setError(messageForUser(error))
         setVisible(true)
       }
-    }).catch(() => {
-      if (alive) { setError('读取这台手机的设置进度失败，可以重试或先使用咕咕。'); setVisible(true) }
+    }).catch((error) => {
+      console.error(error)
+      if (alive) { setError(messageForUser(error)); setVisible(true) }
     })
     return () => { alive = false }
   }, [ownerId, retry])
@@ -63,8 +66,9 @@ export function PhoneAgentSetupGate({ ownerId, children }: { ownerId: string; ch
       setSetup({ ...currentSetup, progress })
       setError(null)
       return true
-    } catch {
-      setError('这台手机保存不了设置进度。已选授权仍按系统和设置页为准，下次可能再次显示引导。')
+    } catch (error) {
+      console.error(error)
+      setError(messageForUser(error))
       return false
     }
   }

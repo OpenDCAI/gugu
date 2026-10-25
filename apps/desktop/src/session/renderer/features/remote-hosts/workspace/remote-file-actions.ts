@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 // #6264 别的机器上的文件:下载 / 上传「做完之后说什么」(toast)。动作本身的判断在 remote-transfers.ts 与那台机器上;
 // 界面是本机同一棵文件树(editor-file-tree.tsx),它经工作区后端的 tree 那一格走到这里。
 import { REMOTE_WORKSPACE_MAX_FILE_BYTES, type SessionpageWorkspaceEntry } from '@gugu/session-core/session-record/contract';
@@ -39,8 +40,8 @@ export async function downloadEntry(
   try {
     transfer = await transfers.download(entry);
   } catch (error) {
-    log.warn('[remote-files] 下载没开始', { error: String(error) });
-    toast({ title: translateSessionMessage('remoteFiles.downloadFailed', { name: entry.name }), tier: 'error' });
+    log.error('[remote-files] 下载没开始', { error: String(error) });
+    toast({ title: messageForUser(error), tier: 'error' });
     return;
   }
   if (!transfer) return;
@@ -79,7 +80,6 @@ export async function uploadItems(
   try {
     transfer = await transfers.upload(dir, items, label);
   } catch (caught) {
-    // 原因码翻成人话,原文不进文案。
     toast({ title: translateSessionMessage('remoteFiles.uploadFailed', { name: label, device }), description: describe(caught), tier: 'error' });
     return false;
   }

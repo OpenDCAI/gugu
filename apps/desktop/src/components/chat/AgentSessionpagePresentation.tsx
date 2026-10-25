@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus, ChatItem } from '@gugu/core/shared/types/chat'
@@ -119,7 +120,7 @@ export function useAgentSessionpagePresentation(
         { error: error instanceof Error ? error.message : String(error) },
         'platform credential recovery retry failed',
       )
-      toast(t('agent.taskpage.recoveryFailed.retryError'), 'error')
+      toast(messageForUser(error), 'error')
     } finally {
       setRecoveryRetrying(false)
     }

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { publicAssetPath } from '@gugu/core/shared/ui/publicAssets'
@@ -165,10 +166,9 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
     try {
       const tail = await platform.readLogTail()
       setAttachedLog({ text: tail.text, lines: tail.lines, truncated: tail.truncated })
-    } catch {
-      // 读不到就保持未勾选。原因对用户没有可操作性(路径、权限码),所以不往这句里拼。
+    } catch (error) { console.error(error);
       setAttachedLog(null)
-      toast(t('feedback.attachLog.unavailable'), 'error')
+      toast(messageForUser(error), 'error')
     } finally {
       setReadingLog(false)
     }

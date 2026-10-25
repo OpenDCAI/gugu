@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Copy, Globe, RefreshCw, Unplug, X } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useState } from 'react';
@@ -230,10 +231,8 @@ function RemotePortRowView({ row, deviceId, onOpen }: { row: RemotePortRow; devi
     if (row.localPort === null) return;
     void rpc.app
       .clipboardWriteText(`http://localhost:${row.localPort}/`)
-      .then((result) => {
-        if (result.success) toast({ title: translate('externalLink.linkCopied') });
-      })
-      .catch(() => undefined);
+      .then(() => toast({ title: translate('externalLink.linkCopied') }))
+      .catch((error) => { log.error('remote port URL copy failed', { error }); toast({ title: messageForUser(error), tier: 'error' }); });
   };
   return (
     <div

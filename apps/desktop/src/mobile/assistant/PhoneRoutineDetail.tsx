@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import './phone-memory.css'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -60,8 +61,8 @@ export function PhoneRoutineDetail(props: PhonePageProps & { id: string }) {
       await read.refresh()
       toast(on ? t('routines.enabledToast') : t('routines.disabledToast'), 'success')
     } catch (error) {
-      log.warn({ error: errorText(error) }, 'set routine enabled failed')
-      toast(t(updated ? 'routines.loadFailed' : 'routines.updateFailed'), 'error')
+      log.error({ error: errorText(error) }, 'set routine enabled failed')
+      toast(messageForUser(error), 'error')
     } finally {
       toggling.current = false
       setPending(null)

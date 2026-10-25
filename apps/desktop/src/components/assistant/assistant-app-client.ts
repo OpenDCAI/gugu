@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { hostEventHub, hostMembers } from '../../session/shared/extensions/host-calls';
 import type { ExtensionHostEvent } from '../../session/shared/extensions/bridge-protocol';
 import type { ExtensionAgentView } from '../../session/shared/extensions/bridge-protocol';
@@ -64,7 +65,7 @@ export async function reportAssistantAppChange(
 ): Promise<void> {
   try { await publishAssistantAppChange(machine, change, assistantId, expectedOwnerId); }
   catch (error) {
-    rendererLogger('assistant/app').warn({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
-    toast({ title: i18n.t('library.savedNotificationFailed', { ns: 'assistant' }), tier: 'warning' });
+    rendererLogger('assistant/app').error({ error: String(error), operationId: change.operationId }, 'App state message delivery unconfirmed');
+    toast({ title: messageForUser(error), tier: 'warning' });
   }
 }

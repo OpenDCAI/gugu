@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { safeFailureLine } from '../../sessions/gugu-reason';
 import { log } from '@renderer/utils/logger';
 import '@/i18n/registerVoiceNotesCatalog';
@@ -226,8 +227,8 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
       await invalidate('voice');
       toast({ title: t('deleted') });
       context.go({ tab: 'memory', sub: VOICE_NOTE_SUB });
-    } catch {
-      toast({ title: t('deleteFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     }
   };
   const confirmRemove = () =>
@@ -243,8 +244,8 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     try {
       await retryVoiceNote(id);
       await invalidate('voice');
-    } catch {
-      toast({ title: t('retryFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     } finally {
       setRetrying(false);
     }

@@ -77,19 +77,6 @@ describe('confirmOpenExternalLink', () => {
     expect(mocks.toast).toHaveBeenCalledWith({ title: 'Link copied' });
   });
 
-  it('reports when the native clipboard write fails', async () => {
-    mocks.clipboardWriteText.mockResolvedValue({ success: false, error: 'Clipboard unavailable' });
-
-    confirmOpenExternalLink('https://example.com/docs');
-    await expect(getModalArgs().onCopy()).resolves.toBe(false);
-
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Copy failed',
-      description: 'The link could not be copied to the clipboard.',
-      variant: 'destructive',
-    });
-  });
-
   it('reports when the clipboard request rejects', async () => {
     mocks.clipboardWriteText.mockRejectedValue(new Error('IPC unavailable'));
 
@@ -97,8 +84,7 @@ describe('confirmOpenExternalLink', () => {
 
     await expect(getModalArgs().onCopy()).resolves.toBe(false);
     expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Copy failed',
-      description: 'The link could not be copied to the clipboard.',
+      title: 'IPC unavailable',
       variant: 'destructive',
     });
   });

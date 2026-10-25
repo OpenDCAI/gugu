@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
 import { GitBranch } from 'lucide-react'
 import { observer } from 'mobx-react-lite';
@@ -41,8 +42,8 @@ export const ResourceMonitorView = observer(function ResourceMonitorView({ snaps
     setChangingDiagnostics(true);
     try {
       await store.setInternals(!store.internals);
-    } catch {
-      toast({ title: translate('resourceMonitor.diagnosticsFailed'), tier: 'error' });
+    } catch (error) { console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
     } finally {
       setChangingDiagnostics(false);
     }
@@ -366,7 +367,9 @@ function CopyReportButton({
         setCopied(false);
         resetRef.current = null;
       }, 1500);
-    } catch {
+    } catch (error) {
+      console.error(error);
+      toast({ title: messageForUser(error), tier: 'error' });
       setCopied(false);
     }
   }, [snapshot, groups]);

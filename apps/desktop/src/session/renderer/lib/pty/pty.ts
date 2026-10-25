@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { ITerminalOptions, Terminal } from '@xterm/xterm';
@@ -292,7 +294,8 @@ export class FrontendPty {
       if (text === null) return false;
 
       void rpc.app.clipboardWriteText(text).catch((error) => {
-        log.warn('FrontendPty: failed to write OSC 52 clipboard payload', { error });
+        log.error('FrontendPty: failed to write OSC 52 clipboard payload', { error });
+        toast({ title: messageForUser(error), tier: 'error' });
       });
       return true;
     });

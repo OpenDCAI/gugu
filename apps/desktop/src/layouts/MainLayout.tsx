@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Sheet } from '../components/ui/Sheet'
 import { PaneHeader } from '../components/ui/Pane'
 import { RightPanelBackButton } from '../components/chat/RightPanel'
@@ -976,13 +977,11 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; error?: string } | undefined
       if (!detail?.agentUserId) return
-      const contact = contacts.find((c) => c.id === detail.agentUserId)
-      const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
-      toast(t('shell.toast.taskDeliverFailed', { name }), 'error')
+      toast(messageForUser(detail.error), 'error')
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [contacts, t, toast])
+  }, [toast])
 
   // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
   // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
@@ -1075,7 +1074,7 @@ function InnerLayout({
     } catch (err) {
       // 点了「发消息」却开不了会话(断网、库拒绝…):❌ 留一个没人接的 rejection 让按钮看着像坏了(#6832)。
       openChatLog.error({ targetId: target.id, error: String(err) }, 'getOrCreateDM failed')
-      toast(t('shell.toast.openChatFailed'), 'error')
+      toast(messageForUser(err), 'error')
     } finally {
       switchingRef.current = false
     }

@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { type Terminal } from '@xterm/xterm';
 import { isMacHost, isWindowsHost } from '@shared/host-os';
 import { reaction } from 'mobx';
@@ -249,7 +251,7 @@ export function usePty(
     const selection =
       termRef.current?.getSelection() || getRecentSelection(lastSelectionRef.current);
     if (selection) {
-      navigator.clipboard.writeText(selection).catch(() => {});
+      void navigator.clipboard.writeText(selection).catch((error) => { console.error(error); toast({ title: messageForUser(error), tier: 'error' }); });
     }
   }, []);
 

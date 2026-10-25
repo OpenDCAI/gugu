@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -32,8 +33,8 @@ export const AgentBrowserAssistant = observer(function AgentBrowserAssistant({
       });
       if (result.status === 'outcome-unknown') throw new Error('message delivery is unknown');
     } catch (error) {
-      log.warn('[agent-browser-assistant] could not send a conversation shortcut', { sessionId: owner.sessionId, error });
-      toast.error(translate('browser.assistantMessageFailed'));
+      log.error('[agent-browser-assistant] could not send a conversation shortcut', { sessionId: owner.sessionId, error });
+      toast.error(messageForUser(error));
     } finally {
       setSending(false);
     }

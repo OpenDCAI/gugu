@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -372,7 +373,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
         })
         .catch((error: unknown) => {
           log.error({ error: String(error), count: request.items.length }, 'failed to open image viewer')
-          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error')
+          latest.current.toast(messageForUser(error), 'error')
         })
     })
     return () => {

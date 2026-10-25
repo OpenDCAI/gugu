@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { createPortal } from 'react-dom'
@@ -43,7 +44,7 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
       }
       const missing = [request.taskAgentId, request.assistantId].filter(id => !contacts.some(contact => contact.id === id))
       if (missing.length === 0) {
-        try { show(contacts) } catch { toast(t('tasks.chatUnavailable'), 'error') }
+        try { show(contacts) } catch (error) { console.error(error); toast(messageForUser(error), 'error') }
         return
       }
       // A newly created agent reaches the session directory before the contacts snapshot.
@@ -52,8 +53,8 @@ export function AssistantTaskChatOpener({ visible, ...handlers }: { visible: boo
       void readRequiredDisplayIdentities(missing).then(identities => {
         if (alive && current === generation) show([...contacts, ...identities])
       }).catch((error: unknown) => {
-        log.warn({ error, taskAgentId: request.taskAgentId }, 'task identity read failed')
-        if (alive && current === generation) toast(t('tasks.chatUnavailable'), 'error')
+        log.error({ error, taskAgentId: request.taskAgentId }, 'task identity read failed')
+        if (alive && current === generation) toast(messageForUser(error), 'error')
       }).finally(() => { if (current === generation) pending = null })
     }
     window.addEventListener(OPEN_ASSISTANT_TASK_CHAT, open)

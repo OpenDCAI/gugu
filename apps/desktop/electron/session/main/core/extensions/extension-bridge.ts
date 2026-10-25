@@ -1871,7 +1871,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'clipboardWriteText':
       // The gesture was checked in the preload (the only world a page cannot reach).
-      clipboard.writeText(pageArgument('clipboardWriteText', args));
+      await clipboard.writeText(pageArgument('clipboardWriteText', args));
       return undefined;
 
     default:

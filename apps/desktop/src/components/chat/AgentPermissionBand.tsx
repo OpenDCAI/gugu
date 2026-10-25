@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MessageProvider, PermissionBand } from '@gugu/session-ui/react/components'
@@ -33,7 +34,7 @@ export function AgentPermissionBand({ pending, respond }: {
   }
   const failed = (error: unknown) => {
     permissionLog.error({ itemId: pending.itemId, error: error instanceof Error ? error.message : String(error) }, 'chat-page permission answer failed')
-    toast(t('agent.taskpage.permission.failed'), 'error')
+    toast(messageForUser(error), 'error')
   }
   // D-31 An App install the host asks for this agent: this window's own sheet first, then the session (with its places).
   const install = appInstallAskOf(pending.host)

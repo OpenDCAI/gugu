@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 // @@@5856 「agent 超过几个就全员转被动」这条线的设置行 —— 群和话题**共用这一个**。
 //
 // owner 2026-09-19 的裁决:「之前说是 5 个转为 passive, 这个数字可以放在设置中,而不是硬编码。
@@ -104,7 +105,7 @@ export function AgentFloodThresholdSetting({
       .catch((error: unknown) => {
         floodLog.error({ error, chatId }, 'agent flood threshold save failed')
         setDraft(null)
-        toast(t('group.settings.agentFloodSaveFailed'), 'error')
+        toast(messageForUser(error), 'error')
       })
       .finally(() => { saving.current = false; setBusy(false) })
   }, [chatId, draft, value, editable, onSaved, t, toast])

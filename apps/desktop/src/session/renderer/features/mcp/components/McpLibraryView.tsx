@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Plus } from '@/lib/icons';
 import React from 'react';
 import { useLibraryHost } from '@renderer/features/library/library-host';
@@ -40,10 +41,9 @@ export const McpLibraryView: React.FC = () => {
   for (const group of library.groups) {
     for (const server of group.servers) (harnessNames[server.name] ??= []).push(group.agent.name);
   }
-  // 原文进日志,提示里只说没成(添加时同名、写坏的 JSON 已在弹窗里拦下,能走到这里的是那台机器上的意外)。
   const fail = (failure: unknown) => {
-    log.warn('library MCP action failed', { error: String(failure) });
-    toast({ title: translate('mcpLibrary.saveFailed'), variant: 'destructive' });
+    log.error('library MCP action failed', { error: String(failure) });
+    toast({ title: messageForUser(failure), variant: 'destructive' });
   };
 
   const openAdd = () =>

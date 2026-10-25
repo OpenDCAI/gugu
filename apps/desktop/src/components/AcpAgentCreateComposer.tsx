@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AttachmentViewerDialog, ChatComposer, MessageProvider, formatAttachmentSize, readAttachmentPreviewText, type ComposerAgentOption, type ComposerAttachment, type PromptEditorRef } from '@gugu/session-ui/react/components'
@@ -407,8 +408,8 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
       // user can see and retry their own words instead of watching them disappear.
       if (!progress.promptDelivered) restoreUndelivered(prompt)
       createLog.error({ err: message }, 'acp agent create failed')
-      setError(t('create.toast.createFailed'))
-      toast(t('create.toast.createFailed'), 'error')
+      setError(messageForUser(reason))
+      toast(messageForUser(reason), 'error')
     } finally {
       setSubmitting(false)
     }

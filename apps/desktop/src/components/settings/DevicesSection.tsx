@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -190,8 +191,8 @@ export function DevicesSection({
   }, [dialog, removeDevice])
 
   const copyAddress = useCallback(async (address: string) => {
-    await platform.writeClipboardText(address)
-    toast(t('devices.copied'), 'success')
+    try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
+    catch (error) { log.error({ error }, 'device address copy failed'); toast(messageForUser(error), 'error') }
   }, [toast, t])
 
   const actionsDevice = actionsFor ? devices.find((d) => d.device_id === actionsFor) ?? null : null

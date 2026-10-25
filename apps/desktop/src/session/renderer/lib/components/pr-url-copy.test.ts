@@ -33,29 +33,13 @@ describe('copyPrUrl', () => {
     expect(mocks.toast).toHaveBeenCalledWith({ title: 'PR URL copied' });
   });
 
-  it('reports when the clipboard service returns a failure', async () => {
-    mocks.clipboardWriteText.mockResolvedValue({
-      success: false,
-      error: 'Clipboard unavailable',
-    });
-
-    await expect(copyPrUrl('https://github.com/example/repo/pull/123')).resolves.toBe(false);
-
-    expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Copy failed',
-      description: 'The PR URL could not be copied to the clipboard.',
-      variant: 'destructive',
-    });
-  });
-
   it('reports when the clipboard request rejects', async () => {
     mocks.clipboardWriteText.mockRejectedValue(new Error('IPC unavailable'));
 
     await expect(copyPrUrl('https://github.com/example/repo/pull/123')).resolves.toBe(false);
 
     expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'Copy failed',
-      description: 'The PR URL could not be copied to the clipboard.',
+      title: 'IPC unavailable',
       variant: 'destructive',
     });
   });

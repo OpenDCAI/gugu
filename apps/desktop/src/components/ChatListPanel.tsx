@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BellOff, CheckCircle, Checklist, ChevronDown, ChevronRight, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
@@ -177,7 +178,7 @@ function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel
           .then(({ failedChats }) => { if (failedChats > 0) toast(t('chatList.markAllReadPartial', { count: failedChats }), 'error') })
           .catch((error: unknown) => {
             chatListLog.error({ error: String(error) }, 'mark all read failed')
-            toast(t('chatList.markAllReadFailed'), 'error')
+            toast(messageForUser(error), 'error')
           })
       },
     },

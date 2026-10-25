@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { log } from '@renderer/utils/logger';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -61,26 +63,16 @@ export function openExternalLinkInBrowser(url: string, onError?: (error: unknown
 
 export async function copyExternalLink(url: string): Promise<boolean> {
   try {
-    const result = await rpc.app.clipboardWriteText(url);
-    if (!result.success) {
-      showCopyFailure();
-      return false;
-    }
+    await rpc.app.clipboardWriteText(url);
     toast({ title: translateSessionMessage('externalLink.linkCopied') });
     return true;
-  } catch {
-    showCopyFailure();
+  } catch (error) {
+    log.error('clipboard copy failed', { error });
+    toast({ title: messageForUser(error), variant: 'destructive' });
     return false;
   }
 }
 
-function showCopyFailure(): void {
-  toast({
-    title: translateSessionMessage('externalLink.copyFailed'),
-    description: translateSessionMessage('externalLink.copyFailedDescription'),
-    variant: 'destructive',
-  });
-}
 
 function getActiveSessionView() {
   if (appState.navigation.currentViewId !== 'session') return undefined;

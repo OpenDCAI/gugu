@@ -1,3 +1,5 @@
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import type { IntegrationCredentials } from '@gugu/session-plugins/integrations'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -46,12 +48,14 @@ import type { usePhoneIntegrations } from './usePhoneProfileData'
 type Integrations = ReturnType<typeof usePhoneIntegrations>
 type MachineRpc = ReturnType<typeof machineRpc>
 
-/** 复制一段字(设备码、授权链接);拿不到剪贴板就当没复制,界面上那段字照旧摆在那里供手动选。 */
+/** Copy the authorization text; surface a refused clipboard write. */
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     return true
-  } catch {
+  } catch (error) {
+    console.error(error)
+    toast({ title: messageForUser(error), tier: 'error' })
     return false
   }
 }

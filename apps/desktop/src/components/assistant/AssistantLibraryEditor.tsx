@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '../../session/renderer/lib/ui/input'
@@ -36,7 +37,7 @@ export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onCl
           operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),
           ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
             : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, assistantId, ownerId)
-      } catch { toast({ title: t('library.savedNotificationFailed'), tier: 'warning' }) }
+      } catch (error) { console.error(error); toast({ title: messageForUser(error), tier: 'warning' }) }
       onSaved()
     } catch { setFailed(true) }
     finally { setSaving(false) }
