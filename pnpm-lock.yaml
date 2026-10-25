@@ -23,8 +23,8 @@ importers:
   .:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
-        specifier: npm:@gugu-acp/claude-agent-acp@1.5.0
-        version: '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
+        specifier: npm:@gugu-acp/claude-agent-acp@1.5.1
+        version: '@gugu-acp/claude-agent-acp@1.5.1(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
       '@agentclientprotocol/sdk':
         specifier: 1.9.0
         version: 1.9.0(zod@4.4.3)
@@ -32,8 +32,8 @@ importers:
         specifier: 0.3.293
         version: 0.3.293(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
       '@gugu-acp/compat':
-        specifier: 1.0.12
-        version: 1.0.12
+        specifier: 1.0.13
+        version: 1.0.13
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.29.0(zod@4.4.3)
@@ -872,8 +872,8 @@ importers:
   packages/session-plugins:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
-        specifier: npm:@gugu-acp/claude-agent-acp@1.5.0
-        version: '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
+        specifier: npm:@gugu-acp/claude-agent-acp@1.5.1
+        version: '@gugu-acp/claude-agent-acp@1.5.1(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))'
       '@agentclientprotocol/sdk':
         specifier: 1.9.0
         version: 1.9.0(zod@4.4.3)
@@ -2956,13 +2956,13 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  '@gugu-acp/claude-agent-acp@1.5.0':
-    resolution: {integrity: sha512-tZTbTIqD1ZmgiJIMlaQirdScswF4IrrXX//v1XNdCbjm222gSa5mQXU5zYKwwmP4zdic+Fi18sa1Qq9Orbfn6Q==}
+  '@gugu-acp/claude-agent-acp@1.5.1':
+    resolution: {integrity: sha512-nXcqaXoPsUFTzhG/pItkR67HLj0qDQQz4w966UdjkAnU6anjIA+tanAcF/yhonAPqh1ms4ZpRCCcsVu8g2dZog==}
     engines: {node: '>=22'}
     hasBin: true
 
-  '@gugu-acp/compat@1.0.12':
-    resolution: {integrity: sha512-bsfUbj+kA6he54dZ71jc0vtLD6Cn4KagvBGnzgEod7Ud2hsv1n6k1KiZ5s7NALsO2nr9texXuVNrCWik72yYNA==}
+  '@gugu-acp/compat@1.0.13':
+    resolution: {integrity: sha512-D/xVF5Ytun/l8cwsNIEYRvuH3qDOgl+oTOpxqrCHY7xmv4Rk1HBH1JdYRn9GUQhpPBgdCqqm+V0J1cmCd9i9VQ==}
 
   '@gugu-acp/files-core@0.1.0':
     resolution: {integrity: sha512-5V7KGpdhYospds8VLq50zNrppfkqFGg5xl20jEx4KwtsHC7MPcWVDzJwDZg8xOmQm9xb6eGQJnx2vzfJ0T/ScQ==}
@@ -14592,7 +14592,7 @@ snapshots:
     dependencies:
       graphql: 16.8.2
 
-  '@gugu-acp/claude-agent-acp@1.5.0(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
+  '@gugu-acp/claude-agent-acp@1.5.1(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
     dependencies:
       '@agentclientprotocol/sdk': 2.0.0(zod@4.6.7)
       '@anthropic-ai/claude-agent-sdk': 0.3.303(@anthropic-ai/sdk@0.129.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.6.7)
@@ -14602,7 +14602,7 @@ snapshots:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
-  '@gugu-acp/compat@1.0.12': {}
+  '@gugu-acp/compat@1.0.13': {}
 
   '@gugu-acp/files-core@0.1.0(yjs@13.6.33)':
     dependencies:
