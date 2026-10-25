@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageComposer } from '../../../../apps/desktop/src/components/chat/ChatMessageComposer'
-import { SESSION_DRAG_TYPE } from '../../../../apps/desktop/src/session/renderer/lib/drag-session'
+import { SCREEN_CONTENT_DRAG_TYPE, type DraggedScreenContent } from '../../../../apps/desktop/src/session/renderer/lib/drag-screen-content'
 import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
 import type { MentionItem } from '@gugu/session-ui/react/components'
@@ -16,10 +16,10 @@ let harness: ReturnType<typeof createReactHarness>
 const member = { id: 'member-agent', name: 'Member', type: 'agent' as const }
 const mention = (id: string): MentionItem => ({ id: `aid:${id}`, label: `aid:${id}`, name: 'Task agent', kind: 'custom', role: 'agent' })
 const input = () => harness.container.querySelector('[data-testid="chat-composer"]')!
-async function drop() {
+async function drop(content: DraggedScreenContent = { kind: 'session', projectId: 'p', sessionId: 'task-id', title: 'Private task title' }) {
   const event = new Event('drop', { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'dataTransfer', { value: {
-    types: [SESSION_DRAG_TYPE], getData: () => JSON.stringify({ sessionId: 'task-id', title: 'Private task title' }),
+    types: [SCREEN_CONTENT_DRAG_TYPE], getData: () => JSON.stringify(content),
   } })
   await act(async () => { input().dispatchEvent(event) })
 }
@@ -30,6 +30,15 @@ beforeEach(() => { harness = createReactHarness(); resolveSession.mockReset() })
 afterEach(() => { harness.cleanup() })
 
 describe('task references in the shared chat composer', () => {
+  it('leaves chat and App drops untouched rather than resolving them as task mentions', async () => {
+    await renderWithAppProviders(harness, <ChatMessageComposer onSend={vi.fn(async () => {})} chatId="chat" />)
+    await act(async () => { writeComposer(input(), 'keep typing') })
+    await drop({ kind: 'chat', chatId: 'other-chat', title: 'Other chat' })
+    await drop({ kind: 'app', tabKind: 'app-test', title: 'App' })
+    expect(resolveSession).not.toHaveBeenCalled()
+    expect(readComposer(input())).toBe('keep typing')
+  })
+
   it.each([
     { group: true, id: 'member-agent', recipients: ['member-agent'], annotation: null },
     { group: true, id: 'outside-agent', recipients: [], annotation: '不在本群' },
