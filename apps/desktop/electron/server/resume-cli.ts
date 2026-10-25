@@ -9,7 +9,10 @@ export async function runResume(
   io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = process,
   deps = { accounts: listAccounts, call: callAccountProcess },
 ): Promise<number> {
-  if (args.length !== 2 || args[0] !== '--account' || !/^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)) {
+  const suspendedSince = args.length === 4 && args[2] === '--suspended-since' ? Number(args[3]) : undefined
+  if (![2, 4].includes(args.length) || args[0] !== '--account' || !/^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)
+    || (args.length === 4 && (args[2] !== '--suspended-since' || !Number.isSafeInteger(suspendedSince)
+      || suspendedSince! <= 0 || suspendedSince! >= Date.now()))) {
     io.stderr.write('用法: gugu-server resume --account <账号 id>\n')
     return 2
   }
@@ -18,7 +21,8 @@ export async function runResume(
     io.stderr.write(`${account.error}\n`)
     return ATTACH_EXIT.notSignedIn
   }
-  const outcome = await deps.call(account, { type: HOST_RESUME_CALL, payload: {} }, { timeoutMs: 5_000 })
+  const outcome = await deps.call(account, { type: HOST_RESUME_CALL,
+    payload: suspendedSince === undefined ? {} : { suspendedSince } }, { timeoutMs: 5_000 })
   if ('code' in outcome) {
     io.stderr.write(`${outcome.message}\n`)
     return outcome.code

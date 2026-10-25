@@ -17,6 +17,8 @@ const pageSchema = z.object({
   coverage: z.object({
     queried_at: z.number(), collector_running: z.boolean(),
     segments: z.array(z.object({ started_at: z.number(), last_seen_at: z.number(), ended_at: z.number().nullable() })),
+    sleep_intervals: z.array(z.object({ since: z.number(), until: z.number(),
+      source: z.enum(['native-power', 'fc-confirmed']) })).default([]),
     untracked: z.array(z.string()), note: z.string(),
   }),
 })
@@ -24,7 +26,7 @@ type Page = z.infer<typeof pageSchema>
 type DeviceResult = { device: ActivityDevice; events: Page['events']; titles?: Record<string, string>; coverage?: Page['coverage'];
   status: 'recorded' | 'offline' | 'timeout' | 'error'; error?: { code: string; message: string } }
 type Gap = { device_id: string; device_label: string | null; since: string; until: string;
-  reason: 'uncollected' | 'offline' | 'timeout' }
+  reason: 'uncollected' | 'offline' | 'timeout' | 'sleep' }
 type Snapshot = { scope: string; signature: string; devices: string[]; expires: number;
   session_titles: Record<string, Record<string, string>>;
   events: Array<Page['events'][number] & { device_id: string; device_label: string | null }>;
@@ -47,7 +49,18 @@ function gapsFor(result: DeviceResult, since: number, until: number): Gap[] {
     at = Math.max(at, end)
   }
   if (at < until) gaps.push(gap(at, until, 'uncollected'))
-  return gaps
+  return gaps.flatMap(item => {
+    let at = Date.parse(item.since)
+    const end = Date.parse(item.until), parts: Gap[] = []
+    for (const sleep of [...result.coverage!.sleep_intervals].sort((a, b) => a.since - b.since)) {
+      const start = Math.max(at, sleep.since), stop = Math.min(end, sleep.until)
+      if (stop <= start) continue
+      if (start > at) parts.push(gap(at, start, 'uncollected'))
+      parts.push(gap(start, stop, 'sleep')); at = stop
+    }
+    if (at < end) parts.push(gap(at, end, 'uncollected'))
+    return parts
+  })
 }
 
 /**

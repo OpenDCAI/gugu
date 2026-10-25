@@ -22,6 +22,15 @@ const deps = (query: (device: ActivityDevice, q: Record<string, unknown>, signal
 afterEach(() => vi.useRealTimers())
 
 describe('device activity aggregation on the Agent control path', () => {
+  it('separates confirmed device sleep from an unknown awake capture gap', async () => {
+    const source = { ...deps(async () => ({ ...page([], []), coverage: { ...page([], []).coverage,
+      sleep_intervals: [{ since: start + 1000, until: end - 1000, source: 'fc-confirmed' }] } })),
+      devices: async () => [devices[0]] }
+    const result = await createActivityDeviceQuery()(action, source, signal())
+    expect(result.coverage.gaps.map(gap => gap.reason)).toEqual(['uncollected', 'sleep', 'uncollected'])
+    const unknown = await createActivityDeviceQuery()(action, { ...source, query: async () => page([], []) }, signal())
+    expect(unknown.coverage.gaps.map(gap => gap.reason)).toEqual(['uncollected'])
+  })
   it('uses current published titles for old hosts, while an authoritative empty title set removes stale names', async () => {
     const source = { ...deps(async () => page([event('metadata', start + 1)])),
       devices: async () => [{ ...devices[0], session_titles: { s: 'Published name' } }] }

@@ -1,7 +1,7 @@
 import { listAgents } from '@gugu/core'
 import { createLogger } from '../lib/logger'
 import { createHostResumeHandler } from './host-resume'
-export { watchHostResumeGap } from './host-resume'
+export { watchHostResumeGap, installNativeSleepActivity } from './host-resume'
 
 export function createAccountResumeHandler(deps: {
   kickInbox: (agentUserId: string, trigger: string) => void
