@@ -49,7 +49,7 @@ export function QuickChat({
   const { t } = useTranslation('assistant')
   const name = assistant?.display_name ?? t('quickChat.assistant')
   return (
-    <div className="qc" data-testid="quick-chat">
+    <div className="qc" data-testid="quick-chat" inert={!visible}>
       <header className="qc-head">
         <IconButton size="sm" onClick={onClose} aria-label={t('quickChat.close')} title={t('quickChat.close')} data-testid="quick-chat-close">
           <X />
