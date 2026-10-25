@@ -116,6 +116,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
 
     const sessionCtx: SessionTabContext = {
       viewId: this.sessionId,
+      place: { kind: 'session', sessionId: this.sessionId, projectId },
       projectId,
       workspaceId,
       sessionId: this.sessionId,

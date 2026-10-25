@@ -1,4 +1,5 @@
 import type { ResolvedTab, TabResource, TabViewContext } from './tab-provider';
+import type { TabReturnTo } from '@shared/view-state';
 
 /**
  * Narrow host interface that PaneStore implements.
@@ -10,6 +11,7 @@ export interface TabHost {
   readonly resolvedActiveTabId: string | undefined;
   /** The ambient context for this pane (viewId + any domain-specific fields). */
   readonly ctx: TabViewContext;
+  returnToOf(tabId: string): TabReturnTo | undefined;
 
   /** Opens a tab of any registered kind. Untyped for use from resources/handles. */
   openKind(kind: string, args: unknown): void;

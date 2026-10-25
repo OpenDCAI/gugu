@@ -14,6 +14,7 @@ import {
   type BuiltInTabDescriptor,
   type TabDescriptor,
   type TabManagerSnapshot,
+  type TabReturnTo,
 } from '@shared/view-state';
 import type { TabHost } from './core/tab-host';
 import type {
@@ -63,6 +64,7 @@ function roomForTwo(dimensions: { width: number; height: number } | null, vertic
 /** Serialize a live entry to the built-in or extension shape used in snapshots and history. */
 function descriptorOf(entry: TabEntry): TabDescriptor {
   const state = toJS(entry.state) as Record<string, unknown>;
+  const navigation = entry.returnTo ? { returnTo: toJS(entry.returnTo) } : {};
   if (!isBuiltInTabKind(entry.kind)) {
     return {
       kind: 'extension',
@@ -70,6 +72,7 @@ function descriptorOf(entry: TabEntry): TabDescriptor {
       tabId: entry.tabId,
       isPreview: entry.isPreview,
       state,
+      ...navigation,
     };
   }
   return {
@@ -77,6 +80,7 @@ function descriptorOf(entry: TabEntry): TabDescriptor {
     tabId: entry.tabId,
     isPreview: entry.isPreview,
     ...state,
+    ...navigation,
   } as BuiltInTabDescriptor;
 }
 
@@ -86,6 +90,7 @@ function stateFromDescriptor(desc: TabDescriptor): {
   tabId: string;
   isPreview: boolean;
   state: unknown;
+  returnTo?: TabReturnTo;
 } {
   if (desc.kind === 'extension') {
     return {
@@ -93,27 +98,31 @@ function stateFromDescriptor(desc: TabDescriptor): {
       tabId: desc.tabId,
       isPreview: desc.isPreview,
       state: desc.state ?? {},
+      returnTo: desc.returnTo,
     };
   }
-  const { kind, tabId, isPreview, ...state } = desc;
-  return { kind, tabId, isPreview, state };
+  const { kind, tabId, isPreview, returnTo, ...state } = desc;
+  return { kind, tabId, isPreview, state, returnTo };
 }
 
 class TabEntryImpl<S = unknown> implements TabEntry<S> {
   readonly kind: string;
   readonly tabId: string;
   isPreview: boolean;
+  returnTo?: TabReturnTo;
   /** Reactive, serializable domain state. Mutated in-place; read by snapshot. */
   state: S;
 
-  constructor(kind: string, tabId: string, isPreview: boolean, state: S) {
+  constructor(kind: string, tabId: string, isPreview: boolean, state: S, returnTo?: TabReturnTo) {
     this.kind = kind;
     this.tabId = tabId;
     this.isPreview = isPreview;
     this.state = state;
+    this.returnTo = returnTo;
     makeObservable(this, {
       isPreview: observable,
       state: observable,
+      returnTo: observable,
     });
   }
 }
@@ -521,7 +530,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 另一页换成 `tabId`:两枚在页签条上对调位置(照 Chrome 的 Swap,一对始终挨着),
    * 被顶下来的是瞄一眼那种就收掉 —— 瞄一眼的意思就是不留(spec session-page「并排」)。
    */
-  private _replaceSide(pair: TabPair, tabId: string): void {
+  private _replaceSide(pair: TabPair, tabId: string, closePreview = true): void {
     const old = pair.side;
     if (this.tabOrder[0] === tabId) {
       // 页签条打头那枚(通常是对话)不挪走:它摆到前一格(左 / 上),钉住的那页挨到它后面,被顶下来的留在原处。
@@ -542,7 +551,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this._placeAdjacent(this.pair);
     }
     // 和人点 × 一样先问一句(有没存的东西会问):被否了就留成一枚普通页签,❌ 悄悄扔掉。
-    if (this.entries.get(old)?.isPreview) void this._requestClose(old, false);
+    if (closePreview && this.entries.get(old)?.isPreview) void this._requestClose(old, false);
   }
 
   /** 一对在页签条上挨着,先后和屏上一样(左 / 上那页在前)。`keep` 那枚不动,另一枚挪到它旁边。 */
@@ -731,7 +740,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
   openWithState(
     kind: string,
     initialState: unknown,
-    opts?: { isPreview?: boolean; overrideState?: boolean; activate?: boolean }
+    opts?: { isPreview?: boolean; overrideState?: boolean; activate?: boolean; returnTo?: TabReturnTo }
   ): string | undefined {
     const isPreview = opts?.isPreview ?? false;
     const activate = opts?.activate ?? true;
@@ -749,6 +758,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       if (existing) {
         if (!isPreview) existing.isPreview = false;
         if (opts?.overrideState) existing.state = initialState;
+        existing.returnTo = opts?.returnTo;
         if (activate) this.setActiveTab(existing.tabId);
         return existing.tabId;
       }
@@ -758,7 +768,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     if (isPreview) {
       const previewEntry = this._previewEntryOfKind(kind);
       if (previewEntry) {
-        this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true });
+        this.retargetEntry(previewEntry.tabId, { state: initialState, isPreview: true, returnTo: opts?.returnTo });
         // 不抢的打开(开在对话旁边)也走到这里:原地换了内容,但不切过去(spec session-page「并排」)。
         if (activate) this.setActiveTab(previewEntry.tabId);
         return previewEntry.tabId;
@@ -767,7 +777,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
     // Fresh tab.
     const tabId = crypto.randomUUID();
-    const entry = new TabEntryImpl(kind, tabId, isPreview, initialState);
+    const entry = new TabEntryImpl(kind, tabId, isPreview, initialState, opts?.returnTo);
     this._attachEntryAndInitialize(entry, { activate });
     return this.entries.has(tabId) ? tabId : undefined;
   }
@@ -791,6 +801,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this.openWithState(kind, state, {
         isPreview: !!config?.preview,
         overrideState: !!config?.overrideState,
+        returnTo: config?.returnTo,
       });
     }
   }
@@ -804,6 +815,10 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
   closeTab(id: string): void {
     this._removeTab(id);
+  }
+
+  returnToOf(tabId: string): TabReturnTo | undefined {
+    return this.entries.get(tabId)?.returnTo;
   }
 
   closeActiveTab(): void {
@@ -1000,8 +1015,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
 
       // Re-initialize from snapshot.
       for (const desc of snapshot.tabs) {
-        const { kind, tabId, isPreview, state } = stateFromDescriptor(desc);
-        const entry = new TabEntryImpl(kind, tabId, isPreview, state);
+        const { kind, tabId, isPreview, state, returnTo } = stateFromDescriptor(desc);
+        const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
         if (this.registry.has(kind)) {
           this._attachEntryAndInitialize(entry, { activate: false });
         } else {
@@ -1076,7 +1091,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    *   2. Create a new entry with the new state at the same tabId slot.
    *   3. Initialize the new resource.
    */
-  retargetEntry(tabId: string, update: { state: unknown; isPreview?: boolean }): void {
+  retargetEntry(tabId: string, update: { state: unknown; isPreview?: boolean; returnTo?: TabReturnTo }): void {
     const oldEntry = this.entries.get(tabId);
     if (!oldEntry) return;
 
@@ -1089,7 +1104,8 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       oldEntry.kind,
       tabId,
       update.isPreview ?? oldEntry.isPreview,
-      update.state
+      update.state,
+      update.returnTo
     );
     this.entries.set(tabId, newEntry);
 
@@ -1105,9 +1121,9 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
     const record = this._closedTabHistory.pop();
     if (!record) return;
     const { desc, index } = record;
-    const { kind, tabId, isPreview, state } = stateFromDescriptor(desc);
+    const { kind, tabId, isPreview, state, returnTo } = stateFromDescriptor(desc);
     if (!this.registry.has(kind)) return;
-    const entry = new TabEntryImpl(kind, tabId, isPreview, state);
+    const entry = new TabEntryImpl(kind, tabId, isPreview, state, returnTo);
     const def = this.registry.get(kind);
     const resource = def.initialize(entry as never, this._buildHandle(entry), this._ctx);
     this.entries.set(entry.tabId, entry);
@@ -1151,6 +1167,15 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
       this._closedTabHistory.shift();
     }
 
+    const returnId = entry.returnTo?.tabId;
+    if (returnId && returnId !== id && this.entries.has(returnId) && this.shownTabIds.includes(id)) {
+      const pair = this.livePair;
+      if (pair && this.pairShown && returnId !== pair.anchor && returnId !== pair.side && this._canPair(pair.anchor, returnId)) {
+        // Same swap as selecting the previous page; this close already owns the outgoing preview's disposal.
+        this._replaceSide(pair, returnId, false);
+      }
+      this._focus(returnId);
+    }
     this._dropFromPair(id);
     this._disposeEntry(id);
     this.entries.delete(id);
