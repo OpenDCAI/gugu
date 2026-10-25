@@ -280,6 +280,6 @@ describe("a pill's place is the file's it came for; a JSON file's cite stays a q
     select([line(2).from, line(3).to])
     $('cite-sel').click()
     await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
-    expect(gugu.dispatch.mock.calls).toEqual([['Lines 2–3\n>   "a": "**粗**",\n>   "b": "# 不是标题"', { refs: [{ file: config.entry }] }]])
+    expect(gugu.dispatch.mock.calls).toEqual([['Lines 2–3\n>   "a": "**粗**",\n>   "b": "# 不是标题"', { draft: true, refs: [{ file: config.entry }] }]])
   })
 })

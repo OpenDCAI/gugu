@@ -191,7 +191,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
     })
     start(['files:read', 'files:write', 'chat:relay'])
     const answer = await call('dispatch', { to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, text: 'hi' })
-    expect(answer.message).not.toMatch(/Not permitted/)
+    expect(answer).not.toMatchObject({ code: 'denied' })
   })
 
   it('files:read:all-machines is kept when installed here and has what files:read gives: its verbs, and a watched chat changing', async () => {
