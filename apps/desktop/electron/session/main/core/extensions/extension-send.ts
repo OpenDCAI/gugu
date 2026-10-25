@@ -80,13 +80,13 @@ export interface DesktopDispatchEffects {
 
 /**
  * `gugu.dispatch` on the desktop. An agent the call names is one this App reaches (`agents:control`: the ones it started,
- * `:all` every one here, `:all-machines` also the person's other computers'); one the person picked in the sheet is one of
- * this computer's tasks, theirs to tell. A draft goes into an agent's composer here: words only (pills go into a chat's).
+ * `:all` every one here, `:all-machines` also the person's other computers'); one the person picked in the sheet is any of
+ * theirs, told here or on its computer. A draft goes into an agent's composer here: words only (pills go into a chat's).
  */
 export async function dispatchForApp(
   extensionId: string,
   args: Record<string, unknown>,
-  here: DispatchHere,
+  page: Omit<DispatchHere, 'preselect' | 'local'> & { session: string | null },
   effects: DesktopDispatchEffects,
 ): Promise<{ to: unknown; id?: string; deferred?: true } | { cancelled: true }> {
   const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
@@ -96,13 +96,15 @@ export async function dispatchForApp(
     const byAgent = await visibleAgentsForExtension({ scope: 'all', extensionId });
     return { byAgent, agentOf: (sessionId: string) => [...byAgent].find(([, session]) => session === sessionId)?.[0] };
   };
-  const sessionHere = async (agent: DispatchAgent): Promise<{ sessionId: string; agentId: string }> => {
-    const { byAgent, agentOf } = await local();
-    const sessionId = agent.named ? byAgent.get(agent.agent) : agent.session;
-    const agentId = agent.named ? agent.agent : sessionId && agentOf(sessionId);
-    if (!sessionId || !agentId) throw new AppSendError('not-found', `${agent.named ? agent.agent : `session:${agent.session}`} is not an agent on this computer`);
-    return { sessionId, agentId };
+  const sessionHere = async (agent: DispatchAgent): Promise<{ sessionId: string; agentId: string } | null> => {
+    const sessionId = (await local()).byAgent.get(agent.agent);
+    return sessionId ? { sessionId, agentId: agent.agent } : null;
   };
+  // For the sheet (no target named): the page's session's agent ticked first, and which of the person's agents have a
+  // session here — a draft's only composers.
+  const { byAgent, agentOf } = args.to === undefined || args.to === null ? await local() : { byAgent: new Map<string, string>(), agentOf: () => undefined };
+  const { session, ...rest } = page;
+  const here: DispatchHere = { ...rest, preselect: (session && agentOf(session)) || null, local: [...byAgent.keys()] };
   return dispatchFromApp(
     {
       account,
@@ -111,7 +113,9 @@ export async function dispatchForApp(
       agents: {
         async draft(agent, text) {
           if (!text) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
-          const { sessionId, agentId } = await sessionHere(agent);
+          const found = await sessionHere(agent);
+          if (!found) throw new AppSendError('not-found', `${agent.agent} is not an agent on this computer`);
+          const { sessionId, agentId } = found;
           const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
           const facts = await agentSessionContext(sessionId);
           if (!facts?.projectId) throw new AppSendError('not-found', `${agentId} is not an agent on this computer`);
@@ -124,28 +128,17 @@ export async function dispatchForApp(
             const receipt = await messageAgentFromHostApp(app, reach, { agentId: agent.agent, text, queue: how.delivery === 'queue', defer: how.delivery === 'defer', key: how.key }, { from: effects.from });
             return { agent: agent.agent, ...receipt };
           }
-          // The person picked this task: theirs to tell, whatever this App's own reach.
-          const { sessionId, agentId } = await sessionHere(agent);
-          const receipt = await tellSessionFromApp(app, sessionId, text, { ...how, to: agentId, from: effects.from });
-          return { agent: agentId, ...receipt };
+          // The person picked this agent of theirs: theirs to tell, whatever this App's own reach — here, or on the
+          // computer it runs on, the way an App with :all-machines reaches it.
+          const found = await sessionHere(agent);
+          const receipt = found
+            ? await tellSessionFromApp(app, found.sessionId, text, { ...how, to: agent.agent, from: effects.from })
+            : await messageAgentFromHostApp(app, 'all-machines', { agentId: agent.agent, text, queue: how.delivery === 'queue', defer: how.delivery === 'defer', key: how.key }, { from: effects.from });
+          return { agent: agent.agent, ...receipt };
         },
         async spawn(prompt, spawn) {
-          // 不是字符串就当没给,❌ 别 `String(x)`:`{ title: x ?? null }` 会变成一条叫 null 的会话。
-          const text = (key: string) => (typeof spawn[key] === 'string' && spawn[key] ? { [key]: spawn[key] as string } : {});
-          if (spawn.transport !== undefined && spawn.transport !== 'acp' && spawn.transport !== 'pty') {
-            throw new AppSendError('invalid', 'spawn.transport is "acp" (a chat UI session) or "pty" (a terminal session)');
-          }
-          const { agentId } = await spawnAgentForExtension({
-            ...app,
-            bySession: effects.from,
-            prompt,
-            ...text('title'),
-            ...text('harness'),
-            ...text('model'),
-            ...(spawn.transport === 'acp' || spawn.transport === 'pty' ? { transport: spawn.transport } : {}),
-            ...text('project'),
-            ...text('chat'),
-          });
+          // Checked where the call is read (app-dispatch-core `spawnOf`): a wrong field is refused there, never dropped here.
+          const { agentId } = await spawnAgentForExtension({ ...app, bySession: effects.from, prompt, ...spawn });
           return agentId;
         },
       },

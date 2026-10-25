@@ -135,7 +135,7 @@ describe('the background page drives the agents it may see', () => {
     });
     granted.add('agents:control:all');
     expect(await call(BACKGROUND, 'dispatch', { to: { agent: LANE_A }, text: 'keep warm' })).toEqual({ ok: true, value: { to: { agent: LANE_A }, id: 'm-1' } });
-    expect(dispatchForApp).toHaveBeenCalledWith('keeper', { to: { agent: LANE_A }, text: 'keep warm' }, { chat: null, current: null }, expect.objectContaining({ pick: expect.any(Function) }));
+    expect(dispatchForApp).toHaveBeenCalledWith('keeper', { to: { agent: LANE_A }, text: 'keep warm' }, { chat: null, session: null }, expect.objectContaining({ pick: expect.any(Function) }));
     // The background page has no gesture, so never the sheet.
     expect(await call(BACKGROUND, 'dispatch', { text: 'keep warm' })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });
   });

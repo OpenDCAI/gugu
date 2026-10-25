@@ -147,15 +147,15 @@ describe('what a page says about itself: one way out of main', () => {
     ]);
     expect(emitted).toHaveBeenCalledWith(expect.anything(), { projectId: 'p-1', sessionId: 'task-2' });
     // Where the page is fills only what the sheet shows: its session.
-    expect(dispatchForApp.mock.calls[1]![2]).toMatchObject({ current: 'task-1' });
+    expect(dispatchForApp.mock.calls[1]![2]).toMatchObject({ session: 'task-1' });
     deliver.mockClear();
     expect(await call(GROUP_PAGE, 'dispatch', { text: '   ', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: false, code: 'invalid' });
     expect(deliver).not.toHaveBeenCalled();
   });
 
   it('naming no target asks the window that draws the page; the App hears only what was picked, or that they cancelled', async () => {
-    pickDispatchTarget.mockResolvedValueOnce({ to: { session: 'task-2' }, visible: false, text: 'ask about this' });
-    expect(await call(SESSION_TAB, 'dispatch', { text: 'ask about this', draft: true })).toEqual({ ok: true, value: { to: { session: 'task-2' } } });
+    pickDispatchTarget.mockResolvedValueOnce({ to: { agent: 'user:0a000000-0000-4000-8000-0000000000a2' }, visible: false, text: 'ask about this' });
+    expect(await call(SESSION_TAB, 'dispatch', { text: 'ask about this', draft: true })).toEqual({ ok: true, value: { to: { agent: 'user:0a000000-0000-4000-8000-0000000000a2' } } });
     expect(pickDispatchTarget).toHaveBeenLastCalledWith(42, expect.objectContaining({ draft: true }));
     expect(deliver).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'task-1' }), { kind: 'compose', sessionId: 'task-2', text: 'ask about this\n' });
 

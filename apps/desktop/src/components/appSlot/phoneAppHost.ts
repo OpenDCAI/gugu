@@ -591,7 +591,7 @@ export function hostAppFrame(
       case 'forumBlock':
         return forumForApp.block(args.userId, args.on)
       case 'forumAssign':
-        return forumForApp.assignDraft(args.postId, args.agentId).then((draft) => askForumConsent({ type: 'assign', draft }))
+        return forumForApp.assign(args.postId, args.agentId, pickDispatchTarget)
       case 'forumPost':
         return args.bounty === undefined || args.bounty === null
           ? forumForApp.postPlain(args)

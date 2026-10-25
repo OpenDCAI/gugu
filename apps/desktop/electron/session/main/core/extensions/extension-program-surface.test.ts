@@ -485,7 +485,7 @@ describe('an App program as a caller of its App (F16)', () => {
     granted.add('chat:relay');
     expect(await call(child, 8, 'dispatch', args)).toMatchObject({ ok: true, value: { to: args.to, id: 'm-1' } });
     // A program's call is the person's: no page, no chat drawn, nobody working a page.
-    expect(dispatchForApp).toHaveBeenCalledWith('board', args, { chat: null, current: null }, expect.objectContaining({ pick: expect.any(Function) }));
+    expect(dispatchForApp).toHaveBeenCalledWith('board', args, { chat: null, session: null }, expect.objectContaining({ pick: expect.any(Function) }));
     granted.add('agents:control');
     expect(await call(child, 9, 'dispatch', { to: { agent: MEMBER }, text: 'run it' })).toMatchObject({ ok: true, value: { to: { agent: MEMBER } } });
     expect(await call(child, 10, 'dispatch', { text: 'whom?' })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });

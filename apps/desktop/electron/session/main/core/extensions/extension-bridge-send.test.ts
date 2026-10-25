@@ -80,7 +80,7 @@ describe('gugu.dispatch over the bridge', () => {
     expect(result).toEqual({ ok: true, value: { to: MEMBER, id: 'm-1' } });
     expect(handed()[0]).toBe('chess');
     expect(handed()[1]).toEqual({ to: MEMBER, text: 'e2e4 — your move', refs: [{ file: ENTRY }] });
-    expect(handed()[2]).toMatchObject({ current: null });
+    expect(handed()[2]).toMatchObject({ session: null });
     expect(handed()[2]).not.toHaveProperty('as');
     expect(handed()[3].from).toBeUndefined();
   });
@@ -111,7 +111,7 @@ describe('gugu.dispatch over the bridge', () => {
     dispatchForApp.mockResolvedValue({ to: MEMBER, id: 'm-2' });
     expect(await call(BACKGROUND, { to: MEMBER, text: 'ready' })).toEqual({ ok: true, value: { to: MEMBER, id: 'm-2' } });
     expect(handed()[1]).toEqual({ to: MEMBER, text: 'ready' });
-    expect(handed()[2]).toEqual({ chat: null, current: null });
+    expect(handed()[2]).toEqual({ chat: null, session: null });
   });
 });
 

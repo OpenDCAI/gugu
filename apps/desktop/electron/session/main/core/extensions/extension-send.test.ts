@@ -121,7 +121,7 @@ vi.mock('@main/core/extensions/extension-agent-context', () => ({
 const { dispatchForApp } = await import('./extension-send');
 
 const entry = { id: ITEM, chat: GROUP, name: 'card[17].vote.json', type: 'json' };
-const here = { chat: null, current: null };
+const here = { chat: null, session: null };
 const drafts: unknown[] = [];
 const sessionDrafts: Array<{ session: { id: string; projectId: string }; text: string }> = [];
 let picked: unknown = null;
@@ -262,10 +262,14 @@ describe('to one of the person\'s agents: told directly, as session_message tell
     expect(toldSessions.map((told) => told.sessionId)).toEqual(['conv-elsewhere']);
   });
 
-  it('picked by the person in the sheet: one of this computer\'s tasks, theirs to tell whatever the App\'s own reach', async () => {
-    picked = { to: { session: 'conv-elsewhere' }, visible: false, text: 'please look' };
+  it('picked by the person in the sheet: any agent of theirs, told here or on its computer, whatever the App\'s own reach', async () => {
+    picked = { to: { agent: `user:${ELSEWHERE}` }, visible: false, text: 'please look' };
     expect(await dispatchForApp('keeper', { text: 'look' }, here, effects())).toEqual({ to: { agent: `user:${ELSEWHERE}` }, id: 'msg-1' });
     expect(toldSessions).toEqual([{ sessionId: 'conv-elsewhere', text: 'please look', envelope: expect.any(String) }]);
+    // One on another of their computers: handed to that machine, as :all-machines reaches it.
+    picked = { to: { agent: `user:${REMOTE}` }, visible: false, text: 'there too' };
+    expect(await dispatchForApp('keeper', { text: 'look' }, here, effects())).toEqual({ to: { agent: `user:${REMOTE}` }, id: 'msg-remote' });
+    expect(remoteSent.at(-1)).toMatchObject({ deviceId: 'd1', sessionId: 'conv-remote', text: 'there too' });
   });
 
   it('counter-cells: a session id or a stranger is not-found; an empty text is invalid — nothing is told', async () => {
@@ -333,7 +337,7 @@ describe('to one of the person\'s agents: told directly, as session_message tell
 describe('to a new agent: started as this App, answered by its agent', () => {
   it('the text is its first words (pills under it), spawn its session_spawn words, from the agent working the page', async () => {
     granted.add('agents:control');
-    const started = await dispatchForApp('kanban', { text: 'do card 7', to: { new: true }, refs: [{ file: entry }], spawn: { title: 'Card 7', transport: 'acp', model: 3 } }, here, effects('conv-worker'));
+    const started = await dispatchForApp('kanban', { text: 'do card 7', to: { new: true }, refs: [{ file: entry }], spawn: { title: 'Card 7', transport: 'acp' } }, here, effects('conv-worker'));
     expect(started).toEqual({ to: { agent: 'user:aaaaaaaa-0000-4000-8000-000000000001' } });
     expect(spawned).toEqual([{
       extensionId: 'kanban', extensionName: 'App kanban', bySession: 'conv-worker',

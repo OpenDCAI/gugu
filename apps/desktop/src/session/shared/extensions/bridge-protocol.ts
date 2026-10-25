@@ -697,8 +697,8 @@ export const BRIDGE_VERBS = {
    * 论坛 (9): a page's, public to every signed-in person, read and written as the person (app-forum-core.ts); the database judges who may
    * see and do what. Writing is a page's, in the person's gesture. A bounty's points move only behind a sheet the host draws:
    * `forumPost` with a bounty and `forumAward` answer `{ confirming: true }` once it is up, and the page hears the outcome from
-   * `forumSubscribe`. `forumAssign` opens the host's list of the person's own agents (no capability: the App never lists
-   * them) and answers `{ confirming: true }` too; an `agentId` only preselects one.
+   * `forumSubscribe`. `forumAssign` opens the host's 「交给谁」 sheet on the person's own agents (no capability: the App never
+   * lists them; an `agentId` only preselects one) and answers `{ assigned: { agent } }` once the forum took it, or `{ cancelled: true }`.
    */
   forumList: { needs: null, only: 'page' },
   forumRead: { needs: null, only: 'page' },

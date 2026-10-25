@@ -2,7 +2,7 @@ import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
-import { dispatchCallOf, dispatchOffers, type DispatchAsk, type DispatchPicked, type DispatchTarget } from './app-dispatch-core';
+import { dispatchCallOf, dispatchOffers, type DispatchAsk, type DispatchPicked, type DispatchSpawn, type DispatchTarget } from './app-dispatch-core';
 
 /**
  * `gugu.dispatch` (15, app-dispatch-core.ts): what the call is, where it goes and what goes — the same on the desktop
@@ -282,15 +282,22 @@ async function withPills(platform: Pick<AppSendPlatform, 'account'>, text: strin
   return [text, pills.map(pillText).join(' ')].filter(Boolean).join('\n\n');
 }
 
-/** Where the page is, for the sheet: its chat and who is in it, its session; `as` the agent working it (bare uuid). */
+/**
+ * Where the page is, for the sheet: its chat and who is in it, its session's agent (ticked first), the person's agents
+ * with a session here (a draft's composers); `as` the agent working the page (bare uuid).
+ */
 export interface DispatchHere {
   chat: DispatchAsk['chat'];
-  current: string | null;
+  preselect: string | null;
+  local?: string[];
   as?: string;
 }
 
-/** An agent of the person's, as the call named it (`{ agent }`) or the person picked it in the sheet (`{ session }`). */
-export type DispatchAgent = { agent: string; named: true } | { session: string; named: false };
+/**
+ * An agent of the person's: one the call named (`named`, within the App's own reach) or one the person picked in the sheet
+ * (any of theirs, wherever it runs: their press is the consent).
+ */
+export interface DispatchAgent { agent: string; named: boolean }
 
 /**
  * What a platform does that the rest does not share: its sheet, a chat's composer, and — where it has them — the person's
@@ -303,7 +310,7 @@ export interface AppDispatchPlatform extends AppSendPlatform {
   agents?: {
     draft(agent: DispatchAgent, text: string): Promise<string>;
     tell(agent: DispatchAgent, text: string, how: { delivery?: 'queue' | 'defer'; key?: string }): Promise<{ agent: string; id: string; deferred?: true }>;
-    spawn(prompt: string, spawn: Record<string, unknown>): Promise<string>;
+    spawn(prompt: string, spawn: DispatchSpawn): Promise<string>;
   };
 }
 
@@ -321,7 +328,8 @@ export async function dispatchFromApp(
   const call = dispatchCallOf(args);
   let text = call.text;
   let visible = call.visible;
-  let to: DispatchTarget | { session: string } | null = call.to;
+  let to: DispatchTarget | null = call.to;
+  let namedByCall = to !== null;
   // A draft of pills goes into their chat's composer: the refs name the place, as they always did.
   if (!to && !(call.draft && named(call.refs))) {
     const offers = dispatchOffers(call, { inChat: here.chat !== null, agents: platform.agents !== undefined });
@@ -330,20 +338,20 @@ export async function dispatchFromApp(
     const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
     // The person is not among whom they hand it to: a whisper to oneself is refused.
     const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
-    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, current: here.current, visible });
+    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, preselect: here.preselect, ...(call.draft && here.local ? { local: here.local } : {}), visible });
     if (!picked) return { cancelled: true };
     ({ to, visible } = picked);
+    namedByCall = false;
     text = picked.text.trim();
     if (!text && !named(call.refs)) return { cancelled: true };
   }
-  const agentOf = (target: { agent: string } | { session: string }): DispatchAgent =>
-    'agent' in target ? { agent: target.agent, named: true } : { session: target.session, named: false };
+  const agentOf = (target: { agent: string }): DispatchAgent => ({ agent: target.agent, named: namedByCall });
   const agents = () => {
     if (!platform.agents) throw new AppSendError('not-found', "The person's agents are not reachable from here");
     return platform.agents;
   };
   if (call.draft) {
-    if (to && ('agent' in to || 'session' in to)) return { to: { agent: await agents().draft(agentOf(to), text) } };
+    if (to && 'agent' in to) return { to: { agent: await agents().draft(agentOf(to), text) } };
     const detail = await composeInChat(platform, { text, chat: to && 'chat' in to ? to.chat : undefined, refs: call.refs, images: call.images });
     await platform.draftInChat(detail);
     return { to: { chat: detail.chatId } };

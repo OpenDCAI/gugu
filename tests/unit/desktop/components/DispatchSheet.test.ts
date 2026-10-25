@@ -22,26 +22,15 @@ const chats: ChatItem[] = [
 vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
   useChatStore: () => ({ chats, identitiesById: { 'u-alpha': { display_name: 'Alpha', avatar: null, type: 'human' } } }),
 }))
-const session = (conversationId: string, projectId: string, title: string, lastInteractedAt: string) =>
-  ({ conversationId, projectId, title, lastInteractedAt, supported: true, harness: 'codex', runtime: 'acp', agentStatus: null })
-const use = vi.fn(() => () => undefined)
-vi.mock('../../../../apps/desktop/src/session/renderer/features/assistant/assistant-home-sessions', () => ({
-  localHomeSessions: {
-    use,
-    sessions: [
-      session('s-other', 'p-2', 'Other project, newest', '2026-10-22T10:00:00Z'),
-      session('s-sibling', 'p-1', 'Same project', '2026-10-22T09:00:00Z'),
-      session('s-here', 'p-1', 'This page', '2026-10-22T08:00:00Z'),
-    ],
-  },
-}))
-vi.mock('../../../../apps/desktop/src/session/renderer/features/projects/stores/project-selectors', () => ({
-  getProjectStore: (id: string) => ({ name: id === 'p-1' ? 'Papers' : 'Website' }),
+// The person's own agents (contacts they own), wherever they run.
+const agent = (id: string, display_name: string) => ({ id, display_name, avatar: null, type: 'agent', owner_user_id: 'me' })
+vi.mock('../../../../apps/desktop/src/components/settings/channels/channelAgents', () => ({
+  useOwnedAgents: () => [agent('a-other', 'Other agent'), agent('a-sibling', 'Same project'), agent('a-here', 'This page')],
 }))
 
 const { DispatchSheet } = await import('../../../../apps/desktop/src/components/chat/DispatchSheet')
 const { pickDispatchTarget } = await import('../../../../apps/desktop/src/components/chat/dispatchAsk')
-const ask = (over: Record<string, unknown>) => pickDispatchTarget({ draft: true, offers: ['chat', 'my-agent'], text: 'cite', pills: [], chat: null, current: null, visible: false, ...over } as never)
+const ask = (over: Record<string, unknown>) => pickDispatchTarget({ draft: true, offers: ['chat', 'my-agent'], text: 'cite', pills: [], chat: null, preselect: null, visible: false, ...over } as never)
 
 let container: HTMLDivElement
 let root: Root
@@ -66,14 +55,12 @@ const type = async (field: HTMLInputElement | HTMLTextAreaElement, value: string
 })
 
 describe('DispatchSheet', () => {
-  it('a draft from a task\'s tab: 「我的任务」 first, the page\'s task ticked, its project next; a pick is the place, nothing more', async () => {
+  it('a draft from a task\'s tab: 「我的 agent」 first, the page\'s own ticked and first, only those with a session here; a pick is the place', async () => {
     let picked: Promise<unknown> = Promise.resolve()
-    await act(async () => { picked = ask({ current: 's-here' }) })
-    expect(use).toHaveBeenCalled()
-    expect([...document.body.querySelectorAll('[data-pick-section]')].map((s) => s.getAttribute('data-pick-section'))).toEqual(['tasks', 'chats'])
-    expect(rowIds()).toEqual(['session:s-here', 'session:s-sibling', 'session:s-other', 'chat:c-group', 'chat:c-dm'])
-    expect(ticked()).toEqual(['session:s-here'])
-    expect(document.body.textContent).toContain('Papers')
+    await act(async () => { picked = ask({ preselect: 'user:a-here', local: ['user:a-here', 'user:a-other'] }) })
+    expect([...document.body.querySelectorAll('[data-pick-section]')].map((s) => s.getAttribute('data-pick-section'))).toEqual(['agents', 'chats'])
+    expect(rowIds()).toEqual(['agent:user:a-here', 'agent:user:a-other', 'chat:c-group', 'chat:c-dm'])
+    expect(ticked()).toEqual(['agent:user:a-here'])
 
     // One at a time: picking a chat unticks the task.
     await click(document.body.querySelector('[data-pick-row="chat:c-dm"]'))
@@ -95,12 +82,12 @@ describe('DispatchSheet', () => {
     await expect(picked).resolves.toBeNull()
   })
 
-  it('a search narrows chats and tasks alike', async () => {
+  it('a search narrows chats and agents alike', async () => {
     await act(async () => { void ask({}) })
-    expect(rowIds()).toEqual(['session:s-other', 'session:s-sibling', 'session:s-here', 'chat:c-group', 'chat:c-dm'])
+    expect(rowIds()).toEqual(['agent:user:a-other', 'agent:user:a-sibling', 'agent:user:a-here', 'chat:c-group', 'chat:c-dm'])
     expect(ticked()).toEqual([])
     await type(document.body.querySelector('input') as HTMLInputElement, 'same')
-    expect(rowIds()).toEqual(['session:s-sibling'])
+    expect(rowIds()).toEqual(['agent:user:a-sibling'])
   })
 
   it('a message: the chat\'s agents, its people, tasks, a new agent; the text shown and theirs to change, the pills under it, visible for a member', async () => {
@@ -114,21 +101,32 @@ describe('DispatchSheet', () => {
         chat: { id: 'c-group', name: 'Reading group', members: [{ id: 'user:a', name: 'Kip', kind: 'agent' }, { id: 'user:p', name: 'Wei', kind: 'human' }] },
       })
     })
-    expect([...document.body.querySelectorAll('[data-pick-section]')].map((s) => s.getAttribute('data-pick-section'))).toEqual(['chat-agents', 'chat-people', 'tasks', 'new'])
-    expect(rowIds()).toEqual(['member:user:a', 'member:user:p', 'session:s-other', 'session:s-sibling', 'session:s-here', 'new:agent'])
+    expect([...document.body.querySelectorAll('[data-pick-section]')].map((s) => s.getAttribute('data-pick-section'))).toEqual(['chat-agents', 'chat-people', 'agents', 'new'])
+    expect(rowIds()).toEqual(['member:user:a', 'member:user:p', 'agent:user:a-other', 'agent:user:a-sibling', 'agent:user:a-here', 'new:agent'])
     const text = document.body.querySelector('[data-testid="dispatch-text"]') as HTMLTextAreaElement
     expect(text.value).toBe('Host this round')
     expect([...document.body.querySelectorAll('[data-testid="dispatch-pill"]')].map((p) => p.textContent)).toEqual(['@round.soup.json'])
     // Nothing picked: nothing to send.
     expect(button('发送')?.disabled).toBe(true)
-    // A task: no 「visible」, that is a chat's.
-    await click(document.body.querySelector('[data-pick-row="session:s-here"]'))
+    // An agent of theirs: no 「visible」, that is a chat's.
+    await click(document.body.querySelector('[data-pick-row="agent:user:a-here"]'))
     expect(document.body.querySelector('[data-testid="dispatch-visible"]')).toBeNull()
     await click(document.body.querySelector('[data-pick-row="member:user:a"]'))
     await click(document.body.querySelector('[data-testid="dispatch-visible"]'))
     await type(text, 'Host this round, hard mode')
     await click(button('发送'))
     await expect(picked).resolves.toEqual({ to: { chat: 'c-group', member: 'user:a' }, visible: true, text: 'Host this round, hard mode' })
+  })
+
+  it('a forum assignment: the post shown read only, the person\'s own agents, 「指派」; the pick is the agent', async () => {
+    let picked: Promise<unknown> = Promise.resolve()
+    await act(async () => { picked = ask({ draft: false, offers: ['my-agent'], text: '', assign: { title: '并发问题' }, preselect: 'user:a-sibling' }) })
+    expect(document.body.querySelector('[data-testid="dispatch-assign"]')?.textContent).toContain('并发问题')
+    expect(document.body.querySelector('[data-testid="dispatch-text"]')).toBeNull()
+    expect(rowIds()).toEqual(['agent:user:a-sibling', 'agent:user:a-other', 'agent:user:a-here'])
+    expect(ticked()).toEqual(['agent:user:a-sibling'])
+    await click(document.body.querySelector('[data-testid="dispatch-sheet-action"]'))
+    await expect(picked).resolves.toEqual({ to: { agent: 'user:a-sibling' }, visible: false, text: '' })
   })
 
   it('a new agent: its row picks { new }', async () => {

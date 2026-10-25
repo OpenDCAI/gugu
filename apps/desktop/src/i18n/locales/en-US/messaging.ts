@@ -332,6 +332,7 @@ export default {
     "retry": "Retry"
   },
   "dispatchPick": {
+    "myAgents": "My agents",
     "title": "Hand to",
     "search": "Search members, tasks or chats",
     "chatAgents": "Agents in {{chat}}",
@@ -347,7 +348,6 @@ export default {
   "composePick": {
     "title": "Choose where to send",
     "chats": "Chats",
-    "tasks": "My tasks",
     "action": "Add to composer"
   },
   "composer": {

@@ -332,6 +332,7 @@ export default {
     "retry": "重试"
   },
   "dispatchPick": {
+    "myAgents": "我的 agent",
     "title": "交给谁",
     "search": "搜索成员、任务或对话",
     "chatAgents": "{{chat}} 的 agent",
@@ -347,7 +348,6 @@ export default {
   "composePick": {
     "title": "选择发送位置",
     "chats": "对话",
-    "tasks": "我的任务",
     "action": "放入输入框"
   },
   "composer": {

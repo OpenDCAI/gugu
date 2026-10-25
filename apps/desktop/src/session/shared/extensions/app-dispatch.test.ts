@@ -87,6 +87,12 @@ describe('the verb row: what a call needs', () => {
     expect(() => dispatchCallOf({ text: 'x', images: [] })).toThrow(/images go only into a chat/);
     expect(() => dispatchCallOf({ text: 'x', to: { agent: AGENT } })).toThrow(/user:<uuid>/);
     expect(() => dispatchCallOf({ text: 'x', offer: ['everyone'] })).toThrow(/offer is a list/);
+    // A new agent's words: a wrong one is refused, never quietly dropped (C lane 10-26: spawn.chat as { id, name }).
+    expect(() => dispatchCallOf({ text: 'x', to: { new: true }, spawn: { chat: { id: GROUP, name: 'A群' } } })).toThrow(/spawn.chat is a chat's id, a string/);
+    expect(() => dispatchCallOf({ text: 'x', to: { new: true }, spawn: { transport: 'tty' } })).toThrow(/spawn.transport/);
+    expect(() => dispatchCallOf({ text: 'x', to: { new: true }, spawn: { title: 7 } })).toThrow(/spawn.title is a non-empty string/);
+    expect(() => dispatchCallOf({ text: 'x', to: { new: true }, spawn: { birthGroup: GROUP } })).toThrow(/no birthGroup/);
+    expect(dispatchCallOf({ text: 'x', to: { new: true }, spawn: { chat: GROUP, title: 'Card', transport: 'acp', model: null } }).spawn).toEqual({ chat: GROUP, title: 'Card', transport: 'acp' });
   });
 
   it('what the sheet offers by default, and what a host without the person’s agents leaves out', () => {
@@ -101,27 +107,27 @@ describe('the verb row: what a call needs', () => {
 describe('dispatchFromApp (the shared answer)', () => {
   it('a member named: a whisper, as the person, via this App', async () => {
     const { platform } = phone();
-    const sent = await dispatchFromApp(platform, 'dinner-vote', { text: 'done', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, current: null });
+    const sent = await dispatchFromApp(platform, 'dinner-vote', { text: 'done', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, preselect: null });
     expect(sent).toMatchObject({ to: { chat: GROUP, member: `user:${AGENT}` }, id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
     expect(rpcs.at(-1)).toMatchObject({ p_chat_id: GROUP, p_sender_user_id: OWNER, p_to_user_ids: [AGENT], p_is_whisper: true, p_via_app: 'dinner-vote', p_content: 'done' });
   });
 
   it('visible (owner 10-25「允许」): a message the chat sees, @ the member, still marked as this App’s', async () => {
     const { platform } = phone();
-    await dispatchFromApp(platform, 'dinner-vote', { text: 'your move', visible: true, to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, current: null });
+    await dispatchFromApp(platform, 'dinner-vote', { text: 'your move', visible: true, to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, preselect: null });
     expect(rpcs.at(-1)).toMatchObject({ p_to_user_ids: [AGENT], p_is_whisper: false, p_via_app: 'dinner-vote', p_content: '@小咕 your move' });
   });
 
   it('worked by the person’s agent (owner 10-14): written as that agent', async () => {
     const WORKER = '33333333-3333-4333-8333-333333333333';
     const { platform } = phone();
-    await dispatchFromApp(platform, 'dinner-vote', { text: 'done', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, current: null, as: WORKER });
+    await dispatchFromApp(platform, 'dinner-vote', { text: 'done', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, preselect: null, as: WORKER });
     expect(rpcs.at(-1)).toMatchObject({ p_sender_user_id: WORKER });
   });
 
   it('no target: the sheet is asked with what will go; the person’s pick and their text are what goes', async () => {
     const { platform, asked } = phone({ to: { chat: GROUP, member: `user:${AGENT}` }, visible: false, text: 'host this round' });
-    const sent = await dispatchFromApp(platform, 'turtle-soup', { text: 'host', offer: ['agent-in-chat'] }, { chat, current: null });
+    const sent = await dispatchFromApp(platform, 'turtle-soup', { text: 'host', offer: ['agent-in-chat'] }, { chat, preselect: null });
     expect(asked.at(-1)).toMatchObject({ draft: false, offers: ['agent-in-chat'], text: 'host', chat: { id: GROUP } });
     // The person is not offered to themselves.
     expect((asked.at(-1) as { chat: { members: { id: string }[] } }).chat.members.map((member) => member.id)).toEqual([`user:${AGENT}`]);
@@ -132,24 +138,24 @@ describe('dispatchFromApp (the shared answer)', () => {
   it('cancelled in the sheet: nothing goes, the App hears so', async () => {
     const { platform } = phone(null);
     const before = rpcs.length;
-    await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat, current: null })).resolves.toEqual({ cancelled: true });
+    await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat, preselect: null })).resolves.toEqual({ cancelled: true });
     expect(rpcs.length).toBe(before);
   });
 
   it('a draft into a chat: the chat shell takes it, nothing is sent', async () => {
     const { platform, drafts } = phone();
     const before = rpcs.length;
-    await expect(dispatchFromApp(platform, 'x', { text: 'hello', draft: true, to: { chat: GROUP } }, { chat, current: null })).resolves.toEqual({ to: { chat: GROUP } });
+    await expect(dispatchFromApp(platform, 'x', { text: 'hello', draft: true, to: { chat: GROUP } }, { chat, preselect: null })).resolves.toEqual({ to: { chat: GROUP } });
     expect(drafts.at(-1)).toMatchObject({ chatId: GROUP, text: 'hello\n' });
     expect(rpcs.length).toBe(before);
   });
 
   it('a platform without the person’s agents (the phone): the sheet offers none, a named one is not found here', async () => {
     const { platform, asked } = phone(null);
-    await dispatchFromApp(platform, 'x', { text: 'hi' }, { chat: null, current: null }).catch((error: unknown) => error);
+    await dispatchFromApp(platform, 'x', { text: 'hi' }, { chat: null, preselect: null }).catch((error: unknown) => error);
     expect(asked).toHaveLength(0);
-    await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat: null, current: null })).rejects.toMatchObject({ code: 'not-found' });
-    await expect(dispatchFromApp(platform, 'x', { text: 'hi', to: { agent: `user:${AGENT}` } }, { chat, current: null })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat: null, preselect: null })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(dispatchFromApp(platform, 'x', { text: 'hi', to: { agent: `user:${AGENT}` } }, { chat, preselect: null })).rejects.toMatchObject({ code: 'not-found' });
   });
 
   it('the person’s agents, where the platform has them: told, started, drafted into — each answering by its agent', async () => {
@@ -162,11 +168,11 @@ describe('dispatchFromApp (the shared answer)', () => {
         spawn: async (prompt: string, spawn: unknown) => (calls.push(['spawn', prompt, spawn]), `user:${AGENT}`),
       },
     };
-    await expect(dispatchFromApp(platform, 'radar', { text: 'ping', to: { agent: `user:${AGENT}` }, delivery: 'defer', key: 'k' }, { chat: null, current: null }))
+    await expect(dispatchFromApp(platform, 'radar', { text: 'ping', to: { agent: `user:${AGENT}` }, delivery: 'defer', key: 'k' }, { chat: null, preselect: null }))
       .resolves.toEqual({ to: { agent: `user:${AGENT}` }, id: 'm1' });
-    await expect(dispatchFromApp(platform, 'kanban', { text: 'do it', to: { new: true }, spawn: { title: 'Card' } }, { chat: null, current: null }))
+    await expect(dispatchFromApp(platform, 'kanban', { text: 'do it', to: { new: true }, spawn: { title: 'Card' } }, { chat: null, preselect: null }))
       .resolves.toEqual({ to: { agent: `user:${AGENT}` } });
-    await expect(dispatchFromApp(platform, 'kanban', { text: 'look', draft: true, to: { agent: `user:${AGENT}` } }, { chat: null, current: null }))
+    await expect(dispatchFromApp(platform, 'kanban', { text: 'look', draft: true, to: { agent: `user:${AGENT}` } }, { chat: null, preselect: null }))
       .resolves.toEqual({ to: { agent: `user:${AGENT}` } });
     expect(calls).toEqual([
       ['tell', { agent: `user:${AGENT}`, named: true }, 'ping', { delivery: 'defer', key: 'k' }],
@@ -178,8 +184,8 @@ describe('dispatchFromApp (the shared answer)', () => {
   it('the server’s limit comes back as rate-limited; about is gone', async () => {
     const { platform } = phone();
     rpcError = { code: 'PT429', message: 'rate-limited' };
-    await expect(dispatchFromApp(platform, 'x', { text: 'again', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, current: null })).rejects.toMatchObject({ code: 'rate-limited' });
+    await expect(dispatchFromApp(platform, 'x', { text: 'again', to: { chat: GROUP, member: `user:${AGENT}` } }, { chat, preselect: null })).rejects.toMatchObject({ code: 'rate-limited' });
     rpcError = null;
-    await expect(dispatchFromApp(platform, 'x', { text: 'x', about: { id: GROUP } }, { chat, current: null })).rejects.toMatchObject({ code: 'invalid', message: expect.stringContaining('about is gone') });
+    await expect(dispatchFromApp(platform, 'x', { text: 'x', about: { id: GROUP } }, { chat, preselect: null })).rejects.toMatchObject({ code: 'invalid', message: expect.stringContaining('about is gone') });
   });
 });

@@ -79,7 +79,7 @@ export interface DispatchCall {
   visible: boolean;
   delivery?: 'queue' | 'defer';
   key?: string;
-  spawn: Record<string, unknown>;
+  spawn: DispatchSpawn;
   offers: readonly DispatchOffer[] | null;
 }
 
@@ -98,8 +98,8 @@ export function dispatchCallOf(args: Record<string, unknown>): DispatchCall {
   if (named(args.delivery) && args.delivery !== 'queue' && args.delivery !== 'defer') invalid("delivery is 'queue' or 'defer'");
   if (named(args.key) && (typeof args.key !== 'string' || !args.key)) invalid('key is a non-empty string');
   if ((named(args.delivery) || named(args.key)) && (draft || (to && !('agent' in to)))) invalid('delivery and key are for one of your agents: to { agent }');
-  if (named(args.spawn) && (typeof args.spawn !== 'object' || Array.isArray(args.spawn))) invalid('spawn is { title?, harness?, model?, transport?, project?, chat? }');
   if (named(args.spawn) && (draft || (to && !('new' in to)))) invalid('spawn is for a new agent: to { new: true }');
+  const spawn = spawnOf(args.spawn);
   let offers: DispatchOffer[] | null = null;
   if (named(args.offer)) {
     if (!Array.isArray(args.offer) || args.offer.length === 0 || args.offer.some((kind) => !DISPATCH_OFFERS.includes(kind as DispatchOffer))) {
@@ -117,9 +117,33 @@ export function dispatchCallOf(args: Record<string, unknown>): DispatchCall {
     visible: args.visible === true,
     ...(args.delivery === 'queue' || args.delivery === 'defer' ? { delivery: args.delivery } : {}),
     ...(typeof args.key === 'string' ? { key: args.key } : {}),
-    spawn: (args.spawn as Record<string, unknown> | undefined) ?? {},
+    spawn,
     offers,
   };
+}
+
+/** The words a new agent is started on (`session_spawn`'s), each said wrong where it is: never a field quietly dropped. */
+export interface DispatchSpawn { title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string }
+
+function spawnOf(spawn: unknown): DispatchSpawn {
+  if (!named(spawn)) return {};
+  const shape = 'spawn is { title?, harness?, model?, transport?, project?, chat? }';
+  if (typeof spawn !== 'object' || Array.isArray(spawn)) return invalid(shape);
+  const out: DispatchSpawn = {};
+  for (const [key, value] of Object.entries(spawn as Record<string, unknown>)) {
+    if (value === undefined || value === null) continue;
+    if (key === 'transport') {
+      if (value !== 'acp' && value !== 'pty') invalid('spawn.transport is "acp" (a chat UI session) or "pty" (a terminal session)');
+      out.transport = value as 'acp' | 'pty';
+    } else if (key === 'chat') {
+      if (typeof value !== 'string' || !UUID.test(value)) invalid("spawn.chat is a chat's id, a string as getContext() gives it");
+      out.chat = value as string;
+    } else if (key === 'title' || key === 'harness' || key === 'model' || key === 'project') {
+      if (typeof value !== 'string' || !value.trim()) invalid(`spawn.${key} is a non-empty string`);
+      out[key] = value as string;
+    } else invalid(`${shape}: no ${key}`);
+  }
+  return out;
 }
 
 /**
@@ -153,15 +177,22 @@ export interface DispatchAsk {
   pills: string[];
   /** The chat the page is drawn for, and who is in it: the rows of `agent-in-chat` / `person-in-chat`. */
   chat: { id: string; name: string; members: { id: string; name: string; kind: 'human' | 'agent'; avatar?: string }[] } | null;
-  /** The page's own session (its row comes first among the person's agents). */
-  current: string | null;
+  /** The agent ticked to begin with and listed first among the person's: the page's own session's, or the one the call names. */
+  preselect: string | null;
+  /** For a draft: the person's agents with a session on this computer — the only composers a draft can go into. */
+  local?: string[];
   visible: boolean;
+  /**
+   * Not a message but a forum assignment (`gugu.forum.assign`): the post's title is what is shown, read only, and only the
+   * person's own agents are offered; what follows the pick is the forum's (`forum_assign`), not a delivery.
+   */
+  assign?: { title: string };
 }
 
 /**
  * What the person picked, and the text as they left it (the sheet lets them change it before it goes: it goes as theirs).
- * A session stands for its agent (the sheet lists this computer's tasks); main tells which agent that is.
+ * An agent of theirs is named by its id, wherever it runs.
  */
 export type DispatchPicked =
-  | { to: { chat: string } | { chat: string; member: string } | { session: string } | { new: true }; visible: boolean; text: string }
+  | { to: { chat: string } | { chat: string; member: string } | { agent: string } | { new: true }; visible: boolean; text: string }
   | null;

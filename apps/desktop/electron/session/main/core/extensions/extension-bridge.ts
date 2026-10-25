@@ -1579,7 +1579,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         args,
         {
           chat: drawnIn?.chat ? { id: drawnIn.chat.id, name: drawnIn.chat.name, members: drawnIn.members } : null,
-          current: page?.sessionId ?? null,
+          session: page?.sessionId ?? null,
           ...(operator?.kind === 'agent' ? { as: operator.id.replace(/^user:/, '') } : {}),
         },
         {
@@ -1646,10 +1646,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'bounty', draft: forum.bountyDraft(args) } });
           return { confirming: true };
         }
-        case 'forumAssign':
-          // The person picks one of their own agents in the window's list (ForumConsent): an App never lists them.
-          await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'assign', draft: await forum.assignDraft(args.postId, args.agentId) } });
-          return { confirming: true };
+        case 'forumAssign': {
+          // The person picks one of their own agents in the window's 「交给谁」 sheet (DispatchSheet): an App never lists them.
+          const { pickDispatchTarget } = await import('@main/core/extensions/extension-bridge-relay');
+          return await forum.assign(args.postId, args.agentId, (ask) => pickDispatchTarget(thePage(caller).embedderId, ask));
+        }
         default: {
           await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'award', draft: await forum.awardDraft(args.postId, args.awards) } });
           return { confirming: true };

@@ -4,9 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { INSTALL_CONSENT_HUMAN_WINDOW_MS } from '@/session/shared/extensions/host-actions'
 import type { DispatchPicked } from '@/session/shared/extensions/app-dispatch-core'
-import { localHomeSessions } from '@/session/renderer/features/assistant/assistant-home-sessions'
-import { getProjectStore } from '@/session/renderer/features/projects/stores/project-selectors'
 import { useChatStore } from '../../store/chatContext'
+import { useOwnedAgents } from '../settings/channels/channelAgents'
 import { chatPickRow, forwardableChats } from './forwardMessageUtils'
 import { ChatPickSheet, type ChatPickRow, type ChatPickSection } from './ChatPickSheet'
 import { takeDispatchAsks, type DispatchAsked } from './dispatchAsk'
@@ -17,12 +16,14 @@ const NEW_AGENT = 'new:agent'
  * Whom an App hands something to (`gugu.dispatch` naming no target), drawn by the shell over whatever is on screen
  * (ExtensionConsentSheet), so the view does not change for it. Above the rows: what will go — the text, which the person may
  * change (it goes as theirs), and each pill — and, for a member of a chat, whether the chat sees it. The rows are the
- * host's own: the page's chat's agents and people, this computer's tasks (the page's own first), a new agent, chats (a draft).
- * Nothing goes before the press; the App hears only what was picked.
+ * host's own: the page's chat's agents and people, the person's own agents (the page's own first; for a draft only those
+ * with a session here), a new agent, chats (a draft). A forum assignment (`ask.assign`) is the same sheet: the post's title
+ * read only, the person's own agents. Nothing goes before the press; the App hears only what was picked.
  */
 export const DispatchSheet = observer(function DispatchSheet() {
   const { t } = useTranslation('messaging')
   const { chats, identitiesById } = useChatStore('chats', 'identitiesById')
+  const owned = useOwnedAgents()
   const [asked, setAsked] = useState<DispatchAsked | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [query, setQuery] = useState('')
@@ -40,13 +41,11 @@ export const DispatchSheet = observer(function DispatchSheet() {
     open.current?.answer(null)
     open.current = next
     setAsked(next)
-    setSelected(new Set(next.offers.includes('my-agent') && next.current ? [`session:${next.current}`] : []))
+    setSelected(new Set(next.offers.includes('my-agent') && next.preselect ? [`agent:${next.preselect}`] : []))
     setQuery('')
     setText(next.text)
     setVisible(next.visible)
   }), [])
-  const tasks = asked?.offers.includes('my-agent') === true
-  useEffect(() => (tasks ? localHomeSessions.use() : undefined), [tasks])
   // It waits on a person, as an install's consent does; main's clock (ipc-bridge) is the longer one.
   useEffect(() => {
     if (!asked) return
@@ -66,18 +65,16 @@ export const DispatchSheet = observer(function DispatchSheet() {
       name: member.name,
       avatar: { name: member.name, avatarUrl: member.avatar, seed: member.id, isAgent: member.kind === 'agent' },
     }))
-  // This computer's tasks: the page's own first, then its project's, then the latest.
-  const currentProject = localHomeSessions.sessions.find((session) => session.conversationId === asked.current)?.projectId
-  const rank = (session: (typeof localHomeSessions.sessions)[number]) =>
-    session.conversationId === asked.current ? 0 : session.projectId === currentProject ? 1 : 2
-  const taskRows = !tasks ? [] : localHomeSessions.sessions
-    .filter((session) => session.supported && found(session.title))
-    .sort((a, b) => rank(a) - rank(b) || (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
-    .map((session): ChatPickRow => ({
-      id: `session:${session.conversationId}`,
-      name: session.title || session.conversationId,
-      avatar: { name: session.title || session.conversationId, seed: session.conversationId, isAgent: true },
-      hint: <span className="text-[length:var(--font-caption)] text-[var(--text-tertiary)]">{getProjectStore(session.projectId)?.name ?? session.projectId}</span>,
+  // The person's own agents: the one preselected first; a draft only into one whose session is here (its composer).
+  const local = asked.local ? new Set(asked.local) : null
+  const agentRows = !offers.has('my-agent') ? [] : owned
+    .map((agent) => ({ ...agent, id: `user:${agent.id.replace(/^user:/, '')}` }))
+    .filter((agent) => found(agent.display_name) && (!asked.draft || !local || local.has(agent.id)))
+    .sort((a, b) => Number(b.id === asked.preselect) - Number(a.id === asked.preselect))
+    .map((agent): ChatPickRow => ({
+      id: `agent:${agent.id}`,
+      name: agent.display_name,
+      avatar: { name: agent.display_name, avatarUrl: agent.avatar, seed: agent.id, isAgent: true },
     }))
   const nameOf = (chat: (typeof chats)[number]) => chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name)
   const chatRows = !offers.has('chat') ? [] : forwardableChats(chats, '', query, nameOf).map((chat) => ({ ...chatPickRow(chat, nameOf(chat), identitiesById), id: `chat:${chat.id}` }))
@@ -87,7 +84,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   const sections: ChatPickSection[] = [
     { id: 'chat-agents', title: t('dispatchPick.chatAgents', { chat: asked.chat?.name ?? '' }), rows: offers.has('agent-in-chat') ? memberRows('agent') : [] },
     { id: 'chat-people', title: t('dispatchPick.chatPeople', { chat: asked.chat?.name ?? '' }), rows: offers.has('person-in-chat') ? memberRows('human') : [] },
-    { id: 'tasks', title: t('composePick.tasks'), rows: taskRows },
+    { id: 'agents', title: t('dispatchPick.myAgents'), rows: agentRows },
     { id: 'new', title: t('dispatchPick.new'), rows: newRows },
     { id: 'chats', title: t('composePick.chats'), rows: chatRows },
   ]
@@ -98,12 +95,19 @@ export const DispatchSheet = observer(function DispatchSheet() {
     if (!picked) return null
     if (picked === NEW_AGENT) return { new: true }
     const [kind, id = ''] = picked.split(/:(.*)/)
-    if (kind === 'session') return { session: id }
+    if (kind === 'agent') return { agent: id }
     if (kind === 'member' && asked.chat) return { chat: asked.chat.id, member: id }
     return { chat: id }
   }
+  // A forum assignment: what is assigned (the post), read only — nothing is written to anyone.
+  const assign = asked.assign
   // What will go, as it will read: the text (theirs to change) and each pill under it.
-  const preview = (
+  const preview = assign ? (
+    <div className="text-[length:var(--font-body)] text-[var(--text-primary)]" data-testid="dispatch-assign">
+      {assign.title}
+      <p className="m-0 mt-1 text-[var(--text-secondary)]">{t('forum.consent.assignBody')}</p>
+    </div>
+  ) : (
     <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="dispatch-preview">
       <textarea
         className="min-h-[64px] w-full resize-y rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[length:var(--font-body)] text-[var(--text-primary)]"
@@ -126,7 +130,7 @@ export const DispatchSheet = observer(function DispatchSheet() {
   )
   return (
     <ChatPickSheet
-      title={asked.draft ? t('composePick.title') : t('dispatchPick.title')}
+      title={assign ? t('forum.consent.assignTitle') : asked.draft ? t('composePick.title') : t('dispatchPick.title')}
       onClose={() => finish(null)}
       testId="dispatch-sheet"
       rows={[]}
@@ -136,10 +140,10 @@ export const DispatchSheet = observer(function DispatchSheet() {
       onToggle={(id) => setSelected(new Set([id]))}
       query={query}
       onQuery={setQuery}
-      placeholder={t('dispatchPick.search')}
-      empty={t('dispatchPick.empty')}
-      actionLabel={asked.draft ? t('composePick.action') : t('dispatchPick.send')}
-      actionDisabled={!picked || (!said && asked.pills.length === 0)}
+      placeholder={assign ? t('forum.consent.searchAgents') : t('dispatchPick.search')}
+      empty={assign ? t('forum.consent.noAgents') : t('dispatchPick.empty')}
+      actionLabel={assign ? t('forum.consent.assignConfirm') : asked.draft ? t('composePick.action') : t('dispatchPick.send')}
+      actionDisabled={!picked || (!assign && !said && asked.pills.length === 0)}
       onAction={() => {
         const to = pickedTarget()
         if (to) finish({ to, visible: toMember && visible, text: said })
