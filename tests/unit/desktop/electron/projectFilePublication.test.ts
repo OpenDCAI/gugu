@@ -1,19 +1,85 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createProjectFilePublisher } from '../../../../apps/desktop/electron/projectFilePublication'
 import { readProjectFile, rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
+const copyFault = vi.hoisted(() => ({ mode: '' }))
+vi.mock('node:fs/promises', async original => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return { ...fs, copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
+    await fs.copyFile(...args)
+    if (copyFault.mode === 'changed-source') await fs.writeFile(args[0], new Uint8Array([9, 9, 9]))
+    if (copyFault.mode === 'copy-failure') throw new Error('injected copy failure')
+  } }
+})
 
 let home: string, root: string, env: NodeJS.ProcessEnv
 const data = new Uint8Array([0, 255, 3]), file = { name: 'file.bin', bytes: data.buffer, contentType: 'application/octet-stream' }
 const row = { id: 'item', chat_id: 'group', filename: 'file.bin', version: 1, content_type: file.contentType, size_bytes: 3, path: 'file.bin', parent_id: null,
   created_at: '2026-10-24T00:00:00Z', updated_at: '2026-10-24T00:00:00Z', created_by: 'owner', source_message_ids: [], kind: 'file', pointer: null, epoch: 0, system_role: null }
 beforeEach(async () => {
+  copyFault.mode = ''
   home = await mkdtemp(join(tmpdir(), 'gugu-file-publication-153-')); root = join(home, 'project'); env = { GUGU_HOME: home }
   await mkdir(root); await writeFile(join(root, file.name), data)
   await rememberProjectGroupId('project', 'group', 'owner', env)
+})
+
+describe('external selections become durable project-owned copies through the same publisher', () => {
+  const selected = () => ({ name: file.name, path: join(home, 'selected.bin'), size: data.length, contentType: file.contentType })
+  const publishedPaths = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish').map(([, args]) => args.p_path as string)
+  it('copies into a unique fenced directory, never overwrites a same-name original, and survives original deletion', async () => {
+    const f = fixture(); await writeFile(selected().path, data)
+    await f.publish('group', selected(), null, 'owner')
+    const [path] = publishedPaths(f)
+    expect(path).toMatch(/^\.gugu\/attachments\/[0-9a-f-]{36}\/file\.bin$/)
+    expect(await readFile(join(root, path))).toEqual(Buffer.from(data))
+    await rm(selected().path)
+    expect(await readFile(join(root, path))).toEqual(Buffer.from(data))
+    expect(await readFile(join(root, file.name))).toEqual(Buffer.from(data))
+    expect(f.store).not.toHaveBeenCalled()
+  })
+  it('reuses a verified indexed copy for repeated identical content even when the incoming name changes', async () => {
+    const f = fixture(); await writeFile(selected().path, data)
+    await f.publish('group', selected(), null, 'owner')
+    await f.publish('group', { ...selected(), name: 'renamed.bin' }, null, 'owner')
+    expect(publishedPaths(f)[1]).toBe(publishedPaths(f)[0])
+    expect(await readdir(join(root, '.gugu/attachments'))).toHaveLength(1)
+    expect(f.rpc.mock.calls.filter(([name]) => name === 'file_device_publish')[1][1].p_filename).toBe('renamed.bin')
+  })
+  it.each(['missing', 'corrupt'])('imports again when its indexed copy is %s, without reusing invalid bytes', async state => {
+    const f = fixture(); await writeFile(selected().path, data)
+    await f.publish('group', selected(), null, 'owner')
+    const old = join(root, publishedPaths(f)[0])
+    if (state === 'missing') await rm(old); else await writeFile(old, new Uint8Array([9, 9, 9]))
+    await f.publish('group', selected(), null, 'owner')
+    expect(publishedPaths(f)[1]).not.toBe(publishedPaths(f)[0])
+    expect(await readFile(join(root, publishedPaths(f)[1]))).toEqual(Buffer.from(data))
+  })
+  it.each(['.gugu', '.gugu/attachments'])('rejects a %s symlink escaping the root before copying or publishing', async link => {
+    const f = fixture(), outside = join(home, 'outside'); await mkdir(outside); await writeFile(selected().path, data)
+    if (link.includes('/')) await mkdir(join(root, '.gugu'))
+    await symlink(outside, join(root, link))
+    await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow('outside')
+    expect(await readdir(outside)).toEqual([]); expect(publishedPaths(f)).toEqual([])
+  })
+  it.each(['copy-failure', 'changed-source'])('cleans only its unpublished copy after %s, keeping the user original and no index', async mode => {
+    const f = fixture(); await writeFile(selected().path, data); copyFault.mode = mode
+    await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow()
+    expect(await readdir(join(root, '.gugu/attachments'))).toEqual([])
+    expect(await readFile(join(root, file.name))).toEqual(Buffer.from(data))
+    expect(publishedPaths(f)).toEqual([]); expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
+  })
+  it('retains its complete local copy when publication fails, without inventing an indexed reference', async () => {
+    const f = fixture(); await writeFile(selected().path, data)
+    f.rpc.mockResolvedValueOnce({ host_device_id: 'device', host_project_id: 'project', proactive_upload: false }).mockRejectedValueOnce(new Error('publication outcome unknown'))
+    await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow('publication outcome unknown')
+    const directories = await readdir(join(root, '.gugu/attachments'))
+    expect(directories).toHaveLength(1)
+    expect(await readFile(join(root, '.gugu/attachments', directories[0], file.name))).toEqual(Buffer.from(data))
+    expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
+  })
 })
 afterEach(async () => { expect(home.startsWith(join(tmpdir(), 'gugu-file-publication-153-'))).toBe(true); await rm(home, { recursive: true, force: true }) })
 function fixture(proactive = false) {

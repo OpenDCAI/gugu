@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, relative, sep } from 'node:path'
 import { FILE_CHUNK_BYTES, type FileRevision } from '@gugu/core/shared/fileResolver'
-import { readWorkspaceChunk } from './session/main/core/files/workspace-transfer'
-import { listProjectGroupIds, rememberProjectFile } from './sessionpage/sessionpage-project-groups'
+import { isInside, readWorkspaceChunk } from './session/main/core/files/workspace-transfer'
+import { findProjectFileCopy, listProjectGroupIds, rememberProjectFile } from './sessionpage/sessionpage-project-groups'
+import { importProjectFile } from './projectFileImport'
 import type { CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import type { FilesPlatform } from '../src/session/shared/extensions/app-files-core'
 
@@ -10,7 +11,7 @@ export type ProjectFileMessage = Omit<CommitArgs, 'staging_key'>
 export type SelectedProjectFile = { name: string; path: string; size: number; contentType: string }
 type Publisher = NonNullable<FilesPlatform['publishFile']>
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<unknown>
-/** Publish only an actual file in the bound root; the ordinary uploader is passed in, never reimplemented. */
+/** Publish actual bound-root files, importing explicit external selections; the ordinary uploader stays shared. */
 export function createProjectFilePublisher(deps: {
   identity(): Promise<{ accountId: string; deviceId: string }>; root(id: string): Promise<string | null>
   rpc: Rpc; env?: NodeJS.ProcessEnv
@@ -32,6 +33,8 @@ export function createProjectFilePublisher(deps: {
     const root = await deps.root(project.projectId)
     if (!root) throw new Error('Project root is unavailable')
     if ('path' in file && !isAbsolute(file.path)) throw new Error('Choose an original file in the bound project folder')
+    if ('path' in file && !isInside(root, file.path)) file = { ...file,
+      path: await importProjectFile(root, file, sha => findProjectFileCopy(project.projectId, sha, identity.accountId, identity.deviceId, deps.env)) }
     const path = 'path' in file ? relative(root, file.path).split(sep).join('/') : file.name
     const first = await readWorkspaceChunk(root, { path, offset: 0, length: 0 }), hash = createHash('sha256')
     if (first.size !== ('bytes' in file ? file.bytes.byteLength : file.size)) throw new Error('Choose the original file in the bound project folder')

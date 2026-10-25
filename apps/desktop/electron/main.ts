@@ -2120,7 +2120,7 @@ const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, message), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
-registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
 app.on('will-quit', () => { void nativeFiles.drop().catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed')) })
 
 // @@@payment-window (#1907) - 支付在专用 BrowserWindow 原生 POST 落地,主窗不再被支付页顶掉。
