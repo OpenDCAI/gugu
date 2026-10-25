@@ -1,4 +1,4 @@
-import type { DeviceActionsCapability } from '../deviceActions'
+import type { DeviceActionsSummary } from '../deviceActions'
 import type { AgentType } from '@gugu/core/agentTypes'
 import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
@@ -334,7 +334,7 @@ export interface DeviceCapabilities extends Partial<DeviceHostInfo> {
   // the field (UI shows 版本未知, never fabricates one).
   app_version?: string
   /** #7199 这台设备能被调用的动作(设备心跳登记;老设备缺席)。 */
-  actions?: DeviceActionsCapability
+  actions?: DeviceActionsSummary
 }
 
 export type GuguSettingsScope = 'user' | `device:${string}` | `chat:${string}`
