@@ -10,11 +10,13 @@ import type { MessageSendState } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
 import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
-export function MessageSendStatus({ state, messageId }: { state: MessageSendState; messageId: string }) {
+export function MessageSendStatus({ state, messageId, reason }: { state: MessageSendState; messageId: string; reason?: string | null }) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)
+  const failureReason = safeFailureLine(reason ?? '')
 
   if (state === 'sending') {
     return (
@@ -36,6 +38,7 @@ export function MessageSendStatus({ state, messageId }: { state: MessageSendStat
           type="button"
           data-testid="message-send-failed"
           aria-label={t('message.sendStatus.failedHint')}
+          title={failureReason || undefined}
           className="gg-pressable"
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer',
@@ -59,6 +62,7 @@ export function MessageSendStatus({ state, messageId }: { state: MessageSendStat
             sideOffset={4}
             style={{ minWidth: 96 }}
           >
+            {failureReason && <div className="max-w-72 break-words px-3 py-2 text-[length:var(--font-body)] text-[var(--text-secondary)]">{failureReason}</div>}
             <MenuItem
               render={<button type="button" />}
               nativeButton

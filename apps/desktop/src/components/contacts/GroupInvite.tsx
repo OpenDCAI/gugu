@@ -1,3 +1,4 @@
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * 群邀请一族 —— 从 ContactsPanel 抽出。
  *
@@ -252,8 +253,8 @@ function GroupInviteQr({ group }: { group: ContactGroupChat }) {
                   try {
                     await navigator.clipboard.writeText(payloadText)
                     toast(t('groupInvite.linkCopied'), 'success')
-                  } catch {
-                    toast(t('groupInvite.copyFailed'), 'error')
+                  } catch (error) {
+                    toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
                   }
                 }}
               >

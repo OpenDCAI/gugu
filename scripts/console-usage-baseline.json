@@ -101,11 +101,6 @@
   },
   {
     "rule": "console-member",
-    "file": "apps/desktop/src/components/CopyValue.tsx",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
     "file": "apps/desktop/src/components/SharePosterDialog.tsx",
     "count": 2
   },

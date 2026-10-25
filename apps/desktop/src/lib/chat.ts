@@ -603,7 +603,7 @@ export const chatService = {
       .eq('message_id', messageId)
       .eq('user_id', userId)
       .eq('emoji', emoji)
-      .maybeSingle()
+      .maybeSingle().throwOnError()
 
     if (existing) {
       await chatDb
@@ -611,7 +611,7 @@ export const chatService = {
         .delete()
         .eq('message_id', messageId)
         .eq('user_id', userId)
-        .eq('emoji', emoji)
+        .eq('emoji', emoji).throwOnError()
     } else {
       await chatDb.from('message_reactions').insert(
         dbPayload({
@@ -620,7 +620,7 @@ export const chatService = {
           user_id: userId,
           emoji
         })
-      )
+      ).throwOnError()
     }
   },
 

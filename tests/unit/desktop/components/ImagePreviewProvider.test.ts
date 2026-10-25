@@ -173,7 +173,7 @@ describe('ImagePreviewProvider', () => {
 
   // @@@1892 - Promise 值的 ClipboardItem 要 Chrome 122+,产品 Electron 28 = Chromium 120,
   // 复制必须先 await 拿到 Blob 再构造 ClipboardItem。
-  it('copies by awaiting the blob before constructing the ClipboardItem', async () => {
+  it.each([false, true])('awaits PNG bytes before copying and reports clipboard refusals (denied=%s)', async (denied) => {
     const pngBlob = new Blob(['png-bytes'], { type: 'image/png' })
     const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => pngBlob }))
     vi.stubGlobal('fetch', fetchMock)
@@ -184,7 +184,7 @@ describe('ImagePreviewProvider', () => {
       }
     }
     vi.stubGlobal('ClipboardItem', FakeClipboardItem)
-    const write = vi.fn(async () => {})
+    const write = vi.fn(async () => { if (denied) throw new Error('Clipboard permission denied') })
     Object.defineProperty(navigator, 'clipboard', { value: { write }, configurable: true })
     vi.stubGlobal('isSecureContext', true)
     const toast = vi.fn()
@@ -195,6 +195,6 @@ describe('ImagePreviewProvider', () => {
     expect(constructedValues[0]).toBe(pngBlob)
     expect(fetchMock).toHaveBeenCalledWith('https://example.test/one.png')
     await waitForCondition(() => toast.mock.calls.length > 0, 'success toast was never shown')
-    expect(toast).toHaveBeenCalledWith('图片已复制', 'success')
+    expect(toast).toHaveBeenCalledWith(denied ? 'Clipboard permission denied' : '图片已复制', denied ? 'error' : 'success')
   })
 })

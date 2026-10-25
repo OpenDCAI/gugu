@@ -4,6 +4,8 @@ import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { buildRosterNameIndex, resolveOpeningAgentCall } from '@gugu/core/shared/rosterNameMatching.mjs'
 import { resolveMentionUserIds, type MentionCandidate } from '@/lib/mention'
 import { scheduleComposerFocus } from '@/lib/focusComposer'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { useToast } from '../toastContext'
 import { revokeAttachmentPreviewUrls, withPreviewUrl, type ChatDraft, type MentionTarget } from './useChatDraft'
 import type { ChatMessageComposerProps } from './chatComposerModels'
@@ -91,6 +93,8 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       // @@@whisper (#820) — clear whisper mode after a successful send.
       if (whisperTarget) onExitWhisper?.()
     } catch (err) {
+      const reason = String((err as Error)?.message ?? err)
+      rendererLogger('chat/send').error({ chatId, error: reason }, 'message send failed')
       // Rollback restores only UNSENT intent. @@@2188 - the send is phased (attachments commit one by
       // one, reported via onSent; text last): units already in the conversation must NOT return to the
       // draft, or a retry re-sends them (duplicate attachment). The uncommitted remainder stays recoverable.
@@ -113,7 +117,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       }
       // Drop the now-stale snapshot URLs (replaced by fresh ones above, or unused when persisting to store).
       revokeAttachmentPreviewUrls(snapshotAttachments)
-      toast(t('composer.sendFailed', { reason: String((err as Error)?.message ?? err) }), 'error')
+      toast(t('composer.sendFailed', { reason: safeFailureLine(reason) }), 'error')
     } finally {
       sendingRef.current = false
       setSending(false)
