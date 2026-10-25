@@ -6,6 +6,7 @@
 // → dist-electron/taskpage/emdash-main-bridge.cjs. The host (gugu main.ts) requires that .cjs and calls
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
 export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
+export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
 export {
   bootEmdashModule,
   readCurrentActivityInput,

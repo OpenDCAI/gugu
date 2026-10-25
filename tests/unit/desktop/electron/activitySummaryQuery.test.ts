@@ -20,6 +20,14 @@ function sessions(result: Awaited<ReturnType<ReturnType<typeof createActivitySum
 }
 
 describe('activity summaries are complete facts before presentation pagination', () => {
+  it('renders confirmed sleep separately from unknown capture intervals', async () => {
+    const since = at - 60_000, until = at - 30_000
+    const source = { ...deps(), query: vi.fn(async () => ({ ...page([]), coverage: { ...page([]).coverage,
+      segments: [], sleep_intervals: [{ since, until, source: 'native-power' }] } })) }
+    const result = await run()({ action: 'activity_list' }, source, signal())
+    expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'sleep', statement: '设备休眠，期间没有任务在运行' }))
+    expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'uncollected', statement: '未采集，不能断定在不在工作' }))
+  })
   it('defaults to midnight in the declared host zone, reports local bounds and hides raw events', async () => {
     const source = deps()
     const result = await run()({ action: 'activity_list' }, source, signal())

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { activityEventSchema, activityObservationSchema, activityQuerySchema, type ActivityEvent, type ActivityObservation,
   type ActivityQuery } from '@shared/core/activity';
+import { withoutSleep, type ConfirmedSleep } from './confirmed-sleep';
 
 type Row = { seq: number; data: string };
 type Coverage = { started_at: number; last_seen_at: number; ended_at: number | null };
@@ -115,12 +116,20 @@ export class ActivityJournal {
     ).all(...sessionIds) as Array<{ id: string; title: string }>;
     const segments = this.sql.prepare(`SELECT started_at, last_seen_at, ended_at FROM activity_coverage
       WHERE started_at < ? AND COALESCE(ended_at, last_seen_at) >= ? ORDER BY started_at`).all(Date.parse(q.until), Date.parse(q.since)) as Coverage[];
+    // Sleep can start before this query window and has no session/project. Read
+    // overlapping attestations independently of event pagination and filters.
+    const sleepRows = this.sql.prepare(`SELECT data FROM activity_events WHERE kind = 'device.sleep'
+      AND seq <= ? AND occurred_at < ? AND json_extract(data, '$.sleep_until_at') > ?`)
+      .all(high, Date.parse(q.until), Date.parse(q.since)) as Array<{ data: string }>;
+    const sleeps: ConfirmedSleep[] = sleepRows.map(row => activityObservationSchema.parse(JSON.parse(row.data)))
+      .map(event => ({ since: event.occurred_at!, until: event.sleep_until_at!, source: event.sleep_source! }));
     return {
       events: page.map(row => ({ ...activityEventSchema.parse(JSON.parse(row.data)), sequence: row.seq })),
       session_titles: Object.fromEntries(titles.map(row => [row.id, row.title])),
       next_cursor: rows.length > q.limit ? Buffer.from(JSON.stringify({ v: 1, signature, after: page.at(-1)!.seq, high })).toString('base64url') : null,
       order: 'observation_sequence',
-      coverage: { scope: 'this_machine', queried_at: this.now(), collector_running: this.segmentId !== null, segments,
+      coverage: { scope: 'this_machine', queried_at: this.now(), collector_running: this.segmentId !== null,
+        segments: withoutSleep(segments, sleeps), sleep_intervals: sleeps,
         untracked: ['terminal_input_submission', 'external_cli_without_adapter', 'foreground_dwell', 'device_call_history',
           'app_source_edits_without_host_operation', 'model_changes_without_runtime_confirmation'],
         note: 'Only the recorded segments are covered; earlier history and gaps are unknown. Terminal bytes are not interpreted as input submissions. Agent done is a turn ending, not task acceptance.' },

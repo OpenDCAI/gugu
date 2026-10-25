@@ -104,7 +104,7 @@ import {
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
 import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
-import { createAccountResumeHandler, installNativeResumeSource, watchHostResumeGap } from './server/account-resume-wiring'
+import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -3468,6 +3468,12 @@ const resumeAccountMessaging = createAccountResumeHandler({
   notifyCommands: () => deviceRuntimeHost?.notifyCommandsChanged(),
 })
 
+function recordDeviceSleep(sleep: { since: number; until: number; source: 'native-power' | 'fc-confirmed' }): void {
+  try { loadEmdashBridge()?.recordConfirmedDeviceSleep(sleep) } catch (error) {
+    createLogger('host-resume').error({ error }, 'confirmed sleep could not be recorded')
+  }
+}
+
 /**
  * spec delivery-routing「session-live 的产地」(#4896):一条会话转为**可投递就绪**时宿主只做这两件事 ——
  * 读者拉一次(云端账本)+ 排一次该会话的本机 outbox(本机账本)。两份账本、同一个就绪时刻;各腿在各自的
@@ -4140,6 +4146,7 @@ app.whenReady().then(async () => {
   if (hasPersistedMcpGrants('extension-gateway')) {
     void getExtensionGatewayHost().start().catch((err: unknown) => createLogger('stable-endpoint').warn({ err }, '扩展网关没能提前绑回端口'))
   }
+  installNativeSleepActivity(powerMonitor, recordDeviceSleep)
   installNativeResumeSource(powerMonitor, notifyRendererForeground, resumeAccountMessaging)
   // @@@test-seam host-resume(GUGU_TEST_HOST_RESUME=1 才注册)—— 上面这条与 mainWindow 的 'focus'
   // 都要求一个能切焦点的 GUI 会话,锁屏的无人测试机上两条都按不动。这个信号跑的是**同一个**
@@ -5817,7 +5824,10 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, resume: () => resumeAccountMessaging('controller') }).then(
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, resume: since => {
+            if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
+            resumeAccountMessaging('controller')
+          } }).then(
             (server) => createLogger('server').info({ socket: server.socketPath }, '账号进程套接字已开(设备连接 link 与 open-url 走它)'),
             (err: unknown) => createLogger('server').error({ err }, '账号进程套接字开不出来 —— 设备连接(link)与 open-url 不可用'),
           )
