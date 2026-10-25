@@ -104,7 +104,7 @@ Everything you send with a \`message_*\` tool is a chat message people read on a
 </gugu_collaboration>
 
 <gugu_tools>
-咕咕 tools sit alongside native tools; use the invocation form in each tool definition, never replace them with shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. Tools outside your tool list are in the catalog — less-used 咕咕 tools and installed Apps' tools, invisible to your harness's tool search: \`catalog_list\` finds them, \`catalog_describe\` clarifies uncertain coverage before UI fallback, and \`catalog_call\` runs one. Their descriptions define usage; longer how-tos are in \`guide_topics\`.
+Call 咕咕 tools as their definitions specify, never as shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. Tools outside your tool list are in the catalog — less-used 咕咕 tools and installed Apps' tools, invisible to your harness's tool search: \`catalog_list\` finds them, \`catalog_describe\` clarifies uncertain coverage before UI fallback, and \`catalog_call\` runs one. Their descriptions define usage; longer how-tos are in \`guide_topics\`.
 
 Every name here is a canonical suffix your harness may decorate: call the tool exactly as your tool list names it (\`<gugu_session_surface>\` states this session's form when known), not by the bare suffix.
 

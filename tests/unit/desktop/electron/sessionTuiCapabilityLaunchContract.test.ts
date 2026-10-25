@@ -290,7 +290,7 @@ describe('harness tool naming comes only from capabilities.mcp.toolNames (#6192)
     );
     expect(chat).not.toContain('mcp__gugu__');
     // 聊天面板的 app-server 形态读的是同一条腿
-    expect(guguSessionSurfaceBlock('app-server', 'codex', true)).toContain('in its `mcp__gugu` namespace');
+    expect(guguSessionSurfaceBlock('app-server', 'codex', true)).toContain('tools under `mcp__gugu`');
     expect(guguSessionSurfaceBlock('tui', 'codex', true)).toContain(
       'Your harness lists each 咕咕 tool as `mcp__gugu__<tool>` (e.g. `mcp__gugu__message_send`)',
     );
