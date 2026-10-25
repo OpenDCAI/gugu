@@ -643,8 +643,9 @@ export default {
     "view": "View {{title}}"
   },
   "message": {
-    "myAgentSuffix": " (my agent)",
-    "agentOwnerUnavailableSuffix": " (owner unavailable)",
+    "myAgentTag": "my agent",
+    "agentOwnerUnavailableTag": "owner unavailable",
+    "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
       "comingSoon": "Coming soon",

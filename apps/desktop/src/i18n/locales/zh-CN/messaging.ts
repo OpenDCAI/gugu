@@ -643,8 +643,9 @@ export default {
     "view": "查看 {{title}}"
   },
   "message": {
-    "myAgentSuffix": "（我的 agent）",
-    "agentOwnerUnavailableSuffix": "（主人信息不可用）",
+    "myAgentTag": "我的 agent",
+    "agentOwnerUnavailableTag": "主人信息不可用",
+    "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "comingSoon": "即将开放",

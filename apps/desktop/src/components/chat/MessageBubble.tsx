@@ -29,14 +29,7 @@ import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗�
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { AgentAnswerActions } from './AgentAnswerActions'
-/** 时间戳「留 DOM 不留像素」：合组消息、或上方刚有时间分隔线时用它——移动端无 hover 读不到 title，读屏 / e2e 仍取得到。 */
-const VISUALLY_HIDDEN: React.CSSProperties = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }
-
-/** #1323 模块3 — 每条消息的 HH:mm 时间戳(SSOT .who .w)。本地时区,与 TanchorCard 同口径。 */
-function fmtMsgTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
+import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
 /** The composer's quote (`> [SenderName]: QuotedText\nReplyText`, InputArea) into quote + reply parts. Any other `> `
  *  start is a markdown blockquote (one put in by gugu.compose, an agent quoting): rendered as markdown, not taken apart. */
@@ -210,10 +203,10 @@ interface BubbleProps {
   // @@@multi-select (#988) — 提供则 More 菜单「多选」项可用 → 进入多选模式并预选本消息。
   // 多选态的勾选框/选中底色/行点击在 MessageListRow 包裹层处理（pointer-events:none 禁用本气泡交互）。
   onEnterSelectMode?: (msg: MessageItem) => void
-  // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时隐藏头像与名字/时间行、收紧行距，
-  // 只留气泡。头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
+  // 连续消息合组（父层按「同发送者 + 无时间分隔线切断」判定）：true 时气泡里不再写名字、收紧行距；
+  // 头像位置用等宽 spacer 占住，保证组内气泡与组首对齐。
   groupedWithPrev?: boolean; groupedWithNext?: boolean // 下一条也属于这一组 ⇒ 头像不画在这里,画在组尾(Telegram 式,见 GroupAvatarSlot)
-  // 本条上方刚渲染了时间分隔线：名字/时间行不再重复同一个时间（群聊仍显发送者名），时间节点走 VISUALLY_HIDDEN。
+  // 气泡右下角不写时间(流式预览:回合还没落成一条消息)。
   hideTime?: boolean
   // 父层对每条本人消息都传 true（#2098 逐条已读：主列/话题视图均 showReadReceipt={is_mine}）→ 各自挂环；
   // 是否真渲染由气泡内门（is_mine + !retracted + 非 sending/failed + 有收件人）逐条决定；read=0 挂空环 = 已发出未读(#5649)。
@@ -346,7 +339,6 @@ export const MessageBubble = memo(function MessageBubble({
   const avatarName = memberProfile?.displayName ?? ''
   const avatarUrl = memberProfile?.avatar ?? null
   const avatarIsAgent = memberProfile?.type === 'agent' || (!msg.is_mine && isAgent)
-  const agentOwnerSuffix = memberProfile?.type === 'agent' ? memberProfile.ownerUserId && memberProfile.ownerUserId === user?.id ? t('message.myAgentSuffix') : memberProfile.ownerDisplayName ? t('message.agentOwnerSuffix', { owner: memberProfile.ownerDisplayName }) : t('message.agentOwnerUnavailableSuffix') : null
   // @@@avatar-status-badge (#793 rollout) - the agent sender's status lives on its memberProfile
   // (populated for both group agents and the DM peer in ChatAreaPanel's messageMemberProfiles).
   // Pass it through so the avatar shows the unified status corner badge.
@@ -356,6 +348,11 @@ export const MessageBubble = memo(function MessageBubble({
   const canOpenProfile = !!memberProfile && !!onOpenMemberProfile
 
   if (msg.content_type === 'system') return <SystemMessageNotice message={msg} senderName={avatarName} />
+  const showSender = isGroup && !msg.is_mine && !groupedWithPrev && !card
+  // 时间在气泡右下角:正文是文字 ⇒ 和最后一行同一行;引用回复、附件、小组件 ⇒ 单独占最后一行。任务卡自己的行尾写着时间。
+  const showTime = !hideTime && !card
+  const timeInline = isRetracted || (msg.content_type === 'text' && !parseQuotedContent(msg.content ?? '')?.replyText)
+  const timeRoom = `"${fmtMsgTime(msg.created_at)}"`
 
   return (
     <div
@@ -408,35 +405,6 @@ export const MessageBubble = memo(function MessageBubble({
           gap: '3px',
         }}
       >
-        {/* @@@1323-m3 .who(SSOT L128):received = 发送者名(.n 12/500/--muted-fg)+ 时间戳(.w 11/--faint-fg);
-            own = 仅时间戳(SSOT own .who 只有 .w,无名,row-reverse)。原 gugu 只有 received 名、无时间戳。
-            合组的后续消息整行隐藏（名字/时间只在组首出现一次），时间以 title 提示保留可查。 */}
-        {!groupedWithPrev && (
-          <div
-            data-message-who="true"
-            style={{
-              display: 'flex',
-              flexDirection: msg.is_mine ? 'row-reverse' : 'row',
-              alignItems: 'center',
-              gap: 'var(--spacing-sm)',
-              padding: '0 2px', maxWidth: '100%', // 列是 flex-start:本行按内容取宽,不封顶 nowrap 长名会撑出列
-              // @@@933-mopup SSOT `.who{margin-bottom:4px}` L127。时间被分隔线接管、又没有发送者名时整行是空的,连这 4px 也不留。
-              marginBottom: hideTime && !(isGroup && !msg.is_mine) ? 0 : 'var(--spacing-xs)',
-            }}
-          >
-            {/* @@@1484 仅群聊显发送者名;DM/ai 1:1 头部已知对方,显名是群聊样式误用(QA Round1 #1479)。长名先让:名字截断,归属标记不让位。 */}
-            {!msg.is_mine && isGroup && (
-              <span data-message-sender-name="true" style={{ display: 'flex', minWidth: 0, fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', fontWeight: 500, color: 'var(--muted-fg)' }}>
-                <span className="truncate">{memberProfile?.displayName ?? ''}</span>
-                {agentOwnerSuffix && <span data-message-agent-owner="true" className="shrink-0 max-w-full overflow-hidden text-ellipsis whitespace-pre text-[var(--faint-fg)] font-normal">{agentOwnerSuffix}</span>}
-              </span>
-            )}
-            <span data-message-time="true" style={hideTime ? VISUALLY_HIDDEN : { fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', color: 'var(--faint-fg)' }}>
-              {fmtMsgTime(msg.created_at)}
-            </span>
-          </div>
-        )}
-
         {/* @@@whisper (#820) — 悄悄话标签（设计稿 .whisper .lbl:标注字号 + --faint-fg; display:flex; align-items:center; gap:4px）
             is_mine=true → 「悄悄话给 {name} · 仅你与对方可见」；received → 「悄悄话 · 仅你可见」 */}
         {msg.is_whisper && (
@@ -512,8 +480,6 @@ export const MessageBubble = memo(function MessageBubble({
             ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
             style={bubbleStyle}
-            // 合组消息隐藏了名字/时间行，时间挪进 hover 提示，保持可查。
-            title={groupedWithPrev ? fmtMsgTime(msg.created_at) : undefined}
             {...longPress}
             onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
@@ -522,13 +488,13 @@ export const MessageBubble = memo(function MessageBubble({
               openMenuAt(e.clientX, e.clientY)
             }}
           >
-            {/* 合组消息隐藏了 .who 行；时间戳保留一个视觉隐藏节点（见 VISUALLY_HIDDEN）。 */}
-            {groupedWithPrev && <span data-message-time="true" style={VISUALLY_HIDDEN}>{fmtMsgTime(msg.created_at)}</span>}
+            {/* 名字只在群里收到的、一组的第一条上(DM 头栏已经说了是谁);任务卡自己写着是谁发的。 */}
+            {showSender && <BubbleSender member={memberProfile} senderId={msg.sender_user_id} />}
             {isRetracted ? (
               // #1323 模块3 — 撤回文字 --text-tertiary→--muted-fg(原偏淡)
-              <span style={{ color: 'var(--muted-fg)', fontStyle: 'italic' }}>{t('message.retracted')}</span>
+              <span className="msg-time-room-inline" style={{ color: 'var(--muted-fg)', fontStyle: 'italic', '--msg-time-room': timeRoom } as React.CSSProperties}>{t('message.retracted')}</span>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+              <div className={timeInline ? 'msg-time-room' : undefined} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', '--msg-time-room': timeRoom } as React.CSSProperties}>
                 {msg.reply_to_message_id && <MessageQuote onShowMessage={onShowMessage} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} />}
                 {card?.type === 'question' ? (
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={fmtMsgTime(msg.created_at)} />
@@ -565,7 +531,7 @@ export const MessageBubble = memo(function MessageBubble({
                   )
                 ) : (() => {
                   const raw = msg.content ?? ''
-                  if (highlight) return <span>{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
+                  if (highlight) return <span className="msg-time-room-inline">{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行
                   const quoted = parseQuotedContent(raw)
                   if (quoted && quoted.replyText) {
                     return (
@@ -604,6 +570,7 @@ export const MessageBubble = memo(function MessageBubble({
                 })()}
               </div>
             )}
+            {showTime && <BubbleTime iso={msg.created_at} isMine={msg.is_mine} inline={timeInline} />}
           </div>
         </div>
 
