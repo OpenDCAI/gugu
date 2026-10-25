@@ -188,7 +188,8 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     case 'compose': {
       // A chat's: the chat shell takes it (MainLayout: its draft, the chat brought up), as the phone's page gives it.
       if ('detail' in action) {
-        window.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail: action.detail }));
+        // Capture flushes pending typing before the shell appends during bubbling.
+        document.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail: action.detail, bubbles: true }));
         return;
       }
       // A session's: main brought it on screen; its composer takes the text once its conversation is open there.

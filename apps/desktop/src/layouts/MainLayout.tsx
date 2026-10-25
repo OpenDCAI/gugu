@@ -88,7 +88,7 @@ import type { CreateContextBirthGroup } from '../lib/agentCreateContextBridge'
 import { platform } from '../platform'
 import { useToast } from '../components/toastContext'
 import { groupSlotMemory } from '../components/appSlot/groupSlotMemory'
-import { addFilePills } from '../components/markdown/filePills'
+import { filePillText } from '../components/markdown/filePills'
 import { APP_COMPOSE_EVENT, APP_OPEN_IN_CHAT_EVENT, APP_OPEN_WITH_EVENT, type AppComposeDetail, type AppOpenInChatDetail, type AppOpenWithDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { chatSlotKey } from '../lib/shellSlots'
 import { assistantSlotKey } from '../lib/assistantShellBridge'
@@ -382,14 +382,10 @@ function InnerLayout({
     setDraft,
     draftAttachments,
     setDraftAttachments,
-    draftRefs,
-    setDraftRefs,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments', 'draftRefs', 'setDraftRefs')
-  // The attachments and pills each chat's draft holds now: a compose's images (G3) and pills go after them.
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'appendMessage', 'sendMessageToChat', 'setDraft', 'draftAttachments', 'setDraftAttachments')
+  // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
-  const draftRefsRef = useRef(draftRefs)
-  draftRefsRef.current = draftRefs
   const notificationSettings = useNotificationSettings()
   // @@@5295 托盘角标开关存在渲染层,主进程每次启动都是默认开 —— 挂载时推一次真值。
   useEffect(() => { pushTrayBadgeEnabled() }, [])
@@ -870,9 +866,8 @@ function InnerLayout({
       const detail = (event as CustomEvent<AppComposeDetail>).detail
       if (!detail) return
       const placed = (chatId: string) => {
-        if (detail.text) setDraft(chatId, (draft) => appendToDraft(draft, detail.text))
-        // App 引用 pill: its pills go to the composer's row, beside the files (A, owner 10-14); sent under the words.
-        if (detail.refs?.length) setDraftRefs(chatId, addFilePills(draftRefsRef.current[chatId] ?? [], detail.refs))
+        const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
+        if (text) setDraft(chatId, (draft) => appendToDraft(draft, text))
         if (detail.images?.length) {
           const images = detail.images.map((image) => ({
             id: crypto.randomUUID(),
@@ -914,7 +909,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, setDraftRefs, t, toast, user.id])
+  }, [focusComposerForUserEntry, openChatTarget, setDraft, setDraftAttachments, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),

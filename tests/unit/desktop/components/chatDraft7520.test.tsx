@@ -20,11 +20,10 @@ const update = (field: string, key: string, value: unknown) => {
 let root: Root, container: HTMLDivElement
 beforeEach(async () => {
   vi.useFakeTimers()
-  mocked.snapshot = { drafts: {}, draftMentions: {}, draftAttachments: {}, draftRefs: {},
+  mocked.snapshot = { drafts: {}, draftMentions: {}, draftAttachments: {},
     setDraft: (key: string, value: unknown) => update('drafts', key, value),
     setDraftMentions: (key: string, value: unknown) => update('draftMentions', key, value),
     setDraftAttachments: (key: string, value: unknown) => update('draftAttachments', key, value),
-    setDraftRefs: (key: string, value: unknown) => update('draftRefs', key, value),
   }
   container = document.createElement('div'); root = createRoot(container)
   await act(async () => root.render(<><Composer id="assistant" /><Composer id="task" /></>))

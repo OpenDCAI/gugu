@@ -1190,7 +1190,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
           onMentionInserted={() => setMentionToInsert(null)}
           chatId={activeChatId} hidden={!surfaceVisible}
           isGroupChat={isRoomChatSurface}
-          groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses}
+          groupMembers={composerGroupMembers} currentUserId={user?.id ?? null} agentStatuses={groupAgentStatuses} messages={messages}
           disabled={agentComposerDisabled}
           disabledReason={agentComposerDisabledReason}
           whisperTarget={whisperTarget}

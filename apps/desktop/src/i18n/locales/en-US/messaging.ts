@@ -373,7 +373,6 @@ export default {
     "mobilePlaceholder": "Message",
     "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
-    "removeFilePill": "Remove {{label}}",
     "sendFailed": "Could not send: {{reason}}",
     "slashCommands": "Slash commands",
     "verb": {
@@ -686,7 +685,7 @@ export default {
       "schedule": "Scheduled",
       "handedTo": "Assigned to",
       "onMachine": "on {{machine}}",
-      "onColleagueComputer": "on {{name}}’s computer",
+      "onColleagueComputer": "{{name}}’s task · Cannot view",
       "awaitingApproval": "Waiting for the group owner to let it in",
       "rejected": "Not let into the group; its result is in its session",
       "open": "Open this session",

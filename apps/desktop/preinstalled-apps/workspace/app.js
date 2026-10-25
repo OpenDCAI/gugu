@@ -81,6 +81,7 @@ const STRINGS = {
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
     createdBy: '{who} 创建 · {time}',
+    editedBy: '{who} 编辑 · {time}',
     editedAt: '已编辑 · {time}',
     agent: 'Agent',
     system: '系统',
@@ -153,6 +154,7 @@ const STRINGS = {
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
     createdBy: 'Created by {who} · {time}',
+    editedBy: 'Edited by {who} · {time}',
     editedAt: 'Edited · {time}',
     agent: 'agent',
     system: 'System',
@@ -352,7 +354,7 @@ function relativeTime(iso) {
   return rtf.format(seconds, 'second')
 }
 
-// When a file last changed: its last edit, else its making. The folder does not provide the last editor.
+// When a file last changed: its last edit, else its making.
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
@@ -564,7 +566,10 @@ function activityOf(entry) {
   if (!entry) return []
   return [
     entry.createdBy && !entry.systemRole ? fmt(state.t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) }) : relativeTime(entry.createdAt),
-    entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt) ? fmt(state.t.editedAt, { time: relativeTime(entry.updatedAt) }) : '',
+    entry.updatedAt && (entry.updatedBy || entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt))
+      ? fmt(entry.updatedBy ? state.t.editedBy : state.t.editedAt, {
+        who: entry.updatedBy ? who(entry.updatedBy) : '', time: relativeTime(entry.updatedAt),
+      }) : '',
   ].filter(Boolean)
 }
 
@@ -625,14 +630,22 @@ function listItem(entry) {
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
   open.append(meta)
   open.onclick = () => (folder ? enterFolder(entry.id) : openInHost(entry))
-  // Drag a row onto a folder, or onto a crumb, to move it there (desktop; 「附件」 itself stays put).
-  if (canWrite() && !entry.systemRole) {
+  // Files carry the same resource link outside this App; folder moves stay inside it.
+  const drag = (text, isLink) => {
     li.draggable = true
     li.addEventListener('dragstart', (event) => {
       state.dragging = entry
-      event.dataTransfer?.setData('text/plain', entry.name)
+      event.dataTransfer?.setData('text/plain', text)
+      if (isLink) event.dataTransfer?.setData('text/uri-list', text)
     })
     li.addEventListener('dragend', () => (state.dragging = null))
+  }
+  if (folder) {
+    if (canWrite() && !entry.systemRole) drag(entry.name, false)
+  } else {
+    // DataTransfer is writable only during dragstart, before any asynchronous host answer.
+    void gugu.linkTo({ kind: 'file', file: entry }).then((link) => drag(link, true))
+      .catch((error) => showBanner(fmt(state.t.failed, { e: error.message }), 'error'))
   }
   if (folder) dropOnto(li, entry.id)
   // One ⋯ per row: the other Apps that open the file (the host's picker, this App included), rename, move, delete. 「附件」
@@ -881,6 +894,7 @@ async function openHanded() {
     }
     const current = { entry: file.entry, file, view: null, unbind: null, offs: [] }
     state.current = current
+    bindFileMenu(current)
     showDoc(file.entry)
     if (file.type === 'text') await mountText(current)
     else mountJson(current)
@@ -986,18 +1000,47 @@ function refOf(current, { text, lines }) {
 // Cite: the places kept (＋), then the selection's, each a pill into this chat's composer (gugu.compose refs) — the person
 // says what to do with them, @s whom they like and sends it. A JSON file's view is not its text: its cite stays as it was,
 // each range quoted with the lines it is shown on, and a pill to the file. Called inside the click, as compose needs.
-async function cite() {
-  const current = state.current
-  if (!current || !(state.held.length || state.picks.length)) return
+async function cite(current = state.current, picks = state.picks, held = state.held, whole = false) {
+  if (!current || (!whole && !(held.length || picks.length))) return
   const quoted = ({ text, lines: [first, last] }) =>
     `${fmt(first === last ? state.t.line : state.t.lines, { first, last })}\n${text.replace(/\s+$/, '').split('\n').map((line) => `> ${line}`).join('\n')}`
   try {
-    if (current.file.type === 'text') await gugu.compose('', { refs: [...state.held, ...state.picks.map((pick) => refOf(current, pick))] })
-    else await gugu.compose(state.picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
+    if (whole) await gugu.compose('', { refs: [{ file: current.entry }] })
+    else if (current.file.type === 'text') await gugu.compose('', { refs: [...held, ...picks.map((pick) => refOf(current, pick))] })
+    else await gugu.compose(picks.map(quoted).join('\n\n'), { refs: [{ file: current.entry }] })
     state.held = []
     renderHeld()
   } catch (error) {
     showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+// Register each file surface with the host's native menu. Cite keeps the App's existing refs/line fingerprints.
+function bindFileMenu(current) {
+  for (const id of ['editor', 'preview']) {
+    const root = $(id)
+    root.dataset.guguFileViewer = crypto.randomUUID()
+    let pending = null
+    const receive = ({ detail }) => {
+      if (detail.action === 'snapshot') {
+        const picks = (id === 'editor' ? !picksInPreview : picksInPreview) ? [...state.picks] : []
+        pending = { requestId: detail.requestId, picks, held: [...state.held], source: { entry: { ...current.entry }, file: { type: current.file.type, text: current.file.text } } }
+        detail.selection = { text: picks.map(pick => pick.text).join('\n') }
+        detail.editable = false
+        detail.customSelectAll = id === 'editor'
+      } else if (pending?.requestId === detail.requestId) {
+        const captured = pending
+        pending = null
+        if (detail.action === 'select-all') {
+          current.view?.dispatch({ selection: { anchor: 0, head: current.view.state.doc.length } })
+          current.view?.focus()
+        } else if (detail.action === 'quote-selection' || detail.action === 'quote-file') {
+          void cite(captured.source, captured.picks, captured.held, detail.action === 'quote-file')
+        }
+      }
+    }
+    root.addEventListener('gugu:file-viewer-menu', receive)
+    current.offs.push(() => { root.removeEventListener('gugu:file-viewer-menu', receive); delete root.dataset.guguFileViewer })
   }
 }
 

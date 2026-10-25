@@ -1,4 +1,5 @@
 import './browser-user-agent-bootstrap'
+import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
 import { resourceMonitorWindow } from './resource-monitor-window'
@@ -52,7 +53,8 @@ import { autoApproveFromPermissionMode } from '@gugu/session-core/acp'
 import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { homedir, hostname, platform } from 'os'
+import { constants as osConstants, homedir, hostname, platform, setPriority } from 'os'
+import { spawn } from 'child_process'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
@@ -629,6 +631,9 @@ enableOverlayScrollbars(app.commandLine)
 installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
   devtoolsLockLogger.error({ url }, 'DevTools 在锁定态下被打开,已强制关闭')
+})
+registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
+  processGoneLogger.error({ error: String(error) }, 'File context menu failed')
 })
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
@@ -2820,12 +2825,30 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => autoUpdater.quitAndInstall(),
+  // @@@win-silent-update - NSIS: /S skips the assisted wizard, --force-run relaunches after it; when this version was
+  // staged (@@@staged-update) the same invocation only swaps directories instead of installing.
+  // macOS ignores both arguments; AppImage reads only isForceRunAfter (already true via autoRunAppAfterInstall).
+  handOff: () => autoUpdater.quitAndInstall(true, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
   logError: (detail, message) => updaterLogger.error(detail, message),
 })
+
+// @@@staged-update - Windows: the verified installer extracts the new version next to the install dir (`--stage`,
+// below normal priority) while this app keeps running; the restart then only swaps directories
+// (build-resources/nsis/staged-update.nsh). A failed stage just leaves the restart on the regular silent install.
+function stageWindowsUpdate(installer: string): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const child = spawn(installer, ['--stage', '/S'], { windowsHide: true, stdio: 'ignore' })
+    if (child.pid) {
+      try { setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
+    }
+    child.once('error', (error) => { updaterLogger.warn({ error: String(error) }, '[updater] staging could not start'); resolve() })
+    child.once('exit', (code) => { updaterLogger.info({ code, ms: Date.now() - started }, '[updater] staged next version'); resolve() })
+  })
+}
 
 // 发现 → 静默下载 → 下好 → 按下安装的接线在 ./update-flow(检查失败与下载失败的分界写在那个文件头)。
 const updateFlow = createUpdateFlow({
@@ -2853,6 +2876,7 @@ const updateFlow = createUpdateFlow({
     start: startMacDmgDownload,
   },
   updateQuit,
+  prepareInstall: (file) => (process.platform === 'win32' && file ? stageWindowsUpdate(file) : Promise.resolve()),
   logInfo: (message, detail) => updaterLogger.info(detail ?? {}, message),
   logWarn: (message, detail) => updaterLogger.warn(detail ?? {}, message),
 })

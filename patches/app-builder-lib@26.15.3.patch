@@ -12,8 +12,12 @@
 # DELETE this patch (and its line in package.json pnpm.patchedDependencies) when electron-builder is
 # upgraded to a release that contains #10024 (27.x, or a 26.x that backports it). Bumping app-builder-lib
 # away from 26.15.3 makes pnpm install fail on this unused patch, so it cannot be left behind silently.
+#
+# Also from upstream (electron-builder master, allowOnlyOneInstallerInstance.nsh): every PowerShell call runs with
+# -NoProfile -NonInteractive. Without it each call loads the user's profile; on a machine whose profile runs
+# `conda init` that is 6–10 s per call, and an update makes six of them (installer + old uninstaller).
 diff --git a/templates/nsis/include/allowOnlyOneInstallerInstance.nsh b/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
-index a5cb3fe536a9fe95a95ac796f92a27f62d9762cc..306563453aad5b1d2b5ed48a918e85d65f788aaf 100644
+index a5cb3fe536a9fe95a95ac796f92a27f62d9762cc..f4c9ae6d7774cf9de873d77c86210cbff81545dc 100644
 --- a/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
 +++ b/templates/nsis/include/allowOnlyOneInstallerInstance.nsh
 @@ -29,11 +29,36 @@
@@ -53,12 +57,27 @@ index a5cb3fe536a9fe95a95ac796f92a27f62d9762cc..306563453aad5b1d2b5ed48a918e85d6
    !ifmacrodef customCheckAppRunning
      !insertmacro customCheckAppRunning
    !else
+@@ -45,12 +70,12 @@
+ !macro IS_POWERSHELL_AVAILABLE
+   Var /GLOBAL IsPowerShellAvailable ; 0 = available, 1 = not available
+   # Try running PowerShell with a simple command to check if it's available
+-  nsExec::Exec `"$PowerShellPath" -C "if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"`
++  nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -C "if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"`
+   Pop $0  # Return code (0 = success, other = error)
+ 
+   ${if} $0 == 0
+     # PowerShell is available, check if it's not blocked by policies
+-    nsExec::Exec `"$PowerShellPath" -C "if ((Get-ExecutionPolicy -Scope Process) -eq 'Restricted') { exit 1 } else { exit 0 }"`
++    nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -C "if ((Get-ExecutionPolicy -Scope Process) -eq 'Restricted') { exit 1 } else { exit 0 }"`
+     Pop $0
+   ${endIf}
+ 
 @@ -63,7 +88,7 @@
  
  !macro FIND_PROCESS _FILE _RETURN
    ${if} $IsPowerShellAvailable == 0
 -    nsExec::Exec `"$PowerShellPath" -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')}).Count -gt 0) { exit 0 } else { exit 1 }"`
-+    nsExec::Exec `"$PowerShellPath" -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)}).Count -gt 0) { exit 0 } else { exit 1 }"`
++    nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)}).Count -gt 0) { exit 0 } else { exit 1 }"`
      Pop ${_RETURN}
    ${else}
      !ifdef INSTALL_MODE_PER_ALL_USERS
@@ -67,7 +86,7 @@ index a5cb3fe536a9fe95a95ac796f92a27f62d9762cc..306563453aad5b1d2b5ed48a918e85d6
  
    ${if} $IsPowerShellAvailable == 0
 -    nsExec::Exec `"$PowerShellPath" -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId $0 }"`
-+    nsExec::Exec `"$PowerShellPath" -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)} | % { Stop-Process -Id $$_.ProcessId $0 }"`
++    nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and ($processPathFilter)} | % { Stop-Process -Id $$_.ProcessId $0 }"`
    ${else}
      !ifdef INSTALL_MODE_PER_ALL_USERS
        nsExec::Exec `taskkill /IM "${_FILE}" /FI "PID ne $pid"`

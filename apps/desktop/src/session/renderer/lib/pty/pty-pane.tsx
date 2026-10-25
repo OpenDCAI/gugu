@@ -40,7 +40,7 @@ type Props = {
   onEnterPress?: (message: string) => void;
   /**
    * 粘贴图片、拖入文件时写进终端的是**本机**路径。终端连着别的机器时(#6264 SSH 直连)那些路径在对面不存在,
-   * 传 false:粘贴只收文字,拖入不写任何东西。默认 true(本机终端)。
+   * 传 false:文字与 URL 照常粘贴,本机文件路径不写过去。默认 true(本机终端)。
    */
   localPaths?: boolean;
   /**
@@ -321,6 +321,13 @@ const PtyPaneInner = forwardRef<{ focus: () => void }, Props>(
         event.preventDefault();
         const dt = event.dataTransfer;
         if (!dt) return;
+        // A resource URL is text, on this machine or another, just as a text paste is.
+        const uri = dt.files?.length ? '' : dt.getData('text/uri-list');
+        if (uri) {
+          sendInput(dt.getData('text/plain') || uri);
+          focus();
+          return;
+        }
         // 远端终端:会话、工作区文件是本机的东西,对面用不了;OS 文件传到那台机器、写那边的路径。
         if (!localPaths) {
           if (remoteFiles && dt.files?.length) void injectRemoteFiles(Array.from(dt.files), { focus, sendInput });

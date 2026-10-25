@@ -16,6 +16,7 @@
 import { useUiPortalContainerOrBody } from '@session-ui/react/lib/portal-container';
 import { cx } from '@session-ui/styles/utilities/cx';
 import { EditorContent, useEditor } from '@tiptap/react';
+import { Slice } from '@tiptap/pm/model';
 import { StarterKit } from '@tiptap/starter-kit';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import {
@@ -402,14 +403,19 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         'data-placeholder': placeholder,
         enterkeyhint: enterBehavior === 'newline' ? 'enter' : 'send',
       },
-      // 纯文本粘贴的第一手。只有「剪贴板里没有文件、且宿主说它收走了」才吞掉这一次粘贴
-      // (返回 true = ProseMirror 不再插入)。带文件的粘贴一律放行，交给外层那条既有的
-      // 文件通道，❌ 别在这里同时处理两件事。
-      handlePaste: (_view, event) => {
+      // Let the host claim long text first; otherwise restore canonical mentions at the selection.
+      // Open paragraph edges preserve inline placement, just like ProseMirror's normal text paste.
+      // File clipboard entries keep using the outer attachment handler.
+      handlePaste: (view, event) => {
         if (event.clipboardData?.files.length) return false;
         const text = event.clipboardData?.getData('text/plain') ?? '';
         if (!text) return false;
-        return onPasteTextRef.current?.(text) === true;
+        if (onPasteTextRef.current?.(text) === true) return true;
+        const doc = plainTextDoc(text, mentionProviderRef.current?.resolve);
+        if (!doc.content.some((block) => block.content?.some((node) => node.type === 'mention'))) return false;
+        const slice = Slice.maxOpen(view.state.schema.nodeFromJSON(doc).content);
+        view.dispatch(view.state.tr.replaceSelection(slice).setMeta('paste', true).setMeta('uiEvent', 'paste'));
+        return true;
       },
       // 宿主认领的拖放(见 `hostDropTypes`)在这里止步:返回 true = ProseMirror 不再插入任何东西。
       // 它只 preventDefault、不阻断冒泡,所以外层宿主的 onDrop 照旧收到这一次,且只收到一次。

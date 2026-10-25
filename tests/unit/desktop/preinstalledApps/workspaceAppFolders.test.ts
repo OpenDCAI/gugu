@@ -31,6 +31,7 @@ const context = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat
 const coded = (code: string, message: string) => Object.assign(new Error(message), { code })
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn(() => () => {}),
@@ -326,5 +327,38 @@ describe('making, moving, uploading, deleting', () => {
     expect(menuItem('删除它和里面的 2 项')).toBeTruthy()
     menuItem('删除它和里面的 2 项').click()
     await until('contracts removed', () => gugu.files.remove.mock.calls.some(([e]) => (e as { id?: string } | undefined)?.id === 'contracts'))
+  })
+})
+
+
+describe('workspace file resource drag', () => {
+  test('exports the host URL from a read-only file, after it is ready, without permitting a folder move', async () => {
+    let finish!: (link: string) => void
+    gugu.linkTo.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve }))
+    const filter = $('filter') as HTMLInputElement
+    const capabilities = context.capabilities
+    context.capabilities = ['files:read']
+    try {
+      filter.value = 'notes'
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(row('notes').draggable).toBe(false)
+      const link = 'gugu-file://123e4567-e89b-42d3-a456-426614174000'
+      finish(link)
+      await until('the resource link is ready to drag', () => row('notes').draggable)
+      expect(gugu.linkTo).toHaveBeenLastCalledWith({ kind: 'file', file: expect.objectContaining({ id: 'notes' }) })
+      const values = new Map<string, string>()
+      const start = new Event('dragstart', { bubbles: true })
+      Object.defineProperty(start, 'dataTransfer', { value: { setData: (type: string, value: string) => values.set(type, value) } })
+      row('notes').dispatchEvent(start)
+      expect(Object.fromEntries(values)).toEqual({ 'text/plain': link, 'text/uri-list': link })
+      gugu.files.move.mockClear()
+      $('file-list').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }))
+      expect(gugu.files.move).not.toHaveBeenCalled()
+      row('notes').dispatchEvent(new Event('dragend', { bubbles: true }))
+    } finally {
+      context.capabilities = capabilities
+      filter.value = ''
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+    }
   })
 })

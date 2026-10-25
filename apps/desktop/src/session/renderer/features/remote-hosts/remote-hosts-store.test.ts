@@ -328,6 +328,34 @@ describe('会话目录 → @ 与侧栏身份(directoryPeers)', () => {
 });
 
 describe('#7158 gugu.showSession: the row the task list draws for another machine\'s session (listedProject)', () => {
+  it('opens a home-workspace task from live events or an offline digest with the existing machine alias', async () => {
+    const { sidebarStore } = await import('@renderer/lib/stores/app-state');
+    const { machineRegistry } = await import('@renderer/lib/machine-routing');
+    const { runInAction } = await import('mobx');
+    const store = new RemoteHostsStore();
+    const home = '00000000-0000-4000-8000-000000000001';
+    const row = (conversationId: string) => ({ conversationId, projectId: home, projectName: 'Tasks', title: 'task', harness: 'claude', runtime: 'acp' as const, agentStatus: null, lastInteractedAt: null, supported: true });
+    runInAction(() => {
+      store.hosts.set('home-live', { device: device({ id: 'home-live' }), link: 'open', synced: true });
+      store.hosts.set('home-offline', { device: device({ id: 'home-offline', isOnline: false, sessionDigest: [row('off-task')] }), link: 'closed', synced: false });
+      store.directory = { 'home-live': { projects: [], sessions: [row('live-task')], cached: false, loading: false, error: null } };
+    });
+    const before = sidebarStore.machines;
+    sidebarStore.machines = {
+      machineOf: (id) => machineRegistry.machineOf(id), label: () => null, homeDir: () => null,
+      sessionsOf: (id) => store.sessionsOf(id),
+    };
+    try {
+      expect(store.listedProject('live-task')).toBe(`${home}~home-live`);
+      expect(store.listedProject('off-task')).toBe(`${home}~home-offline`);
+      // A snapshot already translated at the RPC boundary stays translated once.
+      runInAction(() => { store.directory = { 'home-live': { projects: [], sessions: [{ ...row('live-task'), projectId: `${home}~home-live` }], cached: false, loading: false, error: null } }; });
+      expect(store.listedProject('live-task')).toBe(`${home}~home-live`);
+    } finally {
+      sidebarStore.machines = before;
+    }
+  });
+
   it('a listed row — live, or an offline machine\'s from its heartbeat — gives its project; one the list cannot place, none', async () => {
     const { sidebarStore } = await import('@renderer/lib/stores/app-state');
     const { runInAction } = await import('mobx');

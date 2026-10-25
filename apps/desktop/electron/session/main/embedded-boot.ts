@@ -327,7 +327,7 @@ export {
   type ExtensionHostWindowChannel,
 } from '@main/core/extensions/extension-bridge-relay'
 import { reconcileResourceSampler, stopResourceSampler } from '@main/core/resource-monitor/resource-sampler'
-import { localDependencyManager } from '@main/core/dependencies/dependency-managers'
+import { ensureAgentDependenciesProbed, localDependencyManager } from '@main/core/dependencies/dependency-managers'
 import { ensureAgentInstalled } from '@main/core/agents/ensure-agent-installed'
 import { DEPENDENCIES } from '@main/core/dependencies/registry'
 import {
@@ -719,7 +719,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
   // --- Post-registration reconcilers (index.ts:185-215). Fire-and-forget. ---
   void reconcileResourceSampler()
-  const discover = () => localDependencyManager.probeAll()
+  const discover = () => ensureAgentDependenciesProbed(localDependencyManager)
   const discovery = options.scheduleDiscovery ? options.scheduleDiscovery(discover) : discover()
   discovery.catch((e: unknown) => {
     log.error('Failed to probe dependencies:', e)

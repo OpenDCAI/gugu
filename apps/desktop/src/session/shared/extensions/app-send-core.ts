@@ -190,7 +190,7 @@ export async function pickComposePlace(
 /**
  * `gugu.compose(text, { chat } | { refs })` into a chat the call names (a session's is the desktop's: `extension-send.ts`):
  * which chat, and what goes in its composer — the text as the App wrote it, with a new line for what the person adds,
- * and the pills its `refs` make beside it (the composer holds them; they go under what is sent). With refs, the text may
+ * and the inline file mentions its `refs` add to that draft. With refs, the text may
  * be empty. Nothing is sent here, so nothing more is asked: the person sends it, or not.
  */
 export async function composeInChat(
