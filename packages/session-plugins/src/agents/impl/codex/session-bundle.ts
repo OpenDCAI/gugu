@@ -6,7 +6,7 @@ import { assertSessionMcpStdioEnv, sessionMcpAuthorization } from '../../helpers
 import { codexNotifyConfigValue } from './hooks';
 import { codexPlatformProviderConfigArgs } from './platform-provider-args';
 import { codexPlatformModelFacts, GUGU_PLATFORM_MODELS_ENV } from './platform-models';
-import { CODEX_PERMISSION_MODES } from './permission-modes';
+import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES, type CodexPermissionMode } from './permission-modes';
 
 /**
  * 物化器 → ACP 薄桥的**唯一**一格交接:这条会话要关掉的 MCP server 名字(JSON 对象片段)。
@@ -647,19 +647,6 @@ function modelArgs(
   }
   return args;
 }
-
-type CodexPermissionMode = 'read-only' | 'edit' | 'full-access';
-
-const CODEX_AUTONOMY_BY_MODE: Record<
-  CodexPermissionMode,
-  { approvalPolicy: 'never' | 'on-request'; sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' }
-> = {
-  // Codex CLI 0.147.0 measurement: this native profile rejects a workspace write with a visible
-  // `operation not permitted` command error instead of silently claiming success.
-  'read-only': { approvalPolicy: 'never', sandboxMode: 'read-only' },
-  edit: { approvalPolicy: 'on-request', sandboxMode: 'workspace-write' },
-  'full-access': { approvalPolicy: 'never', sandboxMode: 'danger-full-access' },
-};
 
 function codexPermissionMode(bundle: SessionCapabilityBundle): CodexPermissionMode {
   const explicit = bundle.autonomy?.permissionMode;
