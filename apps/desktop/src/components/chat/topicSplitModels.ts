@@ -41,18 +41,6 @@ export function canSourceTopic(message: TopicSourceCandidate): boolean {
   return true
 }
 
-export function latestTopicSourceIdOf(
-  // content_type 留在签名里是**故意的**:它是「我考虑过、并且决定不筛」的记号,
-  // 配套的两条断言(附件 / 系统消息都收)才判得出「客户端没有比服务端严」这件事。
-  messages: readonly TopicSourceCandidate[]
-): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index]!
-    if (canSourceTopic(candidate)) return candidate.id
-  }
-  return null
-}
-
 /**
  * @@@5856 话题分栏的宽度。owner 2026-09-19 实测后拿掉了头栏那颗「全宽打开」键,
  * 原话是「不应该有这个按钮,你只要保证分割线可分割就行了」——

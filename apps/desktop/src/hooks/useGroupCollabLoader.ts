@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { chatService, GroupCollabEmptyError } from '../lib/chat'
 import { withTimeout } from '../lib/withTimeout'
@@ -47,6 +47,7 @@ export interface UseGroupCollabLoaderParams {
 }
 
 export interface UseGroupCollabLoaderResult {
+  error: 'not-participant' | 'failed' | null
   /** 权威加载群协作快照:先铺 cached roster(SWR)、再用 getGroupCollab 合并;读失败留着缓存的那份并报错。 */
   loadGroupCollab: () => Promise<void>
   /** 切会话时调:invalidate 在途加载、按 in-memory cache 重铺首帧。 */
@@ -71,6 +72,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
   } = params
 
   const groupCollabLoadSeqRef = useRef(0)
+  const [failure, setFailure] = useState<{ chatId: string; reason: Exclude<UseGroupCollabLoaderResult['error'], null> } | null>(null)
   // The provider owns the repository; this hook only clears its account-specific view projection.
   useEffect(() => () => {
     groupRosterMemoryCacheRef.current.clear()
@@ -80,6 +82,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     const seq = ++groupCollabLoadSeqRef.current
     if (!activeChatId || !isRoomChat) {
       setGroupCollabSnapshot(EMPTY_GROUP_COLLAB)
+      setFailure(null)
       return
     }
     // Repository corruption is not a cloud transient: report it and do not fetch/retry around it.
@@ -88,13 +91,14 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       repository = await getImRepository()
       if (seq === groupCollabLoadSeqRef.current) {
         const cachedRoster = readGroupRoster(repository, activeChatId)
-        if (cachedRoster && seq === groupCollabLoadSeqRef.current) {
+        if (cachedRoster && !groupRosterMemoryCacheRef.current.has(activeChatId)) {
           groupRosterMemoryCacheRef.current.set(activeChatId, pruneRemovedAgentsFromCollab(cachedRoster))
           setGroupCollabSnapshot(pruneRemovedAgentsFromCollab(cachedRoster))
         }
       }
     } catch (err) {
       groupCollabLog.error({ error: err }, 'IM repository load failed')
+      if (seq === groupCollabLoadSeqRef.current) setFailure({ chatId: activeChatId, reason: 'failed' })
       return
     }
     try {
@@ -104,6 +108,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
         i18n.t('group.collab.loadTimeout', { ns: 'messaging' }),
       )
       if (seq !== groupCollabLoadSeqRef.current) return
+      setFailure(null)
       groupRosterMemoryCacheRef.current.set(activeChatId, pruneRemovedAgentsFromCollab(snapshot))
       // 身份先落库、名册后发布:名册一发布,@ 名册就按 identitiesById 判「有没有名字」(mention.ts),身份晚几帧到
       // = 这几帧里新成员 @ 不到。本地写失败只记日志、名册照发 —— 内存里的快照不依赖本地库(#5610)。
@@ -121,10 +126,12 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       // @@@5856 找茵第九轮:「看得见但还不是参与者」是结论,不是故障 —— 不报错。
       // (成员面板那一路已经把它画成「在里面说一句就进来了」。)
       if (err instanceof GroupCollabEmptyError && chatKind === 'topic') {
+        setFailure({ chatId: activeChatId, reason: 'not-participant' })
         groupCollabLog.info({ chatId: activeChatId }, 'group collab empty roster (visible but not a participant)')
         return
       }
       groupCollabLog.error({ chatId: activeChatId, error: err }, 'group collab load failed; keeping the cached roster')
+      setFailure({ chatId: activeChatId, reason: 'failed' })
     }
   }, [activeChatId, isRoomChat, chatKind, getImRepository, setGroupCollabSnapshot, groupRosterMemoryCacheRef, pruneRemovedAgentsFromCollab, mergeGroupCollabPruned])
 
@@ -134,10 +141,11 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     // would pass loadGroupCollab's seq guard and reconcile A's members into chat B's freshly-seeded snapshot.
     // Bumping seq makes that stale load early-return.
     groupCollabLoadSeqRef.current += 1
+    setFailure(null)
     // @@@local-sync (#948) - seed first-frame from the in-memory roster cache so avatars/members don't flash empty before getGroupCollab resolves; authoritative load replaces it.
     const cachedRoster = activeChatId && isRoomChat ? groupRosterMemoryCacheRef.current.get(activeChatId) : null
     setGroupCollabSnapshot(cachedRoster ?? EMPTY_GROUP_COLLAB)
   }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, setGroupCollabSnapshot])
 
-  return { loadGroupCollab, resetGroupCollabForChat }
+  return { loadGroupCollab, resetGroupCollabForChat, error: failure && failure.chatId === activeChatId ? failure.reason : null }
 }

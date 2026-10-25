@@ -8,8 +8,7 @@
 //   · 「每个 agent 一行显示引擎、模型、跑在哪,以及响应档位」→ AgentRow。
 //
 // 数据与 fail-loud(❌ 不写死、❌ 不编占位值):
-//   · 名单走**权威**的 chatService.getGroupCollab(chatId)。❌ 不读本地 roster 缓存那条路径
-//     (imRepository.readGroupRoster 把 client / model_source 一律写 null),拿它当来源这两格永远是空的。
+//   · 名单由宿主的 useGroupCollabLoader 提供:已有快照先画,权威刷新不清空字段。
 //   · 引擎:权威快照的 group_agent_states.client 目前全产品没有写者(永远 null),所以引擎退回**联系人档**
 //     的 agent_type —— 与单聊头栏取引擎的来源是同一个(ChatAreaPanel「单聊 Agent 的联系人档」)。
 //     这条来源**只覆盖主人自己的 agent**:别人的 agent 不在主人通讯录里,那一格就空着。
@@ -26,7 +25,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { agentLocationText, resolveAgentLocation } from '../../lib/agentRunningStatusModels'
@@ -42,7 +41,7 @@ import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { getAgentTypeLabel, nullableAgentType } from '@gugu/core/shared/enums/agentTypeModels'
 import { Avatar } from '../Avatar'
 import { AgentOwnerLabel } from '../AgentOwnerLabel'
-import { chatService, GroupCollabEmptyError } from '../../lib/chat'
+import { chatService } from '../../lib/chat'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
 import type { DisplayIdentity } from '../../lib/displayIdentity'
 import { useAgentDisplayStatuses } from '../../hooks/useAgentDisplayStatus'
@@ -54,11 +53,9 @@ import { useDevicesStore } from '../../store/devicesContext'
 import { agentOwnerDisplayName, toAgentProfile } from '../memberProfileModels'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { useListenModeEditControls } from './useListenModeEditControls'
-import { rendererLogger } from '../../lib/log'
 import { ChevronRight } from '../../lib/icons'
-import { readRevisionResourceKey } from '../../lib/accountRevisionCoordinator'
+import type { UseGroupCollabLoaderResult } from '../../hooks/useGroupCollabLoader'
 
-const memberListLog = rendererLogger('chat/member-list')
 
 
 
@@ -238,61 +235,23 @@ export type MemberListPanelProps = {
   chatName?: string | null
   topicInvitation?: TopicMemberInvitation
   /** @@@6418 群:名册被这里改动(邀请/移出/改角色/审批)后通知外层重读它自己的那份快照。 */
-  onMembersChanged?: () => Promise<void> | void
+  snapshot: GroupCollabSnapshot | null
+  error?: UseGroupCollabLoaderResult['error']
+  onReload: () => Promise<void>
   onOpenUserChat?: (target: MemberProfileChatTarget) => void
   onWhisper?: (target: MemberProfileChatTarget) => void
 }
 
-export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitation, onMembersChanged, onOpenUserChat, onWhisper }: MemberListPanelProps) {
+export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitation, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tContacts } = useTranslation('contacts')
   const { user } = useAuth()
-  const { identitiesById, subscribeAccountRevision } = useChatStore('identitiesById', 'subscribeAccountRevision')
+  const { identitiesById: identities } = useChatStore('identitiesById')
   const { devices } = useDevicesStore()
   const { contacts } = useContactsStore()
-  const [snapshot, setSnapshot] = useState<GroupCollabSnapshot | null>(null)
-  const [loadedIdentities, setLoadedIdentities] = useState<Record<string, DisplayIdentity>>({})
-  const [error, setError] = useState<string | null>(null)
+  // The conversation owns the roster. Opening this drawer only requests a quiet refresh.
+  useEffect(() => { void load() }, [load])
 
-  // 权威名册。切 chat 就重读;❌ 不缓存到 store —— 这个面板是按需展开的,读一次就够。
-  // seq 守卫:切走那条线的在途读取回来时不许覆盖新线的名单(与 useGroupCollabLoader 同一条约定)。
-  const loadSeqRef = useRef(0)
-  const load = useCallback(async () => {
-    const seq = ++loadSeqRef.current
-    try {
-      const { snapshot: next, identities } = await chatService.getGroupCollab(chatId)
-      if (seq !== loadSeqRef.current) return
-      setSnapshot(next)
-      setLoadedIdentities(Object.fromEntries(identities.map((identity) => [identity.id, identity])))
-      setError(null)
-    } catch (err) {
-      if (seq !== loadSeqRef.current) return
-      // @@@5856 「名册是空的」在话题里是 spec 明文允许的状态:你看得见它,但还不是参与者。
-      // 那时要给一句**照做就能改变现状**的话(在里面说一句就进来了),❌ 不是「关掉再打开一次」
-      // —— 后者重开多少次都一样,而同一屏的锚点卡还写着「N 条 · M 人」。
-      if (err instanceof GroupCollabEmptyError) { setError('not-participant'); return }
-      // fail-loud:名册读不出来就说读不出来,❌ 不画一个空名单假装这条线没人。
-      // 原因进日志、不进文案(user-copy-leak):名单读不出来时用户能做的只有重开这块面板。
-      memberListLog.error({ error: err, chatId }, 'member list load failed')
-      setError('failed')
-    }
-  }, [chatId])
-
-  useEffect(() => {
-    setSnapshot(null)
-    setError(null)
-    void load()
-  }, [load])
-  // 名册跟着数据走:这条线的 chat_members 一变(档位、角色、进出,谁改的都算,含撤回刷屏)就重读。
-  // 面板挂在哪(设置栈 / 👥 / 话题分栏)都是这一条路,❌ 宿主换 key 重挂。
-  useEffect(() => subscribeAccountRevision('chat_members_changed', (operations) => {
-    if (operations.some((operation) => readRevisionResourceKey(operation.payload, 'chat_members_changed').chatId === chatId)) void load()
-  }), [chatId, load, subscribeAccountRevision])
-
-  const identities = useMemo(
-    () => ({ ...identitiesById, ...loadedIdentities }),
-    [identitiesById, loadedIdentities],
-  )
   const agents = useMemo<GroupAgentItem[]>(() => snapshot?.agents ?? [], [snapshot])
   const agentIds = useMemo(() => agents.map((agent) => agent.id), [agents])
   const agentStatuses = useAgentDisplayStatuses(agentIds)
@@ -304,10 +263,6 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
-  const reloadMembers = useCallback(async () => {
-    await load()
-    await onMembersChanged?.()
-  }, [load, onMembersChanged])
   const group = useGroupMemberPanelControls({
     chatId,
     enabled: chatKind === 'group',
@@ -315,7 +270,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, topicInvitat
     identities,
     agentStatuses,
     currentUserId: user?.id ?? null,
-    onReload: reloadMembers,
+    onReload: load,
     onOpenUserChat,
     onWhisper,
   })

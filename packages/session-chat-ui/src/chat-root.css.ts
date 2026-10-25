@@ -174,6 +174,10 @@ export const composerSlotClass = style({
   right: 0,
   width: '100%',
   zIndex: 20,
+  // No backing of its own (owner 2026-10-25: the area reads as empty space, messages scroll past
+  // behind it); only the cards inside draw a background. Outside the inner column, pointer and
+  // wheel events reach the messages.
+  pointerEvents: 'none',
   // Match the scroll container gutter so the composer column aligns with the
   // message column when the viewport is narrower than CONTAINER_WIDTH.
   paddingLeft: CONTENT_GUTTER,
@@ -228,8 +232,7 @@ export const heroSlotHiddenClass = style({
 /**
  * Inner centering wrapper inside the composer slot — constrains the composer
  * to the same max-width as the content column so it aligns with user message
- * cards. Carries the composer's solid backing and 8px bottom gap so the backing only
- * covers the content area, leaving the scrollbar track unobscured.
+ * cards, with an 8px bottom gap. It has no backing: the cards portaled into it draw their own.
  * This is the element exposed as `view.composerSlot` (portal target).
  */
 export const composerSlotInnerClass = style({
@@ -240,15 +243,6 @@ export const composerSlotInnerClass = style({
   ...widenAtXl,
   paddingBottom: '8px',
   pointerEvents: 'auto',
-});
-
-/**
- * The shared backing covers every context band above the input card as well as the card itself.
- * Keep it opaque so scrolling messages cannot overlap reply previews, notices or running status text.
- * The outer positioning layer stays transparent to leave the scrollbar gutter visible.
- */
-export const composerSlotInnerBottomClass = style({
-  background: vars.bg,
 });
 
 export const composerSlotInnerCenteredClass = style({

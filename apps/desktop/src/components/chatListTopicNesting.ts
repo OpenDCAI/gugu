@@ -76,15 +76,15 @@ export const TOPIC_SUBROW_LIMIT = 3
  * 超出的❌ 不是消失,是并进同一个「更早」—— 它们按时间本来就排在后面,所以合进去之后那一段仍然
  * 是「更旧的那些」,❌ 不需要第二个折叠控件(一个东西一个名字)。
  *
- * 那一行❌ 不再就地展开。一个群一周能开出两百条话题,展开就是往一条没有虚拟化的侧边栏里
- * 灌两百行(owner 2026-09-20:「一展开就会让整个界面崩坏掉」);而这类清单在产品里**已经有主场**——
- * 来源线顶栏的「历史 → 话题」面板。⇒ 点它 = 跳到主场(带搜索),侧边栏只负责「最近这几条」。
+ * More reveals the remaining topics in place, for ordinary groups and projects alike.
  */
 export function splitSunkTopics(
   topics: readonly ChatItem[],
   isSunk: (chat: ChatItem) => boolean,
   limit: number = TOPIC_SUBROW_LIMIT,
+  expanded = false,
 ): { live: ChatItem[]; sunk: ChatItem[] } {
+  if (expanded) return { live: [...topics], sunk: [] }
   const fresh: ChatItem[] = []
   const sunk: ChatItem[] = []
   for (const topic of topics) (isSunk(topic) ? sunk : fresh).push(topic)

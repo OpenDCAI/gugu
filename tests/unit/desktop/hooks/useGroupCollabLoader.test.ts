@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, createElement, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReactHarness } from '../../../support/testHarness'
+import { createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
+import type { AccountRevisionListener } from '../../../../apps/desktop/src/lib/accountRevisionCoordinator'
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 const readGroupRoster = vi.fn()
 const replaceGroupRoster = vi.fn().mockResolvedValue(undefined)
@@ -17,6 +18,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
   GroupCollabEmptyError,
 }))
 const { useGroupCollabLoader, EMPTY_GROUP_COLLAB } = await import('../../../../apps/desktop/src/hooks/useGroupCollabLoader')
+const { useRoomCollab } = await import('../../../../apps/desktop/src/hooks/useRoomCollab')
 const snapshot: GroupCollabSnapshot = {
   scheduler: { chat_id: 'group-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: new Date(0).toISOString() },
   humans: [{ id: 'owner-1', role: 'owner', type: 'human', account_status: null }],
@@ -26,11 +28,13 @@ const snapshot: GroupCollabSnapshot = {
 }
 let load: (() => Promise<void>) | undefined
 let chatKind: string | undefined
+let activeChatId: string | undefined
+let currentError: 'not-participant' | 'failed' | null
 let published: GroupCollabSnapshot[]
 function Probe() {
   const cacheRef = useRef(new Map<string, GroupCollabSnapshot>())
   const result = useGroupCollabLoader({
-    activeChatId: 'group-1',
+    activeChatId,
     isRoomChat: true,
     chatKind,
     userId: 'owner-1',
@@ -44,6 +48,7 @@ function Probe() {
     mergeGroupCollabPruned: (_prev, next) => next,
   })
   load = result.loadGroupCollab
+  currentError = result.error
   return null
 }
 describe('useGroupCollabLoader authoritative publication', () => {
@@ -51,6 +56,7 @@ describe('useGroupCollabLoader authoritative publication', () => {
   beforeEach(async () => {
     published = []
     chatKind = undefined
+    activeChatId = 'group-1'
     readGroupRoster.mockReset().mockReturnValue(null)
     getGroupCollab.mockReset().mockResolvedValue({ snapshot, identities: [] })
     replaceGroupRoster.mockReset().mockResolvedValue(undefined)
@@ -131,5 +137,62 @@ describe('useGroupCollabLoader authoritative publication', () => {
     await act(async () => { await load?.() })
     expect(getGroupCollab).not.toHaveBeenCalled()
     expect(published).toEqual([])
+  })
+
+  it('does not replace a warm authoritative snapshot with the reduced disk roster while refreshing', async () => {
+    const rich = { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, client: 'Codex', model_source: 'Luna' })) }
+    getGroupCollab.mockResolvedValueOnce({ snapshot: rich, identities: [] })
+    await act(async () => { await load?.() })
+    published = []
+    readGroupRoster.mockReturnValue(snapshot)
+    let resolve!: (value: { snapshot: GroupCollabSnapshot; identities: [] }) => void
+    getGroupCollab.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    let refreshing!: Promise<void>
+    await act(async () => { refreshing = load!(); await Promise.resolve() })
+    expect(published).toEqual([])
+    await act(async () => { resolve({ snapshot: rich, identities: [] }); await refreshing })
+    expect(published.at(-1)?.agents[0]?.model_source).toBe('Luna')
+  })
+
+  it('does not attribute the previous chat failure to a new chat before its effects run', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getGroupCollab.mockRejectedValueOnce(new Error('unavailable'))
+    await act(async () => { await load?.() })
+    expect(currentError!).toBe('failed')
+    activeChatId = 'group-2'
+    await harness.render(createElement(Probe))
+    expect(currentError!).toBeNull()
+    activeChatId = undefined
+    await harness.render(createElement(Probe))
+    expect(currentError!).toBeNull()
+  })
+})
+
+describe('topic conversation owns the member drawer roster', () => {
+  let harness: ReturnType<typeof createReactHarness>
+  let listener: AccountRevisionListener | undefined
+  let room: ReturnType<typeof useRoomCollab>
+  function Room() { room = useRoomCollab('group-1', 'topic'); return null }
+  beforeEach(async () => {
+    readGroupRoster.mockReset().mockReturnValue(null)
+    replaceGroupRoster.mockReset().mockResolvedValue(undefined)
+    getGroupCollab.mockReset().mockResolvedValue({ snapshot, identities: [] })
+    harness = createReactHarness()
+    await renderWithAppProviders(harness, createElement(Room), { auth: { id: 'owner-1' }, chat: {
+      getImRepository: async () => ({ accountId: 'owner-1' }) as never,
+      subscribeAccountRevision: (_event, next) => { listener = next; return () => { listener = undefined } },
+    } })
+  })
+  afterEach(() => harness.cleanup())
+  it('refreshes only for this topic membership revision and keeps the prior data on refresh failure', async () => {
+    expect(room!.snapshot?.humans[0]?.id).toBe('owner-1')
+    const before = getGroupCollab.mock.calls.length
+    await act(async () => { listener!([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-topic' } }]) })
+    expect(getGroupCollab).toHaveBeenCalledTimes(before)
+    getGroupCollab.mockRejectedValueOnce(new Error('network unavailable'))
+    await act(async () => { listener!([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'group-1' } }]) })
+    expect(getGroupCollab).toHaveBeenCalledTimes(before + 1)
+    expect(room!.snapshot?.humans[0]?.id).toBe('owner-1')
+    expect(room!.error).toBe('failed')
   })
 })

@@ -57,6 +57,9 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
 
+export const PROJECT_TOPICS_SLOT_PREFIX = 'project-topics:'
+export const projectTopicsSlotKey = (chatId: string) => `${PROJECT_TOPICS_SLOT_PREFIX}${chatId}`
+
 /**
  * 同一个对话在块的页签条上的几格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
  * `actions` = 右端那排图标(搜索、群文件夹、成员、历史、⋯),`title` = 对话块第一枚页签上的头像和名字,

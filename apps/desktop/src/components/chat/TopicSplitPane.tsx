@@ -1,4 +1,5 @@
 import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
+import { useRoomCollab } from '@/hooks/useRoomCollab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
@@ -271,8 +272,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   }, [focusComposerToken, mobile])
   const [quoted, setQuoted] = useState<{ forChatId: string; messageId: string; senderName: string; content: string } | null>(null)
   const activeQuote = quoted?.forChatId === topic.chatId ? quoted : null
-  // @@@5856 话题的附件列表。全宽形态拿掉之后头栏那颗 🕐 只对来源线生效 ⇒ 话题自己的附件
-  // 一个入口都不剩。这一栏自带一颗 🕐,与 👥 同一个槽位(互斥),开的是同一份 HistoryPanel 的话题支。
+  // Attachments stay in the topic pane, alongside its members entry.
   const [filesForChatId, setFilesForChatId] = useState<string | null>(null)
   const filesOpen = filesForChatId === topic.chatId
   const [files, setFiles] = useState<HistoryFileItem[]>([])
@@ -295,6 +295,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
   const membersOpen = membersForChatId === topic.chatId
+  const collab = useRoomCollab(topic.chatId, 'topic')
   const setMembersOpen = useCallback(
     (next: boolean | ((open: boolean) => boolean)) => {
       setMembersForChatId((current) => {
@@ -490,7 +491,6 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
           // 这份面板自带的头嵌进来时由 .gg-topic-split-members 收掉;它不定宽,撑满这一栏。
           <div className="gg-topic-split-members" style={TOPIC_SPLIT_MEMBERS_STYLE}>
             <HistoryPanel
-              mode="topic"
               mobile={mobile}
               attachments={files}
               loading={filesLoading}
@@ -507,6 +507,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
                 key={topic.chatId}
                 chatId={topic.chatId}
                 chatKind="topic"
+                snapshot={collab.snapshot} onReload={collab.reload} error={collab.error}
                 head={(title, actions) => (
                   // 桌面上收起名册归上面那条常驻分栏头的 👥,这里不再画关闭;手机整页的出口是左上返回。
                   <div style={TOPIC_SPLIT_MEMBERS_HEAD_STYLE}>
@@ -560,8 +561,8 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
             自造的那份缺发送键、缺 @ 候选弹窗、缺草稿与附件 —— 这些原件早就解决过,
             重写一份等于把它们统统退回未解决态,而且不报任何错(owner 2026-09-19 实测点破)。
             话题是一间屋子 ⇒ isGroupChat,寻址规则与群一致。 */}
-        {/* 话题里运行条那一行同样是真占位的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
-        <ChatBottomDock floating={!mobile} above={runningTokens &&
+        {/* 话题里运行条那一行同样是固定高的一行;只在传了 runningTokens 时才有(手机整页话题),桌面分栏旁边群里那一条一直看得见。 */}
+        <ChatBottomDock floating={!mobile} reserve={messages.length === 0} above={runningTokens &&
         <RunningBarSlot>
         {runningTokens.length > 0 ? (
           <RunningTokenBar
