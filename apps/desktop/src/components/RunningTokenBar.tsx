@@ -68,7 +68,7 @@ const STYLE = `
  */
 const PILL_MAX_PX = 168, PILL_GAP_PX = 8, MORE_PX = 52
 export function RunningBarSlot({ children }: { children: ReactNode }) {
-  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center overflow-hidden">{children}</div>
+  return <div data-running-bar-slot="" className="flex h-[42px] shrink-0 items-center">{children}</div>
 }
 // 桌面一行能放几个:全部放得下就全放(不超过 cap),否则留出 +N 的位置后能放几个放几个,至少 1 个。
 function fitCount(width: number, count: number, cap: number): number {
