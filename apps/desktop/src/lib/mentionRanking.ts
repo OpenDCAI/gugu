@@ -10,6 +10,7 @@ interface MentionRankingContext {
   currentUserId: string | null | undefined
   messages: readonly HistoryMessage[]
   participantIds?: readonly string[]
+  projectMemberIds?: readonly string[]
   replyToMessageId?: string
   now: number
 }
@@ -20,13 +21,14 @@ const DAY = 86_400_000
 export function rankMentionCandidates<T extends MentionCandidate>(
   candidates: readonly T[], query: string, context: MentionRankingContext,
 ): T[] {
-  const { chatId, currentUserId, participantIds, replyToMessageId, now } = context
+  const { chatId, currentUserId, participantIds, projectMemberIds, replyToMessageId, now } = context
   const messages = context.messages.filter((message) => message.chat_id === chatId && message.seq >= 0
     && !message.local_send_state && !message.retracted_at && message.content_type !== 'system'
     && Number.isFinite(Date.parse(message.created_at)))
   const byId = new Map(messages.map((message) => [message.id, message]))
   const replyTargetId = replyToMessageId ? byId.get(replyToMessageId)?.sender_user_id : null
   const participants = new Set(participantIds)
+  const projectMembers = new Set(projectMemberIds)
   const lastSpoke = new Map<string, number>()
   const lastAddressed = new Map<string, number>()
   const remember = (times: Map<string, number>, id: string | null | undefined, at: number) => {
@@ -48,7 +50,9 @@ export function rankMentionCandidates<T extends MentionCandidate>(
       broadcast: candidate.type === 'all' ? 1 : 0,
       participant: participants.has(candidate.id) ? 1 : 0,
       replyTarget: candidate.id === replyTargetId ? 1 : 0,
-      relevance: 2 * decay(lastAddressed.get(candidate.id), 7 * DAY) + decay(lastSpoke.get(candidate.id), DAY),
+      // The existing interaction signal is at most 3; project agents take precedence within that tier.
+      relevance: (candidate.type === 'agent' && projectMembers.has(candidate.id) ? 4 : 0)
+        + 2 * decay(lastAddressed.get(candidate.id), 7 * DAY) + decay(lastSpoke.get(candidate.id), DAY),
     }))
     .filter((row) => row.match > 0)
     .sort((a, b) => b.match - a.match || a.broadcast - b.broadcast || b.participant - a.participant

@@ -34,6 +34,31 @@ describe('contextual mention ranking', () => {
     expect(names(members, history, 'nobody')).toEqual([])
   })
 
+  it('prefers confirmed project agents to even the strongest recent interaction', () => {
+    const members = [candidate('Atlas', 'agent'), candidate('Amy'), candidate('Ada', 'agent'), candidate('Aaron', 'agent')]
+    const history = [message('Atlas'), message('me', 0, { to_user_ids: ['Atlas'] }), message('Amy'), message('Ada', DAY)]
+    const projectMemberIds = Object.freeze(['Ada', 'Aaron', 'not-addressable'])
+    expect(names(members, history, '', { projectMemberIds })).toEqual(['Ada', 'Aaron', 'Atlas', 'Amy'])
+    expect(names(members, history, 'a', { projectMemberIds })).toEqual(['Ada', 'Aaron', 'Atlas', 'Amy'])
+    expect(names(members, history, 'a')).toEqual(['Atlas', 'Amy', 'Ada', 'Aaron'])
+  })
+
+  it('keeps text tiers, topic participation and the reply target ahead of the project bonus', () => {
+    const members = [candidate('Ada', 'agent'), candidate('a', 'agent'), candidate('Atlas', 'agent')]
+    const history = [message('Atlas', 0, { id: 'quoted' })]
+    const projectMemberIds = ['Ada']
+    expect(names(members, history, 'a', { projectMemberIds })).toEqual(['a', 'Ada', 'Atlas'])
+    expect(names(members, history, '', { projectMemberIds, participantIds: ['Atlas'] })).toEqual(['Atlas', 'Ada', 'a'])
+    expect(names(members, history, '', { projectMemberIds, replyToMessageId: 'quoted' })).toEqual(['Atlas', 'Ada', 'a'])
+  })
+
+  it('never gives humans or broadcasts a project bonus and keeps neutral ties stable', () => {
+    const members = [candidate('所有人', 'all'), candidate('Alice'), candidate('Ada', 'agent'), candidate('Aaron', 'agent')]
+    expect(names(members, [], '', { projectMemberIds: ['Alice', '所有人', 'Aaron', 'Ada'] }))
+      .toEqual(['Ada', 'Aaron', 'Alice', '所有人'])
+    expect(names(members, [], '', { projectMemberIds: [] })).toEqual(['Alice', 'Ada', 'Aaron', '所有人'])
+  })
+
   it('keeps an exact broadcast match above a less precise person match', () => {
     expect(names([candidate('Allison'), candidate('all', 'all')], [message('Allison')], 'all')).toEqual(['all', 'Allison'])
   })

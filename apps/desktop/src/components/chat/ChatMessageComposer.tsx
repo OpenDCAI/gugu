@@ -8,11 +8,13 @@ import { registerComposerFocusTarget, scheduleComposerFocus } from '@/lib/focusC
 import { activeMentionPicks, MENTION_ALL_USER_ID, type MentionCandidate } from '@/lib/mention'
 import { isMentionQueryActive } from '@/lib/mentionMatch'
 import { rankMentionCandidates } from '@/lib/mentionRanking'
+import { useProjectGroupMembers } from '@/lib/projectGroupChatsBridge'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
 import { APP_COMPOSE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
+import { useChatStore } from '../../store/chatContext'
 import { useTheme } from '../../store/theme'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { Avatar } from '../Avatar'
@@ -57,6 +59,9 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const projectName = useChatSlotProjectName()
   const takenOver = useComposerVerbTakeover(chatId, setText)
   const { contacts } = useContactsStore()
+  const { chats } = useChatStore()
+  const projectMembers = useProjectGroupMembers()
+  const projectMemberIds = projectMembers.get(chats.find((chat) => chat.id === chatId)?.source_chat_id ?? chatId ?? '')
   const members = useMemo<MentionCandidate[]>(() => isGroupChat ? [
     { id: '__all__', name: t('composer.mentionAll'), type: 'all' },
     ...groupMembers.filter((member) => member.id !== currentUserId).map((member) => ({ ...member, alias: contacts.find((contact) => contact.id === member.id)?.alias })),
@@ -79,7 +84,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     isQueryActive: (query: string) => !!isGroupChat && !whisperTarget && isMentionQueryActive(query, members),
     async search(query: string) {
       if (!isGroupChat || whisperTarget || !isMentionQueryActive(query, members)) return []
-      return rankMentionCandidates(members, query, { chatId, currentUserId, messages, participantIds,
+      return rankMentionCandidates(members, query, { chatId, currentUserId, messages, participantIds, projectMemberIds,
         replyToMessageId: quoteContent?.messageId, now: Date.now() }).map((member): MentionItem => ({
         id: member.type === 'all' ? MENTION_ALL_USER_ID : member.id,
         label: member.name, name: member.name, kind: 'custom', role: member.type === 'all' ? undefined : member.type,
@@ -97,7 +102,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       const item = await localProvider.resolveSession(id)
       return item ? decorate(item) : null
     },
-  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, quoteContent?.messageId])
+  }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, projectMemberIds, quoteContent?.messageId])
   const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, currentUserId, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {

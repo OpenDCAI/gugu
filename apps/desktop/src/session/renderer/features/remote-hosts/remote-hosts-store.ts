@@ -28,6 +28,8 @@ import {
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
 import { findHomeProject } from './machine-home';
@@ -178,7 +180,19 @@ export class RemoteHostsStore {
       projectGroupRepresentativeOf: (projectId) => projectGroupsStore.isRepresentative(projectId),
     };
     // #7341 第二步:各台机器上的本地项目绑的项目群(同群 = 同一个项目,侧栏合成一行)。
-    projectGroupsStore.start(() => [...this.hosts.entries()].filter(([, state]) => state.synced).map(([deviceId]) => deviceId));
+    projectGroupsStore.start(
+      () => [...this.hosts.entries()].filter(([, state]) => state.synced).map(([deviceId]) => deviceId),
+      () => [
+        ...[...appState.projects.projects.values()].flatMap((project) => {
+          if (machineRegistry.machineOf(project.id)) return [];
+          return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
+            'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).map((session) => ({
+              projectId: project.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+            })));
+        }),
+        ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, agentUserId: summary.agent?.userId })),
+      ]
+    );
     subscribeDeviceSessions(() => runInAction(() => (this.directory = liveDeviceSessions())));
     onRemoteHostsBridgeChange(() => this.attach(findRemoteHostsBridge()));
     this.attach(findRemoteHostsBridge());
