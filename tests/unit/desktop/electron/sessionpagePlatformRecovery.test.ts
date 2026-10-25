@@ -57,7 +57,11 @@ describe('SessionpagePlatformRecoveryCoordinator', () => {
     })
   })
 
-  it.each([true, false])('admits messages during rotation only for an actual credential proxy (%s)', async requestManaged => {
+  it.each([
+    { requestManaged: true, retry: false },
+    { requestManaged: false, retry: false },
+    { requestManaged: true, retry: true },
+  ])('admits proxy messages during rotation while explicit retry still waits ($requestManaged/$retry)', async ({ requestManaged, retry }) => {
     let generation = 'generation-1'
     let release!: () => void
     let began!: () => void
@@ -76,10 +80,11 @@ describe('SessionpagePlatformRecoveryCoordinator', () => {
       onStateChange: (_target, state) => { if (state.status === 'live') finished() },
     })
     let admitted = false
-    const first = coordinator.ensureReady(target.sessionId).then(result => { admitted = true; return result })
+    const first = (retry ? coordinator.retry(target.sessionId) : coordinator.ensureReady(target.sessionId))
+      .then(result => { admitted = true; return result })
     await rotating
     await Promise.resolve()
-    expect(admitted).toBe(requestManaged)
+    expect(admitted).toBe(requestManaged && !retry)
     expect(coordinator.stateFor(target.sessionId)?.status).toBe('reopening')
     let nextAdmitted = false
     const second = coordinator.ensureReady(target.sessionId).then(result => { nextAdmitted = true; return result })

@@ -62,7 +62,8 @@ export interface SessionpagePlatformRecoveryDeps {
  * This class deliberately does not know how a message is stored or delivered. Callers ask for a
  * ready conversation first, then pass the original message to their existing owner. A failed gate
  * therefore cannot advance an inbox cursor, acknowledge a session-direct row, or mark a composer
- * send as delivered.
+ * send as delivered. A local credential proxy instead owns that check at request time, so its
+ * provider can receive messages while the same credential rotation continues in parallel.
  */
 export class SessionpagePlatformRecoveryCoordinator {
   private readonly states = new Map<string, SessionpagePlatformRecoveryState>()
@@ -212,7 +213,8 @@ export class SessionpagePlatformRecoveryCoordinator {
     const current = this.states.get(sessionId)
     if (current?.status === 'reopening') return this.waitForFlight(sessionId)
     this.publish(target, { status: 'expired' })
-    return this.ensureReady(sessionId, 'retry')
+    const result = await this.ensureReady(sessionId, 'retry')
+    return this.flights.has(sessionId) ? this.waitForFlight(sessionId) : result
   }
 
   forget(sessionId: string): void {
