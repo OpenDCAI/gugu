@@ -37,11 +37,17 @@ export function useLinkNavigation(input: {
       const asked = generation
       const state = current.current
       if (target.kind === 'file') {
-        const { chatDb } = await import('../lib/supabase')
-        const { data, error } = await chatDb.from('workspace_items').select('chat_id').eq('id', target.itemId).maybeSingle()
-        if (error) throw new Error(error.message)
+        const { localFileRevision } = await import('../lib/fileAccess')
+        const local = await localFileRevision(target.itemId)
+        let groupId = local?.chat_id
+        if (!local) {
+          const { chatDb } = await import('../lib/supabase')
+          const { data, error } = await chatDb.from('workspace_items').select('chat_id').eq('id', target.itemId).maybeSingle()
+          if (error) throw new Error(error.message)
+          groupId = data?.chat_id
+        }
         if (asked !== generation || current.current.ownerId !== state.ownerId) return
-        const fileChat = state.chats.find((row) => row.id === data?.chat_id)
+        const fileChat = state.chats.find((row) => row.id === groupId)
         if (!fileChat) throw new Error('File reference is unavailable')
         const chatId = fileChat.kind === 'topic' ? fileChat.source_chat_id! : fileChat.id
         state.openFile(chatId, target, request)

@@ -14,6 +14,8 @@ import { AuthContext } from '../../../../apps/desktop/src/store/auth'
  * (`APP_OPEN_WITH_EVENT`, MainLayout), which brings that chat up. The harness is groupFileLastAsk7257's.
  */
 const rpc = vi.hoisted(() => vi.fn(async () => ({ data: null, error: null })))
+const local = vi.hoisted(() => vi.fn(async (_item: string): Promise<unknown> => null))
+vi.mock('../../../../apps/desktop/src/lib/fileAccess', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/fileAccess')>(), localFileRevision: local }))
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ chatDb: { rpc } }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({
   platform: { kind: 'electron', capabilities: { appUpdates: false, notifications: false, rendererCommandBridge: false } },
@@ -31,7 +33,7 @@ const originalCheckVisibility = HTMLElement.prototype.checkVisibility
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
-  rpc.mockClear()
+  rpc.mockClear(); local.mockReset().mockResolvedValue(null)
 })
 afterEach(() => {
   harness.cleanup()
@@ -59,6 +61,14 @@ describe('a file opened in a group\'s panel is kept for 最近打开, once', () 
     await harness.render(slot({ chatId: 'g-note' }))
     expect(groupSlotMemory.opened('g-note')?.itemId).toBe('F1')
     expect(rpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('a local file keeps its App tab without reporting the open to the cloud', async () => {
+    local.mockResolvedValueOnce({ source: 'local', item_id: 'L1', chat_id: 'g-local' })
+    await harness.render(slot({ chatId: 'g-local', asked: asked('g-local', detailOf('g-local', 'L1')) }))
+    expect(groupSlotMemory.opened('g-local')?.itemId).toBe('L1')
+    expect(local).toHaveBeenCalledWith('L1')
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   it('an App\'s own page in the panel (no file) is not a file opened: nothing kept', async () => {
