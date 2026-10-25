@@ -126,7 +126,7 @@ describe('tab return navigation', () => {
   });
 
   it('carries navigation when moving the entry into a separate window and back', () => {
-    const { layout, pane, open } = setup();
+    const { layout, open } = setup();
     const origin = open('origin');
     const child = open('child', { returnTo: { tabId: origin } });
     const windowId = layout.detachToWindow(child);
