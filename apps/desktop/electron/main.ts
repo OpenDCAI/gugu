@@ -54,7 +54,6 @@ import { classifyFatal, recordFatalSync } from './lib/fatal-triage'
 import { pathToFileURL } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { homedir, hostname, platform } from 'os'
-import { spawn } from 'child_process'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
@@ -2457,7 +2456,7 @@ autoUpdater.autoInstallOnAppQuit = false
 // 显式写在这里:这一条属于产品承诺,不能靠默认值、更不能靠另一个模块的副作用。
 autoUpdater.autoRunAppAfterInstall = true
 
-// @@@5747 启动时清掉过期的更新缓存(装完之后那两份 172MB 的包不会自己走)。只清 pending/,
+// @@@5747 启动时清掉过期的 pending 和弃用的预解压目录,
 // 差分下载的底留着(updaterCache.ts @@@diff-base):装完常驻一份 —— Windows ≈200MB、mac ≈172MB;
 // 下好待装那段时间是底 + pending 两份。
 // 取的是 electron-updater 自己那套路径规则:baseCachePath + app-update.yml 里的 updaterCacheDirName。
