@@ -116,12 +116,8 @@ export const appController = createRPCController({
     }
   },
   clipboardWriteText: async (text: string) => {
-    try {
-      await appService.clipboardWriteText(text);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    await appService.clipboardWriteText(text);
+    return { success: true };
   },
   showTerminalContextMenu: async (args: {
     requestId: string;
