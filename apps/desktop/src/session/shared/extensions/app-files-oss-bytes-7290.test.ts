@@ -84,7 +84,19 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
 
   it('a version attachments/urls does not answer for is not-found, said — never an empty file', async () => {
     answer = 'gone';
-    await expect(files.readVersion(surface(), { ref: { id: ITEM }, n: 1 })).rejects.toMatchObject({ code: 'not-found', message: expect.stringMatching(/has no bytes for version 1/) });
+    await expect(files.readVersion(surface(), { ref: { id: ITEM }, n: 3 })).rejects.toMatchObject({ code: 'not-found', message: expect.stringMatching(/has no bytes for version 3/) });
+  });
+
+  it('a version signed once is not signed again while its link holds; another version, or another reader, is (10-25)', async () => {
+    row = { ...row, id: '55555555-5555-4555-8555-555555555555', version: 7 };
+    const open = (extra?: Record<string, unknown>) => files.open(surface(extra), { ref: { id: row.id as string } });
+    expect(new Uint8Array((await open()).bytes!)).toEqual(new Uint8Array([1, 2, 3]));
+    await open();
+    expect(signedRefs).toEqual([{ refs: [{ item_id: row.id, version: 7 }], as: undefined }]);
+    row = { ...row, version: 8 };
+    await open();
+    await open({ asAgent: AGENT });
+    expect(signedRefs.slice(1)).toEqual([{ refs: [{ item_id: row.id, version: 8 }], as: undefined }, { refs: [{ item_id: row.id, version: 8 }], as: AGENT }]);
   });
 
   it('a file from before the switch (it has a pointer) is signed by attachments/urls too — one way for every file (#7290 收尾)', async () => {
