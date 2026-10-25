@@ -1282,17 +1282,24 @@ export class SessionManager implements InboundRouter {
       record = this.cells.get(sessionId);
     }
     if (!record || record.phase !== 'ready') return ok();
+    let stopPending = false;
+    const alreadyStopping = this.intentionalProcessCloses.has(record.processKey);
     this.intentionalProcessCloses.add(record.processKey);
     try {
-      await record.cell.closeSession();
+      if (!alreadyStopping) await record.cell.closeSession();
       this.deps.promptQueueStore?.clear(sessionId);
+      await record.connectionLease.value.stopProcess();
       this.removeRecord(sessionId, false, true);
       await record.connectionLease.release();
       return ok();
     } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending') {
+        stopPending = true;
+        return acpErr.stopPending();
+      }
       return acpErr.stopFailed(toSerializedError(error));
     } finally {
-      this.intentionalProcessCloses.delete(record.processKey);
+      if (!stopPending) this.intentionalProcessCloses.delete(record.processKey);
     }
   }
 
@@ -1962,6 +1969,7 @@ export class SessionManager implements InboundRouter {
 
   onProcessClosed(processKey: string, exit: AdapterExit): void {
     const intentional = this.intentionalProcessCloses.has(processKey);
+    this.intentionalProcessCloses.delete(processKey);
     const removed: string[] = [];
     for (const record of [...this.cells.values()]) {
       if (record.phase !== 'ready' || record.processKey !== processKey) continue;

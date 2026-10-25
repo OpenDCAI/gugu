@@ -24,7 +24,7 @@ import { registerGuguExtensionTools } from './mcp/gugu-extension-tool'
 import { runAppAction } from './mcp/app-tool-host'
 import { registerGuguGuideTools } from './mcp/gugu-guide-tool'
 import type { ExtensionSkill } from '@gugu/session-core/agents/plugins'
-import { GUGU_LISTED_TOOLS, registerGuguCatalogTools, type CatalogTool } from './mcp/gugu-catalog-tools'
+import { GUGU_ASSISTANT_LISTED_TOOLS, GUGU_LISTED_TOOLS, registerGuguCatalogTools, type CatalogTool } from './mcp/gugu-catalog-tools'
 import { registerGuguAppSearchTool, type AppSearchHit } from './mcp/gugu-app-search-tool'
 import { buildAgentIdentityBlock } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type { McpServerOwner } from '@gugu/session-core/mcp'
@@ -204,6 +204,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
   return new GuguMcpHost<GuguMcpContext>(
     (getContext, grantSignal, trackHostRequest) => {
       const initial = getContext()
+      const listedTools = initial.personalAssistant ? GUGU_ASSISTANT_LISTED_TOOLS : GUGU_LISTED_TOOLS
       const trackRequest: GuguMcpRequestTracker = (work, toolName) => {
         const tracked = trackHostRequest(work, toolName)
         if (initial.personalAssistant && toolName) {
@@ -220,8 +221,8 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         : new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
       // session_* 与 app_* 两个域(#4191)与社交域同 server 注册:
       // 一条 grant 只要拿得到其中任一半就两个域全部注册,缺的那一半在调用时报错 —— 工具清单不随
-      // 同角色的 grant 变,否则每种组合都是一份新的模型前缀。个人助理只排除 device_call;
-      // 这是两种固定角色工具面,不是按会话的动态授权清单。
+      // 同角色的 grant 变,否则每种组合都是一份新的模型前缀。助理常驻派活、叫停和活动回顾;
+      // 两种固定角色工具面各自复用前缀,不是按会话的动态授权清单。
       if (getContext().runSessionAction || getContext().runExtensionAction) {
         const sessionDispatcher: SessionDispatcher | undefined = getContext().runSessionAction
           ? (action, requestSignal) => {
@@ -286,10 +287,10 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
       }, async () => {
         const context = getContext()
         return context.grantKey ? await extensionsFor(context)?.skills(context.grantKey) ?? [] : []
-      })
+      }, listedTools)
       // 10-19 Finding an App is app_search's alone (owner: catalog_list lists tools, not Apps); in the catalog, not the native list.
       registerGuguAppSearchTool(server, () => extensionsFor(getContext())?.apps(getContext().grantKey, true) ?? null)
-      serveToolsList(server, getContext, (name: string) => GUGU_LISTED_TOOLS.has(name))
+      serveToolsList(server, getContext, (name: string) => listedTools.has(name))
       return server
     },
     (context) => ({

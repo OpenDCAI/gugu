@@ -37,6 +37,7 @@ export interface AcpConnectionEntry extends AcpConnectionContext {
   supportsSteering: boolean;
   /** 这个受管进程的 pid(spawn 当场绑定);重载判据用它,见 AcpAgentConnection.pid。 */
   pid: number | null;
+  stopProcess(): Promise<void>;
 }
 
 export type PooledAcpProcess = AcpConnectionEntry;
@@ -210,6 +211,7 @@ async function provisionAcpConnection(
     supportsImagePrompt: connection.data.supportsImagePrompt,
     supportsSteering: connection.data.supportsSteering,
     pid: connection.data.pid,
+    stopProcess: connection.data.stopProcess,
   };
 }
 

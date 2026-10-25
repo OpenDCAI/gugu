@@ -56,6 +56,25 @@ it('the coordinator can inspect availability but cannot execute directly or thro
   expect(run).not.toHaveBeenCalled()
 })
 
+it('dispatches activity review and confirmed stopping from the coordinator direct tools', async () => {
+  const client = await connect('assistant-core-work', true)
+  const tools = (await client.listTools()).tools
+  expect(tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['activity_list', 'activity_context', 'session_stop']))
+  for (const [name, args, action] of [
+    ['activity_list', { since: '2026-10-24T00:00:00Z', until: '2026-10-25T00:00:00Z' }, 'activity_list'],
+    ['activity_context', { event_id: 'work' }, 'activity_context'],
+    ['session_stop', { session_id: 'session:child' }, 'stop'],
+  ] as const) {
+    run.mockResolvedValueOnce({ session_id: 'child', status: 'idle', detail: 'plain', settled: true })
+    const result = await client.callTool({ name, arguments: args })
+    expect(result).not.toMatchObject({ isError: true })
+    expect(run.mock.calls.at(-1)![0]).toMatchObject({ action })
+    if (name === 'session_stop') expect(JSON.stringify(result)).toContain('idle')
+  }
+  const message = tools.find(tool => tool.name === 'session_message')!
+  expect(JSON.stringify(message.inputSchema)).toContain('this never stops recipients')
+})
+
 it('an executor sharing the assistant home retains native execution on its own grant', async () => {
   await connect('assistant', true)
   const executor = await connect('executor-in-the-same-home', false)
