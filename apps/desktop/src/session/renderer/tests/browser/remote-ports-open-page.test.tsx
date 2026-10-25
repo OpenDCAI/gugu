@@ -62,7 +62,7 @@ describe('the ports list (a session on an SSH machine)', () => {
     await vi.waitFor(() => expect(copy()).not.toBeNull());
     await act(async () => copy()!.click());
     expect(mocks.clipboard).toHaveBeenCalledWith('http://localhost:15173/');
-    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title: 'Clipboard write permission denied', variant: 'destructive' });
+    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith({ title: 'externalLink.copyFailed', description: 'Clipboard write permission denied', variant: 'destructive' });
   });
   it('opens a port through showPage — a person\'s click: switch to it if open, no reload — never a tab of its own', async () => {
     const TabContent = RemotePortsTabContent;

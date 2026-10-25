@@ -525,5 +525,5 @@ it('shows the sanitized clipboard refusal when copying the session ID', async ()
   const item = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find(el => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))!
   await userEvent.click(item)
   await until('session id copy was attempted', () => clipboard.mock.calls.length > 0)
-  expect(notice).toHaveBeenCalledWith({ title: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })
+  expect(notice).toHaveBeenCalledWith({ title: expect.stringMatching(/复制失败|Copy failed/), description: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })
 })

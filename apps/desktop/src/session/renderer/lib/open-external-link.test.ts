@@ -82,7 +82,7 @@ describe('confirmOpenExternalLink', () => {
     await expect(copyExternalLink(url)).resolves.toBe(false);
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith(url);
     expect(mocks.toast).toHaveBeenCalledWith({
-      title: 'IPC unavailable',
+      title: 'Copy failed', description: 'IPC unavailable',
       variant: 'destructive',
     });
     expect(mocks.toast).toHaveBeenCalledTimes(1);

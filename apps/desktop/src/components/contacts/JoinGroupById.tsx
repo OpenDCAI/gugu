@@ -79,7 +79,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
     } finally {
       setLooking(false)
     }
-  }, [idValid, looking, parsedId, toast])
+  }, [idValid, looking, parsedId, toast, t])
 
   const handleJoin = useCallback(async () => {
     if (!group || joining) return

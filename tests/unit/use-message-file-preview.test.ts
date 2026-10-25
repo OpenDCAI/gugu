@@ -312,7 +312,7 @@ describe('useMessageFilePreview', () => {
     else bytesMocks.openAttachmentInSystemApp.mockRejectedValue(error)
     previewToast.mockClear()
     await act(async () => { (container.querySelector(`[data-testid="preview-${action}"]`) as HTMLElement).click(); await Promise.resolve() })
-    expect(previewToast).toHaveBeenCalledWith('Attachment access denied [path] [redacted token]', 'error')
+    expect(previewToast).toHaveBeenCalledWith('无法下载文件', 'error', 'Attachment access denied [path] [redacted token]')
   })
 
 })

@@ -1980,8 +1980,8 @@ export function ContactsPanel({
     } catch (error) {
       toast(
         isOwnedAgent ? ct('toast.deleteAgentFailed') : ct('toast.deleteContactFailed'),
-        'error'
-      , messageForUser(error))
+        'error', messageForUser(error)
+      )
     }
   }
 

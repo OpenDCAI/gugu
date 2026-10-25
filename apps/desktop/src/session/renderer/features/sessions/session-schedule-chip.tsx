@@ -151,11 +151,7 @@ function ScheduleItem({ schedule, machine }: { schedule: SessionSchedule; machin
             : code.includes('cron_invalid') || code.includes('schedule_never_fires')
               ? 'sessionSchedule.ruleInvalid'
               : 'sessionSchedule.actionFailed'
-        ), description: code.includes('schedule_too_soon')
-          ? translate('sessionSchedule.tooSoon')
-          : code.includes('cron_invalid') || code.includes('schedule_never_fires')
-            ? translate('sessionSchedule.ruleInvalid')
-            : messageForUser(error),
+        ), description: messageForUser(error),
         variant: 'destructive',
       });
     } finally {

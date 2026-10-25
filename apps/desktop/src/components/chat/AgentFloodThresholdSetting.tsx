@@ -108,7 +108,7 @@ export function AgentFloodThresholdSetting({
         toast(t('group.settings.agentFloodSaveFailed'), 'error', messageForUser(error))
       })
       .finally(() => { saving.current = false; setBusy(false) })
-  }, [chatId, draft, value, editable, onSaved, toast])
+  }, [chatId, draft, value, editable, onSaved, toast, t])
 
   if (failed) return <p role="alert">{failed}</p>
   if (effective === null) return null

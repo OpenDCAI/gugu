@@ -70,7 +70,7 @@ it('keeps the one shortcut available when message delivery fails', async () => {
   await emit(owner.browserId, 'driving');
   await harness.render(<AgentBrowserAssistant owner={owner} agentName="Codex 118" />);
   await act(async () => button('请暂停').click());
-  await vi.waitFor(() => expect(mocks.error).toHaveBeenCalledExactlyOnceWith('connection lost'));
+  await vi.waitFor(() => expect(mocks.error).toHaveBeenCalledExactlyOnceWith('请求未能发送，请重试。', { description: 'connection lost' }));
   expect(button('请暂停').disabled).toBe(false);
   expect(harness.container.querySelectorAll('button')).toHaveLength(1);
 });

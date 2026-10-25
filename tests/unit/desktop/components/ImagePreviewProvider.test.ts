@@ -177,7 +177,7 @@ describe('ImagePreviewProvider', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error))
     await openViewer({ toast })
     await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewDownload)!)
-    expect(toast).toHaveBeenCalledWith('Storage access denied [path] [redacted token]', 'error')
+    expect(toast).toHaveBeenCalledWith('无法下载图片', 'error', 'Storage access denied [path] [redacted token]')
   })
 
   // @@@1892 - Promise 值的 ClipboardItem 要 Chrome 122+,产品 Electron 28 = Chromium 120,
@@ -204,6 +204,7 @@ describe('ImagePreviewProvider', () => {
     expect(constructedValues[0]).toBe(pngBlob)
     expect(fetchMock).toHaveBeenCalledWith('https://example.test/one.png')
     await waitForCondition(() => toast.mock.calls.length > 0, 'success toast was never shown')
-    expect(toast).toHaveBeenCalledWith(denied ? 'Clipboard permission denied' : '图片已复制', denied ? 'error' : 'success')
+    if (denied) expect(toast).toHaveBeenCalledWith('无法复制图片', 'error', 'Clipboard permission denied')
+    else expect(toast).toHaveBeenCalledWith('图片已复制', 'success')
   })
 })

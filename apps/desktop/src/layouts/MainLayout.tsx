@@ -977,11 +977,13 @@ function InnerLayout({
     const handleSessionpageDeliverFailed = (event: Event) => {
       const detail = (event as CustomEvent).detail as { agentUserId?: string; error?: string } | undefined
       if (!detail?.agentUserId) return
+      const contact = contacts.find((c) => c.id === detail.agentUserId)
+      const name = contact?.alias?.trim() || contact?.display_name || detail.agentUserId
       toast(t('shell.toast.taskDeliverFailed', { name }), 'error', messageForUser(detail.error))
     }
     window.addEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
     return () => window.removeEventListener(UI_EVENTS.sessionpageDeliverFailed, handleSessionpageDeliverFailed)
-  }, [toast])
+  }, [contacts, t, toast])
 
   // @@@sessionpage otty-state — the consolidated attention from the session backend (agents blocked on the human).
   // Drives the 消息 rail dot. main broadcasts on subscribe + on every change.
