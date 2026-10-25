@@ -31,7 +31,7 @@ import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { clearDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
+import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
@@ -387,9 +387,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           // 拖起来就不是在看这张卡了。
           identityCard.dismiss();
           // 带上项目:落在一块的边上时,分出来的那块要开这条会话的页(spec session-page「一屏几块」)。
-          setDraggedSession(e.dataTransfer, { sessionId, title, projectId }, e.currentTarget);
+          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title, projectId }, e.currentTarget);
         },
-        onDragEnd: clearDraggedSession,
+        onDragEnd: clearDraggedScreenContent,
         ...nestHere,
         onPointerEnter: identityCard.onPointerEnter,
         onPointerLeave: identityCard.onPointerLeave,
