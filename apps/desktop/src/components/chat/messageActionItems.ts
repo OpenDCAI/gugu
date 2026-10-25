@@ -5,6 +5,8 @@ export type MessageActionTarget = {
   isMine: boolean
   isRetracted: boolean
   content: string | null
+  onReply?: () => void
+  onQuoteSelection?: () => void
   onCopy?: () => void
   onForward?: () => void
   onDelete?: () => void
@@ -29,6 +31,8 @@ export type MessageActionItem = {
 export function messageActionItems(target: MessageActionTarget, t: TFunction<'messaging'>): MessageActionItem[] {
   const hasContent = !!target.content && !target.isRetracted
   const items: (MessageActionItem | false)[] = [
+    !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
+    !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
     !!target.onOpenTopic && { key: 'openTopic', icon: Reply, label: t('message.actions.openTopic'), onSelect: target.onOpenTopic, disabled: target.isRetracted },
     !!target.onForward && { key: 'forward', icon: Share, label: t('message.actions.forward'), onSelect: target.onForward, disabled: !hasContent },

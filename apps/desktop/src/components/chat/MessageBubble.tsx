@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useToast } from '../toastContext'; import { downloadAttachment } from '../../lib/attachmentBytes'
 import { motion, AnimatePresence } from 'framer-motion'; import { MediaAttachmentBubble } from './MediaAttachmentBubble'; import { GroupAvatarSlot } from './StickyGroupAvatar'
@@ -22,11 +22,10 @@ import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
 import { MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
-import { Menu, MenuItem, type MenuAnchorProps } from '../ui/Menu'
 import { Ellipsis, Reply, Smile, type IconComponent } from '@/lib/icons'
-const EmojiQuickPicker = lazy(() => import('./EmojiQuickPicker').then((module) => ({ default: module.EmojiQuickPicker })))
+import { DeferredEmojiQuickPicker, DeferredMessageActionSheet } from './messageActionModules'
+import { MsgMoreMenu } from './MsgMoreMenu'
 import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
-const MessageActionSheet = lazy(() => import('./MessageActionSheet').then((module) => ({ default: module.MessageActionSheet }))); import { messageActionItems, type MessageActionTarget } from './messageActionItems'
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { AgentAnswerActions } from './AgentAnswerActions'
@@ -249,9 +248,9 @@ export const MessageBubble = memo(function MessageBubble({
   const { toast } = useToast()
   // @@@copy-fail-loud (#1123) — clipboard.writeText 是 Promise；原代码未 await/未 catch → 失败时是
   //   unhandled rejection、菜单照常关，用户以为复制成功。await + try/catch，成功/失败都给反馈。
-  const handleCopyText = async () => {
+  const handleCopyText = async (content = msg.content ?? '') => {
     try {
-      await navigator.clipboard.writeText(msg.content ?? '')
+      await navigator.clipboard.writeText(content)
       toast(t('message.copied'), 'success')
     } catch {
       toast(t('message.copyFailed'), 'error')
@@ -268,6 +267,8 @@ export const MessageBubble = memo(function MessageBubble({
   const [isRowHovered, setIsRowHovered] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const reactButtonRef = useRef<HTMLButtonElement>(null)
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  const [menuSelection, setMenuSelection] = useState('')
   const { user } = useAuth()
   const voiceAttachment = msg.content_type === 'attachment'
     ? parseVoiceAttachmentContent(msg.content)
@@ -291,9 +292,12 @@ export const MessageBubble = memo(function MessageBubble({
   }, [showMenu, showMoreMenu, showEmojiPicker])
 
   // 同一份动作:桌面挂在悬停条 ⋯ 与右键菜单上,手机挂在长按面板上。每个动作做完就关掉打开它的那个面。
-  const messageActions = (close: () => void): MessageActionTarget & { onClose: () => void } => ({
+  const messageActions = (close: () => void) => ({
     isMine: msg.is_mine, isRetracted: !!msg.retracted_at, content: msg.content, onClose: close,
-    onCopy: () => { void handleCopyText(); close() },
+    onReply: () => { onQuote(msg); close() },
+    onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
+    onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
+    onCopy: () => { void handleCopyText(menuSelection || undefined); close() },
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
@@ -301,13 +305,20 @@ export const MessageBubble = memo(function MessageBubble({
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
   })
 
+  const captureMenuSelection = () => {
+    const selection = window.getSelection()
+    setMenuSelection(selection && bubbleRef.current?.contains(selection.anchorNode) && bubbleRef.current.contains(selection.focusNode) ? selection.toString() : '')
+  }
+
   const openMenuAt = (x: number, y: number) => {
+    captureMenuSelection()
     document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
     setMenuPos({ x, y })
     setShowMenu(true)
   }
 
   const openMoreMenuFromButton = () => {
+    captureMenuSelection()
     document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
     setShowMoreMenu(true)
   }
@@ -500,6 +511,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
 
           <div
+            ref={bubbleRef}
             data-testid={AUTOMATION_TEST_IDS.messageBubbleActionTarget}
             style={bubbleStyle}
             // 合组消息隐藏了名字/时间行，时间挪进 hover 提示，保持可查。
@@ -612,22 +624,20 @@ export const MessageBubble = memo(function MessageBubble({
       {showMoreMenu && <MsgMoreMenu anchor={moreButtonRef} {...messageActions(() => setShowMoreMenu(false))} />}
 
       {/* ── 右键:指针处的同一份菜单。手机长按:底部面板(Sheet 进返回键栈、带遮罩,关闭路径由它保证) ── */}
-      {showMenu && <Suspense fallback={null}>{compactMobile ? (
-        <MessageActionSheet
+      {showMenu && (compactMobile ? (
+        <DeferredMessageActionSheet
           {...messageActions(() => setShowMenu(false))}
-          onReply={() => { onQuote(msg); setShowMenu(false) }}
-          onReact={(emoji) => { onReaction(msg.id, emoji); setShowMenu(false) }}
         />
-      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />}</Suspense>}
+      ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
-      {showEmojiPicker && <Suspense fallback={null}>
-        <EmojiQuickPicker
+      {showEmojiPicker && (
+        <DeferredEmojiQuickPicker
           anchor={reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
         />
-      </Suspense>}
+      )}
     </div>
   )
 })
@@ -667,7 +677,6 @@ function ReactionBar({ reactions, isMine, onToggle }: {
     </div>
   )
 }
-
 /* ─────────────────────────────────────────────────────────────────────────────
    HoverActionBar — design .msg-actions / .ma-b (lines 121-125 of index.html)
 
@@ -798,24 +807,5 @@ function HoverActionBar({
       <MaButton title={t('message.actions.reply')} icon={Reply} onClick={onReply} />
       <MaButton title={t('message.actions.more')} icon={Ellipsis} onClick={onMore} buttonRef={moreButtonRef} />
     </div>
-  )
-}
-
-/* MsgMoreMenu — design #msgmenu:动作表见 MessageActionSheet 的 messageActionItems(与手机长按面板同一份)。
-   引用在悬停条的「回复」上;撤回不在设计稿里。 */
-type MsgMoreMenuProps = MenuAnchorProps & MessageActionTarget & { onClose: () => void }
-
-function MsgMoreMenu({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic, onClose, ...anchor }: MsgMoreMenuProps) {
-  const { t } = useTranslation('messaging')
-  // 翻转/平移全交给 Base UI(它量真实弹层);❌ 按条数估高再手算上翻。
-  return (
-    <Menu {...anchor} minWidth={180} onClose={onClose}>
-      {messageActionItems({ isMine, isRetracted, content, onCopy, onForward, onDownload, onDelete, onSelect, onOpenTopic }, t).map((item) => (
-        <MenuItem key={item.key} icon={<item.icon size={15} />} disabled={item.disabled} danger={item.danger} title={item.title}
-          onClick={item.onSelect ? () => { item.onSelect?.(); onClose() } : undefined}>
-          {item.label}
-        </MenuItem>
-      ))}
-    </Menu>
   )
 }
