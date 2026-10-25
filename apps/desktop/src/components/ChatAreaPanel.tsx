@@ -88,6 +88,7 @@ import { useAgentFloodNotice } from '@/hooks/useAgentFloodNotice'
 import { TopicSplitPane } from './chat/TopicSplitPane'
 import { useToast } from './toastContext'
 import { rendererLogger } from '../lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { PaneHeader } from './ui/Pane'
 import { ChatBlockHead } from './chat/ChatBlockHead'
@@ -535,12 +536,9 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
     enabled: !isFiltering && !unreadNavigationPending, messageWindow, scrollerEl, scrollerRef, listRef, isAtBottomRef,
     isPreservingPosition, prepareForSavedPosition, forgetSavedPosition, returnToLatest: returnToLatestMessages, onError: onHistoryError })
 
-  const handleReaction = useCallback(
-    (messageId: string, emoji: string) => {
-      void toggleReaction(messageId, emoji).catch(() => toast(t('chatArea.operationFailed'), 'error')) // #1859 fire-and-forget 补 catch
-    },
-    [toggleReaction, toast, t],
-  )
+  const handleReaction = useCallback((messageId: string, emoji: string) => {
+    void toggleReaction(messageId, emoji).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))
+  }, [toggleReaction, toast])
 
   // Stable rowProps — only changes when underlying data does, so visible rows are
   // not remounted on unrelated ChatAreaPanel re-renders.
@@ -1193,7 +1191,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
               const split = topicSurface.splitTopic; openFilePreview(file, undefined, split ? () => topicSurface.openSplit(split) : undefined)
             }}
             onDownloadFile={(file) => {
-              void downloadAttachment(file.source, file.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error'))
+              void downloadAttachment(file.source, file.fileName).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))
             }}
             mentionMembers={splitMentionMembers}
             onSend={topicSurface.sendInSplit}
@@ -1210,10 +1208,10 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
             currentUserId={user?.id ?? null}
             mobile={mobile}
             onReaction={(id, emoji) => void topicSurface.splitLine.toggleReaction(id, emoji)
-              .catch(() => toast(t('chatArea.operationFailed'), 'error'))}
+              .catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))}
             onForward={handleForward} visible={surfaceVisible}
             onDelete={(id) => void topicSurface.splitLine.deleteMessage(id)
-              .catch(() => toast(t('chatArea.operationFailed'), 'error'))}
+              .catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error'))}
           />
         )}
 
