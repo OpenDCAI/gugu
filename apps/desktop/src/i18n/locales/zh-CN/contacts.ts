@@ -100,6 +100,7 @@ export default {
     "title": "新建群聊"
   },
   "memberPicker": {
+    "selectionUnavailable": "所选成员不可用或无法邀请加入此群。",
     "allProjects": "全部",
     "allResults": "全部结果",
     "localDevice": "{{name}} · 本机",

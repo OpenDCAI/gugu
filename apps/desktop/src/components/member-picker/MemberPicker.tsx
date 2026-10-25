@@ -113,6 +113,8 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
   }), [deferredQuery, model])
 
   const entryOf = useMemo(() => new Map([...model.people, ...model.agents].map((entry) => [entry.contact.id, entry])), [model])
+  const unavailableSelection = selected.some((id) => !entryOf.has(id))
+  const canConfirm = !busy && !refreshing && !loadingContacts && contactsStatus === 'ready' && selected.length > 0 && !unavailableSelection
   const searchRows: Row[] = result ? [...result.people, ...result.agents].map((hit) => ({ entry: entryOf.get(hit.item.id)!, hit })) : []
   const scopeCounts = new Map<string, number>()
   for (const row of searchRows) for (const key of model.sourcesOf(row.entry.contact.id)) scopeCounts.set(key, (scopeCounts.get(key) ?? 0) + 1)
@@ -132,8 +134,8 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
   const confirm = async () => {
-    if (busy || selected.length === 0) return
-    const keep = await onConfirm(selected)
+    if (!canConfirm) return
+    const keep = await onConfirm(selected.filter((id) => !isLocked(id)))
     if (keep) setSelected([...keep])
   }
   const pickSource = (key: string) => {
@@ -192,7 +194,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
     ...sources.map((s) => sourceButton(s.key, labelOf(s), result ? scopeCounts.get(s.key) ?? 0 : s.entries.length)),
   ]
   const confirmButton = (
-    <Button variant="primary" size={mobile ? 'sm' : 'md'} disabled={busy || selected.length === 0} onClick={() => void confirm()}>
+    <Button variant="primary" size={mobile ? 'sm' : 'md'} disabled={!canConfirm} onClick={() => void confirm()}>
       {busy && busyLabel ? busyLabel : confirmLabel(selected.length)}
     </Button>
   )
@@ -258,6 +260,7 @@ export function MemberPicker({ title, confirmLabel, onConfirm, onClose, initialS
           {letters ? <ContactsAzIndex mobile={mobile} present={new Set(visibleRows.map((row) => getPinyinInitial(displayName(row.entry.contact))))} onPick={jump} /> : null}
         </div>
       </div>
+      {!refreshing && contactsStatus === 'ready' && unavailableSelection ? <p role="alert" className="!m-0 !px-5 !py-2 text-[length:var(--font-caption)] text-[var(--danger)]">{t('memberPicker.selectionUnavailable')}</p> : null}
       {footer}
       {!mobile ? <div className="flex shrink-0 justify-end border-t border-[var(--border-subtle)] !px-5 !py-3">{confirmButton}</div> : null}
     </div>

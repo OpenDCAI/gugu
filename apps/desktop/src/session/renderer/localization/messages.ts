@@ -885,6 +885,7 @@ const enUSCoreMessages = {
   'extensions.spawnedByUninstalled': 'Started by the uninstalled “{name}” App',
   // 把一条会话行拖进 composer,但它在本机名册里没有身份 —— 说得出「为什么还不能 @」。
   'chat.mentionDropNoIdentity': '“{title}” has no identity yet — run it once before you can @ it',
+  'chat.mentionDropPrivateAgent': 'This Agent is private to another user and cannot be added.',
   'chat.sideChatSuffix': '{label} · Side',
   'chat.sideChatFailed': 'The side chat could not be opened',
   'chat.forkUnsupported': '{name} does not support forking a task',
@@ -1739,6 +1740,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'extensions.spawnedBy': '由 App「{name}」发起',
   'extensions.spawnedByUninstalled': '由已卸载的 App「{name}」发起',
   'chat.mentionDropNoIdentity': '「{title}」还没有身份，先跑一次它才能被 @',
+  'chat.mentionDropPrivateAgent': '此 Agent 为其他用户私有，无法添加。',
   'chat.sideChatSuffix': '{label} · 侧边',
   'chat.sideChatFailed': '侧边聊天没能打开',
   'chat.forkUnsupported': '{name} 不支持会话分叉',
