@@ -113,11 +113,11 @@ export function createMessagePreviewHost(deps: MessagePreviewHostDeps): {
     try {
       const read = await readSessionPreview(watch.sessionId, deps.turnLimit);
       if (watch.closed) return;
-      if (!read.ok) {
-        warn('messagePreview: snapshot failed', { topic: watch.topic, error: read.error });
-        return;
-      }
-      const projection = read.value;
+      if (!read.ok) warn('messagePreview: snapshot failed', { topic: watch.topic, error: read.error });
+      // 读不到也推:查看端照原错误码说是哪一种(记录不在这台机器上……),❌ 让它等满超时报「连不上」。
+      const projection: MessagePreviewProjection = read.ok
+        ? read.value
+        : { running: false, now: null, ended: null, entries: [], error: read.error };
       const wire = JSON.stringify(projection);
       if (wire === watch.lastWire && !force) return;
       watch.lastWire = wire;
@@ -186,18 +186,15 @@ export function createMessagePreviewHost(deps: MessagePreviewHostDeps): {
       { conversationId: sessionId, subscriptionId: watch.serviceSubscriptionId, cursor: null },
       () => schedule(watch)
     );
-    if (!subscribed.ok) {
-      teardown(watch);
-      return { error: subscribed.error };
-    }
     // 订阅在飞时这份已被退订/清扫/整体拆掉:那时 teardown 撤了个还没登记的 id,这里补撤。
     if (watch.closed || disposed) {
       service.unsubscribe(watch.serviceSubscriptionId);
       teardown(watch);
       return rpcError('preview_closed', '订阅完成前这份预览已经关了');
     }
+    // 订不上(这份记录读不到)也留着这份:应答没人等,原因只能经预览 topic 推给查看端(publish 读同一份快照);租约照常续、照常拆。
     schedule(watch, true);
-    return { result: { topic } };
+    return subscribed.ok ? { result: { topic } } : { error: subscribed.error };
   };
 
   const withRequest =

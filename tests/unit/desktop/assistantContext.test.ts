@@ -106,10 +106,27 @@ it('keeps home executors isolated while the host supplies the contract in their 
   expect(options.settingSources).toEqual([])
   expect(options.tools).toContain('Bash')
   expect(options.env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', KEEP_THIS: 'yes' })
+  expect(options.env).not.toHaveProperty('ENABLE_TOOL_SEARCH')
   expect(options.settings).toBe('/private/model.json')
   expect(options.mcpServers).toHaveProperty('plugin_gugu-product_gugu')
   expect(after.artifacts).toEqual(before.artifacts)
   expect(JSON.stringify(after.artifacts)).not.toContain('recovery.cjs')
+})
+
+it('preserves executor tool-search choices without inheriting the assistant override', () => {
+  for (const value of ['true', 'auto:5']) {
+    const capabilities = fixture()
+    const claude = capabilities.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }
+    claude.options.env.ENABLE_TOOL_SEARCH = value
+    const executor = assistantHomeTaskContext(capabilities, '/gugu/assistant', '/gugu')
+    const options = (executor.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }).options
+    expect(options.env.ENABLE_TOOL_SEARCH).toBe(value)
+    for (const kind of ['cloud', 'computer'] as const) {
+      const assistant = personalAssistantContext(capabilities, kind)
+      expect((assistant.sessionNewPatch!.meta!.claudeCode as { options: { env: Record<string, string> } }).options.env.ENABLE_TOOL_SEARCH).toBe('false')
+    }
+    expect(claude.options.env.ENABLE_TOOL_SEARCH).toBe(value)
+  }
 })
 
 it('excludes ancestor coding instructions without changing the assistant settings or its own guide', async () => {
@@ -179,7 +196,7 @@ it('loads the assistant project and explicit Gugu tools without the host coding 
   expect(JSON.stringify(options.mcpServers)).not.toContain('private-sentinel')
   expect(options.settings).toBe('/private/model.json')
   expect(options.disallowedTools).toEqual(['AskUserQuestion'])
-  expect(options.env).toEqual({ KEEP_THIS: 'yes', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000' })
+  expect(options.env).toEqual({ KEEP_THIS: 'yes', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', ENABLE_TOOL_SEARCH: 'false' })
   expect(after.sessionPrompt).toBe(before.sessionPrompt)
   expect(options.systemPrompt).toMatchObject({ type: 'custom', snapshot: false })
   const prompt = (options.systemPrompt as { prompt: string }).prompt
@@ -359,7 +376,7 @@ it('removes a persisted early-compaction percentage instead of carrying the old 
   const options = (chosen.sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
   options.env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '40000', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '75', KEEP_THIS: 'yes' }
   const next = (personalAssistantContext(chosen).sessionNewPatch!.meta!.claudeCode as { options: Record<string, unknown> }).options
-  expect(next.env).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', KEEP_THIS: 'yes' })
+  expect(next.env).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '250000', KEEP_THIS: 'yes', ENABLE_TOOL_SEARCH: 'false' })
   expect(options.env).toHaveProperty('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', '75')
 })
 

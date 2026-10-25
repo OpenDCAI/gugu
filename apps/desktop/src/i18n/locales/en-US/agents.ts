@@ -199,6 +199,7 @@ export default {
       "done": "Done",
       "empty": "No recent activity",
       "promptElsewhere": "A message from somewhere else",
+      "recordNotFound": "This machine can't read this task's record",
       "toolCount": "{{state}} ×{{count}}",
       "unavailable": "Can't reach its activity right now"
     },

@@ -105,10 +105,19 @@ export class ActivityJournal {
     for (const field of ['session_id', 'project_id'] as const) if (q[field]) { conditions.push(`${field} = ?`); args.push(q[field]); }
     const rows = this.sql.prepare(`SELECT seq, data FROM activity_events WHERE ${conditions.join(' AND ')} ORDER BY seq LIMIT ?`).all(...args, q.limit + 1) as Row[];
     const page = rows.slice(0, q.limit);
+    // Current session metadata, not input/reply text and not an event-time title.
+    const sessionIds = [...new Set(page.flatMap(row => {
+      const event = activityEventSchema.parse(JSON.parse(row.data));
+      return event.session_id ? [event.session_id] : [];
+    }))];
+    const titles = sessionIds.length === 0 ? [] : this.sql.prepare(
+      `SELECT id, title FROM sessions WHERE id IN (${sessionIds.map(() => '?').join(',')})`
+    ).all(...sessionIds) as Array<{ id: string; title: string }>;
     const segments = this.sql.prepare(`SELECT started_at, last_seen_at, ended_at FROM activity_coverage
       WHERE started_at < ? AND COALESCE(ended_at, last_seen_at) >= ? ORDER BY started_at`).all(Date.parse(q.until), Date.parse(q.since)) as Coverage[];
     return {
       events: page.map(row => ({ ...activityEventSchema.parse(JSON.parse(row.data)), sequence: row.seq })),
+      session_titles: Object.fromEntries(titles.map(row => [row.id, row.title])),
       next_cursor: rows.length > q.limit ? Buffer.from(JSON.stringify({ v: 1, signature, after: page.at(-1)!.seq, high })).toString('base64url') : null,
       order: 'observation_sequence',
       coverage: { scope: 'this_machine', queried_at: this.now(), collector_running: this.segmentId !== null, segments,

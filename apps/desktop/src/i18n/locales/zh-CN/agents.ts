@@ -199,6 +199,7 @@ export default {
       "done": "已完成",
       "empty": "最近没有做事",
       "promptElsewhere": "来自别处的一条消息",
+      "recordNotFound": "这台机器读不到这条任务的记录",
       "toolCount": "{{state}} ×{{count}}",
       "unavailable": "暂时拿不到它的近况"
     },

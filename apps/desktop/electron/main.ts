@@ -446,7 +446,7 @@ import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe, type SharedSshLinks } fro
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
-import { createActivityDeviceQuery } from './activity-device-query'
+import { createActivitySummaryQuery } from './activity-summary-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
 import { computerName, ensureGuguKey, guguKeyComment, guguKeyDir } from './server/ssh-key-install'
 import {
@@ -4461,7 +4461,7 @@ app.whenReady().then(async () => {
         remote: crossMachine().messageDeps(() => remoteCaller(auth, context), signal),
       })
     }
-    const listActivity = createActivityDeviceQuery()
+    const listActivity = createActivitySummaryQuery()
     localSessionActionDispatcher = async (auth, context, action, signal) => {
       signal.throwIfAborted()
       if (!action || typeof action !== 'object') {
