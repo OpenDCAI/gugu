@@ -73,13 +73,13 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
       if (res.group) setGroup(res.group)
       else setNotFound(true)
     } catch (err) {
-      // 原因进日志,文案只留用户能照做的下一步(user-copy-leak 守卫钉的就是这条)。
+      // 原因进日志,提示复用去敏后的同一原因。
       joinGroupLog.error({ publicId: parsedId, error: String(err) }, 'lookup public group failed')
       toast(messageForUser(err), 'error')
     } finally {
       setLooking(false)
     }
-  }, [idValid, looking, parsedId, t, toast])
+  }, [idValid, looking, parsedId, toast])
 
   const handleJoin = useCallback(async () => {
     if (!group || joining) return
