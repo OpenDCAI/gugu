@@ -19,6 +19,8 @@ body:not(.show-doc):not(.no-list) .doc { display: none; }
 .file-mark { grid-row: span 2; width: var(--em-icon-md); height: var(--em-icon-md); flex: none; object-fit: contain; color: var(--em-foreground-muted); }
 .file-meta { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); }
 .file-meta > :not(:empty) ~ :not(:empty)::before { content: ' · '; }
+.file-meta > .file-activity { display: block; }
+.file-meta > .file-activity::before { content: none; }
 .row-more { visibility: hidden; }
 .file:hover .row-more, .file:focus-within .row-more, .row-more[aria-expanded='true'] { visibility: visible; }
 @media (hover: none) { .row-more { visibility: visible; } }
@@ -78,6 +80,7 @@ body:not([data-state='doc']) .held-bar { display: none; }
 .banner[data-tone='error'] { color: var(--em-foreground-destructive); }
 .banner[data-tone='info'] { color: var(--em-foreground-muted); }
 .doc-info { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--em-spacing-xs) var(--em-spacing-md); padding: var(--em-spacing-xs) var(--em-spacing-md); font-size: var(--em-font-caption); line-height: var(--em-lh-caption); color: var(--em-foreground-muted); }
+.doc-info > .file-activity { flex-basis: 100%; }
 .sources { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .source { border: 0; background: none; color: var(--em-accent-11); }
 
