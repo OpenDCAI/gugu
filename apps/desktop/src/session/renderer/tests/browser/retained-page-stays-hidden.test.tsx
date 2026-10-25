@@ -1,6 +1,6 @@
 import { DndContext } from '@dnd-kit/core';
 import { observable } from 'mobx';
-import { act, type ReactNode } from 'react';
+import { act, type CSSProperties, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
@@ -123,6 +123,26 @@ describe('a retained session page that is not on screen', () => {
     expect(paintedInHiddenPage()).toEqual([]);
     expect(focusable('hidden')).toBe(false);
     expect(findable('hidden terminal')).toBe(false);
+  });
+
+  // owner 10-25(Beta 1030.1):工作区页签只有前面的小图标点得动。窗口拖拽区不认 content-visibility:Blink 照样收集
+  // 藏着的页顶栏的 drag / no-drag 矩形(按上次的布局),DOM 序在后就盖掉正在显示那一页的 no-drag,OS 把点击当拖窗口吃掉。
+  // 矩形按 getBoundingClientRect 那套几何(含祖先 transform)换算 ⇒ 判据:藏着的页里每个声明了拖拽区的元素都是 0 面积。
+  it('declares no window drag region over the page on screen', async () => {
+    await drawPages((name) => (
+      <div data-strip={name} style={{ height: 40, WebkitAppRegion: 'drag' } as CSSProperties}>
+        <button type="button" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>{name} tab</button>
+      </div>
+    ));
+    const regions = (page: string) =>
+      [...container.querySelectorAll<HTMLElement>(`[data-page="${page}"] *`)]
+        .filter((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region') !== 'none')
+        .map((node) => node.getBoundingClientRect())
+        .map((box) => box.width * box.height);
+    // Positive control: the page on screen declares its strip and tab, with real area.
+    expect(regions('shown')).toHaveLength(2);
+    expect(regions('shown').every((area) => area > 0)).toBe(true);
+    expect(regions('hidden')).toEqual([0, 0]);
   });
 
   it('paints nothing of its active web page tab', async () => {
