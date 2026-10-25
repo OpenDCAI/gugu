@@ -268,10 +268,10 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
   const handleDownload = useCallback(async () => {
     try {
       await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
-    } catch (error) {
-      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
+    } catch {
+      toast(t('shell.imagePreview.downloadFailed'), 'error')
     }
-  }, [current, toast])
+  }, [current, t, toast])
 
   const handleCopy = useCallback(async () => {
     if (copying) return

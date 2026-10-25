@@ -46,9 +46,7 @@ export async function writeIdempotentChatMessage(
   const message = rows.length === 1 && rows[0] && typeof rows[0] === 'object'
     ? messageItemFromRow(rows[0] as RawMessageRow, input.senderUserId)
     : null
-  if (!message) {
-    throw new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } })
-  }
+  if (!message) throw new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } })
   // gugu-dev#181 ⑨ a reply to an agent's question card is its answer (questionCardAnswer.ts). The reply is sent either way;
   // an answer that does not land leaves the card waiting, where the owner sees it.
   if (message.reply_to_message_id) {

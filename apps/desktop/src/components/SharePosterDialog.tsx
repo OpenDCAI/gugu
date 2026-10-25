@@ -110,12 +110,9 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
     setTimeout(() => setDownloadDone(false), 2000)
   }, [])
 
-  let copyLabel: string
-  switch (copyState) {
-    case 'copying': copyLabel = t('sharing.copying'); break
-    case 'copied':  copyLabel = t('sharing.copied'); break
-    default:        copyLabel = copyState ?? t('sharing.copyImage')
-  }
+  const copyLabel = copyState === 'copying' ? t('sharing.copying')
+    : copyState === 'copied' ? t('sharing.copied')
+    : copyState ?? t('sharing.copyImage')
 
   return (
     <Sheet
