@@ -18,6 +18,18 @@ function fixture() {
 }
 const surface = { pageId: 1, extensionId: 'reader', itemId: null };
 describe('App stored files enter the canonical local resolver before all cloud metadata', () => {
+  it('locates the App shell group without refreshing an account, querying the workspace or reading bytes', async () => {
+    const f = fixture(), resolve = f.platform.resolveFile!, closed = vi.fn();
+    f.platform.resolveFile = async (...args) => {
+      const file = await resolve(...args);
+      if (file?.status === 'ready') { const dispose = file.dispose; file.dispose = async () => { closed(); await dispose(); }; }
+      return file;
+    };
+    await expect(f.files.chatOf(revision.item_id!)).resolves.toBe('group');
+    await expect(f.files.groupFile('group', revision.item_id!)).resolves.toMatchObject({ chatId: 'group', itemId: revision.item_id, file: { document: false, version: 1, size: bytes.length } });
+    await expect(f.files.groupFile('another-group', revision.item_id!)).rejects.toMatchObject({ code: 'not-found' });
+    expect(f.never).not.toHaveBeenCalled(); expect(f.open).not.toHaveBeenCalled(); expect(f.dispose).not.toHaveBeenCalled(); expect(closed).toHaveBeenCalledTimes(3);
+  });
   it('opens the actual cached publication read-only without account refresh, workspace lookup or identities', async () => {
     const f = fixture(), opened = await f.files.open(surface, { ref: { id: revision.item_id! } });
     expect(new Uint8Array(opened.bytes!)).toEqual(bytes);

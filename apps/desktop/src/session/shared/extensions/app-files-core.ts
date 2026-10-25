@@ -546,6 +546,11 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
+  async function localRevision(itemId: string) {
+    const local = await platform.resolveFile?.({ id: itemId }, null, { localOnly: true });
+    if (local?.status !== 'ready') return null;
+    try { return local.revision; } finally { await local.dispose(); }
+  }
   async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
     const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
     if (!file && localOnly) return null;
@@ -727,6 +732,8 @@ export function createAppFiles(platform: FilesPlatform) {
 
     /** The chat a file is in, as this person sees it: a file handed to a program by its id says (F16). */
     async chatOf(itemId: string): Promise<string> {
+      const local = await localRevision(String(itemId));
+      if (local?.chat_id) return local.chat_id;
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
       if (!row) throw new AppFileError('not-found', 'No such file in a chat you are in');
@@ -768,6 +775,11 @@ export function createAppFiles(platform: FilesPlatform) {
 
     /** One of them, as `openTarget` answers for a page: what to open, and what kind of file it is. */
     async groupFile(chatId: string, itemId: string) {
+      const local = await localRevision(String(itemId));
+      if (local) {
+        if (local.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
+        return { chatId, itemId: local.item_id!, name: local.file_name, typedName: typedFileName({ name: local.file_name, contentType: local.content_type }), file: { document: false, contentType: local.content_type, version: local.version!, size: local.size_bytes } };
+      }
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
       if (row && row.chat_id !== chatId) chatId = await resourceChatIdOf(token, chatId, userId);
