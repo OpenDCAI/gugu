@@ -76,7 +76,7 @@ function rowAgentStatus(
 }
 
 interface ChatListPanelProps {
-  activeTab: SidebarTab
+  activeTab?: SidebarTab
   mobile?: boolean
   /** 手机上列表被打开的会话 / 创建页整页盖住(隐藏不卸载)。 */
   hidden?: boolean

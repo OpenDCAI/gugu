@@ -55,8 +55,6 @@ const STRINGS = {
     offline: '离线：改动会在回线后补上',
     gone: '这个文件不在了：被删掉了，或者你已经不在这个对话里。',
     readOnly: '只读',
-    saving: '保存中',
-    saved: '已保存',
     edit: '源码',
     split: '对照',
     preview: '预览',
@@ -82,7 +80,8 @@ const STRINGS = {
     upload: '上传',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
-    createdBy: '{who} 创建于{time}',
+    createdBy: '{who} 创建 · {time}',
+    editedAt: '已编辑 · {time}',
     agent: 'Agent',
     system: '系统',
     sources: '来源消息',
@@ -128,8 +127,6 @@ const STRINGS = {
     offline: 'Offline: changes catch up when back online',
     gone: 'This file is gone: it was deleted, or you are no longer in this chat.',
     readOnly: 'Read-only',
-    saving: 'Saving',
-    saved: 'Saved',
     edit: 'Source',
     split: 'Side by side',
     preview: 'Preview',
@@ -155,7 +152,8 @@ const STRINGS = {
     upload: 'Upload',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
-    createdBy: 'Created by {who} {time}',
+    createdBy: 'Created by {who} · {time}',
+    editedAt: 'Edited · {time}',
     agent: 'agent',
     system: 'System',
     sources: 'Source messages',
@@ -337,7 +335,7 @@ function showList() {
   const fresh = state.shown && state.entries.find((e) => e.id === state.shown.id)
   if (fresh) {
     if (state.current?.entry.id === fresh.id) state.current.entry = fresh
-    $('doc-title').textContent = fresh.name
+    if (!$('doc-title').contains(document.activeElement)) $('doc-title').textContent = fresh.name
     showEntry(fresh)
   }
 }
@@ -354,7 +352,7 @@ function relativeTime(iso) {
   return rtf.format(seconds, 'second')
 }
 
-// When a file last changed: its last edit, else its making. There is no "last edited by" (fdf21cf0), only the time.
+// When a file last changed: its last edit, else its making. The folder does not provide the last editor.
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
@@ -561,6 +559,15 @@ function who(person) {
   return person.kind === 'agent' ? `${name} (${state.t.agent})` : name
 }
 
+// Creation and editing are separate facts: the creator must never be paired with the last edit's time.
+function activityOf(entry) {
+  if (!entry) return []
+  return [
+    entry.createdBy && !entry.systemRole ? fmt(state.t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) }) : relativeTime(entry.createdAt),
+    entry.updatedAt && entry.createdAt && Date.parse(entry.updatedAt) > Date.parse(entry.createdAt) ? fmt(state.t.editedAt, { time: relativeTime(entry.updatedAt) }) : '',
+  ].filter(Boolean)
+}
+
 // F39 (L5) People read "周五聚餐吃什么", not "周五聚餐吃什么.dinner-vote.json": the host drops the suffix an App claims the
 // file by (entry.displayName) and says which App (entry.claimedBy) — this page never reads suffixes itself. 「附件」 goes by
 // its role (子文件夹): the folder gugu keeps for a chat's attachments, named in the person's language.
@@ -608,12 +615,11 @@ function listItem(entry) {
   title.append(name)
   // The whole name — suffix included — stays one hover (and the details) away; where it is, when the list is a search.
   open.title = pathOf(entry)
-  // Who · when (folders also say how much is in them). A search includes the containing folder on this same line.
+  // Who made it and when, then a separate edit time (folders also say how much is in them).
   const meta = document.createElement('span')
   meta.className = 'file-meta'
-  for (const text of [entry.createdBy && !entry.systemRole ? who(entry.createdBy) : '', relativeTime(changedAt(entry)), ...(folder ? [fmt(t.items, { n: inside(entry.id).length })] : [])]) {
-    meta.append(Object.assign(document.createElement('span'), { textContent: text }))
-  }
+  for (const text of activityOf(entry)) meta.append(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
+  if (folder) meta.append(Object.assign(document.createElement('span'), { textContent: fmt(t.items, { n: inside(entry.id).length }) }))
   open.append(title)
   const where = state.filter.trim() && entry.parentId ? pathOf(entry).split('/').slice(0, -1).join('/') : ''
   if (where) meta.prepend(Object.assign(document.createElement('span'), { className: 'file-path', textContent: where }))
@@ -671,6 +677,7 @@ function startRename(li, entry) {
   li.draggable = false
   const input = document.createElement('input')
   input.className = 'rename-input'
+  input.setAttribute('aria-label', state.t.rename)
   input.value = entry.name
   li.replaceChildren(input)
   input.focus()
@@ -1188,12 +1195,12 @@ function watchStatus(current) {
     const t = state.t
     const badge = $('doc-status')
     badge.dataset.status = status
-    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'online' ? (file.saved ? t.saved : t.saving) : status === 'offline' ? t.offline : ''
+    badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
     else if (!$('banner').dataset.sticky) hideBanner()
   }
-  // `saved` moving fires onStatus too (the runtime, F20): the badge follows it, nothing looks again.
+  // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
   current.offs.push(file.onStatus(show))
   // A refused change (too large, rate-limited) is the runtime's to say, for every App alike (A6).
   show(file.status)
@@ -1264,16 +1271,12 @@ function showEntry(entry) {
   renderDocInfo(entry)
 }
 
-// Under the header: who created the file, and the messages it came from. The App cannot read those
+// Under the header: creation, editing, and the messages the file came from. The App cannot read those
 // messages (D-22); a click asks the host to show one in its chat (gugu.showMessage).
 function renderDocInfo(entry) {
   const t = state.t
   const parts = []
-  if (entry?.createdBy) {
-    const by = document.createElement('span')
-    by.textContent = fmt(t.createdBy, { who: who(entry.createdBy), time: relativeTime(entry.createdAt) })
-    parts.push(by)
-  }
+  for (const text of activityOf(entry)) parts.push(Object.assign(document.createElement('span'), { className: 'file-activity', textContent: text }))
   const sources = entry?.sourceMessageIds ?? []
   if (sources.length) {
     const box = document.createElement('span')
@@ -1385,8 +1388,12 @@ function start() {
   $('open-with').onclick = () => {
     if (state.shown) openInHost(state.shown, true)
   }
-  // Narrow, those two fold behind ⋯ (style.css): the page's one menu, as on a row.
-  $('more').onclick = () => toggleMenu($('more'), [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]])
+  // The same menu at every width; the wide pane also keeps its Download and Open with shortcuts.
+  $('more').onclick = () => {
+    const items = [[state.t.download, downloadShown], [state.t.openWith, () => openInHost(state.shown, true)]]
+    if (canWrite() && state.shown && !state.shown.systemRole && !state.current?.file.readOnly) items.push([state.t.rename, () => startRename($('doc-title'), state.shown)])
+    toggleMenu($('more'), items)
+  }
   document.addEventListener('pointerdown', (event) => {
     if (state.menuAnchor && !$('menu').contains(event.target) && !state.menuAnchor.contains(event.target)) closeMenu()
   })

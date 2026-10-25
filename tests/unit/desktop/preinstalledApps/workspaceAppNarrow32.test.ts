@@ -26,6 +26,9 @@ const gugu = {
   openBrowserTab: vi.fn(async () => {}),
   onLink: vi.fn(() => () => {}),
   setTabTitle: vi.fn(async (_title: string) => {}),
+  // The header is usable while the editor kit is still loading.
+  codemirror: vi.fn(() => new Promise(() => {})),
+  markdown: vi.fn(() => new Promise(() => {})),
   files: {
     list: vi.fn(async () => entries),
     onChanged: vi.fn(() => () => {}),
@@ -34,6 +37,11 @@ const gugu = {
     remove: vi.fn(),
     openWith: vi.fn(async () => {}),
     download: vi.fn(async () => true),
+    rename: vi.fn(async (entry: { id: string }, name: string) => {
+      const row = entries.find((candidate) => candidate.id === entry.id)!
+      Object.assign(row, { name, displayName: name })
+      return row
+    }),
   },
 }
 
@@ -93,7 +101,7 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App'])
+    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App', 'Rename'])
     ;($('menu').firstElementChild as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
@@ -138,5 +146,52 @@ describe('workspace App in a narrow pane (F32)', () => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
     changed({ ...context, chat, locale })
     await vi.waitFor(() => expect(gugu.setTabTitle).toHaveBeenLastCalledWith(title))
+  })
+
+  test('an open Markdown uses the existing inline rename field, preserving it through revisions and handling cancel and failure', async () => {
+    const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
+    const file = { type: 'text', entry: entries[1], readOnly: false, close: vi.fn() }
+    gugu.files.open.mockResolvedValueOnce(file as never)
+    changed({ ...context, file: { chat: 'chat-1', id: 'plan' } })
+    await vi.waitFor(() => expect(shown()).toBe('plan.md'))
+    const opens = gugu.files.open.mock.calls.length
+    const rename = () => {
+      $('more').click()
+      ;([...$('menu').children].find((item) => item.textContent === 'Rename') as HTMLButtonElement).click()
+      return $('doc-title').querySelector<HTMLInputElement>('.rename-input')!
+    }
+    const style = document.createElement('style')
+    style.textContent = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/style.css'), 'utf8')
+    document.head.appendChild(style)
+    const input = rename()
+    expect(getComputedStyle($('doc-title')).display, 'the host-hidden heading reveals its rename field').not.toBe('none')
+    expect(document.activeElement).toBe(input)
+    input.value = 'renamed.md'
+    const heard = (gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void])[1]
+    heard({ kind: 'entries', entries: [{ ...entries[1] }], gone: [] })
+    expect($('doc-title').contains(input), 'an incoming file revision must not remove the active field').toBe(true)
+    expect(input.value).toBe('renamed.md')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    expect(gugu.files.rename).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'plan' }), 'renamed.md')
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('renamed.md')
+    expect(gugu.files.open).toHaveBeenCalledTimes(opens)
+    expect(file.close).not.toHaveBeenCalled()
+    expect(getComputedStyle($('doc-title')).display, 'the host takes over the title again after renaming').toBe('none')
+
+    const cancel = rename()
+    cancel.value = 'discarded.md'
+    cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    expect(gugu.files.rename).toHaveBeenCalledTimes(1)
+
+    gugu.files.rename.mockRejectedValueOnce(Object.assign(new Error('name already exists'), { code: 'name-taken' }))
+    const collision = rename()
+    collision.value = 'photo.png'
+    collision.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect($('banner').hidden).toBe(false))
+    expect($('banner').textContent).toContain('photo.png')
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    style.remove()
   })
 })

@@ -1,8 +1,9 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { PanelForm, SidePanelWidths } from '../../session/renderer/lib/layout/side-panel-split'
 import { extensionSurfaceStore } from '../../session/renderer/features/extensions/extension-surface-store'
-import type { AppOpenWithDetail, ChatPeekFile } from '../../session/shared/extensions/app-runtime-protocol'
-import { parseExtensionTabKind } from '../../session/shared/extensions/manifest'
+import { typedFileName, type AppOpenWithDetail, type ChatPeekFile } from '../../session/shared/extensions/app-runtime-protocol'
+import { displayNameOf, fileOpenersFor } from '../../session/shared/extensions/file-openers'
+import { parseExtensionTabKind, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 
 /** The group's panel beside the messages: 520 wide at first, never under 360 (the slot's INLINE_COMMANDS), as wide as last dragged. */
 export const GROUP_PANEL_WIDTHS: SidePanelWidths = { storageKey: 'gugu.groupPanel.width', min: 360, initial: 520 }
@@ -117,6 +118,27 @@ export const groupSlotMemory = {
   },
   /** The tabs, in the order they were opened; shown or not. */
   tabs: (chatId: string): readonly OpenedWith[] => remembered.get(chatId)?.open ?? NO_TABS,
+  fileIds: (): ReadonlySet<string> => new Set([...remembered.values()].flatMap((entry) => entry.open.flatMap((item) => item.itemId ? [item.itemId] : []))),
+  /** Fresh file metadata changes a tab's name, not its page, selection or place in the tab strip. */
+  updateFileNames(files: readonly { id: string; filename: string; content_type: string | null }[], installed: readonly ExtensionManifest[]) {
+    const names = new Map(files.map((file) => [file.id, file]))
+    let moved = false
+    // A topic and its source chat can both have the same shared-folder file open.
+    for (const [chatId, entry] of remembered) {
+      const open = entry.open.map((item) => {
+        const file = item.itemId && names.get(item.itemId)
+        if (!file || item.fileName === file.filename) return item
+        const typedName = typedFileName({ name: file.filename, contentType: file.content_type })
+        const claim = fileOpenersFor(typedName, installed, 'chat').find((candidate) => candidate.tabKind === item.kind)
+        const title = claim ? displayNameOf(file.filename, claim.suffix) : file.filename
+        return { ...item, title, fileName: file.filename, typedName }
+      })
+      if (open.every((item, index) => item === entry.open[index])) continue
+      remembered.set(chatId, { ...entry, open, active: entry.active ? open[entry.open.indexOf(entry.active)]! : null })
+      moved = true
+    }
+    if (moved) changed()
+  },
   topic: (chatId: string): OpenTopicTab | null => remembered.get(chatId)?.topic ?? null,
   /** The topic pane beside the group now shows this one; `null`: it is down (the topic stays a tab until its ×). */
   showTopic(chatId: string | null | undefined, topic: { chatId: string; name: string } | null) {
