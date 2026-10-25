@@ -730,6 +730,7 @@ describe('#5856 从一条消息开话题', () => {
     ) as HTMLElement | null
     expect(actionTarget).not.toBeNull()
     await fireContextMenu(actionTarget!)
+    await act(async () => { await vi.dynamicImportSettled() })
 
     const openTopicItem = Array.from(document.body.querySelectorAll('*')).find(
       (el): el is HTMLElement => el instanceof HTMLElement && el.textContent?.trim() === '开话题',
