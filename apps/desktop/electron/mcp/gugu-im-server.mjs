@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { conversationLink, groupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 
 import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
 import { createHash, randomUUID } from 'node:crypto'
@@ -18,6 +18,7 @@ import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../..
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
 import { createAttachmentResolver } from '../../../../packages/core/src/shared/attachmentUrls'
+import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
 import { AttachmentsError, commitAttachment, fetchAttachmentUrls, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
@@ -1462,7 +1463,7 @@ async function handleMessage(args, deps) {
       p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
       p_limit: clampLimit(args.limit, 20, 1, 100),
     })
-    return JSON.stringify(rows ?? [])
+    return JSON.stringify((rows ?? []).map(withFolderFile))
   }
   if (args.action === 'search') {
     const rows = await deps.restRpc('message_search_as', {
@@ -1472,7 +1473,7 @@ async function handleMessage(args, deps) {
       p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
       p_limit: clampLimit(args.limit, 20, 1, 100),
     })
-    return JSON.stringify(rows ?? [])
+    return JSON.stringify((rows ?? []).map(withFolderFile))
   }
   throw new Error(`gugu_message: unknown action ${args.action}`)
 }
@@ -2134,7 +2135,30 @@ async function downloadAttachment(messageId, deps) {
   const path = joinPath(dir, attachmentDownloadName(attachment.fileName))
   await mkdir(dir, { recursive: true, mode: 0o700 })
   await writeFile(path, bytes, { mode: 0o600 })
-  return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256 })
+  const folder = attachment.source.kind === 'item'
+    ? { file: groupFileLink(attachment.source.itemId, { version: attachment.source.version }), next: attachmentFolderLine(attachment.source.itemId, attachment.source.version) }
+    : {}
+  return JSON.stringify({ source_message_id: `msg:${messageId}`, file_path: path, file_name: attachment.fileName, size_bytes: bytes.length, sha256, ...folder })
+}
+
+/** message_send_file 的 file:群文件夹里一个文件的 gugu-file 链接(?v= 是它的那一版),或者裸的 item_id。 */
+function folderFileArg(raw) {
+  if (raw === undefined || raw === null || raw === '') return null
+  const text = String(raw).trim()
+  const link = parseGroupFileLink(text) ?? (/^[0-9a-f-]{36}$/i.test(text) ? { itemId: text.toLowerCase() } : null)
+  if (!link) throw new Error(`message_send_file: file is a file of the chat's folder, its gugu-file://<item_id>?v=<n> link — not ${JSON.stringify(text)}`)
+  return link
+}
+
+/** 附件消息的文件名:信封第一行「[附件] 名字 (类型)」(服务端写的,名字按文件夹的规矩规范化过)。 */
+function attachmentNameOf(message) {
+  return parseAttachmentContent(String(message.content ?? ''), message)?.fileName ?? null
+}
+
+/** 历史 / 搜索的一行:附件指着的群文件夹文件写成一个 file 链接(那一版),替掉两列裸 id。 */
+function withFolderFile(row) {
+  const { file_item_id: itemId, file_version: version, ...rest } = row
+  return typeof itemId === 'string' && Number.isInteger(version) ? { ...rest, file: groupFileLink(itemId, { version }) } : rest
 }
 
 async function handleFile(args, deps) {
@@ -2142,22 +2166,52 @@ async function handleFile(args, deps) {
     const chatId = await requireChat(args, deps)
     await assertNotOwnerFriendDm(deps, chatId, 'message_send_file', 'message_send_file_as_owner')
     const toUserIds = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
+    const folderFile = folderFileArg(args.file)
+    if (!folderFile && !args.file_path) throw new Error('message_send_file: give file (a file of the chat\'s folder), file_path (a file on this computer), or both')
+    if (folderFile && args.file_path && folderFile.version === undefined) {
+      throw new Error(`message_send_file: file_path as the next version of ${args.file} needs the version you started from: gugu-file://${folderFile.itemId}?v=<n>`)
+    }
     // #3641 附件也是往群里说话:与 message_send 同一道群规闸,在上传任何字节之前判。
     await assertGroupRulesSeen(deps, chatId, 'message_send_file')
     await assertRecipientsAreMembers(chatId, toUserIds, deps)
-    const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file')
-    const commit = {
-      staging_key: stagingKey,
-      message_id: randomUUID(),
-      chat_id: chatId,
-      sender_user_id: deps.context.agentId,
-      file_name: fileName,
-      content_type: contentType,
-      to_user_ids: toUserIds ?? [],
-      thread_root_id: deps.context.threadRootId ?? null,
+    const messageId = randomUUID()
+    const thread = { thread_root_id: deps.context.threadRootId ?? null }
+    let message
+    let fileName
+    if (folderFile && !args.file_path) {
+      // 按引用发:消息钉住群文件夹里那个文件的那一版,不传字节(gugu-supabase attachment_share)。
+      const [row] = await deps.restRpc('attachment_share', {
+        p_item_id: folderFile.itemId, p_version: folderFile.version ?? null, p_message_id: messageId, p_chat_id: chatId,
+        p_sender_user_id: deps.context.agentId, p_to_user_ids: toUserIds ?? [], p_thread_root_id: thread.thread_root_id,
+      })
+      message = row
+      fileName = attachmentNameOf(row ?? {})
+    } else {
+      const upload = await uploadForSend(args, deps, 'message_send_file')
+      const { endpoint, contentType, stagingKey } = upload
+      fileName = upload.fileName
+      const commit = {
+        staging_key: stagingKey,
+        message_id: messageId,
+        chat_id: chatId,
+        sender_user_id: deps.context.agentId,
+        file_name: fileName,
+        content_type: contentType,
+        to_user_ids: toUserIds ?? [],
+        ...thread,
+        // 那个文件的下一版:起点版本对不上(有人先存了新版)服务端就拒,什么都不写。
+        ...(folderFile ? { item_id: folderFile.itemId, expected_version: folderFile.version } : {}),
+      }
+      message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch((error) => {
+        if (!(error instanceof AttachmentsError && error.code === 'version_conflict')) throw error
+        throw new Error(`message_send_file: someone stored a newer version of ${args.file} since version ${folderFile.version}, and nothing was sent. Download the current one (message_download_file, or workspace__read with save), make your change on it, and send it with that version.`)
+      })
     }
-    const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
-    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName,
+    if (!message?.id) throw new Error('message_send_file: the server did not confirm the send')
+    const pinned = typeof message.file_item_id === 'string' && Number.isInteger(message.file_version)
+      ? { file: groupFileLink(message.file_item_id, { version: message.file_version }), version: message.file_version }
+      : {}
+    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName, ...pinned,
       source_link: conversationLink(chatId, String(message.id).replace(/^msg:/, '')) })
   }
   if (args.action === 'download-attachment') {
@@ -2194,9 +2248,8 @@ const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(reci
 const friendUserIdSchema = z.string().describe('From owner_friends_list.')
 // 用法写在字段说明里：顶层描述会被 Claude Code 截到 2048 字符，字段说明不截
 // （见 mcp-tool-description-budget.mjs）。这两条正是最容易被用错的地方，必须写在不会被截的那一侧。
-const uploadFilePathSchema = z.string().trim().min(1).describe(
-  'Absolute path; the server uploads it.'
-)
+// 绝对路径:读不到、不是文件时报错原话会说(readUploadBytes)。常驻工具的预算里省下这一句(#7335)。
+const uploadFilePathSchema = z.string().trim().min(1)
 const uploadFileNameSchema = z.string().trim().min(1).optional().describe(
   'Default: the name on disk.'
 )
@@ -2350,9 +2403,10 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: attach a requested file/report (≤10 MiB) from this machine. Editable documents: workspace__create in the catalog.',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n> link (no bytes copied); with file_path, your changed copy as its next version from n. file_path alone: a new file.',
     schema: z.object({
-      file_path: uploadFilePathSchema,
+      file: z.string().optional(),
+      file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
       to_user_ids: toUserIdsSchema,
@@ -2363,7 +2417,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file_as_owner',
     writer: true,
-    description: 'Send a local file or image (≤10 MiB) as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
+    description: 'Send a local file or image as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
     schema: z.object({
       friend_user_id: friendUserIdSchema,
       file_path: uploadFilePathSchema,

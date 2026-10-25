@@ -116,9 +116,12 @@ describe('message_download_file by source_message_id (#7290)', () => {
 
   test('folder-backed message: signs the pinned version as this agent, downloads the signed link', async () => {
     const { call, fetched, asked } = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3 })
-    await call()
+    const receipt = JSON.parse(await call())
     expect(asked).toEqual([[{ item_id: 'item-1', version: 3 }]])
     expect(fetched).toEqual(['https://cdn.test/ab/sha?auth_key=k'])
+    // 回执说出它是群文件夹里的哪个文件、哪一版,和改完怎么发成下一版。
+    expect(receipt).toMatchObject({ file: 'gugu-file://item-1?v=3' })
+    expect(receipt.next).toContain('message_send_file {file: "gugu-file://item-1?v=3", file_path}')
   })
 
   // 复核 X2:真正发出去的 attachments/urls 请求里,`as` 是这个 agent(不是令牌的主人)。

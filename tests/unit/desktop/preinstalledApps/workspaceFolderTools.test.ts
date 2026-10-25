@@ -121,7 +121,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
     expect(calls[0]).toEqual(['list', { chat: CHAT }])
     expect(all).toMatchObject({ chat_id: CHAT, documents: 2, files: 1, total: 3, rows: '1-3', next: null })
     expect(all.items[0]).toEqual({
-      id: DOC, name: 'notes [v2].md', type: 'text', size: 10, by, updated_at: '2026-10-11T00:00:00Z',
+      id: DOC, name: 'notes [v2].md', type: 'text', size: 10, version: 1, by, updated_at: '2026-10-11T00:00:00Z',
       link: `[notes \\[v2\\].md](gugu-file://${DOC})`,
     })
     expect(await list!.run({ chat_id: CHAT, rows: '2' })).toMatchObject({ total: 3, rows: '1-2', next: '3-4' })
