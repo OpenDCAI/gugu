@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement, useCallback, useMemo, useState, type SetStateAction } from 'react'
+import { act, createElement, useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer, selectComposer, writeComposer } from '../../../support/composerEditor'
@@ -7,6 +7,8 @@ import { ChatMessageComposer } from '../../../../apps/desktop/src/components/cha
 import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 import { ChatStoreProvider, type DraftAttachment, type DraftMention } from '../../../../apps/desktop/src/store/chatContext'
 import { chatStore } from '../../../support/testHarness'
+import { APP_COMPOSE_EVENT, type AppComposeDetail } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
+import { filePillText } from '../../../../apps/desktop/src/components/markdown/filePills'
 
 const { toastMock } = vi.hoisted(() => ({ toastMock: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/components/toastContext', () => ({ useToast: () => ({ toast: toastMock }) }))
@@ -30,6 +32,15 @@ function Host({ chatId, onSend, quoteContent }: Pick<ComposerProps, 'chatId' | '
   const setDraft = useCallback((id: string, update: SetStateAction<string>) => setDrafts((p) => ({ ...p, [id]: typeof update === 'function' ? update(p[id] ?? '') : update })), [])
   const setDraftMentions = useCallback((id: string, m: DraftMention[]) => setDM((p) => ({ ...p, [id]: m })), [])
   const setDraftAttachments = useCallback((id: string, a: DraftAttachment[]) => setDA((p) => ({ ...p, [id]: a })), [])
+  // The App host appends to the authoritative draft slot, as MainLayout does.
+  useEffect(() => {
+    const compose = (event: Event) => {
+      const detail = (event as CustomEvent<AppComposeDetail>).detail
+      setDraft(detail.chatId, (text) => [text, detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'))
+    }
+    window.addEventListener(APP_COMPOSE_EVENT, compose)
+    return () => window.removeEventListener(APP_COMPOSE_EVENT, compose)
+  }, [setDraft])
   store = { drafts, setDraft }
   const value = useMemo(
     () => ({ ...chatStore(), drafts, draftMentions, draftAttachments, setDraft, setDraftMentions, setDraftAttachments }),
@@ -138,6 +149,18 @@ describe('file citations share the composer document with the words', () => {
     })
     expect(readComposer(textarea())).toBe(`前${deckToken} 和 ${sheetToken} 再看 ${deckToken}后`)
     expect(pills().map((pill) => pill.getAttribute('data-mention-id'))).toEqual([DECK, SHEET, DECK])
+  })
+
+  it('keeps pending typing and consecutive App citations before the draft debounce flushes', async () => {
+    await mount(vi.fn(async () => {}))
+    await type('Fresh instructions')
+    await act(async () => {
+      for (const ref of [deckPill, sheetPill]) window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, {
+        detail: { chatId: 'group-1', text: '', refs: [ref] },
+      }))
+    })
+    expect(readComposer(textarea())).toBe(`Fresh instructions\n${deckToken}\n${sheetToken}`)
+    expect(pills()).toHaveLength(2)
   })
 
   it('restores the inline order after a failed send', async () => {

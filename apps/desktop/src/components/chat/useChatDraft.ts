@@ -173,6 +173,7 @@ export function useChatDraft(chatId: string | null | undefined): ChatDraft {
   }, [setDraft, setDraftMentions, setDraftAttachments])
 
   const flush = useCallback(() => {
+    if (!flushTimer.current) return
     cancelFlush()
     const targetKey = keyRef.current
     if (targetKey) flushTo(targetKey)

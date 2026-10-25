@@ -9,6 +9,7 @@ import { activeMentionPicks, MENTION_ALL_USER_ID, type MentionCandidate } from '
 import { filterMentionCandidates, isMentionQueryActive } from '@/lib/mentionMatch'
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { UI_EVENTS } from '@/lib/uiEvents'
+import { APP_COMPOSE_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { SLASH_COMMANDS } from '@/lib/slashCommands'
 import { useContactsStore } from '../../store/contactsContext'
 import { useTheme } from '../../store/theme'
@@ -119,9 +120,17 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       const files = (event as CustomEvent<{ files?: unknown }>).detail?.files
       if (Array.isArray(files)) enqueueFiles(files.filter((file): file is File => file instanceof File))
     }
+    // App composition appends through the store; preserve typing still waiting for the draft debounce.
+    const beforeCompose = (event: Event) => {
+      if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) draft.flush()
+    }
     window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
-    return () => window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
-  }, [isMain, enqueueFiles])
+    window.addEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
+    return () => {
+      window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
+      window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
+    }
+  }, [isMain, enqueueFiles, chatId, draft.flush])
 
   const composerAttachments: ComposerAttachment[] = attachments.map((attachment) => ({
     id: attachment.id, name: attachment.file.name, kind: attachment.kind === 'image' ? 'image' : 'file',
