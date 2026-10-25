@@ -1,3 +1,5 @@
+import type { FilesPlatform } from './app-files-core';
+import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -70,16 +72,22 @@ vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
     stagingOfItem.set(row.id, args.staging_key as string);
     return row;
   },
-  fetchAttachmentUrls: async (_endpoint: unknown, refs: { item_id: string; version: number }[]) => ({
-    urls: refs.map((ref) => ({ ...ref, message_id: null, url: `https://oss.test/${stagingOfItem.get(ref.item_id)}`, thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })),
-  }),
+
 }));
 
 const { createAppFiles } = await import('./app-files-core');
 
 const CHAT = '33333333-3333-4333-8333-333333333333';
+let publishFile: FilesPlatform['publishFile'];
 const files = createAppFiles({
+  publishFile: (...args) => publishFile ? publishFile(...args) : Promise.resolve(null),
   account: async () => ({ token: 'token', userId: PERSON }),
+  resolveFile: async (ref, _actor, options) => {
+    if (options.localOnly) return null;
+    const id = 'id' in ref ? ref.id : '', row = rows.find(row => row.id === id);
+    const bytes = stored.get(stagingOfItem.get(id)!);
+    return row && bytes ? verifiedFileHandle(bytes, { item_id: id, version: Number(row.version), file_name: String(row.filename), content_type: String(row.content_type) }) : { status: 'gone', sha256: null };
+  },
   hasCapability: () => true,
   sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
@@ -94,6 +102,7 @@ const bytesOf = (text: string | Uint8Array) => {
 };
 
 beforeEach(() => {
+  publishFile = undefined;
   uploadScopes.length = 0;
   rpcs.length = 0;
   places.length = 0;
@@ -136,9 +145,7 @@ describe('files.upload: a text file goes in as a live document (F19)', () => {
     ]);
     expect(rows.map((row) => row.kind)).toEqual(['file', 'file', 'file']);
     expect(bucketed).toHaveLength(3);
-    vi.stubGlobal('fetch', async (url: string) => new Response(stored.get(url.replace('https://oss.test/', ''))!.slice()));
     const photo = await files.open(surface, { ref: uploaded[2]! });
-    vi.unstubAllGlobals();
     expect(photo).toMatchObject({ docName: '', access: 'ro', entry: { name: 'photo.png', type: 'binary' } });
     expect([...new Uint8Array(photo.bytes!)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
@@ -187,5 +194,27 @@ describe('files.upload from an App\'s program acting for an agent (G5)', () => {
     // Control: a refusal with no code the folder knows is failed.
     refuseCreate = { message: 'something else broke', hint: 'nothing_we_know' };
     await expect(files.upload(CHAT, [{ name: 'a.md', bytes: bytesOf('x'), contentType: '' }])).rejects.toMatchObject({ code: 'failed' });
+  });
+});
+
+
+describe('project publication dispatch', () => {
+  it('publishes a project text file before document conversion, without invoking the uploader', async () => {
+    publishFile = vi.fn(async (chat, file) => {
+      const row = { id: randomUUID(), epoch: 0, chat_id: chat, kind: 'file', filename: file.name, content_type: file.contentType, pointer: null, size_bytes: file.bytes.byteLength,
+        created_by: PERSON, created_at: null, updated_at: null, source_message_ids: [], version: 1, parent_id: null, system_role: null, path: file.name };
+      rows.push(row); return row;
+    });
+    const [entry] = await files.upload(CHAT, [{ name: 'report.html', bytes: bytesOf('<h1>Private</h1>'), contentType: 'text/html' }]);
+    expect(entry).toMatchObject({ name: 'report.html' });
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
+    expect(bucketed).toEqual([]); expect(places).toEqual([]);
+    expect(rpcs.some(call => call.name === 'workspace_insert_document_as')).toBe(false);
+  });
+  it('uses the same existing uploader for an explicitly cloud-stored project text file', async () => {
+    publishFile = async (_chat, _file, _parent, _actor, store) => store();
+    await files.upload(CHAT, [{ name: 'report.html', bytes: bytesOf('<h1>Cloud</h1>'), contentType: 'text/html' }]);
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
+    expect(bucketed).toHaveLength(1); expect(places).toHaveLength(1);
   });
 });

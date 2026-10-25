@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import { createFileResolver, FILE_CHUNK_BYTES, type FileBytes, type FileProviders, type FileRevision } from '../../../../packages/core/src/shared/fileResolver'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { createFileResolver, FILE_CHUNK_BYTES, type FileBytes, type FileHandle, type FileProviders, type FileRevision, type ResolvedPreview } from '../../../../packages/core/src/shared/fileResolver'
+import type { AppPlatform } from '../../../../apps/desktop/src/platform/types'
+import type { DownloadSource } from '../../../../apps/desktop/src/session/shared/extensions/app-files-core'
+import type { packageBytes } from '../../../../apps/desktop/src/session/shared/extensions/attachment-install'
+import type { sendAttachmentBatch } from '../../../../apps/desktop/src/components/chat/sendAttachmentBatch'
+import { fileBlob, stageFileHandle } from '../../../../packages/core/src/shared/fileResolver'
+import { saveFileHandle } from '../../../../packages/core/src/local/files/fileSnapshots'
 
 const actor = { accountId: 'owner', actorId: 'owner' }
 const ref = { item_id: 'file', version: 1 }
@@ -18,10 +24,54 @@ function fixture() {
   return { file, providers, resolve: createFileResolver(providers) }
 }
 describe('the canonical read-only file resolver', () => {
+  it('a preview is a distinct, lazy display capability, never a full-file capability', async () => {
+    type Preview = Extract<ResolvedPreview, { status: 'ready' }>
+    expectTypeOf<Preview>().not.toExtend<FileHandle>()
+    expectTypeOf<Preview>().not.toExtend<FileBytes>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof saveFileHandle>[0]>()
+    expectTypeOf<FileHandle>().not.toExtend<Preview>()
+    const f = fixture(), image = new Blob(['thumbnail'], { type: 'image/webp' })
+    const preview = vi.fn(async () => image)
+    f.providers.metadata.mockResolvedValue({ status: 'ready', revision: { ...revision, source: 'managed-object' } })
+    const result = await createFileResolver({ ...f.providers, preview })(ref, actor, { purpose: 'preview' })
+    if (result.status !== 'ready') throw Error('Expected ready')
+    expect(preview).not.toHaveBeenCalled(); expect('read' in result).toBe(false); expect('stream' in result).toBe(false)
+    expect(await result.content()).toBe(image); expect(await result.content()).toBe(image)
+    expect(preview).toHaveBeenCalledTimes(1)
+    for (const call of [f.providers.managed, f.providers.ssh, f.providers.temporary]) expect(call).not.toHaveBeenCalled()
+    await result.dispose(); expect(() => result.content()).toThrow('disposed')
+  })
+  it.each(['image/png', 'video/mp4'])('%s preview cannot enter any original-file consumer', async content_type => {
+    type Preview = Extract<ResolvedPreview, { status: 'ready' }>
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof saveFileHandle>[0]>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<AppPlatform['openRemoteFile']>[0]>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof fileBlob>[0]>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof stageFileHandle>[0]>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof packageBytes>[0]>()
+    expectTypeOf<Preview>().not.toExtend<Parameters<typeof sendAttachmentBatch>[0]['files'][number]>()
+    expectTypeOf<Preview>().not.toExtend<Extract<DownloadSource, { kind: 'file' }>['file']>()
+    const f = fixture(), preview = vi.fn(async () => new Blob(['preview']))
+    f.providers.metadata.mockResolvedValue({ status: 'ready', revision: { ...revision, source: 'managed-object', content_type } })
+    const result = await createFileResolver({ ...f.providers, preview })(ref, actor, { purpose: 'preview' })
+    expect(result).toMatchObject({ purpose: 'preview' }); expect('reader' in result).toBe(false)
+    expect('read' in result).toBe(false); expect('stream' in result).toBe(false)
+    for (const provider of [f.providers.managed, f.providers.temporary, f.providers.ssh]) expect(provider).not.toHaveBeenCalled()
+  })
   it.each([{}, { item_id: '' }, { item_id: 'file', version: -1 }, { item_id: 'file', message_id: 'message' }, { message_id: 'message', path: '/secret' }])('rejects malformed reference %j before consulting an index', async ref => {
     const f = fixture()
     await expect(f.resolve(ref as never, actor)).rejects.toThrow('Invalid file reference')
     expect(f.providers.local).not.toHaveBeenCalled(); expect(f.providers.metadata).not.toHaveBeenCalled()
+  })
+  it('the local-only metadata probe never consults the cloud, and uses the same lazy handle when found', async () => {
+    const f = fixture()
+    expect(await f.resolve(ref, actor, { localOnly: true })).toBeNull()
+    expect(f.providers.metadata).not.toHaveBeenCalled()
+    const open = vi.fn(async () => f.file)
+    f.providers.local.mockResolvedValue({ revision, open })
+    const file = await f.resolve(ref, actor, { localOnly: true })
+    expect(file).toMatchObject({ status: 'ready', purpose: 'file', reader: actor })
+    expect(open).not.toHaveBeenCalled(); expect(f.providers.metadata).not.toHaveBeenCalled()
+    if (file?.status === 'ready') await file.dispose()
   })
   it('resolves an owned local index before any cloud metadata, signing or transport work', async () => {
     const f = fixture(), open = vi.fn(async () => f.file)
@@ -128,6 +178,17 @@ describe('the canonical read-only file resolver', () => {
     finish(f.file)
     await Promise.all([checked, closing])
     expect(f.file.dispose).toHaveBeenCalledTimes(1); expect(f.file.read).not.toHaveBeenCalled()
+  })
+  it('disposal cancels the in-flight verified provider instead of leaving its network request running', async () => {
+    const f = fixture(); let aborted = false
+    f.providers.metadata.mockResolvedValue({ status: 'ready', revision: { ...revision, source: 'managed-object' } })
+    f.providers.managed.mockImplementation((_revision, context) => new Promise((_resolve, reject) => {
+      context.signal!.addEventListener('abort', () => { aborted = true; reject(context.signal!.reason) }, { once: true })
+    }))
+    const result = await f.resolve(ref, actor)
+    if (result.status !== 'ready') throw Error('Expected ready')
+    const pending = expect(result.read(0, 1)).rejects.toThrow('disposed')
+    await result.dispose(); await pending; expect(aborted).toBe(true)
   })
   it('an empty stream deliberately opens and authenticates, while mere display does not', async () => {
     const f = fixture()

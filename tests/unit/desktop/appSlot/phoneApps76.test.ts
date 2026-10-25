@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
@@ -116,11 +117,9 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   },
 }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentBytes', () => ({
-  attachmentResolver: {
-    resolve: async (source: { kind: string; itemId?: string }) => {
+  resolveAttachment: async (source: { kind: string; itemId?: string }) => {
       const card = [...cards.values()].find((entry) => entry.row.file_item_id === source.itemId)
-      return card ? { status: 'ready', url: card.url } : { status: 'gone' }
-    },
+      return card ? verifiedFileHandle(shell.packages.get(card.url)!, {}, async signal => new Uint8Array(await (await fetch(card.url, { signal })).arrayBuffer())) : { status: 'gone', sha256: null }
   },
 }))
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({

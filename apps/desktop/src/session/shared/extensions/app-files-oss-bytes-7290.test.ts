@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -51,6 +52,12 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: ME }),
+  resolveFile: async (ref, actor, options) => {
+    if (options.localOnly) return null;
+    signedRefs.push({ refs: [{ item_id: 'id' in ref ? ref.id : ITEM, version: options.version ?? row.version }], as: actor ?? ME });
+    if (answer === 'gone') return { status: 'gone', sha256: null };
+    return verifiedFileHandle(new Uint8Array([1, 2, 3]), { item_id: ITEM, version: options.version ?? row.version as number, file_name: String(row.filename), content_type: 'application/pdf' });
+  },
   hasCapability: () => true,
   sync: {} as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
@@ -69,8 +76,11 @@ beforeEach(() => {
 });
 
 describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
-  it('a save signs that item\'s current version through attachments/urls, as the agent an App\'s program acts for', async () => {
-    expect(await files.downloadSource(surface({ asAgent: AGENT }), { ref: { id: ITEM } })).toEqual({ name: 'report.pdf', kind: 'file', url: CDN });
+  it('a save resolves that item\'s current version through the canonical file provider, as the agent an App\'s program acts for', async () => {
+    const source = await files.downloadSource(surface({ asAgent: AGENT }), { ref: { id: ITEM } });
+    expect(source).toMatchObject({ name: 'report.pdf', kind: 'file', file: { purpose: 'file', revision: { item_id: ITEM, version: 2 } } });
+    expect(source).not.toHaveProperty('url');
+    if (source.kind === 'file') await source.file.dispose();
     expect(signedRefs).toEqual([{ refs: [{ item_id: ITEM, version: 2 }], as: AGENT }]);
     expect(storageSigned).toEqual([]);
   });
@@ -79,19 +89,21 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
     const version = await files.readVersion(surface(), { ref: { id: ITEM }, n: 1 });
     expect(version).toMatchObject({ n: 1, contentType: 'application/pdf' });
     expect(new Uint8Array((version as { bytes: ArrayBuffer }).bytes)).toEqual(new Uint8Array([1, 2, 3]));
-    expect(signedRefs).toEqual([{ refs: [{ item_id: ITEM, version: 1 }], as: undefined }]);
+    expect(signedRefs).toEqual([{ refs: [{ item_id: ITEM, version: 1 }], as: ME }]);
   });
 
-  it('a version attachments/urls does not answer for is not-found, said — never an empty file', async () => {
+  it('a version the resolver does not answer for is not-found, said — never an empty file', async () => {
     answer = 'gone';
     await expect(files.readVersion(surface(), { ref: { id: ITEM }, n: 1 })).rejects.toMatchObject({ code: 'not-found', message: expect.stringMatching(/has no bytes for version 1/) });
   });
 
-  it('a file from before the switch (it has a pointer) is signed by attachments/urls too — one way for every file (#7290 收尾)', async () => {
+  it('a file from before the switch (it has a pointer) uses the same file provider — one way for every file (#7290 收尾)', async () => {
     row = { ...row, pointer: `${CHAT}/${ME}/x-report.pdf` };
     const source = await files.downloadSource(surface(), { ref: { id: ITEM } });
-    expect(source).toEqual({ name: 'report.pdf', kind: 'file', url: CDN });
-    expect(signedRefs).toEqual([{ refs: [{ item_id: ITEM, version: 2 }], as: undefined }]);
+    expect(source).toMatchObject({ name: 'report.pdf', kind: 'file', file: { purpose: 'file', revision: { item_id: ITEM, version: 2 } } });
+    expect(source).not.toHaveProperty('url');
+    if (source.kind === 'file') await source.file.dispose();
+    expect(signedRefs).toEqual([{ refs: [{ item_id: ITEM, version: 2 }], as: ME }]);
     expect(storageSigned, 'the storage bucket is never signed directly any more').toEqual([]);
   });
 });

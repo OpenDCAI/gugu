@@ -29,6 +29,7 @@ import { registerGuguAppSearchTool, type AppSearchHit } from './mcp/gugu-app-sea
 import { buildAgentIdentityBlock } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type { McpServerOwner } from '@gugu/session-core/mcp'
 import { startupDiscovery } from './sessionpage/startup-discovery'
+import type { FileActor, FileRef, ResolvedFile } from '@gugu/core/shared/fileResolver'
 import type { GuguMcpRequestTracker } from './gugu-mcp-host'
 
 export type AcpMcpServer =
@@ -181,6 +182,7 @@ export type GuguMcpContext = GuguMcpContextBase & (
       threadRootId: string | null
       guguHome: string
       getAccessToken: (signal?: AbortSignal) => Promise<string>
+      resolveFile?: (ref: FileRef, actorId: string) => Promise<ResolvedFile>
       runHostAction?: (action: unknown, signal?: AbortSignal) => Promise<unknown>
       /**
        * 有值 = 这条 grant 属于一条**运行时分叉**(侧边聊天),值是来源 agent 的显示名。
@@ -309,6 +311,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
 }
 
 export interface BuildSocialBridgeDeps {
+  resolveFile?: (ref: FileRef, actor: FileActor) => Promise<ResolvedFile>
   getSupabaseUrl?: () => string
   getSupabaseAnonKey?: () => string
   host: DesktopGuguMcpHost
@@ -360,6 +363,7 @@ export async function buildSocialBridge(
       ...(deps.personalAssistant ? { personalAssistant: true as const } : {}),
       ...(deps.personalAssistant && deps.assistantWork ? { assistantWork: deps.assistantWork } : {}),
       getAccessToken: async (signal?: AbortSignal) => (await getBoundAuth(signal)).accessToken,
+      ...(deps.resolveFile ? { resolveFile: (ref: FileRef, actorId: string) => deps.resolveFile!(ref, { accountId: expectedOwnerUserId, actorId }) } : {}),
       ...(deps.forkOf === undefined ? {} : { forkOf: deps.forkOf }),
       ...(deps.readAssistantResources ? { readAssistantResources: async () => {
         await getBoundAuth()

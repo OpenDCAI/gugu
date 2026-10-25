@@ -31,10 +31,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -45,8 +45,7 @@ import java.util.regex.Pattern;
 /**
  * 与其他 App 互传(product spec)—— 这一层只做搬运,两个方向:
  *
- * 出:把页面给的文字与附件地址交给系统分享面板;或把一个附件交给「打开方式」(open);或把页面手里的字节
- *    「保存」到用户在系统存储界面里选的位置(save)。分享 / 打开的附件先下到
+ * 出:把文字或已校验的私有文件交给分享面板、打开方式(open)或保存(save)。文件分块写入
  *    cache/share-out/<一次一个目录>/,经 FileProvider 交出去 —— 微信收的是文件本身,不是链接。
  * 进:别的 App 的「分享」(SEND / SEND_MULTIPLE)与「用其他应用打开」(VIEW,微信对文件就是这一条)
  *    落到 MainActivity。对方给的 content:// 授权只在这次投递里有效,所以当场把字节拷进
@@ -68,6 +67,7 @@ public class GuguSharePlugin extends Plugin {
     private static final long MAX_INCOMING_BYTES = 100L * 1024 * 1024;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Map<String, PrivateFileSink> stages = new HashMap<>();
 
     /** 有意拒收(不是读坏了):code 给界面挑一句用户看得懂的话,message 只进日志。 */
     private static final class Rejected extends IOException {
@@ -99,10 +99,56 @@ public class GuguSharePlugin extends Plugin {
         if (isIncoming(intent)) receive(intent);
     }
 
+    /** Bounded frames use the existing private cache and IO queue; only a verified commit becomes a file token. */
+    @PluginMethod
+    public void stage(PluginCall call) {
+        io.execute(() -> {
+            String id = call.getString("id", ""), op = call.getString("op", "");
+            PrivateFileSink sink = op.equals("begin") ? null : stages.get(id);
+            try {
+                if (op.equals("begin")) {
+                    File root = new File(getContext().getCacheDir(), OUT_DIR);
+                    prune(root);
+                    stages.values().removeIf(old -> !old.exists());
+                    JSObject revision = call.getObject("revision");
+                    if (revision == null || revision.getDouble("size_bytes") != revision.getLong("size_bytes")) throw new IOException("Invalid file commitment");
+                    sink = new PrivateFileSink(root, safeName(call.getString("name"), "file"), revision.getLong("size_bytes"), revision.getString("sha256"));
+                    stages.put(sink.id, sink);
+                    JSObject result = new JSObject(); result.put("id", sink.id); call.resolve(result); return;
+                }
+                if (op.equals("abort")) {
+                    if (!SHARE_ID.matcher(id).matches()) throw new IOException("Invalid file token");
+                    if (sink != null) sink.abort();
+                    deleteTree(new File(new File(getContext().getCacheDir(), OUT_DIR), id));
+                } else {
+                    if (sink == null) throw new IOException("File stage is unavailable");
+                    if (op.equals("chunk")) {
+                        String bytes = call.getString("bytes");
+                        if (bytes == null || bytes.length() > 699052) throw new IOException("File frame is too large");
+                        sink.write(Base64.decode(bytes, Base64.DEFAULT));
+                    } else if (op.equals("commit")) { sink.commit(); stages.remove(id); }
+                    else throw new IOException("Unknown file stage operation");
+                }
+                if (op.equals("abort")) stages.remove(id);
+                call.resolve();
+            } catch (Exception error) {
+                if (sink != null) { sink.abort(); stages.remove(sink.id); }
+                call.reject(describe(error), error);
+            }
+        });
+    }
+
+    private File sharedFile(String id, String name) throws IOException {
+        if (!SHARE_ID.matcher(id).matches()) throw new IOException("Invalid file token");
+        File file = new File(new File(new File(getContext().getCacheDir(), OUT_DIR), id), safeName(name, "file"));
+        if (!file.isFile()) throw new IOException("Verified file is unavailable");
+        return file;
+    }
+
     // ─── 出 ─────────────────────────────────────────────────────────────────────
 
     /**
-     * { text?, title?, files?: [{ url, name, mimeType? }] } → 系统分享面板。
+     * { text?, title?, files?: [{ id, name, mimeType? }] } → 系统分享面板。
      * 面板弹出即 resolve:用户在面板里选了谁、发没发,系统不告诉发起方。
      */
     @PluginMethod
@@ -121,12 +167,14 @@ public class GuguSharePlugin extends Plugin {
                 List<String> types = new ArrayList<>();
                 for (int i = 0; i < files.length(); i++) {
                     JSONObject file = files.getJSONObject(i);
-                    String url = file.optString("url", "");
                     String name = safeName(file.optString("name", ""), "file-" + (i + 1));
                     String type = file.optString("mimeType", "");
                     if (type.isEmpty()) type = guessType(name);
                     File target = uniqueFile(batch, name);
-                    download(url, target);
+                    File source = sharedFile(file.getString("id"), name);
+                    if (!batch.isDirectory() && !batch.mkdirs()) throw new IOException("Could not create share directory");
+                    if (!source.renameTo(target)) throw new IOException("Could not move verified share file");
+                    source.getParentFile().delete();
                     uris.add(FileProvider.getUriForFile(getContext(), authority(), target));
                     types.add(type);
                 }
@@ -162,18 +210,18 @@ public class GuguSharePlugin extends Plugin {
     }
 
     /**
-     * { url, name } → 系统的「打开方式」(ACTION_VIEW)。应用内不预览的附件(压缩包、音频……)走这里,
+     * { id, name } → 系统的「打开方式」(ACTION_VIEW)。应用内不预览的附件(压缩包、音频……)走这里,
      * 与「出」同一个目录、同一个 FileProvider。没有能打开的应用时由选择器当面说。
      */
     @PluginMethod
     public void open(PluginCall call) {
-        String url = call.getString("url", "");
+        String id = call.getString("id", "");
+        if (!SHARE_ID.matcher(id).matches()) { call.reject("Invalid file token"); return; }
         String name = safeName(call.getString("name"), "file");
         io.execute(() -> {
-            File batch = new File(new File(getContext().getCacheDir(), OUT_DIR), UUID.randomUUID().toString());
+            File batch = new File(new File(getContext().getCacheDir(), OUT_DIR), id);
             try {
-                File target = uniqueFile(batch, name);
-                download(url, target);
+                File target = sharedFile(id, name);
                 Intent view = new Intent(Intent.ACTION_VIEW);
                 view.setDataAndType(FileProvider.getUriForFile(getContext(), authority(), target), guessType(name));
                 view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -187,32 +235,19 @@ public class GuguSharePlugin extends Plugin {
     }
 
     /**
-     * { name, mimeType?, data(base64) } → 系统的「保存到…」(ACTION_CREATE_DOCUMENT),写进用户选的位置。
-     * WebView 不认 `<a download>`(壳没有、也接不住 blob: 的 DownloadListener),页面的「保存」走这里。
-     * 不要任何存储权限;resolve { saved }:用户在系统界面里取消 = false。
-     *
-     * 字节先落到 share-out 里一个文件,call 里只留它的路径再去开系统界面:Capacitor 为了活过进程被杀,会把
-     * 开着系统界面的那个 call 的参数写进 Activity 的保存状态 —— 带着字节就是一个几十 MB 的 Bundle,
-     * Activity 一停下就 TransactionTooLargeException 崩掉(20 MiB 实测)。
+     * { id, name, mimeType? } opens the existing system save picker. Its saved Activity state contains only the
+     * private committed path, never file bytes. Cancellation still returns saved:false and deletes that private copy.
      */
     @PluginMethod
     public void save(PluginCall call) {
-        String data = call.getString("data");
-        if (data == null) {
-            call.reject("Nothing to save");
-            return;
-        }
+        String id = call.getString("id", "");
+        if (!SHARE_ID.matcher(id).matches()) { call.reject("Invalid file token"); return; }
         String name = safeName(call.getString("name"), "file");
         String type = call.getString("mimeType", "");
         io.execute(() -> {
-            File batch = new File(new File(getContext().getCacheDir(), OUT_DIR), UUID.randomUUID().toString());
+            File batch = new File(new File(getContext().getCacheDir(), OUT_DIR), id);
             try {
-                if (!batch.mkdirs()) throw new IOException("Could not create " + batch);
-                File staged = new File(batch, name);
-                try (OutputStream out = new FileOutputStream(staged)) {
-                    out.write(Base64.decode(data, Base64.DEFAULT));
-                }
-                call.getData().remove("data");
+                File staged = sharedFile(id, name);
                 call.getData().put("staged", staged.getAbsolutePath());
                 Intent create = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 create.addCategory(Intent.CATEGORY_OPENABLE);
@@ -456,30 +491,6 @@ public class GuguSharePlugin extends Plugin {
 
     private String authority() {
         return getContext().getPackageName() + ".fileprovider";
-    }
-
-    private static void download(String url, File target) throws IOException {
-        boolean allowed = url.startsWith("https://") || (BuildConfig.GUGU_ALLOW_LOCAL_HTTP && url.startsWith("http://"));
-        if (!allowed) throw new IOException("unsupported attachment address: " + url);
-        File parent = target.getParentFile();
-        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) throw new IOException("could not create " + parent);
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
-        try {
-            int status = connection.getResponseCode();
-            if (status != HttpURLConnection.HTTP_OK) throw new IOException("HTTP " + status + " downloading " + target.getName());
-            try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(target)) {
-                byte[] buffer = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
-            }
-        } catch (IOException | RuntimeException error) {
-            target.delete();
-            throw error;
-        } finally {
-            connection.disconnect();
-        }
     }
 
     /** 名字只留最后一段、去掉控制字符;空了用 fallback。❌ 让来路拼出目录外的路径。 */

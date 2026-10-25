@@ -18,16 +18,19 @@ function fixture(options: { denied?: boolean; corrupt?: boolean; revokeAfterDown
   if (path.endsWith('/upload')) return Response.json({staging_key:'staging/owner/upload',url:'https://objects.test/upload',fields:{},max_bytes:100,method:'PUT'})
   if (path==='https://objects.test/upload') return new Response(null,{status:204})
   if (path.endsWith('/session-commit')) return Response.json({attachment:{...ref,attachment_id:JSON.parse(String(init?.body)).attachment_id}})
-  if (path.endsWith('/session-urls')) {
+  if (path.endsWith('/file-resolve')) {
    resolutions++
-   const body=JSON.parse(String(init?.body))
-   expect(body.as).toBe('receiver')
-   return Response.json({attachments:options.denied || options.revokeAfterDownload && resolutions>1 ? [] : [{...ref,url:'https://objects.test/original',expires_at:'later'}]})
+   expect(JSON.parse(String(init?.body))).toEqual({ref:{attachment_id:ref.attachment_id},as:'receiver'})
+   return Response.json(options.denied || options.revokeAfterDownload && resolutions>1 ? {status:'gone',sha256:null} : {...ref,status:'ready',source:'managed-object'})
+  }
+  if (path.endsWith('/file-download')) {
+   expect(JSON.parse(String(init?.body))).toMatchObject({ref:{attachment_id:ref.attachment_id},as:'receiver',request_id:expect.any(String)})
+   return Response.json({...ref,status:'ready',download_id:'download',url:'https://objects.test/original'})
   }
   if (path==='https://objects.test/original') return new Response(options.corrupt ? new Uint8Array([9]) : original)
   throw new Error('Unexpected request '+path)
  })
- return { endpoint:{supabaseUrl:'https://backend.test',anonKey:'public',token:'owner-token',fetch:fetcher},fetcher }
+ return { endpoint:{supabaseUrl:'https://backend.test',anonKey:'public',token:`x.${Buffer.from(JSON.stringify({sub:'owner'})).toString('base64url')}.x`,fetch:fetcher},fetcher }
 }
 it('uploads complete binary bytes; receiver downloads and verifies the original without text or chat membership',async()=>{
  const root=await directory();const input=join(root,'original.bin');await writeFile(input,original)

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import { downloadBlob } from '../../lib/download'
-import { attachmentBytes, attachmentResolver, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentPreview, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
@@ -34,11 +34,20 @@ async function previewBytes(file: PreviewFile): Promise<Blob> {
  * ranges); anything else, its bytes — as text for what is read as text. A file gone throws `gone`. The chat's preview and
  * a peek beside an App (AppPeek) read it this one way.
  */
-async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promise<{ content: string | ArrayBuffer | null; videoUrl?: string }> {
+type PreviewRead = { content: string | ArrayBuffer | null; videoUrl?: string; expiresAt?: number; renew?: () => Promise<{ videoUrl: string; expiresAt: number }>; release?: () => Promise<void>; error?: string }
+async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promise<PreviewRead> {
   if (!documentPreviewNeedsFetch(kind)) {
-    const link = await attachmentResolver.resolve(file.source)
-    if (link.status !== 'ready') throw new Error(link.status)
-    return { content: null, videoUrl: link.url }
+    const preview = await attachmentPreview(file.source)
+    if (preview.status !== 'ready') throw new Error(preview.status)
+    let objectUrl: string | undefined
+    const renew = async () => {
+      const content = await preview.content()
+      if (!(content instanceof Blob)) return { videoUrl: content.url, expiresAt: content.expiresAt }
+      objectUrl ??= URL.createObjectURL(content)
+      return { videoUrl: objectUrl, expiresAt: Infinity }
+    }
+    const release = async () => { if (objectUrl) URL.revokeObjectURL(objectUrl); await preview.dispose() }
+    try { return { content: null, ...await renew(), renew, release } } catch (error) { await release(); throw error }
   }
   const blob = await previewBytes(file)
   return { content: kind === 'text' || kind === 'markdown' || kind === 'html' ? await blob.text() : await blob.arrayBuffer() }
@@ -50,18 +59,31 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const { toast } = useToast()
   const downloadFailed = t('chatArea.downloadFailed')
   const kind = classifyDocumentPreview(file)
-  const [read, setRead] = useState<{ content: string | ArrayBuffer | null; videoUrl?: string; error?: string } | null>(null)
+  const [read, setRead] = useState<PreviewRead | null>(null)
   const key = sourceKeyOf(file.source)
   useEffect(() => {
-    let live = true
+    let live = true, release: PreviewRead['release']
     setRead(null)
     if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(file.source, file.fileName, () => live) : readPreview(file, kind)).then(
-      (done) => { if (live) { if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) } },
+      (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
       (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') }),
     )
-    return () => { live = false }
+    return () => { live = false; void release?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source kind/id/version and the preview kind identify the bytes
   }, [key, kind, file.document, t])
+  const renewVideo = async (video: HTMLVideoElement) => {
+    const current = read
+    if (video.dataset.renewing) return
+    const fail = () => setRead(row => row === current ? { ...row!, error: t('attachmentView.fileUnavailable') } : row)
+    if (!current?.renew || Date.now() < (current.expiresAt ?? Infinity)) { fail(); return }
+    video.dataset.renewing = 'true'
+    const time = video.currentTime, playing = !video.paused
+    try {
+      const next = await current.renew()
+      video.addEventListener('loadedmetadata', () => { video.currentTime = time; if (playing) void video.play().catch(fail) }, { once: true })
+      setRead(row => row === current ? { ...row, ...next } : row)
+    } catch { fail() } finally { delete video.dataset.renewing }
+  }
   const openExternal = () => {
     const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
     void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
@@ -72,5 +94,5 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch(() => toast(downloadFailed, 'error'))
   const actions = messageActionItems({ isMine: false, isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} full={full} onToggleFull={onToggleFull} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

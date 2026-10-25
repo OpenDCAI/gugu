@@ -1,39 +1,32 @@
-import { describe, expect, it } from 'vitest'
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls'
-
+import { describe, expect, it, vi } from 'vitest'
+import { createFileResolver, type FileMetadata, type FileRevision } from '@gugu/core/shared/fileResolver'
+const actor = { accountId: 'owner', actorId: 'owner' }
+const revision: FileRevision = { source: 'managed-object', item_id: 'file', version: 1, file_name: 'file.bin', content_type: 'application/octet-stream', size_bytes: 1, sha256: 'ab'.repeat(32) }
+function fixture() {
+  let status: 'ready' | 'expired' | 'gone' = 'expired'
+  const bytes = vi.fn(async () => { throw Error('Display touched signer/bytes') })
+  const metadata = vi.fn(async (): Promise<FileMetadata> => status === 'ready' ? { status, revision } : { status, sha256: revision.sha256 })
+  return { set: (value: typeof status) => { status = value }, bytes, metadata, resolve: createFileResolver({ local: async () => null, metadata, managed: bytes, temporary: bytes, ssh: bytes }) }
+}
 describe('expired attachment metadata', () => {
-  it('distinguishes expiry without a URL from deletion and permits re-upload to become readable', async () => {
-    let expired = true
-    const resolver = createAttachmentResolver(async () => ({ urls: [expired
-      ? { item_id: 'file', version: 1, status: 'expired' }
-      : { item_id: 'file', version: 1, url: 'https://example.test/file', expires_at: '2999-01-01T00:00:00Z' },
-    ] }))
-    const source = { kind: 'item' as const, itemId: 'file', version: 1 }
-    expect(await resolver.resolve(source)).toEqual({ status: 'expired' })
-    expired = false
-    expect(await resolver.resolve(source)).toMatchObject({ status: 'ready', url: 'https://example.test/file' })
-    expect(await resolver.resolve({ kind: 'item', itemId: 'deleted', version: 1 })).toEqual({ status: 'gone' })
+  it('distinguishes expiry from deletion and permits a re-upload to become readable', async () => {
+    const f = fixture(), ref = { item_id: 'file', version: 1 }
+    expect(await f.resolve(ref, actor)).toEqual({ status: 'expired', sha256: revision.sha256 })
+    f.set('ready'); expect(await f.resolve(ref, actor)).toMatchObject({ status: 'ready', purpose: 'file' })
+    f.set('gone'); expect(await f.resolve(ref, actor)).toEqual({ status: 'gone', sha256: revision.sha256 })
   })
-
-  it('keeps a message expiry distinct and never treats an expired row with a stray URL as downloadable', async () => {
-    const resolver = createAttachmentResolver(async () => ({ urls: [{ message_id: 'private', status: 'expired', url: 'https://example.test/stale' }] }))
-    expect(await resolver.resolve({ kind: 'message', messageId: 'private' })).toEqual({ status: 'expired' })
+  it('keeps private-message expiry distinct and never exposes a stale URL from metadata', async () => {
+    const f = fixture()
+    f.metadata.mockResolvedValue({ status: 'expired', sha256: null, url: 'https://example.test/stale' } as FileMetadata)
+    const answer = await f.resolve({ message_id: 'private' }, actor)
+    expect(answer).toMatchObject({ status: 'expired' }); expect('read' in answer).toBe(false)
+    expect(f.bytes).not.toHaveBeenCalled()
   })
-
-  it('displaying ready or expired metadata never falls back to URL signing', async () => {
-    let signed = 0
-    const refs: unknown[] = []
-    let status = 'ready'
-    const resolver = createAttachmentResolver(async () => { signed += 1; return { urls: [] } }, {
-      fetchMetadata: async (ref) => { refs.push(ref); return { status, sha256: 'ab'.repeat(32) } },
-    })
-    const source = { kind: 'item' as const, itemId: 'file', version: 1 }
-    expect(await resolver.metadata(source)).toEqual({ status: 'ready', sha256: 'ab'.repeat(32) })
-    status = 'expired'
-    expect(await resolver.metadata(source)).toMatchObject({ status: 'expired' })
-    expect(refs).toEqual([{ item_id: 'file', version: 1 }, { item_id: 'file', version: 1 }])
-    expect(signed).toBe(0)
-    await expect(createAttachmentResolver(async () => { signed += 1; return { urls: [] } }).metadata(source)).rejects.toThrow('metadata is unavailable')
-    expect(signed).toBe(0)
+  it('displaying ready or expired metadata performs no signing, reservation or byte read', async () => {
+    const f = fixture(), ref = { item_id: 'file', version: 1 }
+    for (const status of ['ready', 'expired'] as const) { f.set(status); expect(await f.resolve(ref, actor)).toMatchObject({ status }) }
+    expect(f.metadata.mock.calls).toHaveLength(2); expect(f.bytes).not.toHaveBeenCalled()
+    f.metadata.mockRejectedValue(Error('metadata is unavailable'))
+    await expect(f.resolve(ref, actor)).rejects.toThrow('metadata is unavailable'); expect(f.bytes).not.toHaveBeenCalled()
   })
 })

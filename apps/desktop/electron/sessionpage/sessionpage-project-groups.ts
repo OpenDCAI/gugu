@@ -214,12 +214,18 @@ export async function rememberProjectFile(revision: FileRevision, ownerId: strin
     const mapping = await readMapping(env)
     if (mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) throw new Error('Project binding changed')
     // Roots are resolved from the project registry at read time, never copied into this index.
-    const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path } = revision
+    const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, workspace } = revision
     mapping.files ??= {}
     mapping.files[ownerId] ??= {}
-    mapping.files[ownerId]![item_id!] = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path }
+    mapping.files[ownerId]![item_id!] = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, ...(workspace ? { workspace } : {}) }
     await writeMapping(mapping, env)
   })
+}
+
+export async function findProjectFileByName(chat: string, name: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
+  const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
+  const found = files.find(row => row.chat_id === chat && row.workspace?.path === name)
+  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
 }
 
 export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env): Promise<FileRevision | null> {

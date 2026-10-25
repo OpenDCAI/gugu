@@ -8,7 +8,6 @@
 //   forward → a new-kind attachment message forwarded (the server makes the target's item);
 //   urls   → signed links for items' versions or whisper messages.
 import { getSupabaseAnonKey, getSupabaseUrl } from './config'
-import type { AttachmentUrlRef } from '../shared/attachmentUrls'
 
 export interface AttachmentsEndpoint {
   supabaseUrl: string
@@ -151,11 +150,6 @@ export async function forwardAttachment(endpoint: AttachmentsEndpoint, args: For
   const answer = await call(endpoint, 'forward', { ...args }) as { message: Record<string, unknown> | null }
   if (!answer.message) throw new AttachmentsError('forward', 500, 'failed', `no message came back for ${args.source_message_id}`)
   return answer.message
-}
-
-/** Signed links (the JSON as it is, for the resolver in shared/attachmentUrls.ts). `as`: one of the caller's own agents. */
-export async function fetchAttachmentUrls(endpoint: AttachmentsEndpoint, refs: AttachmentUrlRef[], as?: string | null): Promise<unknown> {
-  return call(endpoint, 'urls', { refs, ...(as ? { as } : {}) })
 }
 
 /** Shared authenticated transport for additional private attachment scopes. */

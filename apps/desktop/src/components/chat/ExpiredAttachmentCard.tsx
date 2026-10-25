@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
-import { attachmentResolver, cachedAttachmentCopy } from '../../lib/attachmentBytes'
+import { attachmentMetadata, cachedAttachmentCopy } from '../../lib/attachmentBytes'
 import { attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { chatService } from '../../lib/chat'
 import { useAuth } from '../../store/auth'
@@ -29,14 +29,13 @@ export function ExpiredAttachmentCard({ meta, messageId, isMine }: { meta: Parse
       if (!original || original.sender_user_id !== user.id || original.retracted_at) throw new Error(t('attachmentView.fileGone'))
       const attachment = parseAttachmentContent(original.content, original)
       if (!attachment) throw new Error(t('attachmentView.fileGone'))
-      const status = await attachmentResolver.metadata(attachment.source)
+      const status = await attachmentMetadata(attachment.source)
       if (status.status !== 'expired') throw new Error(t('attachmentView.fileUnavailable'))
       const local = picked ?? await cachedAttachmentCopy(status.sha256)
       if (!local) { setNeedsOriginal(true); return }
       await sendAttachmentBatch({ files: [new File([local], attachment.fileName, { type: attachment.mimeType })],
         chatId: original.chat_id, senderId: user.id, toUserIds: original.to_user_ids, isWhisper: original.is_whisper,
         threadRootId: original.thread_root_id ?? (original.is_thread_root ? original.id : null), appendMessage })
-      attachmentResolver.forget(attachment.source)
       await attachmentQueryClient.invalidateQueries({ queryKey: ['attachment-state', user.id] })
     } catch (error) {
       toast(error instanceof Error ? error.message : t('attachmentView.fileUnavailable'), 'error')

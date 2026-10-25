@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { app } from 'electron';
-import { attachmentInstallPlan, couldUpdateUnasked, resolveAttachmentPackage, type AttachmentPackage, type InstalledApp } from '@shared/extensions/attachment-install';
+import { attachmentInstallPlan, couldUpdateUnasked, packageBytes, resolveAttachmentPackage, type AttachmentPackage, type InstalledApp } from '@shared/extensions/attachment-install';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { unpackExtensionArchive } from './extension-archive';
 import { windowNoteOf } from './extension-bridge-relay';
@@ -55,12 +55,11 @@ export async function installExtensionFromAttachment(
   });
   // 摩擦单 F66: nobody clicked, and it could be no update of an App here — not downloaded.
   if (attachment.unasked && !couldUpdateUnasked(publisher.id, service.list().extensions.map(installedApp))) {
+    await found.file.dispose();
     return { installed: false as const, outcome: 'held' as const };
   }
   // A deadline, because the consent window only starts after this.
-  const response = await fetch(found.url, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`could not download the App package (HTTP ${response.status})`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await packageBytes(found.file);
   const { dir, sha256 } = await unpackExtensionArchive(service, bytes, path.join(app.getPath('userData'), 'extension-attachments'));
   try {
     const { manifest, manifestDigest } = service.inspectDirectory(dir);

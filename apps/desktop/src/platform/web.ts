@@ -1,6 +1,7 @@
 import type { AppPlatform } from './types'
 import { createUnsupportedPlatform } from './unsupported'
 import { anchorDownload } from './anchorDownload'
+import { fileBlob } from '@gugu/core/shared/fileResolver'
 
 const base = createUnsupportedPlatform('web', 'web')
 
@@ -10,7 +11,9 @@ export const webPlatform: AppPlatform = {
   capabilities: { ...base.capabilities, externalFileOpen: true, sessionHost: true },
   saveFile: anchorDownload,
   async openRemoteFile(file) {
-    const opened = window.open(await file.url(), '_blank', 'noopener,noreferrer')
+    const url = URL.createObjectURL(await fileBlob(file))
+    const opened = window.open(url, '_blank', 'noopener,noreferrer')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
     if (!opened) throw new Error('The browser blocked the external file window')
   },
 }

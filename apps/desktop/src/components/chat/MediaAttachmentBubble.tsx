@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
-import { attachmentBytes, attachmentResolver, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentMetadata, sourceKeyOf, useAttachmentObjectUrl } from '../../lib/attachmentBytes'
 import { useAuth } from '../../store/auth'
 import { attachmentQueryClient } from '../../lib/attachmentQueryClient'
 import { ExtensionBundleCard } from '../extensionBundle/ExtensionBundleCard'; import { isExtensionBundle } from '../extensionBundle/summarizeExtensionBundle'
@@ -33,7 +33,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   const managedFile = (meta.source.kind === 'item' || meta.source.kind === 'message') && !isRenderableImage(meta.fileName, meta.mimeType)
   const near = useNearViewport(box, managedFile)
   const metadata = useQuery({ queryKey: ['attachment-state', user?.id, sourceKeyOf(meta.source)],
-    queryFn: () => attachmentResolver.metadata(meta.source),
+    queryFn: () => attachmentMetadata(meta.source),
     enabled: near && !!user && managedFile,
   }, attachmentQueryClient)
   const caption = meta.caption ? <Markdown trust="chat" content={meta.caption} onAccent={isMine} /> : null

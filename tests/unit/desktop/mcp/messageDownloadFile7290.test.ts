@@ -7,6 +7,7 @@ import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 // @ts-expect-error — 注入式 MCP server 是无类型 .mjs;运行时 import 可用。
 import { callTool } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { attachmentDownloadName } from '../../../../packages/core/src/shared/attachmentDownloadName.mjs'
 
 const AGENT = '11111111-1111-4111-8111-111111111111'
@@ -33,12 +34,12 @@ async function setup(message: Record<string, unknown> | null, opts: { agentSees?
       expect([name, body]).toEqual(['can_read_message', { p_message_id: 'm1', p_user_id: AGENT }])
       return opts.agentSees ?? true
     },
-    attachmentUrls: async (refs: Array<Record<string, unknown>>) => {
-      asked.push(refs)
-      if (opts.signed === false) return { urls: [] }
-      return { urls: refs.map((ref) => ({ ...ref, url: 'https://cdn.test/ab/sha?auth_key=k', thumb_url: null, sha256: 'ab'.repeat(32), width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })) }
+    resolveFile: async (ref: Record<string, unknown>, actorId: string) => {
+      asked.push([ref]); expect(actorId).toBe(AGENT)
+      if (opts.signed === false) return { status: 'gone', sha256: null }
+      fetched.push('verified original')
+      return verifiedFileHandle(opts.bytes ?? Buffer.from('bytes'), { file_name: 'notes.pdf', content_type: 'application/pdf' })
     },
-    fetchBytes: async (url: string) => { fetched.push(url); return opts.bytes ?? Buffer.from('bytes') },
   }
   const context = { agentId: AGENT, supabaseUrl: '', anonKey: '', getAccessToken: async () => 'token', guguHome: home, threadRootId: null }
   const call = () => callTool(context, 'message_download_file', { source_message_id: 'msg:m1' }, deps)
@@ -62,11 +63,11 @@ describe('message_download_file by source_message_id (#7290)', () => {
     expect(name).toMatch(/^(?:核对🍵)*(?:核对|核)?\.html$/u)
   })
 
-  test('old message: downloads its public URL; saved under a name taken from the content', async () => {
+  test('old message: resolves the message through the same private provider; preserves the original filename', async () => {
     const { call, fetched, asked, home } = await setup({ id: 'm1', chat_id: CHAT, content: legacy, content_type: 'attachment', file_item_id: null, file_version: null })
     const text = JSON.stringify(await call())
-    expect(fetched).toEqual([LEGACY_URL])
-    expect(asked).toEqual([])
+    expect(fetched).toEqual(['verified original'])
+    expect(asked).toEqual([[{ message_id: 'm1' }]])
     const [name] = await readdir(join(home, 'chat-media'))
     expect(name).toBe(createHash('sha256').update('bytes').digest('hex'))
     expect(await readFile(join(home, 'chat-media', name!, 'notes.pdf'), 'utf8')).toBe('bytes')
@@ -98,11 +99,15 @@ describe('message_download_file by source_message_id (#7290)', () => {
     const home = await mkdtemp(join(tmpdir(), 'gugu-session-tool-receipt-')); homes.push(home)
     const bytes = new Uint8Array([0, 255, 65, 13, 10, 128, 9])
     const ref = { attachment_id: '44444444-4444-4444-8444-444444444444', file_name: '原始文件😀.bin', size_bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), content_type: 'application/octet-stream' }
-    const context = { agentId: AGENT, supabaseUrl: 'https://db.test', anonKey: 'anon', getAccessToken: async () => 'owner-token', guguHome: home, threadRootId: null }
+    const context = { agentId: AGENT, supabaseUrl: 'https://db.test', anonKey: 'anon', getAccessToken: async () => `x.${Buffer.from(JSON.stringify({ sub: 'owner' })).toString('base64url')}.x`, guguHome: home, threadRootId: null }
     const fetch = async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/session-urls')) {
-        expect(JSON.parse(String(init?.body))).toEqual({ attachment_ids: [ref.attachment_id], as: AGENT })
-        return Response.json({ attachments: [{ ...ref, url: 'https://objects.test/original', expires_at: '2999-01-01T00:00:00Z' }] })
+      if (url.endsWith('/file-resolve')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ ref: { attachment_id: ref.attachment_id }, as: AGENT })
+        return Response.json({ ...ref, status: 'ready', source: 'managed-object' })
+      }
+      if (url.endsWith('/file-download')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ ref: { attachment_id: ref.attachment_id }, as: AGENT, request_id: expect.any(String) })
+        return Response.json({ ...ref, status: 'ready', download_id: 'download', url: 'https://objects.test/original' })
       }
       expect(url).toBe('https://objects.test/original'); return new Response(bytes)
     }
@@ -114,40 +119,34 @@ describe('message_download_file by source_message_id (#7290)', () => {
     expect(receipt).not.toHaveProperty('url')
   })
 
-  test('folder-backed message: signs the pinned version as this agent, downloads the signed link', async () => {
+  test('folder-backed message: resolves its immutable message reference as this agent', async () => {
     const { call, fetched, asked } = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3 })
     await call()
-    expect(asked).toEqual([[{ item_id: 'item-1', version: 3 }]])
-    expect(fetched).toEqual(['https://cdn.test/ab/sha?auth_key=k'])
+    expect(asked).toEqual([[{ message_id: 'm1' }]])
+    expect(fetched).toEqual(['verified original'])
   })
 
-  // 复核 X2:真正发出去的 attachments/urls 请求里,`as` 是这个 agent(不是令牌的主人)。
-  test('the attachments/urls request it sends signs as this agent (as = context.agentId)', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'gugu-download-as-'))
-    homes.push(home)
-    const sent: Array<{ url: string; body: unknown }> = []
-    const injected = {
+  // Preserve X2: the host receives the exact message and agent identity, never the token's owner or a body URL.
+  test('the production context resolver receives this agent and the immutable message authority', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'gugu-download-as-')); homes.push(home)
+    const calls: unknown[] = []
+    const context = { agentId: AGENT, getAccessToken: async () => 'owner-token', guguHome: home, resolveFile: async (ref: unknown, actor: string) => {
+      calls.push([ref, actor]); return verifiedFileHandle(Buffer.from('bytes'), { file_name: 'deck.pdf', item_id: 'item-1', version: 3 })
+    } }
+    const receipt = JSON.parse(await callTool(context, 'message_download_file', { source_message_id: 'msg:m1' }, {
       restGet: async () => [{ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: 'item-1', file_version: 3, file_blob_id: null }],
       restRpc: async () => true,
-      fetch: async (url: string, init?: RequestInit) => {
-        sent.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
-        if (url.endsWith('/functions/v1/attachments/urls')) {
-          return new Response(JSON.stringify({ urls: [{ item_id: 'item-1', version: 3, url: 'https://cdn.test/ab/sha?auth_key=k', thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' }] }))
-        }
-        return new Response('bytes')
-      },
-    }
-    const context = { agentId: AGENT, supabaseUrl: 'https://db.test', anonKey: 'anon', getAccessToken: async () => 'owner-token', guguHome: home, threadRootId: null }
-    await callTool(context, 'message_download_file', { source_message_id: 'msg:m1' }, injected)
-    expect(sent.map((one) => one.url)).toEqual(['https://db.test/functions/v1/attachments/urls', 'https://cdn.test/ab/sha?auth_key=k'])
-    expect(sent[0]!.body).toEqual({ refs: [{ item_id: 'item-1', version: 3 }], as: AGENT })
+      fetch: async () => { throw Error('No independent object fetch is permitted') },
+    }))
+    expect(calls).toEqual([[{ message_id: 'm1' }, AGENT]])
+    expect(await readFile(receipt.file_path, 'utf8')).toBe('bytes')
   })
 
-  test('whisper attachment (no folder item, the message points at the bytes): signed by its message id as this agent', async () => {
+  test('whisper attachment: retains message-level ACL as this agent', async () => {
     const { call, fetched, asked } = await setup({ id: 'm1', chat_id: CHAT, content: envelope, content_type: 'attachment', file_item_id: null, file_version: null, file_blob_id: 'blob-1' })
     await call()
     expect(asked).toEqual([[{ message_id: 'm1' }]])
-    expect(fetched).toEqual(['https://cdn.test/ab/sha?auth_key=k'])
+    expect(fetched).toEqual(['verified original'])
   })
 
   test('refuses: a message the agent cannot see, one without an attachment, a deleted file, one it may no longer read', async () => {

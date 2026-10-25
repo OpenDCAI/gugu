@@ -1,7 +1,7 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
-import { AttachmentsError, configuredEndpoint, fetchAttachmentUrls, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
+import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
+import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
@@ -78,6 +78,9 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
+  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store: () => Promise<ItemRow>): Promise<ItemRow | null>;
+  /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
+  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
@@ -117,7 +120,7 @@ export interface AppIdentity {
 type Identities = FilesPlatform['identities'];
 
 /** What a download saves: bytes behind a short-lived signed URL, or a document's text. */
-export type DownloadSource = { name: string; kind: 'file'; url: string } | { name: string; kind: 'text'; text: string };
+export type DownloadSource = { name: string; kind: 'file'; file: FileHandle } | { name: string; kind: 'text'; text: string };
 
 interface ItemRow {
   id: string;
@@ -204,29 +207,6 @@ function chatClient(token: string) {
 
 function storageClient(token: string) {
   return createGuguSupabaseClient({ headers: { Authorization: `Bearer ${token}` } });
-}
-
-/**
- * A short-lived signed URL for a stored file's bytes — one way for every file (#7290 收尾): attachments/urls signs that
- * item and version, as the one asking (`as`: an App's program acting as its agent) — the same path the chat reads; a file
- * from before the switch is signed there too (its bytes are the blob its pointer was registered as).
- */
-async function signedUrlOf(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<string> {
-  if (row.kind !== 'file') throw new AppFileError('failed', `${row.filename} has no stored bytes`);
-  const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(token), refs, how.as))
-    .resolve({ kind: 'item', itemId: row.id, version: how.version ?? row.version });
-  if (link.status !== 'ready') throw new AppFileError('not-found', `${row.filename} has no bytes for version ${how.version ?? row.version}`);
-  return link.url;
-}
-
-/** A stored file's bytes, as `files.open` hands them to the page (`AppFileOpened.bytes`). */
-async function storedBytes(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<ArrayBuffer> {
-  const url = await signedUrlOf(token, row, how);
-  const res = await fetch(url).catch((error: unknown) => {
-    throw new AppFileError('failed', `${row.filename} could not be read: ${error instanceof Error ? error.message : String(error)}`);
-  });
-  if (!res.ok) throw new AppFileError('failed', `${row.filename} could not be read (HTTP ${res.status})`);
-  return res.arrayBuffer();
 }
 
 type Claimant = FilesPlatform['claimant'];
@@ -566,6 +546,27 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
+  async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
+    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
+    if (!file && localOnly) return null;
+    if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
+    if (file.status !== 'ready') throw new AppFileError('not-found', `The file has no bytes${version === undefined ? '' : ` for version ${version}`}`);
+    if (file.revision.item_id !== surface.itemId && !has(surface.extensionId, 'files:read') && !has(surface.extensionId, 'files:write')) {
+      await file.dispose(); throw new AppFileError('denied', 'Opening or saving this file needs "files:read" or "files:write"');
+    }
+    return file;
+  }
+  async function localFile(surface: FileSurface, ref: ChatFileRef, version?: number) {
+    const file = await fileFor(surface, ref, version, true);
+    if (!file) return null;
+    const r = file.revision, metadata = r.workspace;
+    if (!metadata || !r.item_id || !r.chat_id || !r.version) { await file.dispose(); throw new AppFileError('failed', 'Local file publication metadata is unavailable'); }
+    if (ref.chat !== undefined && ref.chat !== r.chat_id) { await file.dispose(); throw new AppFileError('invalid', 'The file is in another chat'); }
+    const row: ItemRow = { ...metadata, id: r.item_id, chat_id: r.chat_id, filename: r.file_name, content_type: r.content_type, size_bytes: r.size_bytes, version: r.version, kind: 'file', epoch: 0, pointer: null, system_role: null };
+    return { file, entry: entryOf(row, new Map(), platform.claimant, new Set()), self: { userId: personId(file.reader.actorId), name: selfNames.get(file.reader.actorId) ?? '' } };
+  }
+  const bytesOf = async (file: FileHandle) => (await fileBlob(file)).arrayBuffer();
+
   /** Found rows as entries, each with its chat's name — a private chat goes by the other one in it, as its panel says. */
   async function found(token: string, rows: readonly FoundRow[], viewerId: string): Promise<AppFileEntry[]> {
     const entries = await entriesOf(token, rows, platform, viewerId);
@@ -603,6 +604,8 @@ export function createAppFiles(platform: FilesPlatform) {
   }
 
   async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
+    const local = await localFile(surface, args.ref);
+    if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
     const { token, userId } = await platform.account();
     const { row, handedOver } = await resolve(surface, { token, userId }, args.ref);
     if (row.kind === 'folder') throw notAFile(row);
@@ -624,7 +627,7 @@ export function createAppFiles(platform: FilesPlatform) {
     }
     const actor = surface.asAgent ?? userId;
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes(token, row, { as: surface.asAgent }) };
+    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row.id }, row.version))!) };
     if (typeof row.epoch !== 'number') throw new AppFileError('failed', `${row.filename}: the server did not say which version of the file is open`);
     const docName = `${row.id}@${row.epoch}`;
     const page = platform.sync.pageFor(surface.pageId, surface.extensionId);
@@ -898,15 +901,17 @@ export function createAppFiles(platform: FilesPlatform) {
 
     /** G2 One kept version's content: a text file's text, a stored file's bytes. Gated as `versions`. */
     async readVersion(surface: FileSurface, args: { ref: ChatFileRef; n: number }): Promise<AppFileVersionContent> {
-      const { token, userId } = await platform.account();
       if (!Number.isInteger(args.n)) throw new AppFileError('invalid', 'files.readVersion(file, n) takes a version\'s n, as files.versions gives it');
+      const local = await localFile(surface, args.ref, args.n);
+      if (local) return { n: args.n, bytes: await bytesOf(local.file), contentType: local.file.revision.content_type };
+      const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'opening');
       const { data, error } = await chatClient(token).rpc('workspace_version_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_n: args.n });
       if (error) throw new AppFileError(codeOf(error), `${row.filename}: ${error.message}`);
       const version = ((Array.isArray(data) ? data[0] : data) ?? null) as { n: number; pointer: string | null; inline_text: string | null; content_type: string } | null;
       if (!version) throw new AppFileError('not-found', `${row.filename} has no version ${args.n}`);
       if (version.inline_text !== null) return { n: version.n, text: version.inline_text };
-      const bytes = await storedBytes(token, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent });
+      const bytes = await bytesOf((await fileFor(surface, { id: row.id }, version.n))!);
       return { n: version.n, bytes, contentType: version.content_type };
     },
 
@@ -992,6 +997,14 @@ export function createAppFiles(platform: FilesPlatform) {
         const name = file.name.trim();
         const contentType = file.contentType || contentTypeOf(name);
         try {
+          const store = async () => {
+            const endpoint = configuredEndpoint(token);
+            const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
+            return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
+              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType }) as unknown as ItemRow;
+          };
+          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
+          if (published) { rows.push(published); continue; }
           const asText = workspaceUploadKind(name, contentType, new Uint8Array(file.bytes));
           if (asText.kind === 'document') {
             rows.push(await insertDocument(token, { chatId, name, contentType: asText.contentType, content: asText.text, sourceMessageIds, parentId }, actor));
@@ -999,12 +1012,7 @@ export function createAppFiles(platform: FilesPlatform) {
           }
           // #7290 gugu-3: a stored file's bytes go to OSS (attachments/upload); the server puts it in the folder (attachments/place),
           // as the agent or the person — the folder made all the way down when it is not there, as folderIdFor does.
-          const endpoint = configuredEndpoint(token);
-          const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
-          rows.push(await placeAttachment(endpoint, {
-            staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null, as_user_id: actor,
-            source_message_ids: sourceMessageIds, content_type: contentType,
-          }) as unknown as ItemRow);
+          rows.push(await store());
         } catch (error) {
           const notIn = files
             .slice(index)
@@ -1028,9 +1036,11 @@ export function createAppFiles(platform: FilesPlatform) {
      * last save (B7). Where it goes is the platform's to ask.
      */
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
+      const local = await localFile(surface, args.ref);
+      if (local) return { name: local.entry.name, kind: 'file', file: local.file };
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', url: await signedUrlOf(token, row, { as: surface.asAgent }) };
+      if (row.kind === 'file') return { name: row.filename, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
       try {
         return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
       } catch (error) {

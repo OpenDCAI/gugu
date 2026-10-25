@@ -10,6 +10,9 @@
  * 每条判据都带必失败对照(变异构造为显式测试用例,红以「断言变异后必然出现坏结果」的形式常驻)。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { createNodeFileResolver, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -609,14 +612,14 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       },
     })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3 })
-    expect(asked).toEqual([{ kind: 'item', itemId: 'item-2', version: 4 }, { kind: 'message', messageId: '10000000-0000-4000-8000-00000000000c' }])
+    expect(asked).toEqual([{ message_id: '10000000-0000-4000-8000-00000000000b' }, { message_id: '10000000-0000-4000-8000-00000000000c' }])
     expect(injections.map((entry) => entry.attachments?.length ?? 0)).toEqual([1, 0, 1])
     expect(injections[1]!.text).toContain('[附件] two.png (image/png)')
   })
 
   // 新式附件的文件(不是图,比如 App 包):正文里没有链接,字节和图片一样下到本机、正文后面交本地路径;
-  // 老式的正文里有 [URL],照旧不下;条目删了只交正文。
-  it('new-style file: saved locally and the text says where; an old file keeps its [URL]; a deleted file delivers the text alone', async () => {
+  // Legacy pointers use the same signed resolver; without verified private metadata they fail closed. Deleted items stay text-only.
+  it('saves the current file, refuses an unverified legacy pointer without fetching its public URL, and keeps deleted files text-only', async () => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-000000000008', 'group')
     cloud.join('00000000-0000-4000-8000-000000000008', AGENT, { listenMode: 'active' })
@@ -629,16 +632,18 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const { deps, injections } = makeDeps(cloud, {
       downloadAttachment: async (source) => {
         asked.push(source)
+        if ('message_id' in source && source.message_id === '10000000-0000-4000-8000-000000000006') throw new Error('Legacy file requires verified private metadata')
         return { bytes: Uint8Array.from([1, 2]), localPath: '/tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext' }
       },
     })
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3 })
-    expect(asked).toEqual([{ kind: 'item', itemId: 'item-7', version: 1 }])
+    expect(asked).toEqual([{ message_id: '10000000-0000-4000-8000-000000000005' }, { message_id: '10000000-0000-4000-8000-000000000006' }])
     const text = injections.map((entry) => entry.text).join('\n')
     expect(text).toContain('[附件] poll-0.1.0.guguext (application/vnd.gugu.extension+zip)')
     expect(text).toContain('[File saved at local path: /tmp/gugu-home/chat-media/abc-poll-0.1.0.guguext]')
     expect(text.match(/\[File saved at local path:/g)).toHaveLength(1)
     expect(text).toContain('[URL] https://example.test/a.pdf')
+    expect(text).toContain('[File not saved: Legacy file requires verified private metadata]')
     expect(injections.every((entry) => !entry.attachments)).toBe(true)
   })
 
@@ -663,16 +668,16 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   // #7290 复核 X2:签链接以 agent 自己的身份(`as` = agent),不是令牌的主人 —— 主人读得到的,agent 不一定读得到。
-  it('signs a new-style image as the agent (attachments/urls gets as = the agent), not as the owner', async () => {
+  it('exports the verified image through the canonical resolver as this inbox agent, never its owner', async () => {
     vi.stubEnv('GUGU_SUPABASE_URL', 'https://db.example.test')
     vi.stubEnv('GUGU_SUPABASE_ANON_KEY', 'anon')
     const home = mkdtempSync(join(tmpdir(), 'gugu-inbox-as-agent-'))
     const asked: Array<{ url: string; body: unknown }> = []
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       asked.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
-      if (url.endsWith('/functions/v1/attachments/urls')) {
-        return new Response(JSON.stringify({ urls: [{ item_id: 'item-2', version: 4, url: 'https://cdn.example.test/two.png?auth_key=1', thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' }] }))
-      }
+      const revision = { status: 'ready', source: 'managed-object', file_name: 'two.png', content_type: 'image/png', sha256: createHash('sha256').update(new Uint8Array([1, 2, 3])).digest('hex'), size_bytes: 3 }
+      if (url.endsWith('/file-resolve')) return Response.json(revision)
+      if (url.endsWith('/file-download')) return Response.json({ ...revision, download_id: 'download', url: 'https://cdn.example.test/two.png?auth_key=1' })
       return new Response(new Uint8Array([1, 2, 3]))
     })
     try {
@@ -681,10 +686,18 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       cloud.join('00000000-0000-4000-8000-000000000004', AGENT, { listenMode: 'active' })
       cloud.join('00000000-0000-4000-8000-000000000004', HUMAN)
       cloud.post({ chatId: '00000000-0000-4000-8000-000000000004', id: '10000000-0000-4000-8000-000000000009', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '[附件] two.png (image/png)\n[Size] 3\n[Kind] image', fileItemId: 'item-2', fileVersion: 4 })
-      const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home } })
+      const resolve = createNodeFileResolver(join(home, 'cache'), async () => ({ supabaseUrl: 'https://db.example.test', anonKey: 'anon', token: 'owner-token' }))
+      const { deps, injections } = makeDeps(cloud, { env: { GUGU_HOME: home }, downloadAttachment: async (ref, name, actorId) => {
+        const file = await resolve(ref, { accountId: HUMAN, actorId })
+        if (file.status !== 'ready') throw Error('Expected image')
+        const saved = await saveFileHandle(file, join(home, 'chat-media'), name)
+        return { bytes: await readFile(saved.file_path), localPath: saved.file_path }
+      } })
       await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 1, injected: 1 })
-      expect(asked.map((one) => one.url)).toEqual(['https://db.example.test/functions/v1/attachments/urls', 'https://cdn.example.test/two.png?auth_key=1'])
-      expect(asked[0]!.body).toEqual({ refs: [{ item_id: 'item-2', version: 4 }], as: AGENT })
+      expect(asked.map((one) => one.url)).toEqual(['https://db.example.test/functions/v1/attachments/file-resolve', 'https://db.example.test/functions/v1/attachments/file-download', 'https://cdn.example.test/two.png?auth_key=1', 'https://db.example.test/functions/v1/attachments/file-resolve'])
+      expect(asked[0]!.body).toEqual({ ref: { message_id: '10000000-0000-4000-8000-000000000009' }, as: AGENT })
+      expect(asked[1]!.body).toMatchObject({ ref: { message_id: '10000000-0000-4000-8000-000000000009' }, as: AGENT, request_id: expect.any(String) })
+      expect(asked[3]!.body).toEqual(asked[0]!.body)
       expect(injections[0]!.attachments).toHaveLength(1)
     } finally {
       vi.unstubAllGlobals()
