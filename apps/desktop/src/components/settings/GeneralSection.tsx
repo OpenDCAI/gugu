@@ -201,7 +201,6 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         <SettingsGroup title={t('settings.general.trayBadge')}>
           <SettingsRow
             title={t('settings.general.trayBadgeEnabled')}
-            description={t('settings.general.trayBadgeDescription')}
             control={(
               <Toggle
                 checked={trayBadgeEnabled}

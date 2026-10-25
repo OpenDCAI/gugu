@@ -472,8 +472,6 @@ const enUSCoreMessages = {
   'settings.confirmBeforeCancelAndSendDescription':
     'When you send a queued prompt while a turn is running, confirm before cancelling that turn. Turning it off cancels and sends right away — the dialog’s “Don’t ask again” lands here, and this row is how you get the question back.',
   'settings.chatView': 'Conversation view',
-  'settings.chatViewDescription':
-    'How agent conversations are laid out on the task page. Two columns puts your messages in a right-aligned pill with a left gutter; single column keeps every row full width.',
   'settings.chatViewSingle': 'Single column',
   'settings.chatViewDouble': 'Two columns',
   'update.version': 'Version',
@@ -1351,8 +1349,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'settings.confirmBeforeCancelAndSendDescription':
     '回合进行中立即发送排队提示时，先确认是否取消当前回合。关掉就直接取消并发送 —— 确认框里的「不再询问」落的就是这一项，这一行是把它调回来的地方。',
   'settings.chatView': '对话视图',
-  'settings.chatViewDescription':
-    '项目页里 agent 对话的排版。双栏把你的消息收成右侧胶囊、左边留白；单栏每一行都占满整宽。',
   'settings.chatViewSingle': '单栏',
   'settings.chatViewDouble': '双栏',
   'update.version': '版本',

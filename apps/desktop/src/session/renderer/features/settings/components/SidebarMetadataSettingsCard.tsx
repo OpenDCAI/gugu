@@ -24,7 +24,6 @@ const SidebarMetadataSettingsCard: React.FC = () => {
     <SettingsGroup>
       <SettingsRow
         title={translate('sidebarMeta.stateGroups')}
-        description={translate('sidebarMeta.stateGroupsDescription')}
         control={
           <>
             <ResetToDefaultButton
@@ -47,7 +46,6 @@ const SidebarMetadataSettingsCard: React.FC = () => {
           (owner 2026-09-18)。默认开。 */}
       <SettingsRow
         title={translate('sidebarMeta.agentNameOnHover')}
-        description={translate('sidebarMeta.agentNameOnHoverDescription')}
         control={
           <>
             <ResetToDefaultButton

@@ -408,7 +408,6 @@ export default {
       "notificationsTestRejectedMobile": "The system refused to show it — 咕咕 has no notification permission yet. Turn it on from Me → Permissions → Notifications.",
       "trayBadge": "Tray badge",
       "trayBadgeAria": "Show the unread count on the tray icon",
-      "trayBadgeDescription": "Unread chat messages, muted chats excluded; reading them clears it",
       "trayBadgeEnabled": "Show the unread count on the tray icon",
       "system": "System",
       "theme": "Theme",

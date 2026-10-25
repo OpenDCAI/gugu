@@ -59,7 +59,7 @@ export const DeviceScopePicker = observer(function DeviceScopePicker({
 });
 
 /**
- * 模块层挂这一份:看别的机器时,里面每一页标题下的说明写出它的名字。
+ * 模块层挂这一份机器选择器。
  * `inTitle`(缺省)= 选择器画在页标题右边(已安排:整个模块就一页);
  * 资源库、设置不画在子页上 —— owner:「设备是资源库级别的」「资源库改了,你设置页也改啊」,选择器在左栏列头下只有一个。
  */
@@ -72,11 +72,10 @@ export const DeviceScopeProvider = observer(function DeviceScopeProvider({
   inTitle?: boolean;
   children: ReactNode;
 }) {
-  const selected = useSelectedRemoteDevice(store);
-  const deviceLabel = selected?.device.label ?? null;
+  useSelectedRemoteDevice(store);
   const scope = useMemo<PageScope>(
-    () => ({ control: inTitle ? <DeviceScopePicker store={store} /> : null, deviceLabel }),
-    [store, inTitle, deviceLabel]
+    () => ({ control: inTitle ? <DeviceScopePicker store={store} /> : null }),
+    [store, inTitle]
   );
   return <PageScopeProvider value={scope}>{children}</PageScopeProvider>;
 });

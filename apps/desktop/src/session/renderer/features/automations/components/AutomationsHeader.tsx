@@ -21,7 +21,6 @@ export function AutomationsHeader({
   return (
     <PageHeader
       title={translate('automations.title')}
-      remoteDescription={(device) => translate('deviceScope.subtitle.automations', { device })}
     >
       <div className="flex items-center justify-between gap-2">
         {/* 「已安排」看哪台机器(#6264)在标题右边(模块层挂的那一份),❌ 挤在搜索框旁。 */}

@@ -402,7 +402,6 @@ export default {
       "notificationsTestRejectedMobile": "系统没让这条通知弹出来——咕咕还没拿到通知权限。去「我的 → 权限 → 通知」开。",
       "trayBadge": "托盘角标",
       "trayBadgeAria": "在托盘图标上显示未读数",
-      "trayBadgeDescription": "未读的聊天消息数，免打扰的会话不计；读过就减",
       "trayBadgeEnabled": "在托盘图标上显示未读数",
       "system": "跟随系统",
       "theme": "主题",

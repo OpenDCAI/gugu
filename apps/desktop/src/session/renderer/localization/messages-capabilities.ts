@@ -69,12 +69,8 @@ export const enUSCapabilityMessages = {
 
   // ── settings · left sidebar metadata ───────────────────────────────────────
   'sidebarMeta.stateGroups': 'Group tasks by status',
-  'sidebarMeta.stateGroupsDescription':
-    'Split the left sidebar into Needs you / Running sections; everything else sits flat below them. Off lists every task flat, most recent first.',
   'sidebarMeta.stateGroupsToggle': 'Group left sidebar tasks by status',
   'sidebarMeta.agentNameOnHover': 'Show the identity card on hover',
-  'sidebarMeta.agentNameOnHoverDescription':
-    'Resting the pointer on a task row opens a card beside it with the task name and agent name; click a row to copy it with its label. Off shows nothing on hover.',
   'sidebarMeta.agentNameOnHoverToggle': 'Show the identity card on hover',
 
   // ── settings · resource monitor ────────────────────────────────────────────
@@ -715,7 +711,6 @@ export const enUSCapabilityMessages = {
     '{harness} doesn’t support turning off MCP servers yet',
 
   // ── prompt library ─────────────────────────────────────────────────────────
-  'prompts.subtitle': 'Reusable prompts',
   'prompts.searchPlaceholder': 'Search prompts...',
   'prompts.new': 'New Prompt',
   'prompts.empty': 'No prompts',
@@ -917,12 +912,8 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
 
   // ── 设置 · 左侧栏信息 ───────────────────────────────────────────────────────
   'sidebarMeta.stateGroups': '二级分类',
-  'sidebarMeta.stateGroupsDescription':
-    '左侧栏把会话分出「需要你 / 运行中」两档,其余平铺在下面。关掉则没有这一层,所有会话按最近活动平铺成一条列表。',
   'sidebarMeta.stateGroupsToggle': '左侧栏按状态分二级分类',
   'sidebarMeta.agentNameOnHover': '悬浮显示身份卡',
-  'sidebarMeta.agentNameOnHoverDescription':
-    '指针停在会话行上时,旁边弹出一张身份卡:任务名、agent 名,点一行即连同标签复制这一行。关掉则悬浮时什么都不弹。',
   'sidebarMeta.agentNameOnHoverToggle': '悬浮时显示身份卡',
 
   // ── 设置 · 资源监视器 ───────────────────────────────────────────────────────
@@ -1524,7 +1515,6 @@ export const zhCNCapabilityMessages: Record<CapabilityMessageKey, string> = {
   'mcpSession.unsupported': '{harness} 暂不支持关闭 MCP server',
 
   // ── 提示词库 ────────────────────────────────────────────────────────────────
-  'prompts.subtitle': '可复用的提示词',
   'prompts.searchPlaceholder': '搜索提示词...',
   'prompts.new': '新建提示词',
   'prompts.empty': '暂无提示词',

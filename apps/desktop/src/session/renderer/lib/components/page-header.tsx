@@ -3,15 +3,13 @@ import { SettingsNote } from '@/components/settings/SettingsPrimitives';
 
 /**
  * #6264 这一页看的是哪台机器。按机器的模块(资源库、已安排、设置里的通用 / 仓库 / 存储)在模块层
- * 挂一份,模块里**每一页**的标题右边都画同一个机器选择器,标题下那句说明写出那台机器的名字。
+ * 挂一份,模块里**每一页**的标题右边都画同一个机器选择器。
  * 一个位置、一个组件:❌ 挂在左栏列头下、搜索框旁、设置行里(owner:「如果设备是关键,
  * 你是否应该放到更显眼的位置,并且那个组件统一且好看」)。
  */
 export type PageScope = {
   /** 标题右边那一格(机器选择器)。 */
   control: ReactNode;
-  /** 看的是别的机器时它的名字;本机 = null(说明照旧)。 */
-  deviceLabel: string | null;
 };
 
 const PageScopeContext = createContext<PageScope | null>(null);
@@ -33,7 +31,6 @@ export function InSettingsPanelProvider({ children }: { children: ReactNode }) {
 export function PageHeader({
   title,
   description,
-  remoteDescription,
   scope: scopeProp,
   children,
   sticky = false,
@@ -42,11 +39,6 @@ export function PageHeader({
 }: {
   title: string;
   description?: string;
-  /**
-   * 看别的机器时的说明,把机器名自然地写进句子(「管理 d22 上的智能体和模型配置。」)。
-   * 缺省 = 照旧用 description;按机器的页都该给这一句。
-   */
-  remoteDescription?: (device: string) => string;
   /** 直接给这一页一个范围;缺省读模块层挂的那一份。 */
   scope?: PageScope | null;
   children?: ReactNode;
@@ -58,14 +50,12 @@ export function PageHeader({
 }) {
   const inherited = useContext(PageScopeContext);
   const scope = scopeProp === undefined ? inherited : scopeProp;
-  const device = scope?.deviceLabel ?? null;
-  const shownDescription = device && remoteDescription ? remoteDescription(device) : description;
   if (useContext(InSettingsPanelContext) && !showTitleInSettings) {
-    if (!scope?.control && !shownDescription && !children) return null;
+    if (!scope?.control && !description && !children) return null;
     return (
       <div className="flex flex-col gap-4">
         {scope?.control ? <div className="flex min-w-0" data-slot="page-scope">{scope.control}</div> : null}
-        {shownDescription ? <SettingsNote>{shownDescription}</SettingsNote> : null}
+        {description ? <SettingsNote>{description}</SettingsNote> : null}
         {children}
       </div>
     );
@@ -82,7 +72,7 @@ export function PageHeader({
             </div>
           ) : null}
         </div>
-        {shownDescription ? <p className="text-sm text-foreground-muted">{shownDescription}</p> : null}
+        {description ? <p className="text-sm text-foreground-muted">{description}</p> : null}
       </div>
   );
   const body = (

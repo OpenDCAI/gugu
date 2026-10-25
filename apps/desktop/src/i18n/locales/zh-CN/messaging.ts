@@ -745,7 +745,6 @@ export default {
       "participantCount": "{{count}} 人参与",
       "participantCount_one": "{{count}} 人参与",
       "observer": "只看得见",
-      "observerHint": "你看得见这条话题，但它的消息不会通知你",
       "openedBy": "{{name}}开的",
       "quiet": "还没有人说话"
     },

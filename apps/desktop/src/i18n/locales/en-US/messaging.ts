@@ -745,7 +745,6 @@ export default {
       "participantCount": "{{count}} participants",
       "participantCount_one": "{{count}} participant",
       "observer": "View only",
-      "observerHint": "You can see this topic, but its messages will not notify you",
       "openedBy": "by {{name}}",
       "quiet": "No one has spoken yet"
     },
