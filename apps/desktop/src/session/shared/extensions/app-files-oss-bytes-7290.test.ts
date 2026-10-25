@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { cloudFileProviders } from '@gugu/core/cloud/fileProviders';
+import { createFileResolver } from '@gugu/core/shared/fileResolver';
+import { createCachedFileSink, type FileChunkCache } from '@gugu/core/shared/fileCache';
 import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,7 +21,8 @@ let signedRefs: { refs: unknown[]; as: string | undefined }[];
 let answer: 'signed' | 'gone';
 const storageSigned: string[] = [];
 
-vi.mock('@gugu/core/cloud/attachmentsApi', () => ({
+vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@gugu/core/cloud/attachmentsApi')>(),
   configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }),
   fetchAttachmentUrls: async (_endpoint: unknown, refs: { item_id: string; version: number }[], as?: string | null) => {
     signedRefs.push({ refs, as: as ?? undefined });
@@ -65,6 +70,36 @@ const files = createAppFiles({
   filesUrl: () => 'http://files.invalid',
   warn: () => undefined,
 });
+/** The shared production provider owns signature reuse and the host's object fetch; Apps have no URL path. */
+function cloudBackedFiles(body = new Uint8Array([1, 2, 3]), hostFetch: typeof fetch = fetch) {
+  const chunks = new Map<string, Uint8Array>();
+  const cache: FileChunkCache = { get: async (key, index) => chunks.get(`${key}:${index}`) ?? null,
+    put: async (key, index, bytes) => { chunks.set(`${key}:${index}`, bytes.slice()); },
+    clear: async key => { for (const entry of chunks.keys()) if (entry.startsWith(`${key}:`)) chunks.delete(entry); },
+  };
+  const sha256 = createHash('sha256').update(body).digest('hex');
+  const cloud = cloudFileProviders({ cache, sink: async size => createCachedFileSink(cache, size), fetch: hostFetch,
+    metadata: async context => answer === 'gone' ? { status: 'gone' } : { status: 'ready', source: 'managed-object',
+      item_id: row.id, version: 'version' in context.ref ? context.ref.version : row.version, chat_id: CHAT,
+      file_name: row.filename, content_type: 'application/pdf', size_bytes: body.length, sha256 },
+    endpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { ref: unknown; as: string };
+      signedRefs.push({ refs: [request.ref], as: request.as });
+      return Response.json({ status: 'ready', url: CDN, sha256, size_bytes: body.length, download_id: 'test-download' });
+    } }),
+  });
+  const resolve = createFileResolver({ ...cloud, local: async () => null, ssh: async () => null });
+  return createAppFiles({ account: async () => ({ token: 'token', userId: ME }),
+    resolveFile: async (ref, actor, options) => {
+      if (options.localOnly) return null;
+      if (!('id' in ref)) throw Error('This fixture expects an item reference');
+      return resolve({ item_id: ref.id, version: options.version ?? Number(row.version) }, { accountId: ME, actorId: actor ?? ME });
+    },
+    hasCapability: () => true, sync: {} as never,
+    identities: async (_token, ids) => ids.map(id => ({ id, name: id, avatar: null, kind: 'human' as const })),
+    faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn: () => undefined,
+  });
+}
 const surface = (extra: Record<string, unknown> = {}) => ({ pageId: 1, extensionId: 'reader', itemId: null, ...extra }) as never;
 
 beforeEach(() => {
@@ -99,32 +134,23 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
 
   it('a version signed once is not signed again while its link holds; another version, or another reader, is (10-25)', async () => {
     row = { ...row, id: '55555555-5555-4555-8555-555555555555', version: 7 };
-    const open = (extra?: Record<string, unknown>) => files.open(surface(extra), { ref: { id: row.id as string } });
+    const cached = cloudBackedFiles();
+    const open = (extra?: Record<string, unknown>) => cached.open(surface(extra), { ref: { id: row.id as string } });
     expect(new Uint8Array((await open()).bytes!)).toEqual(new Uint8Array([1, 2, 3]));
     await open();
-    expect(signedRefs).toEqual([{ refs: [{ item_id: row.id, version: 7 }], as: undefined }]);
+    expect(signedRefs).toEqual([{ refs: [{ item_id: row.id, version: 7 }], as: ME }]);
     row = { ...row, version: 8 };
     await open();
     await open({ asAgent: AGENT });
-    expect(signedRefs.slice(1)).toEqual([{ refs: [{ item_id: row.id, version: 8 }], as: undefined }, { refs: [{ item_id: row.id, version: 8 }], as: AGENT }]);
+    expect(signedRefs.slice(1)).toEqual([{ refs: [{ item_id: row.id, version: 8 }], as: ME }, { refs: [{ item_id: row.id, version: 8 }], as: AGENT }]);
   });
 
   it('a host that fetches stored bytes its own way (the desktop: Chromium’s, with its disk cache) is the one used', async () => {
     const fetched: string[] = [];
-    const own = createAppFiles({
-      account: async () => ({ token: 'token', userId: ME }),
-      hasCapability: () => true,
-      sync: {} as never,
-      identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
-      faces: async () => ({}),
-      filesUrl: () => 'http://files.invalid',
-      fetchBytes: async (url) => {
-        fetched.push(url);
-        return new Response(new Uint8Array([4, 5]));
-      },
-      warn: () => undefined,
+    const own = cloudBackedFiles(new Uint8Array([4, 5]), async (url) => {
+      fetched.push(String(url));
+      return new Response(new Uint8Array([4, 5]));
     });
-    // An item of its own: links are kept per reader for the module's life (signedUrlOf), so another case's item would be signed already.
     row = { ...row, id: '66666666-6666-4666-8666-666666666666' };
     expect(new Uint8Array((await own.open(surface(), { ref: { id: row.id as string } })).bytes!)).toEqual(new Uint8Array([4, 5]));
     expect(fetched).toEqual([CDN]);

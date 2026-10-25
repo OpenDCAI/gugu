@@ -105,12 +105,6 @@ export interface FilesPlatform {
   faces(people: readonly { id: string; avatar: string | null }[]): Promise<Record<string, string>>;
   /** The file service over HTTP (`<supabase>/files`, or the local stack's): a document's text is read from it, as it is now. */
   filesUrl(): string;
-  /**
-   * How a stored file's bytes are fetched from their signed link: the desktop's main passes Chromium's (`net.fetch`), whose
-   * disk cache keeps them — the file CDN answers `immutable`, and a reused link is the same URL (10-25: a 16 MB deck
-   * opened again, ~0.2 s less). The phone's page already fetches through its browser.
-   */
-  fetchBytes?: (url: string) => Promise<Response>;
   /** The host's log, for what went wrong without failing the call (bytes a refused replacement left in the bucket). */
   warn(message: string, data?: Record<string, unknown>): void;
 }

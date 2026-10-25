@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { BrowserWindow, dialog, net, type WebContents } from 'electron';
+import { BrowserWindow, dialog, type WebContents } from 'electron';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { attachmentFileRef } from '@gugu/core/shared/ui/attachmentModels';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
@@ -156,7 +156,6 @@ const files = createAppFiles({
     });
   },
   filesUrl: fileServiceUrl,
-  fetchBytes: (url) => net.fetch(url),
   warn: (message, data) => log.warn(`[app-files] ${message}`, data ?? {}),
 });
 
