@@ -230,7 +230,7 @@ export async function findProjectFileByName(chat: string, name: string, ownerId:
 
 export async function findProjectFileCopy(projectId: string, sha: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
   const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
-  const found = files.find(row => row.host_project_id === projectId && row.sha256 === sha && row.relative_path?.startsWith('.gugu/attachments/'))
+  const found = files.findLast(row => row.host_project_id === projectId && row.sha256 === sha && row.relative_path?.startsWith('.gugu/attachments/'))
   return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
 }
 
