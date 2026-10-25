@@ -531,7 +531,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
-  // Match the task split view's tab-strip actions without changing the existing button geometry.
+  // Match the task split-pane toolbar's actions without changing the existing button geometry.
   const headerButtonColors = mobile || !props.tabbed ? undefined : '!text-foreground-muted hover:!text-foreground hover:!bg-row-hover active:!bg-row-press'
   const backButton = from ? (
     <IconButton className={headerButtonColors} size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
@@ -577,7 +577,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
       {opened?.file ? null : props.tabbed ? (slimRow ? (
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-tab-strip px-2" data-testid="group-app-slot-bar">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-background-secondary-1 px-2" data-testid="group-app-slot-bar">
           {backButton}
           {marks}
           <span className="ml-auto flex items-center gap-1">{commands}{fullButton}{fromMessage ? closeButton : null}</span>
