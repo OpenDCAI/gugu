@@ -212,6 +212,8 @@ const MessageListRow = memo(function MessageListRow({
   const showTimeDivider = !isFiltering && shouldShowTimeDivider(messages, index)
   const prevMsg = prevRow?.type === 'message' ? prevRow.message : null
   const groupedWithPrev = computeGroupedWithPrev({ isFiltering, showTimeDivider, prevMsg, msg, prevIsThreadRoot: false })
+  const nextRow = rows[index + 1]
+  const groupedWithNext = nextRow?.type === 'message' && computeGroupedWithPrev({ isFiltering, showTimeDivider: !isFiltering && shouldShowTimeDivider(messages, index + 1), prevMsg: msg, msg: nextRow.message, prevIsThreadRoot: false })
   const anchoredTopics = topicAnchors?.get(msg.id)
   // @@@5856 自动调档那条系统消息用专门的版式渲染:居中、说清改了哪几个、就地一键全撤。
   const isAgentFloodNotice = msg.id === agentFloodNoticeMessageId && msg.content_type === 'system'
@@ -233,6 +235,7 @@ const MessageListRow = memo(function MessageListRow({
       // #2098 owner 定:已读回执逐条显示(每条本人消息都挂环),非只末条。气泡内已按 is_mine + read>0 门控。
       showReadReceipt={msg.is_mine && !isAgentChat}
       groupedWithPrev={groupedWithPrev}
+      groupedWithNext={groupedWithNext}
       // 这条消息上方刚渲染了时间分隔 pill → 气泡的名字/时间行不再把同一个时间重说一遍(截图里
       // 「03:10」上下各出现一次)。时间节点仍在 DOM 里(视觉隐藏),移动端无 hover、读屏与 e2e 照样取得到。
       // 手机上时间只由分隔 pill 说(间隔 ≥5 分钟才出一条,微信同款):窄屏上每换一个发送者就再印一遍
