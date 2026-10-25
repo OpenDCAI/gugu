@@ -7,7 +7,6 @@ import type {
 import { applySessionListEvent } from '@gugu/session-core/session-record/session-list-delta'
 import type { DeviceSessionSummary } from '@gugu/core/shared/types/chat'
 import { reconnectDelayMs } from '@/session/shared/remote-reconnect'
-import { readCachedSessionList, writeCachedSessionList } from './session-list-cache'
 
 /** 让「一台机器上有哪些会话」这张表**活着**所需的那几问(手机用 sessionpage-rpc.ts 那一组;单测换成假的)。 */
 export type SessionpageSessionListClient = {
@@ -19,8 +18,8 @@ export type SessionpageSessionListClient = {
 }
 
 export type SessionListSyncHandlers = {
-  /** 拿到一份(本地底稿、首列、推送、补列都走这里)。`cached=true` = 本地底稿,还没对过账。 */
-  onList: (result: SessionpageSessionsListResult, meta: { cached: boolean }) => void
+  /** 拿到那台机器此刻的一份(首列、推送、补列都走这里)。没读到之前画什么见 deviceSessionsOf(它上报过的那份)。 */
+  onList: (result: SessionpageSessionsListResult) => void
   onLoading?: (loading: boolean) => void
   onError?: (message: string | null) => void
 }
@@ -61,7 +60,7 @@ function newSubscriptionId(): string {
 }
 
 /**
- * 一台**在线**机器的会话列表:先铺本地底稿 → 订阅(订上那一刻宿主推一份整的,之后只推变了的行,在这里合);
+ * 一台**在线**机器的会话列表:订阅(订上那一刻宿主推一份整的,之后只推变了的行,在这里合);
  * 到那台机器的窗口断过再通(订阅随旧窗口拆了,丢了推送也走这条)就整个重来。
  */
 export function startSessionListSync(
@@ -71,24 +70,13 @@ export function startSessionListSync(
 ): SessionListSync {
   let stopped = false
   let stopRound: (() => void) | null = null
-  let received = false
   /** 连着列不出来几次了(决定下一次等多久:5、5、10…30 秒,与桌面断线重连同一份节奏)。 */
   let failures = 0
   let retryTimer: ReturnType<typeof setTimeout> | null = null
 
   const take = (result: SessionpageSessionsListResult) => {
-    if (stopped) return
-    received = true
-    handlers.onList(result, { cached: false })
-    // 存一份:下次第一眼就是这张表,而不是「正在读取」。
-    writeCachedSessionList(deviceId, result)
+    if (!stopped) handlers.onList(result)
   }
-
-  // 先把上次那张表画出来;真数据一旦落过,❌ 不能再拿旧的盖上去。
-  void readCachedSessionList<SessionpageProjectSummary, SessionpageSessionSummary>(deviceId).then((stored) => {
-    if (stopped || received || !stored) return
-    handlers.onList({ projects: [...stored.projects], sessions: [...stored.sessions] }, { cached: true })
-  })
 
   const startRound = () => {
     let cancelled = false
@@ -96,7 +84,7 @@ export function startSessionListSync(
     handlers.onLoading?.(true)
     // 上一轮的错误留到这一轮真列出来再清:每轮重试开头就清的话,连不上的机器会在「出错」与「读取中」之间来回闪,
     // 界面上看就是永远停在「正在读取」。
-    // 先挂监听再订阅:反过来的话,宿主订上那一刻推的整份没人收。合并的底只认这一轮的整份(本地底稿不算)。
+    // 先挂监听再订阅:反过来的话,宿主订上那一刻推的整份没人收。合并的底只认这一轮的整份。
     let current: SessionpageSessionsListResult | null = null
     /*
      * 这一轮没成(订不上、整份之前来了增量 = 约定破了):报错,自己再试(机器刚上线频道还没开、一时没应答都会自己好),
@@ -179,12 +167,12 @@ export function startSessionListSync(
 }
 
 /**
- * 机器离线时退回**心跳带上来的那份摘要**(Device.session_digest)。
+ * 没读到那台机器此刻的列表时,退回**心跳带上来的那份摘要**(Device.session_digest)。
  *
- * 摘要里的每条都标成 supported=false:机器不在线,时间线本来就打不开,
- * ❌ 不留一行点得动、点进去只会等超时的会话。原因不逐行写 —— 离线是整台机器的事。
+ * 机器离线:每条都标成 supported=false,时间线本来就打不开,❌ 不留一行点得动、点进去只会等超时的会话。
+ * 原因不逐行写 —— 离线是整台机器的事。机器在线(还在读 / 一时连不上):照那台机器自己报的,点进去由会话页接着连。
  */
-export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | null | undefined): SessionpageSessionsListResult {
+export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | null | undefined, online = false): SessionpageSessionsListResult {
   const byId = new Map<string, SessionpageProjectSummary>()
   const sessions: SessionpageSessionSummary[] = []
   for (const entry of digest ?? []) {
@@ -201,7 +189,7 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
       // 新宿主在摘要里另带读数(基础态 + 附属态);老宿主只有旧词,读方(watch-status 的 sessionReading)退回它。
       ...(entry.status !== undefined ? { status: entry.status } : {}),
       lastInteractedAt: entry.lastInteractedAt,
-      supported: false,
+      supported: online && entry.supported,
       ...(entry.isPinned !== undefined ? { isPinned: entry.isPinned } : {}),
       ...(entry.unseen !== undefined ? { unseen: entry.unseen } : {}),
       ...(entry.parentConversationId !== undefined ? { parentConversationId: entry.parentConversationId } : {}),

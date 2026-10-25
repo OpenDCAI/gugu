@@ -48,7 +48,6 @@ import {
   updateDeviceSessions,
   type DeviceSessions,
 } from '@/session/shared/remote-sessions/session-directory';
-import { readCachedSessionList } from '@/session/shared/remote-sessions/session-list-cache';
 import type { SessionShellPeer } from '@shared/lib/ipc/shell-port';
 import { normalizeAgentType } from '@gugu/core/agentTypes';
 import { readIdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
@@ -293,18 +292,14 @@ export class RemoteHostsStore {
   }
 
   /**
-   * 那台机器上有哪些会话(侧栏的远程行就画这一份)。`live` = 此刻连着、对过账的读数;否则是上次的样子 ——
-   * 本地底稿,机器离线且这台桌面没存过底稿时退到心跳摘要。不是 live 的读数 ❌ 冒充此刻(行上「在跑」不算数)。
+   * 那台机器上有哪些会话(侧栏的远程行就画这一份)。`live` = 此刻连着、对过账的读数;还没读到过就是它自己上报的那份
+   * (心跳摘要,与手机同一条,见 deviceSessionsOf)。不是 live 的读数 ❌ 冒充此刻(行上「在跑」不算数)。
    */
   sessionsOf(deviceId: string): { sessions: readonly SessionpageSessionSummary[]; live: boolean } {
     const entry = this.directory[deviceId];
-    const linked = this.hosts.get(deviceId)?.link === 'open';
-    if (entry && entry.sessions.length > 0) return { sessions: entry.sessions, live: linked && !entry.cached };
+    if (entry && !entry.cached) return { sessions: entry.sessions, live: this.hosts.get(deviceId)?.link === 'open' };
     const device = this.device(deviceId);
-    if (device && !device.isOnline && device.sessionDigest?.length) {
-      return { sessions: sessionListFromDigest(device.sessionDigest).sessions, live: false };
-    }
-    return { sessions: entry?.sessions ?? [], live: linked && entry !== undefined && !entry.cached };
+    return { sessions: sessionListFromDigest(device?.sessionDigest, device?.isOnline).sessions, live: false };
   }
 
   /** #7199 所有别的机器上会话目录里的会话,带是哪台、是不是此刻的读数(助理 App 找它的子 agent 用)。 */
@@ -553,11 +548,6 @@ export class RemoteHostsStore {
   private watch(deviceId: string): void {
     // 账号上记着的清单先列出来(离线也照样在侧栏里);连上之后以那台机器此刻的为准。
     this.applyAccountProjects(deviceId);
-    // 上次的会话也先铺出来(本地底稿):打开就看得到上次的样子,连上之后原地换成此刻的。
-    void readCachedSessionList<never, SessionpageSessionSummary>(deviceId).then((stored) => {
-      if (!stored || this.directory[deviceId] || !this.hosts.has(deviceId)) return;
-      updateDeviceSessions(deviceId, { projects: [], sessions: stored.sessions, cached: true, loading: false });
-    });
     let wasOpen = false;
     let lastLink: MachineLinkState | null = null;
     const onLink = () => {
@@ -605,7 +595,7 @@ export class RemoteHostsStore {
   }
 
   /**
-   * 那台机器头一回连上:起它的会话列表同步(底稿 → 订阅 → 合增量;断过再通自己重来)。只在连上时起 —— 起同步就会去连它,
+   * 那台机器头一回连上:起它的会话列表同步(订阅 → 合增量;断过再通自己重来)。只在连上时起 —— 起同步就会去连它,
    * ❌ 对着离线的机器一遍遍连。之后一直留着,直到这台机器从名下拿掉。
    */
   private startListSync(deviceId: string): void {
@@ -613,8 +603,8 @@ export class RemoteHostsStore {
     this.listSyncs.set(
       deviceId,
       startSessionListSync(machineSessionListClient, deviceId, {
-        onList: (result, { cached }) =>
-          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached }),
+        onList: (result) =>
+          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false }),
         onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
         onError: (error) => {
           updateDeviceSessions(deviceId, { error });
