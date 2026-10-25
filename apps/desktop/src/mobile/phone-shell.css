@@ -64,7 +64,7 @@
 }
 
 [data-phone-shell] .gg-list-row[data-topic-subrow] {
-  min-height: var(--control-h-touch);
+  min-height: var(--control-h-lg);
 }
 
 [data-phone-shell] .gg-list-row-title {
