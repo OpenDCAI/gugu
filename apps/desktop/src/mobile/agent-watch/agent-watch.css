@@ -451,7 +451,9 @@
 .gg-aw .gg-aw-item {
   min-height: var(--control-h-touch);
 }
-.gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
+@media (hover: hover) {
+  .gg-aw .gg-aw-item:not([aria-disabled='true']):hover { background: var(--hover); }
+}
 .gg-aw .gg-aw-item:not([aria-disabled='true']):active { background: var(--press); }
 .gg-aw .gg-aw-item[aria-disabled='true'] { cursor: default; opacity: 0.55; }
 /* 行 = 打开按钮 + 行尾「…」管理入口。两个都是按钮,❌ 嵌套(按钮里不能再放按钮),并排放。 */

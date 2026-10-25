@@ -104,13 +104,6 @@
   line-height: var(--lh-body);
 }
 
-[data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-identity {
-  margin-inline: var(--spacing-sm);
-  border: 0;
-  background: var(--muted);
-  border-radius: var(--radius-thread);
-}
-
 [data-phone-shell] .gg-mobile-composer-row {
   padding: var(--spacing-xs);
   border-radius: var(--radius-thread);
