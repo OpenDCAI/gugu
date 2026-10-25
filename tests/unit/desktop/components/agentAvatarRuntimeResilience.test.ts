@@ -142,6 +142,29 @@ afterEach(() => {
 })
 
 describe('只画会变的帧、按变了多少决定什么时候画,看不见就停(Chole 上咕咕入口那只鸟 60 fps 一直画;mac1 上 24 只闲鸟半个核)', () => {
+  it('draws one initial frame for an inert consumer, holds it without advancing, and resumes on removal', async () => {
+    fakeClock()
+    await boot()
+    const canvas = fake.canvas!
+    canvas.setAttribute('inert', '')
+    const { GuguEngine } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/engine')
+    const update = vi.spyOn(GuguEngine.prototype, 'update')
+    step()
+    expect(fake.draws, 'the visible rail must not be blank on a cold non-assistant page').toHaveLength(1)
+    expect(update).toHaveBeenCalledTimes(1)
+    fake.look = [5]
+    update.mockClear()
+    step()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(update, 'inert holds the initial frame rather than playing its animation').not.toHaveBeenCalled()
+    expect(fake.draws).toHaveLength(1)
+    canvas.removeAttribute('inert')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(fake.draws).toHaveLength(2)
+    expect(fake.canvas).toBe(canvas)
+  })
+
   it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器:共用时钟的下一格或下一次眨眼,哪个先到那时看)', async () => {
     fakeClock()
     await boot()

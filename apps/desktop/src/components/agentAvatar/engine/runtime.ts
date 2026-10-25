@@ -327,7 +327,8 @@ class Runtime {
     const batch: Pending[] = []
     let nextWake = Infinity
     for (const h of this.handles) {
-      if (!h.visible || h.canvas.closest('[inert]')) continue
+      // An inert consumer keeps one initial frame, then holds those exact pixels until it is active again.
+      if (!h.visible || (h.canvas.closest('[inert]') && h.drawnWith !== '')) continue
       // 素材还在路上：先不画（避免一闪而过的空画面）；这次没载下来：用 2D 定格画着,等重试
       const gl = this.gl && this.gl.has(h.ch.id) ? this.gl : null
       if (this.gl && !gl && !this.texFailed.has(h.ch.id)) continue
