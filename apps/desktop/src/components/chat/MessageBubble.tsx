@@ -631,11 +631,13 @@ export const MessageBubble = memo(function MessageBubble({
       ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
 
       {/* ── Emoji quick-picker (hover-bar "Add emoji" button) ── */}
-      {showEmojiPicker && <DeferredEmojiQuickPicker
+      {showEmojiPicker && (
+        <DeferredEmojiQuickPicker
           anchor={reactButtonRef}
           onPick={(emoji) => { onReaction(msg.id, emoji); setShowEmojiPicker(false) }}
           onClose={() => setShowEmojiPicker(false)}
-        />}
+        />
+      )}
     </div>
   )
 })
@@ -675,7 +677,6 @@ function ReactionBar({ reactions, isMine, onToggle }: {
     </div>
   )
 }
-
 /* ─────────────────────────────────────────────────────────────────────────────
    HoverActionBar — design .msg-actions / .ma-b (lines 121-125 of index.html)
 

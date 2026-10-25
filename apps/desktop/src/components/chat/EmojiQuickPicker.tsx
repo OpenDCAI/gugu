@@ -74,6 +74,6 @@ function QuickReactionButton({ menu, label, title, onClick, children }: {
 }) {
   const props = { 'aria-label': label, title, onClick, className: 'text-[length:var(--font-size-xl)] data-[highlighted]:bg-[var(--menu-item-hover)]' }
   return menu
-    ? <MenuPrimitive.Item {...props} nativeButton closeOnClick={false} render={<Button variant="ghost" size="icon" />}>{children}</MenuPrimitive.Item>
+    ? <MenuPrimitive.Item {...props} nativeButton closeOnClick={false} render={<Button variant="ghost" size="icon">{children}</Button>}>{children}</MenuPrimitive.Item>
     : <Button {...props} variant="ghost" size="icon">{children}</Button>
 }
