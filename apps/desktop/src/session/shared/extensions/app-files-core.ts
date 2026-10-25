@@ -102,6 +102,12 @@ export interface FilesPlatform {
   faces(people: readonly { id: string; avatar: string | null }[]): Promise<Record<string, string>>;
   /** The file service over HTTP (`<supabase>/files`, or the local stack's): a document's text is read from it, as it is now. */
   filesUrl(): string;
+  /**
+   * How a stored file's bytes are fetched from their signed link: the desktop's main passes Chromium's (`net.fetch`), whose
+   * disk cache keeps them — the file CDN answers `immutable`, and a reused link is the same URL (10-25: a 16 MB deck
+   * opened again, ~0.2 s less). The phone's page already fetches through its browser.
+   */
+  fetchBytes?: (url: string) => Promise<Response>;
   /** The host's log, for what went wrong without failing the call (bytes a refused replacement left in the bucket). */
   warn(message: string, data?: Record<string, unknown>): void;
 }
@@ -238,9 +244,9 @@ async function signedUrlOf(account: { token: string; userId: string }, row: Item
 }
 
 /** A stored file's bytes, as `files.open` hands them to the page (`AppFileOpened.bytes`). */
-async function storedBytes(account: { token: string; userId: string }, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<ArrayBuffer> {
+async function storedBytes(account: { token: string; userId: string }, row: ItemRow, how: { version?: number; as?: string | null; fetchBytes?: (url: string) => Promise<Response> } = {}): Promise<ArrayBuffer> {
   const url = await signedUrlOf(account, row, how);
-  const res = await fetch(url).catch((error: unknown) => {
+  const res = await (how.fetchBytes ?? fetch)(url).catch((error: unknown) => {
     throw new AppFileError('failed', `${row.filename} could not be read: ${error instanceof Error ? error.message : String(error)}`);
   });
   if (!res.ok) throw new AppFileError('failed', `${row.filename} could not be read (HTTP ${res.status})`);
@@ -642,7 +648,7 @@ export function createAppFiles(platform: FilesPlatform) {
     }
     const actor = surface.asAgent ?? userId;
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes({ token, userId }, row, { as: surface.asAgent }) };
+    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes({ token, userId }, row, { as: surface.asAgent, fetchBytes: platform.fetchBytes }) };
     if (typeof row.epoch !== 'number') throw new AppFileError('failed', `${row.filename}: the server did not say which version of the file is open`);
     const docName = `${row.id}@${row.epoch}`;
     const page = platform.sync.pageFor(surface.pageId, surface.extensionId);
@@ -924,7 +930,7 @@ export function createAppFiles(platform: FilesPlatform) {
       const version = ((Array.isArray(data) ? data[0] : data) ?? null) as { n: number; pointer: string | null; inline_text: string | null; content_type: string } | null;
       if (!version) throw new AppFileError('not-found', `${row.filename} has no version ${args.n}`);
       if (version.inline_text !== null) return { n: version.n, text: version.inline_text };
-      const bytes = await storedBytes({ token, userId }, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent });
+      const bytes = await storedBytes({ token, userId }, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent, fetchBytes: platform.fetchBytes });
       return { n: version.n, bytes, contentType: version.content_type };
     },
 

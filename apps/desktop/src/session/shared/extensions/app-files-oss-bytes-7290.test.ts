@@ -99,6 +99,27 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
     expect(signedRefs.slice(1)).toEqual([{ refs: [{ item_id: row.id, version: 8 }], as: undefined }, { refs: [{ item_id: row.id, version: 8 }], as: AGENT }]);
   });
 
+  it('a host that fetches stored bytes its own way (the desktop: Chromium’s, with its disk cache) is the one used', async () => {
+    const fetched: string[] = [];
+    const own = createAppFiles({
+      account: async () => ({ token: 'token', userId: ME }),
+      hasCapability: () => true,
+      sync: {} as never,
+      identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
+      faces: async () => ({}),
+      filesUrl: () => 'http://files.invalid',
+      fetchBytes: async (url) => {
+        fetched.push(url);
+        return new Response(new Uint8Array([4, 5]));
+      },
+      warn: () => undefined,
+    });
+    // An item of its own: links are kept per reader for the module's life (signedUrlOf), so another case's item would be signed already.
+    row = { ...row, id: '66666666-6666-4666-8666-666666666666' };
+    expect(new Uint8Array((await own.open(surface(), { ref: { id: row.id as string } })).bytes!)).toEqual(new Uint8Array([4, 5]));
+    expect(fetched).toEqual([CDN]);
+  });
+
   it('a file from before the switch (it has a pointer) is signed by attachments/urls too — one way for every file (#7290 收尾)', async () => {
     row = { ...row, pointer: `${CHAT}/${ME}/x-report.pdf` };
     const source = await files.downloadSource(surface(), { ref: { id: ITEM } });
