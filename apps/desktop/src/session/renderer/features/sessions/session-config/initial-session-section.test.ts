@@ -727,6 +727,15 @@ describe('推理档目录:平台模型按模型取交集 (#6447)', () => {
       .toEqual({ options: pick(['low', 'high', 'max']), defaultId: 'high' });
   });
 
+  it('会话内保留 harness 的 default 复位项,具体档仍按平台模型取交集', () => {
+    const reset = { name: 'Default' };
+    const live = { options: { default: reset, ...six }, defaultId: 'default' };
+    expect(resolveEffortCatalog(null, live, 'platform', GLM_53.reasoningEfforts))
+      .toEqual({ options: { default: reset, ...pick(['low', 'high', 'max']) }, defaultId: 'default' });
+    expect(resolveEffortCatalog(null, { options: six, defaultId: null }, 'platform', GLM_53.reasoningEfforts))
+      .toEqual({ options: pick(['low', 'high', 'max']), defaultId: null });
+  });
+
   it('目录没有这条事实(null)或说没有这根轴(`[]`)⇒ 这个模型不画推理档,❌ 不拿一张全局表补', () => {
     expect(resolveCreateEfforts({ ...create, state: probe, platformModel: { reasoningEfforts: null } })).toBeNull();
     expect(resolveCreateEfforts({ ...create, state: probe, platformModel: { reasoningEfforts: [] } })).toBeNull();
