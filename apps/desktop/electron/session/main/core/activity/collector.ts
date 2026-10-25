@@ -7,11 +7,21 @@ import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { sqliteTextToMs } from '@main/core/usage/local-day';
 import { ActivityJournal } from './journal';
 import { onActivitySignal } from './signals';
+import type { ConfirmedSleep } from './confirmed-sleep';
 
 let journal: ActivityJournal | null = null;
 export function activityJournal(): ActivityJournal {
   if (!journal) throw new Error('Activity collector is not initialized on this host');
   return journal;
+}
+
+export function recordConfirmedDeviceSleep(sleep: ConfirmedSleep): boolean {
+  if (!journal) return false;
+  try {
+    journal.append({ event_id: `device.sleep:${sleep.source}:${sleep.since}:${sleep.until}`, kind: 'device.sleep',
+      occurred_at: sleep.since, sleep_until_at: sleep.until, sleep_source: sleep.source, observed_at: Date.now() });
+  } catch (error) { journal.failed(); throw error; }
+  return true;
 }
 
 /** Start before event producers; shutdown before the SQLite connection closes. */

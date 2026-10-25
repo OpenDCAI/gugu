@@ -10,7 +10,10 @@ export async function runResume(
   io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream } = process,
   deps = { accounts: listAccounts, call: callAccountProcess },
 ): Promise<number> {
-  if (args.length !== 2 || args[0] !== '--account' || !/^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)) {
+  const suspendedSince = args.length === 4 && args[2] === '--suspended-since' ? Number(args[3]) : undefined
+  if (![2, 4].includes(args.length) || args[0] !== '--account' || !/^[a-zA-Z0-9_-]{1,128}$/.test(args[1]!)
+    || (args.length === 4 && (args[2] !== '--suspended-since' || !Number.isSafeInteger(suspendedSince)
+      || suspendedSince! <= 0 || suspendedSince! >= Date.now()))) {
     io.stderr.write('用法: gugu-server resume --account <账号 id>\n')
     return 2
   }
@@ -24,7 +27,8 @@ export async function runResume(
     io.stderr.write('账号时区资料无效，未发送恢复通知\n'); return 2
   }
   const outcome = await deps.call(account, { type: HOST_RESUME_CALL,
-    payload: timeZoneContext ? { timeZoneContext } : {} }, { timeoutMs: 5_000 })
+    payload: { ...(suspendedSince === undefined ? {} : { suspendedSince }),
+      ...(timeZoneContext ? { timeZoneContext } : {}) } }, { timeoutMs: 5_000 })
   if ('code' in outcome) {
     io.stderr.write(`${outcome.message}\n`)
     return outcome.code

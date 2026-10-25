@@ -45,3 +45,17 @@ export function watchHostResumeGap(resume: (source: string) => void, now = Date.
   timer.unref?.()
   return () => clearInterval(timer)
 }
+
+/** OS power events attest whole-device sleep; foreground and wall-clock gaps do not. */
+export function installNativeSleepActivity(
+  power: { on(event: 'suspend', callback: () => void): unknown; on(event: 'resume', callback: () => void): unknown },
+  record: (sleep: { since: number; until: number; source: 'native-power' }) => void,
+  now = Date.now,
+): void {
+  let since: number | null = null
+  power.on('suspend', () => { since ??= now() })
+  power.on('resume', () => {
+    const until = now(), start = since; since = null
+    if (start !== null && start < until) record({ since: start, until, source: 'native-power' })
+  })
+}

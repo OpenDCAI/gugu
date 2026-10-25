@@ -27,12 +27,20 @@ describe('activity summaries are complete facts before presentation pagination',
       read_at: new Date(at).toISOString(), status: 'device' as const }
     setOwnerTimeZoneContext(context)
     const read = createActivitySummaryQuery({ now: () => at })
-    const source = deps(vi.fn(async () => page([event('one', 's1'), event('two', 's2')])) )
+    const source = deps(vi.fn(async () => page([event('one', 's1'), event('two', 's2')])))
     const first = await read({ action: 'activity_list', limit: 1 }, source, signal())
     expect(first.window).toMatchObject({ time_zone: 'Pacific/Auckland', since: '2026-10-24T11:00:00.000Z', time_zone_source: context })
     setOwnerTimeZoneContext({ ...context, time_zone: 'America/Toronto', source_device_id: 'laptop' })
     const second = await read({ action: 'activity_list', limit: 1, cursor: first.next_cursor }, source, signal())
     expect(second.window).toEqual(first.window)
+  })
+  it('renders confirmed sleep separately from unknown capture intervals', async () => {
+    const since = at - 60_000, until = at - 30_000
+    const source = { ...deps(), query: vi.fn(async () => ({ ...page([]), coverage: { ...page([]).coverage,
+      segments: [], sleep_intervals: [{ since, until, source: 'native-power' }] } })) }
+    const result = await run()({ action: 'activity_list' }, source, signal())
+    expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'sleep', statement: '设备休眠，期间没有任务在运行' }))
+    expect(result.gaps).toContainEqual(expect.objectContaining({ reason: 'uncollected', statement: '未采集，不能断定在不在工作' }))
   })
   it('defaults to midnight in the declared host zone, reports local bounds and hides raw events', async () => {
     const source = deps()

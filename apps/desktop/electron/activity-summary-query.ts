@@ -120,7 +120,8 @@ export function createActivitySummaryQuery(options: { now?: () => number; timeZo
         ...(error ? { error } : {}) }
     })
     const gaps = snapshot.timeline.coverage.gaps.map(gap => ({ ...gap,
-      since_local: clock(Date.parse(gap.since), snapshot.zone), until_local: clock(Date.parse(gap.until), snapshot.zone), statement: UNKNOWN }))
+      since_local: clock(Date.parse(gap.since), snapshot.zone), until_local: clock(Date.parse(gap.until), snapshot.zone),
+      statement: gap.reason === 'sleep' ? '设备休眠，期间没有任务在运行' : UNKNOWN }))
     const next = remaining > 0 ? Buffer.from(JSON.stringify({ id, offset: offset + size })).toString('base64url') : null
     if (next) {
       if (!held.has(id) && held.size >= 32) held.delete(held.keys().next().value!)
