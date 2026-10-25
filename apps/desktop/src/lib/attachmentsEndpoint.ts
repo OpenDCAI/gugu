@@ -2,6 +2,7 @@
 import { commitAttachment, configuredEndpoint, uploadAttachmentBytes, type AttachmentsEndpoint, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { resolveFileMimeType } from '@gugu/core/shared/ui/attachmentModels'
 import { getRendererAccessToken } from './sessionPublication'
+import { i18n } from '../i18n'
 
 // 令牌只读会话协调器已发布的那一份,和数据客户端(supabase.ts 的 accessToken)同一个来源:数据客户端没有自己的 auth 会话,
 // 在它身上 auth.getSession() 直接抛(「configured with the accessToken option」)。
@@ -13,19 +14,23 @@ export async function attachmentsEndpoint(): Promise<AttachmentsEndpoint> {
 
 /** Planning does not publish a file. The ordered commit invokes the same publisher as group-file Apps. */
 export type PreparedChatAttachment = { staging_key: string } | { local: File }
+async function publishNative(args: Record<string, unknown>) {
+  try { return await window.electronAPI!.invoke('files:publish', args) }
+  catch { throw new Error(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' })) }
+}
 const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string): Promise<PreparedChatAttachment> => ({
   staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor }),
 })
 export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean }): Promise<PreparedChatAttachment> {
   const native = globalThis.window?.electronAPI
-  if (native && !scope.is_whisper && await native.invoke('files:publish', { chatId: scope.chat_id }) === true) return { local: file }
+  if (native && !scope.is_whisper && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
   return cloudChatAttachment(endpoint, file, scope.chat_id, scope.as)
 }
 export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint, prepared: PreparedChatAttachment, args: Omit<CommitArgs, 'staging_key'>): Promise<Record<string, unknown>> {
   if ('staging_key' in prepared) return commitAttachment(endpoint, { ...args, staging_key: prepared.staging_key })
   if (args.is_whisper || !window.electronAPI) throw new Error('Project file audience changed')
   const file = prepared.local
-  const row = await window.electronAPI.invoke('files:publish', { chatId: args.chat_id, file: { name: file.name, path: window.electronAPI.getPathForFile(file), size: file.size, contentType: resolveFileMimeType(file) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
+  const row = await publishNative({ chatId: args.chat_id, file: { name: file.name, path: window.electronAPI.getPathForFile(file), size: file.size, contentType: resolveFileMimeType(file) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
   // A policy changed after planning: the same cloud provider must authorize any upload afresh.
   if (!row) return commitPreparedChatAttachment(endpoint, await cloudChatAttachment(endpoint, file, args.chat_id, args.sender_user_id), args)
   const message = row.message

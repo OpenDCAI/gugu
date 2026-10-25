@@ -122,7 +122,9 @@ export function registerNativeFileIpc(ipc: IpcMain, host: ReturnType<typeof crea
     }
     return id
   }
-  ipc.handle('files:publish', (event, row: Parameters<typeof host.publish>[1]) => host.publish(scope(event), row))
+  ipc.handle('files:publish', async (event, row: Parameters<typeof host.publish>[1]) => {
+    try { return await host.publish(scope(event), row) } catch (error) { warn(error); throw error }
+  })
   ipc.handle('files:read', (event, row: FileContext & Parameters<typeof host.read>[2]) => host.read(scope(event), { actor: row.actor, ref: row.ref }, row))
   ipc.handle('files:stage', (event, row: FileStageCommand) => host.stage(scope(event), row))
   ipc.handle('files:stage-open', (event, row: { id: string }) => host.open(scope(event), row.id))

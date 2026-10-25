@@ -228,6 +228,12 @@ export async function findProjectFileByName(chat: string, name: string, ownerId:
   return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
 }
 
+export async function findProjectFileCopy(projectId: string, sha: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
+  const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
+  const found = files.find(row => row.host_project_id === projectId && row.sha256 === sha && row.relative_path?.startsWith('.gugu/attachments/'))
+  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
+}
+
 export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env): Promise<FileRevision | null> {
   fileRefKey(ref)
   if (!('item_id' in ref) || !ownerId || !deviceId) return null

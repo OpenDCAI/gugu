@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sendAttachmentBatch } from '../../../../apps/desktop/src/components/chat/sendAttachmentBatch'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { i18n } from '../../../../apps/desktop/src/i18n'
 // #2188 附件批执行器契约:提交点 = commit 后读回验证通过(onSent 按件回报),任一件失败 fail-loud 中止。
 // #7290 gugu-3:字节经 attachments/upload 直传,attachments/commit 发消息(说明由服务端接在信封后面);没提交的上传不用清(过期回收)。
 const { uploadMock, commitMock, getByIdMock } = vi.hoisted(() => ({
@@ -46,7 +47,7 @@ describe('sendAttachmentBatch', () => {
     const { run, onSent, appendMessage } = arrange()
     const invoke = vi.fn(async (_channel: string, request: { file?: unknown }) => { if (request.file) throw new Error('message denied'); return true })
     vi.stubGlobal('window', { electronAPI: { invoke, getPathForFile: (selected: File) => `/project/${selected.name}` } })
-    await expect(run([file('a.txt'), file('b.txt'), file('c.txt')])).rejects.toThrow('message denied')
+    await expect(run([file('a.txt'), file('b.txt'), file('c.txt')])).rejects.toThrow(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' }))
     expect(invoke.mock.calls.filter(([, request]) => !request.file)).toHaveLength(3)
     expect(invoke.mock.calls.filter(([, request]) => request.file)).toEqual([['files:publish', expect.objectContaining({ file: expect.objectContaining({ name: 'a.txt' }) })]])
     expect(uploadMock).not.toHaveBeenCalled(); expect(commitMock).not.toHaveBeenCalled()
