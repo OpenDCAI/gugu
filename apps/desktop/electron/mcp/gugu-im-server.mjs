@@ -2404,9 +2404,9 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: post a file card. file: a file of the chat\'s folder (attachments are), no bytes copied; with file_path, your changed copy goes as its next version. file_path alone: a new file (≤25 MiB).',
+    description: 'File delivery tool: a file card. file: a chat-folder file (attachments are; no bytes copied); with file_path, your changed copy as its next version. file_path alone: a new file. Editable documents: workspace__create in the catalog.',
     schema: z.object({
-      file: z.string().trim().min(1).optional().describe('Its gugu-file://<item_id>?v=<n> link; n = the version your copy started from.'),
+      file: z.string().trim().min(1).optional().describe('gugu-file://<id>?v=<n>, n = your copy\'s base version.'),
       file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
