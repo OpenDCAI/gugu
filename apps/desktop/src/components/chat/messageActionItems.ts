@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next'
-import { Copy, Download, PenLine, Reply, Share, SquareCheck, Trash, type IconComponent } from '@/lib/icons'
+import { Copy, Download, ExternalLink, PenLine, Reply, Share, SquareCheck, Trash, type IconComponent } from '@/lib/icons'
 
 export type MessageActionTarget = {
   isMine: boolean
@@ -7,7 +7,9 @@ export type MessageActionTarget = {
   content: string | null
   onReply?: () => void
   onQuoteSelection?: () => void
-  onCopy?: () => void
+  onCopy?: (content?: string) => void
+  onCopyLink?: () => void
+  onOpenLink?: () => void
   onForward?: () => void
   onDelete?: () => void
   onDownload?: () => void
@@ -34,6 +36,8 @@ export function messageActionItems(target: MessageActionTarget, t: TFunction<'me
     !!target.onReply && { key: 'reply', icon: Reply, label: t('message.actions.reply'), onSelect: target.onReply, disabled: target.isRetracted },
     !!target.onQuoteSelection && { key: 'quoteSelection', icon: Reply, label: t('message.actions.quoteSelection'), onSelect: target.onQuoteSelection, disabled: target.isRetracted },
     !!target.onCopy && { key: 'copy', icon: Copy, label: t('message.actions.copy'), onSelect: target.onCopy, disabled: !hasContent },
+    !!target.onCopyLink && { key: 'copyLink', icon: Copy, label: t('message.actions.copyLink'), onSelect: target.onCopyLink, disabled: target.isRetracted },
+    !!target.onOpenLink && { key: 'openLink', icon: ExternalLink, label: t('message.actions.openLink'), onSelect: target.onOpenLink, disabled: target.isRetracted },
     !!target.onOpenTopic && { key: 'openTopic', icon: Reply, label: t('message.actions.openTopic'), onSelect: target.onOpenTopic, disabled: target.isRetracted },
     !!target.onForward && { key: 'forward', icon: Share, label: t('message.actions.forward'), onSelect: target.onForward, disabled: !hasContent },
     !!target.onDownload && { key: 'download', icon: Download, label: t('chatArea.filePreview.download'), onSelect: target.onDownload, disabled: target.isRetracted },

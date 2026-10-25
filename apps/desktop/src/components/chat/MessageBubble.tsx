@@ -246,8 +246,6 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  // @@@copy-fail-loud (#1123) — clipboard.writeText 是 Promise；原代码未 await/未 catch → 失败时是
-  //   unhandled rejection、菜单照常关，用户以为复制成功。await + try/catch，成功/失败都给反馈。
   const handleCopyText = async (content = msg.content ?? '') => {
     try {
       await navigator.clipboard.writeText(content)
@@ -256,18 +254,15 @@ export const MessageBubble = memo(function MessageBubble({
       toast(t('message.copyFailed'), 'error')
     }
   }
-  // Right-click / long-press context menu (kept for backward compat; opens same More menu)
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
-  // Hover action bar More menu / emoji quick-picker — both anchor to their own button element
-  // (Base UI re-measures it while the list scrolls), ❌ a getBoundingClientRect snapshot.
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
-  // Hover state for showing the action bar (design: .msg:hover .msg-actions{display:flex})
   const [isRowHovered, setIsRowHovered] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const reactButtonRef = useRef<HTMLButtonElement>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
+  const [menuLink, setMenuLink] = useState<HTMLAnchorElement | null>(null)
   const [menuSelection, setMenuSelection] = useState('')
   const { user } = useAuth()
   const voiceAttachment = msg.content_type === 'attachment'
@@ -297,7 +292,9 @@ export const MessageBubble = memo(function MessageBubble({
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: menuSelection && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: menuSelection }); close() } : undefined,
-    onCopy: () => { void handleCopyText(menuSelection || undefined); close() },
+    onCopy: (content = menuSelection || undefined) => { void handleCopyText(content); close() },
+    onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
+    onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
@@ -319,6 +316,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const openMoreMenuFromButton = () => {
     captureMenuSelection()
+    setMenuLink(null)
     document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
     setShowMoreMenu(true)
   }
@@ -517,6 +515,7 @@ export const MessageBubble = memo(function MessageBubble({
             // 合组消息隐藏了名字/时间行，时间挪进 hover 提示，保持可查。
             title={groupedWithPrev ? fmtMsgTime(msg.created_at) : undefined}
             {...longPress}
+            onPointerDownCapture={(e) => setMenuLink(e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -626,6 +625,7 @@ export const MessageBubble = memo(function MessageBubble({
       {/* ── 右键:指针处的同一份菜单。手机长按:底部面板(Sheet 进返回键栈、带遮罩,关闭路径由它保证) ── */}
       {showMenu && (compactMobile ? (
         <DeferredMessageActionSheet
+          selectableText={msg.content_type === 'text' ? msg.content ?? undefined : undefined}
           {...messageActions(() => setShowMenu(false))}
         />
       ) : <MsgMoreMenu x={menuPos.x} y={menuPos.y} {...messageActions(() => setShowMenu(false))} />)}
