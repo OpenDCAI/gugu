@@ -38,7 +38,7 @@ import { questionAnswered, readQuestion } from './sources/question-tools';
  * 存档只是一条更快的捷径，❌ 任何一处对不上都必须能安全地退回「从头读」——
  * 接错了拼出来的是一份缺了中间的时间线，而那种缺失不报错、和"读得慢"在界面上分不出来。
  */
-export const TIMELINE_ARCHIVE_VERSION = 4;
+export const TIMELINE_ARCHIVE_VERSION = 5;
 
 export type TimelineArchive = {
   readonly version: number;
@@ -573,7 +573,7 @@ class RecordTimeline implements SessionTimeline {
         // 没有活着的一轮时 reducer 自己 no-op，所以重复的边界是安全的。
         this.parser.settleTurn(outcomeOf(entry.boundary), at);
       } else {
-        this.parser.pushEvent(entry.event, at);
+        this.parser.pushRecordEvent(entry.event, at);
         this.recordRecentActions(this.parser.activeTurn?.items ?? [], at);
         this.trackSettlement(entry.event, at);
       }
