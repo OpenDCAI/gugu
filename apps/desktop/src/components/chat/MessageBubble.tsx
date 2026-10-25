@@ -15,6 +15,7 @@ import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { WidgetCard, type Widget } from './WidgetCard'
@@ -243,8 +244,8 @@ export const MessageBubble = memo(function MessageBubble({
     try {
       await navigator.clipboard.writeText(content)
       toast(t('message.copied'), 'success')
-    } catch {
-      toast(t('message.copyFailed'), 'error')
+    } catch (error) {
+      toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')
     }
   }
   const [showMenu, setShowMenu] = useState(false)
@@ -289,7 +290,7 @@ export const MessageBubble = memo(function MessageBubble({
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined,
     onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
     onForward: () => { onForward(msg); close() },
-    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch(() => toast(t('chatArea.downloadFailed'), 'error')); close() } : undefined,
+    onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(safeFailureLine(String((error as Error)?.message ?? error)), 'error')); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
     onOpenTopic: onOpenTopic && canSourceTopic(msg) ? () => { onOpenTopic(msg.id); close() } : undefined,
@@ -445,7 +446,7 @@ export const MessageBubble = memo(function MessageBubble({
             onMore={openMoreMenuFromButton}
           />
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
