@@ -37,6 +37,12 @@ describe('the former URL resolver protections now belong to the canonical metada
     expect(attachmentFileRef(parseAttachmentContent(body)!.source)).toBeNull()
     expect(attachmentFileRef({ kind: 'gone' })).toBeNull()
   })
+  it('only a sending blob preview avoids message lookup; persisted or remote addresses keep message authority', () => {
+    const body = '[附件] image.png (image/png)\n[URL] blob:https://fixture.invalid/selected-file\n[Size] 16\n[Kind] image'
+    expect(parseAttachmentContent(body, { id: 'pending', local_send_state: 'sending' })?.source).toEqual({ kind: 'url', url: 'blob:https://fixture.invalid/selected-file' })
+    expect(attachmentFileRef(parseAttachmentContent(body, { id: 'persisted' })!.source)).toEqual({ message_id: 'persisted' })
+    expect(attachmentFileRef(parseAttachmentContent(body.replace('blob:https://fixture.invalid/selected-file', 'https://fixture.invalid/private'), { id: 'remote', local_send_state: 'sending' })!.source)).toEqual({ message_id: 'remote' })
+  })
   it('private message bytes still use the exact message authority and invisible references stay gone', async () => {
     const f = fixture(); f.hidden.add('m2')
     const [mine, theirs] = await Promise.all([f.resolve({ message_id: 'm1' }), f.resolve({ message_id: 'm2' })])
