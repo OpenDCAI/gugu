@@ -247,7 +247,10 @@ describe('MessageBubble touch menu', () => {
   it('exposes quick reactions as a labelled toolbar with arrow-key navigation', async () => {
     const onReaction = vi.fn()
     await renderMessage(undefined, false, onReaction)
-    const trigger = harness.container.querySelector('button[title="表情回应"]') as HTMLButtonElement
+    const over = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+    await act(async () => { messageBubble().dispatchEvent(over) })
+    const trigger = document.querySelector('button[title="表情回应"]') as HTMLButtonElement
     await clickElement(trigger)
     const toolbar = document.body.querySelector('[role="toolbar"][aria-label="快速回应"]') as HTMLElement | null
     const buttons = Array.from(toolbar?.querySelectorAll('button') ?? []) as HTMLButtonElement[]
