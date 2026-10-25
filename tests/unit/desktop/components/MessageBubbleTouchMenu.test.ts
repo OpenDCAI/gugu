@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { act } from 'react'
+import { flushSync } from 'react-dom'
 import { FrequentlyUsed } from 'emoji-mart'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
@@ -28,6 +29,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
+  it('renders previously loaded reactions in the same commit when reopening the menu', async () => {
+    await renderMessage(undefined, false)
+    await contextMenu()
+    await act(() => { document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus)) })
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    await act(() => {
+      flushSync(() => { messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })) })
+      expect(document.querySelector('[role="group"][aria-label="快速回应"]')?.querySelectorAll('button')).toHaveLength(7)
+    })
+  })
   it('replies from the desktop context menu through the existing quote action', async () => {
     const onQuote = vi.fn()
     await renderMessage(undefined, false, vi.fn(), { onQuote })
