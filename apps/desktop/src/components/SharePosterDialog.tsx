@@ -3,6 +3,8 @@ import QRCode from 'qrcode'
 import { createSharePosterCanvas, copyPosterToClipboard, downloadPoster } from './sharePosterCanvas'
 import { Sheet } from './ui/Sheet'
 import { useTranslation } from 'react-i18next'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
 // @@@share-poster (#903) - Share poster dialog: canvas-composed image with QR + branding.
 // Supports copy-to-clipboard and download. No new dependencies (reuses `qrcode` already
@@ -27,15 +29,13 @@ export interface SharePosterDialogProps {
   onClose: () => void
 }
 
-type CopyState = 'idle' | 'copying' | 'copied' | 'error'
-
 export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, totalMemberCount, qrCaption, ctaText, onClose }: SharePosterDialogProps) {
   const { t } = useTranslation('contacts')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
-  const [copyState, setCopyState] = useState<CopyState>('idle')
+  const [copyState, setCopyState] = useState<string | null>(null)
   const [downloadDone, setDownloadDone] = useState(false)
   const posterCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -91,9 +91,15 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
     const canvas = posterCanvasRef.current
     if (!canvas) return
     setCopyState('copying')
-    const ok = await copyPosterToClipboard(canvas)
-    setCopyState(ok ? 'copied' : 'error')
-    if (ok) setTimeout(() => setCopyState('idle'), 2000)
+    try {
+      await copyPosterToClipboard(canvas)
+      setCopyState('copied')
+      setTimeout(() => setCopyState(null), 2000)
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'copy poster failed')
+      setCopyState(safeFailureLine(reason))
+    }
   }, [])
 
   const handleDownload = useCallback(() => {
@@ -108,8 +114,7 @@ export function SharePosterDialog({ title, subtitle, qrValue, memberAvatarUrls, 
   switch (copyState) {
     case 'copying': copyLabel = t('sharing.copying'); break
     case 'copied':  copyLabel = t('sharing.copied'); break
-    case 'error':   copyLabel = t('sharing.copyFailed'); break
-    default:        copyLabel = t('sharing.copyImage')
+    default:        copyLabel = copyState ?? t('sharing.copyImage')
   }
 
   return (
