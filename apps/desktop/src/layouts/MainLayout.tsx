@@ -624,6 +624,7 @@ function InnerLayout({
     const frame = emdashFrameHomeRef.current
     const dest = showCreateSurface ? composerSlotRef.current : sessionSlotRef.current
     if (!frame || !dest) return
+    let shown = false
     const syncRect = () => {
       const rect = dest.getBoundingClientRect()
       frame.style.top = `${rect.top}px`
@@ -631,24 +632,27 @@ function InnerLayout({
       frame.style.width = `${rect.width}px`
       frame.style.height = `${rect.height}px`
       frame.dataset.emdashSlot = dest === sessionSlotRef.current ? 'task' : 'composer'
-      const shown = rect.width > 0 && rect.height > 0
-      frame.style.visibility = shown ? 'visible' : 'hidden'
-      if (shown) frame.style.removeProperty('--gugu-animation-surface-paused')
-      else frame.style.setProperty('--gugu-animation-surface-paused', 'paused')
+      shown = rect.width > 0 && rect.height > 0
       frame.style.pointerEvents = shown ? 'auto' : 'none'
-      raise()
+      hide()
     }
+    // Hidden, the frame's page is skipped (content-visibility): not drawn, focusable, findable or intersecting, so its
+    // animations stop too. ❌ An inherited property (visibility, inert, a custom property) toggled on the frame restyles
+    // every element of the page: 158–168 ms at 1000 chat rows on mac1, paid on each switch to and from Messages, ~2 ms this way.
     // A session opened beside an App in a chat's side panel (G1) is the frame's page, drawn over that panel: while the
-    // frame is hidden (the chats tab) and holds one, it sits above the panels (z-float), not under them — nothing else of
-    // it shows then, only that page and the App pages, which are drawn over their own slots anyway.
-    const raise = () => {
-      frame.style.zIndex = sessionPeek.current && frame.style.visibility === 'hidden' ? 'calc(var(--z-float) + 1)' : '5'
+    // frame is hidden (the chats tab) and holds one, the page stays and only the rest hides (visibility; the peeked page
+    // says visible for itself), and the frame sits above the panels (z-float), not under them.
+    const hide = () => {
+      const peek = !shown && sessionPeek.current !== null
+      frame.style.contentVisibility = shown || peek ? 'visible' : 'hidden'
+      frame.style.visibility = peek ? 'hidden' : 'visible'
+      frame.style.zIndex = peek ? 'calc(var(--z-float) + 1)' : '5'
     }
     syncRect()
     const ro = new ResizeObserver(syncRect)
     ro.observe(dest)
     window.addEventListener('resize', syncRect)
-    const offPeek = reaction(() => sessionPeek.current !== null, raise)
+    const offPeek = reaction(() => sessionPeek.current !== null, hide)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', syncRect)
@@ -1483,8 +1487,8 @@ function InnerLayout({
             whichever of sessionSlotRef/composerSlotRef is current. Base state here (0×0, hidden,
             unclickable) is what's visible before that effect's first run — never a flex participant,
             so this JSX position can stay fixed forever without any conditional-sibling insertBefore
-            crash (see the effect's comment for why that matters). visibility over display:none so the
-            effect can toggle it without fighting layout; pointerEvents mirrors visibility so a
+            crash (see the effect's comment for why that matters). content-visibility over display:none so the
+            page keeps its layout while hidden; pointerEvents mirrors visibility so a
             visually-hidden frame never eats clicks meant for whatever's actually on screen. */}
         {/* 门只看 sessionHost 能力,不看 shell 宽度(见 @@@web-target-gate;❌ 不是旧说法的「没有会话页
             资产」)。桌面 Electron 永不进移动 shell(#3566);移动 shell 里(web 目标窄视口 / Capacitor,
@@ -1493,7 +1497,7 @@ function InnerLayout({
         {sessionHostAvailable && (
           <div
             ref={emdashFrameHomeRef}
-            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', visibility: 'hidden', pointerEvents: 'none', zIndex: 5 }}
+            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', contentVisibility: 'hidden', pointerEvents: 'none', zIndex: 5 }}
           >
             <EmdashSessionFrame />
           </div>
@@ -1588,8 +1592,6 @@ function InnerLayout({
           onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile}
         />
       )}
-      {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。 */}
-      {!mobile && sessionHostAvailable && <ChatListSlotHost activeTab={activeTab} />}
 
     </div>
   )
@@ -1602,6 +1604,7 @@ export function MainLayout({
   effectsActive = true,
   onShellCommitted,
 }: MainLayoutProps) {
+  const mobile = useMobileShell()
   return (
     <ContactsProvider active={effectsActive}>
       <DevicesProvider active={effectsActive}>
@@ -1610,6 +1613,9 @@ export function MainLayout({
           effectsActive={effectsActive}
           onShellCommitted={onShellCommitted}
         />
+        {/* gugu-dev#181 会话页侧栏「对话」那一格(lib/shellSlots.ts 的 chat-list)和两枚页签上的未读数。
+            在 InnerLayout 外面:切 tab 时 InnerLayout 整个重画,这张表不跟着重画。 */}
+        {!mobile && platform.capabilities.sessionHost && <ChatListSlotHost />}
       </DevicesProvider>
     </ContactsProvider>
   )

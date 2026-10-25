@@ -1,5 +1,6 @@
 import { LeftSidebar } from '@renderer/features/sidebar/left-sidebar';
 import { SessionKeyboardNavListener } from '@renderer/features/sidebar/session-keyboard-nav-listener';
+import { SESSION_NAV_FOCUS_REGION } from '@renderer/features/sidebar/session-keyboard-nav';
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder';
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
@@ -57,6 +58,10 @@ export function Workspace() {
       {/* behavior session-page「键盘导航」: same visibility gate as the other document-level binders —
           a hidden task frame must not answer arrow keys aimed at the chat tab. */}
       {embedVisible && <SessionKeyboardNavListener />}
+      {/* The nav layer needs somewhere real to park focus: the sidebar list is virtualised, so the row the cursor sits on
+          may have no DOM node at all. Always mounted: inserted under the page root on each show, it re-matched the root's
+          :has() rules and restyled the whole page (~130 ms at 1000 chat rows). */}
+      <div data-region={SESSION_NAV_FOCUS_REGION} tabIndex={-1} aria-hidden="true" style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }} />
       <MonacoKeyboardBridge />
       <DefaultTaskAgentPublisher />
       <WorkspaceLayout
