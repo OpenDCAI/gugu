@@ -45,7 +45,7 @@ it('uses the shared App message delivery with a host-owned sender, fixed persona
   expect(await callAssistantApp('dispatch', { text: 'saved operation', to: { agent: 'user:assistant' }, delivery: 'defer', extensionId: 'forged' }, 'owner'))
     .toEqual({ to: { agent: 'user:assistant' }, id: 'durable-message', deferred: true });
   expect(send).toHaveBeenCalledWith({ extensionId: 'gugu.assistant', extensionName: '个人助理面板' }, 'all-machines',
-    { agentId: 'user:assistant', text: 'saved operation', defer: true });
+    { agentId: 'user:assistant', text: 'saved operation', delivery: 'defer' });
 });
 it('refuses task agents, unknown roles, account switches and wake/replacement requests', async () => {
   await expect(callAssistantApp('listAgents', {}, 'previous-account')).rejects.toMatchObject({ code: 'denied' });

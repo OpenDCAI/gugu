@@ -51,7 +51,7 @@ export async function callAssistantApp(verb: string, input: unknown, expectedOwn
     const agentId = String((args.to as { agent?: unknown } | null)?.agent ?? '').replace(/^user:/, '');
     if (personal?.agentId !== agentId) throw new AppSendError('denied', 'This App only messages your personal assistant');
     if ((await account()).ownerId !== ownerId) throw new AppSendError('denied', 'Account changed');
-    const receipt = await messageAgentFromHostApp(ASSISTANT_PANEL_APP, 'all-machines', { agentId: `user:${agentId}`, text: args.text, defer: true });
+    const receipt = await messageAgentFromHostApp(ASSISTANT_PANEL_APP, 'all-machines', { agentId: `user:${agentId}`, text: args.text, delivery: 'defer' });
     return { to: { agent: `user:${agentId}` }, ...receipt };
   }
   if (verb === 'callProgram') {

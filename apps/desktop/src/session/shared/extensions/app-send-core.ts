@@ -37,7 +37,6 @@ export interface AppSendPlatform {
   account(): Promise<{ token: string; userId: string }>;
 }
 
-const USER_ID = /^user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function client(token: string, schema: 'chat' | 'identity') {
@@ -214,55 +213,43 @@ async function composePlace(
   return { chatId: args.chat, text: said };
 }
 
-export function createAppSend(platform: AppSendPlatform) {
-  /** `as`: the agent that works the page (its bare uuid), when an agent does. */
-  return async function sendFromApp(
-    extensionId: string,
-    args: { to: unknown; text: unknown; chat?: unknown; refs?: unknown; about?: unknown },
-    options: { as?: string; visible?: boolean } = {},
-  ): Promise<{ id: string }> {
-    if (named(args.about)) throw new AppSendError('invalid', ABOUT_GONE);
-    if (!named(args.chat) && !named(args.refs)) throw new AppSendError('invalid', 'Say where: to { chat, member }, or refs into that chat');
-    if (named(args.chat) && (typeof args.chat !== 'string' || !UUID.test(args.chat))) {
-      throw new AppSendError('invalid', 'chat is a chat\'s id, as getContext() gives it');
-    }
-    const refs = named(args.refs) ? refsOf(args.refs) : null;
-    const to = String(args.to ?? '');
-    const toId = USER_ID.exec(to)?.[1];
-    if (!toId) throw new AppSendError('invalid', 'to is a member\'s id, user:<uuid> — as members and presence give it');
-    const text = String(args.text ?? '').trim();
-    if (!text && !refs) throw new AppSendError('invalid', 'Say something: text is empty');
-
-    const { token, userId } = await platform.account();
-    const pointed = refs ? await pillsOf(token, refs) : null;
-    const chatId = pointed ? pointed.chatId : (args.chat as string);
-
-    if (pointed && named(args.chat) && pointed.chatId !== args.chat) throw new AppSendError('invalid', `refs point into chat ${pointed.chatId}, not ${String(args.chat)}`);
-    const said = pointed ? [text, pointed.pills.map(pillText).join(' ')].filter(Boolean).join('\n\n') : text;
-    // Seen by the chat, it says whom it is for as any message does: `@` the member's name, the id in to_user_ids.
-    const content = options.visible ? `@${await nameOf(token, toId)} ${said}` : said;
-    const id = globalThis.crypto.randomUUID();
-    const { error } = await client(token, 'chat').rpc('send_message_idempotent', {
-      p_message_id: id,
-      p_chat_id: chatId,
-      p_sender_user_id: options.as ?? userId,
-      p_to_user_ids: [toId],
-      p_content: content,
-      p_content_type: 'text',
-      p_reply_to_message_id: null,
-      p_thread_root_id: null,
-      p_is_thread_root: false,
-      p_is_whisper: options.visible !== true,
-      p_via_app: extensionId,
-    });
-    if (error) {
-      if (error.code === 'PT429' || /rate-limited/.test(error.message)) throw new AppSendError('rate-limited', error.message);
-      // check_violation: the whisper rule (#84) refused `to` — the App drops them (F78); the database's words say why.
-      if (error.code === '23514') throw new AppSendError('not-found', error.message);
-      throw new AppSendError('failed', error.message);
-    }
-    return { id };
-  };
+/**
+ * To a member of a chat, the call already checked (`dispatchCallOf`): `as` the agent that works the page (its bare uuid),
+ * when an agent does; `visible`: a message the chat sees, `@` the member, instead of a whisper.
+ */
+async function sendToMember(
+  platform: AppSendPlatform,
+  extensionId: string,
+  args: { member: string; chat: string; text: string; refs: unknown },
+  options: { as?: string; visible?: boolean },
+): Promise<{ id: string }> {
+  const toId = args.member.replace(/^user:/, '');
+  const { token, userId } = await platform.account();
+  const { chatId, content: said } = await withPills(token, args.text, args.refs);
+  if (chatId && chatId !== args.chat) throw new AppSendError('invalid', `refs point into chat ${chatId}, not ${args.chat}`);
+  // Seen by the chat, it says whom it is for as any message does: `@` the member's name, the id in to_user_ids.
+  const content = options.visible ? `@${await nameOf(token, toId)} ${said}` : said;
+  const id = globalThis.crypto.randomUUID();
+  const { error } = await client(token, 'chat').rpc('send_message_idempotent', {
+    p_message_id: id,
+    p_chat_id: args.chat,
+    p_sender_user_id: options.as ?? userId,
+    p_to_user_ids: [toId],
+    p_content: content,
+    p_content_type: 'text',
+    p_reply_to_message_id: null,
+    p_thread_root_id: null,
+    p_is_thread_root: false,
+    p_is_whisper: options.visible !== true,
+    p_via_app: extensionId,
+  });
+  if (error) {
+    if (error.code === 'PT429' || /rate-limited/.test(error.message)) throw new AppSendError('rate-limited', error.message);
+    // check_violation: the whisper rule (#84) refused `to` — the App drops them (F78); the database's words say why.
+    if (error.code === '23514') throw new AppSendError('not-found', error.message);
+    throw new AppSendError('failed', error.message);
+  }
+  return { id };
 }
 
 /** A member's name, as a message the chat sees `@`s them; the database's own refusal says when there is none. */
@@ -274,12 +261,11 @@ async function nameOf(token: string, userId: string): Promise<string> {
   return name;
 }
 
-/** The text with each pill after it, as a message to a chat carries them: what an agent's session is told the same way. */
-async function withPills(platform: Pick<AppSendPlatform, 'account'>, text: string, refs: unknown): Promise<string> {
-  if (!named(refs)) return text;
-  const { token } = await platform.account();
-  const { pills } = await pillsOf(token, refsOf(refs));
-  return [text, pills.map(pillText).join(' ')].filter(Boolean).join('\n\n');
+/** The text with each pill after it, as a message carries them (to a chat, or an agent's session), and the pills' chat. */
+async function withPills(token: string, text: string, refs: unknown): Promise<{ chatId: string | null; content: string }> {
+  if (!named(refs)) return { chatId: null, content: text };
+  const { chatId, pills } = await pillsOf(token, refsOf(refs));
+  return { chatId, content: [text, pills.map(pillText).join(' ')].filter(Boolean).join('\n\n') };
 }
 
 /**
@@ -358,10 +344,10 @@ export async function dispatchFromApp(
   }
   if (!to) throw new AppSendError('invalid', 'Say whom: to { chat, member }, { agent } or { new: true }');
   if ('member' in to) {
-    const sent = await createAppSend(platform)(extensionId, { to: to.member, text, chat: to.chat, refs: call.refs }, { as: here.as, visible });
+    const sent = await sendToMember(platform, extensionId, { member: to.member, chat: to.chat, text, refs: call.refs }, { as: here.as, visible });
     return { to: { chat: to.chat, member: to.member }, id: sent.id };
   }
-  const words = await withPills(platform, text, call.refs);
+  const { content: words } = await withPills((await platform.account()).token, text, call.refs);
   if ('new' in to) return { to: { agent: await agents().spawn(words, call.spawn) } };
   if ('chat' in to) throw new AppSendError('invalid', 'A chat as such is told nothing: to { chat, member }, or { draft: true }');
   const told = await agents().tell(agentOf(to), words, { delivery: call.delivery, key: call.key });

@@ -2,7 +2,7 @@ import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { buildExtensionEnvelope, formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
-import { AppSendError, dispatchFromApp, type DispatchAgent, type DispatchHere } from '@shared/extensions/app-send-core';
+import { AppSendError, dispatchFromApp, type DispatchHere } from '@shared/extensions/app-send-core';
 import { createAppMessages } from '@shared/extensions/app-messages-core';
 import { createAppForum, type ForumChannel } from '@shared/extensions/app-forum-core';
 import { subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol';
@@ -91,20 +91,15 @@ export async function dispatchForApp(
 ): Promise<{ to: unknown; id?: string; deferred?: true } | { cancelled: true }> {
   const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
   const { visibleAgentsForExtension, spawnAgentForExtension } = await import('@main/core/extensions/extension-agents');
-  // This computer's agents by id, and back: a session the sheet listed is named by its agent in the answer (F35).
-  const local = async () => {
-    const byAgent = await visibleAgentsForExtension({ scope: 'all', extensionId });
-    return { byAgent, agentOf: (sessionId: string) => [...byAgent].find(([, session]) => session === sessionId)?.[0] };
-  };
-  const sessionHere = async (agent: DispatchAgent): Promise<{ sessionId: string; agentId: string } | null> => {
-    const sessionId = (await local()).byAgent.get(agent.agent);
-    return sessionId ? { sessionId, agentId: agent.agent } : null;
-  };
-  // For the sheet (no target named): the page's session's agent ticked first, and which of the person's agents have a
-  // session here — a draft's only composers.
-  const { byAgent, agentOf } = args.to === undefined || args.to === null ? await local() : { byAgent: new Map<string, string>(), agentOf: () => undefined };
+  // This computer's agents → their sessions: a draft's only composers, and for the sheet the page's own agent, ticked first.
+  const agentsHere = () => visibleAgentsForExtension({ scope: 'all', extensionId });
+  const sheet = args.to === undefined || args.to === null ? await agentsHere() : null;
   const { session, ...rest } = page;
-  const here: DispatchHere = { ...rest, preselect: (session && agentOf(session)) || null, local: [...byAgent.keys()] };
+  const here: DispatchHere = {
+    ...rest,
+    preselect: (sheet && session && [...sheet].find(([, conversation]) => conversation === session)?.[0]) || null,
+    ...(sheet ? { local: [...sheet.keys()] } : {}),
+  };
   return dispatchFromApp(
     {
       account,
@@ -113,27 +108,17 @@ export async function dispatchForApp(
       agents: {
         async draft(agent, text) {
           if (!text) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
-          const found = await sessionHere(agent);
-          if (!found) throw new AppSendError('not-found', `${agent.agent} is not an agent on this computer`);
-          const { sessionId, agentId } = found;
+          const sessionId = (await agentsHere()).get(agent.agent);
           const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-          const facts = await agentSessionContext(sessionId);
-          if (!facts?.projectId) throw new AppSendError('not-found', `${agentId} is not an agent on this computer`);
+          const facts = sessionId ? await agentSessionContext(sessionId) : null;
+          if (!sessionId || !facts?.projectId) throw new AppSendError('not-found', `${agent.agent} is not an agent on this computer`);
           await effects.draftInSession({ id: sessionId, projectId: facts.projectId }, `${text}\n`);
-          return agentId;
+          return agent.agent;
         },
         async tell(agent, text, how) {
-          if (agent.named) {
-            const reach = extensionsService().agentReach(extensionId, 'agents:control');
-            const receipt = await messageAgentFromHostApp(app, reach, { agentId: agent.agent, text, queue: how.delivery === 'queue', defer: how.delivery === 'defer', key: how.key }, { from: effects.from });
-            return { agent: agent.agent, ...receipt };
-          }
-          // The person picked this agent of theirs: theirs to tell, whatever this App's own reach — here, or on the
-          // computer it runs on, the way an App with :all-machines reaches it.
-          const found = await sessionHere(agent);
-          const receipt = found
-            ? await tellSessionFromApp(app, found.sessionId, text, { ...how, to: agent.agent, from: effects.from })
-            : await messageAgentFromHostApp(app, 'all-machines', { agentId: agent.agent, text, queue: how.delivery === 'queue', defer: how.delivery === 'defer', key: how.key }, { from: effects.from });
+          // Named by the call: within the App's own reach. Picked by the person: any of theirs, here or on its computer.
+          const reach = agent.named ? extensionsService().agentReach(extensionId, 'agents:control') : 'all-machines';
+          const receipt = await messageAgentFromHostApp(app, reach, { agentId: agent.agent, text, ...how }, { from: effects.from });
           return { agent: agent.agent, ...receipt };
         },
         async spawn(prompt, spawn) {
@@ -190,20 +175,13 @@ async function tellSessionFromApp(
 export async function messageAgentFromHostApp(
   app: { extensionId: string; extensionName: string },
   reach: AgentReach,
-  args: { agentId: unknown; text: unknown; queue?: unknown; defer?: unknown; key?: unknown },
+  args: { agentId: string; text: unknown } & AppMessageOptions,
   options: { from?: string } = {},
 ): Promise<AppMessageReceipt> {
   const { extensionId } = app;
-  const to = String(args.agentId ?? '');
-  if (args.queue !== undefined && typeof args.queue !== 'boolean') throw new AppSendError('invalid', 'queue is true or false');
-  if (args.defer !== undefined && typeof args.defer !== 'boolean') throw new AppSendError('invalid', 'defer is true or false');
-  if (args.queue === true && args.defer === true) throw new AppSendError('invalid', 'queue or defer, not both');
-  if (args.key !== undefined && (typeof args.key !== 'string' || !args.key)) throw new AppSendError('invalid', 'key is a non-empty string');
-  const how: AppMessageOptions = {
-    ...(args.queue === true ? { delivery: 'queue' as const } : {}),
-    ...(args.defer === true ? { delivery: 'defer' as const } : {}),
-    ...(typeof args.key === 'string' ? { key: args.key } : {}),
-  };
+  const to = args.agentId;
+  // Checked where the call is read (`dispatchCallOf`); a built-in App names its own.
+  const how: AppMessageOptions = { ...(args.delivery ? { delivery: args.delivery } : {}), ...(args.key ? { key: args.key } : {}) };
   const { visibleAgentsForExtension, sessionsElsewhere } = await import('@main/core/extensions/extension-agents');
   const sessionId = (await visibleAgentsForExtension({ scope: reach, extensionId })).get(to);
   if (sessionId) return tellSessionFromApp(app, sessionId, args.text, { ...how, ...options, to });
