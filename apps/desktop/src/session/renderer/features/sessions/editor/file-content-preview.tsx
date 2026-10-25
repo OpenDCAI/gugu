@@ -1,6 +1,9 @@
 import { runInAction } from 'mobx';
 import { observer } from 'mobx-react-lite';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { bindFileViewerMenu } from '@/components/preview/file-viewer-menu';
+import { notify } from '@/lib/notices';
+import { quoteWorkspaceFile } from '@renderer/lib/editor/quote-workspace-file';
 import { EDITOR_CONFIRM_FILE_BYTES } from '@renderer/lib/editor/file-size-limits';
 import { isSelfLoadingKind } from '@renderer/lib/editor/fileKind';
 import type { ManagedFileKind } from '@renderer/lib/editor/types';
@@ -31,6 +34,17 @@ export const FileContentPreview = observer(function FileContentPreview({
   tab,
   ctx,
 }: FileContentPreviewProps) {
+  const menuRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuRoot.current) return;
+    return bindFileViewerMenu(menuRoot.current, () => {
+      const path = tab.path;
+      return {
+        quote: (selection) => quoteWorkspaceFile(ctx.projectId, ctx.sessionId, path, selection),
+        canSelectAll: tab.contentType !== 'image' && tab.contentType !== 'binary',
+      };
+    }, (error) => notify({ tier: 'error', title: error instanceof Error ? error.message : String(error) }));
+  }, [ctx.projectId, ctx.sessionId, tab, tab.contentType]);
   useEffect(() => {
     // PDF 这类自己取字节的类型必须绕开这条:它走 `readText`,读到二进制就把 contentType
     // 盖成 binary,刚判出来的类型当场被抹掉(#5269)。
@@ -55,5 +69,5 @@ export const FileContentPreview = observer(function FileContentPreview({
   const def = FILE_CONTENT_TYPES[tab.contentType];
   if (!def.Preview) return null;
   const { Preview } = def;
-  return <Preview tab={tab} ctx={ctx} />;
+  return <div ref={menuRoot} className="h-full min-h-0"><Preview tab={tab} ctx={ctx} /></div>;
 });

@@ -84,6 +84,10 @@
   /* @@@shadow-lift (Refs #6104) — 页面不是浮层,投影去掉;它和页边那条 hairline 从前叠在同一条边上。 */
 }
 
+.document-preview-pdf-page { --scale-round-x: 1px; --scale-round-y: 1px; position: relative; flex-shrink: 0; }
+
+.document-preview-pdf-page .textLayer { inset: 1px; }
+
 .document-preview-pptx-shell { position: relative; min-height: 100%; background: var(--bg-secondary); }
 .document-preview-pptx-shell > .document-preview-status { position: absolute; inset: 0; z-index: 2; }
 .document-preview-pptx { box-sizing: border-box; min-height: 100%; overflow: auto; padding: 12px; }
