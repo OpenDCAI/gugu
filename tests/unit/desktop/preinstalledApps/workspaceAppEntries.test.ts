@@ -31,6 +31,7 @@ const entries = [
 type Ctx = { chat: { id: string; name: string; kind: 'group' | 'topic'; groupId: string | null }; locale: string; capabilities: string[]; file?: { chat: string; id: string } }
 const context: Ctx = { chat: { id: 'chat-1', name: 'G', kind: 'group', groupId: 'chat-1' }, locale: 'zh-CN', capabilities: ['files:read', 'files:write'] }
 let contextChanged: (ctx: Ctx) => void = () => {}
+let filesChanged = (_change: { kind: 'entries'; entries: typeof entries; gone: string[] }) => {}
 
 const gugu = {
   setTabTitle: vi.fn(async () => {}),
@@ -44,7 +45,7 @@ const gugu = {
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
     list: vi.fn(async () => entries),
-    onChanged: vi.fn(() => () => {}),
+    onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
     // Only what the host hands this page (context.file) is opened here; no file service in this rig.
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
     create: vi.fn(),
@@ -147,6 +148,26 @@ describe('workspace App: what the old workspace panel did', () => {
       'Created by 张三 · 1 hour ago', 'Edited · 1 minute ago',
     ])
     contextChanged({ ...context })
+    await vi.waitFor(() => expect(app().shown).toBe(null))
+  })
+
+  test.each([
+    { locale: 'zh-CN', name: '李四', kind: 'human', at: ago(60), expected: '李四 编辑 · 1分钟前' },
+    { locale: 'en', name: 'Helper', kind: 'agent', at: ago(60), expected: 'Edited by Helper (Agent) · 1 minute ago' },
+    { locale: 'en', name: 'Jane', kind: 'human', at: ago(3600), expected: 'Edited by Jane · 1 hour ago' },
+  ])('a known $kind editor appears in the list and open header ($locale, $at)', async ({ locale, name, kind, at, expected }) => {
+    const entry = { ...entries[0], updatedAt: at, updatedBy: { id: 'editor', name, kind } }
+    contextChanged({ ...context, locale })
+    filesChanged({ kind: 'entries', entries: [entry], gone: [] })
+    const lines = () => [...document.querySelector('[data-id="plan"] .file-meta')!.children].map((cell) => cell.textContent)
+    expect(lines()).toContain(expected)
+    expect(lines().join(' ')).toContain('张三')
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    contextChanged({ ...context, locale, file: { chat: 'chat-1', id: entry.id! } })
+    await vi.waitFor(() => expect(app().shown).toBe('plan.md'))
+    expect([...$('doc-info').querySelectorAll('.file-activity')].map((line) => line.textContent)).toContain(expected)
+    contextChanged({ ...context })
+    filesChanged({ kind: 'entries', entries: [entries[0]], gone: [] })
     await vi.waitFor(() => expect(app().shown).toBe(null))
   })
 

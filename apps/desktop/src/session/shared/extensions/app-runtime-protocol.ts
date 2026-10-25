@@ -360,6 +360,8 @@ export interface AppFileEntry {
   updatedAt: string | null;
   /** Who made it (真源 §2.4): `system` when no person or agent did. */
   createdBy: AppFilePerson | null;
+  /** Who last changed its content; null when unknown or unavailable for a working-copy file. */
+  updatedBy: AppFilePerson | null;
   /** The chat messages it came from, for `gugu.showMessage` — ids only, never their content. */
   sourceMessageIds: string[];
   /**

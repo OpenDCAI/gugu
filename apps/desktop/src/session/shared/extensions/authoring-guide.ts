@@ -523,7 +523,9 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
 - An entry: \`{ id, chat | session | project, name, contentType, type (text|json|binary|folder), parentId, path, systemRole, size,
-  version, createdAt, updatedAt, createdBy: { id, name, kind: human|agent|system }, sourceMessageIds, canDelete }\`.
+  version, createdAt, updatedAt, createdBy: { id, name, kind: human|agent|system },
+  updatedBy: { id, name, kind } | null, sourceMessageIds, canDelete }\`.
+  \`updatedBy\` is the last content editor, a person or agent; unknown historical editors and working-copy files return null.
 
 ## A text file (markdown)
 

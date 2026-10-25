@@ -129,6 +129,8 @@ interface ItemRow {
   created_at: string | null;
   updated_at: string | null;
   created_by: string | null;
+  /** Read/replacement responses include the editor; a creation has no prior edit. */
+  updated_by?: string | null;
   source_message_ids: string[] | null;
   pointer: string | null;
   version: number;
@@ -255,17 +257,20 @@ function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claim
     createdBy: row.created_by
       ? (people.get(row.created_by) ?? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' })
       : { id: '', name: '', kind: 'system' },
+    updatedBy: row.updated_by
+      ? (people.get(row.updated_by) ?? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' })
+      : null,
     sourceMessageIds: row.source_message_ids ?? [],
     canDelete: deletable.has(row.id),
   };
 }
 
 /**
- * Who made each file, by name and kind, in one read. A creator whose profile is gone (an erased
+ * Who created or last edited each file, by name and kind, in one read. An author whose profile is gone (an erased
  * account) keeps a shortened id rather than a blank — the old panel's rule (#1709).
  */
 async function peopleOf(token: string, rows: readonly ItemRow[], identities: Identities): Promise<Map<string, AppFilePerson>> {
-  const ids = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => !!id))];
+  const ids = [...new Set(rows.flatMap((row) => [row.created_by, row.updated_by]).filter((id): id is string => !!id))];
   const people = new Map<string, AppFilePerson>();
   if (ids.length === 0) return people;
   for (const user of await identities(token, ids)) {
