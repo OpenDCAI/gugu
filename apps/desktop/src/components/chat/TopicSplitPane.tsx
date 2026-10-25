@@ -547,7 +547,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
               initialTopMostItemIndex={openLocation()}
               followTail={!unreadNavigationPending && !messageWindow.hasNewer && messageWindow.change !== 'newer'}
               unreadAbove={history.unreadEntry ? { messageId: history.unreadEntry.locator.message_id, messageSeq: history.unreadEntry.locator.message_seq,
-                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
+                label: t('chatArea.unreadAbove', { count: history.unreadEntry.locator.unread_count }), onSeen: history.unreadEntry.onSeen, onJump: () => void history.jumpToUnreadEntry(scrollerRef.current).catch(onHistoryError) } : null}
               onAtBottomChange={onAtBottomChange}
               onTotalListHeightChanged={onTotalListHeightChanged}
               style={MESSAGE_LIST_STYLE}

@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { act, createElement, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
@@ -32,8 +32,8 @@ const rowsBetween = (from: number, to: number) => Array.from({ length: to - from
   id: `m${from + i}`, seq: from + i, chat_id: 'long-chat', sender_user_id: 'sender',
   created_at: '2026-10-24T08:00:00Z', content: `Message ${from + i}. ${'A long conversation. '.repeat(i % 5 + 1)}`,
 }))
-async function renderConversation(width: number) {
-  const target = 310
+async function renderConversation(width: number, naturallySeen = false, surface: 'main' | 'aside' = 'main') {
+  const target = naturallySeen ? 340 : 310
   await page.viewport(width, 760)
   harness = createReactHarness()
   const history = new ChatHistoryWindow('reader')
@@ -54,10 +54,10 @@ async function renderConversation(width: number) {
   const subscribers = new Set<() => void>()
   const registerSlot = (element: HTMLDivElement | null) => { slot = element; subscribers.forEach((listener) => listener()) }
   const surfaceRoot = () => slot ?? harness!.container
-  const scroller = () => surfaceRoot().querySelector<HTMLElement>('[data-testid="chat-message-list"]')!
+  const scroller = () => surfaceRoot().querySelector<HTMLElement>(`[data-unread-stream-surface="${surface}"]`)!
   function Slot() { return <div ref={registerSlot} /> }
   function Host() {
-    const chatsRef = useRef([chat({ id: 'long-chat', unread_count: 31, last_read_seq: 309, next_message_seq: 341, unread_locator: { stream_id: 'main:long-chat', stream_kind: 'main', thread_root_id: null,
+    const chatsRef = useRef([chat({ id: 'long-chat', unread_count: 341 - target, last_read_seq: target - 1, next_message_seq: 341, unread_locator: { stream_id: 'main:long-chat', stream_kind: 'main', thread_root_id: null,
       message_id: `m${target}`, message_seq: target, unread_count: 341 - target, cursor_seq: target - 1, version: 1, is_marked_unread: false } })])
     const activeChatIdRef = useRef<string | null>('long-chat'), cancelChatOpenRef = useRef(noop)
     // The account's primary observer stays alive when a desktop portal closes. Its snapshot epoch does not change.
@@ -75,6 +75,8 @@ async function renderConversation(width: number) {
     return element ? createPortal(conversation, element) : null
   }
   function Conversation({ navigation }: { navigation: ReturnType<typeof useChatUnreadStreamNavigation> }) {
+    const [emptySearch, setEmptySearch] = useState(false)
+    const [hidden, setHidden] = useState(false)
     const entry = navigation.entryFor('long-chat')
     const window = useSyncExternalStore(history.subscribe, history.getSnapshot)
     const messages = window.messages
@@ -103,26 +105,57 @@ async function renderConversation(width: number) {
       selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, flashMessageId, highlight: undefined, threeParty: undefined,
       onShowReadReceipt: undefined, onOpenMemberProfile: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
       agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined, onMentionMember: undefined }
-    return <><button onClick={pinToBottom}>Return to latest</button><div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
-      <MessageList rows={rows} rowProps={rowProps} resetKey={resetKey} listRef={listRef} scrollerRef={memory.setScrollerRef}
+    return <><button onClick={pinToBottom}>Return to latest</button>
+      <button onClick={() => setEmptySearch(!emptySearch)}>Toggle empty search</button>
+      <button onClick={() => setHidden(!hidden)}>Toggle workspace</button>
+      <div data-window-head={messages[0]?.id} style={{ height: 560, width: '100%', display: hidden ? 'none' : 'flex', flexDirection: 'column' }}>
+      {!emptySearch && <MessageList rows={rows} rowProps={rowProps} resetKey={resetKey} listRef={listRef} scrollerRef={memory.setScrollerRef} surface={surface}
         initialTopMostItemIndex={memory.openLocation()} followTail={!pending && !window.hasNewer} onAtBottomChange={onAtBottomChange}
         onTotalListHeightChanged={onTotalListHeightChanged}
-        unreadAbove={entry ? { messageId: entry.locator.message_id, messageSeq: entry.locator.message_seq, label: 'Jump to first unread', onJump: jump } : null} />
+        unreadAbove={entry ? { messageId: entry.locator.message_id, messageSeq: entry.locator.message_seq, label: 'Jump to first unread', onJump: jump, onSeen: entry.onSeen } : null} />}
     </div></>
   }
   slotHarness = createReactHarness()
   await slotHarness.render(<Slot />)
   await renderWithAppProviders(harness, createElement(Host))
   await until('the long conversation has completed its initial tail layout', () => scroller()?.querySelectorAll('[data-msg-id]').length === 40)
-  await page.getByRole('button', { name: 'Jump to first unread' }).click()
-  await until('unread navigation confirms the visible row or reports its failure', () => confirmed.mock.calls.length > 0 || rejected.mock.calls.length > 0)
-  expect(confirmed).toHaveBeenCalledWith(`m${target}`)
+  if (!naturallySeen) {
+    await page.getByRole('button', { name: 'Jump to first unread' }).click()
+    await until('unread navigation confirms the visible row or reports its failure', () => confirmed.mock.calls.length > 0 || rejected.mock.calls.length > 0)
+    expect(confirmed).toHaveBeenCalledWith(`m${target}`)
+  }
   expect(rejected).not.toHaveBeenCalled()
   return { scroller, history,
     closeSlot: () => slotHarness!.render(null), reopenSlot: () => slotHarness!.render(<Slot />) }
 }
 
 describe('consumed first-unread entry', () => {
+  it.each(['main', 'aside'] as const)('does not revive a naturally seen entry after empty search, workspace hiding or a retained %s slot remount', async (surface) => {
+    const view = await renderConversation(1100, true, surface)
+    const firstUnread = () => view.scroller()?.querySelector<HTMLElement>('[data-msg-id="m340"]')
+    await until('the original unread row is actually visible', () => {
+      const row = firstUnread()?.getBoundingClientRect(), bounds = view.scroller()?.getBoundingClientRect()
+      return !!row && !!bounds && row.bottom > bounds.top && row.top < bounds.bottom
+    })
+    await act(async () => { view.history.update(rowsBetween(301, 380)) })
+    await until('later rows have moved the already-seen target above the viewport', () => {
+      const row = firstUnread()?.getBoundingClientRect(), bounds = view.scroller()?.getBoundingClientRect()
+      return !!row && !!bounds && row.bottom <= bounds.top
+    })
+    expect(surfaceRootPill(view.scroller())).toBeNull()
+    await page.getByRole('button', { name: 'Toggle workspace' }).click()
+    await page.getByRole('button', { name: 'Toggle workspace' }).click()
+    expect(surfaceRootPill(view.scroller())).toBeNull()
+    await page.getByRole('button', { name: 'Toggle empty search' }).click()
+    await until('empty search unmounts the message list', () => !view.scroller())
+    await page.getByRole('button', { name: 'Toggle empty search' }).click()
+    await until('the message list returns at its tail', () => !!view.scroller() && view.scroller().scrollTop > 0)
+    expect(surfaceRootPill(view.scroller())).toBeNull()
+    await view.closeSlot()
+    await view.reopenSlot()
+    await until('the retained slot has remounted its message list', () => !!view.scroller())
+    expect(surfaceRootPill(view.scroller())).toBeNull()
+  })
   it.each([1100, 390])('restores reading after consuming unread navigation and reopening its slot while the account observer survives at width %i', async (width) => {
     const view = await renderConversation(width)
     await page.getByRole('button', { name: 'Return to latest' }).click()
@@ -158,3 +191,7 @@ describe('consumed first-unread entry', () => {
     expect(restored.every((row) => row.id === before.id && Math.abs(row.top - before.top) <= 1), JSON.stringify({ before, restored })).toBe(true)
   })
 })
+
+function surfaceRootPill(scroller: HTMLElement) {
+  return scroller?.parentElement?.querySelector('[data-unread-above]') ?? null
+}
