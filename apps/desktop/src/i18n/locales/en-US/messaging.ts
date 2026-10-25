@@ -656,6 +656,7 @@ export default {
       "openTopic": "Open a topic",
       "react": "React",
       "reply": "Reply",
+      "quoteSelection": "Quote selection",
       "select": "Select"
     },
     "attachment": "[Attachment]",

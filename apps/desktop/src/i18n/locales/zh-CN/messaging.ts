@@ -656,6 +656,7 @@ export default {
       "openTopic": "开话题",
       "react": "表情回应",
       "reply": "回复",
+      "quoteSelection": "引用选中文字",
       "select": "多选"
     },
     "attachment": "[附件]",
