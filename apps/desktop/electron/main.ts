@@ -105,6 +105,7 @@ import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
 import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, watchHostResumeGap } from './server/account-resume-wiring'
+import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -3461,6 +3462,9 @@ function kickInboxForAgent(agentUserId: string, trigger: string): void {
   })
 }
 
+const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
+if (inheritedOwnerTimeZone) applyOwnerTimeZoneContext(inheritedOwnerTimeZone)
+
 const resumeAccountMessaging = createAccountResumeHandler({
   kickInbox: kickInboxForAgent,
   reconnect: resumeElectronSupabaseRealtime,
@@ -5817,7 +5821,8 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link, resume: () => resumeAccountMessaging('controller') }).then(
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+            timeZone: context => applyOwnerTimeZoneContext(context), resume: () => resumeAccountMessaging('controller') }).then(
             (server) => createLogger('server').info({ socket: server.socketPath }, '账号进程套接字已开(设备连接 link 与 open-url 走它)'),
             (err: unknown) => createLogger('server').error({ err }, '账号进程套接字开不出来 —— 设备连接(link)与 open-url 不可用'),
           )

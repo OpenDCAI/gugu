@@ -33,13 +33,20 @@ function installBrowserHelpers(): void {
  * @param options.link 设备连接(远程 SSH 的机器上桌面与它之间的一切):由主进程装配 —— 它手里有与云端设备 RPC
  *   同一张处理表(经会话页桥建),这里只负责把连接交给它。不给 = 不接设备连接。
  */
-export function startSessionPtyAttachServer(dataDir: string, options: { link?: AttachDeps['link']; resume?: () => void } = {}) {
+export function startSessionPtyAttachServer(dataDir: string, options: { link?: AttachDeps['link']; resume?: () => void; timeZone?: (context: unknown) => void } = {}) {
   installBrowserHelpers();
   return startPtyAttachServer(dataDir, {
     warn: (message, fields) => log.warn(message, fields),
     // 一问一答只接这台机器上的程序「打开网页」(只走本机套接字);桌面与这台机器之间的一切走设备连接(link)。
     call: async (type, payload) => {
       if (type === HOST_RESUME_CALL && options.resume) {
+        const context = payload && typeof payload === 'object' ? (payload as { timeZoneContext?: unknown }).timeZoneContext : undefined;
+        if (context !== undefined) {
+          if (!options.timeZone) return { error: { code: 'unsupported_context', message: 'This account cannot apply a time-zone context' } };
+          try { options.timeZone(context); } catch (error) {
+            return { error: { code: 'invalid_context', message: error instanceof Error ? error.message : String(error) } };
+          }
+        }
         options.resume();
         return { result: { resumed: true, pid: process.pid } };
       }

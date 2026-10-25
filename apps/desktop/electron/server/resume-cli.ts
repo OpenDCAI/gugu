@@ -1,6 +1,7 @@
 import { ATTACH_EXIT, HOST_RESUME_CALL } from '../session/main/core/pty/attach/attach-protocol'
 import { callAccountProcess, pickAttachAccount } from './account-call'
 import { listAccounts } from './server-layout'
+import { ownerTimeZoneFromEnvironment } from './owner-timezone'
 
 /** Controller -> local account socket. No remote device action, process restart,
  * or model round is needed to announce that this very process has resumed. */
@@ -18,7 +19,12 @@ export async function runResume(
     io.stderr.write(`${account.error}\n`)
     return ATTACH_EXIT.notSignedIn
   }
-  const outcome = await deps.call(account, { type: HOST_RESUME_CALL, payload: {} }, { timeoutMs: 5_000 })
+  let timeZoneContext
+  try { timeZoneContext = ownerTimeZoneFromEnvironment() } catch {
+    io.stderr.write('账号时区资料无效，未发送恢复通知\n'); return 2
+  }
+  const outcome = await deps.call(account, { type: HOST_RESUME_CALL,
+    payload: timeZoneContext ? { timeZoneContext } : {} }, { timeoutMs: 5_000 })
   if ('code' in outcome) {
     io.stderr.write(`${outcome.message}\n`)
     return outcome.code

@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setOwnerTimeZoneContext } from '../../../../apps/desktop/src/session/shared/core/automations/timezone'
 import { createActivitySummaryQuery } from '../../../../apps/desktop/electron/activity-summary-query'
 import type { ActivityDevice } from '../../../../apps/desktop/electron/activity-device-query'
 
 const at = Date.parse('2026-10-25T04:00:00Z')
+afterEach(() => setOwnerTimeZoneContext(null))
 const device: ActivityDevice = { device_id: 'cloud', label: '助理', online: true, this_machine: true }
 const signal = () => new AbortController().signal
 const event = (id: string, session = 's1', time = at - 1_000) => ({ event_id: id, session_id: session,
@@ -20,6 +22,18 @@ function sessions(result: Awaited<ReturnType<ReturnType<typeof createActivitySum
 }
 
 describe('activity summaries are complete facts before presentation pagination', () => {
+  it('uses the observed owner zone for today and keeps its source attached to the paginated snapshot', async () => {
+    const context = { time_zone: 'Pacific/Auckland', source_device_id: 'phone', source_last_seen_at: null,
+      read_at: new Date(at).toISOString(), status: 'device' as const }
+    setOwnerTimeZoneContext(context)
+    const read = createActivitySummaryQuery({ now: () => at })
+    const source = deps(vi.fn(async () => page([event('one', 's1'), event('two', 's2')])) )
+    const first = await read({ action: 'activity_list', limit: 1 }, source, signal())
+    expect(first.window).toMatchObject({ time_zone: 'Pacific/Auckland', since: '2026-10-24T11:00:00.000Z', time_zone_source: context })
+    setOwnerTimeZoneContext({ ...context, time_zone: 'America/Toronto', source_device_id: 'laptop' })
+    const second = await read({ action: 'activity_list', limit: 1, cursor: first.next_cursor }, source, signal())
+    expect(second.window).toEqual(first.window)
+  })
   it('defaults to midnight in the declared host zone, reports local bounds and hides raw events', async () => {
     const source = deps()
     const result = await run()({ action: 'activity_list' }, source, signal())
