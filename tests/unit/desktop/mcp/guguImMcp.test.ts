@@ -576,8 +576,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(sendDescription).not.toContain('message_send_local')
     const fileDescription = tools.find((tool) => tool.name === 'message_send_file')?.description ?? ''
     expect(fileDescription).toContain('delivery tool')
-    // The folder is the App's now: the native tool that delivers points at it, so an agent asked for a kept file finds it.
-    expect(fileDescription).toContain('workspace__create in the catalog')
+    // Every attachment is a file of the chat's folder: the tool that delivers says it shows one by reference.
+    expect(fileDescription).toContain('chat-folder file by its gugu-file://')
     await client.close()
   })
   test('session_peers groups UUID and display aliases under one identity in registry order', async () => {

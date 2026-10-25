@@ -2248,9 +2248,8 @@ const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(reci
 const friendUserIdSchema = z.string().describe('From owner_friends_list.')
 // 用法写在字段说明里：顶层描述会被 Claude Code 截到 2048 字符，字段说明不截
 // （见 mcp-tool-description-budget.mjs）。这两条正是最容易被用错的地方，必须写在不会被截的那一侧。
-const uploadFilePathSchema = z.string().trim().min(1).describe(
-  'Absolute path; the server uploads it.'
-)
+// 绝对路径:读不到、不是文件时报错原话会说(readUploadBytes)。常驻工具的预算里省下这一句(#7335)。
+const uploadFilePathSchema = z.string().trim().min(1)
 const uploadFileNameSchema = z.string().trim().min(1).optional().describe(
   'Default: the name on disk.'
 )
@@ -2404,9 +2403,9 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'File delivery tool: a file card. file: a chat-folder file (attachments are; no bytes copied); with file_path, your changed copy as its next version. file_path alone: a new file. Editable documents: workspace__create in the catalog.',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n> link (no bytes copied); with file_path, your changed copy as its next version from n. file_path alone: a new file.',
     schema: z.object({
-      file: z.string().trim().min(1).optional().describe('gugu-file://<id>?v=<n>, n = your copy\'s base version.'),
+      file: z.string().optional(),
       file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
@@ -2418,7 +2417,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file_as_owner',
     writer: true,
-    description: 'Send a local file or image (≤10 MiB) as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
+    description: 'Send a local file or image as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
     schema: z.object({
       friend_user_id: friendUserIdSchema,
       file_path: uploadFilePathSchema,
