@@ -19,10 +19,12 @@ let host: HTMLDivElement;
 const link = 'gugu-file://123e4567-e89b-42d3-a456-426614174000';
 beforeEach(() => {
   vi.clearAllMocks(); clipboardPaste = undefined;
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => link } });
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 async function mount(localPaths: boolean, remoteFiles?: RemoteTerminalFiles) {
   await act(async () => root.render(<PtyPane ptySessionId="pty-url-drop" pty={null!} workspaceId="w" localPaths={localPaths} remoteFiles={remoteFiles} />));
