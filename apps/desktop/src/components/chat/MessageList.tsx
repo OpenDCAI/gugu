@@ -236,11 +236,6 @@ const MessageListRow = memo(function MessageListRow({
       showReadReceipt={msg.is_mine && !isAgentChat}
       groupedWithPrev={groupedWithPrev}
       groupedWithNext={groupedWithNext}
-      // 这条消息上方刚渲染了时间分隔 pill → 气泡的名字/时间行不再把同一个时间重说一遍(截图里
-      // 「03:10」上下各出现一次)。时间节点仍在 DOM 里(视觉隐藏),移动端无 hover、读屏与 e2e 照样取得到。
-      // 手机上时间只由分隔 pill 说(间隔 ≥5 分钟才出一条,微信同款):窄屏上每换一个发送者就再印一遍
-      // 「14:52」,同一分钟里的一串对话被切成一截一截的(手机端走查实拍)。桌面有宽度,照旧在组首写时间。
-      hideTime={showTimeDivider || mobile}
       onShowReadReceipt={onShowReadReceipt}
       highlight={highlight}
       onQuote={onQuote} onShowMessage={onShowMessage}

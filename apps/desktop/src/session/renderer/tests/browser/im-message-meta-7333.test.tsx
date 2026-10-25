@@ -64,14 +64,14 @@ const byText = (root: HTMLElement, text: string) =>
   [...root.querySelectorAll<HTMLElement>('span, div, button')].filter((el) => el.textContent === text).at(-1) ?? null;
 
 describe('the IM bubble\'s meta and quote bars in the master\'s tiers (#7333)', () => {
-  it('a group reply: body 16/24; sender name and time 12/18; the reply quote\'s title and excerpt 14/20, the long excerpt still cut', async () => {
+  it('a group reply: body 16/24; sender name 14/20 inside the bubble, time 12/18; the reply quote\'s title and excerpt 14/20, the long excerpt still cut', async () => {
     const root = await renderBubble({
       content: '好的,就按这个办。',
       reply_to_message_id: 'msg-0',
       reply_to_sender_user_id: 'sender-1',
       reply_to_content: LONG_EXCERPT,
     });
-    expect(tier(root.querySelector('[data-message-sender-name="true"]'))).toEqual(CAPTION);
+    expect(tier(root.querySelector('[data-message-sender-name="true"]'))).toEqual(COMPACT);
     expect(tier(root.querySelector('[data-message-time="true"]'))).toEqual(CAPTION);
     const excerpt = byText(root, LONG_EXCERPT)!;
     const title = excerpt.previousElementSibling as HTMLElement;

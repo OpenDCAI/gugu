@@ -136,33 +136,35 @@ describe('MessageBubble touch menu', () => {
     expect(tokensCss).toMatch(/--font-size-md:\s*16px/)
     expect(tokensCss).toMatch(/--lh-prose:\s*24px/)
     expect(bubbleColumn?.style.maxWidth).toBe('78%')
-    // @@@type-12 (2026-09-03) 12 消灭:发送者名和时间戳同层,是归属标记不是内容,按简报判进
-    expect(sender?.style.fontSize).toBe('var(--font-caption)')
-    expect(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).toMatch(/--font-caption:\s*var\(--font-size-xs\)/)
-    expect(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).toMatch(/--font-size-xs:\s*12px/)
-    expect(sender?.style.fontWeight).toBe('500')
-    expect(sender?.style.color).toBe('var(--muted-fg)')
+    // 名字在气泡第一行,比正文小一号(14/20);时间是标注那一档(12/18)。
+    expect(bubble.contains(sender), 'the sender name sits inside the bubble').toBe(true)
+    expect(sender?.classList.contains('msg-sender')).toBe(true)
+    const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
+    expect(chromeCss).toMatch(/\.msg-sender \{[^}]*font-size: var\(--font-body\)/)
+    expect(chromeCss).toMatch(/\.msg-time \{[^}]*font-size: var\(--font-caption\)/)
+    expect(tokensCss).toMatch(/--font-body:\s*var\(--font-size-sm\)/)
   })
   it('labels another user\'s agent, missing ownership, and my agent distinctly', async () => {
     const externalAgent = agentProfile({ ownerUserId: 'owner-2', ownerDisplayName: 'Alice' })
     await renderMessage(undefined, false, vi.fn(), { memberProfile: externalAgent })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（Alice 的 agent）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('Alice 的 agent')
 
     await renderMessage(undefined, false, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'owner-2', ownerDisplayName: null }) })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（主人信息不可用）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('主人信息不可用')
 
     await renderMessage(undefined, false, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（我的 agent）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('我的 agent')
   })
   it('#6791 keeps a long sender line inside its column: the name truncates, the ownership tag stays', async () => {
     await renderMessage(undefined, true, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
-    const who = harness.container.querySelector('[data-message-who="true"]') as HTMLElement
-    expect(who.style.maxWidth, 'the row is sized by its content inside a flex-start column; uncapped, nowrap text pushes it past the column').toBe('100%')
     const sender = harness.container.querySelector('[data-message-sender-name="true"]') as HTMLElement
     const [name, owner] = Array.from(sender.children) as HTMLElement[]
-    expect(name.classList.contains('truncate')).toBe(true)
+    expect(name.classList.contains('msg-sender-name')).toBe(true)
     expect(owner.dataset.messageAgentOwner).toBe('true')
-    expect(owner.classList.contains('shrink-0'), 'the name gives way first').toBe(true)
+    const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
+    expect(chromeCss, 'the row is capped by its column; uncapped, nowrap text pushes it past the column').toMatch(/\.msg-sender \{[^}]*max-width: 100%/)
+    expect(chromeCss).toMatch(/\.msg-sender-name \{[^}]*text-overflow: ellipsis/)
+    expect(chromeCss, 'the name gives way first').toMatch(/\.msg-sender > \.gg-chip \{[^}]*flex-shrink: 0/)
   })
   it('overlays the mobile read receipt without shrinking the sender bubble', async () => {
     await renderMessage(undefined, true, vi.fn(), {
