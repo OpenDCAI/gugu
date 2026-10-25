@@ -46,7 +46,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
   const { theme } = useTheme()
   const mobile = useMobileShell()
   const draft = useChatDraft(chatId)
-  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments } = draft
+  const { text, setText, mentionTargets, setMentionTargets, attachments, setAttachments, flush } = draft
   const editorApiRef = useRef<PromptEditorRef | null>(null)
   const inputRef = useRef<HTMLElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -122,7 +122,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
     }
     // App composition appends through the store; preserve typing still waiting for the draft debounce.
     const beforeCompose = (event: Event) => {
-      if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) draft.flush()
+      if ((event as CustomEvent<{ chatId: string }>).detail?.chatId === chatId) flush()
     }
     window.addEventListener(UI_EVENTS.composerAttachFiles, attach)
     window.addEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
@@ -130,7 +130,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       window.removeEventListener(UI_EVENTS.composerAttachFiles, attach)
       window.removeEventListener(APP_COMPOSE_EVENT, beforeCompose, true)
     }
-  }, [isMain, enqueueFiles, chatId, draft.flush])
+  }, [isMain, enqueueFiles, chatId, flush])
 
   const composerAttachments: ComposerAttachment[] = attachments.map((attachment) => ({
     id: attachment.id, name: attachment.file.name, kind: attachment.kind === 'image' ? 'image' : 'file',
