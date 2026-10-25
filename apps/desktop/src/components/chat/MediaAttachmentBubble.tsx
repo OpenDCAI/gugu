@@ -40,6 +40,12 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   if (metadata.data?.status === 'expired') return <div ref={box} className={FIT_BUBBLE}><ExpiredAttachmentCard meta={meta} messageId={messageId} isMine={isMine} />{caption}</div>
   if (metadata.data?.status === 'gone' || metadata.isError) return <div ref={box} className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine}
     details={t(metadata.isError ? 'attachmentView.fileUnavailable' : 'attachmentView.fileGone')} onOpen={() => { if (metadata.isError) void metadata.refetch() }} />{caption}</div>
+  // A sending row owns an ephemeral blob preview, not a committed download capability.
+  if (meta.source.kind === 'url' && meta.source.url.startsWith('blob:')) return <div ref={box} className={FIT_BUBBLE}>
+    {isRenderableImage(meta.fileName, meta.mimeType)
+      ? <img src={meta.source.url} alt={meta.fileName} className="chat-inline-image" />
+      : <FileAttachmentCard file={meta} isMine={isMine} onOpen={() => undefined} />}{caption}
+  </div>
   // App 包:按这条消息装(发布者就是发送者,装的时候由宿主读这条消息)。
   if (isExtensionBundle(meta) && meta.source.kind !== 'gone') return <div ref={box} className={FIT_BUBBLE}><ExtensionBundleCard meta={meta} card={{ source: meta.source, messageId }} isMine={isMine} senderName={senderName} chatId={chatId} />{caption}</div>
   if (meta.source.kind === 'gone') {

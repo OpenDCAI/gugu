@@ -69,6 +69,16 @@ describe('expired attachment re-upload', () => {
     expect(harness.container.textContent).toContain(status === 'expired' ? 'attachmentView.fileExpired' : 'large.bin')
     for (const mock of [f.cached, f.send, f.signed]) expect(mock).not.toHaveBeenCalled()
   })
+  it.each(['file', 'image'] as const)('keeps an uncommitted %s in its local preview without querying an uncommitted message', async kind => {
+    const content = formatAttachmentMetadata({ kind, fileName: kind === 'image' ? 'sending.png' : 'sending.bin', mimeType: kind === 'image' ? 'image/png' : 'application/octet-stream', sizeBytes: 60, url: 'blob:https://fixture.invalid/selected-file' })
+    const pending = parseAttachmentContent(content, { id: 'not-yet-committed', local_send_state: 'sending' })!
+    await renderWithAppProviders(harness, createElement(MediaAttachmentBubble, { meta: pending, messageId: 'not-yet-committed', isMine: true }), { toast })
+    await act(async () => {})
+    expect(harness.container.textContent).not.toContain('attachmentView.fileGone')
+    if (kind === 'image') expect(harness.container.querySelector('img')?.getAttribute('src')).toBe('blob:https://fixture.invalid/selected-file')
+    else expect(harness.container.textContent).toContain('sending.bin')
+    for (const mock of [f.metadata, f.cached, f.send, f.signed]) expect(mock).not.toHaveBeenCalled()
+  })
   it('rechecks the real sender and ACL, then reuses normal send with the original private audience and thread', async () => {
     await render(); await click()
     expect(f.message).toHaveBeenCalledWith('message', 'user-1')
