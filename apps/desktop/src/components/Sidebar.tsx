@@ -358,7 +358,7 @@ function AssistantRailTop({ active, onOpen }: { active: boolean; onOpen: () => v
       className="gg-sidebar-item-avatar"
       icon={(
         entry === 'preparing' || entry === 'loading' ? <LoadingIndicator size="inline" /> : <>
-          <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined}>
+          <span className="gg-sidebar-assistant-face" data-dim={entry !== 'found' || undefined} inert={!active}>
             {assistant
               ? <Avatar name={assistant.display_name} avatarUrl={assistant.avatar} seed={assistant.id} size={40} isAgent harnessBadge={false} imageMatteColor="var(--nav-rail)" />
               : <AssistantDefaultAvatar id="assistant-intro" name={t('rail')} look={DEFAULT_ASSISTANT_LOOK} size={40} still />}
