@@ -57,6 +57,22 @@ describe('external selections become durable project-owned copies through the sa
     expect(publishedPaths(f)[1]).not.toBe(publishedPaths(f)[0])
     expect(await readFile(join(root, publishedPaths(f)[1]))).toEqual(Buffer.from(data))
   })
+  it.each(['missing', 'corrupt'])('reuses the repaired copy on the next real new-item publication after a %s copy', async state => {
+    const f = fixture(), originalRpc = f.rpc.getMockImplementation()!
+    f.rpc.mockImplementation(async (name, args) => name === 'file_device_publish' ? { item_id: args.p_item }
+      : name === 'workspace_get_as' ? [{ ...row, id: args.p_item_id }] : originalRpc(name, args))
+    await writeFile(selected().path, data)
+    await f.publish('group', selected(), null, 'owner')
+    const old = join(root, publishedPaths(f)[0])
+    if (state === 'missing') await rm(old); else await writeFile(old, new Uint8Array([9, 9, 9]))
+    await f.publish('group', selected(), null, 'owner')
+    await f.publish('group', selected(), null, 'owner')
+    const paths = publishedPaths(f)
+    expect(paths[1]).not.toBe(paths[0]); expect(paths[2]).toBe(paths[1])
+    expect(await readFile(join(root, paths[2]))).toEqual(Buffer.from(data))
+    expect(await readdir(join(root, '.gugu/attachments'))).toHaveLength(2)
+    expect(f.store).not.toHaveBeenCalled()
+  })
   it.each(['.gugu', '.gugu/attachments'])('rejects a %s symlink escaping the root before copying or publishing', async link => {
     const f = fixture(), outside = join(home, 'outside'); await mkdir(outside); await writeFile(selected().path, data)
     if (link.includes('/')) await mkdir(join(root, '.gugu'))
