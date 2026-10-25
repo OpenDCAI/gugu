@@ -4,6 +4,7 @@ import { chatOnScreen } from './onScreenChat'
 export function isChatSearchTarget(surface: HTMLElement | null, chatId: string, element: Element | null = document.activeElement): boolean {
   const focusedSurface = element?.closest('[data-chat-surface]')
   if (focusedSurface) return focusedSurface === surface
+  if (element?.closest('[role="dialog"]')) return false
   const shown = chatOnScreen()
   return !shown || shown === chatId
 }
