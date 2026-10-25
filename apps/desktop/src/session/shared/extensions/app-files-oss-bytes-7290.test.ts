@@ -84,7 +84,40 @@ describe('gugu.files on a file whose bytes are in OSS (#7290)', () => {
 
   it('a version attachments/urls does not answer for is not-found, said — never an empty file', async () => {
     answer = 'gone';
-    await expect(files.readVersion(surface(), { ref: { id: ITEM }, n: 1 })).rejects.toMatchObject({ code: 'not-found', message: expect.stringMatching(/has no bytes for version 1/) });
+    await expect(files.readVersion(surface(), { ref: { id: ITEM }, n: 3 })).rejects.toMatchObject({ code: 'not-found', message: expect.stringMatching(/has no bytes for version 3/) });
+  });
+
+  it('a version signed once is not signed again while its link holds; another version, or another reader, is (10-25)', async () => {
+    row = { ...row, id: '55555555-5555-4555-8555-555555555555', version: 7 };
+    const open = (extra?: Record<string, unknown>) => files.open(surface(extra), { ref: { id: row.id as string } });
+    expect(new Uint8Array((await open()).bytes!)).toEqual(new Uint8Array([1, 2, 3]));
+    await open();
+    expect(signedRefs).toEqual([{ refs: [{ item_id: row.id, version: 7 }], as: undefined }]);
+    row = { ...row, version: 8 };
+    await open();
+    await open({ asAgent: AGENT });
+    expect(signedRefs.slice(1)).toEqual([{ refs: [{ item_id: row.id, version: 8 }], as: undefined }, { refs: [{ item_id: row.id, version: 8 }], as: AGENT }]);
+  });
+
+  it('a host that fetches stored bytes its own way (the desktop: Chromium’s, with its disk cache) is the one used', async () => {
+    const fetched: string[] = [];
+    const own = createAppFiles({
+      account: async () => ({ token: 'token', userId: ME }),
+      hasCapability: () => true,
+      sync: {} as never,
+      identities: async (_token, ids) => ids.map((id) => ({ id, name: id, avatar: null, kind: 'human' as const })),
+      faces: async () => ({}),
+      filesUrl: () => 'http://files.invalid',
+      fetchBytes: async (url) => {
+        fetched.push(url);
+        return new Response(new Uint8Array([4, 5]));
+      },
+      warn: () => undefined,
+    });
+    // An item of its own: links are kept per reader for the module's life (signedUrlOf), so another case's item would be signed already.
+    row = { ...row, id: '66666666-6666-4666-8666-666666666666' };
+    expect(new Uint8Array((await own.open(surface(), { ref: { id: row.id as string } })).bytes!)).toEqual(new Uint8Array([4, 5]));
+    expect(fetched).toEqual([CDN]);
   });
 
   it('a file from before the switch (it has a pointer) is signed by attachments/urls too — one way for every file (#7290 收尾)', async () => {
