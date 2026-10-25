@@ -34,7 +34,7 @@ function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
       invitationLog.error({ invitationId: invitation.id, error: String(cause) }, 'group invitation decision failed')
       setError(cause instanceof Error && (cause.message === 'Group member limit reached' || cause.message === 'member_limit_reached')
         ? t('groupInvitations.full')
-        : messageForUser(cause, t('groupInvitations.failed')))
+        : messageForUser(cause))
     } finally {
       busyRef.current = false
       setBusy(false)

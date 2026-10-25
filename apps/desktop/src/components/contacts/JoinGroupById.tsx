@@ -75,7 +75,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
     } catch (err) {
       // 原因进日志,文案只留用户能照做的下一步(user-copy-leak 守卫钉的就是这条)。
       joinGroupLog.error({ publicId: parsedId, error: String(err) }, 'lookup public group failed')
-      toast(messageForUser(err, t('joinGroup.lookupFailed')), 'error')
+      toast(messageForUser(err), 'error')
     } finally {
       setLooking(false)
     }
@@ -97,7 +97,7 @@ export function JoinGroupById({ headless }: { headless?: boolean }) {
       toast(res.status === 'joined' ? t('joinGroup.alreadyMember') : t('joinGroup.requested'), 'success')
     } catch (err) {
       joinGroupLog.error({ publicId: group.public_id, error: String(err) }, 'group join request failed')
-      setJoinError(messageForUser(err, t('joinGroup.requestFailedFallback')))
+      setJoinError(messageForUser(err))
     } finally {
       setJoining(false)
     }

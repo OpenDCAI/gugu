@@ -14,12 +14,11 @@ export type { PreviewFile } from './MessageFilePreview'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
-export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, downloadFailed, onForward }: {
+export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toast, onForward }: {
   mobile: boolean
   visible: boolean
   closeRightSurfaces: () => void
   toast: (message: string, kind: 'error') => void
-  downloadFailed: string
   onForward: (message: MessageItem) => void
 }) {
   const host = useContext(FilePreviewHost)
@@ -38,14 +37,14 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
     if (!hosted && file.source.kind === 'item' && platform.kind !== 'web') {
       void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {
         fileOpenLog.error({ error }, 'opening the group file failed')
-        toast(messageForUser(error, downloadFailed), 'error')
+        toast(messageForUser(error), 'error')
       })
       return
     }
     closeRightSurfaces()
     restoreRef.current = restore ?? null
     setPreview({ file, message, opening: ++opening.current })
-  }, [closeRightSurfaces, downloadFailed, hosted, toast])
+  }, [closeRightSurfaces, hosted, toast])
   const close = useCallback(() => {
     restoreRef.current = null
     setPreview(null)

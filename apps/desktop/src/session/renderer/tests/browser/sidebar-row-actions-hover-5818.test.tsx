@@ -498,3 +498,16 @@ it('点击不是悬浮:进行就点、停够了再点,点完都没有卡;离开�
   vi.useRealTimers()
   await until('identity card renders', () => identityCard() !== null)
 })
+
+it('shows the sanitized clipboard refusal in the existing identity row', async () => {
+  const clipboard = stubClipboard().mockRejectedValue(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
+  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  mount()
+  await mounted()
+  const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
+  const row = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
+  await userEvent.click(row)
+  await until('copy failure is visible', () => row.dataset.copyState === 'failed')
+  expect(clipboard).toHaveBeenCalledTimes(1)
+  expect(row.querySelector('[aria-live="polite"]')!.textContent).toBe('Clipboard denied [path] [redacted token]')
+})

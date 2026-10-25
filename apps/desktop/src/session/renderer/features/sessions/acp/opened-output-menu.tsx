@@ -1,3 +1,4 @@
+import { safeFailureLine } from '../gugu-reason';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { useCallback, useMemo, useState, type ReactElement } from 'react';
 import type { OpenedOutput } from '@gugu/session-chat-ui';
@@ -27,7 +28,7 @@ const REVEAL_LABEL_KEY =
  * (对话右边并排,owner 10-15:「默认是打开在侧边栏」),这里列出全部打开方式。
  *
  * 用默认应用打开 / 在访达中显示只在会话就跑在这台电脑上时给:另一台机器上的文件这台电脑开不了,
- * ❌ 摆两条点了必失败的项。失败原文进日志,提示里只说哪一步没成(user-copy-leak-check)。
+ * ❌ 摆两条点了必失败的项。复制失败原因去敏后显示并记录。
  */
 export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: string; sessionId: string }): {
   commands: Pick<ChatCommands, 'outputOpenMode' | 'onOutputMenu'>;
@@ -51,11 +52,11 @@ export function useOpenedOutputMenu({ projectId, sessionId }: { projectId: strin
         await rpc.app.clipboardWriteText(text);
         toast({ title: done });
       } catch (error) {
-        log.warn({ error }, 'opened-output copy failed');
-        toast({ title: translate('task.copyFailed'), variant: 'destructive' });
+        log.error({ error }, 'opened-output copy failed');
+        toast({ title: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
       }
     },
-    [translate]
+    []
   );
 
   const reveal = useCallback(

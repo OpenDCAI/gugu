@@ -1,3 +1,5 @@
+import { safeFailureLine } from '../../sessions/gugu-reason';
+import { log } from '@renderer/utils/logger';
 import '@/i18n/registerVoiceNotesCatalog';
 import './voice-notes.css';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -251,8 +253,9 @@ function VoiceNoteDetail({ context, id }: { context: AssistantContext; id: strin
     try {
       await navigator.clipboard.writeText(summaryBody(data?.summary ?? ''));
       toast({ title: t('summaryCopied') });
-    } catch {
-      toast({ title: t('copyFailed'), tier: 'error' });
+    } catch (error) {
+      log.error({ error }, 'voice note summary copy failed');
+      toast({ title: safeFailureLine(String((error as Error)?.message ?? error)), tier: 'error' });
     }
   };
   const exportNote = async () => {

@@ -171,6 +171,15 @@ describe('ImagePreviewProvider', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-download')
   })
 
+  it('shows the sanitized download cause instead of a generic failure', async () => {
+    const error = new Error('Storage access denied /Users/test/private sk-synthetic-secret\nstack detail')
+    const toast = vi.fn()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error))
+    await openViewer({ toast })
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewDownload)!)
+    expect(toast).toHaveBeenCalledWith('Storage access denied [path] [redacted token]', 'error')
+  })
+
   // @@@1892 - Promise 值的 ClipboardItem 要 Chrome 122+,产品 Electron 28 = Chromium 120,
   // 复制必须先 await 拿到 Blob 再构造 ClipboardItem。
   it.each([false, true])('awaits PNG bytes before copying and reports clipboard refusals (denied=%s)', async (denied) => {

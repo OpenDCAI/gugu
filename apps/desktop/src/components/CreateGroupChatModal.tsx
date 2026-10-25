@@ -30,7 +30,7 @@ export function CreateGroupChatForm({ onClose, onCreated, initialName, initialSe
     try {
       onCreated(await createGroupChat(name, ids))
     } catch (e) {
-      toast(messageForUser(e, t('createGroup.failed')), 'error')
+      toast(messageForUser(e), 'error')
     } finally {
       setCreating(false)
     }

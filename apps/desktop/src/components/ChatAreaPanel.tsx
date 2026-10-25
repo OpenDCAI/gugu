@@ -215,7 +215,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   // @@@message-forward (#899) - open the forward picker; the dialog calls handleForwardTo to fan out.
   const handleForward = useCallback((msg: MessageItem) => setForwardMessages([msg]), [])
 
-  const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast, downloadFailed: t('chatArea.downloadFailed') })
+  const filePreview = useMessageFilePreview({ onForward: handleForward, mobile, visible: surfaceVisible, closeRightSurfaces, toast })
   const openFilePreview = filePreview.open
   filePreviewCloseRef.current = filePreview.close
   // @@@2234 中栏 min-width 自适应(有右栏展开时按内容区实宽让位,右栏永不被 overflow:hidden 裁切)—— 逻辑见 hook。
