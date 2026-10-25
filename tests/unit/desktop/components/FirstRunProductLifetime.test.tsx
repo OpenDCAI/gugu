@@ -5,6 +5,8 @@ import { clickElement, createNode, createReactHarness, waitForCondition } from '
 
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
 const io = vi.hoisted(() => ({
+  firstRunDoneHere: vi.fn((_userId: string) => false),
+  rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(async () => ({
     stage: 'intro', occupation: { key: 'research' }, harness: ['codex'],
     tour: { phase: 'features', index: 3 },

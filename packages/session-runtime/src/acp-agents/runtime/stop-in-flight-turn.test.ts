@@ -26,6 +26,59 @@ async function turnInFlight(sessionId: string) {
 }
 
 describe('stopSession with a turn in flight', () => {
+  it('waits for the bound process exit before reporting stop success', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('delayed-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    let returned = false;
+    const stopped = rt.stopSession('delayed-stop-exit').then(result => { returned = true; return result; });
+    await vi.waitFor(() => expect(h.lastChild.kill).toHaveBeenCalledWith('SIGTERM'));
+    h.lastChild.emit('error', new Error('EPIPE'));
+    await Promise.resolve();
+    expect(returned).toBe(false);
+    h.lastChild.emitExit(null, 'SIGTERM');
+    expect(isOk(await stopped)).toBe(true);
+    rejectPrompt(new Error('ACP connection closed'));
+    await turn;
+    expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+  });
+
+  it('keeps an unexited executor managed and reports stop_pending without force escalation', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('pending-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      const stopping = rt.stopSession('pending-stop-exit');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await stopping).toEqual({ success: false, error: { type: 'stop_pending' } });
+      expect(rt.sessionLiveModels('pending-stop-exit')).toBeDefined();
+      expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+      const retried = rt.stopSession('pending-stop-exit');
+      await vi.advanceTimersByTimeAsync(0);
+      h.lastChild.emitExit(null, 'SIGTERM');
+      expect(isOk(await retried)).toBe(true);
+      expect(rt.sessionLiveModels('pending-stop-exit')).toBeNull();
+      rejectPrompt(new Error('ACP connection closed'));
+      await turn;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('settles a late exit after stop_pending even without another stop request', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('late-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      const stopping = rt.stopSession('late-stop-exit');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await stopping).toEqual({ success: false, error: { type: 'stop_pending' } });
+      h.lastChild.emitExit(null, 'SIGTERM');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(rt.sessionLiveModels('late-stop-exit')).toBeNull();
+      rejectPrompt(new Error('ACP connection closed'));
+      await turn;
+      expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('codex 形:close 不答 prompt、拆连接后才被拒 —— 那一轮是被停下,会话不再出现在摘要里', async () => {
     const { rt, turn, outcomes, summaries, rejectPrompt } = await turnInFlight('conv-stop-mid-turn');
     expect(summaries()['conv-stop-mid-turn']).toBeDefined();

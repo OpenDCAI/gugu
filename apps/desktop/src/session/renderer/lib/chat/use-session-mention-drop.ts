@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
 import type { MentionItem, PromptEditorRef } from '@gugu/session-ui/react/components';
 import { stringifyMention } from '@gugu/session-shared/markdown';
-import { getDraggedSession, SESSION_DRAG_TYPE } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent, SCREEN_CONTENT_DRAG_TYPE } from '@renderer/lib/drag-screen-content';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { LocalSessionMentionProvider } from './local-session-mention-provider';
 
-const SESSION_DROP_TYPES = [SESSION_DRAG_TYPE] as const;
+const SESSION_DROP_TYPES = [SCREEN_CONTENT_DRAG_TYPE] as const;
 
 /**
  * 把会话拖到**终端**上时写进去的那段字(编程形态的会话没有 composer,终端就是输入框)。
@@ -53,8 +53,8 @@ export function useSessionMentionDrop({
 
   const onDataDropped = useCallback(
     (dataTransfer: DataTransfer) => {
-      const dragged = getDraggedSession(dataTransfer);
-      if (!dragged || !provider) return;
+      const dragged = getDraggedScreenContent(dataTransfer);
+      if (dragged?.kind !== 'session' || !provider) return;
       if (dragged.sessionId === selfSessionId) return;
       const editor = editorApiRef.current;
 

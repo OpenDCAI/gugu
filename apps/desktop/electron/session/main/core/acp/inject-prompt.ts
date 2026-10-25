@@ -1,0 +1,25 @@
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { getAcpRuntimeClient } from './runtime-process/host';
+import { withDeferredMessagesBeforeAdmission } from '../sessions/session-deferred-messages';
+
+/** Host-only admission path: return before the provider turn completes. */
+export async function injectEmdashPromptDetached(
+  sessionId: string,
+  text: string,
+  opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true },
+): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
+  const client = await getAcpRuntimeClient();
+  // Plain user text keeps its manual queue policy; only actual envelopes may be merged as deliveries.
+  const result = await withDeferredMessagesBeforeAdmission(sessionId, text, prepared => client.promptDetached({
+    sessionId,
+    prompt: { text: prepared, origin: readDeliveryEnvelope(prepared) ? 'communication' : 'manual', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
+    ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
+  // A replaceable queued prompt must not take ownership of unrelated App context.
+  }), Boolean(opts?.deferredDispatch || opts?.coalesceKey));
+  if (result.declined) return { outcome: 'declined', completion: Promise.resolve() };
+  return {
+    outcome: result.queued ? 'queued' : 'started',
+    completion: client.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
+    turnId: result.requestId,
+  };
+}
