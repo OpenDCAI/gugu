@@ -684,7 +684,7 @@ export default {
       "schedule": "已安排",
       "handedTo": "交给",
       "onMachine": "在 {{machine}} 上",
-      "onColleagueComputer": "在 {{name}} 的电脑上",
+      "onColleagueComputer": "{{name}} 的任务 · 无法查看",
       "awaitingApproval": "等群主同意它进群",
       "rejected": "群主没有同意它进群，结果在它的会话里",
       "open": "打开这个会话",

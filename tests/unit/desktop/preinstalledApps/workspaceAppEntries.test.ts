@@ -34,6 +34,7 @@ let contextChanged: (ctx: Ctx) => void = () => {}
 let filesChanged = (_change: { kind: 'entries'; entries: typeof entries; gone: string[] }) => {}
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn((fn: typeof contextChanged) => {

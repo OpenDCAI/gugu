@@ -76,6 +76,7 @@ const ctxOf = (id: string) => ({ chat: { id: 'chat-1', name: 'G', kind: 'group',
 let link: (event: { type: 'link'; tab: string; path: string; query: Record<string, string>; file: string | null }) => void = () => {}
 let contextChanged: (ctx: ReturnType<typeof ctxOf>) => void = () => {}
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => ctxOf('plan')),
   onContextChanged: vi.fn((handler: typeof contextChanged) => {

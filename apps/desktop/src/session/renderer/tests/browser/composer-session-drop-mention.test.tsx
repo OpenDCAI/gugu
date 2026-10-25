@@ -132,3 +132,22 @@ describe('把会话拖进 composer', () => {
     expect(claimed).toHaveLength(0)
   })
 })
+
+
+describe('a resource link uses ordinary editor text', () => {
+  it('drops the same complete URL that a text paste inserts, without a mention or an attachment', async () => {
+    const { claimed, editor } = mount()
+    await until('editor ready', () => ready(editor))
+    const link = 'gugu-file://123e4567-e89b-42d3-a456-426614174000'
+    drop(editable(), { 'text/plain': link, 'text/uri-list': link })
+    const dropped = editor.current?.getText()
+    expect(dropped).toBe(link)
+    editor.current?.clear()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', link)
+    editable().dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+    expect(editor.current?.getText()).toBe(dropped)
+    expect(editable().querySelector('[data-mention-id]')).toBeNull()
+    expect(claimed).toHaveLength(0)
+  })
+})
