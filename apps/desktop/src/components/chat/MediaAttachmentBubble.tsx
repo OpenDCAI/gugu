@@ -31,7 +31,9 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
     return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />{caption}</div>
   }
   if (isRenderableImage(meta.fileName, meta.mimeType)) return <div className={FIT_BUBBLE}><InlineImage meta={meta} isMine={isMine} />{caption}</div>
-  return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
+  // 钉住的是群文件夹里那个文件的第几版:第 1 版不写(大多数附件只有一版)。
+  const versionLabel = meta.source.kind === 'item' && meta.source.version > 1 ? t('attachmentView.fileVersion', { n: meta.source.version }) : undefined
+  return <div className={FIT_BUBBLE}><FileAttachmentCard file={meta} isMine={isMine} versionLabel={versionLabel} onOpen={() => onOpenFile?.(meta)} />{caption}</div>
 }
 
 function InlineImage({ meta, isMine }: { meta: ParsedAttachment; isMine: boolean }) {

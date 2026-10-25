@@ -325,6 +325,7 @@ export default {
   },
   "attachmentView": {
     "fileGone": "File deleted",
+    "fileVersion": "Version {{n}}",
     "fileUnavailable": "File unavailable right now",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
