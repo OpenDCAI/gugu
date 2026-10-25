@@ -142,6 +142,25 @@ afterEach(() => {
 })
 
 describe('只画会变的帧、按变了多少决定什么时候画,看不见就停(Chole 上咕咕入口那只鸟 60 fps 一直画;mac1 上 24 只闲鸟半个核)', () => {
+  it('finishes loading the initial flat body before an inert consumer holds its frame', async () => {
+    fakeClock()
+    fake.createFails = 1
+    const flat = { complete: false, naturalWidth: 0, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    await boot()
+    fake.canvas!.setAttribute('inert', '')
+    step()
+    expect(fake.draws).toHaveLength(1)
+    flat.complete = true
+    flat.naturalWidth = 64
+    step()
+    expect(fake.draws, 'the loaded body must replace the initial eyes-only frame').toHaveLength(2)
+    fake.look = [5]
+    step()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(fake.draws, 'the complete flat frame is then held without further drawing').toHaveLength(2)
+  })
+
   it('draws one initial frame for an inert consumer, holds it without advancing, and resumes on removal', async () => {
     fakeClock()
     await boot()
