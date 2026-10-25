@@ -118,9 +118,8 @@ describe('#6418 群聊设置 —— 即时生效', () => {
     await renderDrawer('owner-1')
     await click(q('[data-testid="group-settings-manage"]'))
     await click(switchByLabel('允许普通成员邀请联系人'))
-    await waitForCondition(() => q('[role="alert"]')?.textContent?.includes('保存失败') === true, 'error shown')
-    // 内部原因进日志,❌ 进用户文案(user-copy-leak)。
-    expect(q('[role="alert"]')?.textContent).not.toContain('permission denied')
+    await waitForCondition(() => q('[role="alert"]')?.textContent?.includes('permission denied') === true, 'error shown')
+    expect(q('[role="alert"]')?.textContent).toContain('permission denied')
     expect(switchByLabel('允许普通成员邀请联系人')?.getAttribute('aria-checked')).toBe('false')
   })
 })

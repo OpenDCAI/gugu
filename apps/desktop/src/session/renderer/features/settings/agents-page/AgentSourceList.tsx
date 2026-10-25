@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 
 import { observer } from 'mobx-react-lite';
@@ -110,7 +111,7 @@ export const AgentSourceList = observer(function AgentSourceList({
     void toast.promise(vm.uninstall(), {
       loading: translate('agentsPage.uninstalling', { name }),
       success: translate('agentsPage.uninstalled', { name }),
-      error: () => translate('agentsPage.uninstallFailed', { name }),
+      error: (error) => { console.error(error); return messageForUser(error); },
     });
   };
 

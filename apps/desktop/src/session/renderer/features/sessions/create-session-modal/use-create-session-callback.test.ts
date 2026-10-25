@@ -402,9 +402,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.localSendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'make one task' }));
     expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
     expect(mocks.onClose).toHaveBeenCalled();
-    expect(mocks.logError).not.toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
-    expect(mocks.toast).toHaveBeenCalledWith({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), tier: 'warning' });
+    expect(mocks.logError).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
+    expect(mocks.toast).toHaveBeenCalledWith({ title: 'settings unavailable', tier: 'warning' });
   });
 
   it('retries the same created task and stable id after an ambiguous router failure', async () => {

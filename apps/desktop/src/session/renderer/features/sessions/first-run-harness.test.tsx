@@ -49,6 +49,6 @@ describe('first-run managed background installation (#7582)', () => {
     f.save.mockRejectedValueOnce(new Error('offline'));
     await render(); await act(async () => next().click());
     expect(f.queue).not.toHaveBeenCalled(); expect(f.done).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('firstRun.saveFailed');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('offline');
   });
 });

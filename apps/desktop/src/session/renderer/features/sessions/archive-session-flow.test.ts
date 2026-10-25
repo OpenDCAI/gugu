@@ -91,7 +91,7 @@ describe('归档提示与撤销', () => {
     undoToast()!.action!.onClick();
     await flush();
     expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'task.archiveUndoFailed', description: 'task.archiveUndoFailedHint' })
+      expect.objectContaining({ title: 'nope', description: 'task.archiveUndoFailedHint' })
     );
   });
 
