@@ -52,7 +52,7 @@ it.each([false, true])('#6020 subagent details use shared disclosure, including 
     status: withChild ? 'failed' : 'completed',
     rawInput: { description: 'inspect files', prompt: 'FULL_PROMPT_DETAIL', model: 'worker-model' },
     rawOutput: { message: withChild ? 'FAILURE_DETAIL' : 'SUCCESS_DETAIL' },
-    _meta: { claudeCode: { toolName: 'Agent' } } }));
+    _meta: { claudeCode: { toolName: 'Agent', toolResponse: { agentId: 'native-child' } } } }));
   if (withChild) parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'child', title: 'child lookup', kind: 'other',
     status: 'completed', rawInput: { query: 'CHILD_ARGUMENT' }, rawOutput: 'CHILD_RESULT',
     _meta: { claudeCode: { parentToolUseId: 'parent' } } }));

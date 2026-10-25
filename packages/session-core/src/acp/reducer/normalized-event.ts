@@ -356,6 +356,7 @@ export type NormalizedEvent =
       images?: ToolImage[] | null;
       /** Serialized ACP `rawInput` — the arguments handed to the tool. */
       rawInput?: string | null;
+      inputSummary?: string | null;
       /** Serialized ACP `rawOutput` — the tool's own return value. */
       rawOutput?: string | null;
       terminalId?: string | null;

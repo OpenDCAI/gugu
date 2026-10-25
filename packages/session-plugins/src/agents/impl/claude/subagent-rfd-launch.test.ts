@@ -59,7 +59,7 @@ function rows(events: Array<Record<string, unknown>>) {
 describe('the RFD subagent of a Claude Agent call', () => {
   it('builds the rows that AIR\'s announcement builds', () => {
     const air = rows([launch, airSpawned, launched]);
-    expect(air.map((row) => row.kind)).toEqual(['message', 'spawn-subagent-tool-call', 'spawn-subagent-tool-call']);
+    expect(air.map((row) => row.kind)).toEqual(['message', 'unknown-tool-call', 'spawn-subagent-tool-call']);
     expect(rows([launch, announce, launched])).toEqual(air);
   });
 });

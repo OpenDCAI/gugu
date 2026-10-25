@@ -4,7 +4,7 @@ import { createClaudeSessionDecoder } from './claude/acp-transform';
 
 const decodeClaudeSessionUpdate = createClaudeSessionDecoder();
 
-it('#6020 genuine Claude launch/result payloads survive sparse updates and domain replay', () => {
+it('#6020 launch payloads survive sparse updates without inventing a child identity', () => {
   const input = { description: 'Inspect files', prompt: 'FULL_PROMPT', model: 'requested-model' };
   const meta = { claudeCode: { toolName: 'Agent' } };
   const events = [
@@ -17,10 +17,12 @@ it('#6020 genuine Claude launch/result payloads survive sparse updates and domai
   const parser = new AcpTranscriptParser({ sessionId: 'claude' });
   for (const event of events) parser.pushEvent(event);
   expect(parser.activeTurn?.items.find(node => 'toolCallId' in node && node.toolCallId === 'delegate'))
-    .toMatchObject({ kind: 'spawn-subagent-tool-call', status: 'done', model: 'requested-model',
+    .toMatchObject({ kind: 'unknown-tool-call', status: 'done',
       rawInput: JSON.stringify(input, null, 2),
       rawOutput: JSON.stringify({ message: 'DIRECT_RESULT', details: ['complete'] }, null, 2), outputText: 'DIRECT_RESULT' });
+  expect(parser.agents).toEqual([]);
   const replay = AcpTranscriptParser.replay(events, { sessionId: 'claude' });
   expect(JSON.stringify(replay.committed)).toContain('FULL_PROMPT');
   expect(JSON.stringify(replay.committed)).toContain('DIRECT_RESULT');
+  expect(replay.agents).toEqual([]);
 });

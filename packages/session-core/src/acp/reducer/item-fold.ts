@@ -348,7 +348,8 @@ function upsertSpecialEvent(
       // tool_call_update 才到,而**完成**那条又不带 rawInput ⇒ 入口解码的
       // inputSummary 是 undefined,把先前那句描述抹掉。行上就只剩一句「Agent 已完成」,
       // 并行派几个就是几行一模一样的(owner 验收 2026-09-05,一屏 8 行)。
-      const prior = existing?.kind === 'spawn-subagent-tool-call' ? existing : undefined;
+      // A native identity can arrive after the launch arguments; reclassify the same entity without dropping its payload.
+      const prior = existing;
       // ⚠️ 一条**说不出话**的事件不许立起一行:没名字、也没描述。已经有行了就照旧更新
       // 它;还没有行就**不要建**。
       //
@@ -378,9 +379,9 @@ function upsertSpecialEvent(
         // 从头到尾都没有名字时留空串 —— 行映射那层会落到「子智能体」,
         // ❌ 不在这里编一个,编出来的词分不清是供应商给的还是我们造的。
         title: event.title ?? prior?.title ?? '',
-        name: event.title ?? prior?.name ?? '',
+        name: event.title ?? (prior && 'name' in prior ? prior.name : prior?.title) ?? '',
         // 第一次见到它才记起点;之后的更新事件不许覆盖,否则进度条会被每条更新推回原点。
-        startedAt: prior?.startedAt ?? at,
+        startedAt: (prior && 'startedAt' in prior ? prior.startedAt : undefined) ?? at,
         status: mapped,
         ...(event.inputSummary !== undefined ? { inputSummary: event.inputSummary } : {}),
         ...(event.background !== undefined ? { background: event.background } : {}),
@@ -620,7 +621,7 @@ function foldToolEntity(
   });
   const merged = patchToolEntity(initial, event);
   // A provider-owned specialized event already classified this entity; a sparse patch keeps that classification.
-  const fresh = previous && merged.toolKind === undefined && event.toolKind === undefined ? merged : createToolCallItem({
+  const fresh = previous && event.toolKind === undefined && (merged.toolKind === undefined || previous.kind === 'spawn-subagent-tool-call') ? merged : createToolCallItem({
     ...merged, id: toolId, seq: initial.seq, toolKind: merged.toolKind ?? null,
     status: event.status ?? null, locations: merged.locations ?? [],
     parentToolCallId: merged.parentToolCallId,

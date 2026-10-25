@@ -3216,11 +3216,19 @@ drwxr-xr-x@ 29 davidkonopka  wheel  928 Jul  2 17:18 ..",
           "text": "Use a subagent (Task tool) to find all files under \`packages/core/src/acp\` that contain the string \`stopReason\`, then summarize what each file does.",
         },
         {
+          "_meta": {
+            "sha256": "c2853c72be47be914077dd0225273e12cb85273e4d5c74de2a8fcce31da0e683",
+          },
           "agentId": "ad0a1acabfb4a0dc1",
           "background": true,
+          "contentBlocks": {
+            "blocks": 1,
+            "sha256": "71323360742c3b3c25678a31ed74eb5434b7990b14d2f21fa3a23fa169f0ffb8",
+          },
           "id": "677167db-64b7-4193-8470-302e96b223a6:turn:10:tool:toolu_01N3Y7C4y7eLVpC11EJGC4oA",
           "inputSummary": "Find files containing stopReason",
           "kind": "spawn-subagent-tool-call",
+          "locations": [],
           "model": "claude-opus-4-8[1m]",
           "name": "Find files containing stopReason",
           "outputText": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the agentId below, into a user-facing reply.)
@@ -3245,6 +3253,8 @@ Do NOT Read or tail this file via the shell tool — it is the full subagent JSO
           "status": "done",
           "title": "Find files containing stopReason",
           "toolCallId": "toolu_01N3Y7C4y7eLVpC11EJGC4oA",
+          "toolKind": "think",
+          "toolName": "Agent",
         },
         {
           "at": 1577836800000,

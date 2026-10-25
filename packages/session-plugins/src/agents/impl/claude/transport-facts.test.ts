@@ -29,13 +29,16 @@ describe('Claude vendor facts at ingress', () => {
   it.each(['Agent', 'Task'])('keeps %s launch facts when only the first bridge frame has a name', name => {
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
     const raw = { sessionUpdate: 'tool_call', toolCallId: 'launch', name, title: 'Audit',
-      kind: 'think', status: 'in_progress', rawInput: { prompt: 'FULL_REQUEST' } };
+      kind: 'think', status: 'in_progress', rawInput: { description: 'Audit input', prompt: 'FULL_REQUEST' } };
     parser.pushEvent(decodeClaudeSessionUpdate(raw));
     parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', status: 'completed',
       _meta: { claudeCode: { toolResponse: { agentId: 'native-child', isAsync: true, resolvedModel: 'native-model', outputFile: '/work/child.output' } } } }));
     parser.pushEvent(decodeClaudeSessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'launch', status: 'completed' }));
     expect(parser.agents).toHaveLength(1);
     expect(parser.agents[0]).toMatchObject({ agentId: 'native-child', background: true, status: 'running', model: 'native-model', outputFile: '/work/child.output' });
+    expect(parser.activeTurn?.items.find(item => 'toolCallId' in item && item.toolCallId === 'launch'))
+      .toMatchObject({ kind: 'spawn-subagent-tool-call', inputSummary: 'Audit input',
+        rawInput: JSON.stringify(raw.rawInput, null, 2) });
   });
   it.each(['Agent', 'Task'])('retains %s when its name is first reported on an update', name => {
     const parser = new AcpTranscriptParser({ sessionId: 'parent' });
@@ -67,6 +70,43 @@ describe('Claude vendor facts at ingress', () => {
     const otherConnection = createClaudeSessionDecoder();
     expect(otherConnection({ sessionUpdate: 'tool_call_update', toolCallId: 'shared-id',
       _meta: { claudeCode: { toolResponse: { agentId: 'not-a-launch' } } } }).kind).toBe('tool_update');
+  });
+
+  // Recorded v2 sequence: 174 names the launch, 179 announces the child, and 183
+  // reports async_launched without an agentId. Only labels and IDs are anonymized.
+  const nativeAsyncLaunch = (toolCallId: string, sessionId: string) => [
+    { sessionUpdate: 'tool_call_update', toolCallId, name: 'Agent', title: 'Task', kind: 'think', status: 'pending' },
+    { sessionUpdate: 'tool_call_update', toolCallId, title: 'Read local text', rawInput: { description: 'Read local text', run_in_background: true } },
+    { sessionUpdate: 'subagent_update', sessionId, title: 'general-purpose', description: 'Read local text',
+      capabilities: { cancel: {} }, state: { state: 'running' } },
+    { sessionUpdate: 'tool_call_update', toolCallId,
+      _meta: { claudeCode: { toolResponse: { status: 'async_launched', isAsync: true } } } },
+    { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' },
+  ];
+  const nativeChildDone = (sessionId: string) => ({ sessionUpdate: 'subagent_update', sessionId,
+    state: { state: 'idle', stopReason: 'end_turn' } });
+
+  it('keeps one completed child when async_launched omits its native identity', () => {
+    const parser = new AcpTranscriptParser({ sessionId: 'parent' });
+    for (const update of nativeAsyncLaunch('launch', 'native-child')) parser.pushEvent(decodeClaudeSessionUpdate(update));
+    parser.pushEvent(decodeClaudeSessionUpdate(nativeChildDone('native-child')));
+    expect(parser.agents.map(({ agentId, status }) => ({ agentId, status })))
+      .toEqual([{ agentId: 'native-child', status: 'completed' }]);
+  });
+
+  it('keeps simultaneous native children separate without a launch-result identity', () => {
+    const parser = new AcpTranscriptParser({ sessionId: 'parent' });
+    for (const update of [...nativeAsyncLaunch('launch-a', 'child-a'), ...nativeAsyncLaunch('launch-b', 'child-b')]) {
+      parser.pushEvent(decodeClaudeSessionUpdate(update));
+    }
+    parser.pushEvent(decodeClaudeSessionUpdate(nativeChildDone('child-a')));
+    expect(parser.agents.map(({ agentId, status }) => ({ agentId, status }))).toEqual([
+      { agentId: 'child-a', status: 'completed' }, { agentId: 'child-b', status: 'running' },
+    ]);
+    parser.pushEvent(decodeClaudeSessionUpdate(nativeChildDone('child-b')));
+    expect(parser.agents.map(({ agentId, status }) => ({ agentId, status }))).toEqual([
+      { agentId: 'child-a', status: 'completed' }, { agentId: 'child-b', status: 'completed' },
+    ]);
   });
 
 });

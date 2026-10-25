@@ -33,9 +33,10 @@ export function createClaudeSessionDecoder(): (raw: unknown) => NormalizedEvent 
       const name = event.toolName ?? toolNames.get(event.toolCallId) ?? claude?.toolName;
       const result = claude?.toolResponse;
       if (name === 'Agent' || name === 'Task') {
-        // The standard child update names its session; only the native Agent result identifies
-        // the launching tool call. This is lineage/model metadata, not a second child lifecycle.
         const input = (raw as { rawInput?: { description?: unknown; model?: unknown } }).rawInput;
+        // Until the producer identifies a child, this is only a tool with launch arguments.
+        if (typeof result?.agentId !== 'string') return { ...event, parentToolCallId,
+          ...(typeof input?.description === 'string' ? { inputSummary: input.description } : {}) };
         const title = typeof result?.description === 'string' ? result.description
           : event.title && event.title !== 'Agent' && event.title !== 'Task' ? event.title : undefined;
         return { kind: 'subagent', toolCallId: event.toolCallId, status: event.status ?? null, parentToolCallId,
@@ -44,7 +45,7 @@ export function createClaudeSessionDecoder(): (raw: unknown) => NormalizedEvent 
           ...(event.rawInput != null ? { rawInput: event.rawInput } : {}),
           ...(event.rawOutput != null ? { rawOutput: event.rawOutput } : {}),
           ...(event.outputText != null ? { outputText: event.outputText } : {}),
-          ...(typeof result?.agentId === 'string' ? { agentId: result.agentId } : {}),
+          agentId: result.agentId,
           ...(result?.isAsync === true ? { background: true } : {}),
           ...(typeof result?.outputFile === 'string' ? { outputFile: result.outputFile } : {}),
           ...(typeof result?.resolvedModel === 'string' ? { model: result.resolvedModel }
