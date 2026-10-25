@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { AlertTriangle, Clock, Pencil, X } from '@/lib/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -141,17 +142,14 @@ function ScheduleItem({ schedule, machine }: { schedule: SessionSchedule; machin
       }
       void queryClient.invalidateQueries({ queryKey: sessionSchedulesQueryKey(machine) });
     } catch (error) {
-      // 原文进日志;界面只说没做成(取消时正在送的那一次还没跑完之类,过一会再点就行)。
-      log.warn('session schedule action failed', { kind, scheduleId: schedule.id, error: String(error) });
+      log.error('session schedule action failed', { kind, scheduleId: schedule.id, error: String(error) });
       const code = error instanceof Error ? error.message : '';
       toast({
-        title: translate(
-          code.includes('schedule_too_soon')
-            ? 'sessionSchedule.tooSoon'
-            : code.includes('cron_invalid') || code.includes('schedule_never_fires')
-              ? 'sessionSchedule.ruleInvalid'
-              : 'sessionSchedule.actionFailed'
-        ),
+        title: code.includes('schedule_too_soon')
+          ? translate('sessionSchedule.tooSoon')
+          : code.includes('cron_invalid') || code.includes('schedule_never_fires')
+            ? translate('sessionSchedule.ruleInvalid')
+            : messageForUser(error),
         variant: 'destructive',
       });
     } finally {

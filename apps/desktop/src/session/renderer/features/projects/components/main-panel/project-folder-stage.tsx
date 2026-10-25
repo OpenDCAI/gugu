@@ -167,7 +167,7 @@ export function useProjectFolderStage(projectId: string, { floating = false, onC
                 resyncMachine();
                 if (ok) toast({ title: translate('projects.folders.detached', { path: shortHome(path), projectName: displayName }) });
               })
-              .catch((error: unknown) => log.warn('[project-home] 撤销接进来的文件夹失败', { projectId, error }));
+              .catch(failLinking);
           },
         },
         duration: 8000,

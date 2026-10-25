@@ -26,12 +26,9 @@ import { UI_EVENTS } from '../../lib/uiEvents'
 
 const log = rendererLogger('first-run')
 
-/** 改称呼被拒:authService 给的是给人看的那句(与「设置 → 账户」同一份),原样显示;别的失败只说没保存成功,原因进日志。 */
-class NicknameRejected extends Error {}
-
 type GateState =
   | { kind: 'loading' }
-  | { kind: 'unreadable' }
+  | { kind: 'unreadable'; message: string }
   | { kind: 'profile'; occupation: Occupation | null }
   | { kind: 'intro'; tour?: ProductTourPosition | null }
   | { kind: 'harness' }
@@ -69,7 +66,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
       })
       .catch((e: unknown) => {
         log.error({ error: String(e) }, 'read first-run progress failed')
-        setState({ kind: 'unreadable' })
+        setState({ kind: 'unreadable', message: messageForUser(e) })
       })
   }, [user.id, done])
 
@@ -98,7 +95,7 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
         {state.kind === 'unreadable' ? (
           <>
             <h1 className="ta-onb-title">{t('firstRun.unreadableTitle')}</h1>
-            <p className="ta-onb-sub">{t('firstRun.unreadableBody')}</p>
+            <p className="ta-onb-sub">{state.message}</p>
             <div className="ta-onb-actions">
               <Button variant="primary" size="lg" className="rounded-full" onClick={load} data-testid="first-run-retry">
                 {t('firstRun.retry')}
@@ -164,7 +161,7 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
       const trimmed = name.trim()
       if (trimmed !== user.nickname) {
         const res = await authService.updateNickname(user.id, trimmed)
-        if (!res.success) throw new NicknameRejected(res.error ?? t('firstRun.saveFailed'))
+        if (!res.success) throw new Error(res.error ?? t('firstRun.saveFailed'))
         updateUser({ ...user, nickname: trimmed, avatarUrl })
       }
       await writeOccupation(user.id, chosen)
