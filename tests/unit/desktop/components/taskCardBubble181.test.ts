@@ -173,6 +173,20 @@ describe('task card resource access', () => {
     expect(cardOpen.open).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { isMine: true, ownerUserId: 'other-owner', openable: false },
+    { isMine: false, ownerUserId: 'user-1', openable: true },
+  ])('uses the Agent owner when a card was forwarded (sender mine=$isMine)', async ({ isMine, ownerUserId, openable }) => {
+    await renderWithAppProviders(harness, createNode(ComposerCardView, {
+      card: CARD, isMine, isGroup: true, chatId: 'chat-1', senderName: 'Forwarder', time: '12:00',
+      memberProfiles: { [CARD.agentUserId]: { id: CARD.agentUserId, displayName: CARD.agentName, avatar: null, email: null,
+        type: 'agent', role: 'member', ownerUserId, ownerDisplayName: 'Original owner' } },
+    }))
+    const card = harness.container.querySelector<HTMLElement>('[data-testid="composer-card"]')!
+    expect(card.tagName).toBe(openable ? 'BUTTON' : 'DIV')
+    if (!openable) expect(card.textContent).toContain('Original owner 的任务 · 无法查看')
+  })
+
   it('does not retain a failed device lookup for the next card mount', async () => {
     cardOpen.snapshot.mockRejectedValueOnce(new Error('snapshot unavailable'))
     await renderCard(true)

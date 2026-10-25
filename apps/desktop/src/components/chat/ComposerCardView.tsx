@@ -12,6 +12,7 @@ import { listMyAgentJoinRequests } from '../../lib/groupAgentJoinService'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
+import { useAuth } from '../../store/auth'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import { openTaskCardSession } from './openTaskCardSession'
 import { AgentStatusGlyph } from '../../session/renderer/lib/components/agent-status-indicator'
@@ -52,12 +53,15 @@ export function ComposerCardView({ card, isMine, isGroup, chatId, senderName, ti
   time: string
 }) {
   const { t } = useTranslation('messaging')
+  const { user } = useAuth()
   const task = card.type === 'task' ? card : null
-  const place = useTaskCardPlace(task, isMine, senderName)
+  const agent = task && memberProfiles?.[task.agentUserId]
+  const owned = agent?.ownerUserId ? agent.ownerUserId === user?.id : isMine
+  const place = useTaskCardPlace(task, owned, agent?.ownerDisplayName || senderName)
   const seated = !!task && !!memberProfiles?.[task.agentUserId] && memberProfiles[task.agentUserId]!.membership !== 'former'
-  const join = useMyAgentJoin(isMine && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
+  const join = useMyAgentJoin(owned && isGroup && !seated ? chatId : null, task?.agentUserId ?? null)
   const status = useAgentDisplayStatuses(task ? [task.agentUserId] : [])[task?.agentUserId ?? '']
-  const openable = task && isMine
+  const openable = task && owned
   const Root = openable ? 'button' : 'div'
   return (
     <Root
