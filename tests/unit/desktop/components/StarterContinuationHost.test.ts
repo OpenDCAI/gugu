@@ -56,7 +56,7 @@ describe('StarterContinuationHost', () => {
     mocks.landPendingStarters.mockRejectedValue(new Error('corrupt starter store'))
     await harness.render(createNode(StarterContinuationHost))
     await act(async () => { await Promise.resolve() })
-    expect(mocks.toast).toHaveBeenCalledWith('corrupt starter store', 'error')
+    expect(mocks.toast).toHaveBeenCalledWith('开场任务恢复失败。请重试。', 'error', 'corrupt starter store')
     expect(consoleError, 'the raw reason must actually be in the log').toHaveBeenCalledWith(
       expect.stringContaining('[agents/starter-continuation]'),
       expect.objectContaining({ err: expect.stringContaining('corrupt starter store') }),

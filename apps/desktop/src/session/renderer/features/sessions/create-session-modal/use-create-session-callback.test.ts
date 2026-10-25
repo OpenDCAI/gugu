@@ -402,7 +402,7 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
     expect(mocks.onClose).toHaveBeenCalled();
     expect(mocks.logError).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
-    expect(mocks.toast).toHaveBeenCalledWith({ title: 'settings unavailable', tier: 'warning' });
+    expect(mocks.toast).toHaveBeenCalledWith({ title: 'Couldn’t save defaults', description: 'settings unavailable', tier: 'warning' });
   });
 
   it('retries the same created task and stable id after an ambiguous router failure', async () => {

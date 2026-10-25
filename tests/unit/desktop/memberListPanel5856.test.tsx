@@ -605,6 +605,6 @@ describe('#5999 群设置只管群自己的阈值，私聊设置管话题阈值'
     await change(inputs()[0], '4')
     expect(inputs()[0].value).toBe('9')
     expect(inputs()[0].disabled).toBe(false)
-    expect(toast).toHaveBeenCalledWith('permission denied', 'error')
+    expect(toast).toHaveBeenCalledWith('阈值保存失败，请重试。', 'error', 'permission denied')
   })
 })
