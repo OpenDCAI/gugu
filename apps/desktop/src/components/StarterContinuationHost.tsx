@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect } from 'react'
 import { useChatStore } from '../store/chatContext'
@@ -14,6 +15,7 @@ const starterLog = rendererLogger('agents/starter-continuation')
 export function StarterContinuationHost({ active = true }: { active?: boolean }) {
   const { setDraft } = useChatStore('setDraft')
   const { toast } = useToast()
+  const { t } = useTranslation('agents')
 
   useEffect(() => {
     if (!active) return
@@ -24,7 +26,7 @@ export function StarterContinuationHost({ active = true }: { active?: boolean })
       toast(t('wizard.starterRecoveryFailed'), 'error', messageForUser(error))
     })
     return () => { current = false }
-  }, [active, setDraft, toast])
+  }, [active, setDraft, toast, t])
 
   return null
 }

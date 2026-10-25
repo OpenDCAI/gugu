@@ -1,4 +1,3 @@
-import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { rendererLogger } from '@/lib/log';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { messageForUser } from '@/lib/userFacingError';

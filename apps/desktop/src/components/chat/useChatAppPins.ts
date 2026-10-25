@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { useEffect } from 'react'
@@ -10,6 +11,7 @@ import { useToast } from '../toastContext'
 export function useChatAppPins(chatId: string | null) {
   const { user } = useAuth()
   const { toast } = useToast()
+  const { t } = useTranslation('messaging')
   const userId = user?.id
   const key = ['chat-app-pins', userId, chatId] as const
   const query = useQuery({

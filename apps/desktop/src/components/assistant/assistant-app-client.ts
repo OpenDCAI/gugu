@@ -1,3 +1,4 @@
+import { i18n } from '@/i18n';
 import { messageForUser } from '@/lib/userFacingError';
 import { hostEventHub, hostMembers } from '../../session/shared/extensions/host-calls';
 import type { ExtensionHostEvent } from '../../session/shared/extensions/bridge-protocol';

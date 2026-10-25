@@ -28,7 +28,7 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
           onClick: () => { void restore(folder); },
         },
       });
-    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: translate('projects.folders.detach'), description: messageForUser(error) }); }
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: translate('projects.folders.errorDetach'), description: messageForUser(error) }); }
   };
   const restore = async (detached: ProjectFolder) => {
     try {

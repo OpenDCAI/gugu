@@ -34,7 +34,7 @@ export const AgentBrowserAssistant = observer(function AgentBrowserAssistant({
       if (result.status === 'outcome-unknown') throw new Error('message delivery is unknown');
     } catch (error) {
       log.error('[agent-browser-assistant] could not send a conversation shortcut', { sessionId: owner.sessionId, error });
-      toast.error(messageForUser(error));
+      toast.error(translate('browser.assistantMessageFailed'), { description: messageForUser(error) });
     } finally {
       setSending(false);
     }
