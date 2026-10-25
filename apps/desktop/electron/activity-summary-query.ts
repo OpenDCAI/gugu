@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Cron } from 'croner'
 import { z } from 'zod'
 import { activityQuerySchema } from '@shared/core/activity'
-import { getLocalTimeZone } from '@shared/core/automations/timezone'
+import { getLocalTimeZone, getOwnerTimeZoneContext, type OwnerTimeZoneContext } from '@shared/core/automations/timezone'
 import { createActivityDeviceQuery, type ActivityQueryDeps } from './activity-device-query'
 
 const inputSchema = z.object({
@@ -18,7 +18,7 @@ type Summary = { device_id: string; device_label: string | null; session_id: str
   recorded_turns: number; event_count: number; last_status: string | null; last_detail: string | null;
   status_note: string; event_id: string }
 type Held = { scope: string; signature: string; deviceSet: string; expires: number; timeline: Timeline; summaries: Summary[];
-  since: string; until: string; zone: string; detail: boolean }
+  since: string; until: string; zone: string; zoneSource: OwnerTimeZoneContext | { status: 'explicit' } | null; detail: boolean }
 const UNKNOWN = '未采集，不能断定在不在工作'
 
 function clock(at: number, zone: string): string {
@@ -102,7 +102,8 @@ export function createActivitySummaryQuery(options: { now?: () => number; timeZo
         timeline.events.push(...page.events); next = page.next_cursor
       }
       snapshot = { scope: deps.scope, signature: signature(query.since, query.until, zone), deviceSet, expires: now() + 300_000, timeline,
-        summaries: summaries(timeline, zone), since: query.since, until: query.until, zone, detail: q.details === true || !!q.session_id }
+        summaries: summaries(timeline, zone), since: query.since, until: query.until, zone,
+        zoneSource: q.time_zone ? { status: 'explicit' } : getOwnerTimeZoneContext(), detail: q.details === true || !!q.session_id }
       id = randomUUID()
     }
     const size = limit ?? (snapshot.detail ? 50 : 200)
@@ -128,7 +129,8 @@ export function createActivitySummaryQuery(options: { now?: () => number; timeZo
     }
     return { header: `查询时间窗：${clock(Date.parse(snapshot.since), snapshot.zone)} 至 ${clock(Date.parse(snapshot.until), snapshot.zone)}（${snapshot.zone}）。`
       + (remaining ? `还有 ${remaining} 个${snapshot.detail ? '事件' : '会话'}没列出，见 next_cursor。` : '全部列出。'),
-      window: { since: snapshot.since, until: snapshot.until, time_zone: snapshot.zone }, devices,
+      window: { since: snapshot.since, until: snapshot.until, time_zone: snapshot.zone,
+        time_zone_source: snapshot.zoneSource }, devices,
       ...(snapshot.detail ? { events: snapshot.timeline.events.slice(offset, offset + size) } : { sessions: snapshot.summaries.slice(offset, offset + size) }),
       gaps, remaining, next_cursor: next, note: '未采集，不能断定在不在工作。轮次结束不等于验收；任务内容须按来源核对。' }
   }

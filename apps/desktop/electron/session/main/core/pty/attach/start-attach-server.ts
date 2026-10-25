@@ -33,7 +33,7 @@ function installBrowserHelpers(): void {
  * @param options.link 设备连接(远程 SSH 的机器上桌面与它之间的一切):由主进程装配 —— 它手里有与云端设备 RPC
  *   同一张处理表(经会话页桥建),这里只负责把连接交给它。不给 = 不接设备连接。
  */
-export function startSessionPtyAttachServer(dataDir: string, options: { link?: AttachDeps['link']; resume?: (suspendedSince?: number) => void } = {}) {
+export function startSessionPtyAttachServer(dataDir: string, options: { link?: AttachDeps['link']; resume?: (suspendedSince?: number) => void; timeZone?: (context: unknown) => void } = {}) {
   installBrowserHelpers();
   return startPtyAttachServer(dataDir, {
     warn: (message, fields) => log.warn(message, fields),
@@ -43,6 +43,13 @@ export function startSessionPtyAttachServer(dataDir: string, options: { link?: A
         const since = payload && typeof payload === 'object' ? (payload as { suspendedSince?: unknown }).suspendedSince : undefined;
         if (since !== undefined && (typeof since !== 'number' || !Number.isSafeInteger(since) || since <= 0 || since >= Date.now())) {
           return { error: { code: 'invalid_interval', message: 'The confirmed suspension start must precede this resume' } };
+        }
+        const context = payload && typeof payload === 'object' ? (payload as { timeZoneContext?: unknown }).timeZoneContext : undefined;
+        if (context !== undefined) {
+          if (!options.timeZone) return { error: { code: 'unsupported_context', message: 'This account cannot apply a time-zone context' } };
+          try { options.timeZone(context); } catch (error) {
+            return { error: { code: 'invalid_context', message: error instanceof Error ? error.message : String(error) } };
+          }
         }
         options.resume(since as number | undefined);
         return { result: { resumed: true, pid: process.pid } };
