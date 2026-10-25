@@ -326,8 +326,11 @@ export async function dispatchFromApp(
   if (!to && !(call.draft && named(call.refs))) {
     const offers = dispatchOffers(call, { inChat: here.chat !== null, agents: platform.agents !== undefined });
     if (offers.length === 0) throw new AppSendError('not-found', 'Nothing here to hand it to: name a target (to)');
-    const pills = named(call.refs) ? (await pillsOf((await platform.account()).token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
-    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat: here.chat, current: here.current, visible });
+    const { token, userId } = await platform.account();
+    const pills = named(call.refs) ? (await pillsOf(token, refsOf(call.refs))).pills.map((pill) => pill.label) : [];
+    // The person is not among whom they hand it to: a whisper to oneself is refused.
+    const chat = here.chat && { ...here.chat, members: here.chat.members.filter((member) => member.id !== `user:${userId}`) };
+    const picked = await platform.pick({ draft: call.draft, offers, text, pills, chat, current: here.current, visible });
     if (!picked) return { cancelled: true };
     ({ to, visible } = picked);
     text = picked.text.trim();

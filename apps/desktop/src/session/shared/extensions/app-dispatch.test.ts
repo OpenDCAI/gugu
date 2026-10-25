@@ -34,7 +34,7 @@ const { dispatchCallOf, dispatchNeeds, dispatchNeedsGesture, dispatchOffers } = 
 const { EXTENSION_API_VERSION, callRefusal } = await import('./bridge-protocol');
 
 const account = async () => ({ token: 'page-token', userId: OWNER });
-const chat = { id: GROUP, name: 'A群', members: [{ id: `user:${AGENT}`, name: '小咕', kind: 'agent' as const }] };
+const chat = { id: GROUP, name: 'A群', members: [{ id: `user:${AGENT}`, name: '小咕', kind: 'agent' as const }, { id: `user:${OWNER}`, name: '我', kind: 'human' as const }] };
 /** The phone's platform: its sheet and the chat shell's composer, no agents of the person's. */
 const phone = (picked: unknown = null) => {
   const asked: unknown[] = [];
@@ -123,6 +123,8 @@ describe('dispatchFromApp (the shared answer)', () => {
     const { platform, asked } = phone({ to: { chat: GROUP, member: `user:${AGENT}` }, visible: false, text: 'host this round' });
     const sent = await dispatchFromApp(platform, 'turtle-soup', { text: 'host', offer: ['agent-in-chat'] }, { chat, current: null });
     expect(asked.at(-1)).toMatchObject({ draft: false, offers: ['agent-in-chat'], text: 'host', chat: { id: GROUP } });
+    // The person is not offered to themselves.
+    expect((asked.at(-1) as { chat: { members: { id: string }[] } }).chat.members.map((member) => member.id)).toEqual([`user:${AGENT}`]);
     expect(sent).toMatchObject({ to: { chat: GROUP, member: `user:${AGENT}` } });
     expect(rpcs.at(-1)).toMatchObject({ p_content: 'host this round', p_is_whisper: true });
   });
