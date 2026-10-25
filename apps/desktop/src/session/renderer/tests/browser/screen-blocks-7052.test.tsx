@@ -1,7 +1,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
-import { BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
+import { BlockDropPreviewLayer, BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
 import { blockDropPreview, resolveBlockDrop, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
 import { clearDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
@@ -10,6 +10,7 @@ import '@/styles/tokens.css';
 import '@renderer/index.css';
 import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
 import { until } from '../../../../../../../tests/support/awaitCondition';
+import { WorkspaceLayoutContextProvider } from '@renderer/lib/layout/layout-provider';
 
 // #7052 一屏几块:真组件(ScreenFrame + react-resizable-panels)、真几何。判据钉的是 2026-10-09 实机撞过的几件:
 //  · 块与块之间一根 1px 线,和会话列表右边那根同色(owner「怎么会没有任何分割线」→「这么粗的线…不能统一吗」);
@@ -37,7 +38,9 @@ afterEach(() => {
   host?.remove();
   root = null;
   host = null;
-  for (const { sessionId } of screenLayout.sessions) screenLayout.forgetSession(sessionId);
+  for (const block of [...screenLayout.blocks.values(), ...screenLayout.parkedContents]) screenLayout.forgetContent(block);
+  clearDraggedScreenContent();
+  setBlockDropPreview(null);
 });
 
 const nextFrames = async (count: number) => {
@@ -48,6 +51,49 @@ const blockWidths = () =>
 const separator = () => document.querySelector<HTMLElement>('[data-screen-frame] [data-slot="resizable-handle"]');
 
 describe('一屏几块的骨架 (#7052)', () => {
+  it.each([
+    ['left', 0.3, 0.4], ['right', 0.7, 0.4], ['top', 0.4, 0.3], ['bottom', 0.6, 0.7],
+  ] as const)('previews and splits a task dropped in the chat centre nearest its %s edge', async (edge, x, y) => {
+    screenLayout.show({ kind: 'chat', chatId: 'chat-centre' });
+    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /><BlockDropPreviewLayer /></WorkspaceLayoutContextProvider>);
+    await until('chat block rendered', () => blockWidths().length === 1);
+    const blockId = screenLayout.order[0];
+    const block = host!.querySelector<HTMLElement>('[data-screen-block]')!;
+    const rect = block.getBoundingClientRect();
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'session', ...s('incoming'), title: 'Incoming' });
+    const handlers = screenDropHandlers(true);
+    const event = { dataTransfer, target: block, clientX: rect.left + rect.width * x, clientY: rect.top + rect.height * y, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    handlers.onDragOverCapture(event as never);
+    expect(blockDropPreview.get()).toEqual({ blockId, edge });
+    await until('split preview rendered', () => document.querySelector(`[data-block-drop-preview="${edge}"]`) !== null);
+    handlers.onDropCapture(event as never);
+    expect(screenLayout.order).toHaveLength(2);
+    expect(screenLayout.blockOfSession('incoming')).toBeDefined();
+    expect(blockDropPreview.get()).toBeNull();
+  });
+
+  it('leaves a chat composer drop to its own mention handler even near an edge', async () => {
+    screenLayout.show({ kind: 'chat', chatId: 'chat-composer' });
+    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /></WorkspaceLayoutContextProvider>);
+    await until('chat block rendered', () => blockWidths().length === 1);
+    const block = host!.querySelector<HTMLElement>('[data-screen-block]')!;
+    const rect = block.getBoundingClientRect();
+    const composer = document.createElement('div');
+    composer.dataset.slot = 'composer-bar';
+    block.appendChild(composer);
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'session', ...s('incoming'), title: 'Incoming' });
+    const event = { dataTransfer, target: composer, clientX: rect.left + 5, clientY: rect.bottom - 5, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    const handlers = screenDropHandlers(true);
+    handlers.onDragOverCapture(event as never);
+    handlers.onDropCapture(event as never);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(blockDropPreview.get()).toBeNull();
+    expect(screenLayout.order).toHaveLength(1);
+    composer.remove();
+  });
+
   it('opens a topic only after its source chat lands in a workspace split', async () => {
     screenLayout.show(s('a'));
     root!.render(<ScreenFrame />);

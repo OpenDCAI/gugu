@@ -18,7 +18,7 @@ import { useInChatSlot, useChatSlotProjectName } from '../../lib/shellSlots'
 import { createLocalSessionMentionProvider } from '../../session/renderer/lib/chat/local-session-mention-provider'
 import { useSessionAgentCreationTools } from '../../session/renderer/lib/chat/use-session-agent-creation-tools'
 import { sessionComposerDockedWidthClassName } from '../../session/renderer/features/sessions/session-composer-styles'
-import { useSessionMentionDrop } from '../../session/renderer/lib/chat/use-session-mention-drop'
+import { useChatTaskDrop } from './useChatTaskDrop'
 import { translateSessionMessage } from '../../session/renderer/localization/locale-store'
 import { useChatDraft, makePendingAttachment, revokeAttachmentPreviewUrls } from './useChatDraft'
 import { useChatMessageSend } from './useChatMessageSend'
@@ -91,7 +91,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       return item ? decorate(item) : null
     },
   }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t])
-  const { dataDropTypes, onDataDropped } = useSessionMentionDrop({ provider: mentionProvider, editorApiRef })
+  const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, currentUserId, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
     if (files.length) setAttachments((pending) => [...pending, ...files.map(makePendingAttachment)])
@@ -139,6 +139,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
         <DraftRefPills refs={refs} onRemove={(link) => setRefs((held) => held.filter((ref) => ref.link !== link))} />
         <ChatComposerContextBands {...props} />
         <AgentMentionSelectionNotice members={members} mentionTargets={activeTargets} agentStatuses={agentStatuses} />
+        {invitation}
         <ChatComposer key={chatId} editorApiRef={editorApiRef} editorOptions={editorOptions} mobile={mobile}
           disabled={disabled} disabledPlaceholder={placeholder ?? disabledReason} canSubmit={!sending && (!!text.trim() || attachments.length > 0 || refs.length > 0)}
           placeholder={whisperTarget ? t('composer.whisperPlaceholder', { name: whisperTarget.displayName }) : placeholder ?? (mobile && isGroupChat ? t('composer.mobilePlaceholder') : projectName && !mobile ? t('composer.projectGroupPlaceholder', { name: projectName }) : t('composer.placeholder'))}

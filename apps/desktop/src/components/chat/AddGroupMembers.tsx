@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
 import { type AgentJoinRequestStatus } from '../../lib/groupAgentJoin'
+import { groupJoinError } from '../../lib/groupAgentJoinService'
 import { MEMBER_PICKER_SHEET, MemberPicker } from '../member-picker/MemberPicker'
 import { Sheet } from '../ui/Sheet'
 
@@ -10,12 +11,13 @@ const reasonOf = (error: unknown) => String((error as Error)?.message ?? error)
 
 // 群里「添加成员」= 与新建群聊同一个选择器;已在群里的勾着、不能取消。人与 Agent 走同一个 inviteGroupMember:
 // 关系内的直接加入,其余发邀请,需审批的群里 Agent 落一条待审请求。成功的从候选里变成「已在群里」,失败的留在已选里重试。
-export function AddGroupMembers({ chatId, snapshot, canInviteHumans, humanDeniedHint, onClose, onReload }: {
+export function AddGroupMembers({ chatId, snapshot, canInviteHumans, humanDeniedHint, initialSelectedIds, onClose, onReload }: {
   chatId: string
   snapshot: GroupCollabSnapshot
   canInviteHumans: boolean
   /** 不能邀请人类时那一页说的话;不给 = 权限不够那一句(项目群有自己的原因)。 */
   humanDeniedHint?: string
+  initialSelectedIds?: readonly string[]
   onClose: () => void
   onReload: () => Promise<void>
 }) {
@@ -47,14 +49,14 @@ export function AddGroupMembers({ chatId, snapshot, canInviteHumans, humanDenied
         if (pendingApproval === 0 && invited === 0) onClose()
         return []
       }
-      const reason = reasonOf((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason)
+      const reason = groupJoinError({ message: reasonOf((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason) }).message
       const succeeded = ids.length - failed.length
       setError(succeeded > 0
         ? t('group.picker.partialFailure', { succeeded, failed: failed.length, reason })
         : t('group.picker.allFailed', { failed: failed.length, reason }))
       return failed
     } catch (err) {
-      setError(reasonOf(err))
+      setError(groupJoinError({ message: reasonOf(err) }).message)
     } finally {
       setBusy(false)
     }
@@ -71,6 +73,7 @@ export function AddGroupMembers({ chatId, snapshot, canInviteHumans, humanDenied
         busy={busy}
         busyLabel={t('group.picker.adding')}
         lockedIds={members}
+        initialSelectedIds={initialSelectedIds}
         peopleDenied={canInviteHumans ? undefined : humanDeniedHint ?? t('group.picker.humanPermissionHint')}
         agentNote={agentNote}
         footer={error || notice ? (

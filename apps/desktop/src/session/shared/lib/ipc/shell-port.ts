@@ -30,6 +30,8 @@ export const SESSION_SHELL_CHANNELS = {
 
 export type SessionShellChannel = (typeof SESSION_SHELL_CHANNELS)[keyof typeof SESSION_SHELL_CHANNELS]
 
+export const SESSION_PRIVATE_AGENT_ERROR = 'SESSION_PRIVATE_EXTERNAL_AGENT'
+
 const SHELL_CHANNEL_SET: ReadonlySet<string> = new Set(Object.values(SESSION_SHELL_CHANNELS))
 
 export function isSessionShellChannel(channel: string): channel is SessionShellChannel {
@@ -112,7 +114,7 @@ export interface SessionShellPort {
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>
   fatalBoot(message: string): Promise<void>
   /** 这台机器上有咕咕身份的会话(名册那一份);别的机器上的从会话目录读,❌ 经这一口逐台去问。 */
-  sessionPeers(): Promise<SessionShellPeer[]>
+  sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
 }
 
 export type SessionShellInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>
@@ -186,7 +188,7 @@ export function createSessionShellPort(invoke: SessionShellInvoke): SessionShell
       await invoke(SESSION_SHELL_CHANNELS.fatalBoot, message)
     },
     // 只答本机(同一个构建的主进程);那边对不一致的名册已经响亮地抛错,❌ 这里再定一条悄悄丢行的规矩。
-    sessionPeers: async () => (await invoke(SESSION_SHELL_CHANNELS.sessionPeers)) as SessionShellPeer[],
+    sessionPeers: async (...args) => (await invoke(SESSION_SHELL_CHANNELS.sessionPeers, ...args)) as SessionShellPeer[],
   }
 }
 

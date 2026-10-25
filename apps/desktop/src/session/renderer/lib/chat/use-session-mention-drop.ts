@@ -43,8 +43,8 @@ export function useSessionMentionDrop({
   editorApiRef: { current: PromptEditorRef | null };
   /** 把一条会话拖到它自己的 composer 上不产生任何东西 —— @ 自己没有意义,也不值得报错。 */
   selfSessionId?: string;
-  /** 解析成功、插入之前的记账口:隐藏上下文要按 token 查回这枚条目,靠它才有 `session_message` 的地址。 */
-  onMentionResolved?: (item: MentionItem) => void;
+  /** 解析成功、插入之前的记账口;返回 false 时由落点处理(如邀请群外的 Agent),不插入提及。 */
+  onMentionResolved?: (item: MentionItem) => boolean | void;
 }): {
   dataDropTypes: readonly string[];
   onDataDropped: (dataTransfer: DataTransfer) => void;
@@ -61,6 +61,10 @@ export function useSessionMentionDrop({
       void (async () => {
         const item = await provider.resolveSession(dragged.sessionId);
         if (editorApiRef.current !== editor) return;
+        if (item?.disabled) {
+          toast({ title: item.description });
+          return;
+        }
         if (!item) {
           // fail loud:名册里没有它就没有可投递的地址,❌ 不插一枚发不出去的 pill 让人以为成了。
           toast({
@@ -68,7 +72,7 @@ export function useSessionMentionDrop({
           });
           return;
         }
-        onMentionResolved?.(item);
+        if (onMentionResolved?.(item) === false) return;
         editor?.insertMention(item);
       })();
     },
