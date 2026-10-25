@@ -298,7 +298,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const { prune: pruneRemovedAgentsFromCollab, mergeAndPrune: mergeGroupCollabPruned } = useGroupCollabRemovedAgentGate(user?.id, setGroupCollabSnapshot, groupRosterMemoryCacheRef)
 
   // @@@2169 群协作加载子系统(SWR 首帧 + 权威加载)抽到 useGroupCollabLoader,给冻结 god 文件抵消行数。
-  const { loadGroupCollab, resetGroupCollabForChat } = useGroupCollabLoader({
+  const { loadGroupCollab, resetGroupCollabForChat, error: groupCollabError } = useGroupCollabLoader({
     activeChatId,
     isRoomChat: isRoomChatSurface, chatKind: activeChat?.kind,
     userId: user?.id, getImRepository,
@@ -1327,11 +1327,11 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
         {memberListOpen && isRoomChatSurface && activeChatId && activeChat && (
           <RightPanel>
             <MemberListPanel
-              chatId={activeChatId}
+              chatId={activeChatId} snapshot={groupCollabSnapshot} error={groupCollabError}
               chatKind={activeChat.kind === 'topic' ? 'topic' : 'group'}
               head={(title, actions) => <SettingsPageHead title={title} action={actions} onClose={() => setMemberListOpen(false)} mobile={mobile} />}
               chatName={activeChat.name}
-              onMembersChanged={loadGroupCollab}
+              onReload={loadGroupCollab}
               onOpenUserChat={onOpenUserChat}
               onWhisper={(target) => setWhisperTarget({ userId: target.id, displayName: target.displayName })}
             />

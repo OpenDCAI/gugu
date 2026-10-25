@@ -54,6 +54,10 @@
     "how": "no-own-state",
     "why": "只有 ref + useMemo 出的操作对象,不承载『关于某个主体的读数』。"
   },
+  "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
+    "how": "subject-scoped",
+    "why": "The snapshot carries its scheduler.chat_id and is returned only for the current chatId; loader failures carry their chatId too. Switching topics returns no prior topic's rows or error while the existing roster loader refreshes."
+  },
   "apps/desktop/src/hooks/useSessionpageAgentProjection.ts::useSessionpageAgentProjection": {
     "how": "subject-scoped",
     "why": "#3911:ProjectionState 带上它描述的 agentUserId,主体不符时交出『还不知道』。owner 报的跨 agent 状态传染就出在这里。"

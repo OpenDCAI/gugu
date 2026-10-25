@@ -1,4 +1,5 @@
 import { useUnreadLocatorNavigation } from '@/hooks/useUnreadLocatorNavigation'
+import { useRoomCollab } from '@/hooks/useRoomCollab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
@@ -295,6 +296,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 换话题就收回去:名册是「关于哪条话题」的读数,跟着主体走(同 activeQuote 的 subject-scope)。
   const [membersForChatId, setMembersForChatId] = useState<string | null>(null)
   const membersOpen = membersForChatId === topic.chatId
+  const collab = useRoomCollab(topic.chatId, 'topic')
   const setMembersOpen = useCallback(
     (next: boolean | ((open: boolean) => boolean)) => {
       setMembersForChatId((current) => {
@@ -507,6 +509,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
                 key={topic.chatId}
                 chatId={topic.chatId}
                 chatKind="topic"
+                snapshot={collab.snapshot} onReload={collab.reload} error={collab.error}
                 head={(title, actions) => (
                   // 桌面上收起名册归上面那条常驻分栏头的 👥,这里不再画关闭;手机整页的出口是左上返回。
                   <div style={TOPIC_SPLIT_MEMBERS_HEAD_STYLE}>

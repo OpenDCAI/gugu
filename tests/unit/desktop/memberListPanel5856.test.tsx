@@ -48,7 +48,7 @@ vi.mock('../../../apps/desktop/src/lib/topics', () => ({
 
 const { chatService, GroupCollabEmptyError } = await import('../../../apps/desktop/src/lib/chat')
 const { topicService } = await import('../../../apps/desktop/src/lib/topics')
-const { MemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
+const { MemberListPanelFixture: MemberListPanel } = await import('../../support/MemberListPanelFixture')
 const { AgentFloodSystemNotice } = await import('../../../apps/desktop/src/components/chat/AgentFloodSystemNotice')
 
 const getGroupCollab = vi.mocked(chatService.getGroupCollab)

@@ -43,6 +43,7 @@ import { updateUnasked } from './updateUnasked'
 import { useSlotMakesWay } from './useSlotMakesWay'
 import { rendererLogger } from '../../lib/log'
 import { chatDb } from '../../lib/supabase'
+import { cn } from '@/lib/cn'
 
 const log = rendererLogger('app-slot/group')
 
@@ -530,27 +531,29 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   const badge = shown.badge
   const hasBadge = badge !== null && badge !== ''
   const appError = shown.error
+  // Match the task split view's tab-strip actions without changing the existing button geometry.
+  const headerButtonColors = mobile || !props.tabbed ? undefined : '!text-foreground-muted hover:!text-foreground hover:!bg-row-hover active:!bg-row-press'
   const backButton = from ? (
-    <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
+    <IconButton className={headerButtonColors} size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-back" onClick={close} aria-label={t('chatArea.openWith.back')}>
       <ChevronLeft />
     </IconButton>
   ) : null
-  const closeButton = <IconButton size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
+  const closeButton = <IconButton className={headerButtonColors} size={mobile ? 'lg' : 'sm'} data-testid="group-app-slot-close" onClick={close} aria-label={t('common.close')}><X /></IconButton>
   const fullButton = mobile || !props.onToggleFull ? null : (
-    <IconButton size="sm" data-testid="group-app-slot-full" aria-pressed={props.full === true} onClick={props.onToggleFull} aria-label={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
+    <IconButton className={headerButtonColors} size="sm" data-testid="group-app-slot-full" aria-pressed={props.full === true} onClick={props.onToggleFull} aria-label={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')} title={t(props.full ? 'chatArea.openWith.restore' : 'chatArea.openWith.maximize')}>
       {props.full ? <Minimize2 /> : <Maximize2 />}
     </IconButton>
   )
   const commands = (
     <>
       {inline.map((command) => (
-        <Button key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
+        <Button className={headerButtonColors} key={command.id} size="sm" variant="ghost" data-command={command.id} onClick={() => runCommand(command.id)}>
           {command.title}
         </Button>
       ))}
       {folded.length > 0 ? (
         <DropdownMenu.Root>
-          <DropdownMenu.Trigger className="gg-ghost" data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
+          <DropdownMenu.Trigger className={cn('gg-ghost', headerButtonColors)} data-testid="group-app-slot-more" aria-label={t('chatArea.openWith.more')}>
             <MoreHorizontal size={16} />
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
@@ -574,7 +577,7 @@ export const GroupAppSlot = observer(function GroupAppSlot(props: GroupAppSlotPr
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="group-app-slot" data-app-kind={kind}>
       {opened?.file ? null : props.tabbed ? (slimRow ? (
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--border)] px-2" data-testid="group-app-slot-bar">
+        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-tab-strip px-2" data-testid="group-app-slot-bar">
           {backButton}
           {marks}
           <span className="ml-auto flex items-center gap-1">{commands}{fullButton}{fromMessage ? closeButton : null}</span>
