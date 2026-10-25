@@ -485,7 +485,7 @@ import {
   isDevtoolsLocked,
 } from './devtools-lock'
 import { applyApplicationMenu } from './app-menu'
-import { createMainRendererGoneHandler, type CrashDialogChoice } from './renderer-crash-recovery'
+import { createMainRendererGoneHandler, createMainRendererResponsivenessLog, type CrashDialogChoice } from './renderer-crash-recovery'
 import { menuOpenSettingsChannel } from '@shared/events/appEvents'
 import { pinDesktopPointerMedia } from './linux-pointer-media'
 import { enableOverlayScrollbars } from './windows-overlay-scrollbars'
@@ -997,7 +997,7 @@ function createDeviceSessionpageBridge() {
       }
       const pending = emdash.listPendingSessionDirectMessages(sessionId)
       if (pending.length === 0) {
-        createLogger('sessionpage/deliver').warn(
+        createLogger('sessionpage/deliver').debug(
           { agentUserId, sessionId },
           '本机 session-direct 投影空手:这条会话没有待投的启动委托',
         )
@@ -1435,6 +1435,15 @@ const handleMainRendererGone = createMainRendererGoneHandler({
   },
   log: processGoneLogger,
 })
+const mainRendererResponsiveness = createMainRendererResponsivenessLog({
+  now: () => Date.now(),
+  rendererPid: () => mainWindow?.webContents.getOSProcessId() ?? -1,
+  gpuProcess: () => {
+    const gpu = app.getAppMetrics().find((metric) => metric.type === 'GPU')
+    return gpu ? { pid: gpu.pid, workingSetKb: gpu.memory.workingSetSize, cpuPercent: gpu.cpu.percentCPUUsage } : null
+  },
+  log: processGoneLogger,
+})
 
 // @@@default-window-size — 首启默认窗口尺寸(只在没有 window-state.json 时生效;之后由
 //   electron-window-state 记住用户自己拖的尺寸)。取「目标尺寸」与「主屏工作区」的较小者,
@@ -1554,6 +1563,8 @@ function createWindow(loadContents = true): void {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     void handleMainRendererGone(details.reason, details.exitCode)
   })
+  mainWindow.webContents.on('unresponsive', mainRendererResponsiveness.onUnresponsive)
+  mainWindow.webContents.on('responsive', mainRendererResponsiveness.onResponsive)
 
   // @@@822 frameless: 向 renderer 同步最大化状态,自绘控制按钮据此切换 最大化/还原 图标。
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true))
