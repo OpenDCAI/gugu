@@ -7,7 +7,7 @@ vi.mock('../../../apps/desktop/src/lib/supabase', () => ({
   getCurrentAuthUserId: vi.fn(), syncSchemaClientSession: vi.fn(),
 }))
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
-beforeEach(() => from.mockReset())
+beforeEach(() => { from.mockReset() })
 
 describe('reaction database failures', () => {
   it.each(['read', 'insert', 'delete'])('surfaces a rejected %s instead of resolving successfully', async (stage) => {
@@ -19,7 +19,7 @@ describe('reaction database failures', () => {
         status: fail ? 403 : 200, headers: { 'content-type': 'application/json' },
       })
     })
-    const client = createClient('http://127.0.0.1:54321', 'test-anon-key', { global: { fetch }, auth: { persistSession: false, autoRefreshToken: false } }).schema('chat')
+    const client = createClient('http://127.0.0.1:54321', 'test-anon-key', { global: { fetch }, auth: { storageKey: `reaction-${stage}`, persistSession: false, autoRefreshToken: false } }).schema('chat')
     from.mockImplementation((table: string) => client.from(table))
     await expect(chatService.toggleReaction('message', 'user', '👍')).rejects.toMatchObject(error)
     expect(fetch).toHaveBeenCalledTimes(stage === 'read' ? 1 : 2)
