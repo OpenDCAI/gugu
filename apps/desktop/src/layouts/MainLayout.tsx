@@ -641,6 +641,8 @@ function InnerLayout({
     const hide = () => {
       const peek = !shown && sessionPeek.current !== null
       frame.style.contentVisibility = shown || peek ? 'visible' : 'hidden'
+      // Skipped, the page still hands its titlebar's app-region rects to the window: collapse them (lib/retainedSurface.ts).
+      frame.style.transform = shown || peek ? '' : 'scale(0)'
       frame.style.visibility = peek ? 'hidden' : 'visible'
       frame.style.zIndex = peek ? 'calc(var(--z-float) + 1)' : '5'
     }
@@ -1492,7 +1494,7 @@ function InnerLayout({
         {sessionHostAvailable && (
           <div
             ref={emdashFrameHomeRef}
-            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', contentVisibility: 'hidden', pointerEvents: 'none', zIndex: 5 }}
+            style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, overflow: 'hidden', contentVisibility: 'hidden', transform: 'scale(0)', pointerEvents: 'none', zIndex: 5 }}
           >
             <EmdashSessionFrame />
           </div>
