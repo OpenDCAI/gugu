@@ -7,7 +7,7 @@ import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { modalStore } from '@renderer/lib/modal/modal-store';
 import { setTerminalKeyboardExitHandler } from '@renderer/lib/pty/terminal-keyboard-exit';
 import { caretAtStartOf } from './caret-at-start';
-import { focusSessionComposer, sessionKeyboardNav, SESSION_NAV_FOCUS_REGION } from './session-keyboard-nav';
+import { focusSessionComposer, sessionKeyboardNav } from './session-keyboard-nav';
 import {
   deferToDefaultPrevented,
   isTerminalExitChord,
@@ -244,15 +244,5 @@ export function SessionKeyboardNavListener() {
     };
   }, [hotkeys]);
 
-  // The nav layer needs somewhere real to park focus: the sidebar list is virtualised, so the row
-  // the cursor sits on may have no DOM node at all. A holder outside the list keeps the keyboard
-  // reachable no matter how far the cursor has scrolled.
-  return (
-    <div
-      data-region={SESSION_NAV_FOCUS_REGION}
-      tabIndex={-1}
-      aria-hidden="true"
-      style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }}
-    />
-  );
+  return null;
 }
