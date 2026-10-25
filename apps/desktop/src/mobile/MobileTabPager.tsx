@@ -10,6 +10,7 @@ import { TAB_POSITION_VAR, settledTab, tabPosition } from './settledTab'
 
 // 桌面壳不分页:两层包裹都是 display:contents,各页照旧直接参与主区的 flex 布局;
 // 包裹在两种壳里是同一批元素,web 目标跨 720px 断点时各页不重挂。
+// inert 只给手机:横滑时相邻页看得见,只能摘掉焦点与点击;桌面上藏着的页自己用 RETAINED_SURFACE_HIDDEN_STYLE 藏。
 const CONTENTS: CSSProperties = { display: 'contents' }
 const PAGE: CSSProperties = {
   flex: '0 0 100%',
@@ -77,7 +78,7 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
       } : CONTENTS}
     >
       {tabs.map((tab) => (
-        <div key={tab} data-mobile-tab-page={mobile ? tab : undefined} inert={activeTab !== tab} style={mobile ? PAGE : CONTENTS}>
+        <div key={tab} data-mobile-tab-page={mobile ? tab : undefined} inert={mobile && activeTab !== tab} style={mobile ? PAGE : CONTENTS}>
           {pages[tab]}
         </div>
       ))}

@@ -194,7 +194,6 @@ const RetainedSessionPage = memo(function RetainedSessionPage({
   const place = useMemo(() => ({ blockId, focused, topLeft, topRight, multi }), [blockId, focused, topLeft, topRight, multi]);
   return (
     <div
-      inert={!shown}
       className="flex min-h-0 min-w-0 flex-col"
       ref={pageRef}
       style={blockId ? anchoredToBlock(blockId) : peekBox ? PEEKED_PAGE_STYLE : RETAINED_SURFACE_HIDDEN_STYLE}

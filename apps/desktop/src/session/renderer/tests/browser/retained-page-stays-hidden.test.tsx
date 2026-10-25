@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
 // owner 10-08 15:35(Beta 61.1):点开任务 A,切到 B,再切回 A ——「只是标题变了,终端没变」。
-// 保留的任务页靠 visibility:hidden 藏(@@@retained-session-pages),而 visibility 可以被后代改回:
-// 活动页签的内容层写着 visibility:visible,于是藏着的 B 页把它的终端照画在 A 页上面。
-// 判据就是那条不变量本身:藏起来的页里,没有任何一个元素算出来是 visible。
+// 当时保留的任务页靠 visibility:hidden 藏,而 visibility 可以被后代改回:活动页签的内容层写着
+// visibility:visible,于是藏着的 B 页把它的终端照画在 A 页上面。现在藏法是 content-visibility:hidden
+// (lib/retainedSurface.ts),后代改不回来。判据就是那条不变量本身:藏起来的页里没有任何一个元素看得见
+// (checkVisibility 认 display / visibility / content-visibility 整条祖先链)、能拿到焦点、能被 find 找到。
 
 vi.mock('@renderer/features/tabs/tab-bar', () => ({ TabBar: () => null }));
 // 其余导出照真的(pane-store 经 pane-content 引进来,要 createUnavailableTabResource)。
@@ -49,7 +50,6 @@ async function drawPages(page: (name: string) => ReactNode) {
           <div
             key={name}
             data-page={name}
-            inert={name === 'hidden'}
             className="flex h-full flex-col"
             style={name === 'hidden' ? RETAINED_SURFACE_HIDDEN_STYLE : undefined}
           >
@@ -61,12 +61,28 @@ async function drawPages(page: (name: string) => ReactNode) {
   });
 }
 
-/** Everything inside the hidden page that would still be painted. */
-function paintedInHiddenPage(): string[] {
-  const hidden = container.querySelector('[data-page="hidden"]')!;
-  return [...hidden.querySelectorAll<HTMLElement>('*')]
-    .filter((el) => getComputedStyle(el).visibility === 'visible')
-    .map((el) => el.outerHTML.slice(0, 120));
+/** Everything inside the given page that is still shown. */
+function shownIn(page: string): string[] {
+  const el = container.querySelector(`[data-page="${page}"]`)!;
+  return [...el.querySelectorAll<HTMLElement>('*')]
+    .filter((node) => node.checkVisibility({ visibilityProperty: true }))
+    .map((node) => node.outerHTML.slice(0, 120));
+}
+const paintedInHiddenPage = () => shownIn('hidden');
+
+/** Whether focus() lands on the page's button. */
+function focusable(page: string): boolean {
+  const button = container.querySelector<HTMLButtonElement>(`[data-page="${page}"] button`)!;
+  button.focus();
+  const landed = document.activeElement === button;
+  button.blur();
+  return landed;
+}
+
+/** Whether find-in-page finds the text. window.find runs the browser's own find over what is rendered. */
+function findable(text: string): boolean {
+  window.getSelection()?.removeAllRanges();
+  return (window as unknown as { find: (text: string) => boolean }).find(text);
 }
 
 function pane(name: string, kind: string, TabContent: (props: { host: never; ctx: never }) => ReactNode) {
@@ -87,7 +103,11 @@ function pane(name: string, kind: string, TabContent: (props: { host: never; ctx
 describe('a retained session page that is not on screen', () => {
   it('paints nothing of its active tab (the session terminal, 61.1)', async () => {
     await drawPages((name) => {
-      const p = pane(name, 'conversation', () => <div data-terminal={name}>{name} terminal</div>);
+      const p = pane(name, 'conversation', () => (
+        <div data-terminal={name}>
+          {name} terminal <button type="button">{name} send</button>
+        </div>
+      ));
       return (
         <DndContext>
           <PaneContext.Provider value={{ paneId: name, pane: p as never, isFocusedPane: name === 'shown' }}>
@@ -96,9 +116,13 @@ describe('a retained session page that is not on screen', () => {
         </DndContext>
       );
     });
-    // Positive control: the page on screen does paint its terminal.
-    expect(getComputedStyle(container.querySelector('[data-terminal="shown"]')!).visibility).toBe('visible');
+    // Positive control: the page on screen does paint its terminal, takes focus and is found.
+    expect(container.querySelector<HTMLElement>('[data-terminal="shown"]')!.checkVisibility({ visibilityProperty: true })).toBe(true);
+    expect(focusable('shown')).toBe(true);
+    expect(findable('shown terminal')).toBe(true);
     expect(paintedInHiddenPage()).toEqual([]);
+    expect(focusable('hidden')).toBe(false);
+    expect(findable('hidden terminal')).toBe(false);
   });
 
   it('paints nothing of its active web page tab', async () => {
@@ -107,9 +131,8 @@ describe('a retained session page that is not on screen', () => {
       const p = pane(name, 'browser', () => null);
       return <BrowserContent host={p as never} ctx={{} as never} />;
     });
-    expect(getComputedStyle(container.querySelector('[data-page="shown"] [data-browser-pane]')!).visibility).toBe(
-      'visible'
-    );
+    expect(container.querySelector<HTMLElement>('[data-page="shown"] [data-browser-pane]')!.checkVisibility({ visibilityProperty: true })).toBe(true);
+    expect(shownIn('shown').length).toBeGreaterThan(0);
     expect(paintedInHiddenPage()).toEqual([]);
   });
 });
